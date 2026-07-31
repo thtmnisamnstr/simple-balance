@@ -52,19 +52,17 @@ describe("Docker runtime", () => {
     });
     expect(runtimePackage.devDependencies).toBeUndefined();
     expect(dockerfile).toContain(
-      "COPY runtime/package.json runtime/pnpm-lock.yaml ./",
+      "COPY runtime/package.json runtime/package-lock.json ./",
     );
-    expect(dockerfile).toContain(
-      "pnpm install --prod --frozen-lockfile --ignore-workspace",
-    );
-    expect(dockerfile).toContain(
-      "--config.auto-install-peers=false",
-    );
+    expect(dockerfile).toContain("npm ci --omit=dev");
     expect(dockerfile).toContain(
       "COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_modules",
     );
-    expect(dockerfile).not.toContain("pnpm prune --prod");
-    expect(dockerfile).not.toContain("pnpm --filter");
+    // Every install must resolve from a committed lockfile, so the image cannot
+    // drift between builds.
+    expect(dockerfile).not.toMatch(/\bnpm install\b/);
+    expect(dockerfile).not.toMatch(/\bnpm prune\b/);
+    expect(dockerfile).not.toContain("pnpm");
   });
 
   it("labels the baseline image with its product and release version", () => {
@@ -97,17 +95,32 @@ describe("Docker runtime", () => {
   });
 
   it("locks the standalone runtime without Better Auth development peers", () => {
-    const runtimeLock = readFileSync(
-      new URL("../runtime/pnpm-lock.yaml", import.meta.url),
-      "utf8",
-    );
-    const betterAuthResolution = runtimeLock
-      .split("\n")
-      .find((line) => line.trimStart().startsWith("version: 1.6.25("));
+    const runtimeLock = JSON.parse(
+      readFileSync(
+        new URL("../runtime/package-lock.json", import.meta.url),
+        "utf8",
+      ),
+    ) as {
+      packages: Record<string, { version?: string; dev?: boolean }>;
+    };
 
-    expect(runtimeLock).toContain("autoInstallPeers: false");
-    expect(betterAuthResolution).toBeDefined();
-    expect(betterAuthResolution).not.toContain("drizzle-kit");
-    expect(betterAuthResolution).not.toContain("vitest");
+    expect(runtimeLock.packages["node_modules/better-auth"]?.version).toBe(
+      "1.6.25",
+    );
+    // Better Auth declares optional peers on database tooling. The runtime image
+    // ships production dependencies only, so none of it may reach the lockfile.
+    for (const name of [
+      "drizzle-kit",
+      "vitest",
+      "vite",
+      "typescript",
+      "esbuild",
+      "tsx",
+    ]) {
+      expect(runtimeLock.packages).not.toHaveProperty(`node_modules/${name}`);
+    }
+    expect(
+      Object.values(runtimeLock.packages).some((entry) => entry.dev),
+    ).toBe(false);
   });
 });

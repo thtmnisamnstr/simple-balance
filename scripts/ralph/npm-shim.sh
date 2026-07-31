@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$#" -eq 0 ]; then
-  echo "pnpm-shim: a script or command is required" >&2
+  echo "npm-shim: a script or command is required" >&2
   exit 2
 fi
 
@@ -10,7 +10,7 @@ TRUSTED_SCRIPTS_PATH=${RALPH_TRUSTED_SCRIPTS_PATH:?trusted package scripts are r
 
 case "$1" in
   --version|-v)
-    echo "11.9.0-sandbox-shim"
+    echo "11.17.0-sandbox-shim"
     exit 0
     ;;
   exec)
@@ -95,7 +95,7 @@ try {
   };
   const result = spawnSync(
     "/bin/sh",
-    ["-c", `${trustedScripts[script]} "$@"`, `pnpm ${script}`, ...scriptArguments],
+    ["-c", `${trustedScripts[script]} "$@"`, `npm run ${script}`, ...scriptArguments],
     {
       cwd: process.cwd(),
       env: environment,
@@ -108,7 +108,7 @@ try {
   }
   process.exit(result.status ?? 1);
 } catch (error) {
-  console.error(`pnpm-shim: ${error instanceof Error ? error.message : error}`);
+  console.error(`npm-shim: ${error instanceof Error ? error.message : error}`);
   process.exit(2);
 }
 NODE

@@ -14,7 +14,7 @@ import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
 
 const runner = resolve("scripts/ralph/verification-runner.mjs");
-const pnpmShim = resolve("scripts/ralph/pnpm-shim.sh");
+const npmShim = resolve("scripts/ralph/npm-shim.sh");
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
@@ -29,31 +29,32 @@ function fixture(commands: string[]) {
   );
   temporaryDirectories.push(directory);
   const commandsPath = join(directory, "commands.json");
-  const pnpmPath = join(directory, "pnpm");
+  const npmPath = join(directory, "npm");
   writeFileSync(commandsPath, JSON.stringify(commands));
   writeFileSync(
-    pnpmPath,
+    npmPath,
     [
       "#!/bin/sh",
       "set -eu",
-      '[ "$1" = verify ]',
+      // The runner must reach the mandatory gate as `npm run verify`.
+      '[ "$1" = run ] && [ "$2" = verify ]',
       "node -e 'require(\"node:fs\").writeFileSync(\"mandatory-ran\", \"yes\")'",
       "",
     ].join("\n"),
   );
-  chmodSync(pnpmPath, 0o700);
-  return { directory, commandsPath, pnpmPath };
+  chmodSync(npmPath, 0o700);
+  return { directory, commandsPath, npmPath };
 }
 
 describe("trusted Ralph verification runner", () => {
   it("isolates story shells so exit cannot skip the mandatory gate", () => {
-    const { directory, commandsPath, pnpmPath } = fixture([
+    const { directory, commandsPath, npmPath } = fixture([
       "exit 0",
       "node -e 'require(\"node:fs\").writeFileSync(\"later-story-ran\", \"yes\")'",
     ]);
     const result = spawnSync(
       process.execPath,
-      [runner, commandsPath, pnpmPath],
+      [runner, commandsPath, npmPath],
       { cwd: directory, encoding: "utf8" },
     );
 
@@ -63,10 +64,10 @@ describe("trusted Ralph verification runner", () => {
   });
 
   it("fails immediately when a story verification command fails", () => {
-    const { directory, commandsPath, pnpmPath } = fixture(["exit 9"]);
+    const { directory, commandsPath, npmPath } = fixture(["exit 9"]);
     const result = spawnSync(
       process.execPath,
-      [runner, commandsPath, pnpmPath],
+      [runner, commandsPath, npmPath],
       { cwd: directory, encoding: "utf8" },
     );
 
@@ -75,8 +76,8 @@ describe("trusted Ralph verification runner", () => {
   });
 
   it("rejects a mutable package script changed to a no-op", () => {
-    // ralph.sh copies the shim to "$TRUSTED_DIR/pnpm" and leads PATH with that
-    // directory, so a nested `pnpm test` re-enters the shim. Set the gate up the
+    // ralph.sh copies the shim to "$TRUSTED_DIR/npm" and leads PATH with that
+    // directory, so a nested `npm test` re-enters the shim. Set the gate up the
     // same way, and give it a PATH holding only node, so the run proves the
     // sandbox never reaches a host package manager.
     const workspace = mkdtempSync(
@@ -86,9 +87,9 @@ describe("trusted Ralph verification runner", () => {
       join(tmpdir(), "simple-balance-package-script-trusted-"),
     );
     temporaryDirectories.push(workspace, trusted);
-    const trustedPnpm = join(trusted, "pnpm");
-    copyFileSync(pnpmShim, trustedPnpm);
-    chmodSync(trustedPnpm, 0o700);
+    const trustedNpm = join(trusted, "npm");
+    copyFileSync(npmShim, trustedNpm);
+    chmodSync(trustedNpm, 0o700);
     const nodeOnlyBin = join(trusted, "bin");
     mkdirSync(nodeOnlyBin);
     symlinkSync(process.execPath, join(nodeOnlyBin, "node"));
@@ -99,13 +100,13 @@ describe("trusted Ralph verification runner", () => {
     const trustedScripts = {
       test:
         "node -e 'require(\"node:fs\").writeFileSync(\"trusted-verify-ran\", \"yes\")'",
-      verify: "pnpm test",
+      verify: "npm test",
     };
     writeFileSync(snapshotPath, JSON.stringify({ scripts: trustedScripts }));
     writeFileSync(packagePath, JSON.stringify({ scripts: trustedScripts }));
 
     const runShim = () =>
-      spawnSync("/bin/sh", [trustedPnpm, "verify"], {
+      spawnSync("/bin/sh", [trustedNpm, "run", "verify"], {
         cwd: workspace,
         encoding: "utf8",
         env: {

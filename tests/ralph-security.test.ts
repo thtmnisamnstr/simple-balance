@@ -30,7 +30,7 @@ describe("Ralph execution containment", () => {
 
   it("never runs workspace verification commands directly on the host", () => {
     expect(driver).not.toContain('/bin/sh -lc "$command"');
-    expect(driver).not.toContain("(cd \"$ROOT\" && pnpm verify)");
+    expect(driver).not.toContain("(cd \"$ROOT\" && npm run verify)");
     expect(driver).not.toContain("git -c core.hooksPath=/dev/null add -A");
     expect(driver).toContain(
       '"$VERIFIER" "$ROOT" "$STORY_JSON" "$NETWORK"',
@@ -56,7 +56,7 @@ describe("Ralph execution containment", () => {
     expect(verifier).toContain("/usr/bin/env -i");
     expect(verifier).toContain('HOME="$VERIFY_WRITABLE/home"');
     expect(verifier).toContain(
-      'node "$VERIFICATION_RUNNER" "$COMMANDS_PATH" "$PNPM_SHIM"',
+      'node "$VERIFICATION_RUNNER" "$COMMANDS_PATH" "$NPM_SHIM"',
     );
     expect(verifier).toContain(
       "RALPH_TRUSTED_SCRIPTS_PATH=/ralph/package-scripts.json",

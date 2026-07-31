@@ -106,16 +106,16 @@ closes the HTTP server, and drains its PostgreSQL pool.
 
 For rebuilds and release upgrades, follow [upgrades and schema
 evolution](upgrades.md). The application runs migrations automatically before
-readiness; `pnpm db:migrate` is a development command, not an operator step.
+readiness; `npm run db:migrate` is a development command, not an operator step.
 
 ## Local development
 
 ```sh
 docker compose -f compose.dev.yml up -d
-pnpm dev
+npm run dev
 ```
 
-Run Vite in another terminal with `pnpm dev:client` and open
+Run Vite in another terminal with `npm run dev:client` and open
 `http://localhost:5173`. Its development proxy routes API, OAuth discovery,
 health, and MCP requests to port 3000. No environment variables are needed:
 create a real local owner on the first visit, then use that login for both the

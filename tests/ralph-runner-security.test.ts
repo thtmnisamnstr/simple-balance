@@ -34,7 +34,7 @@ const validPrd = {
       networkAllowed: false,
       completed: false,
       acceptanceCriteria: ["The runner remains contained"],
-      verification: ["pnpm test"],
+      verification: ["npm test"],
     },
   ],
 };

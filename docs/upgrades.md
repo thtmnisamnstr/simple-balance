@@ -29,7 +29,7 @@ container is replaceable and needs no writable volume.
 The new process connects to PostgreSQL and applies every pending migration under
 an advisory lock before opening readiness. Data transformations and required
 value population ship inside the release migrations. Operators do not run
-`pnpm db:migrate`, copy rows, or repopulate the ledger manually.
+`npm run db:migrate`, copy rows, or repopulate the ledger manually.
 
 Do not run application versions with different schema expectations
 simultaneously during an upgrade. A schema upgrade can make the database

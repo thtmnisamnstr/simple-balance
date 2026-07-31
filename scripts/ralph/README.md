@@ -5,9 +5,9 @@ story whose dependencies are complete, and gives one fresh, ephemeral Codex
 context exactly that story. Story IDs use the release-neutral `SB-###` format.
 
 ```sh
-pnpm ralph --status
-pnpm ralph --dry-run
-pnpm ralph --max-iterations 5
+npm run ralph -- --status
+npm run ralph -- --dry-run
+npm run ralph -- --max-iterations 5
 ```
 
 Add future work to `tasks/product.prd.json` with the next `SB-###` ID, explicit
@@ -16,7 +16,7 @@ version for a release and never reuse a released story ID.
 
 Each real iteration builds a prompt from the PRD, `AGENTS.md`, progress, and
 guardrails; runs non-interactive Codex with `workspace-write`, JSONL logs, and a
-structured final response; runs story checks and `pnpm verify`; then marks the
+structured final response; runs story checks and `npm run verify`; then marks the
 story complete and creates one commit. Failed work is preserved and logged for the
 next iteration. An atomic `.ralph/lock` prevents concurrent loops.
 
@@ -66,7 +66,7 @@ Network is disabled by default. For a dependency/container story with
 `"networkAllowed": true`, opt in with:
 
 ```sh
-pnpm ralph --network --max-iterations 1
+npm run ralph -- --network --max-iterations 1
 ```
 
 The opt-in applies to Codex implementation and the one fixed Docker build gate.

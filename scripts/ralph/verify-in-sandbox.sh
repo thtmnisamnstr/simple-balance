@@ -14,7 +14,7 @@ VERIFY_TRUSTED="$VERIFY_ROOT/trusted"
 COMMANDS_PATH="$VERIFY_TRUSTED/commands.json"
 PROFILE_PATH="$VERIFY_TRUSTED/verification.sb"
 VERIFICATION_RUNNER="$RALPH_TRUSTED_DIR/verification-runner.mjs"
-PNPM_SHIM="$RALPH_TRUSTED_DIR/pnpm"
+NPM_SHIM="$RALPH_TRUSTED_DIR/npm"
 TRUSTED_SCRIPTS="$RALPH_TRUSTED_DIR/package-scripts.json"
 PG_CONTAINER=""
 PG_NETWORK=""
@@ -68,7 +68,7 @@ node -e '
   });
 ' "$ROOT" "$VERIFY_WORKSPACE"
 
-# pnpm's generated command shims contain absolute NODE_PATH entries. Rewrite
+# npm's generated command shims contain absolute NODE_PATH entries. Rewrite
 # those entries in the disposable copy so the verifier never falls back to the
 # live workspace, which is deliberately unreadable inside the macOS sandbox.
 node -e '
@@ -118,7 +118,7 @@ node -e '
 if [ "$HAS_CONTAINER_BUILD" = true ]; then
   if [ "$NETWORK" != true ]; then
     echo "The fixed Docker build gate requires explicit --network opt-in." >&2
-    echo "Rerun this network-allowed container story with pnpm ralph --network." >&2
+    echo "Rerun this network-allowed container story with npm run ralph -- --network." >&2
     exit 1
   fi
   echo "Verifying in disposable Docker build: docker build -t simple-balance:test ."
@@ -292,7 +292,7 @@ case "$(uname -s)" in
       fi
       sandbox-exec -f "$PROFILE_PATH" /usr/bin/env -i \
         "$@" \
-        node "$VERIFICATION_RUNNER" "$COMMANDS_PATH" "$PNPM_SHIM"
+        node "$VERIFICATION_RUNNER" "$COMMANDS_PATH" "$NPM_SHIM"
     )
     ;;
   Linux)
@@ -311,7 +311,7 @@ case "$(uname -s)" in
       --mount "type=bind,src=$VERIFY_WORKSPACE,dst=/workspace" \
       --mount "type=bind,src=$COMMANDS_PATH,dst=/ralph/commands.json,readonly" \
       --mount "type=bind,src=$VERIFICATION_RUNNER,dst=/ralph/verification-runner.mjs,readonly" \
-      --mount "type=bind,src=$PNPM_SHIM,dst=/ralph/pnpm,readonly" \
+      --mount "type=bind,src=$NPM_SHIM,dst=/ralph/npm,readonly" \
       --mount "type=bind,src=$TRUSTED_SCRIPTS,dst=/ralph/package-scripts.json,readonly" \
       --workdir /workspace \
       --env CI=1 \
@@ -326,7 +326,7 @@ case "$(uname -s)" in
     fi
     set -- "$@" \
       node:24-alpine \
-      node /ralph/verification-runner.mjs /ralph/commands.json /ralph/pnpm
+      node /ralph/verification-runner.mjs /ralph/commands.json /ralph/npm
     "$@"
     ;;
   *)

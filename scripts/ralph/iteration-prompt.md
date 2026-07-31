@@ -4,7 +4,7 @@ Implement only the selected story. Read and obey the embedded AGENTS.md rules.
 Inspect existing work before editing; preserve unrelated and in-progress changes.
 Keep business rules in shared domain services used by both API and MCP. Add or
 update focused tests. Run the story checks you can run, but the outer harness is
-authoritative and will rerun every story check plus pnpm verify.
+authoritative and will rerun every story check plus npm run verify.
 
 Do not use floating-point money, unscoped finance queries, destructive Git
 commands, or any network access unless the story explicitly allows it. Do not

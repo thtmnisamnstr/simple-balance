@@ -386,7 +386,7 @@ async function prompt(storyId) {
     "## Append-only guardrails",
     guardrails,
     "## Required quality gate",
-    "After story-specific commands, the outer runner executes `pnpm verify`.",
+    "After story-specific commands, the outer runner executes `npm run verify`.",
   ].join("\n\n");
   await requireSafeDirectory(runPath, root, true);
   const output = path.resolve(runPath, `prompt-${story.id}.md`);

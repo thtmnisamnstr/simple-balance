@@ -48,15 +48,15 @@ provide market prices, valuation, staking, or blockchain synchronization.
 
 ## Run for development
 
-Requirements: Node 22.22.2+, pnpm 11.9, and PostgreSQL 15+.
+Requirements: Node 22.22.2+, npm 11+, and PostgreSQL 15+.
 
 ```sh
-pnpm install # npm install
+npm install
 docker compose -f compose.dev.yml up -d
-pnpm dev # npm run dev
+npm run dev
 ```
 
-In a second terminal, run `pnpm dev:client`/`npm run dev:client` and open
+In a second terminal, run `npm run dev:client` and open
 `http://localhost:5173`. Local development requires no environment variables.
 On the first visit, create your local owner account; subsequent visits use that
 email and password. Both development servers bind or proxy through loopback.
@@ -64,7 +64,7 @@ email and password. Both development servers bind or proxy through loopback.
 ## Rebuild and run whenever you want
 
 Edits to application code reload automatically. After changing dependencies,
-run `pnpm install` and restart those two development commands. To stop the
+run `npm install` and restart those two development commands. To stop the
 development servers, press `Ctrl-C`; to stop only the development database, run
 `docker compose -f compose.dev.yml stop`. Do not add `-v` unless you intend to
 delete the local development database.
@@ -143,9 +143,9 @@ transforms existing data; avoiding them would make upgrades less safe. See the
 Quality gates:
 
 ```sh
-pnpm verify
+npm run verify
 TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/simple_balance_test' \
-  pnpm test:integration
+  npm run test:integration
 ```
 
 ## Operations and internals
@@ -163,7 +163,7 @@ TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/simple_balance_
 Simple Balance is licensed under the
 [GNU Lesser General Public License v3.0 only](LICENSE) (`LGPL-3.0-only`).
 
-The project uses a single pnpm/TypeScript package: React/Vite in the browser,
+The project uses a single npm/TypeScript package: React/Vite in the browser,
 Hono on Node for JSON/auth/MCP/static routes, Better Auth for embedded local
 login, optional Google login, and MCP OAuth, Drizzle for versioned PostgreSQL
 migrations, and shared Zod contracts at every external boundary.

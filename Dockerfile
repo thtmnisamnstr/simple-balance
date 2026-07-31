@@ -1,21 +1,17 @@
-FROM node:24-alpine AS pnpm
-RUN npm install --global pnpm@11.9.0
-
-FROM pnpm AS dependencies
+FROM node:24-alpine AS dependencies
 WORKDIR /app
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm ci
 
 FROM dependencies AS build
 COPY tsconfig.json tsconfig.server.json vite.config.ts index.html ./
 COPY src ./src
-RUN pnpm build
+RUN npm run build
 
-FROM pnpm AS runtime-dependencies
+FROM node:24-alpine AS runtime-dependencies
 WORKDIR /runtime
-COPY runtime/package.json runtime/pnpm-lock.yaml ./
-RUN pnpm install --prod --frozen-lockfile --ignore-workspace \
-  --config.auto-install-peers=false
+COPY runtime/package.json runtime/package-lock.json ./
+RUN npm ci --omit=dev
 
 FROM node:24-alpine AS runtime
 RUN apk upgrade --no-cache

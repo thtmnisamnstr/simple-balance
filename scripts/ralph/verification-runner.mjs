@@ -4,9 +4,9 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 
-const [commandsPath, pnpmPath] = process.argv.slice(2);
-if (!commandsPath || !pnpmPath) {
-  console.error("Usage: verification-runner.mjs COMMANDS_JSON PNPM_SHIM");
+const [commandsPath, npmPath] = process.argv.slice(2);
+if (!commandsPath || !npmPath) {
+  console.error("Usage: verification-runner.mjs COMMANDS_JSON NPM_SHIM");
   process.exit(2);
 }
 
@@ -50,4 +50,4 @@ for (const command of commands) {
 }
 
 // Invoke the immutable shim directly, outside every story-controlled shell.
-run(pnpmPath, ["verify"], "pnpm verify");
+run(npmPath, ["run", "verify"], "npm run verify");

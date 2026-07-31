@@ -11,7 +11,7 @@ if [ "${RALPH_TRUSTED_DRIVER:-false}" != true ]; then
   cp "$WORKSPACE_ROOT/scripts/ralph/runner.mjs" "$TRUSTED_DIR/runner.mjs"
   cp "$WORKSPACE_ROOT/scripts/ralph/completion.schema.json" "$TRUSTED_DIR/completion.schema.json"
   cp "$WORKSPACE_ROOT/scripts/ralph/verify-in-sandbox.sh" "$TRUSTED_DIR/verify-in-sandbox.sh"
-  cp "$WORKSPACE_ROOT/scripts/ralph/pnpm-shim.sh" "$TRUSTED_DIR/pnpm"
+  cp "$WORKSPACE_ROOT/scripts/ralph/npm-shim.sh" "$TRUSTED_DIR/npm"
   cp "$WORKSPACE_ROOT/scripts/ralph/verification-runner.mjs" "$TRUSTED_DIR/verification-runner.mjs"
   cp "$WORKSPACE_ROOT/scripts/ralph/git-guard.mjs" "$TRUSTED_DIR/git-guard.mjs"
   cp "$WORKSPACE_ROOT/tasks/product.prd.json" "$TRUSTED_DIR/product.prd.json"
@@ -36,7 +36,7 @@ if [ "${RALPH_TRUSTED_DRIVER:-false}" != true ]; then
   chmod 700 \
     "$TRUSTED_DIR/ralph.sh" \
     "$TRUSTED_DIR/verify-in-sandbox.sh" \
-    "$TRUSTED_DIR/pnpm"
+    "$TRUSTED_DIR/npm"
   GIT_EXECUTABLE=$(command -v git)
   GIT_EXECUTABLE=$(node -e 'process.stdout.write(require("node:fs").realpathSync(process.argv[1]))' "$GIT_EXECUTABLE")
   GIT_DIRECTORY=$(git -C "$WORKSPACE_ROOT" rev-parse --path-format=absolute --absolute-git-dir)
@@ -83,7 +83,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 usage() {
-  echo "Usage: pnpm ralph [--dry-run] [--network] [--max-iterations N] [--status]"
+  echo "Usage: npm run ralph -- [--dry-run] [--network] [--max-iterations N] [--status]"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -158,7 +158,7 @@ while [ "$iteration" -le "$MAX_ITERATIONS" ]; do
     fi
     echo "Verification sandbox: disposable copy; no general network or Docker access"
     node -e 'const s=JSON.parse(process.argv[1]); for(const c of s.verification) console.log(`Would verify: ${c}`)' "$STORY_JSON"
-    echo "Would verify: pnpm verify"
+    echo "Would verify: npm run verify"
     exit 0
   fi
 

@@ -46,20 +46,20 @@
 ## Commands
 
 ```sh
-pnpm typecheck
-pnpm test
-pnpm build
-pnpm verify
-TEST_DATABASE_URL=postgresql://... pnpm test:integration
+npm run typecheck
+npm test
+npm run build
+npm run verify
+TEST_DATABASE_URL=postgresql://... npm run test:integration
 docker build -t simple-balance:test .
-pnpm ralph --dry-run
+npm run ralph -- --dry-run
 ```
 
 ## Definition of done
 
 - Add focused tests for changed domain behavior and run the story verification
   commands from `tasks/product.prd.json`.
-- Run `pnpm verify` before declaring a story complete.
+- Run `npm run verify` before declaring a story complete.
 - For database behavior, run the PostgreSQL integration suite when a test URL is
   available. For UI changes, verify keyboard use and responsive layouts.
 - Keep changes story-scoped. Do not reset, discard, or overwrite existing work.
