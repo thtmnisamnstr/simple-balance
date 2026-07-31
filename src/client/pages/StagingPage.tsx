@@ -38,6 +38,7 @@ import {
   Modal,
   PageHeader,
   Select,
+  SelectionCheckbox,
 } from "../components.js";
 import { TransactionForm } from "../forms.js";
 import { useDateRange } from "../date-range.js";
@@ -178,6 +179,31 @@ export default function StagingPage() {
   const allSelected =
     Boolean(selectableRows.length) &&
     selectableRows.every((stage) => selected.has(stage.id));
+  const someSelected = selectableRows.some((stage) => selected.has(stage.id));
+  // Only worth offering once the visible rows are all selected and the filtered
+  // list continues past them.
+  const canSelectAllMatching =
+    allSelected && stagePages.hasNextPage && selected.size < MAX_BULK_STAGES;
+
+  /**
+   * Staged commits and deletes are explicit-ID, so selecting the whole filtered
+   * list means loading the remaining pages and selecting those rows rather than
+   * handing the server a filter.
+   */
+  const selectAllMatching = async () => {
+    let result = await stagePages.fetchNextPage();
+    while (
+      result.hasNextPage &&
+      (result.data?.pages.reduce((total, page) => total + page.items.length, 0) ??
+        0) < MAX_BULK_STAGES
+    ) {
+      result = await stagePages.fetchNextPage();
+    }
+    const loaded = result.data?.pages.flatMap((page) => page.items) ?? [];
+    setSelected(
+      new Set(loaded.slice(0, MAX_BULK_STAGES).map((stage) => stage.id)),
+    );
+  };
   const invalidSelected = selectedRows.some((stage) => stage.validationIssues.length);
   const duplicateSelected = selectedRows.some((stage) => stage.duplicateOfId);
   const duplicateCommitError =
@@ -281,6 +307,16 @@ export default function StagingPage() {
         {selectedRows.length ? (
           <div className="bulk-actions">
             <span>{selectedRows.length} selected</span>
+            {canSelectAllMatching ? (
+              <Button
+                type="button"
+                variant="secondary"
+                loading={stagePages.isFetchingNextPage}
+                onClick={() => void selectAllMatching()}
+              >
+                Select all matching staged transactions
+              </Button>
+            ) : null}
             <Button
               variant="secondary"
               disabled={invalidSelected || (duplicateSelected && !allowDuplicates)}
@@ -299,6 +335,13 @@ export default function StagingPage() {
               }}
             >
               <Trash2 size={16} /> Delete
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setSelected(new Set())}
+            >
+              Clear selection
             </Button>
             {duplicateSelected || duplicateCommitError ? (
               <label className="check-label duplicate-override">
@@ -332,10 +375,10 @@ export default function StagingPage() {
             <thead>
               <tr>
                 <th className="checkbox-cell">
-                  <input
-                    aria-label="Select all staged transactions"
-                    type="checkbox"
+                  <SelectionCheckbox
+                    aria-label="Select all staged transactions on this page"
                     checked={allSelected}
+                    indeterminate={someSelected && !allSelected}
                     onChange={(event) =>
                       setSelected(
                         event.target.checked

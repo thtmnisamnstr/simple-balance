@@ -16,14 +16,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import {
-  type FormEvent,
-  type InputHTMLAttributes,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, useEffect, useId, useState } from "react";
 import { Link, useLocation } from "./router.js";
 import {
   api,
@@ -50,6 +43,7 @@ import {
   Input,
   Modal,
   Select,
+  SelectionCheckbox,
   Textarea,
 } from "./components.js";
 import { useDateRange } from "./date-range.js";
@@ -132,17 +126,6 @@ const emptyBulkEditValues = (accountId = ""): BulkEditValues => ({
 
 function normalizeName(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
-}
-
-function SelectionCheckbox({
-  indeterminate = false,
-  ...props
-}: InputHTMLAttributes<HTMLInputElement> & { indeterminate?: boolean }) {
-  const checkbox = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (checkbox.current) checkbox.current.indeterminate = indeterminate;
-  }, [indeterminate]);
-  return <input ref={checkbox} type="checkbox" {...props} />;
 }
 
 export function TransactionBrowser({

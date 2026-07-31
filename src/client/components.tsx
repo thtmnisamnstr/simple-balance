@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import {
   type FormEvent,
+  type InputHTMLAttributes,
   type PropsWithChildren,
   type ReactNode,
   forwardRef,
@@ -17,6 +18,22 @@ import {
 } from "react";
 import type { DatePreset } from "./date-range.js";
 import { useDateRange } from "./date-range.js";
+
+/**
+ * A checkbox that can also render the mixed state, which React does not expose
+ * as a prop. Selection headers use it to show that only part of the list below
+ * them is selected.
+ */
+export function SelectionCheckbox({
+  indeterminate = false,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement> & { indeterminate?: boolean }) {
+  const checkbox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (checkbox.current) checkbox.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return <input ref={checkbox} type="checkbox" {...props} />;
+}
 
 export function Button({
   children,

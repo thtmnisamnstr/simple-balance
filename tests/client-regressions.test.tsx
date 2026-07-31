@@ -608,7 +608,7 @@ describe("staged queue pagination", () => {
 
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: "Select all staged transactions",
+        name: "Select all staged transactions on this page",
       }),
     );
     expect(screen.getByText("2 selected")).toBeInTheDocument();
