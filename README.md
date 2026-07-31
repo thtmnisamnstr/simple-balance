@@ -85,6 +85,14 @@ docker run -d --name simple-balance --restart unless-stopped \
   --env-file .env -p 127.0.0.1:3000:3000 simple-balance:0.1.0
 ```
 
+Each released tag also publishes a multi-architecture image, so you can pull one
+instead of building it. `latest` follows the newest final release, while a
+prerelease tag publishes only its own version:
+
+```sh
+docker pull ghcr.io/thtmnisamnstr/simple-balance:latest
+```
+
 Read the generated one-time owner setup code with
 `docker logs simple-balance`, then enter it on the first account-creation screen.
 You may instead set `SETUP_TOKEN` yourself. The code is ignored after the owner

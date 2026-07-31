@@ -18,9 +18,12 @@ RUN apk upgrade --no-cache
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+# The release workflow passes the tag being published so the image reports the
+# version it actually contains.
+ARG APP_VERSION=0.1.0
 LABEL org.opencontainers.image.title="Simple Balance" \
   org.opencontainers.image.description="Self-hosted personal accounting with safe, reviewable AI automation" \
-  org.opencontainers.image.version="0.1.0"
+  org.opencontainers.image.version="${APP_VERSION}"
 COPY --from=runtime-dependencies --chown=node:node /runtime/package.json ./package.json
 COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist

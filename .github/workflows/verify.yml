@@ -3,6 +3,8 @@ name: verify
 on:
   push:
   pull_request:
+  # The release workflow reuses these gates so a publish cannot outrun them.
+  workflow_call:
 
 permissions:
   contents: read

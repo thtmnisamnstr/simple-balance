@@ -65,18 +65,24 @@ describe("Docker runtime", () => {
     expect(dockerfile).not.toContain("pnpm");
   });
 
-  it("labels the baseline image with its product and release version", () => {
+  it("labels the image with its product and the version being built", () => {
     const dockerfile = readFileSync(
       new URL("../Dockerfile", import.meta.url),
       "utf8",
     );
+    const applicationPackage = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
 
     expect(dockerfile).toContain(
       'org.opencontainers.image.title="Simple Balance"',
     );
+    // A published image must report the release it contains, so the label comes
+    // from a build argument that defaults to the current package version.
     expect(dockerfile).toContain(
-      'org.opencontainers.image.version="0.1.0"',
+      'org.opencontainers.image.version="${APP_VERSION}"',
     );
+    expect(dockerfile).toContain(`ARG APP_VERSION=${applicationPackage.version}`);
   });
 
   it("applies available Alpine security updates to the final runtime stage", () => {
