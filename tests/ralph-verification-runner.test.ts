@@ -1,8 +1,11 @@
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -72,13 +75,27 @@ describe("trusted Ralph verification runner", () => {
   });
 
   it("rejects a mutable package script changed to a no-op", () => {
-    const directory = mkdtempSync(
+    // ralph.sh copies the shim to "$TRUSTED_DIR/pnpm" and leads PATH with that
+    // directory, so a nested `pnpm test` re-enters the shim. Set the gate up the
+    // same way, and give it a PATH holding only node, so the run proves the
+    // sandbox never reaches a host package manager.
+    const workspace = mkdtempSync(
       join(tmpdir(), "simple-balance-package-script-gate-"),
     );
-    temporaryDirectories.push(directory);
-    const snapshotPath = join(directory, "trusted-scripts.json");
-    const packagePath = join(directory, "package.json");
-    const marker = join(directory, "trusted-verify-ran");
+    const trusted = mkdtempSync(
+      join(tmpdir(), "simple-balance-package-script-trusted-"),
+    );
+    temporaryDirectories.push(workspace, trusted);
+    const trustedPnpm = join(trusted, "pnpm");
+    copyFileSync(pnpmShim, trustedPnpm);
+    chmodSync(trustedPnpm, 0o700);
+    const nodeOnlyBin = join(trusted, "bin");
+    mkdirSync(nodeOnlyBin);
+    symlinkSync(process.execPath, join(nodeOnlyBin, "node"));
+
+    const snapshotPath = join(trusted, "trusted-scripts.json");
+    const packagePath = join(workspace, "package.json");
+    const marker = join(workspace, "trusted-verify-ran");
     const trustedScripts = {
       test:
         "node -e 'require(\"node:fs\").writeFileSync(\"trusted-verify-ran\", \"yes\")'",
@@ -87,14 +104,18 @@ describe("trusted Ralph verification runner", () => {
     writeFileSync(snapshotPath, JSON.stringify({ scripts: trustedScripts }));
     writeFileSync(packagePath, JSON.stringify({ scripts: trustedScripts }));
 
-    const valid = spawnSync("/bin/sh", [pnpmShim, "verify"], {
-      cwd: directory,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        RALPH_TRUSTED_SCRIPTS_PATH: snapshotPath,
-      },
-    });
+    const runShim = () =>
+      spawnSync("/bin/sh", [trustedPnpm, "verify"], {
+        cwd: workspace,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: nodeOnlyBin,
+          RALPH_TRUSTED_SCRIPTS_PATH: snapshotPath,
+        },
+      });
+
+    const valid = runShim();
     expect(valid.status, valid.stderr).toBe(0);
     expect(existsSync(marker)).toBe(true);
     rmSync(marker);
@@ -102,14 +123,7 @@ describe("trusted Ralph verification runner", () => {
       packagePath,
       JSON.stringify({ scripts: { verify: "true" } }),
     );
-    const tampered = spawnSync("/bin/sh", [pnpmShim, "verify"], {
-      cwd: directory,
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        RALPH_TRUSTED_SCRIPTS_PATH: snapshotPath,
-      },
-    });
+    const tampered = runShim();
 
     expect(tampered.status).toBe(2);
     expect(tampered.stderr).toContain(
