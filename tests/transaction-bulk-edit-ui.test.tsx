@@ -437,6 +437,61 @@ describe("transaction mass selection", () => {
     ).toBeInTheDocument();
   });
 
+  it("bulk deletes the selection with the same id and version contract", async () => {
+    const deleteBodies: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      "fetch",
+      baseFetch((url, init) => {
+        if (url.pathname === "/api/v1/transactions/bulk-delete") {
+          deleteBodies.push(
+            JSON.parse(String(init?.body)) as Record<string, unknown>,
+          );
+          return jsonResponse(successfulBulkResult());
+        }
+        return undefined;
+      }),
+    );
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    renderBrowser();
+
+    fireEvent.click(
+      (await screen.findAllByRole("checkbox", { name: /Select transaction / }))[0]!,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete selected" }));
+
+    await waitFor(() => expect(deleteBodies).toHaveLength(1));
+    const body = deleteBodies[0]!;
+    expect(body.selection).toMatchObject({
+      mode: "ids",
+      items: [{ id: withdrawal.id, expectedVersion: withdrawal.version }],
+    });
+    expect(body.dryRun).toBe(false);
+    expect(typeof body.idempotencyKey).toBe("string");
+  });
+
+  it("does not delete when the confirmation is declined", async () => {
+    const deleteBodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      baseFetch((url) => {
+        if (url.pathname === "/api/v1/transactions/bulk-delete") {
+          deleteBodies.push(1);
+          return jsonResponse(successfulBulkResult());
+        }
+        return undefined;
+      }),
+    );
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    renderBrowser();
+
+    fireEvent.click(
+      (await screen.findAllByRole("checkbox", { name: /Select transaction / }))[0]!,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete selected" }));
+
+    expect(deleteBodies).toHaveLength(0);
+  });
+
   it("keeps the version captured at selection time after a background refetch", async () => {
     let listRequests = 0;
     const bulkBodies: Record<string, unknown>[] = [];

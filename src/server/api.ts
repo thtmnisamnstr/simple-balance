@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { Actor } from "../shared/domain.js";
 import {
   bulkDeleteStageSchema,
+  bulkTransactionDeleteSchema,
   bulkTransactionEditSchema,
   bulkTransactionFilterSelectionRequestSchema,
   categoryMergeSchema,
@@ -89,6 +90,7 @@ import {
 } from "./services/staging.js";
 import { getSummary } from "./services/summary.js";
 import {
+  bulkDeleteTransactions,
   bulkEditTransactions,
   createTransaction,
   getBulkTransactionSelection,
@@ -573,6 +575,14 @@ app.post("/api/v1/transactions/bulk-edit", async (c) =>
     await bulkEditTransactions(
       c.get("actor"),
       bulkTransactionEditSchema.parse(await body(c)),
+    ),
+  ),
+);
+app.post("/api/v1/transactions/bulk-delete", async (c) =>
+  c.json(
+    await bulkDeleteTransactions(
+      c.get("actor"),
+      bulkTransactionDeleteSchema.parse(await body(c)),
     ),
   ),
 );

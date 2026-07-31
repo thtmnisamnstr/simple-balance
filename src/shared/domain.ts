@@ -423,6 +423,14 @@ export const bulkTransactionEditSchema = z
   })
   .strict();
 
+export const bulkTransactionDeleteSchema = z
+  .object({
+    selection: bulkTransactionSelectionSchema,
+    idempotencyKey: idempotencyKeySchema,
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+
 export const bulkTransactionEditItemSchema = z
   .object({
     id: z.string().uuid(),
@@ -464,6 +472,9 @@ export type BulkTransactionEditInput = z.infer<
 >;
 export type BulkTransactionEditResult = z.infer<
   typeof bulkTransactionEditResultSchema
+>;
+export type BulkTransactionDeleteInput = z.infer<
+  typeof bulkTransactionDeleteSchema
 >;
 
 export const stageListQuerySchema = listQuerySchema.extend({

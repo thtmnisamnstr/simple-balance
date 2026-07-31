@@ -347,6 +347,41 @@ export function Badge({
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
+let isoCurrencyCodes: Set<string> | null = null;
+
+/**
+ * Account currencies cover both ISO codes and crypto asset symbols. Only the
+ * ISO ones have a defined display precision to round to.
+ */
+function isoCurrency(currency: string) {
+  if (!isoCurrencyCodes) {
+    isoCurrencyCodes = new Set(
+      typeof Intl.supportedValuesOf === "function"
+        ? Intl.supportedValuesOf("currency")
+        : [],
+    );
+  }
+  return isoCurrencyCodes.has(currency);
+}
+
+/** Half-up rounding on the decimal string, so no precision is lost to floats. */
+function roundDecimal(
+  sign: string,
+  integer: string,
+  fraction: string,
+  digits: number,
+) {
+  const kept = fraction.slice(0, digits);
+  const roundUp = Number(fraction[digits] ?? "0") >= 5;
+  const scaled = BigInt(`${integer}${kept.padEnd(digits, "0")}`) + (roundUp ? 1n : 0n);
+  const text = scaled.toString().padStart(digits + 1, "0");
+  const roundedInteger = digits ? text.slice(0, -digits) : text;
+  const roundedFraction = digits ? text.slice(-digits) : "";
+  // Rounding a tiny negative amount to zero must not render as "-$0.00".
+  const signed = scaled === 0n ? "" : sign;
+  return `${signed}${roundedInteger}${roundedFraction ? `.${roundedFraction}` : ""}`;
+}
+
 export function formatMoney(
   amount: string,
   currency: string,
@@ -361,10 +396,22 @@ export function formatMoney(
       style: "currency",
       currency,
     });
-    const fractionDigits = Math.max(
-      baseFormatter.resolvedOptions().minimumFractionDigits ?? 0,
-      fraction.length,
-    );
+    const currencyDigits =
+      baseFormatter.resolvedOptions().minimumFractionDigits ?? 0;
+    // A real currency is shown at its own precision, so a stored value carrying
+    // more scale than the currency has does not leak extra digits into the UI.
+    // Crypto symbols are not ISO currencies and genuinely need their scale, so
+    // they keep every significant digit instead.
+    const fractionDigits = isoCurrency(currency)
+      ? currencyDigits
+      : Math.max(currencyDigits, fraction.length);
+    if (fraction.length > fractionDigits) {
+      return formatMoney(
+        roundDecimal(sign ?? "", integer!, fraction, fractionDigits),
+        currency,
+        locales,
+      );
+    }
     const template = new Intl.NumberFormat(locales, {
       style: "currency",
       currency,

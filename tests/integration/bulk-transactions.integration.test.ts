@@ -7,6 +7,7 @@ import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import {
+  bulkDeleteTransactions,
   bulkEditTransactions,
   createTransaction,
   getBulkTransactionSelection,
@@ -110,6 +111,126 @@ integration("atomic committed transaction bulk editing", () => {
       `);
     }
     await closeDb();
+  });
+
+  it("soft-deletes a selection atomically and idempotently", async () => {
+    const first = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2027-06-01",
+        payee: "Bulk delete one",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "31",
+        externalId: "bulk-delete-one",
+      },
+      "bulk-delete-one",
+    );
+    const second = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2027-06-02",
+        payee: "Bulk delete two",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "32",
+        externalId: "bulk-delete-two",
+      },
+      "bulk-delete-two",
+    );
+
+    const preview = await bulkDeleteTransactions(actor, {
+      selection: explicitSelection([first, second]),
+      idempotencyKey: "bulk-delete-dry",
+      dryRun: true,
+    });
+    expect(preview.updatedCount).toBe(2);
+    expect((await getTransaction(actor, first.id)).deletedAt).toBeNull();
+
+    const result = await bulkDeleteTransactions(actor, {
+      selection: explicitSelection([first, second]),
+      idempotencyKey: "bulk-delete-live",
+      dryRun: false,
+    });
+    expect(result.updatedCount).toBe(2);
+    const deletedFirst = await getTransaction(actor, first.id);
+    const deletedSecond = await getTransaction(actor, second.id);
+    expect(deletedFirst.deletedAt).not.toBeNull();
+    expect(deletedSecond.deletedAt).not.toBeNull();
+    expect(deletedFirst.version).toBe(first.version + 1);
+
+    // Replaying the same key must not bump versions a second time.
+    const replay = await bulkDeleteTransactions(actor, {
+      selection: explicitSelection([first, second]),
+      idempotencyKey: "bulk-delete-live",
+      dryRun: false,
+    });
+    expect(replay).toEqual(result);
+    expect((await getTransaction(actor, first.id)).version).toBe(
+      first.version + 1,
+    );
+  });
+
+  it("refuses a stale selection and writes nothing", async () => {
+    const row = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2027-06-03",
+        payee: "Bulk delete stale",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "33",
+        externalId: "bulk-delete-stale",
+      },
+      "bulk-delete-stale",
+    );
+
+    await expect(
+      bulkDeleteTransactions(actor, {
+        selection: {
+          mode: "ids" as const,
+          items: [{ id: row.id, expectedVersion: row.version + 5 }],
+        },
+        idempotencyKey: "bulk-delete-stale-key",
+        dryRun: false,
+      }),
+    ).rejects.toMatchObject({ code: "STALE_VERSION" });
+    expect((await getTransaction(actor, row.id)).deletedAt).toBeNull();
+  });
+
+  it("leaves an already deleted row untouched", async () => {
+    const row = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2027-06-04",
+        payee: "Bulk delete repeat",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "34",
+        externalId: "bulk-delete-repeat",
+      },
+      "bulk-delete-repeat",
+    );
+    const deleted = await setTransactionDeleted(
+      actor,
+      row.id,
+      row.version,
+      true,
+    );
+
+    const result = await bulkDeleteTransactions(actor, {
+      selection: explicitSelection([deleted]),
+      idempotencyKey: "bulk-delete-repeat-key",
+      dryRun: false,
+    });
+
+    // Nothing to delete, so the row keeps the version the first delete gave it.
+    expect(result.updatedCount).toBe(0);
+    expect((await getTransaction(actor, row.id)).version).toBe(deleted.version);
   });
 
   it("dry-runs and idempotently updates every supported field with rebuilt postings", async () => {

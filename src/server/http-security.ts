@@ -25,6 +25,7 @@ export const BULK_REQUEST_BODY_LIMIT_BYTES =
 
 const bulkRequestPaths = new Set([
   "/api/v1/transactions/bulk-edit",
+  "/api/v1/transactions/bulk-delete",
   "/api/v1/transactions/bulk-selection",
   "/api/v1/staged-transactions/commit",
   "/api/v1/staged-transactions/delete",

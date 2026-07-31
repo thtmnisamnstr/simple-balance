@@ -387,6 +387,35 @@ export function TransactionBrowser({
     setSelection(emptySelection());
   };
 
+  const bulkDeleteMutation = useMutation<
+    TransactionBulkEditResult,
+    Error,
+    {
+      selection: TransactionBulkEditSelection;
+      idempotencyKey: string;
+      dryRun: false;
+    }
+  >({
+    mutationFn: (request) =>
+      api<TransactionBulkEditResult>("/api/v1/transactions/bulk-delete", {
+        ...json(request),
+      }),
+    onSuccess: async (result) => {
+      clearTransactionSelection();
+      setBulkNotice({
+        kind: "success",
+        message: `Deleted ${result.updatedCount} transaction${
+          result.updatedCount === 1 ? "" : "s"
+        }.`,
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+        queryClient.invalidateQueries({ queryKey: ["accounts"] }),
+        queryClient.invalidateQueries({ queryKey: ["summary"] }),
+      ]);
+    },
+  });
+
   const bulkMutation = useMutation<
     TransactionBulkEditResult,
     Error,
@@ -526,26 +555,49 @@ export function TransactionBrowser({
     ...(bulkEnabled.type ? { type: bulkValues.type } : {}),
   });
 
+  /** The same selection contract backs both the bulk edit and the bulk delete. */
+  const buildBulkSelection = (): TransactionBulkEditSelection =>
+    selection.mode === "filter"
+      ? {
+          mode: "filter",
+          filter: bulkFilter,
+          excludedIds: filterExcludedIds,
+          expectedCount: filterSelectionPreview.data!.count,
+          expectedFingerprint: filterSelectionPreview.data!.fingerprint,
+        }
+      : {
+          mode: "ids",
+          items: Object.entries(selection.versions).map(
+            ([id, expectedVersion]) => ({ id, expectedVersion }),
+          ),
+        };
+
+  const submitBulkDelete = () => {
+    if (!hasSelection || !filterSelectionReady) return;
+    const count =
+      selection.mode === "filter"
+        ? (filterSelectionPreview.data?.count ?? 0)
+        : explicitSelectedCount;
+    if (
+      !window.confirm(
+        `Delete ${count} transaction${count === 1 ? "" : "s"}? They stop affecting balances and can be restored from the deleted view.`,
+      )
+    ) {
+      return;
+    }
+    bulkDeleteMutation.mutate({
+      selection: buildBulkSelection(),
+      idempotencyKey: crypto.randomUUID(),
+      dryRun: false,
+    });
+  };
+
   const submitBulkEdit = (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     if (!canSubmitBulkEdit) return;
     const idempotencyKey = bulkIdempotencyKey ?? crypto.randomUUID();
     if (!bulkIdempotencyKey) setBulkIdempotencyKey(idempotencyKey);
-    const bulkSelection: TransactionBulkEditSelection =
-      selection.mode === "filter"
-        ? {
-            mode: "filter",
-            filter: bulkFilter,
-            excludedIds: filterExcludedIds,
-            expectedCount: filterSelectionPreview.data!.count,
-            expectedFingerprint: filterSelectionPreview.data!.fingerprint,
-          }
-        : {
-            mode: "ids",
-            items: Object.entries(selection.versions).map(
-              ([id, expectedVersion]) => ({ id, expectedVersion }),
-            ),
-          };
+    const bulkSelection = buildBulkSelection();
     bulkMutation.mutate({
       selection: bulkSelection,
       patch: buildBulkPatch(),
@@ -683,6 +735,15 @@ export function TransactionBrowser({
             ) : null}
             <Button
               type="button"
+              variant="danger"
+              onClick={submitBulkDelete}
+              disabled={!filterSelectionReady}
+              loading={bulkDeleteMutation.isPending}
+            >
+              Delete selected
+            </Button>
+            <Button
+              type="button"
               onClick={openBulkEditor}
               disabled={!filterSelectionReady}
             >
@@ -700,6 +761,9 @@ export function TransactionBrowser({
       ) : null}
       {selection.mode === "filter" && filterSelectionPreview.error ? (
         <Alert>{filterSelectionPreview.error.message}</Alert>
+      ) : null}
+      {bulkDeleteMutation.error ? (
+        <Alert>{bulkDeleteMutation.error.message}</Alert>
       ) : null}
       {bulkNotice ? (
         <Alert kind={bulkNotice.kind}>{bulkNotice.message}</Alert>

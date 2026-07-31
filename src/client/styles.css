@@ -1850,6 +1850,12 @@ input[type="radio"] {
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+  /* Selecting rows to merge means scrolling a long list, so the controls stay
+     in view instead of being left behind at the top. */
+  position: sticky;
+  top: 12px;
+  z-index: 20;
+  background: var(--surface);
 }
 
 .merge-panel > div:first-child {

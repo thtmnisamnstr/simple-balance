@@ -419,6 +419,9 @@ async function resolveImportedCategories(
     for (let index = 0; index < rows.length; index += 1) {
       const draft = rows[index]?.draft;
       const inputName = cleanHumanName(rawRows[index]?.[categoryColumn] ?? "");
+      // A row that already carries a category this ledger owns keeps it; only
+      // unresolved rows are matched by name.
+      if (draft?.categoryId) continue;
       if (!draft || !inputName) continue;
       const normalizedName = normalizeHumanName(inputName);
       const kind = categoryKindForDraft(draft);
@@ -632,17 +635,29 @@ export async function stageCsv(
       canonicalByName: canonicalPayees,
     } = await canonicalizeImportedPayees(tx, actor, rows);
     seedCanonicalPayeeCache(tx, canonicalPayees);
-    const categoryResolution = roundTrip
-      ? []
-      : await resolveImportedCategories(
-          tx,
-          actor,
-          rows,
-          parsedCsv.data,
-          parsed.mapping.category,
-          categoryRows,
-          !parsed.dryRun,
-        );
+    if (roundTrip) {
+      // An export restored into another ledger carries category ids that do not
+      // exist here. Drop those so the exported category_name can resolve them,
+      // instead of importing every row with no category at all.
+      const ownedCategoryIds = new Set(categoryRows.map((row) => row.id));
+      for (const row of rows) {
+        if (
+          row.draft?.categoryId &&
+          !ownedCategoryIds.has(row.draft.categoryId)
+        ) {
+          row.draft = { ...row.draft, categoryId: null };
+        }
+      }
+    }
+    const categoryResolution = await resolveImportedCategories(
+      tx,
+      actor,
+      rows,
+      parsedCsv.data,
+      roundTrip ? "category_name" : parsed.mapping.category,
+      categoryRows,
+      !parsed.dryRun,
+    );
     const referenceResolution: CsvReferenceResolution = {
       categories: categoryResolution,
       payees: payeeResolution,

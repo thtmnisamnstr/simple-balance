@@ -28,6 +28,7 @@ import type {
 import {
   bulkTransactionFilterSelectionRequestSchema,
   bulkTransactionEditResultSchema,
+  bulkTransactionDeleteSchema,
   bulkTransactionEditSchema,
   bulkTransactionSelectionSnapshotSchema,
   listQuerySchema,
@@ -1050,6 +1051,158 @@ export async function bulkEditTransactions(
       tx,
       actor,
       "transaction.bulk_edit",
+      parsed.idempotencyKey,
+      idempotencyPayload,
+      result,
+    );
+    return result;
+  });
+}
+
+/**
+ * Soft-delete every selected transaction in one transaction. Selection safety
+ * matches bulkEditTransactions: explicit ids carry their expected version, and a
+ * filter selection is re-resolved and fingerprinted before anything is written.
+ * Rows already deleted are left untouched so a repeat delete is a no-op rather
+ * than a version bump.
+ */
+export async function bulkDeleteTransactions(
+  actor: Actor,
+  input: unknown,
+  transaction?: DbTransaction,
+): Promise<BulkTransactionEditResult> {
+  const parsed = bulkTransactionDeleteSchema.parse(input);
+  const idempotencyPayload = {
+    selection: normalizedBulkSelection(parsed.selection),
+    operation: "delete",
+  };
+
+  return withTransaction(transaction, async (tx) => {
+    if (!parsed.dryRun) {
+      await lockIdempotencyKey(
+        tx,
+        actor,
+        "transaction.bulk_delete",
+        parsed.idempotencyKey,
+      );
+      const existing = await getIdempotent<BulkTransactionEditResult>(
+        tx,
+        actor,
+        "transaction.bulk_delete",
+        parsed.idempotencyKey,
+        idempotencyPayload,
+      );
+      if (existing) return bulkTransactionEditResultSchema.parse(existing);
+    }
+
+    const snapshotRows = await selectBulkSnapshot(tx, actor, parsed.selection);
+    if (!snapshotRows.length) {
+      throw validationError("Select at least one transaction");
+    }
+    const snapshotFingerprint = bulkSelectionFingerprint(snapshotRows);
+    await lockAccountReferences(
+      tx,
+      actor,
+      snapshotRows.flatMap((row) =>
+        [row.sourceAccountId, row.destinationAccountId].filter(
+          (id): id is string => Boolean(id),
+        ),
+      ),
+    );
+
+    const snapshotIds = snapshotRows.map((row) => row.id);
+    const lockedRows = await tx
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, actor.userId),
+          inArray(transactions.id, snapshotIds),
+        ),
+      )
+      .orderBy(transactions.id)
+      .for("update");
+    const lockedFingerprint = bulkSelectionFingerprint(lockedRows);
+    if (
+      lockedRows.length !== snapshotRows.length ||
+      lockedFingerprint !== snapshotFingerprint
+    ) {
+      throw staleVersion({
+        expectedCount: snapshotRows.length,
+        currentCount: lockedRows.length,
+        expectedFingerprint: snapshotFingerprint,
+        currentFingerprint: lockedFingerprint,
+      });
+    }
+    if (parsed.selection.mode === "filter") {
+      assertExpectedFilterSnapshot(parsed.selection, lockedRows);
+      assertExpectedFilterSnapshot(
+        parsed.selection,
+        await selectBulkFilterRows(tx, actor, parsed.selection),
+      );
+    }
+
+    const deletable = lockedRows.filter((row) => row.deletedAt === null);
+    const plannedItems = deletable.map((row) => ({
+      id: row.id,
+      previousVersion: row.version,
+      nextVersion: row.version + 1,
+      type: row.type,
+      date: row.date,
+      payee: row.payee,
+    }));
+    const visibleItems =
+      parsed.selection.mode === "filter"
+        ? plannedItems.slice(0, 200)
+        : plannedItems;
+    const baseResult = {
+      updatedCount: deletable.length,
+      dryRun: parsed.dryRun,
+      selectionCount: lockedRows.length,
+      selectionFingerprint: snapshotFingerprint,
+      ...bulkSelectionSummary(lockedRows),
+      itemsTruncated: visibleItems.length !== plannedItems.length,
+      items: visibleItems,
+    };
+    if (parsed.dryRun) {
+      return bulkTransactionEditResultSchema.parse(baseResult);
+    }
+
+    const now = new Date();
+    for (const before of deletable) {
+      const [updated] = await tx
+        .update(transactions)
+        .set({
+          deletedAt: now,
+          version: before.version + 1,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(transactions.id, before.id),
+            eq(transactions.userId, actor.userId),
+            eq(transactions.version, before.version),
+          ),
+        )
+        .returning();
+      if (!updated) throw staleVersion({ id: before.id });
+      await writeAudit(tx, actor, {
+        entityType: "transaction",
+        entityId: before.id,
+        operation: "bulk_delete",
+        before: serializeRow(before),
+        after: serializeRow(updated),
+      });
+    }
+
+    const result = bulkTransactionEditResultSchema.parse({
+      ...baseResult,
+      dryRun: false,
+    });
+    await setIdempotent(
+      tx,
+      actor,
+      "transaction.bulk_delete",
       parsed.idempotencyKey,
       idempotencyPayload,
       result,
