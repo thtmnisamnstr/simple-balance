@@ -1,10 +1,34 @@
 import type { Context, MiddlewareHandler } from "hono";
+import { MAX_BULK_SELECTION_ENTRIES } from "../shared/domain.js";
 import { configuredCsvMaxBytes } from "./config-limits.js";
 
 export const AUTH_REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
 export const API_REQUEST_BODY_LIMIT_BYTES = 256 * 1024;
 const JSON_STRING_WORST_CASE_EXPANSION = 6;
 const CSV_REQUEST_ENVELOPE_BYTES = 64 * 1024;
+/**
+ * A selected row costs a quoted UUID in an id array (39 bytes) plus an
+ * `"id": version` entry in the expected-version map (50 bytes). 96 leaves room
+ * for a longer version integer and for another id-bearing field being added.
+ */
+const BULK_SELECTION_ENTRY_BYTES = 96;
+const BULK_REQUEST_ENVELOPE_BYTES = 64 * 1024;
+/**
+ * Bulk routes legitimately send one entry per selected row, so their limit is
+ * derived from the selection cap instead of the general API limit. A fixed
+ * 256 KiB rejected a full 5,000-row staged commit at roughly 435 KiB even
+ * though the schemas accept it.
+ */
+export const BULK_REQUEST_BODY_LIMIT_BYTES =
+  MAX_BULK_SELECTION_ENTRIES * BULK_SELECTION_ENTRY_BYTES +
+  BULK_REQUEST_ENVELOPE_BYTES;
+
+const bulkRequestPaths = new Set([
+  "/api/v1/transactions/bulk-edit",
+  "/api/v1/transactions/bulk-selection",
+  "/api/v1/staged-transactions/commit",
+  "/api/v1/staged-transactions/delete",
+]);
 const REJECTED_BODY_DRAIN_LIMIT_BYTES = 128 * 1024;
 const REJECTED_BODY_DRAIN_TIMEOUT_MS = 250;
 
@@ -383,6 +407,7 @@ export function apiRequestBodyLimit(path: string) {
       CSV_REQUEST_ENVELOPE_BYTES
     );
   }
+  if (bulkRequestPaths.has(path)) return BULK_REQUEST_BODY_LIMIT_BYTES;
   return API_REQUEST_BODY_LIMIT_BYTES;
 }
 

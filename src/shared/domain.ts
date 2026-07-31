@@ -248,13 +248,21 @@ export const stageCreateSchema = z.object({
   rawData: z.record(z.string(), z.unknown()).optional().nullable(),
 }).strict();
 
+/**
+ * The most rows one bulk selection may carry. Every bulk request that lists ids
+ * is capped here, and the HTTP body limit for those routes is derived from it,
+ * so raising the cap cannot leave the transport rejecting payloads the schemas
+ * accept.
+ */
+export const MAX_BULK_SELECTION_ENTRIES = 10_000;
+
 export const stageUpdateSchema = z.object({
   draft: stagedDraftSchema,
   expectedVersion: z.number().int().positive(),
 });
 
 export const commitStageSchema = z.object({
-  stagedIds: z.array(z.string().uuid()).min(1).max(5_000),
+  stagedIds: z.array(z.string().uuid()).min(1).max(MAX_BULK_SELECTION_ENTRIES),
   expectedVersions: z.record(z.string(), z.number().int().positive()),
   idempotencyKey: idempotencyKeySchema,
   allowDuplicates: z.boolean().default(false),
@@ -262,7 +270,7 @@ export const commitStageSchema = z.object({
 });
 
 export const bulkDeleteStageSchema = z.object({
-  stagedIds: z.array(z.string().uuid()).min(1).max(5_000),
+  stagedIds: z.array(z.string().uuid()).min(1).max(MAX_BULK_SELECTION_ENTRIES),
   expectedVersions: z.record(z.string(), z.number().int().positive()),
 });
 
@@ -313,7 +321,7 @@ const bulkTransactionIdSelectionSchema = z
           .strict(),
       )
       .min(1)
-      .max(5_000),
+      .max(MAX_BULK_SELECTION_ENTRIES),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -331,7 +339,7 @@ const bulkTransactionFilterSelectionSchema = z
   .object({
     mode: z.literal("filter"),
     filter: bulkTransactionFilterSchema,
-    excludedIds: z.array(z.string().uuid()).max(5_000).default([]),
+    excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
     expectedCount: z.number().int().nonnegative(),
     expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   })
@@ -354,7 +362,7 @@ export const bulkTransactionSelectionSchema = z.discriminatedUnion("mode", [
 export const bulkTransactionFilterSelectionRequestSchema = z
   .object({
     filter: bulkTransactionFilterSchema,
-    excludedIds: z.array(z.string().uuid()).max(5_000).default([]),
+    excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
   })
   .strict()
   .superRefine((selection, context) => {

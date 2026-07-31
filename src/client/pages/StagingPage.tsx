@@ -43,6 +43,7 @@ import {
   SelectionCheckbox,
 } from "../components.js";
 import { TransactionForm } from "../forms.js";
+import { MAX_BULK_SELECTION_ENTRIES } from "../../shared/domain.js";
 import { useDateRange } from "../date-range.js";
 import { stagedString, summarizeStagedDraft } from "../staged-draft.js";
 
@@ -50,8 +51,10 @@ function stageSummary(stage: StagedTransaction, accounts: Account[]) {
   return summarizeStagedDraft(stage.draft, accounts);
 }
 
-const MAX_BULK_STAGES = 5_000;
+// Mirrors the server cap, which also sizes the bulk request body limit.
+const MAX_BULK_STAGES = MAX_BULK_SELECTION_ENTRIES;
 const STAGE_PAGE_SIZE = 100;
+const SELECT_ALL_FETCH_SIZE = 200;
 
 function retainedIdempotencyKey(
   keys: Map<string, string>,
@@ -216,6 +219,9 @@ export default function StagingPage() {
         const result = await api<PaginatedPage<StagedTransaction>>(
           `/api/v1/staged-transactions?${queryString({
             ...stageQuery,
+            // Collect in the largest pages the API allows; this walk is
+            // independent of the page size shown in the table.
+            limit: String(SELECT_ALL_FETCH_SIZE),
             page: String(current),
           })}`,
         );

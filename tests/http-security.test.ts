@@ -1,14 +1,21 @@
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import {
   API_REQUEST_BODY_LIMIT_BYTES,
   AUTH_REQUEST_BODY_LIMIT_BYTES,
+  BULK_REQUEST_BODY_LIMIT_BYTES,
   apiRequestBodyLimit,
   boundRequestBody,
   protectAuthMutation,
   protectBrowserMutation,
   requestBodyLimit,
 } from "../src/server/http-security.js";
+import {
+  MAX_BULK_SELECTION_ENTRIES,
+  bulkTransactionEditSchema,
+  commitStageSchema,
+} from "../src/shared/domain.js";
 
 const applicationOrigin = "https://balance.example.com";
 const originalCsvMaxBytes = process.env.CSV_MAX_BYTES;
@@ -278,6 +285,68 @@ describe("bounded request bodies", () => {
     expect(apiRequestBodyLimit("/api/v1/csv/preview")).toBe(71_680);
     expect(apiRequestBodyLimit("/api/v1/csv/stage")).toBe(71_680);
     expect(apiRequestBodyLimit("/mcp")).toBe(71_680);
+  });
+
+  it("lets bulk routes carry an entry for every selectable row", () => {
+    process.env.CSV_MAX_BYTES = "1024";
+    for (const path of [
+      "/api/v1/transactions/bulk-edit",
+      "/api/v1/transactions/bulk-selection",
+      "/api/v1/staged-transactions/commit",
+      "/api/v1/staged-transactions/delete",
+    ]) {
+      expect(apiRequestBodyLimit(path)).toBe(BULK_REQUEST_BODY_LIMIT_BYTES);
+    }
+    expect(BULK_REQUEST_BODY_LIMIT_BYTES).toBeGreaterThan(
+      API_REQUEST_BODY_LIMIT_BYTES,
+    );
+  });
+
+  // The schema cap is the real limit. These build the largest payload each
+  // endpoint accepts and prove the transport never rejects it first, so raising
+  // MAX_BULK_SELECTION_ENTRIES cannot silently reintroduce the 413.
+  it("accepts a maximum staged commit without hitting the body limit", () => {
+    const ids = Array.from({ length: MAX_BULK_SELECTION_ENTRIES }, () =>
+      randomUUID(),
+    );
+    const body = {
+      stagedIds: ids,
+      expectedVersions: Object.fromEntries(
+        ids.map((id) => [id, Number.MAX_SAFE_INTEGER]),
+      ),
+      idempotencyKey: "k".repeat(200),
+      allowDuplicates: true,
+      dryRun: false,
+    };
+    expect(commitStageSchema.safeParse(body).success).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(
+      apiRequestBodyLimit("/api/v1/staged-transactions/commit"),
+    );
+  });
+
+  it("accepts a maximum transaction bulk edit without hitting the body limit", () => {
+    const body = {
+      selection: {
+        mode: "ids" as const,
+        items: Array.from({ length: MAX_BULK_SELECTION_ENTRIES }, () => ({
+          id: randomUUID(),
+          expectedVersion: Number.MAX_SAFE_INTEGER,
+        })),
+      },
+      patch: {
+        date: "2026-01-01",
+        payee: "p".repeat(160),
+        description: "d".repeat(240),
+        notes: "n".repeat(4_000),
+      },
+      idempotencyKey: "k".repeat(200),
+      allowDuplicates: true,
+      dryRun: false,
+    };
+    expect(bulkTransactionEditSchema.safeParse(body).success).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(
+      apiRequestBodyLimit("/api/v1/transactions/bulk-edit"),
+    );
   });
 
   it("selects the strict auth limit from the global path-aware policy", () => {
