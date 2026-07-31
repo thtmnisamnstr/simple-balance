@@ -23,6 +23,7 @@ import {
   type Account,
   type Category,
   type ImportBatchSummary,
+  type PaginatedPage,
   type Page,
   type StagedTransaction,
 } from "../api.js";
@@ -37,6 +38,7 @@ import {
   Input,
   Modal,
   PageHeader,
+  Pagination,
   Select,
   SelectionCheckbox,
 } from "../components.js";
@@ -64,7 +66,12 @@ function retainedIdempotencyKey(
 }
 
 export default function StagingPage() {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Keyed by id and holding the row, so a selection that spans pages keeps the
+  // versions and validation flags the bulk actions need after paging away.
+  const [selected, setSelected] = useState<Map<string, StagedTransaction>>(
+    () => new Map(),
+  );
+  const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<StagedTransaction | "new" | null>(null);
   const [search, setSearch] = useState("");
   const [validity, setValidity] = useState("");
@@ -88,27 +95,29 @@ export default function StagingPage() {
       ),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
-  const stagePages = useInfiniteQuery({
-    queryKey: ["staged", search, validity, accountId, importBatchId, start, end],
-    initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam, signal }) =>
-      api<Page<StagedTransaction>>(
+  const stageQuery = {
+    search: search || undefined,
+    validity: validity || undefined,
+    accountId: accountId || undefined,
+    importBatchId: importBatchId || undefined,
+    start,
+    end,
+    limit: String(STAGE_PAGE_SIZE),
+  };
+  const stagePages = useQuery({
+    queryKey: ["staged", stageQuery, page],
+    queryFn: ({ signal }) =>
+      api<PaginatedPage<StagedTransaction>>(
         `/api/v1/staged-transactions?${queryString({
-          search: search || undefined,
-          validity: validity || undefined,
-          accountId: accountId || undefined,
-          importBatchId: importBatchId || undefined,
-          start,
-          end,
-          cursor: pageParam,
-          limit: String(STAGE_PAGE_SIZE),
+          ...stageQuery,
+          page: String(page),
         })}`,
         { signal },
       ),
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    placeholderData: (previous) => previous,
   });
   const stages = useMemo(
-    () => stagePages.data?.pages.flatMap((page) => page.items) ?? [],
+    () => stagePages.data?.items ?? [],
     [stagePages.data],
   );
   const batches = useMemo(
@@ -123,15 +132,13 @@ export default function StagingPage() {
     queryKey: ["categories"],
     queryFn: () => api<Category[]>("/api/v1/categories"),
   });
-  const selectedRows = useMemo(
-    () => stages.filter((stage) => selected.has(stage.id)),
-    [selected, stages],
-  );
-  const selectableRows = stages.slice(0, MAX_BULK_STAGES);
+  const selectedRows = useMemo(() => [...selected.values()], [selected]);
+  const selectableRows = stages;
 
   useEffect(() => {
-    setSelected(new Set());
+    setSelected(new Map());
     setAllowDuplicates(false);
+    setPage(1);
   }, [search, validity, accountId, importBatchId, start, end]);
 
   const bulkMutation = useMutation({
@@ -165,7 +172,7 @@ export default function StagingPage() {
     },
     onSuccess: async () => {
       bulkCommitKeys.current.clear();
-      setSelected(new Set());
+      setSelected(new Map());
       setAllowDuplicates(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
@@ -180,29 +187,48 @@ export default function StagingPage() {
     Boolean(selectableRows.length) &&
     selectableRows.every((stage) => selected.has(stage.id));
   const someSelected = selectableRows.some((stage) => selected.has(stage.id));
-  // Only worth offering once the visible rows are all selected and the filtered
-  // list continues past them.
+  const totalMatching = stagePages.data?.totalCount ?? stages.length;
+  const selectableTotal = Math.min(totalMatching, MAX_BULK_STAGES);
+  const allMatchingSelected =
+    selectableTotal > 0 && selected.size >= selectableTotal;
+  // Worth offering whenever the filtered list reaches past the rows on screen.
   const canSelectAllMatching =
-    allSelected && stagePages.hasNextPage && selected.size < MAX_BULK_STAGES;
+    Boolean(selectableRows.length) &&
+    totalMatching > stages.length &&
+    !allMatchingSelected;
+  const [selectingAll, setSelectingAll] = useState(false);
 
   /**
-   * Staged commits and deletes are explicit-ID, so selecting the whole filtered
-   * list means loading the remaining pages and selecting those rows rather than
-   * handing the server a filter.
+   * Staged commits and deletes are explicit-ID, so whole-list selection walks
+   * the pages and keeps the rows, rather than handing the server a filter. The
+   * rows are collected directly instead of through the table query so the page
+   * on screen never changes underneath the user.
    */
   const selectAllMatching = async () => {
-    let result = await stagePages.fetchNextPage();
-    while (
-      result.hasNextPage &&
-      (result.data?.pages.reduce((total, page) => total + page.items.length, 0) ??
-        0) < MAX_BULK_STAGES
-    ) {
-      result = await stagePages.fetchNextPage();
+    setSelectingAll(true);
+    try {
+      const collected = new Map<string, StagedTransaction>();
+      for (
+        let current = 1;
+        collected.size < MAX_BULK_STAGES;
+        current += 1
+      ) {
+        const result = await api<PaginatedPage<StagedTransaction>>(
+          `/api/v1/staged-transactions?${queryString({
+            ...stageQuery,
+            page: String(current),
+          })}`,
+        );
+        for (const stage of result.items) {
+          if (collected.size >= MAX_BULK_STAGES) break;
+          collected.set(stage.id, stage);
+        }
+        if (current >= result.totalPages || !result.items.length) break;
+      }
+      setSelected(collected);
+    } finally {
+      setSelectingAll(false);
     }
-    const loaded = result.data?.pages.flatMap((page) => page.items) ?? [];
-    setSelected(
-      new Set(loaded.slice(0, MAX_BULK_STAGES).map((stage) => stage.id)),
-    );
   };
   const invalidSelected = selectedRows.some((stage) => stage.validationIssues.length);
   const duplicateSelected = selectedRows.some((stage) => stage.duplicateOfId);
@@ -306,15 +332,19 @@ export default function StagingPage() {
         ) : null}
         {selectedRows.length ? (
           <div className="bulk-actions">
-            <span>{selectedRows.length} selected</span>
+            <span>
+              {allMatchingSelected && totalMatching > stages.length
+                ? `All ${selectedRows.length} matching staged transactions selected`
+                : `${selectedRows.length} selected`}
+            </span>
             {canSelectAllMatching ? (
               <Button
                 type="button"
                 variant="secondary"
-                loading={stagePages.isFetchingNextPage}
+                loading={selectingAll}
                 onClick={() => void selectAllMatching()}
               >
-                Select all matching staged transactions
+                {`Select all ${selectableTotal} matching`}
               </Button>
             ) : null}
             <Button
@@ -339,7 +369,7 @@ export default function StagingPage() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setSelected(new Set())}
+              onClick={() => setSelected(new Map())}
             >
               Clear selection
             </Button>
@@ -379,13 +409,14 @@ export default function StagingPage() {
                     aria-label="Select all staged transactions on this page"
                     checked={allSelected}
                     indeterminate={someSelected && !allSelected}
-                    onChange={(event) =>
-                      setSelected(
-                        event.target.checked
-                          ? new Set(selectableRows.map((stage) => stage.id))
-                          : new Set(),
-                      )
-                    }
+                    onChange={(event) => {
+                      const next = new Map(selected);
+                      for (const stage of selectableRows) {
+                        if (event.target.checked) next.set(stage.id, stage);
+                        else next.delete(stage.id);
+                      }
+                      setSelected(next);
+                    }}
                   />
                 </th>
                 <th>Date</th>
@@ -416,8 +447,9 @@ export default function StagingPage() {
                           selected.size >= MAX_BULK_STAGES
                         }
                         onChange={(event) => {
-                          const next = new Set(selected);
-                          event.target.checked ? next.add(stage.id) : next.delete(stage.id);
+                          const next = new Map(selected);
+                          if (event.target.checked) next.set(stage.id, stage);
+                          else next.delete(stage.id);
                           setSelected(next);
                         }}
                       />
@@ -488,17 +520,15 @@ export default function StagingPage() {
               })}
             </tbody>
           </table>
-          {stagePages.hasNextPage ? (
-            <div className="form-actions">
-              <Button
-                variant="secondary"
-                loading={stagePages.isFetchingNextPage}
-                onClick={() => stagePages.fetchNextPage()}
-              >
-                Load more transactions
-              </Button>
-            </div>
-          ) : null}
+          <Pagination
+            page={stagePages.data?.page ?? page}
+            pageSize={stagePages.data?.pageSize ?? stages.length}
+            totalCount={stagePages.data?.totalCount ?? stages.length}
+            totalPages={stagePages.data?.totalPages ?? 1}
+            busy={stagePages.isFetching || selectingAll}
+            itemLabel="staged transactions"
+            onPageChange={setPage}
+          />
         </div>
       ) : stagePages.isLoading ? null : (
         <EmptyState

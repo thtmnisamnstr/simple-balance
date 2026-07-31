@@ -6,7 +6,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type {
   Account,
-  Page,
+  PaginatedPage,
   StagedTransaction,
 } from "../src/client/api.js";
 import { TransactionForm } from "../src/client/forms.js";
@@ -79,9 +79,13 @@ describe("staged transaction editor", () => {
         queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
       },
     });
-    const page: Page<StagedTransaction> = {
+    const page: PaginatedPage<StagedTransaction> = {
       items: [malformedStage],
       nextCursor: null,
+      page: 1,
+      pageSize: 100,
+      totalCount: 1,
+      totalPages: 1,
     };
     queryClient.setQueryData(["import-batches", "active"], {
       pages: [{ items: [], nextCursor: null }],
@@ -90,17 +94,18 @@ describe("staged transaction editor", () => {
     queryClient.setQueryData(
       [
         "staged",
-        "",
-        "",
-        "",
-        "",
-        "2026-07-01",
-        "2026-07-30",
+        {
+          search: undefined,
+          validity: undefined,
+          accountId: undefined,
+          importBatchId: undefined,
+          start: "2026-07-01",
+          end: "2026-07-30",
+          limit: "100",
+        },
+        1,
       ],
-      {
-        pages: [page],
-        pageParams: [undefined],
-      },
+      page,
     );
     queryClient.setQueryData(["accounts"], [account]);
     queryClient.setQueryData(["categories"], []);

@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
   Category,
-  Page,
+  PaginatedPage,
   Transaction,
   TransactionBulkEditResult,
   TransactionBulkSelectionPreview,
@@ -184,9 +184,13 @@ function baseFetch(
     const custom = await onRequest?.(url, init);
     if (custom) return custom;
     if (url.pathname === "/api/v1/transactions") {
-      const page: Page<Transaction> = {
+      const page: PaginatedPage<Transaction> = {
         items: [withdrawal, deposit],
         nextCursor: null,
+        page: 1,
+        pageSize: 2,
+        totalCount: 3,
+        totalPages: 2,
       };
       return jsonResponse(page);
     }
@@ -274,7 +278,7 @@ describe("transaction mass selection", () => {
     expect(screen.getByText("2 transactions selected")).toBeInTheDocument();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Select all matching transactions" }),
+      screen.getByRole("button", { name: "Select all 3 matching" }),
     );
     expect(
       await screen.findByText("2 transactions matching this view selected"),
@@ -403,7 +407,14 @@ describe("transaction mass selection", () => {
       "fetch",
       baseFetch((url) => {
         if (url.pathname === "/api/v1/transactions") {
-          return jsonResponse({ items: [transfer], nextCursor: null });
+          return jsonResponse({
+            items: [transfer],
+            nextCursor: null,
+            page: 1,
+            pageSize: 1,
+            totalCount: 1,
+            totalPages: 1,
+          });
         }
         return undefined;
       }),
@@ -441,6 +452,10 @@ describe("transaction mass selection", () => {
                 : { ...withdrawal, version: withdrawal.version + 1 },
             ],
             nextCursor: null,
+            page: 1,
+            pageSize: 1,
+            totalCount: 2,
+            totalPages: 2,
           });
         }
         if (url.pathname === "/api/v1/transactions/bulk-edit") {
@@ -571,7 +586,7 @@ describe("transaction mass selection", () => {
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Select all matching transactions" }),
+      screen.getByRole("button", { name: "Select all 3 matching" }),
     );
     await screen.findByText("2 transactions matching this view selected");
     fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));

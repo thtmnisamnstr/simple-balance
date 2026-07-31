@@ -1,5 +1,6 @@
 import {
   and,
+  count,
   desc,
   eq,
   inArray,
@@ -11,7 +12,7 @@ import {
 import { z, ZodError } from "zod";
 import type {
   Actor,
-  Page,
+  PaginatedPage,
   TransactionDraft,
   ValidationIssue,
 } from "../../shared/domain.js";
@@ -44,6 +45,7 @@ import {
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
+import { normalizeHumanName } from "./names.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
 import {
   createTransactionWithinTx,
@@ -229,25 +231,14 @@ export async function insertImportedStage(
 export async function listStages(
   actor: Actor,
   input: unknown,
-): Promise<Page<StageView>> {
+): Promise<PaginatedPage<StageView>> {
   const query = stageListQuerySchema.parse(input);
+  // Keep the cursor window out of `conditions` until the filters are complete,
+  // so the total can be counted against the filters alone.
   const conditions: SQL[] = [
     eq(stagedTransactions.userId, actor.userId),
     eq(stagedTransactions.status, "staged"),
   ];
-  if (query.cursor) {
-    const cursor = decodeCursor(query.cursor);
-    const sort = new Date(cursor.sort);
-    conditions.push(
-      or(
-        lt(stagedTransactions.createdAt, sort),
-        and(
-          eq(stagedTransactions.createdAt, sort),
-          lt(stagedTransactions.id, cursor.id),
-        ),
-      )!,
-    );
-  }
   if (query.importBatchId) {
     conditions.push(eq(stagedTransactions.importBatchId, query.importBatchId));
   }
@@ -263,6 +254,18 @@ export async function listStages(
   }
   if (query.type) {
     conditions.push(sql`${stagedTransactions.draft}->>'type' = ${query.type}`);
+  }
+  if (query.categoryId) {
+    conditions.push(
+      sql`${stagedTransactions.draft}->>'categoryId' = ${query.categoryId}`,
+    );
+  }
+  if (query.payee) {
+    // Match the same way payees are compared elsewhere: trimmed, whitespace
+    // collapsed, case-insensitive.
+    conditions.push(
+      sql`lower(regexp_replace(btrim(${stagedTransactions.draft}->>'payee'), '\\s+', ' ', 'g')) = ${normalizeHumanName(query.payee)}`,
+    );
   }
   if (query.start) {
     conditions.push(sql`${stagedTransactions.draft}->>'date' >= ${query.start}`);
@@ -283,12 +286,37 @@ export async function listStages(
     conditions.push(sql`${stagedTransactions.duplicateOfId} is not null`);
   }
 
-  const rows = await getDb()
+  const filters = [...conditions];
+  if (query.cursor) {
+    const cursor = decodeCursor(query.cursor);
+    const sort = new Date(cursor.sort);
+    conditions.push(
+      or(
+        lt(stagedTransactions.createdAt, sort),
+        and(
+          eq(stagedTransactions.createdAt, sort),
+          lt(stagedTransactions.id, cursor.id),
+        ),
+      )!,
+    );
+  }
+
+  const db = getDb();
+  const [totals] = await db
+    .select({ value: count() })
+    .from(stagedTransactions)
+    .where(and(...filters));
+  const totalCount = totals?.value ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / query.limit));
+  const page = query.cursor ? 1 : Math.min(query.page, totalPages);
+  const offset = query.cursor ? 0 : (page - 1) * query.limit;
+  const rows = await db
     .select()
     .from(stagedTransactions)
     .where(and(...conditions))
     .orderBy(desc(stagedTransactions.createdAt), desc(stagedTransactions.id))
-    .limit(query.limit + 1);
+    .limit(query.limit + 1)
+    .offset(offset);
   const hasMore = rows.length > query.limit;
   const pageRows = rows.slice(0, query.limit);
   return {
@@ -299,6 +327,10 @@ export async function listStages(
           id: pageRows.at(-1)!.id,
         })
       : null,
+    page,
+    pageSize: query.limit,
+    totalCount,
+    totalPages,
   };
 }
 

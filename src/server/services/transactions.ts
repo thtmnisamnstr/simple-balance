@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import {
   and,
+  count,
   desc,
   eq,
   ilike,
@@ -21,7 +22,7 @@ import type {
   BulkTransactionFilter,
   BulkTransactionPatch,
   BulkTransactionSelectionSnapshot,
-  Page,
+  PaginatedPage,
   TransactionDraft,
 } from "../../shared/domain.js";
 import {
@@ -427,9 +428,12 @@ export async function getTransaction(actor: Actor, id: string) {
 export async function listTransactions(
   actor: Actor,
   queryInput: unknown,
-): Promise<Page<TransactionView>> {
+): Promise<PaginatedPage<TransactionView>> {
   const query = listQuerySchema.parse(queryInput);
-  const conditions = transactionFilterConditions(actor, query);
+  // The filter alone describes the whole result set, so the total is counted
+  // before any cursor or page window narrows it.
+  const filters = transactionFilterConditions(actor, query);
+  const conditions = [...filters];
   if (query.cursor) {
     const cursor = decodeCursor(query.cursor);
     conditions.push(
@@ -441,12 +445,22 @@ export async function listTransactions(
   }
 
   const db = getDb();
+  const [totals] = await db
+    .select({ value: count() })
+    .from(transactions)
+    .where(and(...filters));
+  const totalCount = totals?.value ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / query.limit));
+  // A cursor keeps its streaming semantics; page numbers drive the browser.
+  const page = query.cursor ? 1 : Math.min(query.page, totalPages);
+  const offset = query.cursor ? 0 : (page - 1) * query.limit;
   const rows = await db
     .select()
     .from(transactions)
     .where(and(...conditions))
     .orderBy(desc(transactions.date), desc(transactions.id))
-    .limit(query.limit + 1);
+    .limit(query.limit + 1)
+    .offset(offset);
   const hasMore = rows.length > query.limit;
   const pageRows = rows.slice(0, query.limit);
   const items = await db.transaction(async (tx) =>
@@ -460,6 +474,10 @@ export async function listTransactions(
           id: pageRows.at(-1)!.id,
         })
       : null,
+    page,
+    pageSize: query.limit,
+    totalCount,
+    totalPages,
   };
 }
 

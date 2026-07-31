@@ -3,6 +3,8 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   LoaderCircle,
   X,
 } from "lucide-react";
@@ -33,6 +35,92 @@ export function SelectionCheckbox({
     if (checkbox.current) checkbox.current.indeterminate = indeterminate;
   }, [indeterminate]);
   return <input ref={checkbox} type="checkbox" {...props} />;
+}
+
+/** Page numbers around the current page, with gaps collapsed to an ellipsis. */
+function pageWindow(page: number, totalPages: number): (number | "gap")[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+  const near = [page - 1, page, page + 1].filter(
+    (value) => value > 1 && value < totalPages,
+  );
+  const shown = [...new Set([1, ...near, totalPages])].sort((a, b) => a - b);
+  return shown.flatMap((value, index) =>
+    index > 0 && value - shown[index - 1]! > 1
+      ? (["gap", value] as (number | "gap")[])
+      : [value],
+  );
+}
+
+export function Pagination({
+  page,
+  pageSize,
+  totalCount,
+  totalPages,
+  onPageChange,
+  itemLabel,
+  busy = false,
+}: {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  itemLabel: string;
+  busy?: boolean;
+}) {
+  if (!totalCount) return null;
+  const first = (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, totalCount);
+  return (
+    <nav className="pagination" aria-label={`${itemLabel} pages`}>
+      <p className="pagination-summary" aria-live="polite">
+        {`Showing ${first}–${last} of ${totalCount} ${itemLabel}`}
+      </p>
+      {totalPages > 1 ? (
+        <div className="pagination-pages">
+          <button
+            type="button"
+            className="pagination-step"
+            aria-label="Previous page"
+            disabled={page <= 1 || busy}
+            onClick={() => onPageChange(page - 1)}
+          >
+            <ChevronLeft size={16} aria-hidden />
+          </button>
+          {pageWindow(page, totalPages).map((entry, index) =>
+            entry === "gap" ? (
+              <span key={`gap-${index}`} className="pagination-gap" aria-hidden>
+                &hellip;
+              </span>
+            ) : (
+              <button
+                key={entry}
+                type="button"
+                className="pagination-page"
+                aria-label={`Page ${entry}`}
+                aria-current={entry === page ? "page" : undefined}
+                disabled={busy}
+                onClick={() => onPageChange(entry)}
+              >
+                {entry}
+              </button>
+            ),
+          )}
+          <button
+            type="button"
+            className="pagination-step"
+            aria-label="Next page"
+            disabled={page >= totalPages || busy}
+            onClick={() => onPageChange(page + 1)}
+          >
+            <ChevronRight size={16} aria-hidden />
+          </button>
+        </div>
+      ) : null}
+    </nav>
+  );
 }
 
 export function Button({

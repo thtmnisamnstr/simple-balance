@@ -33,7 +33,11 @@ export default function PayeeDetailPage() {
             <p>Filter, search, export, or add activity for this payee.</p>
           </div>
         </div>
-        <TransactionBrowser fixedPayee={payee} showDateRange={false} />
+        <TransactionBrowser
+          includeStaged
+          fixedPayee={payee}
+          showDateRange={false}
+        />
       </section>
     </>
   );

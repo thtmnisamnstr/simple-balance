@@ -281,6 +281,7 @@ export const queryBooleanSchema = z
 
 export const listQuerySchema = dateRangeSchema.extend({
   cursor: z.string().min(1).max(500).optional(),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   accountId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
@@ -293,9 +294,10 @@ export const listQuerySchema = dateRangeSchema.extend({
 
 // Bulk filter selections deliberately omit pagination. They describe the
 // complete current view, while explicit selections carry the optimistic
-// versions shown to the user on the current page.
+// versions shown to the user on the current page. Leaving `page` in would scope
+// a fingerprinted selection to whichever page happened to be open.
 export const bulkTransactionFilterSchema = listQuerySchema
-  .omit({ cursor: true, limit: true })
+  .omit({ cursor: true, page: true, limit: true })
   .strict();
 
 const bulkTransactionIdSelectionSchema = z
@@ -490,7 +492,16 @@ export type ValidationIssue = {
   message: string;
 };
 
+/** A cursor window. Used where callers only ever stream forward. */
 export type Page<T> = {
   items: T[];
   nextCursor: string | null;
+};
+
+/** A cursor window that also knows where it sits in the whole result set. */
+export type PaginatedPage<T> = Page<T> & {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
 };

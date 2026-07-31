@@ -1,5 +1,4 @@
 import {
-  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
@@ -25,7 +24,8 @@ import {
   queryString,
   type Account,
   type Category,
-  type Page,
+  type PaginatedPage,
+  type StagedTransaction,
   type Transaction,
   type TransactionBulkEditFilter,
   type TransactionBulkEditPatch,
@@ -35,6 +35,7 @@ import {
 } from "./api.js";
 import {
   Alert,
+  Badge,
   Button,
   DateRangeBar,
   EmptyState,
@@ -42,6 +43,7 @@ import {
   formatMoney,
   Input,
   Modal,
+  Pagination,
   Select,
   SelectionCheckbox,
   Textarea,
@@ -135,6 +137,7 @@ export function TransactionBrowser({
   initialType,
   allowCreate = true,
   showDateRange = true,
+  includeStaged = false,
 }: {
   fixedAccountId?: string;
   fixedCategoryId?: string;
@@ -142,6 +145,12 @@ export function TransactionBrowser({
   initialType?: "deposit" | "withdrawal" | "transfer";
   allowCreate?: boolean;
   showDateRange?: boolean;
+  /**
+   * Also list the staged rows that reference this category or payee. They are
+   * shown for context only: staged rows post nothing, so they are never
+   * selectable for a committed bulk edit.
+   */
+  includeStaged?: boolean;
 }) {
   const { start, end } = useDateRange();
   const location = useLocation();
@@ -187,17 +196,31 @@ export function TransactionBrowser({
     includeDeleted: showDeleted,
   };
   const selectionConstraintKey = JSON.stringify(bulkFilter);
-  const transactions = useInfiniteQuery({
-    queryKey: ["transactions", params],
-    queryFn: ({ pageParam }) =>
-      api<Page<Transaction>>(
+  const [page, setPage] = useState(1);
+  const transactions = useQuery({
+    queryKey: ["transactions", params, page],
+    queryFn: () =>
+      api<PaginatedPage<Transaction>>(
         `/api/v1/transactions?${queryString({
           ...params,
-          cursor: pageParam,
+          page: String(page),
         })}`,
       ),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    placeholderData: (previous) => previous,
+  });
+  const staged = useQuery({
+    queryKey: ["staged", "for-browser", fixedCategoryId, fixedPayee, start, end],
+    queryFn: () =>
+      api<PaginatedPage<StagedTransaction>>(
+        `/api/v1/staged-transactions?${queryString({
+          categoryId: fixedCategoryId,
+          payee: fixedPayee,
+          start,
+          end,
+          limit: "100",
+        })}`,
+      ),
+    enabled: includeStaged && Boolean(fixedCategoryId || fixedPayee),
   });
   const accounts = useQuery({
     queryKey: ["accounts"],
@@ -267,7 +290,9 @@ export function TransactionBrowser({
       ]);
     },
   });
-  const items = transactions.data?.pages.flatMap((page) => page.items) ?? [];
+  const items = transactions.data?.items ?? [];
+  const totalMatching = transactions.data?.totalCount ?? items.length;
+  const stagedRows = staged.data?.items ?? [];
   const activeAccounts = (accounts.data ?? []).filter(
     (account) => !account.archivedAt,
   );
@@ -414,6 +439,8 @@ export function TransactionBrowser({
     setBulkEditing(false);
     setBulkIdempotencyKey(null);
     setBulkNotice(null);
+    // A narrower filter can leave the current page past the end of the results.
+    setPage(1);
   }, [selectionConstraintKey]);
 
   useEffect(() => {
@@ -622,7 +649,7 @@ export function TransactionBrowser({
             ) : null}
           </div>
           <div className="transaction-selection-actions">
-            {selection.mode === "ids" && allLoadedSelected ? (
+            {selection.mode === "ids" && totalMatching > items.length ? (
               <Button
                 type="button"
                 variant="secondary"
@@ -631,7 +658,27 @@ export function TransactionBrowser({
                   setSelection({ mode: "filter", excludedIds: new Set() });
                 }}
               >
-                Select all matching transactions
+                {`Select all ${totalMatching} matching`}
+              </Button>
+            ) : null}
+            {selection.mode === "filter" ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  discardBulkSelectionSnapshots();
+                  setSelection({
+                    mode: "ids",
+                    versions: Object.fromEntries(
+                      items.map((transaction) => [
+                        transaction.id,
+                        transaction.version,
+                      ]),
+                    ),
+                  });
+                }}
+              >
+                Select only this page
               </Button>
             ) : null}
             <Button
@@ -680,7 +727,7 @@ export function TransactionBrowser({
         </Alert>
       ) : null}
       {transactions.error ? <Alert>{transactions.error.message}</Alert> : null}
-      {items.length ? (
+      {items.length || stagedRows.length ? (
         <>
           <div className="table-card">
             <table className="data-table">
@@ -707,6 +754,44 @@ export function TransactionBrowser({
                 </tr>
               </thead>
               <tbody>
+                {stagedRows.map((stage) => {
+                  const draft = stage.draft;
+                  const stagedPayee =
+                    typeof draft.payee === "string" && draft.payee.trim()
+                      ? draft.payee
+                      : "Incomplete row";
+                  const stagedDate =
+                    typeof draft.date === "string" ? draft.date : null;
+                  const stagedAmount =
+                    typeof draft.amount === "string" ? draft.amount : null;
+                  return (
+                    <tr key={`staged-${stage.id}`} className="row-staged">
+                      <td className="checkbox-cell">
+                        {/* Staged rows cannot join a committed bulk edit. */}
+                        <span className="sr-only">Not selectable</span>
+                      </td>
+                      <td>{stagedDate ? formatDate(stagedDate) : "—"}</td>
+                      <td>
+                        <div className="transaction-payee">
+                          <span className="transaction-payee-name">
+                            {stagedPayee}
+                          </span>
+                          <Badge tone="amber">Staged</Badge>
+                        </div>
+                      </td>
+                      <td>—</td>
+                      <td>—</td>
+                      <td className="align-right">
+                        {stagedAmount ?? "—"}
+                      </td>
+                      <td>
+                        <Link className="text-link" to="/staged">
+                          Review
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {items.map((transaction) => {
                   const meta = typeMeta[transaction.type];
                   const Icon = meta.icon;
@@ -867,18 +952,16 @@ export function TransactionBrowser({
                 })}
               </tbody>
             </table>
+            <Pagination
+              page={transactions.data?.page ?? page}
+              pageSize={transactions.data?.pageSize ?? items.length}
+              totalCount={transactions.data?.totalCount ?? items.length}
+              totalPages={transactions.data?.totalPages ?? 1}
+              busy={transactions.isFetching}
+              itemLabel="transactions"
+              onPageChange={setPage}
+            />
           </div>
-          {transactions.hasNextPage ? (
-            <div className="load-more">
-              <Button
-                variant="secondary"
-                loading={transactions.isFetchingNextPage}
-                onClick={() => transactions.fetchNextPage()}
-              >
-                Load more
-              </Button>
-            </div>
-          ) : null}
         </>
       ) : transactions.isPending ? (
         <p>Loading transactions…</p>

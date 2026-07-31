@@ -1,6 +1,7 @@
 import type {
   AccountType,
   CategoryKind,
+  PaginatedPage,
   Page,
   StagedDraft,
   TransactionDraft,
@@ -297,7 +298,7 @@ export type CsvPreview = {
   errors: string[];
 };
 
-export type { Page, TransactionDraft };
+export type { PaginatedPage, Page, TransactionDraft };
 
 export function queryString(values: Record<string, string | undefined | null>) {
   const params = new URLSearchParams();

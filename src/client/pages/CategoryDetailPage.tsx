@@ -50,6 +50,7 @@ export default function CategoryDetailPage() {
           </div>
         </div>
         <TransactionBrowser
+          includeStaged
           fixedCategoryId={categoryId}
           initialType={category.data.kind === "income" ? "deposit" : "withdrawal"}
           allowCreate={!category.data.archivedAt}

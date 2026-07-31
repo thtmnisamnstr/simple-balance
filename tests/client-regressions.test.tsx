@@ -16,6 +16,7 @@ import type {
   Category,
   ImportBatchSummary,
   Page,
+  PaginatedPage,
   StagedTransaction,
   Transaction,
 } from "../src/client/api.js";
@@ -531,11 +532,16 @@ describe("staged queue pagination", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = new URL(String(input), window.location.origin);
         if (url.pathname === "/api/v1/staged-transactions") {
-          const cursor = url.searchParams.get("cursor");
-          requestedStageCursors.push(cursor);
-          const page: Page<StagedTransaction> = cursor
-            ? { items: [second], nextCursor: null }
-            : { items: [first], nextCursor: "next-page" };
+          const requested = url.searchParams.get("page");
+          requestedStageCursors.push(requested);
+          const page: PaginatedPage<StagedTransaction> = {
+            items: requested === "2" ? [second] : [first],
+            nextCursor: null,
+            page: requested === "2" ? 2 : 1,
+            pageSize: 1,
+            totalCount: 2,
+            totalPages: 2,
+          };
           return new Response(JSON.stringify(page), {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -598,12 +604,11 @@ describe("staged queue pagination", () => {
       requestedBatchCursors.filter((cursor) => cursor === "older-batch"),
     ).toHaveLength(1);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Load more transactions" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
     expect(await screen.findByText("Second page")).toBeInTheDocument();
+    expect(screen.queryByText("First page")).not.toBeInTheDocument();
     expect(
-      requestedStageCursors.filter((cursor) => cursor === "next-page"),
+      requestedStageCursors.filter((cursor) => cursor === "2"),
     ).toHaveLength(1);
 
     fireEvent.click(
@@ -611,7 +616,7 @@ describe("staged queue pagination", () => {
         name: "Select all staged transactions on this page",
       }),
     );
-    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.getByText("1 selected")).toBeInTheDocument();
   });
 
   it("reuses a staged-commit key when a lost response is retried", async () => {
