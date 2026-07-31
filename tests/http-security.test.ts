@@ -1,0 +1,293 @@
+import { Hono } from "hono";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  API_REQUEST_BODY_LIMIT_BYTES,
+  AUTH_REQUEST_BODY_LIMIT_BYTES,
+  apiRequestBodyLimit,
+  boundRequestBody,
+  protectAuthMutation,
+  protectBrowserMutation,
+  requestBodyLimit,
+} from "../src/server/http-security.js";
+
+const applicationOrigin = "https://balance.example.com";
+const originalCsvMaxBytes = process.env.CSV_MAX_BYTES;
+
+afterEach(() => {
+  if (originalCsvMaxBytes === undefined) delete process.env.CSV_MAX_BYTES;
+  else process.env.CSV_MAX_BYTES = originalCsvMaxBytes;
+});
+
+function browserMutationApp() {
+  const app = new Hono();
+  app.use(
+    "*",
+    protectBrowserMutation({
+      allowedOrigin: applicationOrigin,
+      allowedContentTypes: new Set(["application/json"]),
+      requireContentType: true,
+    }),
+  );
+  app.get("/", (context) => context.json({ ok: true }));
+  app.post("/", (context) => context.json({ ok: true }));
+  return app;
+}
+
+describe("browser mutation protection", () => {
+  it("rejects a cross-origin cookie-authenticated JSON mutation", async () => {
+    const response = await browserMutationApp().request(`${applicationOrigin}/`, {
+      method: "POST",
+      headers: {
+        cookie: "better-auth.session_token=session",
+        origin: "https://attacker.example",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: { code: "CROSS_ORIGIN_REQUEST" },
+    });
+  });
+
+  it("rejects missing origins and non-JSON finance mutations", async () => {
+    const missingOrigin = await browserMutationApp().request(
+      `${applicationOrigin}/`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(missingOrigin.status).toBe(403);
+
+    const simpleRequest = await browserMutationApp().request(
+      `${applicationOrigin}/`,
+      {
+        method: "POST",
+        headers: {
+          origin: applicationOrigin,
+          "content-type": "text/plain",
+        },
+        body: "{}",
+      },
+    );
+    expect(simpleRequest.status).toBe(415);
+    expect(await simpleRequest.json()).toMatchObject({
+      error: { code: "UNSUPPORTED_MEDIA_TYPE" },
+    });
+  });
+
+  it("allows same-origin JSON mutations and safe reads", async () => {
+    const mutation = await browserMutationApp().request(
+      `${applicationOrigin}/`,
+      {
+        method: "POST",
+        headers: {
+          origin: applicationOrigin,
+          "content-type": "application/json; charset=utf-8",
+        },
+        body: "{}",
+      },
+    );
+    expect(mutation.status).toBe(200);
+
+    const read = await browserMutationApp().request(`${applicationOrigin}/`);
+    expect(read.status).toBe(200);
+  });
+});
+
+describe("auth mutation protection", () => {
+  function authApp() {
+    const app = new Hono();
+    app.use("*", protectAuthMutation(applicationOrigin));
+    app.post("*", (context) => context.json({ ok: true }));
+    return app;
+  }
+
+  it("keeps non-browser MCP OAuth requests usable", async () => {
+    const registration = await authApp().request(
+      `${applicationOrigin}/api/auth/mcp/register`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(registration.status).toBe(200);
+
+    const token = await authApp().request(
+      `${applicationOrigin}/api/auth/mcp/token`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "grant_type=authorization_code",
+      },
+    );
+    expect(token.status).toBe(200);
+  });
+
+  it("rejects cross-origin cookies even on externally callable MCP routes", async () => {
+    const response = await authApp().request(
+      `${applicationOrigin}/api/auth/mcp/token`,
+      {
+        method: "POST",
+        headers: {
+          cookie: "better-auth.session_token=session",
+          origin: "https://attacker.example",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=authorization_code",
+      },
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it("protects browser auth mutations while allowing the provider callback", async () => {
+    const signOut = await authApp().request(
+      `${applicationOrigin}/api/auth/sign-out`,
+      {
+        method: "POST",
+        headers: {
+          cookie: "better-auth.session_token=session",
+          origin: "https://attacker.example",
+          "content-type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+    expect(signOut.status).toBe(403);
+
+    const callback = await authApp().request(
+      `${applicationOrigin}/api/auth/callback/google`,
+      {
+        method: "POST",
+        headers: {
+          cookie: "better-auth.oauth_state=state",
+          origin: "https://accounts.google.com",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "code=provider-code&state=state",
+      },
+    );
+    expect(callback.status).toBe(200);
+  });
+});
+
+describe("bounded request bodies", () => {
+  function limitedApp(maxBytes: number) {
+    const app = new Hono();
+    app.use("*", boundRequestBody({ maxBytes }));
+    app.post("/", async (context) =>
+      context.json({ body: await context.req.text() }),
+    );
+    return app;
+  }
+
+  it("rejects an oversized declared body before parsing", async () => {
+    const response = await limitedApp(8).request(`${applicationOrigin}/`, {
+      method: "POST",
+      headers: {
+        "content-length": "9",
+        "content-type": "text/plain",
+      },
+      body: "123456789",
+    });
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({
+      error: { code: "PAYLOAD_TOO_LARGE" },
+    });
+  });
+
+  it("cancels a streaming body as soon as it exceeds the limit", async () => {
+    let cancelled = false;
+    let chunk = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        chunk += 1;
+        controller.enqueue(new TextEncoder().encode(chunk === 1 ? "123456" : "789"));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request(`${applicationOrigin}/`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const response = await limitedApp(8).fetch(request);
+    expect(response.status).toBe(413);
+    expect(cancelled).toBe(true);
+  });
+
+  it("does not trust Content-Length instead of measuring a streaming body", async () => {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("123456"));
+        controller.enqueue(new TextEncoder().encode("789"));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const request = new Request(`${applicationOrigin}/`, {
+      method: "POST",
+      headers: {
+        "content-length": "1",
+        "content-type": "text/plain",
+      },
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const response = await limitedApp(8).fetch(request);
+    expect(response.status).toBe(413);
+    expect(cancelled).toBe(true);
+  });
+
+  it("replays an in-limit streaming body for the route handler", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("1234"));
+        controller.enqueue(new TextEncoder().encode("5678"));
+        controller.close();
+      },
+    });
+    const request = new Request(`${applicationOrigin}/`, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: stream,
+      duplex: "half",
+    } as RequestInit & { duplex: "half" });
+
+    const response = await limitedApp(8).fetch(request);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ body: "12345678" });
+  });
+
+  it("uses a bounded but larger JSON envelope for CSV routes", () => {
+    process.env.CSV_MAX_BYTES = "1024";
+    expect(apiRequestBodyLimit("/api/v1/accounts")).toBe(
+      API_REQUEST_BODY_LIMIT_BYTES,
+    );
+    expect(apiRequestBodyLimit("/api/v1/csv/preview")).toBe(71_680);
+    expect(apiRequestBodyLimit("/api/v1/csv/stage")).toBe(71_680);
+    expect(apiRequestBodyLimit("/mcp")).toBe(71_680);
+  });
+
+  it("selects the strict auth limit from the global path-aware policy", () => {
+    process.env.CSV_MAX_BYTES = "1024";
+    expect(requestBodyLimit("/api/auth/sign-in/email")).toBe(
+      AUTH_REQUEST_BODY_LIMIT_BYTES,
+    );
+    expect(requestBodyLimit("/mcp")).toBe(71_680);
+    expect(requestBodyLimit("/api/v1/accounts")).toBe(
+      API_REQUEST_BODY_LIMIT_BYTES,
+    );
+  });
+});

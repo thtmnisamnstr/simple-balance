@@ -1,0 +1,389 @@
+import { useMutation, useQuery } from "@tanstack/react-query";
+import {
+  ArrowRight,
+  CheckCircle2,
+  FileSpreadsheet,
+  FlaskConical,
+  Upload,
+} from "lucide-react";
+import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import type { CsvMapping } from "../../shared/csv.js";
+import { api, json, type Account, type CsvPreview } from "../api.js";
+import {
+  Alert,
+  Badge,
+  Button,
+  EmptyState,
+  Field,
+  PageHeader,
+  Select,
+} from "../components.js";
+
+type StageResult = {
+  fileName: string;
+  rowCount: number;
+  validCount: number;
+  invalidCount: number;
+  importBatchId?: string;
+  stagedIds?: string[];
+  sample: {
+    draft: Record<string, unknown> | null;
+    issues: { field: string; message: string }[];
+  }[];
+};
+
+const aliases: Record<keyof CsvMapping, string[]> = {
+  date: ["date", "posted date", "transaction date"],
+  description: ["description", "memo", "details", "name"],
+  amount: ["amount", "signed amount"],
+  debit: ["debit", "withdrawal", "money out"],
+  credit: ["credit", "deposit", "money in"],
+  payee: ["payee", "merchant"],
+  category: ["category"],
+  notes: ["notes", "note"],
+  type: ["transaction_type", "type"],
+  fromAccount: ["source_account_id", "from account"],
+  toAccount: ["destination_account_id", "to account"],
+  sourceAmount: ["source_amount"],
+  destinationAmount: ["destination_amount"],
+  externalId: ["transaction_id", "id", "external id"],
+};
+
+function inferMapping(headers: string[]): Partial<CsvMapping> {
+  const normalized = new Map(headers.map((header) => [header.toLowerCase(), header]));
+  return Object.fromEntries(
+    Object.entries(aliases).flatMap(([key, candidates]) => {
+      const match = candidates.map((candidate) => normalized.get(candidate)).find(Boolean);
+      return match ? [[key, match]] : [];
+    }),
+  );
+}
+
+function MappingField({
+  label,
+  value,
+  headers,
+  required,
+  onChange,
+}: {
+  label: string;
+  value?: string;
+  headers: string[];
+  required?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Field label={label}>
+      <Select
+        required={required}
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{required ? "Choose a column…" : "Not mapped"}</option>
+        {headers.map((header) => (
+          <option value={header} key={header}>
+            {header}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  );
+}
+
+export default function ImportPage() {
+  const [csv, setCsv] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [preview, setPreview] = useState<CsvPreview | null>(null);
+  const [mapping, setMapping] = useState<Partial<CsvMapping>>({});
+  const [defaultAccountId, setDefaultAccountId] = useState("");
+  const [dateFormat, setDateFormat] = useState<"YMD" | "MDY" | "DMY">("YMD");
+  const [decimalSeparator, setDecimalSeparator] = useState<"." | ",">(".");
+  const [result, setResult] = useState<StageResult | null>(null);
+  const stageIdempotencyKey = useRef(crypto.randomUUID());
+
+  const accounts = useQuery({
+    queryKey: ["accounts"],
+    queryFn: () => api<Account[]>("/api/v1/accounts"),
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const contents = await file.text();
+      const parsed = await api<CsvPreview>("/api/v1/csv/preview", json({ csv: contents }));
+      return { contents, parsed, name: file.name };
+    },
+    onSuccess: ({ contents, parsed, name }) => {
+      setCsv(contents);
+      setFileName(name);
+      setPreview(parsed);
+      setMapping(inferMapping(parsed.headers));
+      setDefaultAccountId((current) => current || accounts.data?.[0]?.id || "");
+      setResult(null);
+      stageIdempotencyKey.current = crypto.randomUUID();
+    },
+  });
+
+  const stageMutation = useMutation({
+    mutationFn: (dryRun: boolean) =>
+      api<StageResult>(
+        "/api/v1/csv/stage",
+        json({
+          csv,
+          fileName,
+          idempotencyKey: stageIdempotencyKey.current,
+          defaultAccountId,
+          mapping,
+          dateFormat,
+          decimalSeparator,
+          dryRun,
+        }),
+      ),
+    onSuccess: (value, dryRun) => {
+      setResult(value);
+      if (!dryRun) stageIdempotencyKey.current = crypto.randomUUID();
+    },
+  });
+
+  const roundTrip = preview?.headers.includes("transaction_type") ?? false;
+  const hasAmounts = Boolean(
+    mapping.amount ||
+      mapping.debit ||
+      mapping.credit ||
+      (mapping.type && mapping.sourceAmount && mapping.destinationAmount),
+  );
+  const ready = Boolean(
+    csv && defaultAccountId && mapping.date && mapping.description && hasAmounts,
+  );
+  const sampleHeaders = useMemo(() => preview?.headers.slice(0, 8) ?? [], [preview]);
+
+  const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) previewMutation.mutate(file);
+  };
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Import"
+        title="Bring in a bank CSV"
+        description="Preview and validate every row before it enters your review queue."
+      />
+
+      {!accounts.data?.length ? (
+        <EmptyState
+          icon={<FileSpreadsheet size={25} />}
+          title="Create an account first"
+          body="A bank CSV needs a default account so deposits and withdrawals have a destination."
+        />
+      ) : (
+        <div className="import-layout">
+          <section className="panel import-steps">
+            <div className="step-heading">
+              <span>1</span>
+              <div>
+                <h2>Choose a CSV file</h2>
+                <p>Files are parsed in memory and the original is not stored on disk.</p>
+              </div>
+            </div>
+            <label className="file-drop">
+              <Upload size={26} />
+              <strong>{fileName || "Drop in a file or browse"}</strong>
+              <span>Comma, semicolon, and tab delimiters are detected automatically.</span>
+              <input type="file" accept=".csv,text/csv" onChange={chooseFile} />
+            </label>
+            {previewMutation.error ? <Alert>{previewMutation.error.message}</Alert> : null}
+            {preview ? (
+              <>
+                <div className="step-heading">
+                  <span>2</span>
+                  <div>
+                    <h2>Map the columns</h2>
+                    <p>
+                      Detected <strong>{preview.delimiter === "\t" ? "tab" : preview.delimiter}</strong>{" "}
+                      delimiter and {preview.headers.length} columns.
+                    </p>
+                  </div>
+                </div>
+                {roundTrip ? (
+                  <Alert kind="info">
+                    This looks like an app export. Transfer accounts and per-account
+                    currency amounts will be preserved.
+                  </Alert>
+                ) : null}
+                <div className="form-grid">
+                  <div className="two-columns">
+                    <Field label="Default account">
+                      <Select
+                        value={defaultAccountId}
+                        onChange={(event) => setDefaultAccountId(event.target.value)}
+                      >
+                        {accounts.data?.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.name} ({account.currency})
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Date format">
+                      <Select
+                        value={dateFormat}
+                        onChange={(event) =>
+                          setDateFormat(event.target.value as typeof dateFormat)
+                        }
+                      >
+                        <option value="YMD">YYYY-MM-DD</option>
+                        <option value="MDY">MM/DD/YYYY</option>
+                        <option value="DMY">DD/MM/YYYY</option>
+                      </Select>
+                    </Field>
+                  </div>
+                  <div className="two-columns">
+                    <MappingField
+                      label="Date"
+                      required
+                      headers={preview.headers}
+                      value={mapping.date}
+                      onChange={(date) => setMapping((value) => ({ ...value, date }))}
+                    />
+                    <MappingField
+                      label="Description"
+                      required
+                      headers={preview.headers}
+                      value={mapping.description}
+                      onChange={(description) =>
+                        setMapping((value) => ({ ...value, description }))
+                      }
+                    />
+                  </div>
+                  <div className="three-columns">
+                    <MappingField
+                      label="Signed amount"
+                      headers={preview.headers}
+                      value={mapping.amount}
+                      onChange={(amount) => setMapping((value) => ({ ...value, amount }))}
+                    />
+                    <MappingField
+                      label="Debit"
+                      headers={preview.headers}
+                      value={mapping.debit}
+                      onChange={(debit) => setMapping((value) => ({ ...value, debit }))}
+                    />
+                    <MappingField
+                      label="Credit"
+                      headers={preview.headers}
+                      value={mapping.credit}
+                      onChange={(credit) => setMapping((value) => ({ ...value, credit }))}
+                    />
+                  </div>
+                  <div className="three-columns">
+                    <MappingField
+                      label="Payee"
+                      headers={preview.headers}
+                      value={mapping.payee}
+                      onChange={(payee) => setMapping((value) => ({ ...value, payee }))}
+                    />
+                    <MappingField
+                      label="Notes"
+                      headers={preview.headers}
+                      value={mapping.notes}
+                      onChange={(notes) => setMapping((value) => ({ ...value, notes }))}
+                    />
+                    <Field label="Decimal separator">
+                      <Select
+                        value={decimalSeparator}
+                        onChange={(event) =>
+                          setDecimalSeparator(event.target.value as "." | ",")
+                        }
+                      >
+                        <option value=".">1,234.56</option>
+                        <option value=",">1.234,56</option>
+                      </Select>
+                    </Field>
+                  </div>
+                  {!hasAmounts ? (
+                    <Alert>Map a signed amount column or one or both debit/credit columns.</Alert>
+                  ) : null}
+                </div>
+                <div className="step-heading">
+                  <span>3</span>
+                  <div>
+                    <h2>Validate and stage</h2>
+                    <p>A dry run reports problems without changing anything.</p>
+                  </div>
+                </div>
+                <div className="form-actions">
+                  <Button
+                    variant="secondary"
+                    disabled={!ready}
+                    loading={stageMutation.isPending}
+                    onClick={() => stageMutation.mutate(true)}
+                  >
+                    <FlaskConical size={16} /> Dry run
+                  </Button>
+                  <Button
+                    disabled={!ready}
+                    loading={stageMutation.isPending}
+                    onClick={() => stageMutation.mutate(false)}
+                  >
+                    Stage all rows <ArrowRight size={16} />
+                  </Button>
+                </div>
+                {stageMutation.error ? <Alert>{stageMutation.error.message}</Alert> : null}
+                {result ? (
+                  <Alert kind={result.invalidCount ? "info" : "success"}>
+                    <strong>{result.validCount}</strong> ready and{" "}
+                    <strong>{result.invalidCount}</strong> needing attention out of{" "}
+                    {result.rowCount} rows.
+                    {result.importBatchId ? (
+                      <>
+                        {" "}
+                        <a href="/staged">Open the review queue</a>.
+                      </>
+                    ) : (
+                      " Nothing was changed during this dry run."
+                    )}
+                  </Alert>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+
+          <aside className="panel import-preview">
+            <header className="panel-header">
+              <h3>File preview</h3>
+              {preview ? <Badge tone="blue">{preview.rows.length} sampled</Badge> : null}
+            </header>
+            {preview?.rows.length ? (
+              <div className="preview-table-wrap">
+                <table className="preview-table">
+                  <thead>
+                    <tr>
+                      {sampleHeaders.map((header) => (
+                        <th key={header}>{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.slice(0, 12).map((row, index) => (
+                      <tr key={index}>
+                        {sampleHeaders.map((header) => (
+                          <td key={header}>{row[header]}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState
+                icon={<CheckCircle2 size={23} />}
+                title="Ready when you are"
+                body="A sample of the file will appear here before anything is staged."
+              />
+            )}
+          </aside>
+        </div>
+      )}
+    </>
+  );
+}

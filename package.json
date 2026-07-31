@@ -1,0 +1,61 @@
+{
+  "name": "simple-balance",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server/index.ts",
+    "dev:client": "vite",
+    "build": "pnpm build:client && pnpm build:server",
+    "build:client": "vite build",
+    "build:server": "tsc -p tsconfig.server.json",
+    "start": "node dist/server/server/index.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/server/db/migrate.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run tests/integration",
+    "verify": "pnpm typecheck && pnpm test && pnpm build",
+    "ralph": "./scripts/ralph/ralph.sh",
+    "ralph:status": "node scripts/ralph/runner.mjs status"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.12",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@tanstack/react-query": "^5.101.4",
+    "better-auth": "1.6.25",
+    "decimal.js": "^10.6.0",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.32",
+    "jose": "^6.2.5",
+    "lucide-react": "^1.27.0",
+    "papaparse": "^5.5.4",
+    "pg": "^8.22.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "^24.13.3",
+    "@types/papaparse": "^5.5.2",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "drizzle-kit": "^0.31.10",
+    "jsdom": "^30.0.1",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["storyId", "status", "summary", "verification", "learnings"],
+  "properties": {
+    "storyId": { "type": "string", "pattern": "^SB-[0-9]{3}$" },
+    "status": { "enum": ["completed", "blocked"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["command", "result"],
+        "properties": {
+          "command": { "type": "string" },
+          "result": { "enum": ["passed", "failed", "not_run"] }
+        },
+        "additionalProperties": false
+      }
+    },
+    "learnings": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}

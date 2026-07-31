@@ -1,0 +1,21 @@
+{
+  "name": "simple-balance-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.12",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "better-auth": "1.6.25",
+    "decimal.js": "^10.6.0",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.32",
+    "jose": "^6.2.5",
+    "papaparse": "^5.5.4",
+    "pg": "^8.22.0",
+    "zod": "^4.4.3"
+  }
+}
