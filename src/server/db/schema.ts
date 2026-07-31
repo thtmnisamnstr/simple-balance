@@ -179,7 +179,7 @@ export const userPreferences = pgTable("user_preferences", {
 }, (table) => [
   check(
     "user_preferences_default_currency_check",
-    sql`${table.defaultCurrency} ~ '^[A-Z]{3}$'`,
+    sql`${table.defaultCurrency} ~ '^[A-Z]{2,12}$'`,
   ),
 ]);
 
@@ -196,7 +196,7 @@ export const ledgerAccounts = pgTable(
     institution: text("institution"),
     notes: text("notes"),
     openingDate: date("opening_date").notNull(),
-    openingBalance: numeric("opening_balance", { precision: 38, scale: 12 }).default("0").notNull(),
+    openingBalance: numeric("opening_balance", { precision: 44, scale: 18 }).default("0").notNull(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     version: integer("version").default(1).notNull(),
     ...timestamps,
@@ -207,7 +207,7 @@ export const ledgerAccounts = pgTable(
     unique("ledger_account_user_id_id_unique").on(table.userId, table.id),
     check(
       "ledger_account_currency_check",
-      sql`${table.currency} ~ '^[A-Z]{3}$'`,
+      sql`${table.currency} ~ '^[A-Z]{2,12}$'`,
     ),
     check("ledger_account_version_check", sql`${table.version} >= 1`),
   ],
@@ -275,11 +275,11 @@ export const transactions = pgTable(
     externalId: text("external_id"),
     sourceAccountId: uuid("source_account_id"),
     destinationAccountId: uuid("destination_account_id"),
-    sourceAmount: numeric("source_amount", { precision: 38, scale: 12 }),
-    destinationAmount: numeric("destination_amount", { precision: 38, scale: 12 }),
+    sourceAmount: numeric("source_amount", { precision: 44, scale: 18 }),
+    destinationAmount: numeric("destination_amount", { precision: 44, scale: 18 }),
     sourceCurrency: text("source_currency"),
     destinationCurrency: text("destination_currency"),
-    effectiveRate: numeric("effective_rate", { precision: 38, scale: 12 }),
+    effectiveRate: numeric("effective_rate", { precision: 44, scale: 18 }),
     version: integer("version").default(1).notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     ...timestamps,
@@ -325,7 +325,7 @@ export const transactions = pgTable(
           and ${table.destinationAmount} is not null
           and ${table.destinationAmount} > 0
           and ${table.destinationCurrency} is not null
-          and ${table.destinationCurrency} ~ '^[A-Z]{3}$'
+          and ${table.destinationCurrency} ~ '^[A-Z]{2,12}$'
           and ${table.effectiveRate} is null
         )
         or
@@ -335,7 +335,7 @@ export const transactions = pgTable(
           and ${table.sourceAmount} is not null
           and ${table.sourceAmount} > 0
           and ${table.sourceCurrency} is not null
-          and ${table.sourceCurrency} ~ '^[A-Z]{3}$'
+          and ${table.sourceCurrency} ~ '^[A-Z]{2,12}$'
           and ${table.destinationAccountId} is null
           and ${table.destinationAmount} is null
           and ${table.destinationCurrency} is null
@@ -352,9 +352,9 @@ export const transactions = pgTable(
           and ${table.destinationAmount} is not null
           and ${table.destinationAmount} > 0
           and ${table.sourceCurrency} is not null
-          and ${table.sourceCurrency} ~ '^[A-Z]{3}$'
+          and ${table.sourceCurrency} ~ '^[A-Z]{2,12}$'
           and ${table.destinationCurrency} is not null
-          and ${table.destinationCurrency} ~ '^[A-Z]{3}$'
+          and ${table.destinationCurrency} ~ '^[A-Z]{2,12}$'
           and ${table.effectiveRate} is not null
           and ${table.effectiveRate} > 0
           and (
@@ -382,7 +382,7 @@ export const postings = pgTable(
       .notNull(),
     accountId: uuid("account_id")
       .notNull(),
-    amount: numeric("amount", { precision: 38, scale: 12 }).notNull(),
+    amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
     currency: text("currency").notNull(),
     ...timestamps,
   },
@@ -403,7 +403,7 @@ export const postings = pgTable(
       table.accountId,
     ),
     check("posting_amount_check", sql`${table.amount} <> 0`),
-    check("posting_currency_check", sql`${table.currency} ~ '^[A-Z]{3}$'`),
+    check("posting_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
   ],
 );
 

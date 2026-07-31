@@ -77,27 +77,27 @@ describe("signed ledger postings", () => {
       { accountId: checking, amount: "-110", currency: "USD" },
       { accountId: euros, amount: "100", currency: "EUR" },
     ]);
-    expect(prepared.transaction.effectiveRate).toBe("0.909090909091");
+    expect(prepared.transaction.effectiveRate).toBe("0.909090909090909091");
   });
 
-  it("keeps all numeric(38,12) digits during arithmetic", () => {
+  it("keeps all numeric(44,18) digits during arithmetic", () => {
     expect(
       canonicalDecimal(
-        decimal("99999999999999999999999999.999999999999").minus(
-          "0.000000000001",
+        decimal("99999999999999999999999999.999999999999999999").minus(
+          "0.000000000000000001",
         ),
       ),
-    ).toBe("99999999999999999999999999.999999999998");
+    ).toBe("99999999999999999999999999.999999999999999998");
   });
 
-  it("rejects implied FX rates that numeric(38,12) cannot represent", () => {
+  it("rejects implied FX rates that numeric(44,18) cannot represent", () => {
     expect(() =>
       prepare({
         type: "transfer",
         fromAccountId: checking,
         toAccountId: euros,
-        sourceAmount: "0.000000000001",
-        destinationAmount: "99999999999999999999999999.999999999999",
+        sourceAmount: "0.000000000000000001",
+        destinationAmount: "99999999999999999999999999.999999999999999999",
         ...common,
       }),
     ).toThrow(/implied exchange rate cannot be represented/i);
@@ -107,8 +107,8 @@ describe("signed ledger postings", () => {
         type: "transfer",
         fromAccountId: checking,
         toAccountId: euros,
-        sourceAmount: "99999999999999999999999999.999999999999",
-        destinationAmount: "0.000000000001",
+        sourceAmount: "99999999999999999999999999.999999999999999999",
+        destinationAmount: "0.000000000000000001",
         ...common,
       }),
     ).toThrow(/implied exchange rate cannot be represented/i);

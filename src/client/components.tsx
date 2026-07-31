@@ -243,7 +243,7 @@ export function formatMoney(
   locales?: string | string[],
 ) {
   try {
-    const match = /^(-?)(\d+)(?:\.(\d{1,12}))?$/.exec(amount);
+    const match = /^(-?)(\d+)(?:\.(\d{1,18}))?$/.exec(amount);
     if (!match) return `${amount} ${currency}`;
 
     const [, sign, integer, fraction = ""] = match;
@@ -306,7 +306,7 @@ export function isPositiveMoney(amount: string) {
 
 export function moneyRatioPercent(amount: string, maximum: string) {
   const parse = (value: string) => {
-    const match = /^(\d+)(?:\.(\d{1,12}))?$/.exec(value);
+    const match = /^(\d+)(?:\.(\d{1,18}))?$/.exec(value);
     return match ? { integer: match[1], fraction: match[2] ?? "" } : null;
   };
   const numerator = parse(amount);

@@ -6,6 +6,7 @@ export const accountTypes = [
   "debit_card",
   "credit_card",
   "cash",
+  "crypto_wallet",
   "loan",
   "investment",
   "other_asset",
@@ -20,6 +21,7 @@ export const accountTypeLabels: Record<AccountType, string> = {
   debit_card: "Debit Card",
   credit_card: "Credit Card",
   cash: "Cash",
+  crypto_wallet: "Crypto Wallet",
   loan: "Loan",
   investment: "Investment",
   other_asset: "Other Asset",
@@ -51,13 +53,16 @@ export const isoDateSchema = z
 
 export const currencyCodeSchema = z
   .string()
-  .regex(/^[A-Z]{3}$/, "Use a three-letter ISO currency code");
+  .regex(
+    /^[A-Z]{2,12}$/,
+    "Use an uppercase ISO currency code or supported crypto asset symbol",
+  );
 
 export const decimalStringSchema = z
   .string()
   .regex(
-    /^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,12})?$/,
-    "Use a decimal string with at most 26 integer and 12 fractional digits",
+    /^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,18})?$/,
+    "Use a decimal string with at most 26 integer and 18 fractional digits",
   );
 
 export const positiveDecimalStringSchema = decimalStringSchema.refine(

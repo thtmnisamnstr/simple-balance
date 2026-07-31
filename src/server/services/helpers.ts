@@ -8,10 +8,10 @@ import { conflict } from "./errors.js";
 
 export type Executor = Database | DbTransaction;
 
-// A stored numeric(38,12) can carry 38 significant digits. Intermediate
+// A stored numeric(44,18) can carry 44 significant digits. Intermediate
 // operations need additional headroom: in particular, an FX quotient may have
-// up to 38 integer digits before it is rejected as unstoreable and still needs
-// 12 fractional digits to be rounded correctly.
+// up to 44 integer digits before it is rejected as unstoreable and still needs
+// 18 fractional digits to be rounded correctly.
 Decimal.set({
   precision: 80,
   rounding: Decimal.ROUND_HALF_UP,
@@ -20,7 +20,7 @@ Decimal.set({
 export const decimal = (value: string | Decimal) => new Decimal(value);
 
 export function canonicalDecimal(value: string | Decimal): string {
-  const result = decimal(value).toFixed(12).replace(/\.?0+$/, "");
+  const result = decimal(value).toFixed(18).replace(/\.?0+$/, "");
   return result === "-0" ? "0" : result;
 }
 

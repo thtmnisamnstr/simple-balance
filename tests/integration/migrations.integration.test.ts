@@ -10,7 +10,7 @@ const originalDatabaseUrl = process.env.DATABASE_URL;
 let adminClient: PgClient;
 let databaseClient: PgClient;
 
-integration("fresh PostgreSQL migration baseline", () => {
+integration("PostgreSQL migrations", () => {
   beforeAll(async () => {
     adminClient = new PgClient({ connectionString: connection });
     await adminClient.connect();
@@ -34,7 +34,7 @@ integration("fresh PostgreSQL migration baseline", () => {
     else process.env.DATABASE_URL = originalDatabaseUrl;
   });
 
-  it("creates the complete v0.1.0 schema from an empty database", async () => {
+  it("creates the complete current schema from an empty database", async () => {
     const tables = await databaseClient.query<{ tablename: string }>(
       `select tablename
          from pg_tables
@@ -100,15 +100,15 @@ integration("fresh PostgreSQL migration baseline", () => {
         column_name: "amount",
         data_type: "numeric",
         is_nullable: "NO",
-        numeric_precision: 38,
-        numeric_scale: 12,
+        numeric_precision: 44,
+        numeric_scale: 18,
       },
     ]);
 
     const migrationRows = await databaseClient.query<{ count: string }>(
       `select count(*)::text as count from drizzle.__drizzle_migrations`,
     );
-    expect(migrationRows.rows[0]?.count).toBe("1");
+    expect(migrationRows.rows[0]?.count).toBe("2");
 
     const constraints = await databaseClient.query<{ conname: string }>(
       `select conname
@@ -150,7 +150,7 @@ integration("fresh PostgreSQL migration baseline", () => {
     const migrationRows = await databaseClient.query<{ count: string }>(
       `select count(*)::text as count from drizzle.__drizzle_migrations`,
     );
-    expect(migrationRows.rows[0]?.count).toBe("1");
+    expect(migrationRows.rows[0]?.count).toBe("2");
   });
 
   it("enforces ledger shapes, posting uniqueness, and tenant-owned references", async () => {
@@ -174,7 +174,7 @@ integration("fresh PostgreSQL migration baseline", () => {
          (id, user_id, name, type, currency, opening_date)
        values
          ($1, $3, 'First checking', 'checking', 'USD', '2026-01-01'),
-         ($2, $4, 'Second checking', 'checking', 'USD', '2026-01-01')`,
+         ($2, $4, 'Crypto wallet', 'crypto_wallet', 'USDT', '2026-01-01')`,
       [firstAccountId, secondAccountId, firstUserId, secondUserId],
     );
     await databaseClient.query(

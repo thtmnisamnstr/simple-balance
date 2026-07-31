@@ -36,6 +36,7 @@ import {
   Textarea,
 } from "./components.js";
 import { draftForTransactionForm } from "./staged-draft.js";
+import { currencyOptionLabel, currencyOptions } from "./select-options.js";
 import { calendarDateInTimezone, useTimezone } from "./timezone.js";
 
 export function AccountForm({
@@ -166,15 +167,18 @@ export function AccountForm({
             ))}
           </Select>
         </Field>
-        <Field label="Currency" hint="Fixed once this account is in use">
-          <Input
+        <Field label="Currency or crypto asset" hint="Fixed once this account is in use">
+          <Select
             required
-            maxLength={3}
             value={currency}
-            onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-            pattern="[A-Z]{3}"
-            placeholder="USD"
-          />
+            onChange={(event) => setCurrency(event.target.value)}
+          >
+            {currencyOptions(currency).map((option) => (
+              <option key={option} value={option}>
+                {currencyOptionLabel(option)}
+              </option>
+            ))}
+          </Select>
         </Field>
       </div>
       <div
@@ -217,8 +221,8 @@ export function AccountForm({
             onChange={(event) => setOpeningBalance(event.target.value)}
             pattern={
               liabilityAccountTypes.has(type)
-                ? "(0|[1-9][0-9]{0,25})(\\.[0-9]{1,12})?"
-                : "-?(0|[1-9][0-9]{0,25})(\\.[0-9]{1,12})?"
+                ? "(0|[1-9][0-9]{0,25})(\\.[0-9]{1,18})?"
+                : "-?(0|[1-9][0-9]{0,25})(\\.[0-9]{1,18})?"
             }
           />
         </Field>
@@ -704,7 +708,7 @@ export function TransactionForm({
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
             placeholder="0.00"
-            pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,12})?"
+            pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
           />
         </Field>
         {crossCurrency ? (
@@ -718,7 +722,7 @@ export function TransactionForm({
               value={destinationAmount}
               onChange={(event) => setDestinationAmount(event.target.value)}
               placeholder="0.00"
-              pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,12})?"
+              pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
             />
           </Field>
         ) : null}

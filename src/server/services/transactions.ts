@@ -193,7 +193,7 @@ export function buildPreparedTransaction(
       : canonicalDecimal(decimal(destinationAmount).dividedBy(draft.sourceAmount));
   if (!positiveDecimalStringSchema.safeParse(effectiveRate).success) {
     throw validationError(
-      "The implied exchange rate cannot be represented with 26 integer and 12 fractional digits",
+      "The implied exchange rate cannot be represented with 26 integer and 18 fractional digits",
       { field: "destinationAmount" },
     );
   }

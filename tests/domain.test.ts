@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   decimalStringSchema,
+  accountCreateSchema,
   isoDateSchema,
   listQuerySchema,
   stageCreateSchema,
@@ -13,6 +14,11 @@ import {
   rowsToCsv,
 } from "../src/shared/csv.js";
 import { rangeForPreset } from "../src/client/date-range.js";
+import {
+  currencyOptionLabel,
+  currencyOptions,
+  timezoneOptionLabel,
+} from "../src/client/select-options.js";
 
 const accountId = "11111111-1111-4111-8111-111111111111";
 
@@ -23,23 +29,43 @@ describe("boundary schemas", () => {
     expect(decimalStringSchema.safeParse("01.00").success).toBe(false);
   });
 
-  it("enforces the PostgreSQL numeric(38,12) storage boundary", () => {
+  it("enforces the PostgreSQL numeric(44,18) storage boundary", () => {
     expect(
       decimalStringSchema.safeParse(
-        "99999999999999999999999999.999999999999",
+        "99999999999999999999999999.999999999999999999",
       ).success,
     ).toBe(true);
     expect(
       decimalStringSchema.safeParse(
-        "-99999999999999999999999999.999999999999",
+        "-99999999999999999999999999.999999999999999999",
       ).success,
     ).toBe(true);
     expect(
       decimalStringSchema.safeParse(
-        "100000000000000000000000000.000000000000",
+        "100000000000000000000000000.000000000000000000",
       ).success,
     ).toBe(false);
-    expect(decimalStringSchema.safeParse("0.1234567890123").success).toBe(false);
+    expect(decimalStringSchema.safeParse("0.123456789012345678").success).toBe(true);
+    expect(decimalStringSchema.safeParse("0.1234567890123456789").success).toBe(false);
+  });
+
+  it("accepts crypto wallet accounts and common crypto asset symbols", () => {
+    expect(
+      accountCreateSchema.safeParse({
+        name: "Cold wallet",
+        type: "crypto_wallet",
+        currency: "USDT",
+        openingDate: "2026-07-30",
+        openingBalance: "0.000000000000000001",
+      }).success,
+    ).toBe(true);
+    expect(currencyOptions("USD")).toEqual(
+      expect.arrayContaining(["BTC", "ETH", "SOL", "USDC", "USDT"]),
+    );
+    expect(currencyOptionLabel("USDT")).toBe("Tether (USDT)");
+    expect(timezoneOptionLabel("America/Los_Angeles")).toMatch(
+      /America \/ Los Angeles.*\(UTC[+-]\d{2}:\d{2}\)/,
+    );
   });
 
   it("rejects impossible calendar dates", () => {

@@ -3,11 +3,12 @@
 A modern, self-hosted personal accounting app built around ease of use and safe,
 reviewable automation via AI.
 
-Simple Balance tracks Checking, Savings, Debit Card, Credit Card, Cash, Loan,
-Investment, Asset, and Liability accounts. It supports deposits, withdrawals,
-same-currency transfers, and per-account FX transfers with distinct sent/received
-amounts. CSV imports are staged for review; direct transactions and selected
-staged rows can be committed atomically.
+Simple Balance tracks Checking, Savings, Debit Card, Credit Card, Cash, Crypto
+Wallet, Loan, Investment, Asset, and Liability accounts. Wallets can use popular
+crypto assets such as BTC, ETH, SOL, USDC, and USDT. It supports deposits,
+withdrawals, same-asset transfers, and per-account conversion transfers with
+distinct sent/received amounts. CSV imports are staged for review; direct
+transactions and selected staged rows can be committed atomically.
 
 AI and MCP clients use the same scoped, audited ledger services as the browser.
 They can prepare work for review, but cannot bypass your authentication,
@@ -36,20 +37,21 @@ is:
   persistent dependency
 
 Scheduled transactions, splits, budgets, tags, reconciliation, attachment
-storage, bank sync, global FX rates, and shared households are outside the
-0.1.0 scope.
+storage, bank sync, global FX/crypto prices, and shared households are outside
+the 0.1.0 scope. Crypto wallets track native asset quantities only; they do not
+provide market prices, valuation, staking, or blockchain synchronization.
 
 ## Run for development
 
 Requirements: Node 22.22.2+, pnpm 11.9, and PostgreSQL 15+.
 
 ```sh
-pnpm install
+pnpm install # npm install
 docker compose -f compose.dev.yml up -d
-pnpm dev
+pnpm dev # npm run dev
 ```
 
-In a second terminal, run `pnpm dev:client` and open
+In a second terminal, run `pnpm dev:client`/`npm run dev:client` and open
 `http://localhost:5173`. Local development requires no environment variables.
 On the first visit, create your local owner account; subsequent visits use that
 email and password. Both development servers bind or proxy through loopback.

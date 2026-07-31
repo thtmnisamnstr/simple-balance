@@ -33,7 +33,7 @@ import { AccountForm } from "../forms.js";
 import { calendarDateInTimezone } from "../timezone.js";
 
 const iconFor = (type: AccountType) => {
-  if (type === "cash") return WalletCards;
+  if (type === "cash" || type === "crypto_wallet") return WalletCards;
   if (type === "credit_card" || type === "debit_card") return CreditCard;
   if (type === "loan" || type.includes("liability")) return Building2;
   return Landmark;

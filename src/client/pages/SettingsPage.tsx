@@ -1,18 +1,8 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Archive,
-  ArchiveRestore,
-  KeyRound,
-  Link,
-  Pencil,
-  Plus,
-  Settings2,
-  Trash2,
-} from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { KeyRound, Link, Settings2 } from "lucide-react";
+import { useState } from "react";
 import { useSearchParams } from "../router.js";
-import type { CategoryKind } from "../../shared/domain.js";
-import { api, json, type Category, type Session } from "../api.js";
+import { api, json, type Session } from "../api.js";
 import { authClient } from "../auth-client.js";
 import {
   Alert,
@@ -23,32 +13,22 @@ import {
   PageHeader,
   Select,
 } from "../components.js";
-
-const kindLabels: Record<CategoryKind, string> = {
-  income: "Income",
-  expense: "Expense",
-  both: "Income or expense",
-};
+import {
+  currencyOptionLabel,
+  currencyOptions,
+  timezoneOptionLabel,
+  timezoneOptions,
+} from "../select-options.js";
 
 export default function SettingsPage({ session }: { session: Session }) {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [timezone, setTimezone] = useState(session.preferences.timezone);
   const [currency, setCurrency] = useState(session.preferences.defaultCurrency);
-  const [categoryName, setCategoryName] = useState("");
-  const [categoryKind, setCategoryKind] = useState<CategoryKind>("expense");
-  const [includeArchived, setIncludeArchived] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
 
-  const categories = useQuery({
-    queryKey: ["categories", includeArchived],
-    queryFn: () =>
-      api<Category[]>(
-        `/api/v1/categories${includeArchived ? "?includeArchived=true" : ""}`,
-      ),
-  });
   const preferencesMutation = useMutation({
     mutationFn: () =>
       api("/api/v1/preferences", {
@@ -56,52 +36,6 @@ export default function SettingsPage({ session }: { session: Session }) {
         method: "PUT",
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["session"] }),
-  });
-  const categoryMutation = useMutation({
-    mutationFn: async (
-      input:
-        | { action: "create"; name: string; kind: CategoryKind }
-        | {
-            action: "update";
-            category: Category;
-            name: string;
-            kind: CategoryKind;
-          }
-        | { action: "archive" | "delete"; category: Category },
-    ) => {
-      if (input.action === "create") {
-        return api<Category>(
-          "/api/v1/categories",
-          json({ name: input.name, kind: input.kind }),
-        );
-      }
-      if (input.action === "update") {
-        return api<Category>(`/api/v1/categories/${input.category.id}`, {
-          ...json({
-            name: input.name,
-            kind: input.kind,
-            expectedVersion: input.category.version,
-          }),
-          method: "PUT",
-        });
-      }
-      if (input.action === "archive") {
-        return api<Category>(`/api/v1/categories/${input.category.id}/archive`, {
-          ...json({
-            expectedVersion: input.category.version,
-            archived: !input.category.archivedAt,
-          }),
-        });
-      }
-      return api(`/api/v1/categories/${input.category.id}`, {
-        ...json({ expectedVersion: input.category.version }),
-        method: "DELETE",
-      });
-    },
-    onSuccess: async () => {
-      setCategoryName("");
-      await queryClient.invalidateQueries({ queryKey: ["categories"] });
-    },
   });
   const passwordMutation = useMutation({
     mutationFn: async () => {
@@ -144,21 +78,12 @@ export default function SettingsPage({ session }: { session: Session }) {
     },
   });
 
-  const addCategory = (event: FormEvent) => {
-    event.preventDefault();
-    categoryMutation.mutate({
-      action: "create",
-      name: categoryName,
-      kind: categoryKind,
-    });
-  };
-
   return (
     <>
       <PageHeader
         eyebrow="Preferences"
         title="Settings"
-        description="Choose local display defaults and keep your category list tidy."
+        description="Choose local display defaults and manage your sign-in methods."
       />
       <div className="settings-grid">
         <section className="panel settings-section">
@@ -177,21 +102,30 @@ export default function SettingsPage({ session }: { session: Session }) {
             }}
           >
             <Field label="Timezone">
-              <Input
+              <Select
                 required
                 value={timezone}
                 onChange={(event) => setTimezone(event.target.value)}
-                placeholder="America/Los_Angeles"
-              />
+              >
+                {timezoneOptions(timezone).map((option) => (
+                  <option key={option} value={option}>
+                    {timezoneOptionLabel(option)}
+                  </option>
+                ))}
+              </Select>
             </Field>
-            <Field label="Default account currency">
-              <Input
+            <Field label="Default account currency or crypto asset">
+              <Select
                 required
                 value={currency}
-                maxLength={3}
-                pattern="[A-Za-z]{3}"
-                onChange={(event) => setCurrency(event.target.value.toUpperCase())}
-              />
+                onChange={(event) => setCurrency(event.target.value)}
+              >
+                {currencyOptions(currency).map((option) => (
+                  <option key={option} value={option}>
+                    {currencyOptionLabel(option)}
+                  </option>
+                ))}
+              </Select>
             </Field>
             {preferencesMutation.error ? (
               <Alert>{preferencesMutation.error.message}</Alert>
@@ -332,115 +266,6 @@ export default function SettingsPage({ session }: { session: Session }) {
             ) : null}
           </section>
         ) : null}
-
-        <section className="panel settings-section">
-          <div className="section-title category-heading">
-            <div>
-              <h2>Categories</h2>
-              <p>Flat, simple labels for reporting. Used categories can be archived.</p>
-            </div>
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={includeArchived}
-                onChange={(event) => setIncludeArchived(event.target.checked)}
-              />
-              Show archived
-            </label>
-          </div>
-          <form className="inline-form" onSubmit={addCategory}>
-            <Input
-              required
-              aria-label="Category name"
-              placeholder="Groceries"
-              value={categoryName}
-              onChange={(event) => setCategoryName(event.target.value)}
-            />
-            <Select
-              aria-label="Category applies to"
-              value={categoryKind}
-              onChange={(event) =>
-                setCategoryKind(event.target.value as CategoryKind)
-              }
-            >
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-              <option value="both">Both</option>
-            </Select>
-            <Button type="submit" loading={categoryMutation.isPending}>
-              <Plus size={16} /> Add
-            </Button>
-          </form>
-          {categoryMutation.error ? <Alert>{categoryMutation.error.message}</Alert> : null}
-          <div className="category-list">
-            {categories.data?.map((category) => (
-              <div className="category-row" key={category.id}>
-                <div>
-                  <strong>{category.name}</strong>
-                  <Badge tone={category.kind === "expense" ? "red" : "green"}>
-                    {kindLabels[category.kind]}
-                  </Badge>
-                  {category.archivedAt ? <Badge>Archived</Badge> : null}
-                </div>
-                <div className="row-actions">
-                  <button
-                    aria-label="Rename category"
-                    onClick={() => {
-                      const name = window.prompt("Category name", category.name)?.trim();
-                      if (!name) return;
-                      const requestedKind = window
-                        .prompt(
-                          "Applicability: income, expense, or both",
-                          category.kind,
-                        )
-                        ?.trim()
-                        .toLowerCase();
-                      if (
-                        requestedKind === "income" ||
-                        requestedKind === "expense" ||
-                        requestedKind === "both"
-                      ) {
-                        categoryMutation.mutate({
-                          action: "update",
-                          category,
-                          name,
-                          kind: requestedKind,
-                        });
-                      }
-                    }}
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  <button
-                    aria-label={category.archivedAt ? "Restore category" : "Archive category"}
-                    onClick={() =>
-                      categoryMutation.mutate({ action: "archive", category })
-                    }
-                  >
-                    {category.archivedAt ? (
-                      <ArchiveRestore size={16} />
-                    ) : (
-                      <Archive size={16} />
-                    )}
-                  </button>
-                  <button
-                    aria-label="Delete unused category"
-                    onClick={() => {
-                      if (window.confirm(`Delete unused category “${category.name}”?`)) {
-                        categoryMutation.mutate({ action: "delete", category });
-                      }
-                    }}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            ))}
-            {!categories.data?.length ? (
-              <p className="panel-empty">No categories yet. Transactions can remain uncategorized.</p>
-            ) : null}
-          </div>
-        </section>
       </div>
     </>
   );

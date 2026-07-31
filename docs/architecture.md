@@ -36,8 +36,9 @@ contract.
 ## Ledger invariants
 
 - Money at JSON and MCP boundaries is always a decimal string.
-- Account currency is immutable after any opening balance, committed posting, or
-  staged reference.
+- Account currency or crypto asset symbol is immutable after any opening balance,
+  committed posting, or staged reference. Crypto wallets track native quantities;
+  they do not create market prices, valuation, or a global FX rate.
 - A deposit has one positive destination posting.
 - A withdrawal has one negative source posting.
 - A transfer has a negative source posting and positive destination posting.
