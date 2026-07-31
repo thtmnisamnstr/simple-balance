@@ -6,6 +6,8 @@ import {
   accountCreateSchema,
   accountUpdateSchema,
   bulkDeleteStageSchema,
+  bulkTransactionEditSchema,
+  bulkTransactionFilterSelectionRequestSchema,
   categoryCreateSchema,
   categoryMergeSchema,
   categoryUpdateSchema,
@@ -14,6 +16,7 @@ import {
   directTransactionCreateSchema,
   idempotencyKeySchema,
   listQuerySchema,
+  payeeMergeSchema,
   stageCreateSchema,
   stageListQuerySchema,
   stageUpdateSchema,
@@ -39,6 +42,11 @@ import {
   setCategoryArchived,
   updateCategory,
 } from "./services/categories.js";
+import {
+  listDuplicatePayees,
+  listPayees,
+  mergePayees,
+} from "./services/payees.js";
 import { AppError } from "./services/errors.js";
 import {
   getIdempotent,
@@ -60,7 +68,9 @@ import {
 } from "./services/staging.js";
 import { getSummary } from "./services/summary.js";
 import {
+  bulkEditTransactions,
   createTransaction,
+  getBulkTransactionSelection,
   getTransaction,
   listTransactions,
   setTransactionDeleted,
@@ -70,6 +80,8 @@ import {
   accountBalancesResultSchema,
   accountResultSchema,
   auditEventResultSchema,
+  bulkTransactionEditMcpResultSchema,
+  bulkTransactionSelectionSnapshotResultSchema,
   categoryResultSchema,
   committedStagesResultSchema,
   csvExportResultSchema,
@@ -77,8 +89,11 @@ import {
   deletedEntityResultSchema,
   deletedStagesResultSchema,
   duplicateCategoriesResultSchema,
+  duplicatePayeesResultSchema,
   mcpOutputSchema,
   mergedCategoriesResultSchema,
+  mergedPayeesResultSchema,
+  payeeResultSchema,
   pageResultSchema,
   stagedTransactionResultSchema,
   summaryResultSchema,
@@ -230,6 +245,30 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       () => runTool(() => listDuplicateCategories(actor)),
     );
     server.registerTool(
+      "list_payees",
+      {
+        title: "List payees",
+        description:
+          "List canonical payee names derived from committed and staged transactions.",
+        inputSchema: z.object({ search: z.string().trim().max(200).optional() }),
+        outputSchema: mcpOutputSchema(z.array(payeeResultSchema)),
+        annotations: readAnnotations,
+      },
+      ({ search }) => runTool(() => listPayees(actor, { search })),
+    );
+    server.registerTool(
+      "list_duplicate_payees",
+      {
+        title: "List duplicate payees",
+        description:
+          "Find payee spellings that match after Unicode, whitespace, and case normalization.",
+        inputSchema: z.object({}),
+        outputSchema: mcpOutputSchema(duplicatePayeesResultSchema),
+        annotations: readAnnotations,
+      },
+      () => runTool(() => listDuplicatePayees(actor)),
+    );
+    server.registerTool(
       "list_transactions",
       {
         title: "List committed transactions",
@@ -250,6 +289,20 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         annotations: readAnnotations,
       },
       ({ id }) => runTool(() => getTransaction(actor, id)),
+    );
+    server.registerTool(
+      "preview_bulk_transaction_selection",
+      {
+        title: "Preview a bulk transaction selection",
+        description:
+          "Resolve all transactions matching a filter, minus explicit exclusions, into the count and fingerprint required for a safe all-matching bulk edit.",
+        inputSchema: bulkTransactionFilterSelectionRequestSchema,
+        outputSchema: mcpOutputSchema(
+          bulkTransactionSelectionSnapshotResultSchema,
+        ),
+        annotations: readAnnotations,
+      },
+      (input) => runTool(() => getBulkTransactionSelection(actor, input)),
     );
     server.registerTool(
       "list_staged_transactions",
@@ -627,6 +680,27 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             input,
             (tx) => mergeCategories(actor, input, tx),
           ),
+      ),
+    );
+    server.registerTool(
+      "merge_payees",
+      {
+        title: "Merge payees",
+        description:
+          "Rewrite selected committed and staged payee spellings to one canonical name.",
+        inputSchema: payeeMergeSchema,
+        outputSchema: mcpOutputSchema(mergedPayeesResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      (input) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "payee.merge",
+            input.idempotencyKey,
+            input,
+            (tx) => mergePayees(actor, input, tx),
+          ),
         ),
     );
     server.registerTool(
@@ -678,6 +752,29 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             { id, input },
             (tx) => updateTransaction(actor, id, input, tx),
           ),
+        ),
+    );
+    server.registerTool(
+      "bulk_edit_transactions",
+      {
+        title: "Bulk edit committed transactions",
+        description:
+          "Atomically edit explicit versioned transactions or a previewed all-matching selection. Transfers only accept common-field edits, account changes must preserve native currency, and dryRun validates without writing.",
+        inputSchema: bulkTransactionEditSchema,
+        outputSchema: mcpOutputSchema(bulkTransactionEditMcpResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      (input) =>
+        runTool(() =>
+          input.dryRun
+            ? bulkEditTransactions(actor, input)
+            : runIdempotentMcpMutation(
+                actor,
+                "transaction.bulk_edit",
+                input.idempotencyKey,
+                input,
+                (tx) => bulkEditTransactions(actor, input, tx),
+              ),
         ),
     );
     server.registerTool(

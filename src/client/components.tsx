@@ -12,6 +12,7 @@ import {
   type ReactNode,
   forwardRef,
   useEffect,
+  useId,
   useRef,
 } from "react";
 import type { DatePreset } from "./date-range.js";
@@ -91,6 +92,8 @@ export function Modal({
   footer?: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
   useEffect(() => {
     if (!dialog.current) return;
     if (open && !dialog.current.open) dialog.current.showModal();
@@ -100,6 +103,8 @@ export function Modal({
     <dialog
       ref={dialog}
       className="modal"
+      aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -109,8 +114,8 @@ export function Modal({
       <div className="modal-card">
         <header className="modal-header">
           <div>
-            <h2>{title}</h2>
-            {description ? <p>{description}</p> : null}
+            <h2 id={titleId}>{title}</h2>
+            {description ? <p id={descriptionId}>{description}</p> : null}
           </div>
           <button className="icon-button" aria-label="Close" onClick={onClose}>
             <X size={19} />

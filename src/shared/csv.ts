@@ -9,11 +9,11 @@ import {
 export const csvMappingSchema = z
   .object({
     date: z.string().min(1),
-    description: z.string().min(1),
+    payee: z.string().min(1),
+    description: z.string().optional(),
     amount: z.string().optional(),
     debit: z.string().optional(),
     credit: z.string().optional(),
-    payee: z.string().optional(),
     category: z.string().optional(),
     notes: z.string().optional(),
     type: z.string().optional(),
@@ -155,8 +155,11 @@ export function normalizeCsvRows(
     const date = parseCsvDate(row[mapping.date] ?? "", options.dateFormat);
     if (!date) issues.push({ field: "date", message: "Date could not be parsed" });
 
-    const description = (row[mapping.description] ?? "").trim();
-    if (!description) issues.push({ field: "description", message: "Description is required" });
+    const payee = (row[mapping.payee] ?? "").trim();
+    if (!payee) issues.push({ field: "payee", message: "Payee is required" });
+    const description = mapping.description
+      ? (row[mapping.description] ?? "").trim() || null
+      : null;
 
     const signedRaw = mapping.amount ? row[mapping.amount] ?? "" : "";
     const debitRaw = mapping.debit ? row[mapping.debit] ?? "" : "";
@@ -231,14 +234,14 @@ export function normalizeCsvRows(
       issues.push({ field: "amount", message: "A non-zero amount is required" });
     }
 
-    if (issues.length || !date || !amount) {
+    if (issues.length || !date || !amount || !payee) {
       return { draft: null, issues, rawData: row };
     }
 
     const common = {
       date,
+      payee,
       description,
-      payee: mapping.payee ? row[mapping.payee] || null : null,
       notes: mapping.notes ? row[mapping.notes] || null : null,
       externalId: mapping.externalId ? row[mapping.externalId] || null : null,
     };

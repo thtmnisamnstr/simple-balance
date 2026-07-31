@@ -15,6 +15,7 @@ const accounts = new Map([
 ]);
 const common = {
   date: "2026-07-30",
+  payee: "Test transaction",
   description: "Test transaction",
 };
 

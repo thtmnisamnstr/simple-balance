@@ -16,18 +16,23 @@ authorization, duplicate checks, or explicit commit controls.
 
 ## Version 0.1.0
 
-This is the first Simple Balance release. Its intentionally focused feature set
-is:
+This is Simple Balance's first release and database baseline. Its intentionally
+focused feature set is:
 
 - Embedded local authentication by default, with optional allowlisted Google
   login; both methods can open the same isolated private ledger
-- Account and category CRUD with archive-safe history
-- Committed transaction CRUD, soft delete/restore, optimistic concurrency, and
-  idempotent creation
+- Account and category CRUD with archive-safe history, duplicate-safe category
+  and payee merging, and filtered transaction views for each account, category,
+  and payee
+- Committed transaction CRUD, soft delete/restore, optimistic concurrency,
+  idempotent creation, and atomic mass editing from every transaction view
+- Required payees, optional descriptions, and case-insensitive category/payee
+  autocomplete while creating or editing transactions
 - Dedicated staged queue with validation, duplicate warnings, batch deletion,
   dry-run, and all-or-nothing commit
-- Bank CSV detection, mapping, localized date/number parsing, preview, staging,
-  duplicate detection, and app export/import round trips
+- Bank CSV detection, mapping, localized date/number parsing, automatic matching
+  and creation of categories/payees, preview, staging, duplicate detection, and
+  app export/import round trips
 - Linkable inclusive date ranges and native-currency dashboard groups
 - Append-only web/MCP audit history
 - OAuth-protected Streamable HTTP MCP server with read/stage/write scopes

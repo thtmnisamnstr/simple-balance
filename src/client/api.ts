@@ -131,12 +131,33 @@ export type CategoryMergeResult = {
   updatedStagedTransactionCount: number;
 };
 
+export type PayeeSummary = {
+  name: string;
+  normalizedName: string;
+  transactionCount: number;
+  stagedTransactionCount: number;
+  totalCount: number;
+};
+
+export type PayeeDuplicateGroup = {
+  normalizedName: string;
+  count: number;
+  payees: PayeeSummary[];
+};
+
+export type PayeeMergeResult = {
+  targetPayee: string;
+  mergedSourcePayees: string[];
+  updatedTransactionCount: number;
+  updatedStagedTransactionCount: number;
+};
+
 export type Transaction = {
   id: string;
   type: TransactionType;
   date: string;
-  description: string;
-  payee?: string | null;
+  payee: string;
+  description: string | null;
   categoryId?: string | null;
   category?: Category | null;
   notes?: string | null;
@@ -152,6 +173,70 @@ export type Transaction = {
   effectiveRate?: string | null;
   deletedAt?: string | null;
   version: number;
+};
+
+export type TransactionBulkEditFilter = {
+  start?: string;
+  end?: string;
+  search?: string;
+  type?: TransactionType;
+  accountId?: string;
+  categoryId?: string;
+  payee?: string;
+  includeDeleted: boolean;
+  currency?: string;
+};
+
+export type TransactionBulkEditSelection =
+  | {
+      mode: "ids";
+      items: { id: string; expectedVersion: number }[];
+    }
+  | {
+      mode: "filter";
+      filter: TransactionBulkEditFilter;
+      excludedIds: string[];
+      expectedCount: number;
+      expectedFingerprint: string;
+    };
+
+export type TransactionBulkSelectionPreview = {
+  count: number;
+  fingerprint: string;
+  activeCount: number;
+  deletedCount: number;
+  transferCount: number;
+  currencies: string[];
+};
+
+export type TransactionBulkEditPatch = {
+  date?: string;
+  payee?: string;
+  categoryId?: string | null;
+  accountId?: string;
+  description?: string | null;
+  notes?: string | null;
+  type?: "deposit" | "withdrawal";
+};
+
+export type TransactionBulkEditResult = {
+  updatedCount: number;
+  selectionCount: number;
+  selectionFingerprint: string;
+  activeCount: number;
+  deletedCount: number;
+  transferCount: number;
+  currencies: string[];
+  itemsTruncated: boolean;
+  dryRun: boolean;
+  items: {
+    id: string;
+    previousVersion: number;
+    nextVersion: number;
+    type: TransactionType;
+    date: string;
+    payee: string;
+  }[];
 };
 
 export type StagedTransaction = {

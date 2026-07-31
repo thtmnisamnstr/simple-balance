@@ -68,6 +68,7 @@ integration("account balance snapshots", () => {
       {
         type: "deposit",
         date: "2020-01-09",
+        payee: "Before range",
         description: "Before range",
         toAccountId: accountId,
         amount: "10",
@@ -79,6 +80,7 @@ integration("account balance snapshots", () => {
       {
         type: "deposit",
         date: "2020-01-10",
+        payee: "On start date",
         description: "On start date",
         toAccountId: accountId,
         amount: "20",
@@ -90,6 +92,7 @@ integration("account balance snapshots", () => {
       {
         type: "withdrawal",
         date: "2020-01-20",
+        payee: "On end date",
         description: "On end date",
         fromAccountId: accountId,
         amount: "5",
@@ -101,6 +104,7 @@ integration("account balance snapshots", () => {
       {
         type: "deposit",
         date: "2020-01-21",
+        payee: "After range",
         description: "After range",
         toAccountId: accountId,
         amount: "40",
@@ -112,6 +116,7 @@ integration("account balance snapshots", () => {
       {
         type: "deposit",
         date: "2020-01-15",
+        payee: "Deleted transaction",
         description: "Deleted transaction",
         toAccountId: accountId,
         amount: "999",
@@ -124,6 +129,7 @@ integration("account balance snapshots", () => {
       {
         type: "deposit",
         date: "9999-12-31",
+        payee: "Future transaction",
         description: "Future transaction",
         toAccountId: accountId,
         amount: "1000",
@@ -263,6 +269,7 @@ integration("account balance snapshots", () => {
           draft: {
             type: "deposit",
             date: "2026-07-30",
+            payee: `Concurrent account reference ${attempt}`,
             description: `Concurrent account reference ${attempt}`,
             toAccountId: account.id,
             amount: "1",
@@ -301,6 +308,7 @@ integration("account balance snapshots", () => {
       draft: {
         type: "deposit",
         date: "2026-07-30",
+        payee: "Pending account mutation guard",
         description: "Pending account mutation guard",
         toAccountId: account.id,
         amount: "1",
@@ -340,6 +348,7 @@ integration("account balance snapshots", () => {
       {
         type: "deposit",
         date: "2026-07-30",
+        payee: "Archived account history",
         description: "Archived account history",
         toAccountId: originalAccount.id,
         amount: "15",
@@ -363,6 +372,7 @@ integration("account balance snapshots", () => {
       draft: {
         type: "deposit",
         date: transaction.date,
+        payee: "Edited archived account history",
         description: "Edited archived account history",
         toAccountId: originalAccount.id,
         amount: transaction.destinationAmount!,
@@ -371,6 +381,7 @@ integration("account balance snapshots", () => {
     });
     expect(preserved).toMatchObject({
       destinationAccountId: originalAccount.id,
+      payee: "Edited archived account history",
       description: "Edited archived account history",
     });
 
@@ -379,6 +390,7 @@ integration("account balance snapshots", () => {
         draft: {
           type: "deposit",
           date: transaction.date,
+          payee: "Rerouted archived account history",
           description: "Rerouted archived account history",
           toAccountId: unrelatedAccount.id,
           amount: transaction.destinationAmount!,
@@ -389,6 +401,7 @@ integration("account balance snapshots", () => {
 
     await expect(getTransaction(first, transaction.id)).resolves.toMatchObject({
       destinationAccountId: originalAccount.id,
+      payee: "Edited archived account history",
       description: "Edited archived account history",
       version: preserved.version,
     });

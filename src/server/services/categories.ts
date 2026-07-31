@@ -28,14 +28,7 @@ import {
   serializeRow,
   writeAudit,
 } from "./helpers.js";
-
-function normalizeCategoryName(name: string) {
-  return name
-    .normalize("NFKC")
-    .trim()
-    .replace(/\s+/gu, " ")
-    .toLowerCase();
-}
+import { normalizeHumanName } from "./names.js";
 
 async function findNormalizedNameConflict(
   tx: DbTransaction,
@@ -47,11 +40,11 @@ async function findNormalizedNameConflict(
     .select({ id: categories.id, name: categories.name })
     .from(categories)
     .where(eq(categories.userId, actor.userId));
-  const normalizedName = normalizeCategoryName(name);
+  const normalizedName = normalizeHumanName(name);
   return rows.find(
     (row) =>
       row.id !== excludeId &&
-      normalizeCategoryName(row.name) === normalizedName,
+      normalizeHumanName(row.name) === normalizedName,
   );
 }
 
@@ -70,7 +63,7 @@ async function assertNormalizedNameAvailable(
   if (existing) {
     throw duplicate("A category with this name already exists", {
       duplicateCategoryId: existing.id,
-      normalizedName: normalizeCategoryName(name),
+      normalizedName: normalizeHumanName(name),
     });
   }
 }
@@ -149,6 +142,16 @@ export async function listCategories(actor: Actor, includeArchived = false) {
     .orderBy(categories.kind, categories.name);
 }
 
+export async function getCategory(actor: Actor, id: string) {
+  const [category] = await getDb()
+    .select()
+    .from(categories)
+    .where(and(eq(categories.id, id), eq(categories.userId, actor.userId)))
+    .limit(1);
+  if (!category) throw notFound("Category not found");
+  return category;
+}
+
 export async function listDuplicateCategories(actor: Actor) {
   const rows = await getDb()
     .select()
@@ -158,7 +161,7 @@ export async function listDuplicateCategories(actor: Actor) {
   const grouped = new Map<string, CategoryRow[]>();
 
   for (const row of rows) {
-    const normalizedName = normalizeCategoryName(row.name);
+    const normalizedName = normalizeHumanName(row.name);
     const group = grouped.get(normalizedName);
     if (group) {
       group.push(row);

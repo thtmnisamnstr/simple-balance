@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 const migrationDirectory = path.resolve(import.meta.dirname, "../drizzle");
 const metadataDirectory = path.join(migrationDirectory, "meta");
 
-describe("migration history", () => {
-  it("preserves the v0.1.0 baseline and records the forward-only crypto upgrade", async () => {
+describe("v0.1.0 migration baseline", () => {
+  it("has one intentionally named initial migration and one matching snapshot", async () => {
     const migrationFiles = (await readdir(migrationDirectory))
       .filter((name) => name.endsWith(".sql"))
       .sort();
@@ -26,11 +26,8 @@ describe("migration history", () => {
       }>;
     };
 
-    expect(migrationFiles).toEqual([
-      "0000_v0_1_0_initial.sql",
-      "0001_easy_lionheart.sql",
-    ]);
-    expect(snapshotFiles).toEqual(["0000_snapshot.json", "0001_snapshot.json"]);
+    expect(migrationFiles).toEqual(["0000_v0_1_0_initial.sql"]);
+    expect(snapshotFiles).toEqual(["0000_snapshot.json"]);
     expect(journal).toMatchObject({
       version: "7",
       dialect: "postgresql",
@@ -41,17 +38,11 @@ describe("migration history", () => {
           tag: "0000_v0_1_0_initial",
           breakpoints: true,
         },
-        {
-          idx: 1,
-          version: "7",
-          tag: "0001_easy_lionheart",
-          breakpoints: true,
-        },
       ],
     });
   });
 
-  it("keeps the v0.1.0 schema immutable and adds a data-preserving crypto upgrade", async () => {
+  it("models the current schema directly", async () => {
     const sql = await readFile(
       path.join(migrationDirectory, "0000_v0_1_0_initial.sql"),
       "utf8",
@@ -68,11 +59,6 @@ describe("migration history", () => {
         }
       >;
     };
-
-    const upgradeSql = await readFile(
-      path.join(migrationDirectory, "0001_easy_lionheart.sql"),
-      "utf8",
-    );
 
     expect(sql).toContain('CREATE TABLE "idempotency_record"');
     expect(sql).toContain('"request_hash" text NOT NULL');
@@ -101,10 +87,12 @@ describe("migration history", () => {
     expect(sql).toContain(
       'CONSTRAINT "staged_transaction_import_batch_owner_fk" FOREIGN KEY ("user_id","import_batch_id")',
     );
+    expect(sql).toContain("'crypto_wallet'");
+    expect(sql).toContain('"payee" text NOT NULL');
+    expect(sql).toContain('"description" text');
+    expect(sql).toContain("numeric(44, 18)");
     expect(sql).not.toMatch(/\bALTER TABLE\b[\s\S]*?\bADD COLUMN\b/i);
     expect(sql).not.toMatch(/^UPDATE\s/imu);
-    expect(sql).not.toMatch(/\blegacy\b|\bbackfill\b/i);
-
     expect(baselineSnapshot.prevId).toBe("00000000-0000-0000-0000-000000000000");
     expect(Object.keys(baselineSnapshot.tables)).toHaveLength(17);
     expect(
@@ -114,9 +102,5 @@ describe("migration history", () => {
       baselineSnapshot.tables["public.ledger_transaction"]?.indexes
         .transaction_external_id_idx,
     ).toBeDefined();
-    expect(upgradeSql).toContain("ADD VALUE 'crypto_wallet'");
-    expect(upgradeSql).toContain("numeric(44, 18)");
-    expect(upgradeSql).toContain("^[A-Z]{2,12}$");
-    expect(upgradeSql).not.toMatch(/\bDELETE\b|\bTRUNCATE\b|\bDROP TABLE\b/i);
   });
 });

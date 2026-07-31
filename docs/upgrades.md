@@ -40,7 +40,8 @@ documents another safe procedure.
 ## Schema contract
 
 Version 0.1.0 is the database baseline and contains one initial migration.
-Released migrations are immutable. A later release that changes the schema must:
+Released migrations are immutable. A later release that changes the schema
+must:
 
 - add a new, forward-only, version-controlled SQL migration;
 - preserve all ledger, authentication, provenance, idempotency, and audit data;

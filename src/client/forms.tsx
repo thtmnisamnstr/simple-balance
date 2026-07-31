@@ -252,7 +252,7 @@ export function AccountForm({
 function draftFromTransaction(transaction: Transaction): TransactionDraft {
   const common = {
     date: transaction.date,
-    description: transaction.description,
+    description: transaction.description ?? null,
     payee: transaction.payee,
     categoryId: transaction.categoryId,
     notes: transaction.notes,
@@ -311,7 +311,11 @@ const transactionTypeOptions: {
 ];
 
 function normalizeCategoryName(value: string) {
-  return value.trim().replace(/\s+/g, " ").toLocaleLowerCase();
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
+}
+
+function normalizeAutocompleteValue(value: string) {
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
 function CategoryPicker({
@@ -329,12 +333,14 @@ function CategoryPicker({
   const queryClient = useQueryClient();
   const compatible = useMemo(
     () =>
-      categories.filter(
-        (category) =>
+      categories.filter((category) => {
+        if (category.archivedAt && category.id !== categoryId) return false;
+        return (
           category.kind === "both" ||
           (type === "deposit" && category.kind === "income") ||
-          (type === "withdrawal" && category.kind === "expense"),
-      ),
+          (type === "withdrawal" && category.kind === "expense")
+        );
+      }),
     [categories, type],
   );
   const selected = categories.find((category) => category.id === categoryId);
@@ -393,12 +399,12 @@ function CategoryPicker({
           value={value}
           onChange={(event) => {
             const next = event.target.value;
-            setValue(next);
             const match = compatible.find(
               (category) =>
                 normalizeCategoryName(category.name) ===
                 normalizeCategoryName(next),
             );
+            setValue(match?.name ?? next);
             onChange(match?.id ?? "");
           }}
           placeholder="Type to search or add"
@@ -435,6 +441,9 @@ export function TransactionForm({
   transaction,
   staged,
   initialAccountId,
+  initialCategoryId,
+  initialPayee,
+  initialType,
   initialMode = "commit",
   onDone,
 }: {
@@ -443,6 +452,9 @@ export function TransactionForm({
   transaction?: Transaction;
   staged?: StagedTransaction;
   initialAccountId?: string;
+  initialCategoryId?: string;
+  initialPayee?: string;
+  initialType?: TransactionType;
   initialMode?: "commit" | "stage";
   onDone: () => void;
 }) {
@@ -456,26 +468,36 @@ export function TransactionForm({
           : null,
     [transaction, staged],
   );
-  const [type, setType] = useState<TransactionType>(initial?.type ?? "withdrawal");
+  const createType = initialType ?? "withdrawal";
+  const defaultAccountIds = (nextType: TransactionType) => {
+    const primaryAccountId = initialAccountId ?? accounts[0]?.id ?? "";
+    return {
+      fromAccountId: primaryAccountId,
+      toAccountId:
+        nextType === "transfer"
+          ? accounts.find((account) => account.id !== primaryAccountId)?.id ?? ""
+          : primaryAccountId,
+    };
+  };
+  const initialFormType = initial?.type ?? createType;
+  const initialAccountIds = defaultAccountIds(initialFormType);
+  const [type, setType] = useState<TransactionType>(
+    initialFormType,
+  );
   const [date, setDate] = useState(
     initial?.date ?? calendarDateInTimezone(new Date(), timezone),
   );
   const [description, setDescription] = useState(initial?.description ?? "");
-  const [payee, setPayee] = useState(initial?.payee ?? "");
-  const [categoryId, setCategoryId] = useState(initial?.categoryId ?? "");
+  const [payee, setPayee] = useState(initial?.payee ?? initialPayee ?? "");
+  const [categoryId, setCategoryId] = useState(
+    initial?.categoryId ?? initialCategoryId ?? "",
+  );
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [fromAccountId, setFromAccountId] = useState(
-    initial?.fromAccountId ||
-      initialAccountId ||
-      accounts[0]?.id ||
-      "",
+    initial?.fromAccountId || initialAccountIds.fromAccountId,
   );
   const [toAccountId, setToAccountId] = useState(
-    initial?.toAccountId ||
-      initialAccountId ||
-      accounts.find((account) => account.id !== initialAccountId)?.id ||
-      accounts[0]?.id ||
-      "",
+    initial?.toAccountId || initialAccountIds.toAccountId,
   );
   const [amount, setAmount] = useState(initial?.amount ?? "");
   const [destinationAmount, setDestinationAmount] = useState(
@@ -483,11 +505,20 @@ export function TransactionForm({
   );
   const [mode, setMode] = useState<"commit" | "stage">(initialMode);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
+  const [createAnother, setCreateAnother] = useState(false);
+  const [resetAfterSave, setResetAfterSave] = useState(false);
+  const [categoryPickerVersion, setCategoryPickerVersion] = useState(0);
+  const [repeatNotice, setRepeatNotice] = useState("");
+  const payeeListId = useId();
   const submissionIdempotencyKey = useRef(crypto.randomUUID());
   const queryClient = useQueryClient();
   const payees = useQuery({
-    queryKey: ["payees"],
-    queryFn: () => api<string[]>("/api/v1/payees"),
+    queryKey: ["payees", "suggestions", payee.trim().toLowerCase()],
+    queryFn: () =>
+      api<string[]>(
+        `/api/v1/payees/suggestions?search=${encodeURIComponent(payee.trim())}`,
+      ),
+    placeholderData: (previous) => previous,
   });
 
   useEffect(() => {
@@ -518,13 +549,29 @@ export function TransactionForm({
     destination &&
     source.currency !== destination.currency;
 
+  const resetCreateDraft = () => {
+    const accountIds = defaultAccountIds(createType);
+    setType(createType);
+    setDate(calendarDateInTimezone(new Date(), timezone));
+    setPayee(initialPayee ?? "");
+    setDescription("");
+    setCategoryId(initialCategoryId ?? "");
+    setCategoryPickerVersion((version) => version + 1);
+    setNotes("");
+    setFromAccountId(accountIds.fromAccountId);
+    setToAccountId(accountIds.toAccountId);
+    setAmount("");
+    setDestinationAmount("");
+  };
+
   const mutation = useMutation<unknown, Error, boolean | undefined>({
     mutationFn: async (forceDuplicate = false) => {
+      setRepeatNotice("");
       const duplicateAllowed = allowDuplicate || forceDuplicate;
       const common = {
         date,
-        description,
-        payee: payee || null,
+        payee,
+        description: description || null,
         categoryId: categoryId || null,
         notes: notes || null,
       };
@@ -578,12 +625,22 @@ export function TransactionForm({
     },
     onSuccess: async () => {
       submissionIdempotencyKey.current = crypto.randomUUID();
+      setAllowDuplicate(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
       ]);
+      if (!transaction && !staged && createAnother) {
+        if (resetAfterSave) resetCreateDraft();
+        setRepeatNotice(
+          mode === "stage"
+            ? "Transaction staged. Create another when ready."
+            : "Transaction committed. Create another when ready.",
+        );
+        return;
+      }
       onDone();
     },
   });
@@ -628,16 +685,18 @@ export function TransactionForm({
                 className={`transaction-type ${type === option.type ? "selected" : ""}`}
                 onClick={() => {
                   setType(option.type);
-                  if (!initialAccountId || transaction || staged) return;
+                  if (transaction || staged) return;
+                  const primaryAccountId =
+                    initialAccountId ?? accounts[0]?.id ?? "";
                   if (option.type === "withdrawal") {
-                    setFromAccountId(initialAccountId);
+                    setFromAccountId(primaryAccountId);
                   } else if (option.type === "deposit") {
-                    setToAccountId(initialAccountId);
+                    setToAccountId(primaryAccountId);
                   } else {
-                    setFromAccountId(initialAccountId);
+                    setFromAccountId(primaryAccountId);
                     setToAccountId(
                       accounts.find(
-                        (account) => account.id !== initialAccountId,
+                        (account) => account.id !== primaryAccountId,
                       )?.id ?? "",
                     );
                   }
@@ -656,14 +715,37 @@ export function TransactionForm({
         <Field label="Date">
           <Input type="date" required value={date} onChange={(event) => setDate(event.target.value)} />
         </Field>
-        <Field label="Description">
+        <Field label="Payee">
           <Input
             autoFocus
             required
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Groceries, paycheck, card payment…"
+            list={payeeListId}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls={payeeListId}
+            value={payee}
+            onChange={(event) => {
+              const next = event.target.value;
+              const match = payees.data?.find(
+                (candidate) =>
+                  normalizeAutocompleteValue(candidate) ===
+                  normalizeAutocompleteValue(next),
+              );
+              setPayee(match ?? next);
+            }}
+            onBlur={() => {
+              const match = payees.data?.find(
+                (candidate) =>
+                  normalizeAutocompleteValue(candidate) ===
+                  normalizeAutocompleteValue(payee),
+              );
+              setPayee(match ?? payee.trim().replace(/\s+/gu, " "));
+            }}
+            placeholder="Merchant, employer, person…"
           />
+          <datalist id={payeeListId}>
+            {payees.data?.map((value) => <option key={value} value={value} />)}
+          </datalist>
         </Field>
       </div>
       {type !== "deposit" ? (
@@ -728,22 +810,20 @@ export function TransactionForm({
         ) : null}
       </div>
       <div className="two-columns">
-        <Field label="Payee" hint="Optional">
-          <Input
-            list="payee-suggestions"
-            value={payee ?? ""}
-            onChange={(event) => setPayee(event.target.value)}
-          />
-          <datalist id="payee-suggestions">
-            {payees.data?.map((value) => <option key={value} value={value} />)}
-          </datalist>
-        </Field>
         <Field label="Category" hint="Optional">
           <CategoryPicker
+            key={categoryPickerVersion}
             categories={categories}
             type={type}
             categoryId={categoryId ?? ""}
             onChange={setCategoryId}
+          />
+        </Field>
+        <Field label="Description" hint="Optional">
+          <Input
+            value={description ?? ""}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Additional details"
           />
         </Field>
       </div>
@@ -751,34 +831,65 @@ export function TransactionForm({
         <Textarea rows={3} value={notes ?? ""} onChange={(event) => setNotes(event.target.value)} />
       </Field>
       {!transaction && !staged ? (
-        <fieldset className="commit-choice">
-          <legend>What should happen next?</legend>
-          <label>
-            <input
-              type="radio"
-              name="mode"
-              checked={mode === "commit"}
-              onChange={() => setMode("commit")}
-            />
-            <span>
-              <strong>Commit now</strong>
-              <small>Include it in balances immediately</small>
-            </span>
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="mode"
-              checked={mode === "stage"}
-              onChange={() => setMode("stage")}
-            />
-            <span>
-              <strong>Stage for review</strong>
-              <small>Keep it out of balances until approved</small>
-            </span>
-          </label>
-        </fieldset>
+        <>
+          <fieldset className="commit-choice">
+            <legend>What should happen next?</legend>
+            <label>
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === "commit"}
+                onChange={() => setMode("commit")}
+              />
+              <span>
+                <strong>Commit now</strong>
+                <small>Include it in balances immediately</small>
+              </span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="mode"
+                checked={mode === "stage"}
+                onChange={() => setMode("stage")}
+              />
+              <span>
+                <strong>Stage for review</strong>
+                <small>Keep it out of balances until approved</small>
+              </span>
+            </label>
+          </fieldset>
+          <fieldset
+            className="repeat-entry-options"
+            aria-label="Repeat transaction entry"
+          >
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={createAnother}
+                disabled={mutation.isPending}
+                onChange={(event) => {
+                  setCreateAnother(event.target.checked);
+                  if (!event.target.checked) setResetAfterSave(false);
+                }}
+              />
+              After saving/staging, return to create another
+            </label>
+            {createAnother ? (
+              <label className="check-label repeat-entry-reset">
+                <input
+                  type="checkbox"
+                  checked={resetAfterSave}
+                  disabled={mutation.isPending}
+                  onChange={(event) => setResetAfterSave(event.target.checked)}
+                />
+                Reset after saving/staging
+              </label>
+            ) : null}
+          </fieldset>
+        </>
       ) : null}
+      {repeatNotice ? <Alert kind="success">{repeatNotice}</Alert> : null}
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel

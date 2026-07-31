@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   and,
   desc,
@@ -8,12 +9,26 @@ import {
   lt,
   lte,
   ne,
+  notInArray,
   or,
   sql,
   type SQL,
 } from "drizzle-orm";
-import type { Actor, Page, TransactionDraft } from "../../shared/domain.js";
+import type {
+  Actor,
+  BulkTransactionEditInput,
+  BulkTransactionEditResult,
+  BulkTransactionFilter,
+  BulkTransactionPatch,
+  BulkTransactionSelectionSnapshot,
+  Page,
+  TransactionDraft,
+} from "../../shared/domain.js";
 import {
+  bulkTransactionFilterSelectionRequestSchema,
+  bulkTransactionEditResultSchema,
+  bulkTransactionEditSchema,
+  bulkTransactionSelectionSnapshotSchema,
   listQuerySchema,
   positiveDecimalStringSchema,
   transactionDraftSchema,
@@ -21,6 +36,7 @@ import {
 } from "../../shared/domain.js";
 import {
   getDb,
+  type Database,
   type DbTransaction,
   withTransaction,
 } from "../db/client.js";
@@ -40,10 +56,13 @@ import {
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
+  lockPayeeNamespace,
   serializeRow,
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
+import { normalizeHumanName } from "./names.js";
+import { resolveCanonicalPayee } from "./payees.js";
 
 type PreparedTransaction = {
   transaction: typeof transactions.$inferInsert;
@@ -116,8 +135,8 @@ export function buildPreparedTransaction(
     userId: actor.userId,
     type: draft.type,
     date: draft.date,
-    description: draft.description,
-    payee: draft.payee ?? null,
+    payee: draft.payee,
+    description: draft.description ?? null,
     categoryId: draft.categoryId ?? null,
     notes: draft.notes ?? null,
     externalId: draft.externalId ?? null,
@@ -244,6 +263,11 @@ export async function prepareTransaction(
   if (draft.categoryId) {
     await lockCategoryNamespace(tx, actor);
   }
+  await lockPayeeNamespace(tx, actor);
+  const canonicalDraft = {
+    ...draft,
+    payee: await resolveCanonicalPayee(tx, actor, draft.payee),
+  };
   const accountMap = await getOwnedAccounts(
     tx,
     actor,
@@ -274,7 +298,7 @@ export async function prepareTransaction(
     }
   }
 
-  return buildPreparedTransaction(actor, draft, accountMap);
+  return buildPreparedTransaction(actor, canonicalDraft, accountMap);
 }
 
 export async function createTransactionWithinTx(
@@ -405,44 +429,13 @@ export async function listTransactions(
   queryInput: unknown,
 ): Promise<Page<TransactionView>> {
   const query = listQuerySchema.parse(queryInput);
-  const conditions: SQL[] = [eq(transactions.userId, actor.userId)];
-  if (!query.includeDeleted) conditions.push(isNull(transactions.deletedAt));
-  if (query.start) conditions.push(sql`${transactions.date} >= ${query.start}::date`);
-  if (query.end) conditions.push(lte(transactions.date, query.end));
+  const conditions = transactionFilterConditions(actor, query);
   if (query.cursor) {
     const cursor = decodeCursor(query.cursor);
     conditions.push(
       or(
         lt(transactions.date, cursor.sort),
         and(eq(transactions.date, cursor.sort), lt(transactions.id, cursor.id)),
-      )!,
-    );
-  }
-  if (query.type) conditions.push(eq(transactions.type, query.type));
-  if (query.categoryId) conditions.push(eq(transactions.categoryId, query.categoryId));
-  if (query.accountId) {
-    conditions.push(
-      or(
-        eq(transactions.sourceAccountId, query.accountId),
-        eq(transactions.destinationAccountId, query.accountId),
-      )!,
-    );
-  }
-  if (query.currency) {
-    conditions.push(
-      or(
-        eq(transactions.sourceCurrency, query.currency),
-        eq(transactions.destinationCurrency, query.currency),
-      )!,
-    );
-  }
-  if (query.search) {
-    const pattern = `%${query.search}%`;
-    conditions.push(
-      or(
-        ilike(transactions.description, pattern),
-        ilike(transactions.payee, pattern),
-        ilike(transactions.notes, pattern),
       )!,
     );
   }
@@ -468,6 +461,583 @@ export async function listTransactions(
         })
       : null,
   };
+}
+
+function transactionFilterConditions(
+  actor: Actor,
+  query: BulkTransactionFilter,
+) {
+  const conditions: SQL[] = [eq(transactions.userId, actor.userId)];
+  if (!query.includeDeleted) conditions.push(isNull(transactions.deletedAt));
+  if (query.start) conditions.push(sql`${transactions.date} >= ${query.start}::date`);
+  if (query.end) conditions.push(lte(transactions.date, query.end));
+  if (query.type) conditions.push(eq(transactions.type, query.type));
+  if (query.categoryId) conditions.push(eq(transactions.categoryId, query.categoryId));
+  if (query.payee) {
+    conditions.push(
+      sql`lower(regexp_replace(trim(normalize(${transactions.payee}, NFKC)), '\\s+', ' ', 'g')) = ${normalizeTransactionText(query.payee)}`,
+    );
+  }
+  if (query.accountId) {
+    conditions.push(
+      or(
+        eq(transactions.sourceAccountId, query.accountId),
+        eq(transactions.destinationAccountId, query.accountId),
+      )!,
+    );
+  }
+  if (query.currency) {
+    conditions.push(
+      or(
+        eq(transactions.sourceCurrency, query.currency),
+        eq(transactions.destinationCurrency, query.currency),
+      )!,
+    );
+  }
+  if (query.search) {
+    const pattern = `%${query.search}%`;
+    conditions.push(
+      or(
+        ilike(transactions.payee, pattern),
+        ilike(transactions.description, pattern),
+        ilike(transactions.notes, pattern),
+      )!,
+    );
+  }
+  return conditions;
+}
+
+function bulkSelectionFingerprint(
+  rows: readonly Pick<TransactionRow, "id" | "version">[],
+) {
+  const payload = [...rows]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((row) => `${row.id}:${row.version}`)
+    .join("\n");
+  return createHash("sha256").update(payload).digest("hex");
+}
+
+function bulkSelectionSummary(rows: readonly TransactionRow[]) {
+  const currencies = new Set<string>();
+  let activeCount = 0;
+  let deletedCount = 0;
+  let transferCount = 0;
+  for (const row of rows) {
+    if (row.deletedAt) deletedCount += 1;
+    else activeCount += 1;
+    if (row.type === "transfer") transferCount += 1;
+    if (row.sourceCurrency) currencies.add(row.sourceCurrency);
+    if (row.destinationCurrency) currencies.add(row.destinationCurrency);
+  }
+  return {
+    activeCount,
+    deletedCount,
+    transferCount,
+    currencies: [...currencies].sort(),
+  };
+}
+
+async function selectBulkFilterRows(
+  executor: Database | DbTransaction,
+  actor: Actor,
+  selection: {
+    filter: BulkTransactionFilter;
+    excludedIds: readonly string[];
+  },
+) {
+  const conditions = transactionFilterConditions(actor, selection.filter);
+  if (selection.excludedIds.length) {
+    conditions.push(notInArray(transactions.id, [...selection.excludedIds]));
+  }
+  return executor
+    .select()
+    .from(transactions)
+    .where(and(...conditions))
+    .orderBy(transactions.id);
+}
+
+export async function getBulkTransactionSelection(
+  actor: Actor,
+  input: unknown,
+): Promise<BulkTransactionSelectionSnapshot> {
+  const parsed = bulkTransactionFilterSelectionRequestSchema.parse(input);
+  const rows = await selectBulkFilterRows(getDb(), actor, parsed);
+  return bulkTransactionSelectionSnapshotSchema.parse({
+    count: rows.length,
+    fingerprint: bulkSelectionFingerprint(rows),
+    ...bulkSelectionSummary(rows),
+  });
+}
+
+function applyBulkPatch(
+  row: TransactionRow,
+  patch: BulkTransactionPatch,
+): TransactionDraft {
+  if (row.type === "transfer" && (patch.accountId || patch.type)) {
+    throw validationError(
+      "Bulk account and type changes cannot include transfers",
+      { transactionId: row.id, fields: ["accountId", "type"] },
+    );
+  }
+
+  const current = transactionToDraft(row);
+  const common = {
+    date: patch.date ?? current.date,
+    payee: patch.payee ?? current.payee,
+    description:
+      patch.description !== undefined
+        ? patch.description
+        : current.description,
+    categoryId:
+      patch.categoryId !== undefined
+        ? patch.categoryId
+        : current.categoryId,
+    notes: patch.notes !== undefined ? patch.notes : current.notes,
+    externalId: current.externalId,
+  };
+
+  if (!patch.type) {
+    if (current.type === "deposit") {
+      return {
+        type: "deposit",
+        toAccountId: patch.accountId ?? current.toAccountId,
+        amount: current.amount,
+        ...common,
+      };
+    }
+    if (current.type === "withdrawal") {
+      return {
+        type: "withdrawal",
+        fromAccountId: patch.accountId ?? current.fromAccountId,
+        amount: current.amount,
+        ...common,
+      };
+    }
+    return { ...current, ...common };
+  }
+
+  const currentAccountId =
+    current.type === "deposit"
+      ? current.toAccountId
+      : current.type === "withdrawal"
+        ? current.fromAccountId
+        : patch.type === "deposit"
+          ? current.toAccountId
+          : current.fromAccountId;
+  const amount =
+    current.type === "transfer"
+      ? patch.type === "deposit"
+        ? current.destinationAmount ?? current.sourceAmount
+        : current.sourceAmount
+      : current.amount;
+  const accountId = patch.accountId ?? currentAccountId;
+  return patch.type === "deposit"
+    ? {
+        type: "deposit",
+        toAccountId: accountId,
+        amount,
+        ...common,
+      }
+    : {
+        type: "withdrawal",
+        fromAccountId: accountId,
+        amount,
+        ...common,
+      };
+}
+
+function draftAccountIds(draft: TransactionDraft) {
+  return draft.type === "deposit"
+    ? [draft.toAccountId]
+    : draft.type === "withdrawal"
+      ? [draft.fromAccountId]
+      : [draft.fromAccountId, draft.toAccountId];
+}
+
+type BulkEditPlan = {
+  before: TransactionRow;
+  draft: TransactionDraft;
+  prepared: PreparedTransaction;
+};
+
+function assertExpectedFilterSnapshot(
+  selection: Extract<BulkTransactionEditInput["selection"], { mode: "filter" }>,
+  rows: readonly TransactionRow[],
+) {
+  const fingerprint = bulkSelectionFingerprint(rows);
+  if (
+    rows.length !== selection.expectedCount ||
+    fingerprint !== selection.expectedFingerprint
+  ) {
+    throw staleVersion({
+      expectedCount: selection.expectedCount,
+      currentCount: rows.length,
+      expectedFingerprint: selection.expectedFingerprint,
+      currentFingerprint: fingerprint,
+    });
+  }
+}
+
+function normalizedBulkSelection(
+  selection: BulkTransactionEditInput["selection"],
+) {
+  if (selection.mode === "ids") {
+    return {
+      mode: selection.mode,
+      items: [...selection.items].sort((left, right) =>
+        left.id.localeCompare(right.id),
+      ),
+    };
+  }
+  return {
+    ...selection,
+    excludedIds: [...selection.excludedIds].sort(),
+  };
+}
+
+async function selectBulkSnapshot(
+  tx: DbTransaction,
+  actor: Actor,
+  selection: BulkTransactionEditInput["selection"],
+) {
+  if (selection.mode === "filter") {
+    const rows = await selectBulkFilterRows(tx, actor, selection);
+    assertExpectedFilterSnapshot(selection, rows);
+    return rows;
+  }
+
+  const ids = selection.items.map((item) => item.id);
+  const rows = await tx
+    .select()
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, actor.userId),
+        inArray(transactions.id, ids),
+      ),
+    )
+    .orderBy(transactions.id);
+  if (rows.length !== ids.length) {
+    throw notFound("One or more transactions are unavailable");
+  }
+  const expectedVersions = new Map(
+    selection.items.map((item) => [item.id, item.expectedVersion]),
+  );
+  const staleItems = rows
+    .filter((row) => expectedVersions.get(row.id) !== row.version)
+    .map((row) => ({
+      id: row.id,
+      expectedVersion: expectedVersions.get(row.id),
+      currentVersion: row.version,
+    }));
+  if (staleItems.length) throw staleVersion({ items: staleItems });
+  return rows;
+}
+
+async function assertBulkDuplicatesAllowed(
+  tx: DbTransaction,
+  actor: Actor,
+  plans: readonly BulkEditPlan[],
+  allowDuplicates: boolean,
+) {
+  const selectedIds = new Set(plans.map((plan) => plan.before.id));
+  const selectedByKey = new Map<string, string>();
+  for (const plan of plans) {
+    if (plan.before.deletedAt !== null) continue;
+    for (const key of transactionDuplicateKeys(plan.draft)) {
+      const duplicateOfSelectedId = selectedByKey.get(key);
+      if (duplicateOfSelectedId && !allowDuplicates) {
+        throw duplicate("Two selected transactions appear to be duplicates", {
+          transactionId: plan.before.id,
+          duplicateOfSelectedId,
+        });
+      }
+      if (!duplicateOfSelectedId) {
+        selectedByKey.set(key, plan.before.id);
+      }
+    }
+  }
+  if (allowDuplicates || !selectedByKey.size) return;
+
+  const activeRows = await tx
+    .select()
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, actor.userId),
+        isNull(transactions.deletedAt),
+      ),
+    )
+    .orderBy(transactions.id);
+  for (const row of activeRows) {
+    if (selectedIds.has(row.id)) continue;
+    const collidedSelectedId = transactionDuplicateKeys(transactionToDraft(row))
+      .map((key) => selectedByKey.get(key))
+      .find((id): id is string => Boolean(id));
+    if (collidedSelectedId) {
+      throw duplicate("A selected transaction matches another transaction", {
+        transactionId: collidedSelectedId,
+        duplicateOfId: row.id,
+      });
+    }
+  }
+}
+
+export async function bulkEditTransactions(
+  actor: Actor,
+  input: unknown,
+  transaction?: DbTransaction,
+): Promise<BulkTransactionEditResult> {
+  const parsed = bulkTransactionEditSchema.parse(input);
+  const idempotencyPayload = {
+    selection: normalizedBulkSelection(parsed.selection),
+    patch: parsed.patch,
+    allowDuplicates: parsed.allowDuplicates,
+  };
+
+  return withTransaction(transaction, async (tx) => {
+    if (!parsed.dryRun) {
+      await lockIdempotencyKey(
+        tx,
+        actor,
+        "transaction.bulk_edit",
+        parsed.idempotencyKey,
+      );
+      const existing = await getIdempotent<BulkTransactionEditResult>(
+        tx,
+        actor,
+        "transaction.bulk_edit",
+        parsed.idempotencyKey,
+        idempotencyPayload,
+      );
+      if (existing) return bulkTransactionEditResultSchema.parse(existing);
+    }
+
+    const snapshotRows = await selectBulkSnapshot(tx, actor, parsed.selection);
+    if (!snapshotRows.length) {
+      throw validationError("Select at least one transaction");
+    }
+    const snapshotFingerprint = bulkSelectionFingerprint(snapshotRows);
+    const snapshotDrafts = snapshotRows.map((row) => ({
+      row,
+      draft: applyBulkPatch(row, parsed.patch),
+    }));
+
+    await lockAccountReferences(
+      tx,
+      actor,
+      snapshotDrafts.flatMap(({ row, draft }) => [
+        ...[row.sourceAccountId, row.destinationAccountId].filter(
+          (id): id is string => Boolean(id),
+        ),
+        ...draftAccountIds(draft),
+      ]),
+    );
+    if (
+      snapshotDrafts.some(
+        ({ row, draft }) => Boolean(row.categoryId || draft.categoryId),
+      )
+    ) {
+      await lockCategoryNamespace(tx, actor);
+    }
+    await lockPayeeNamespace(tx, actor);
+    await lockTransactionDuplicateKeys(
+      tx,
+      actor,
+      snapshotDrafts
+        .filter(({ row }) => row.deletedAt === null)
+        .map(({ draft }) => draft),
+    );
+
+    const snapshotIds = snapshotRows.map((row) => row.id);
+    const lockedRows = await tx
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, actor.userId),
+          inArray(transactions.id, snapshotIds),
+        ),
+      )
+      .orderBy(transactions.id)
+      .for("update");
+    const lockedFingerprint = bulkSelectionFingerprint(lockedRows);
+    if (
+      lockedRows.length !== snapshotRows.length ||
+      lockedFingerprint !== snapshotFingerprint
+    ) {
+      throw staleVersion({
+        expectedCount: snapshotRows.length,
+        currentCount: lockedRows.length,
+        expectedFingerprint: snapshotFingerprint,
+        currentFingerprint: lockedFingerprint,
+      });
+    }
+    if (parsed.selection.mode === "filter") {
+      assertExpectedFilterSnapshot(parsed.selection, lockedRows);
+      const currentFilterRows = await selectBulkFilterRows(
+        tx,
+        actor,
+        parsed.selection,
+      );
+      assertExpectedFilterSnapshot(parsed.selection, currentFilterRows);
+    }
+
+    const plans: BulkEditPlan[] = [];
+    for (const before of lockedRows) {
+      const draft = applyBulkPatch(before, parsed.patch);
+      const existingAccountIds = new Set(
+        [before.sourceAccountId, before.destinationAccountId].filter(
+          (id): id is string => Boolean(id),
+        ),
+      );
+      const prepared = await prepareTransaction(tx, actor, draft, {
+        allowedArchivedAccountIds: existingAccountIds,
+        allowedArchivedCategoryIds: new Set(
+          before.categoryId ? [before.categoryId] : [],
+        ),
+      });
+      const canonicalPayee = prepared.transaction.payee;
+      if (typeof canonicalPayee !== "string") {
+        throw new TypeError("Prepared transaction payee must be text");
+      }
+      if (parsed.patch.accountId && before.type !== "transfer") {
+        const previousCurrency =
+          before.type === "deposit"
+            ? before.destinationCurrency
+            : before.sourceCurrency;
+        const targetCurrency =
+          draft.type === "deposit"
+            ? prepared.transaction.destinationCurrency
+            : prepared.transaction.sourceCurrency;
+        if (previousCurrency !== targetCurrency) {
+          throw validationError(
+            "Bulk account changes must keep the transaction's existing currency",
+            {
+              transactionId: before.id,
+              previousCurrency,
+              targetCurrency,
+            },
+          );
+        }
+      }
+      plans.push({
+        before,
+        prepared,
+        draft: { ...draft, payee: canonicalPayee },
+      });
+    }
+
+    await assertBulkDuplicatesAllowed(
+      tx,
+      actor,
+      plans,
+      parsed.allowDuplicates,
+    );
+
+    const plannedItems = plans.map(({ before, draft }) => ({
+      id: before.id,
+      previousVersion: before.version,
+      nextVersion: before.version + 1,
+      type: draft.type,
+      date: draft.date,
+      payee: draft.payee,
+    }));
+    const visibleItems =
+      parsed.selection.mode === "filter"
+        ? plannedItems.slice(0, 200)
+        : plannedItems;
+    const baseResult = {
+      updatedCount: plans.length,
+      dryRun: parsed.dryRun,
+      selectionCount: plans.length,
+      selectionFingerprint: snapshotFingerprint,
+      ...bulkSelectionSummary(lockedRows),
+      itemsTruncated: visibleItems.length !== plannedItems.length,
+      items: visibleItems,
+    };
+    if (parsed.dryRun) {
+      return bulkTransactionEditResultSchema.parse(baseResult);
+    }
+
+    const now = new Date();
+    const updatedRows: TransactionRow[] = [];
+    for (const { before, prepared, draft } of plans) {
+      const values = prepared.transaction;
+      const [updated] = await tx
+        .update(transactions)
+        .set({
+          type: draft.type,
+          date: draft.date,
+          payee: draft.payee,
+          description: draft.description ?? null,
+          categoryId: draft.categoryId ?? null,
+          notes: draft.notes ?? null,
+          externalId: before.externalId,
+          sourceAccountId: values.sourceAccountId ?? null,
+          destinationAccountId: values.destinationAccountId ?? null,
+          sourceAmount: values.sourceAmount ?? null,
+          destinationAmount: values.destinationAmount ?? null,
+          sourceCurrency: values.sourceCurrency ?? null,
+          destinationCurrency: values.destinationCurrency ?? null,
+          effectiveRate: values.effectiveRate ?? null,
+          version: before.version + 1,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(transactions.id, before.id),
+            eq(transactions.userId, actor.userId),
+            eq(transactions.version, before.version),
+          ),
+        )
+        .returning();
+      if (!updated) throw staleVersion({ id: before.id });
+      updatedRows.push(updated);
+    }
+
+    await tx
+      .delete(postings)
+      .where(
+        and(
+          eq(postings.userId, actor.userId),
+          inArray(postings.transactionId, snapshotIds),
+        ),
+      );
+    const replacementPostings = plans.flatMap(({ before, prepared }) =>
+      prepared.postings.map((posting) => ({
+        ...posting,
+        transactionId: before.id,
+      })),
+    );
+    if (replacementPostings.length) {
+      await tx.insert(postings).values(replacementPostings);
+    }
+
+    for (let index = 0; index < plans.length; index += 1) {
+      await writeAudit(tx, actor, {
+        entityType: "transaction",
+        entityId: plans[index]!.before.id,
+        operation: "bulk_update",
+        before: serializeRow(plans[index]!.before),
+        after: serializeRow(updatedRows[index]!),
+      });
+    }
+
+    const result = bulkTransactionEditResultSchema.parse({
+      ...baseResult,
+      dryRun: false,
+    });
+    await setIdempotent(
+      tx,
+      actor,
+      "transaction.bulk_edit",
+      parsed.idempotencyKey,
+      idempotencyPayload,
+      result,
+    );
+    return result;
+  });
 }
 
 export async function updateTransaction(
@@ -650,7 +1220,7 @@ export async function findDuplicate(
         exclusion,
         eq(transactions.type, draft.type),
         eq(transactions.date, draft.date),
-        sql`lower(regexp_replace(trim(${transactions.description}), '\\s+', ' ', 'g')) = ${normalizeTransactionText(draft.description)}`,
+        sql`lower(regexp_replace(trim(normalize(${transactions.payee}, NFKC)), '\\s+', ' ', 'g')) = ${normalizeTransactionText(draft.payee)}`,
         accountCondition,
         amountCondition,
         ...transferConditions,
@@ -661,14 +1231,14 @@ export async function findDuplicate(
 }
 
 function normalizeTransactionText(value: string) {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
+  return normalizeHumanName(value);
 }
 
 function transactionHeuristicDuplicateKey(draft: TransactionDraft) {
   const common = [
     draft.type,
     draft.date,
-    normalizeTransactionText(draft.description),
+    normalizeTransactionText(draft.payee),
   ];
   if (draft.type === "deposit") {
     return `heuristic:${JSON.stringify([
@@ -744,8 +1314,8 @@ async function assertDuplicateAllowed(
 export function transactionToDraft(row: TransactionRow): TransactionDraft {
   const common = {
     date: row.date,
-    description: row.description,
     payee: row.payee,
+    description: row.description,
     categoryId: row.categoryId,
     notes: row.notes,
     externalId: row.externalId,

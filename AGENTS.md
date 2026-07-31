@@ -13,7 +13,7 @@
 ## Non-negotiable ledger invariants
 
 - Never represent money with JavaScript/JSON floating-point numbers. Use validated
-  decimal strings and PostgreSQL `numeric(38,12)`.
+  decimal strings and PostgreSQL `numeric(44,18)`.
 - Never accept a public `userId`. Derive it from the authenticated `Actor`, and
   scope every finance read/write by that ID.
 - Keep `AUTH_MODE=local` as the default. Google credentials and `ALLOWED_EMAILS`
@@ -29,6 +29,10 @@
 - Staged and soft-deleted transactions never affect balances or reports.
 - Updates/deletes require an expected version. Creates and commits require
   idempotency. Bulk commits are explicit-ID, validate-first, and atomic.
+- Transaction mass edits are atomic. Explicit rows carry expected versions;
+  all-filtered selections carry a server-issued count and `id:version`
+  fingerprint. Never silently move a transaction into a different currency or
+  collapse a transfer into a single-account transaction in bulk.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
 - Treat `drizzle/0000_v0_1_0_initial.sql` as the immutable release baseline.

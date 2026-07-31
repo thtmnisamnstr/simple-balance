@@ -48,7 +48,7 @@ describe("staged transaction editor", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    queryClient.setQueryData(["payees"], []);
+    queryClient.setQueryData(["payees", "suggestions", ""], []);
 
     const { container } = render(
       <QueryClientProvider client={queryClient}>
@@ -62,11 +62,9 @@ describe("staged transaction editor", () => {
     );
 
     expect(screen.getByLabelText("Date")).toHaveValue("");
-    expect(screen.getByLabelText("Description")).toHaveValue("");
+    expect(screen.getByLabelText(/Description/)).toHaveValue("");
+    expect(screen.getByLabelText("Payee")).toHaveValue("");
     expect(screen.getByLabelText("Amount (USD)")).toHaveValue("");
-    expect(
-      container.querySelector('input[list="payee-suggestions"]'),
-    ).toHaveValue("");
     expect(container.querySelector("textarea")).toHaveValue("");
   });
 

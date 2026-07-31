@@ -140,7 +140,8 @@ export async function lockIdempotencyKey(
 /**
  * Serialize mutations involving account references that cannot all be
  * represented by foreign keys (notably staged JSON drafts). Always acquire all
- * account locks in sorted order before acquiring the category namespace lock.
+ * account locks in sorted order before acquiring the category namespace lock,
+ * then the payee namespace lock.
  */
 export async function lockAccountReferences(
   tx: DbTransaction,
@@ -161,6 +162,21 @@ export async function lockCategoryNamespace(
   actor: Actor,
 ) {
   const lockKey = `categories:${actor.userId}`;
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
+  );
+}
+
+/**
+ * Serialize changes to the tenant's derived payee namespace. This lock is
+ * distinct from category and account locks because payees have no backing
+ * table row that PostgreSQL could lock for us.
+ */
+export async function lockPayeeNamespace(
+  tx: DbTransaction,
+  actor: Actor,
+) {
+  const lockKey = `payees:${actor.userId}`;
   await tx.execute(
     sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
   );

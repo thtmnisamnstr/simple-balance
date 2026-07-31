@@ -21,6 +21,7 @@ import {
   setTransactionDeleted,
   updateTransaction,
 } from "../../src/server/services/transactions.js";
+import { listPayeeSuggestions } from "../../src/server/services/payees.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -66,6 +67,7 @@ integration("transaction duplicate protection", () => {
     const original: TransactionDraft = {
       type: "withdrawal",
       date: "2026-08-01",
+      payee: "Coffee Shop",
       description: "Coffee Shop",
       fromAccountId: directAccountId,
       amount: "5.25",
@@ -73,6 +75,7 @@ integration("transaction duplicate protection", () => {
     };
     const duplicateDraft: TransactionDraft = {
       ...original,
+      payee: "coffee   shop",
       description: "coffee   shop",
       externalId: "bank-transaction-two",
     };
@@ -119,6 +122,7 @@ integration("transaction duplicate protection", () => {
       {
         ...original,
         date: "2026-08-02",
+        payee: "Actually distinct",
         description: "Actually distinct",
         externalId: "bank-transaction-three",
       },
@@ -140,10 +144,50 @@ integration("transaction duplicate protection", () => {
     expect(afterOverride.items).toHaveLength(2);
   });
 
+  it("treats percent and underscore characters literally in exact payee filters", async () => {
+    const literal = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-08-13",
+        payee: "Save 50%_A",
+        description: null,
+        fromAccountId: directAccountId,
+        amount: "1.00",
+      },
+      "literal-payee-filter",
+    );
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-08-13",
+        payee: "Save 500XA",
+        description: null,
+        fromAccountId: directAccountId,
+        amount: "2.00",
+      },
+      "wildcard-like-payee-filter-collision",
+    );
+
+    const filtered = await listTransactions(actor, {
+      accountId: directAccountId,
+      start: "2026-08-13",
+      end: "2026-08-13",
+      payee: "save 50%_a",
+    });
+
+    expect(filtered.items.map((transaction) => transaction.id)).toEqual([
+      literal.id,
+    ]);
+    expect(await listPayeeSuggestions(actor, "50%_")).toEqual([literal.payee]);
+  });
+
   it("requires an explicit duplicate override when restoring a transaction", async () => {
     const draft: TransactionDraft = {
       type: "withdrawal",
       date: "2026-08-03",
+      payee: "Restore collision",
       description: "Restore collision",
       fromAccountId: directAccountId,
       amount: "14.25",
@@ -193,6 +237,7 @@ integration("transaction duplicate protection", () => {
     const transactionDraft: TransactionDraft = {
       type: "deposit",
       date: "2026-08-04",
+      payee: "Payload-bound transaction",
       description: "Payload-bound transaction",
       toAccountId: directAccountId,
       amount: "18.75",
@@ -221,6 +266,7 @@ integration("transaction duplicate protection", () => {
       draft: {
         type: "deposit",
         date: "2026-08-05",
+        payee: "Payload-bound stage",
         description: "Payload-bound stage",
         toAccountId: directAccountId,
         amount: "19.75",
@@ -255,6 +301,7 @@ integration("transaction duplicate protection", () => {
       draft: {
         type: "deposit",
         date: "2026-08-06",
+        payee: "Different staged request",
         description: "Different staged request",
         toAccountId: directAccountId,
         amount: "20.75",
@@ -275,6 +322,7 @@ integration("transaction duplicate protection", () => {
       draft: {
         type: "deposit",
         date: "2026-08-02",
+        payee: "First imported row",
         description: "First imported row",
         toAccountId: stagedAccountId,
         amount: "12.34",
@@ -286,6 +334,7 @@ integration("transaction duplicate protection", () => {
       draft: {
         type: "deposit",
         date: "2026-08-03",
+        payee: "Different imported row",
         description: "Different imported row",
         toAccountId: stagedAccountId,
         amount: "8.5",
@@ -378,6 +427,7 @@ integration("transaction duplicate protection", () => {
       draft: {
         type: "deposit",
         date: "2026-08-10",
+        payee: "Concurrent MCP direct retry",
         description: "Concurrent MCP direct retry",
         toAccountId: directAccountId,
         amount: "3.21",
@@ -421,6 +471,7 @@ integration("transaction duplicate protection", () => {
       draft: {
         type: "deposit",
         date: "2026-08-11",
+        payee: "Concurrent MCP staged retry",
         description: "Concurrent MCP staged retry",
         toAccountId: stagedAccountId,
         amount: "4.32",
@@ -477,6 +528,7 @@ integration("transaction duplicate protection", () => {
     const draft: TransactionDraft = {
       type: "deposit",
       date: "2026-08-20",
+      payee: "Concurrent direct service retry",
       description: "Concurrent direct service retry",
       toAccountId: directAccountId,
       amount: "6.54",
@@ -500,6 +552,7 @@ integration("transaction duplicate protection", () => {
       draft: {
         type: "deposit",
         date: "2026-08-21",
+        payee: "Concurrent direct staged retry",
         description: "Concurrent direct staged retry",
         toAccountId: stagedAccountId,
         amount: "7.65",
@@ -542,6 +595,7 @@ integration("transaction duplicate protection", () => {
           draft: {
             type: "deposit",
             date: "2026-08-12",
+            payee: `Overlapping staged delete ${suffix}`,
             description: `Overlapping staged delete ${suffix}`,
             toAccountId: stagedAccountId,
             amount: "1",

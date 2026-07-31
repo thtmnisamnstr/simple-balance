@@ -12,6 +12,7 @@ import {
   Settings,
   Sparkles,
   Tags,
+  UserRound,
   X,
 } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
@@ -35,6 +36,9 @@ import AccountsPage from "./pages/AccountsPage.js";
 import AccountDetailPage from "./pages/AccountDetailPage.js";
 import ActivityPage from "./pages/ActivityPage.js";
 import CategoriesPage from "./pages/CategoriesPage.js";
+import CategoryDetailPage from "./pages/CategoryDetailPage.js";
+import PayeeDetailPage from "./pages/PayeeDetailPage.js";
+import PayeesPage from "./pages/PayeesPage.js";
 import DashboardPage from "./pages/DashboardPage.js";
 import ImportPage from "./pages/ImportPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
@@ -48,6 +52,7 @@ const nav = [
   { to: "/transactions", label: "Transactions", icon: ReceiptText },
   { to: "/staged", label: "Staged", icon: Sparkles },
   { to: "/categories", label: "Categories", icon: Tags },
+  { to: "/payees", label: "Payees", icon: UserRound },
   { to: "/import", label: "Import CSV", icon: FileUp },
   { to: "/activity", label: "Activity", icon: History },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -403,6 +408,9 @@ function Shell({ session }: { session: Session }) {
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/staged" element={<StagingPage />} />
               <Route path="/categories" element={<CategoriesPage />} />
+              <Route path="/categories/:categoryId" element={<CategoryDetailPage />} />
+              <Route path="/payees" element={<PayeesPage />} />
+              <Route path="/payees/transactions" element={<PayeeDetailPage />} />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/settings" element={<SettingsPage session={session} />} />

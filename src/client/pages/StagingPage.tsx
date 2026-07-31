@@ -235,7 +235,7 @@ export default function StagingPage() {
         description="Review imported or agent-prepared work before it changes any balance."
         actions={
           <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
-            <Plus size={16} /> Stage manually
+            <Plus size={16} /> Stage transaction
           </Button>
         }
       />
@@ -346,7 +346,7 @@ export default function StagingPage() {
                   />
                 </th>
                 <th>Date</th>
-                <th>Transaction</th>
+                <th>Payee</th>
                 <th>Account</th>
                 <th>Status</th>
                 <th className="align-right">Amount</th>
@@ -358,14 +358,14 @@ export default function StagingPage() {
                 const draft = stage.draft;
                 const summary = stageSummary(stage, accounts.data ?? []);
                 const date = stagedString(draft.date);
-                const description =
-                  stagedString(draft.description).trim() || "Incomplete row";
+                const payee = stagedString(draft.payee).trim() || "Incomplete row";
+                const description = stagedString(draft.description).trim();
                 const type = stagedString(draft.type).trim() || "Unknown type";
                 return (
                   <tr key={stage.id}>
                     <td className="checkbox-cell">
                       <input
-                        aria-label={`Select ${description}`}
+                        aria-label={`Select ${payee}`}
                         type="checkbox"
                         checked={selected.has(stage.id)}
                         disabled={
@@ -387,8 +387,8 @@ export default function StagingPage() {
                         : "—"}
                     </td>
                     <td>
-                      <strong>{description}</strong>
-                      <small className="table-subtitle">{type}</small>
+                      <strong>{payee}</strong>
+                      <small className="table-subtitle">{description || type}</small>
                     </td>
                     <td>{summary.account}</td>
                     <td>

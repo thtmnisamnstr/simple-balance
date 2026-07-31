@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -12,10 +13,13 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
+  Category,
   ImportBatchSummary,
   Page,
   StagedTransaction,
+  Transaction,
 } from "../src/client/api.js";
+import { TransactionBrowser } from "../src/client/TransactionBrowser.js";
 import { AccountForm, TransactionForm } from "../src/client/forms.js";
 import StagingPage from "../src/client/pages/StagingPage.js";
 import { BrowserRouter } from "../src/client/router.js";
@@ -42,7 +46,34 @@ const checkingAccount: Account = {
   balancePresentation: { label: "Balance", amount: "0" },
 };
 
+const groceriesCategory: Category = {
+  id: "22222222-2222-4222-8222-222222222222",
+  name: "Groceries",
+  kind: "expense",
+  version: 1,
+};
+
+const groceryTransaction: Transaction = {
+  id: "33333333-3333-4333-8333-333333333333",
+  type: "withdrawal",
+  date: "2026-07-30",
+  payee: "Acme Market",
+  description: null,
+  categoryId: groceriesCategory.id,
+  category: groceriesCategory,
+  sourceAccountId: checkingAccount.id,
+  sourceAccount: {
+    id: checkingAccount.id,
+    name: checkingAccount.name,
+    currency: checkingAccount.currency,
+  },
+  sourceAmount: "12.34",
+  sourceCurrency: "USD",
+  version: 1,
+};
+
 afterEach(() => {
+  cleanup();
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -151,7 +182,7 @@ describe("configured timezone defaults", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-01T06:30:00.000Z"));
     const client = queryClient();
-    client.setQueryData(["payees"], []);
+    client.setQueryData(["payees", "suggestions", ""], []);
 
     render(
       <QueryClientProvider client={client}>
@@ -169,6 +200,214 @@ describe("configured timezone defaults", () => {
   });
 });
 
+describe("transaction payee and category entry", () => {
+  it("requires payee, leaves description optional, and canonicalizes suggestions on create", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/transactions") {
+          requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          return new Response(JSON.stringify(groceryTransaction), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      }),
+    );
+
+    const client = queryClient();
+    client.setQueryData(["payees", "suggestions", ""], ["Acme Market"]);
+    client.setQueryData(
+      ["payees", "suggestions", "acme market"],
+      ["Acme Market"],
+    );
+    const onDone = vi.fn();
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <TimezoneProvider timezone="UTC">
+          <TransactionForm
+            accounts={[checkingAccount]}
+            categories={[groceriesCategory]}
+            onDone={onDone}
+          />
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+    const form = within(container);
+    const payee = form.getByLabelText("Payee");
+    const description = form.getByLabelText(/Description/);
+
+    expect(payee).toBeRequired();
+    expect(description).not.toBeRequired();
+    expect(
+      payee.compareDocumentPosition(description) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.change(payee, { target: { value: "acme market" } });
+    fireEvent.change(form.getByLabelText(/Category/), {
+      target: { value: "groceries" },
+    });
+    fireEvent.change(form.getByLabelText("Amount (USD)"), {
+      target: { value: "12.34" },
+    });
+
+    await waitFor(() => {
+      expect(payee).toHaveValue("Acme Market");
+      expect(form.getByLabelText(/Category/)).toHaveValue("Groceries");
+    });
+    fireEvent.submit(container.querySelector("form")!);
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(requestBody).toMatchObject({
+      draft: {
+        payee: "Acme Market",
+        description: null,
+        categoryId: groceriesCategory.id,
+      },
+    });
+  });
+
+  it("canonicalizes case-insensitive payee and category suggestions on edit", async () => {
+    let requestUrl: URL | undefined;
+    let requestBody: Record<string, unknown> | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        requestUrl = new URL(String(input), window.location.origin);
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(JSON.stringify(groceryTransaction), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    const client = queryClient();
+    client.setQueryData(
+      ["payees", "suggestions", "acme market"],
+      ["Acme Market"],
+    );
+    const onDone = vi.fn();
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <TimezoneProvider timezone="UTC">
+          <TransactionForm
+            accounts={[checkingAccount]}
+            categories={[groceriesCategory]}
+            transaction={groceryTransaction}
+            onDone={onDone}
+          />
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+    const form = within(container);
+    const payee = form.getByLabelText("Payee");
+    const category = form.getByLabelText(/Category/);
+
+    fireEvent.change(payee, { target: { value: "acme market" } });
+    fireEvent.change(category, { target: { value: "groceries" } });
+    await waitFor(() => {
+      expect(payee).toHaveValue("Acme Market");
+      expect(category).toHaveValue("Groceries");
+    });
+    fireEvent.submit(container.querySelector("form")!);
+
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(requestUrl?.pathname).toBe(
+      `/api/v1/transactions/${groceryTransaction.id}`,
+    );
+    expect(requestBody).toMatchObject({
+      expectedVersion: groceryTransaction.version,
+      draft: {
+        payee: "Acme Market",
+        description: null,
+        categoryId: groceriesCategory.id,
+      },
+    });
+  });
+});
+
+describe("transaction drill-down links", () => {
+  it("links payees and categories while preserving the active date filters", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/transactions?start=2026-07-01&end=2026-07-31&preset=custom",
+    );
+    const transaction = {
+      ...groceryTransaction,
+      payee: "Save 50%_Market / North",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/transactions") {
+          const page: Page<Transaction> = {
+            items: [transaction],
+            nextCursor: null,
+          };
+          return new Response(JSON.stringify(page), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.pathname === "/api/v1/accounts") {
+          return new Response(JSON.stringify([checkingAccount]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (url.pathname === "/api/v1/categories") {
+          return new Response(JSON.stringify([groceriesCategory]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <TimezoneProvider timezone="UTC">
+          <BrowserRouter>
+            <TransactionBrowser />
+          </BrowserRouter>
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+
+    const payeeLink = await screen.findByRole("link", {
+      name: transaction.payee,
+    });
+    const categoryLink = screen.getByRole("link", {
+      name: groceriesCategory.name,
+    });
+    const payeeUrl = new URL(
+      payeeLink.getAttribute("href")!,
+      window.location.origin,
+    );
+    const categoryUrl = new URL(
+      categoryLink.getAttribute("href")!,
+      window.location.origin,
+    );
+
+    expect(payeeUrl.pathname).toBe("/payees/transactions");
+    expect(payeeUrl.searchParams.get("name")).toBe(transaction.payee);
+    expect(categoryUrl.pathname).toBe(`/categories/${groceriesCategory.id}`);
+    for (const url of [payeeUrl, categoryUrl]) {
+      expect(url.searchParams.get("start")).toBe("2026-07-01");
+      expect(url.searchParams.get("end")).toBe("2026-07-31");
+      expect(url.searchParams.get("preset")).toBe("custom");
+    }
+  });
+});
+
 describe("browser mutation idempotency", () => {
   it("reuses the direct-create key when a lost response is retried", async () => {
     const requestBodies: Record<string, unknown>[] = [];
@@ -177,7 +416,7 @@ describe("browser mutation idempotency", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input), window.location.origin);
-        if (url.pathname === "/api/v1/payees") {
+        if (url.pathname === "/api/v1/payees/suggestions") {
           return new Response("[]", {
             status: 200,
             headers: { "Content-Type": "application/json" },
@@ -213,7 +452,7 @@ describe("browser mutation idempotency", () => {
       </QueryClientProvider>,
     );
     const form = within(container);
-    fireEvent.change(form.getByLabelText("Description"), {
+    fireEvent.change(form.getByLabelText("Payee"), {
       target: { value: "Idempotent retry" },
     });
     fireEvent.change(form.getByLabelText("Amount (USD)"), {
@@ -241,7 +480,8 @@ function staged(
     draft: {
       type: "withdrawal",
       date: "2026-07-30",
-      description,
+      payee: description,
+      description: null,
       fromAccountId: checkingAccount.id,
       amount: "10.00",
     },

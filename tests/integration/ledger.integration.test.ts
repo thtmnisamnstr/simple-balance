@@ -158,6 +158,7 @@ integration("PostgreSQL ledger integration", () => {
         draft: {
           type: "deposit",
           date: "2026-07-14",
+          payee: "Attempted cross-tenant provenance",
           description: "Attempted cross-tenant provenance",
           toAccountId: checkingId,
           amount: "1",
@@ -180,6 +181,7 @@ integration("PostgreSQL ledger integration", () => {
     const draft: TransactionDraft = {
       type: "deposit",
       date: "2026-07-15",
+      payee: "Paycheck",
       description: "Paycheck",
       toAccountId: checkingId,
       amount: "1200.50",
@@ -197,6 +199,7 @@ integration("PostgreSQL ledger integration", () => {
       {
         type: "transfer",
         date: "2026-07-16",
+        payee: "Travel cash",
         description: "Travel cash",
         fromAccountId: checkingId,
         toAccountId: euroId,
@@ -218,6 +221,7 @@ integration("PostgreSQL ledger integration", () => {
       draft: {
         type: "transfer",
         date: "2026-07-17",
+        payee: "Move to savings",
         description: "Move to savings",
         fromAccountId: checkingId,
         toAccountId: savingsId,
@@ -229,6 +233,7 @@ integration("PostgreSQL ledger integration", () => {
       draft: {
         type: "withdrawal",
         date: "2026-07-18",
+        payee: "Groceries",
         description: "Groceries",
         fromAccountId: checkingId,
         amount: "75",
@@ -285,6 +290,7 @@ integration("PostgreSQL ledger integration", () => {
     const baseDraft = {
       type: "deposit" as const,
       date: "2026-07-25",
+      payee: "Equivalent path deposit",
       description: "Equivalent path deposit",
       amount: "10.25",
     };

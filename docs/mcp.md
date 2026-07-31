@@ -43,19 +43,35 @@ and whether the user still has an authentication method enabled by the current
 
 ## Scopes
 
-- `ledger:read` — accounts, categories, transactions, staging, summaries, CSV
-  export, and audit history.
+- `ledger:read` — accounts, categories, payees, transactions, staging, summaries,
+  CSV export, and audit history.
 - `ledger:stage` — read access plus staged transaction and CSV-stage mutations.
 - `ledger:write` — all ledger operations, including direct commits and staged
   commits.
 
 Tools are omitted from discovery when the token lacks their scope. All tools
 return both `structuredContent.result` and equivalent JSON text. Money is always a
-decimal string, bulk operations require explicit IDs, and concurrency-sensitive
-operations require `expectedVersion`.
+decimal string. Explicit bulk selections carry each row's `expectedVersion`.
+An all-matching selection first uses `preview_bulk_transaction_selection` to
+obtain a count and fingerprint of the exact filtered `id:version` set; the
+destructive request is rejected if that snapshot changes before execution.
 
-Use `dryRun: true` on `stage_csv` and `commit_staged_transactions` to validate a
-planned mutation without changing the ledger.
+`bulk_edit_transactions` can atomically change the date, payee, category,
+account, description, notes, or deposit/withdrawal type for explicit or
+previewed selections. Omitted fields remain unchanged. Transfers accept only
+the common text/date/category fields, and account reassignment must preserve the
+transaction's native currency. Duplicate validation applies to the final state
+of the complete selection before any row is written.
+
+Payee management is available through `list_payees`,
+`list_duplicate_payees`, and the idempotent `merge_payees` write tool. Payees
+are derived from committed and staged transaction text, so MCP and browser
+operations use the same canonicalization and audit behavior without a separate
+payee record type.
+
+Use `dryRun: true` on `bulk_edit_transactions`, `stage_csv`, and
+`commit_staged_transactions` to validate a planned mutation without changing the
+ledger.
 
 `stage_csv` accepts the same configured `CSV_MAX_BYTES` payload as the browser
 import workflow. The HTTP MCP request envelope is bounded to accommodate JSON

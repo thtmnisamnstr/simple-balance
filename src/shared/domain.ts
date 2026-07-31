@@ -79,8 +79,14 @@ export const nonNegativeDecimalStringSchema = decimalStringSchema.refine(
 
 const transactionCommon = {
   date: isoDateSchema,
-  description: z.string().trim().min(1).max(240),
-  payee: z.string().trim().max(160).optional().nullable(),
+  payee: z.string().trim().min(1, "Payee is required").max(160),
+  description: z
+    .string()
+    .trim()
+    .max(240)
+    .optional()
+    .nullable()
+    .transform((value) => value || null),
   categoryId: z.string().uuid().optional().nullable(),
   notes: z.string().trim().max(4_000).optional().nullable(),
   externalId: z.string().trim().max(200).optional().nullable(),
@@ -168,6 +174,53 @@ export const categoryMergeSchema = z.object({
   targetExpectedVersion: z.number().int().positive(),
 });
 
+// Payees are intentionally derived from transaction text rather than stored in
+// a separate table. Source names preserve their exact spelling so variants
+// that differ only by case or whitespace can still be selected and merged.
+export const payeeNameSchema = z
+  .string()
+  .min(1)
+  .max(160)
+  .refine((value) => value.trim().length > 0, "Payee is required");
+
+export const payeeListQuerySchema = z.object({
+  search: z.string().trim().max(160).optional(),
+});
+
+export const payeeSummarySchema = z.object({
+  name: payeeNameSchema,
+  normalizedName: z.string().min(1).max(500),
+  transactionCount: z.number().int().nonnegative(),
+  stagedTransactionCount: z.number().int().nonnegative(),
+  totalCount: z.number().int().nonnegative(),
+});
+
+export const payeeDuplicateGroupSchema = z.object({
+  normalizedName: z.string().min(1).max(500),
+  count: z.number().int().min(2),
+  payees: z.array(payeeSummarySchema).min(2),
+});
+
+export const payeeMergeSchema = z
+  .object({
+    sourcePayees: z.array(payeeNameSchema).min(1).max(100),
+    targetPayee: payeeNameSchema,
+    idempotencyKey: idempotencyKeySchema,
+  })
+  .strict();
+
+export const payeeMergeResultSchema = z.object({
+  targetPayee: payeeNameSchema,
+  mergedSourcePayees: z.array(payeeNameSchema).min(1),
+  updatedTransactionCount: z.number().int().nonnegative(),
+  updatedStagedTransactionCount: z.number().int().nonnegative(),
+});
+
+export type PayeeSummary = z.infer<typeof payeeSummarySchema>;
+export type PayeeDuplicateGroup = z.infer<typeof payeeDuplicateGroupSchema>;
+export type PayeeMergeInput = z.infer<typeof payeeMergeSchema>;
+export type PayeeMergeResult = z.infer<typeof payeeMergeResultSchema>;
+
 export const directTransactionCreateSchema = z.object({
   draft: transactionDraftSchema,
   idempotencyKey: idempotencyKeySchema,
@@ -231,11 +284,177 @@ export const listQuerySchema = dateRangeSchema.extend({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   accountId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
+  payee: z.string().trim().min(1).max(160).optional(),
   type: z.enum(transactionTypes).optional(),
   currency: currencyCodeSchema.optional(),
   search: z.string().trim().max(200).optional(),
   includeDeleted: queryBooleanSchema,
 });
+
+// Bulk filter selections deliberately omit pagination. They describe the
+// complete current view, while explicit selections carry the optimistic
+// versions shown to the user on the current page.
+export const bulkTransactionFilterSchema = listQuerySchema
+  .omit({ cursor: true, limit: true })
+  .strict();
+
+const bulkTransactionIdSelectionSchema = z
+  .object({
+    mode: z.literal("ids"),
+    items: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            expectedVersion: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5_000),
+  })
+  .strict()
+  .superRefine((selection, context) => {
+    const ids = selection.items.map((item) => item.id);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["items"],
+        message: "Transaction IDs must be unique",
+      });
+    }
+  });
+
+const bulkTransactionFilterSelectionSchema = z
+  .object({
+    mode: z.literal("filter"),
+    filter: bulkTransactionFilterSchema,
+    excludedIds: z.array(z.string().uuid()).max(5_000).default([]),
+    expectedCount: z.number().int().nonnegative(),
+    expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict()
+  .superRefine((selection, context) => {
+    if (new Set(selection.excludedIds).size !== selection.excludedIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["excludedIds"],
+        message: "Excluded transaction IDs must be unique",
+      });
+    }
+  });
+
+export const bulkTransactionSelectionSchema = z.discriminatedUnion("mode", [
+  bulkTransactionIdSelectionSchema,
+  bulkTransactionFilterSelectionSchema,
+]);
+
+export const bulkTransactionFilterSelectionRequestSchema = z
+  .object({
+    filter: bulkTransactionFilterSchema,
+    excludedIds: z.array(z.string().uuid()).max(5_000).default([]),
+  })
+  .strict()
+  .superRefine((selection, context) => {
+    if (new Set(selection.excludedIds).size !== selection.excludedIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["excludedIds"],
+        message: "Excluded transaction IDs must be unique",
+      });
+    }
+  });
+
+export const bulkTransactionSelectionSnapshotSchema = z
+  .object({
+    count: z.number().int().nonnegative(),
+    fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    activeCount: z.number().int().nonnegative(),
+    deletedCount: z.number().int().nonnegative(),
+    transferCount: z.number().int().nonnegative(),
+    currencies: z.array(currencyCodeSchema),
+  })
+  .strict();
+
+export const bulkTransactionPatchSchema = z
+  .object({
+    date: isoDateSchema.optional(),
+    payee: z.string().trim().min(1, "Payee is required").max(160).optional(),
+    categoryId: z.string().uuid().nullable().optional(),
+    accountId: z.string().uuid().optional(),
+    description: z
+      .string()
+      .trim()
+      .max(240)
+      .nullable()
+      .optional()
+      .transform((value) => (value === "" ? null : value)),
+    notes: z
+      .string()
+      .trim()
+      .max(4_000)
+      .nullable()
+      .optional()
+      .transform((value) => (value === "" ? null : value)),
+    type: z.enum(["deposit", "withdrawal"]).optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "Choose at least one field to update",
+  });
+
+export const bulkTransactionEditSchema = z
+  .object({
+    selection: bulkTransactionSelectionSchema,
+    patch: bulkTransactionPatchSchema,
+    idempotencyKey: idempotencyKeySchema,
+    allowDuplicates: z.boolean().default(false),
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+
+export const bulkTransactionEditItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    previousVersion: z.number().int().positive(),
+    nextVersion: z.number().int().positive(),
+    type: z.enum(transactionTypes),
+    date: isoDateSchema,
+    payee: payeeNameSchema,
+  })
+  .strict();
+
+export const bulkTransactionEditResultSchema = z
+  .object({
+    updatedCount: z.number().int().nonnegative(),
+    dryRun: z.boolean(),
+    selectionCount: z.number().int().nonnegative(),
+    selectionFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    activeCount: z.number().int().nonnegative(),
+    deletedCount: z.number().int().nonnegative(),
+    transferCount: z.number().int().nonnegative(),
+    currencies: z.array(currencyCodeSchema),
+    itemsTruncated: z.boolean(),
+    items: z.array(bulkTransactionEditItemSchema),
+  })
+  .strict();
+
+export type BulkTransactionFilter = z.infer<
+  typeof bulkTransactionFilterSchema
+>;
+export type BulkTransactionFilterSelectionRequest = z.infer<
+  typeof bulkTransactionFilterSelectionRequestSchema
+>;
+export type BulkTransactionSelectionSnapshot = z.infer<
+  typeof bulkTransactionSelectionSnapshotSchema
+>;
+export type BulkTransactionPatch = z.infer<typeof bulkTransactionPatchSchema>;
+export type BulkTransactionEditInput = z.infer<
+  typeof bulkTransactionEditSchema
+>;
+export type BulkTransactionEditResult = z.infer<
+  typeof bulkTransactionEditResultSchema
+>;
 
 export const stageListQuerySchema = listQuerySchema.extend({
   importBatchId: z.string().uuid().optional(),

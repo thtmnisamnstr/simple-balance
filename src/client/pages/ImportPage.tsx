@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   CheckCircle2,
@@ -30,15 +30,30 @@ type StageResult = {
     draft: Record<string, unknown> | null;
     issues: { field: string; message: string }[];
   }[];
+  referenceResolution: {
+    categories: {
+      inputName: string;
+      resolvedName: string;
+      categoryId: string | null;
+      kind: "income" | "expense" | "both";
+      resolution: "existing" | "new" | "updated";
+      unarchived: boolean;
+    }[];
+    payees: {
+      inputPayee: string;
+      resolvedPayee: string;
+      resolution: "existing" | "new";
+    }[];
+  };
 };
 
 const aliases: Record<keyof CsvMapping, string[]> = {
   date: ["date", "posted date", "transaction date"],
-  description: ["description", "memo", "details", "name"],
+  description: ["description", "memo", "details"],
   amount: ["amount", "signed amount"],
   debit: ["debit", "withdrawal", "money out"],
   credit: ["credit", "deposit", "money in"],
-  payee: ["payee", "merchant"],
+  payee: ["payee", "merchant", "description", "memo", "details", "name"],
   category: ["category"],
   notes: ["notes", "note"],
   type: ["transaction_type", "type"],
@@ -91,6 +106,7 @@ function MappingField({
 }
 
 export default function ImportPage() {
+  const queryClient = useQueryClient();
   const [csv, setCsv] = useState("");
   const [fileName, setFileName] = useState("");
   const [preview, setPreview] = useState<CsvPreview | null>(null);
@@ -138,9 +154,17 @@ export default function ImportPage() {
           dryRun,
         }),
       ),
-    onSuccess: (value, dryRun) => {
+    onSuccess: async (value, dryRun) => {
       setResult(value);
-      if (!dryRun) stageIdempotencyKey.current = crypto.randomUUID();
+      if (!dryRun) {
+        stageIdempotencyKey.current = crypto.randomUUID();
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["categories"] }),
+          queryClient.invalidateQueries({ queryKey: ["payees"] }),
+          queryClient.invalidateQueries({ queryKey: ["staged"] }),
+          queryClient.invalidateQueries({ queryKey: ["import-batches"] }),
+        ]);
+      }
     },
   });
 
@@ -152,7 +176,7 @@ export default function ImportPage() {
       (mapping.type && mapping.sourceAmount && mapping.destinationAmount),
   );
   const ready = Boolean(
-    csv && defaultAccountId && mapping.date && mapping.description && hasAmounts,
+    csv && defaultAccountId && mapping.date && mapping.payee && hasAmounts,
   );
   const sampleHeaders = useMemo(() => preview?.headers.slice(0, 8) ?? [], [preview]);
 
@@ -246,13 +270,11 @@ export default function ImportPage() {
                       onChange={(date) => setMapping((value) => ({ ...value, date }))}
                     />
                     <MappingField
-                      label="Description"
+                      label="Payee"
                       required
                       headers={preview.headers}
-                      value={mapping.description}
-                      onChange={(description) =>
-                        setMapping((value) => ({ ...value, description }))
-                      }
+                      value={mapping.payee}
+                      onChange={(payee) => setMapping((value) => ({ ...value, payee }))}
                     />
                   </div>
                   <div className="three-columns">
@@ -275,13 +297,25 @@ export default function ImportPage() {
                       onChange={(credit) => setMapping((value) => ({ ...value, credit }))}
                     />
                   </div>
-                  <div className="three-columns">
+                  <div className="two-columns">
                     <MappingField
-                      label="Payee"
+                      label="Category"
                       headers={preview.headers}
-                      value={mapping.payee}
-                      onChange={(payee) => setMapping((value) => ({ ...value, payee }))}
+                      value={mapping.category}
+                      onChange={(category) =>
+                        setMapping((value) => ({ ...value, category }))
+                      }
                     />
+                    <MappingField
+                      label="Description"
+                      headers={preview.headers}
+                      value={mapping.description}
+                      onChange={(description) =>
+                        setMapping((value) => ({ ...value, description }))
+                      }
+                    />
+                  </div>
+                  <div className="two-columns">
                     <MappingField
                       label="Notes"
                       headers={preview.headers}
@@ -330,19 +364,38 @@ export default function ImportPage() {
                 </div>
                 {stageMutation.error ? <Alert>{stageMutation.error.message}</Alert> : null}
                 {result ? (
-                  <Alert kind={result.invalidCount ? "info" : "success"}>
-                    <strong>{result.validCount}</strong> ready and{" "}
-                    <strong>{result.invalidCount}</strong> needing attention out of{" "}
-                    {result.rowCount} rows.
-                    {result.importBatchId ? (
-                      <>
-                        {" "}
-                        <a href="/staged">Open the review queue</a>.
-                      </>
-                    ) : (
-                      " Nothing was changed during this dry run."
-                    )}
-                  </Alert>
+                  <>
+                    <Alert kind={result.invalidCount ? "info" : "success"}>
+                      <strong>{result.validCount}</strong> ready and{" "}
+                      <strong>{result.invalidCount}</strong> needing attention out of{" "}
+                      {result.rowCount} rows.
+                      {result.importBatchId ? (
+                        <>
+                          {" "}
+                          <a href="/staged">Open the review queue</a>.
+                        </>
+                      ) : (
+                        " Nothing was changed during this dry run."
+                      )}
+                    </Alert>
+                    {result.referenceResolution.categories.length ||
+                    result.referenceResolution.payees.length ? (
+                      <Alert kind="info">
+                        Categories: {result.referenceResolution.categories.filter(
+                          (item) => item.resolution === "existing",
+                        ).length} matched, {result.referenceResolution.categories.filter(
+                          (item) => item.resolution === "new",
+                        ).length} new, and {result.referenceResolution.categories.filter(
+                          (item) => item.resolution === "updated",
+                        ).length} updated. Payees:{" "}
+                        {result.referenceResolution.payees.filter(
+                          (item) => item.resolution === "existing",
+                        ).length} matched and {result.referenceResolution.payees.filter(
+                          (item) => item.resolution === "new",
+                        ).length} new.
+                      </Alert>
+                    ) : null}
+                  </>
                 ) : null}
               </>
             ) : null}

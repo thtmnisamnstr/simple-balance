@@ -39,10 +39,12 @@ import {
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
+  lockPayeeNamespace,
   serializeRow,
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
+import { canonicalizeStagedDraftPayee } from "./payees.js";
 import {
   createTransactionWithinTx,
   findDuplicate,
@@ -87,6 +89,7 @@ export async function lockStagedDraftReferences(
   if (drafts.some((draft) => referenceValue(draft, "categoryId"))) {
     await lockCategoryNamespace(tx, actor);
   }
+  await lockPayeeNamespace(tx, actor);
 }
 
 async function validateDraft(
@@ -147,12 +150,17 @@ export async function createStage(
     );
     if (existing) return existing;
     await lockStagedDraftReferences(tx, actor, [parsed.draft]);
-    const validation = await validateDraft(tx, actor, parsed.draft);
+    const canonicalDraft = await canonicalizeStagedDraftPayee(
+      tx,
+      actor,
+      parsed.draft,
+    );
+    const validation = await validateDraft(tx, actor, canonicalDraft);
     const [created] = await tx
       .insert(stagedTransactions)
       .values({
         userId: actor.userId,
-        draft: parsed.draft,
+        draft: canonicalDraft,
         rawData: parsed.rawData,
         validationIssues: validation.issues,
         duplicateOfId: validation.duplicateOfId,
@@ -188,7 +196,12 @@ export async function insertImportedStage(
   },
 ) {
   await lockStagedDraftReferences(tx, actor, [input.draft]);
-  const draftValidation = await validateDraft(tx, actor, input.draft);
+  const canonicalDraft = await canonicalizeStagedDraftPayee(
+    tx,
+    actor,
+    input.draft,
+  );
+  const draftValidation = await validateDraft(tx, actor, canonicalDraft);
   const validation = {
     issues: [...(input.initialIssues ?? []), ...draftValidation.issues],
     duplicateOfId: draftValidation.duplicateOfId,
@@ -197,7 +210,7 @@ export async function insertImportedStage(
     .insert(stagedTransactions)
     .values({
       userId: actor.userId,
-      draft: input.draft ?? {},
+      draft: canonicalDraft ?? {},
       rawData: input.rawData,
       importBatchId: input.importBatchId,
       validationIssues: validation.issues,
@@ -310,6 +323,11 @@ export async function updateStage(
   const { draft, expectedVersion } = stageUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await lockStagedDraftReferences(tx, actor, [draft]);
+    const canonicalDraft = await canonicalizeStagedDraftPayee(
+      tx,
+      actor,
+      draft,
+    );
     const [before] = await tx
       .select()
       .from(stagedTransactions)
@@ -319,11 +337,11 @@ export async function updateStage(
       .limit(1);
     if (!before || before.status !== "staged") throw notFound("Staged transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
-    const validation = await validateDraft(tx, actor, draft);
+    const validation = await validateDraft(tx, actor, canonicalDraft);
     const [updated] = await tx
       .update(stagedTransactions)
       .set({
-        draft,
+        draft: canonicalDraft,
         validationIssues: validation.issues,
         duplicateOfId: validation.duplicateOfId,
         version: expectedVersion + 1,
@@ -454,12 +472,21 @@ export async function commitStages(
       rows.map((row) => row.draft),
     );
 
-    const validated: { row: StagedTransactionRow; draft: TransactionDraft }[] = [];
+    const validated: {
+      row: StagedTransactionRow;
+      draft: TransactionDraft;
+      canonicalStagedDraft: unknown;
+    }[] = [];
     for (const row of rows) {
       if (parsed.expectedVersions[row.id] !== row.version) {
         throw staleVersion({ id: row.id, currentVersion: row.version });
       }
-      const result = await validateDraft(tx, actor, row.draft);
+      const canonicalStagedDraft = await canonicalizeStagedDraftPayee(
+        tx,
+        actor,
+        row.draft,
+      );
+      const result = await validateDraft(tx, actor, canonicalStagedDraft);
       if (!result.draft || result.issues.length) {
         throw validationError("All selected staged transactions must be valid", {
           id: row.id,
@@ -472,7 +499,7 @@ export async function commitStages(
           duplicateOfId: result.duplicateOfId,
         });
       }
-      validated.push({ row, draft: result.draft });
+      validated.push({ row, draft: result.draft, canonicalStagedDraft });
     }
 
     await lockTransactionDuplicateKeys(
@@ -513,7 +540,7 @@ export async function commitStages(
     if (parsed.dryRun) return preview;
 
     const committed: { stagedId: string; transactionId: string }[] = [];
-    for (const { row, draft } of validated) {
+    for (const { row, draft, canonicalStagedDraft } of validated) {
       const transaction = await createTransactionWithinTx(
         tx,
         actor,
@@ -524,6 +551,7 @@ export async function commitStages(
       const [updated] = await tx
         .update(stagedTransactions)
         .set({
+          draft: canonicalStagedDraft,
           status: "committed",
           committedTransactionId: transaction.id,
           version: row.version + 1,

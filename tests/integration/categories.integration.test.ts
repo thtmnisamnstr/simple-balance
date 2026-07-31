@@ -153,6 +153,7 @@ integration("category duplicate detection and merge", () => {
       {
         type: "deposit",
         date: "2026-08-01",
+        payee: "Committed category kind invariant",
         description: "Committed category kind invariant",
         toAccountId: accountId,
         amount: "10",
@@ -164,6 +165,7 @@ integration("category duplicate detection and merge", () => {
       draft: {
         type: "deposit",
         date: "2026-08-02",
+        payee: "Staged category kind invariant",
         description: "Staged category kind invariant",
         toAccountId: accountId,
         amount: "5",
@@ -216,6 +218,7 @@ integration("category duplicate detection and merge", () => {
       {
         type: "deposit",
         date: "2026-08-03",
+        payee: "Historic archived category use",
         description: "Historic archived category use",
         toAccountId: accountId,
         amount: "20",
@@ -227,6 +230,7 @@ integration("category duplicate detection and merge", () => {
       draft: {
         type: "deposit",
         date: "2026-08-04",
+        payee: "Active archived category guard",
         description: "Active archived category guard",
         toAccountId: accountId,
         amount: "2",
@@ -256,6 +260,7 @@ integration("category duplicate detection and merge", () => {
         draft: {
           type: "deposit",
           date: committed.date,
+          payee: "Edited historic archived category use",
           description: "Edited historic archived category use",
           toAccountId: accountId,
           amount: committed.destinationAmount!,
@@ -265,6 +270,7 @@ integration("category duplicate detection and merge", () => {
       }),
     ).resolves.toMatchObject({
       categoryId: category.id,
+      payee: "Edited historic archived category use",
       description: "Edited historic archived category use",
     });
 
@@ -274,6 +280,7 @@ integration("category duplicate detection and merge", () => {
         {
           type: "deposit",
           date: "2026-08-05",
+          payee: "New archived category use",
           description: "New archived category use",
           toAccountId: accountId,
           amount: "3",
@@ -287,6 +294,7 @@ integration("category duplicate detection and merge", () => {
       draft: {
         type: "deposit",
         date: "2026-08-06",
+        payee: "New staged archived category use",
         description: "New staged archived category use",
         toAccountId: accountId,
         amount: "4",
@@ -347,6 +355,7 @@ integration("category duplicate detection and merge", () => {
       {
         type: "deposit",
         date: "2026-07-28",
+        payee: "Category merge committed reference",
         description: "Category merge committed reference",
         toAccountId: accountId,
         amount: "25",
@@ -358,6 +367,7 @@ integration("category duplicate detection and merge", () => {
       draft: {
         type: "deposit",
         date: "2026-07-29",
+        payee: "Category merge staged reference",
         description: "Category merge staged reference",
         toAccountId: accountId,
         amount: "15",
@@ -603,6 +613,7 @@ integration("category duplicate detection and merge", () => {
           draft: {
             type: "deposit",
             date: "2026-08-10",
+            payee: `Concurrent category reference ${attempt}`,
             description: `Concurrent category reference ${attempt}`,
             toAccountId: accountId,
             amount: "1",
@@ -639,6 +650,7 @@ integration("category duplicate detection and merge", () => {
           draft: {
             type: "deposit",
             date: "2026-08-11",
+            payee: `Concurrent category merge ${attempt}`,
             description: `Concurrent category merge ${attempt}`,
             toAccountId: accountId,
             amount: "1",

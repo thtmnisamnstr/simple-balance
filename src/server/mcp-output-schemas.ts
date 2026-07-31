@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   accountTypes,
+  bulkTransactionEditResultSchema,
+  bulkTransactionSelectionSnapshotSchema,
   categoryKinds,
   transactionTypes,
 } from "../shared/domain.js";
@@ -109,8 +111,8 @@ export const transactionResultSchema = z
     ...versionedEntitySchema,
     type: z.enum(transactionTypes),
     date: z.string(),
-    description: z.string(),
-    payee: nullableStringSchema,
+    payee: z.string(),
+    description: nullableStringSchema,
     categoryId: uuidSchema.nullable(),
     notes: nullableStringSchema,
     externalId: nullableStringSchema,
@@ -127,6 +129,12 @@ export const transactionResultSchema = z
     category: categoryReferenceSchema.nullable(),
   })
   .passthrough();
+
+export const bulkTransactionSelectionSnapshotResultSchema =
+  bulkTransactionSelectionSnapshotSchema;
+
+export const bulkTransactionEditMcpResultSchema =
+  bulkTransactionEditResultSchema;
 
 const validationIssueSchema = z.object({
   field: z.string(),
@@ -159,6 +167,22 @@ export const duplicateCategoriesResultSchema = z.array(
     normalizedName: z.string(),
     count: z.number().int().min(2),
     categories: z.array(categoryResultSchema),
+  }),
+);
+
+export const payeeResultSchema = z.object({
+  name: z.string(),
+  normalizedName: z.string(),
+  transactionCount: z.number().int().nonnegative(),
+  stagedTransactionCount: z.number().int().nonnegative(),
+  totalCount: z.number().int().nonnegative(),
+});
+
+export const duplicatePayeesResultSchema = z.array(
+  z.object({
+    normalizedName: z.string(),
+    count: z.number().int().min(2),
+    payees: z.array(payeeResultSchema),
   }),
 );
 
@@ -220,12 +244,33 @@ const csvPreviewRowSchema = z
   })
   .passthrough();
 
+const csvReferenceResolutionSchema = z.object({
+  categories: z.array(
+    z.object({
+      inputName: z.string(),
+      resolvedName: z.string(),
+      categoryId: uuidSchema.nullable(),
+      kind: z.enum(categoryKinds),
+      resolution: z.enum(["existing", "new", "updated"]),
+      unarchived: z.boolean(),
+    }),
+  ),
+  payees: z.array(
+    z.object({
+      inputPayee: z.string(),
+      resolvedPayee: z.string(),
+      resolution: z.enum(["existing", "new"]),
+    }),
+  ),
+});
+
 const csvPreviewSchema = z.object({
   fileName: z.string(),
   rowCount: z.number().int().nonnegative(),
   validCount: z.number().int().nonnegative(),
   invalidCount: z.number().int().nonnegative(),
   sample: z.array(csvPreviewRowSchema),
+  referenceResolution: csvReferenceResolutionSchema,
 });
 
 export const csvStageResultSchema = z.union([
@@ -248,6 +293,13 @@ export const deletedStagesResultSchema = z.object({
 export const mergedCategoriesResultSchema = z.object({
   targetCategory: categoryResultSchema,
   mergedSourceCategoryIds: z.array(uuidSchema),
+  updatedTransactionCount: z.number().int().nonnegative(),
+  updatedStagedTransactionCount: z.number().int().nonnegative(),
+});
+
+export const mergedPayeesResultSchema = z.object({
+  targetPayee: z.string(),
+  mergedSourcePayees: z.array(z.string()),
   updatedTransactionCount: z.number().int().nonnegative(),
   updatedStagedTransactionCount: z.number().int().nonnegative(),
 });

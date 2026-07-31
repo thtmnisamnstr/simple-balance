@@ -46,9 +46,26 @@ contract.
   implied rate is audit/display metadata, not a global rate.
 - Deleted transactions keep their postings but are excluded by all balance and
   report queries.
+- Transaction mass edits are validate-first and atomic. Explicit selections use
+  row versions; all-matching selections use a server-issued count and
+  fingerprint of the filtered `id:version` set so concurrent changes make the
+  request stale instead of silently changing its scope.
+- Bulk account changes preserve native currency. Transfers may receive common
+  field edits but cannot be collapsed into deposits or withdrawals in bulk.
 - Staged rows never affect balances.
 - Mass stage commit validates all rows first and runs in one PostgreSQL
   transaction.
+- Every transaction requires a payee; its description is optional. Category and
+  payee entry canonicalizes exact existing matches case-insensitively, while
+  category and payee links open their filtered transaction views.
+- Payees remain required canonical text on transactions rather than a separate
+  mutable database entity. The payee list is a tenant-scoped projection of
+  committed and staged transaction text; merging rewrites those references
+  atomically, bumps their versions, and records audit events.
+- Bank CSV staging resolves category and payee names with the same Unicode,
+  whitespace, and case normalization used by the rest of the application.
+  Missing categories are created, incompatible category applicability broadens
+  to Both, and new payee text becomes visible through the derived payee list.
 
 ## Request flow and tenancy
 
@@ -59,7 +76,7 @@ OAuth access token. Both resolve an internal `Actor`; every service query includ
 Database migrations run at process startup under PostgreSQL advisory lock
 `724202607`, so concurrent starts cannot race. Readiness remains unavailable
 until configuration, database connection, and migrations succeed. The 0.1.0
-schema is one initial migration. Every later schema change is a new,
+schema is one clean initial migration. Every later schema change is a new,
 forward-only migration that preserves existing records and backfills required
 data; operators only replace the application image and restart it. The complete
 contract is in [upgrades and schema evolution](upgrades.md).

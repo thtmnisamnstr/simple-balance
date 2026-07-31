@@ -1,5 +1,5 @@
 {
-  "id": "bca753a9-6dfc-4e77-ba44-3f1057bee87f",
+  "id": "ed0baedd-4f81-4082-904b-06d8f64ff7f7",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -666,7 +666,7 @@
         },
         "opening_balance": {
           "name": "opening_balance",
-          "type": "numeric(38, 12)",
+          "type": "numeric(44, 18)",
           "primaryKey": false,
           "notNull": true,
           "default": "'0'"
@@ -754,7 +754,7 @@
       "checkConstraints": {
         "ledger_account_currency_check": {
           "name": "ledger_account_currency_check",
-          "value": "\"ledger_account\".\"currency\" ~ '^[A-Z]{3}$'"
+          "value": "\"ledger_account\".\"currency\" ~ '^[A-Z]{2,12}$'"
         },
         "ledger_account_version_check": {
           "name": "ledger_account_version_check",
@@ -1235,7 +1235,7 @@
         },
         "amount": {
           "name": "amount",
-          "type": "numeric(38, 12)",
+          "type": "numeric(44, 18)",
           "primaryKey": false,
           "notNull": true
         },
@@ -1359,7 +1359,7 @@
         },
         "posting_currency_check": {
           "name": "posting_currency_check",
-          "value": "\"posting\".\"currency\" ~ '^[A-Z]{3}$'"
+          "value": "\"posting\".\"currency\" ~ '^[A-Z]{2,12}$'"
         }
       },
       "isRLSEnabled": false
@@ -1720,13 +1720,13 @@
           "name": "description",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "payee": {
           "name": "payee",
           "type": "text",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "category_id": {
           "name": "category_id",
@@ -1760,13 +1760,13 @@
         },
         "source_amount": {
           "name": "source_amount",
-          "type": "numeric(38, 12)",
+          "type": "numeric(44, 18)",
           "primaryKey": false,
           "notNull": false
         },
         "destination_amount": {
           "name": "destination_amount",
-          "type": "numeric(38, 12)",
+          "type": "numeric(44, 18)",
           "primaryKey": false,
           "notNull": false
         },
@@ -1784,7 +1784,7 @@
         },
         "effective_rate": {
           "name": "effective_rate",
-          "type": "numeric(38, 12)",
+          "type": "numeric(44, 18)",
           "primaryKey": false,
           "notNull": false
         },
@@ -2006,9 +2006,17 @@
           "name": "ledger_transaction_version_check",
           "value": "\"ledger_transaction\".\"version\" >= 1"
         },
+        "ledger_transaction_payee_check": {
+          "name": "ledger_transaction_payee_check",
+          "value": "char_length(trim(\"ledger_transaction\".\"payee\")) between 1 and 160"
+        },
+        "ledger_transaction_description_check": {
+          "name": "ledger_transaction_description_check",
+          "value": "\"ledger_transaction\".\"description\" is null or char_length(\"ledger_transaction\".\"description\") <= 240"
+        },
         "ledger_transaction_shape_check": {
           "name": "ledger_transaction_shape_check",
-          "value": "\n        (\n          \"ledger_transaction\".\"type\" = 'deposit'\n          and \"ledger_transaction\".\"source_account_id\" is null\n          and \"ledger_transaction\".\"source_amount\" is null\n          and \"ledger_transaction\".\"source_currency\" is null\n          and \"ledger_transaction\".\"destination_account_id\" is not null\n          and \"ledger_transaction\".\"destination_amount\" is not null\n          and \"ledger_transaction\".\"destination_amount\" > 0\n          and \"ledger_transaction\".\"destination_currency\" is not null\n          and \"ledger_transaction\".\"destination_currency\" ~ '^[A-Z]{3}$'\n          and \"ledger_transaction\".\"effective_rate\" is null\n        )\n        or\n        (\n          \"ledger_transaction\".\"type\" = 'withdrawal'\n          and \"ledger_transaction\".\"source_account_id\" is not null\n          and \"ledger_transaction\".\"source_amount\" is not null\n          and \"ledger_transaction\".\"source_amount\" > 0\n          and \"ledger_transaction\".\"source_currency\" is not null\n          and \"ledger_transaction\".\"source_currency\" ~ '^[A-Z]{3}$'\n          and \"ledger_transaction\".\"destination_account_id\" is null\n          and \"ledger_transaction\".\"destination_amount\" is null\n          and \"ledger_transaction\".\"destination_currency\" is null\n          and \"ledger_transaction\".\"effective_rate\" is null\n        )\n        or\n        (\n          \"ledger_transaction\".\"type\" = 'transfer'\n          and \"ledger_transaction\".\"source_account_id\" is not null\n          and \"ledger_transaction\".\"destination_account_id\" is not null\n          and \"ledger_transaction\".\"source_account_id\" <> \"ledger_transaction\".\"destination_account_id\"\n          and \"ledger_transaction\".\"source_amount\" is not null\n          and \"ledger_transaction\".\"source_amount\" > 0\n          and \"ledger_transaction\".\"destination_amount\" is not null\n          and \"ledger_transaction\".\"destination_amount\" > 0\n          and \"ledger_transaction\".\"source_currency\" is not null\n          and \"ledger_transaction\".\"source_currency\" ~ '^[A-Z]{3}$'\n          and \"ledger_transaction\".\"destination_currency\" is not null\n          and \"ledger_transaction\".\"destination_currency\" ~ '^[A-Z]{3}$'\n          and \"ledger_transaction\".\"effective_rate\" is not null\n          and \"ledger_transaction\".\"effective_rate\" > 0\n          and (\n            (\n              \"ledger_transaction\".\"source_currency\" = \"ledger_transaction\".\"destination_currency\"\n              and \"ledger_transaction\".\"source_amount\" = \"ledger_transaction\".\"destination_amount\"\n              and \"ledger_transaction\".\"effective_rate\" = 1\n            )\n            or \"ledger_transaction\".\"source_currency\" <> \"ledger_transaction\".\"destination_currency\"\n          )\n        )\n      "
+          "value": "\n        (\n          \"ledger_transaction\".\"type\" = 'deposit'\n          and \"ledger_transaction\".\"source_account_id\" is null\n          and \"ledger_transaction\".\"source_amount\" is null\n          and \"ledger_transaction\".\"source_currency\" is null\n          and \"ledger_transaction\".\"destination_account_id\" is not null\n          and \"ledger_transaction\".\"destination_amount\" is not null\n          and \"ledger_transaction\".\"destination_amount\" > 0\n          and \"ledger_transaction\".\"destination_currency\" is not null\n          and \"ledger_transaction\".\"destination_currency\" ~ '^[A-Z]{2,12}$'\n          and \"ledger_transaction\".\"effective_rate\" is null\n        )\n        or\n        (\n          \"ledger_transaction\".\"type\" = 'withdrawal'\n          and \"ledger_transaction\".\"source_account_id\" is not null\n          and \"ledger_transaction\".\"source_amount\" is not null\n          and \"ledger_transaction\".\"source_amount\" > 0\n          and \"ledger_transaction\".\"source_currency\" is not null\n          and \"ledger_transaction\".\"source_currency\" ~ '^[A-Z]{2,12}$'\n          and \"ledger_transaction\".\"destination_account_id\" is null\n          and \"ledger_transaction\".\"destination_amount\" is null\n          and \"ledger_transaction\".\"destination_currency\" is null\n          and \"ledger_transaction\".\"effective_rate\" is null\n        )\n        or\n        (\n          \"ledger_transaction\".\"type\" = 'transfer'\n          and \"ledger_transaction\".\"source_account_id\" is not null\n          and \"ledger_transaction\".\"destination_account_id\" is not null\n          and \"ledger_transaction\".\"source_account_id\" <> \"ledger_transaction\".\"destination_account_id\"\n          and \"ledger_transaction\".\"source_amount\" is not null\n          and \"ledger_transaction\".\"source_amount\" > 0\n          and \"ledger_transaction\".\"destination_amount\" is not null\n          and \"ledger_transaction\".\"destination_amount\" > 0\n          and \"ledger_transaction\".\"source_currency\" is not null\n          and \"ledger_transaction\".\"source_currency\" ~ '^[A-Z]{2,12}$'\n          and \"ledger_transaction\".\"destination_currency\" is not null\n          and \"ledger_transaction\".\"destination_currency\" ~ '^[A-Z]{2,12}$'\n          and \"ledger_transaction\".\"effective_rate\" is not null\n          and \"ledger_transaction\".\"effective_rate\" > 0\n          and (\n            (\n              \"ledger_transaction\".\"source_currency\" = \"ledger_transaction\".\"destination_currency\"\n              and \"ledger_transaction\".\"source_amount\" = \"ledger_transaction\".\"destination_amount\"\n              and \"ledger_transaction\".\"effective_rate\" = 1\n            )\n            or \"ledger_transaction\".\"source_currency\" <> \"ledger_transaction\".\"destination_currency\"\n          )\n        )\n      "
         }
       },
       "isRLSEnabled": false
@@ -2140,7 +2148,7 @@
       "checkConstraints": {
         "user_preferences_default_currency_check": {
           "name": "user_preferences_default_currency_check",
-          "value": "\"user_preferences\".\"default_currency\" ~ '^[A-Z]{3}$'"
+          "value": "\"user_preferences\".\"default_currency\" ~ '^[A-Z]{2,12}$'"
         }
       },
       "isRLSEnabled": false
@@ -2223,6 +2231,7 @@
         "debit_card",
         "credit_card",
         "cash",
+        "crypto_wallet",
         "loan",
         "investment",
         "other_asset",

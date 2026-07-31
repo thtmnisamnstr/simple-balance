@@ -108,7 +108,7 @@ integration("PostgreSQL migrations", () => {
     const migrationRows = await databaseClient.query<{ count: string }>(
       `select count(*)::text as count from drizzle.__drizzle_migrations`,
     );
-    expect(migrationRows.rows[0]?.count).toBe("2");
+    expect(migrationRows.rows[0]?.count).toBe("1");
 
     const constraints = await databaseClient.query<{ conname: string }>(
       `select conname
@@ -120,6 +120,8 @@ integration("PostgreSQL migrations", () => {
           'ledger_account_currency_check',
           'ledger_account_version_check',
           'ledger_transaction_shape_check',
+          'ledger_transaction_payee_check',
+          'ledger_transaction_description_check',
           'ledger_transaction_version_check',
           'posting_amount_check',
           'posting_currency_check',
@@ -135,6 +137,8 @@ integration("PostgreSQL migrations", () => {
       "import_batch_row_count_check",
       "ledger_account_currency_check",
       "ledger_account_version_check",
+      "ledger_transaction_description_check",
+      "ledger_transaction_payee_check",
       "ledger_transaction_shape_check",
       "ledger_transaction_version_check",
       "posting_amount_check",
@@ -150,7 +154,7 @@ integration("PostgreSQL migrations", () => {
     const migrationRows = await databaseClient.query<{ count: string }>(
       `select count(*)::text as count from drizzle.__drizzle_migrations`,
     );
-    expect(migrationRows.rows[0]?.count).toBe("2");
+    expect(migrationRows.rows[0]?.count).toBe("1");
   });
 
   it("enforces ledger shapes, posting uniqueness, and tenant-owned references", async () => {
@@ -190,18 +194,18 @@ integration("PostgreSQL migrations", () => {
     );
     await databaseClient.query(
       `insert into ledger_transaction
-         (id, user_id, type, date, description, destination_account_id,
+         (id, user_id, type, date, payee, description, destination_account_id,
           destination_amount, destination_currency)
-       values ($1, $2, 'deposit', '2026-01-02', 'Valid deposit', $3, 10, 'USD')`,
+       values ($1, $2, 'deposit', '2026-01-02', 'Valid payee', 'Valid deposit', $3, 10, 'USD')`,
       [secondTransactionId, secondUserId, secondAccountId],
     );
 
     await expect(
       databaseClient.query(
         `insert into ledger_transaction
-           (user_id, type, date, description, destination_account_id,
+           (user_id, type, date, payee, description, destination_account_id,
             destination_currency)
-         values ($1, 'deposit', '2026-01-03', 'Missing amount', $2, 'USD')`,
+         values ($1, 'deposit', '2026-01-03', 'Test payee', 'Missing amount', $2, 'USD')`,
         [firstUserId, firstAccountId],
       ),
     ).rejects.toMatchObject({ constraint: "ledger_transaction_shape_check" });
@@ -209,9 +213,9 @@ integration("PostgreSQL migrations", () => {
     await expect(
       databaseClient.query(
         `insert into ledger_transaction
-           (user_id, type, date, description, destination_account_id,
+           (user_id, type, date, payee, description, destination_account_id,
             destination_amount, destination_currency)
-         values ($1, 'deposit', '2026-01-03', 'Other owner account', $2, 10, 'USD')`,
+         values ($1, 'deposit', '2026-01-03', 'Test payee', 'Other owner account', $2, 10, 'USD')`,
         [firstUserId, secondAccountId],
       ),
     ).rejects.toMatchObject({
@@ -221,9 +225,9 @@ integration("PostgreSQL migrations", () => {
     await expect(
       databaseClient.query(
         `insert into ledger_transaction
-           (user_id, type, date, description, category_id, destination_account_id,
+           (user_id, type, date, payee, description, category_id, destination_account_id,
             destination_amount, destination_currency)
-         values ($1, 'deposit', '2026-01-03', 'Other owner category', $2, $3, 10, 'USD')`,
+         values ($1, 'deposit', '2026-01-03', 'Test payee', 'Other owner category', $2, $3, 10, 'USD')`,
         [firstUserId, secondCategoryId, firstAccountId],
       ),
     ).rejects.toMatchObject({

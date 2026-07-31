@@ -57,9 +57,36 @@ describe("MCP output contracts", () => {
     const transactionSchema = JSON.stringify(
       byName.get("create_transaction")?.outputSchema,
     );
+    const payeeSchema = JSON.stringify(byName.get("list_payees")?.outputSchema);
+    const mergePayeeSchema = JSON.stringify(
+      byName.get("merge_payees")?.outputSchema,
+    );
+    const bulkPreviewSchema = JSON.stringify(
+      byName.get("preview_bulk_transaction_selection")?.outputSchema,
+    );
+    const bulkEditSchema = JSON.stringify(
+      byName.get("bulk_edit_transactions")?.outputSchema,
+    );
+    const bulkEditInputSchema = JSON.stringify(
+      byName.get("bulk_edit_transactions")?.inputSchema,
+    );
     expect(listAccountSchema).toContain('"type":"array"');
     expect(createAccountSchema).toContain('"openingBalance"');
     expect(transactionSchema).toContain('"destinationAmount"');
+    expect(payeeSchema).toContain('"stagedTransactionCount"');
+    expect(mergePayeeSchema).toContain('"mergedSourcePayees"');
+    expect(bulkPreviewSchema).toContain('"fingerprint"');
+    expect(bulkPreviewSchema).toContain('"transferCount"');
+    expect(bulkEditSchema).toContain('"selectionFingerprint"');
+    expect(bulkEditSchema).toContain('"itemsTruncated"');
+    expect(bulkEditInputSchema).toContain('"expectedFingerprint"');
+    expect(
+      byName.get("preview_bulk_transaction_selection")?.annotations
+        ?.readOnlyHint,
+    ).toBe(true);
+    expect(
+      byName.get("bulk_edit_transactions")?.annotations?.destructiveHint,
+    ).toBe(true);
     expect(createAccountSchema).not.toEqual(transactionSchema);
   });
 });

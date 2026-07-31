@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   decimalStringSchema,
   accountCreateSchema,
+  bulkTransactionEditSchema,
   isoDateSchema,
   listQuerySchema,
   stageCreateSchema,
@@ -77,11 +78,33 @@ describe("boundary schemas", () => {
     const parsed = transactionDraftSchema.safeParse({
       type: "withdrawal",
       date: "2026-07-30",
+      payee: "Lunch counter",
       description: "Lunch",
       fromAccountId: accountId,
       amount: "-12.50",
     });
     expect(parsed.success).toBe(false);
+  });
+
+  it("requires a payee and permits an omitted description", () => {
+    expect(
+      transactionDraftSchema.safeParse({
+        type: "deposit",
+        date: "2026-07-30",
+        payee: "Employer",
+        toAccountId: accountId,
+        amount: "100",
+      }).success,
+    ).toBe(true);
+    expect(
+      transactionDraftSchema.safeParse({
+        type: "deposit",
+        date: "2026-07-30",
+        description: "Salary",
+        toAccountId: accountId,
+        amount: "100",
+      }).success,
+    ).toBe(false);
   });
 
   it("keeps incomplete drafts in staging for later correction", () => {
@@ -110,6 +133,49 @@ describe("boundary schemas", () => {
     expect(listQuerySchema.safeParse({ includeDeleted: "1" }).success).toBe(false);
     expect(listQuerySchema.safeParse({ includeDeleted: "yes" }).success).toBe(false);
     expect(listQuerySchema.safeParse({ includeDeleted: "" }).success).toBe(false);
+  });
+
+  it("strictly validates explicit and snapshot-protected bulk transaction edits", () => {
+    const explicit = bulkTransactionEditSchema.parse({
+      selection: {
+        mode: "ids",
+        items: [{ id: accountId, expectedVersion: 1 }],
+      },
+      patch: { payee: "Updated payee", notes: "" },
+      idempotencyKey: "bulk-domain-explicit",
+    });
+    expect(explicit).toMatchObject({
+      allowDuplicates: false,
+      dryRun: false,
+      patch: { payee: "Updated payee", notes: null },
+    });
+    expect(explicit.patch).not.toHaveProperty("description");
+
+    expect(
+      bulkTransactionEditSchema.safeParse({
+        selection: {
+          mode: "filter",
+          filter: { start: "2026-07-01", includeDeleted: false },
+          excludedIds: [],
+          expectedCount: 2,
+          expectedFingerprint: "a".repeat(64),
+        },
+        patch: { categoryId: null, description: null },
+        idempotencyKey: "bulk-domain-filter",
+        dryRun: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      bulkTransactionEditSchema.safeParse({
+        selection: {
+          mode: "filter",
+          filter: { limit: 50 },
+          excludedIds: [],
+        },
+        patch: {},
+        idempotencyKey: "bulk-domain-invalid",
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -178,14 +244,27 @@ describe("CSV normalization", () => {
         { Date: "07/31/2026", Memo: "Rent", Amount: "-900.00" },
       ],
       {
-        mapping: { date: "Date", description: "Memo", amount: "Amount" },
+        mapping: {
+          date: "Date",
+          payee: "Memo",
+          description: "Memo",
+          amount: "Amount",
+        },
         defaultAccountId: accountId,
         dateFormat: "MDY",
         decimalSeparator: ".",
       },
     );
-    expect(rows[0].draft).toMatchObject({ type: "deposit", amount: "2000.00" });
-    expect(rows[1].draft).toMatchObject({ type: "withdrawal", amount: "900.00" });
+    expect(rows[0].draft).toMatchObject({
+      type: "deposit",
+      payee: "Paycheck",
+      amount: "2000.00",
+    });
+    expect(rows[1].draft).toMatchObject({
+      type: "withdrawal",
+      payee: "Rent",
+      amount: "900.00",
+    });
   });
 
   it("stages ambiguous debit and credit rows as validation errors", () => {
@@ -201,6 +280,7 @@ describe("CSV normalization", () => {
       {
         mapping: {
           date: "Date",
+          payee: "Memo",
           description: "Memo",
           debit: "Debit",
           credit: "Credit",

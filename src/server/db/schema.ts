@@ -268,8 +268,8 @@ export const transactions = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     type: transactionTypeEnum("type").notNull(),
     date: date("date").notNull(),
-    description: text("description").notNull(),
-    payee: text("payee"),
+    description: text("description"),
+    payee: text("payee").notNull(),
     categoryId: uuid("category_id"),
     notes: text("notes"),
     externalId: text("external_id"),
@@ -313,6 +313,14 @@ export const transactions = pgTable(
     index("transaction_user_category_idx").on(table.userId, table.categoryId),
     index("transaction_external_id_idx").on(table.userId, table.externalId),
     check("ledger_transaction_version_check", sql`${table.version} >= 1`),
+    check(
+      "ledger_transaction_payee_check",
+      sql`char_length(trim(${table.payee})) between 1 and 160`,
+    ),
+    check(
+      "ledger_transaction_description_check",
+      sql`${table.description} is null or char_length(${table.description}) <= 240`,
+    ),
     check(
       "ledger_transaction_shape_check",
       sql`

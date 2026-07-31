@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
+import { Link, useLocation } from "../router.js";
 import type { CategoryKind } from "../../shared/domain.js";
 import {
   api,
@@ -35,12 +36,13 @@ const kindLabels: Record<CategoryKind, string> = {
 };
 
 export default function CategoriesPage() {
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<CategoryKind>("expense");
   const [search, setSearch] = useState("");
   const [includeArchived, setIncludeArchived] = useState(false);
-  const [sources, setSources] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [targetId, setTargetId] = useState("");
   const categories = useQuery({
     queryKey: ["categories", includeArchived],
@@ -102,20 +104,23 @@ export default function CategoriesPage() {
     },
   });
 
-  const selectedSources = (categories.data ?? []).filter((category) =>
-    sources.has(category.id),
+  const selectedCategories = (categories.data ?? []).filter((category) =>
+    selectedIds.has(category.id),
   );
-  const target = categories.data?.find((category) => category.id === targetId);
+  const target = selectedCategories.find((category) => category.id === targetId);
+  const sourceCategories = selectedCategories.filter(
+    (category) => category.id !== targetId,
+  );
   const mergeMutation = useMutation({
     mutationFn: () => {
       if (!target) throw new Error("Choose the category to keep");
       return api<CategoryMergeResult>(
         "/api/v1/categories/merge",
         json({
-          sourceCategoryIds: selectedSources.map((category) => category.id),
+          sourceCategoryIds: sourceCategories.map((category) => category.id),
           targetCategoryId: target.id,
           expectedVersions: Object.fromEntries(
-            selectedSources.map((category) => [
+            sourceCategories.map((category) => [
               category.id,
               category.version,
             ]),
@@ -125,7 +130,7 @@ export default function CategoriesPage() {
       );
     },
     onSuccess: async () => {
-      setSources(new Set());
+      setSelectedIds(new Set());
       setTargetId("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["categories"] }),
@@ -156,13 +161,7 @@ export default function CategoriesPage() {
     if (!targetCategory) return;
     setIncludeArchived(true);
     setTargetId(targetCategory.id);
-    setSources(
-      new Set(
-        group.categories
-          .filter((category) => category.id !== targetCategory.id)
-          .map((category) => category.id),
-      ),
-    );
+    setSelectedIds(new Set(group.categories.map((category) => category.id)));
   };
 
   return (
@@ -247,12 +246,11 @@ export default function CategoriesPage() {
         </label>
       </div>
 
-      {selectedSources.length ? (
+      {selectedCategories.length >= 2 ? (
         <section className="panel merge-panel">
           <div>
             <strong>
-              Merge {selectedSources.length} selected categor
-              {selectedSources.length === 1 ? "y" : "ies"}
+              Merge {selectedCategories.length} selected categories
             </strong>
             <small>
               Transactions and staged rows will move to the category you keep.
@@ -264,21 +262,17 @@ export default function CategoriesPage() {
             onChange={(event) => setTargetId(event.target.value)}
           >
             <option value="">Choose category to keep</option>
-            {categories.data
-              ?.filter(
-                (category) =>
-                  !sources.has(category.id) && !category.archivedAt,
-              )
-              .map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
+            {selectedCategories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+                {category.archivedAt ? " (archived)" : ""}
+              </option>
+            ))}
           </Select>
           <Button
             variant="danger"
             loading={mergeMutation.isPending}
-            disabled={!target}
+            disabled={!target || sourceCategories.length === 0}
             onClick={() => {
               if (
                 window.confirm(
@@ -294,7 +288,7 @@ export default function CategoriesPage() {
           <Button
             variant="ghost"
             onClick={() => {
-              setSources(new Set());
+              setSelectedIds(new Set());
               setTargetId("");
             }}
           >
@@ -308,27 +302,39 @@ export default function CategoriesPage() {
         <div className="category-list category-page-list">
           {filtered.map((category) => (
             <div className="category-row" key={category.id}>
-              <label className="category-select">
+              <div className="category-select">
                 <input
                   type="checkbox"
-                  checked={sources.has(category.id)}
-                  disabled={targetId === category.id}
+                  aria-label={`Select ${category.name} for merging`}
+                  checked={selectedIds.has(category.id)}
                   onChange={(event) => {
-                    const next = new Set(sources);
+                    const next = new Set(selectedIds);
                     event.target.checked
                       ? next.add(category.id)
                       : next.delete(category.id);
-                    setSources(next);
+                    setSelectedIds(next);
+                    if (!event.target.checked && targetId === category.id) {
+                      setTargetId("");
+                    }
                   }}
                 />
                 <span className="account-icon">
                   <Tags size={16} />
                 </span>
                 <span>
-                  <strong>{category.name}</strong>
+                  <strong>
+                    <Link
+                      to={{
+                        pathname: `/categories/${category.id}`,
+                        search: location.search,
+                      }}
+                    >
+                      {category.name}
+                    </Link>
+                  </strong>
                   <small>{kindLabels[category.kind]}</small>
                 </span>
-              </label>
+              </div>
               <div>
                 <Badge tone={category.kind === "expense" ? "red" : "green"}>
                   {kindLabels[category.kind]}

@@ -12,10 +12,13 @@ import { z } from "zod";
 import type { Actor } from "../shared/domain.js";
 import {
   bulkDeleteStageSchema,
+  bulkTransactionEditSchema,
+  bulkTransactionFilterSelectionRequestSchema,
   categoryMergeSchema,
   commitStageSchema,
   dateRangeSchema,
   directTransactionCreateSchema,
+  payeeMergeSchema,
   transactionDeletedMutationSchema,
   versionedMutationSchema,
 } from "../shared/domain.js";
@@ -55,6 +58,7 @@ import { listAuditEvents } from "./services/audit.js";
 import {
   createCategory,
   deleteCategory,
+  getCategory,
   listCategories,
   listDuplicateCategories,
   mergeCategories,
@@ -70,6 +74,12 @@ import {
 } from "./services/import-export.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
+  listDuplicatePayees,
+  listPayees,
+  listPayeeSuggestions,
+  mergePayees,
+} from "./services/payees.js";
+import {
   commitStages,
   createStage,
   deleteStages,
@@ -79,7 +89,9 @@ import {
 } from "./services/staging.js";
 import { getSummary } from "./services/summary.js";
 import {
+  bulkEditTransactions,
   createTransaction,
+  getBulkTransactionSelection,
   getTransaction,
   listTransactions,
   setTransactionDeleted,
@@ -489,6 +501,9 @@ app.get("/api/v1/categories", async (c) =>
 app.get("/api/v1/categories/duplicates", async (c) =>
   c.json(await listDuplicateCategories(c.get("actor"))),
 );
+app.get("/api/v1/categories/:id", async (c) =>
+  c.json(await getCategory(c.get("actor"), c.req.param("id"))),
+);
 app.post("/api/v1/categories/merge", async (c) =>
   c.json(
     await mergeCategories(
@@ -497,21 +512,25 @@ app.post("/api/v1/categories/merge", async (c) =>
     ),
   ),
 );
-app.get("/api/v1/payees", async (c) => {
-  const search = c.req.query("search")?.trim() ?? "";
-  const pattern = `%${search}%`;
-  const result = await getDb().execute(sql`
-    select distinct payee
-    from ledger_transaction
-    where user_id = ${c.get("actor").userId}
-      and payee is not null
-      and trim(payee) <> ''
-      and (${search === ""} or payee ilike ${pattern})
-    order by payee
-    limit 100
-  `);
-  return c.json(result.rows.map((row) => String(row.payee)));
-});
+app.get("/api/v1/payees/suggestions", async (c) =>
+  c.json(await listPayeeSuggestions(c.get("actor"), c.req.query("search"))),
+);
+app.get("/api/v1/payees/duplicates", async (c) =>
+  c.json(await listDuplicatePayees(c.get("actor"))),
+);
+app.post("/api/v1/payees/merge", async (c) =>
+  c.json(
+    await mergePayees(
+      c.get("actor"),
+      payeeMergeSchema.parse(await body(c)),
+    ),
+  ),
+);
+app.get("/api/v1/payees", async (c) =>
+  c.json(
+    await listPayees(c.get("actor"), { search: c.req.query("search") }),
+  ),
+);
 app.post("/api/v1/categories", async (c) =>
   c.json(await createCategory(c.get("actor"), await body(c)), 201),
 );
@@ -540,6 +559,22 @@ app.delete("/api/v1/categories/:id", async (c) => {
 
 app.get("/api/v1/transactions", async (c) =>
   c.json(await listTransactions(c.get("actor"), query(c))),
+);
+app.post("/api/v1/transactions/bulk-selection", async (c) =>
+  c.json(
+    await getBulkTransactionSelection(
+      c.get("actor"),
+      bulkTransactionFilterSelectionRequestSchema.parse(await body(c)),
+    ),
+  ),
+);
+app.post("/api/v1/transactions/bulk-edit", async (c) =>
+  c.json(
+    await bulkEditTransactions(
+      c.get("actor"),
+      bulkTransactionEditSchema.parse(await body(c)),
+    ),
+  ),
 );
 app.get("/api/v1/transactions/:id", async (c) =>
   c.json(await getTransaction(c.get("actor"), c.req.param("id"))),

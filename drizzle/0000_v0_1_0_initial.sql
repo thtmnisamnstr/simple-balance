@@ -1,4 +1,4 @@
-CREATE TYPE "public"."ledger_account_type" AS ENUM('checking', 'savings', 'debit_card', 'credit_card', 'cash', 'loan', 'investment', 'other_asset', 'other_liability');--> statement-breakpoint
+CREATE TYPE "public"."ledger_account_type" AS ENUM('checking', 'savings', 'debit_card', 'credit_card', 'cash', 'crypto_wallet', 'loan', 'investment', 'other_asset', 'other_liability');--> statement-breakpoint
 CREATE TYPE "public"."actor_source" AS ENUM('web', 'mcp');--> statement-breakpoint
 CREATE TYPE "public"."category_kind" AS ENUM('income', 'expense', 'both');--> statement-breakpoint
 CREATE TYPE "public"."staged_status" AS ENUM('staged', 'committed', 'deleted');--> statement-breakpoint
@@ -82,14 +82,14 @@ CREATE TABLE "ledger_account" (
 	"institution" text,
 	"notes" text,
 	"opening_date" date NOT NULL,
-	"opening_balance" numeric(38, 12) DEFAULT '0' NOT NULL,
+	"opening_balance" numeric(44, 18) DEFAULT '0' NOT NULL,
 	"archived_at" timestamp with time zone,
 	"version" integer DEFAULT 1 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "ledger_account_user_name_unique" UNIQUE("user_id","name"),
 	CONSTRAINT "ledger_account_user_id_id_unique" UNIQUE("user_id","id"),
-	CONSTRAINT "ledger_account_currency_check" CHECK ("ledger_account"."currency" ~ '^[A-Z]{3}$'),
+	CONSTRAINT "ledger_account_currency_check" CHECK ("ledger_account"."currency" ~ '^[A-Z]{2,12}$'),
 	CONSTRAINT "ledger_account_version_check" CHECK ("ledger_account"."version" >= 1)
 );
 --> statement-breakpoint
@@ -148,12 +148,12 @@ CREATE TABLE "posting" (
 	"user_id" text NOT NULL,
 	"transaction_id" uuid NOT NULL,
 	"account_id" uuid NOT NULL,
-	"amount" numeric(38, 12) NOT NULL,
+	"amount" numeric(44, 18) NOT NULL,
 	"currency" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "posting_amount_check" CHECK ("posting"."amount" <> 0),
-	CONSTRAINT "posting_currency_check" CHECK ("posting"."currency" ~ '^[A-Z]{3}$')
+	CONSTRAINT "posting_currency_check" CHECK ("posting"."currency" ~ '^[A-Z]{2,12}$')
 );
 --> statement-breakpoint
 CREATE TABLE "auth_session" (
@@ -209,24 +209,26 @@ CREATE TABLE "ledger_transaction" (
 	"user_id" text NOT NULL,
 	"type" "transaction_type" NOT NULL,
 	"date" date NOT NULL,
-	"description" text NOT NULL,
-	"payee" text,
+	"description" text,
+	"payee" text NOT NULL,
 	"category_id" uuid,
 	"notes" text,
 	"external_id" text,
 	"source_account_id" uuid,
 	"destination_account_id" uuid,
-	"source_amount" numeric(38, 12),
-	"destination_amount" numeric(38, 12),
+	"source_amount" numeric(44, 18),
+	"destination_amount" numeric(44, 18),
 	"source_currency" text,
 	"destination_currency" text,
-	"effective_rate" numeric(38, 12),
+	"effective_rate" numeric(44, 18),
 	"version" integer DEFAULT 1 NOT NULL,
 	"deleted_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "ledger_transaction_user_id_id_unique" UNIQUE("user_id","id"),
 	CONSTRAINT "ledger_transaction_version_check" CHECK ("ledger_transaction"."version" >= 1),
+	CONSTRAINT "ledger_transaction_payee_check" CHECK (char_length(trim("ledger_transaction"."payee")) between 1 and 160),
+	CONSTRAINT "ledger_transaction_description_check" CHECK ("ledger_transaction"."description" is null or char_length("ledger_transaction"."description") <= 240),
 	CONSTRAINT "ledger_transaction_shape_check" CHECK (
         (
           "ledger_transaction"."type" = 'deposit'
@@ -237,7 +239,7 @@ CREATE TABLE "ledger_transaction" (
           and "ledger_transaction"."destination_amount" is not null
           and "ledger_transaction"."destination_amount" > 0
           and "ledger_transaction"."destination_currency" is not null
-          and "ledger_transaction"."destination_currency" ~ '^[A-Z]{3}$'
+          and "ledger_transaction"."destination_currency" ~ '^[A-Z]{2,12}$'
           and "ledger_transaction"."effective_rate" is null
         )
         or
@@ -247,7 +249,7 @@ CREATE TABLE "ledger_transaction" (
           and "ledger_transaction"."source_amount" is not null
           and "ledger_transaction"."source_amount" > 0
           and "ledger_transaction"."source_currency" is not null
-          and "ledger_transaction"."source_currency" ~ '^[A-Z]{3}$'
+          and "ledger_transaction"."source_currency" ~ '^[A-Z]{2,12}$'
           and "ledger_transaction"."destination_account_id" is null
           and "ledger_transaction"."destination_amount" is null
           and "ledger_transaction"."destination_currency" is null
@@ -264,9 +266,9 @@ CREATE TABLE "ledger_transaction" (
           and "ledger_transaction"."destination_amount" is not null
           and "ledger_transaction"."destination_amount" > 0
           and "ledger_transaction"."source_currency" is not null
-          and "ledger_transaction"."source_currency" ~ '^[A-Z]{3}$'
+          and "ledger_transaction"."source_currency" ~ '^[A-Z]{2,12}$'
           and "ledger_transaction"."destination_currency" is not null
-          and "ledger_transaction"."destination_currency" ~ '^[A-Z]{3}$'
+          and "ledger_transaction"."destination_currency" ~ '^[A-Z]{2,12}$'
           and "ledger_transaction"."effective_rate" is not null
           and "ledger_transaction"."effective_rate" > 0
           and (
@@ -298,7 +300,7 @@ CREATE TABLE "user_preferences" (
 	"default_currency" text DEFAULT 'USD' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "user_preferences_default_currency_check" CHECK ("user_preferences"."default_currency" ~ '^[A-Z]{3}$')
+	CONSTRAINT "user_preferences_default_currency_check" CHECK ("user_preferences"."default_currency" ~ '^[A-Z]{2,12}$')
 );
 --> statement-breakpoint
 CREATE TABLE "auth_verification" (

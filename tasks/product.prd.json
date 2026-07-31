@@ -50,7 +50,7 @@
       "dependsOn": ["SB-004"],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Deposits withdrawals and transfers create correct atomic signed postings", "Per-account FX retains sent and received native amounts", "CRUD soft delete restore versioning and idempotency are enforced"],
+      "acceptanceCriteria": ["Deposits withdrawals and transfers create correct atomic signed postings", "Per-account FX retains sent and received native amounts", "CRUD soft delete restore versioning and idempotency are enforced", "Explicit-version and fingerprinted all-filter mass edits validate first rebuild postings and commit atomically"],
       "verification": ["pnpm test -- tests/ledger.test.ts", "pnpm test:integration"]
     },
     {
@@ -60,8 +60,8 @@
       "dependsOn": ["SB-005"],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Responsive UI provides account and committed transaction CRUD", "Liability balances and transaction types use everyday language"],
-      "verification": ["pnpm typecheck", "pnpm build"]
+      "acceptanceCriteria": ["Responsive UI provides account and committed transaction CRUD", "Liability balances and transaction types use everyday language", "Every transaction list supports page and all-matching selection with accessible atomic mass editing"],
+      "verification": ["pnpm exec vitest run tests/transaction-bulk-edit-ui.test.tsx", "pnpm typecheck", "pnpm build"]
     },
     {
       "id": "SB-007",
@@ -110,7 +110,7 @@
       "dependsOn": ["SB-005", "SB-008", "SB-009", "SB-010"],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Discrete tools expose ledger staging summary CSV and audit services", "Tools return structured content and accurate behavior annotations"],
+      "acceptanceCriteria": ["Discrete tools expose ledger staging summary CSV audit and fingerprint-protected bulk-edit services", "Tools return structured content and accurate behavior annotations"],
       "verification": ["pnpm typecheck", "pnpm test:integration"]
     },
     {
