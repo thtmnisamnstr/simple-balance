@@ -13,5 +13,6 @@ Initial release:
 - Date-filtered account views, balances, dashboards, and reports
 - Duplicate-aware CSV staging plus lossless Simple Balance CSV round trips
 - OAuth-protected MCP tools sharing the web application's ledger services
+- Safe, reviewable AI automation through scoped, audited MCP access
 - Automatic, locked PostgreSQL schema upgrades and readiness checks
 - Ralph story runner with isolated verification and guarded commits

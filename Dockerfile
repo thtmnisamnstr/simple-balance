@@ -23,7 +23,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 LABEL org.opencontainers.image.title="Simple Balance" \
-  org.opencontainers.image.description="Self-hosted personal accounting with web and MCP interfaces" \
+  org.opencontainers.image.description="Self-hosted personal accounting with safe, reviewable AI automation" \
   org.opencontainers.image.version="0.1.0"
 COPY --from=runtime-dependencies --chown=node:node /runtime/package.json ./package.json
 COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_modules

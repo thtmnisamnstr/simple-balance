@@ -1,13 +1,17 @@
 # Simple Balance
 
-A modern, self-hosted personal accounting app built around ordinary financial
-language and safe automation.
+A modern, self-hosted personal accounting app built around ease of use and safe,
+reviewable automation via AI.
 
 Simple Balance tracks Checking, Savings, Debit Card, Credit Card, Cash, Loan,
 Investment, Asset, and Liability accounts. It supports deposits, withdrawals,
 same-currency transfers, and per-account FX transfers with distinct sent/received
 amounts. CSV imports are staged for review; direct transactions and selected
 staged rows can be committed atomically.
+
+AI and MCP clients use the same scoped, audited ledger services as the browser.
+They can prepare work for review, but cannot bypass your authentication,
+authorization, duplicate checks, or explicit commit controls.
 
 ## Version 0.1.0
 
@@ -146,6 +150,11 @@ TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/simple_balance_
 - [MCP scopes and discovery](docs/mcp.md)
 - [Ralph build loop](scripts/ralph/README.md)
 - [Product stories](tasks/product.prd.json)
+
+## License
+
+Simple Balance is licensed under the
+[GNU Lesser General Public License v3.0 only](LICENSE) (`LGPL-3.0-only`).
 
 The project uses a single pnpm/TypeScript package: React/Vite in the browser,
 Hono on Node for JSON/auth/MCP/static routes, Better Auth for embedded local

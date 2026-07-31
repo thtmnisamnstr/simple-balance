@@ -1,7 +1,8 @@
 # Architecture
 
 Simple Balance is one Node process and one deployable image. PostgreSQL is the only
-stateful dependency.
+stateful dependency. Its browser and AI/MCP clients share one ledger service
+layer, so automation is scoped, validated, and audited like every other action.
 
 ```mermaid
 flowchart LR

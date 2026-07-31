@@ -6,6 +6,9 @@ The stateless Streamable HTTP endpoint is:
 https://simple-balance.example.com/mcp
 ```
 
+It is designed for AI and agent clients, with the same ledger validation, review
+workflow, duplicate protections, and audit trail used by the browser.
+
 OAuth discovery is available at:
 
 ```text
