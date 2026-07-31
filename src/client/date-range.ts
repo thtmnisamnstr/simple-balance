@@ -14,14 +14,24 @@ const addDays = (date: Date, days: number) => {
   return result;
 };
 
-export type DatePreset =
-  | "this-month"
-  | "last-month"
-  | "year-to-date"
-  | "last-30"
-  | "last-90"
-  | "all-time"
-  | "custom";
+const datePresets = [
+  "this-month",
+  "last-month",
+  "year-to-date",
+  "last-30",
+  "last-90",
+  "all-time",
+  "custom",
+] as const;
+
+export type DatePreset = (typeof datePresets)[number];
+
+/** Ignore an unrecognized `preset` param instead of trusting the URL. */
+function presetFromParam(value: string | null): DatePreset {
+  return datePresets.includes(value as DatePreset)
+    ? (value as DatePreset)
+    : "this-month";
+}
 
 export function rangeForPreset(
   preset: DatePreset,
@@ -62,10 +72,13 @@ export function rangeForPreset(
 export function useDateRange() {
   const timezone = useTimezone();
   const [params, setParams] = useSearchParams();
-  const defaults = rangeForPreset("this-month", new Date(), timezone);
+  const preset = presetFromParam(params.get("preset"));
+  // The active preset owns the fallback range. Deriving it from "this-month"
+  // instead silently bounded "all-time" to the current month, because an
+  // unbounded range stores no start/end params at all.
+  const defaults = rangeForPreset(preset, new Date(), timezone);
   const start = params.get("start") ?? defaults.start;
   const end = params.get("end") ?? defaults.end;
-  const preset = (params.get("preset") as DatePreset | null) ?? "this-month";
   const setRange = (next: { start: string; end: string; preset?: DatePreset }) => {
     const updated = new URLSearchParams(params);
     if (next.start) updated.set("start", next.start);
