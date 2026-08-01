@@ -189,6 +189,32 @@ export function presentAccountBalance(type: AccountType, balance: string) {
   };
 }
 
+/**
+ * The balance an account actually holds, summed from its postings.
+ *
+ * The list query derives this for every account at once. The single-account
+ * paths have no such aggregate to draw on, and returning the declared opening
+ * balance in its place would report a figure that stopped being true the moment
+ * the first transaction landed.
+ */
+async function currentBalance(
+  tx: Pick<DbTransaction, "execute">,
+  actor: Actor,
+  accountId: string,
+) {
+  const result = await tx.execute(sql`
+    select coalesce(sum(p.amount), 0)::text as balance
+    from posting p
+    left join ledger_transaction t
+      on t.id = p.transaction_id
+      and t.user_id = p.user_id
+    where p.user_id = ${actor.userId}
+      and p.account_id = ${accountId}::uuid
+      and (t.id is null or t.deleted_at is null)
+  `);
+  return String((result.rows[0] as { balance: string }).balance);
+}
+
 function accountView(
   account: typeof ledgerAccounts.$inferSelect,
   balance?: string,
@@ -246,7 +272,7 @@ export async function getAccount(actor: Actor, id: string) {
     .where(and(eq(ledgerAccounts.id, id), eq(ledgerAccounts.userId, actor.userId)))
     .limit(1);
   if (!account) throw notFound("Account not found");
-  return accountView(account);
+  return accountView(account, await currentBalance(db, actor, account.id));
 }
 
 export async function getAccountBalances(
@@ -347,13 +373,14 @@ export async function createAccount(
       .values({ userId: actor.userId, ...parsed })
       .returning();
     await postOpeningBalance(tx, actor, created);
+    const balance = await currentBalance(tx, actor, created.id);
     await writeAudit(tx, actor, {
       entityType: "account",
       entityId: created.id,
       operation: "create",
       after: serializeRow(created),
     });
-    return accountView(created);
+    return accountView(created, balance);
   });
 }
 
@@ -404,6 +431,7 @@ export async function updateAccount(
     if (!updated) throw staleVersion();
     // Keeps the ledger in step when the declared opening balance changes.
     await postOpeningBalance(tx, actor, updated);
+    const balance = await currentBalance(tx, actor, updated.id);
     await writeAudit(tx, actor, {
       entityType: "account",
       entityId: id,
@@ -411,7 +439,7 @@ export async function updateAccount(
       before: serializeRow(before),
       after: serializeRow(updated),
     });
-    return accountView(updated);
+    return accountView(updated, balance);
   });
 }
 
@@ -462,7 +490,7 @@ export async function setAccountArchived(
       before: serializeRow(before),
       after: serializeRow(updated),
     });
-    return accountView(updated);
+    return accountView(updated, await currentBalance(tx, actor, updated.id));
   });
 }
 

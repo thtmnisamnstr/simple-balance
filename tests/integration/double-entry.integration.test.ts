@@ -359,6 +359,38 @@ integration("double-entry ledger", () => {
     expect(await unbalancedCurrencies()).toEqual([]);
   });
 
+  it("reports a real balance from the single-account paths", async () => {
+    const opened = await createAccount(actor, {
+      name: "DE Single",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2027-01-01",
+      openingBalance: "100",
+    });
+    await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        date: "2027-04-01",
+        payee: "DE single deposit",
+        description: null,
+        toAccountId: opened.id,
+        amount: "50",
+      },
+      "de-single",
+    );
+
+    // Reading or editing one account has no list aggregate to draw on. Handing
+    // back the declared opening balance there would understate every account
+    // that has ever been used.
+    expect((await getAccount(actor, opened.id)).balance).toBe("150");
+    const renamed = await updateAccount(actor, opened.id, {
+      name: "DE Single Renamed",
+      expectedVersion: opened.version,
+    });
+    expect(renamed.balance).toBe("150");
+  });
+
   it("leaves the whole ledger balanced across every currency", async () => {
     expect(await unbalancedCurrencies()).toEqual([]);
   });
