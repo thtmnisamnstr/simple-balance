@@ -34,6 +34,11 @@ feature set is:
   and creation of categories/payees, preview, staging, duplicate detection, and
   app export/import round trips
 - Date ranges you can link to, and a dashboard summary of the range
+- Double-entry books: every entry settles to zero in each currency, with
+  server-owned income, expense, and exchange counter-accounts doing the
+  balancing
+- Append-only postings, so an amount change reverses and re-posts instead of
+  rewriting history
 - Append-only web/MCP audit history
 - OAuth-protected Streamable HTTP MCP server with read/stage/write scopes
 - Audience-bound RS256 MCP access tokens with persistent PostgreSQL signing keys,

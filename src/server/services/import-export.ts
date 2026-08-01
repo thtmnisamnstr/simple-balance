@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import Papa from "papaparse";
-import { and, desc, eq, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   categoryCreateSchema,
@@ -600,7 +600,13 @@ export async function stageCsv(
     const accountRows = await tx
       .select({ id: ledgerAccounts.id })
       .from(ledgerAccounts)
-      .where(eq(ledgerAccounts.userId, actor.userId));
+      // A CSV can never post directly into a counter-account.
+      .where(
+        and(
+          eq(ledgerAccounts.userId, actor.userId),
+          isNull(ledgerAccounts.systemKind),
+        ),
+      );
     const allowedAccountIds = new Set(accountRows.map((account) => account.id));
     if (!allowedAccountIds.has(parsed.defaultAccountId)) {
       throw validationError("Default account is unavailable");

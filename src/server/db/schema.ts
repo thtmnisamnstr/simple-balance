@@ -19,6 +19,7 @@ import {
 import { sql } from "drizzle-orm";
 import {
   accountTypes,
+  systemAccountKinds,
   actorSources,
   categoryKinds,
   transactionTypes,
@@ -164,6 +165,10 @@ export const mcpSigningKeys = pgTable("auth_mcp_signing_key", {
 });
 
 export const accountTypeEnum = pgEnum("ledger_account_type", accountTypes);
+export const systemAccountKindEnum = pgEnum(
+  "system_account_kind",
+  systemAccountKinds,
+);
 export const categoryKindEnum = pgEnum("category_kind", categoryKinds);
 export const transactionTypeEnum = pgEnum("transaction_type", transactionTypes);
 export const stagedStatusEnum = pgEnum("staged_status", ["staged", "committed", "deleted"]);
@@ -192,6 +197,9 @@ export const ledgerAccounts = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     type: accountTypeEnum("type").notNull(),
+    // Set only on the server-owned counter-accounts that balance deposits,
+    // withdrawals, and cross-currency transfers. Null means a real account.
+    systemKind: systemAccountKindEnum("system_kind"),
     currency: text("currency").notNull(),
     institution: text("institution"),
     notes: text("notes"),
@@ -205,6 +213,9 @@ export const ledgerAccounts = pgTable(
     index("ledger_account_user_idx").on(table.userId),
     unique("ledger_account_user_name_unique").on(table.userId, table.name),
     unique("ledger_account_user_id_id_unique").on(table.userId, table.id),
+    uniqueIndex("ledger_account_system_kind_unique")
+      .on(table.userId, table.systemKind, table.currency)
+      .where(sql`${table.systemKind} is not null`),
     check(
       "ledger_account_currency_check",
       sql`${table.currency} ~ '^[A-Z]{2,12}$'`,
@@ -406,10 +417,7 @@ export const postings = pgTable(
       name: "posting_account_owner_fk",
     }),
     index("posting_user_account_idx").on(table.userId, table.accountId),
-    uniqueIndex("posting_transaction_account_unique").on(
-      table.transactionId,
-      table.accountId,
-    ),
+    index("posting_transaction_idx").on(table.transactionId),
     check("posting_amount_check", sql`${table.amount} <> 0`),
     check("posting_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
   ],

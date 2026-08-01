@@ -1,7 +1,8 @@
-CREATE TYPE "public"."ledger_account_type" AS ENUM('checking', 'savings', 'credit_card', 'cash', 'crypto_wallet', 'loan', 'investment', 'other_asset', 'other_liability');--> statement-breakpoint
+CREATE TYPE "public"."ledger_account_type" AS ENUM('checking', 'savings', 'credit_card', 'cash', 'crypto_wallet', 'loan', 'investment', 'other_asset', 'other_liability', 'system');--> statement-breakpoint
 CREATE TYPE "public"."actor_source" AS ENUM('web', 'mcp');--> statement-breakpoint
 CREATE TYPE "public"."category_kind" AS ENUM('income', 'expense', 'both');--> statement-breakpoint
 CREATE TYPE "public"."staged_status" AS ENUM('staged', 'committed', 'deleted');--> statement-breakpoint
+CREATE TYPE "public"."system_account_kind" AS ENUM('income', 'expense', 'exchange');--> statement-breakpoint
 CREATE TYPE "public"."transaction_type" AS ENUM('deposit', 'withdrawal', 'transfer');--> statement-breakpoint
 CREATE TABLE "auth_account" (
 	"id" text PRIMARY KEY NOT NULL,
@@ -78,6 +79,7 @@ CREATE TABLE "ledger_account" (
 	"user_id" text NOT NULL,
 	"name" text NOT NULL,
 	"type" "ledger_account_type" NOT NULL,
+	"system_kind" "system_account_kind",
 	"currency" text NOT NULL,
 	"institution" text,
 	"notes" text,
@@ -342,13 +344,14 @@ CREATE INDEX "audit_user_entity_idx" ON "audit_event" USING btree ("user_id","en
 CREATE INDEX "category_user_idx" ON "category" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "import_batch_user_created_idx" ON "import_batch" USING btree ("user_id","created_at","id");--> statement-breakpoint
 CREATE INDEX "ledger_account_user_idx" ON "ledger_account" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "ledger_account_system_kind_unique" ON "ledger_account" USING btree ("user_id","system_kind","currency") WHERE "ledger_account"."system_kind" is not null;--> statement-breakpoint
 CREATE INDEX "oauth_access_token_client_idx" ON "auth_oauth_access_token" USING btree ("client_id");--> statement-breakpoint
 CREATE INDEX "oauth_access_token_user_idx" ON "auth_oauth_access_token" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "oauth_application_user_idx" ON "auth_oauth_application" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "oauth_consent_client_idx" ON "auth_oauth_consent" USING btree ("client_id");--> statement-breakpoint
 CREATE INDEX "oauth_consent_user_idx" ON "auth_oauth_consent" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "posting_user_account_idx" ON "posting" USING btree ("user_id","account_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "posting_transaction_account_unique" ON "posting" USING btree ("transaction_id","account_id");--> statement-breakpoint
+CREATE INDEX "posting_transaction_idx" ON "posting" USING btree ("transaction_id");--> statement-breakpoint
 CREATE INDEX "auth_session_user_idx" ON "auth_session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "staged_user_status_created_idx" ON "staged_transaction" USING btree ("user_id","status","created_at","id");--> statement-breakpoint
 CREATE INDEX "staged_user_import_batch_idx" ON "staged_transaction" USING btree ("user_id","import_batch_id");--> statement-breakpoint

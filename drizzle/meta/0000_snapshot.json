@@ -1,5 +1,5 @@
 {
-  "id": "55a086b7-b436-47ad-b596-613e8c23791e",
+  "id": "8ad8a487-7c18-437b-a425-7e3ec14c360e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -640,6 +640,13 @@
           "primaryKey": false,
           "notNull": true
         },
+        "system_kind": {
+          "name": "system_kind",
+          "type": "system_account_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
         "currency": {
           "name": "currency",
           "type": "text",
@@ -711,6 +718,34 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ledger_account_system_kind_unique": {
+          "name": "ledger_account_system_kind_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "system_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "currency",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"ledger_account\".\"system_kind\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1282,23 +1317,17 @@
           "method": "btree",
           "with": {}
         },
-        "posting_transaction_account_unique": {
-          "name": "posting_transaction_account_unique",
+        "posting_transaction_idx": {
+          "name": "posting_transaction_idx",
           "columns": [
             {
               "expression": "transaction_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
-            },
-            {
-              "expression": "account_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2234,7 +2263,8 @@
         "loan",
         "investment",
         "other_asset",
-        "other_liability"
+        "other_liability",
+        "system"
       ]
     },
     "public.actor_source": {
@@ -2261,6 +2291,15 @@
         "staged",
         "committed",
         "deleted"
+      ]
+    },
+    "public.system_account_kind": {
+      "name": "system_account_kind",
+      "schema": "public",
+      "values": [
+        "income",
+        "expense",
+        "exchange"
       ]
     },
     "public.transaction_type": {

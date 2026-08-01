@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const accountTypes = [
+/** Types a person can pick when creating an account. */
+export const userAccountTypes = [
   "checking",
   "savings",
   "credit_card",
@@ -12,9 +13,21 @@ export const accountTypes = [
   "other_liability",
 ] as const;
 
+/**
+ * Double-entry needs somewhere for the other half of a deposit or withdrawal to
+ * land. Those counter-accounts are created by the server, never by a person, so
+ * the stored enum carries one extra type the create form does not offer.
+ */
+export const accountTypes = [...userAccountTypes, "system"] as const;
+
+export type UserAccountType = (typeof userAccountTypes)[number];
 export type AccountType = (typeof accountTypes)[number];
 
-export const accountTypeLabels: Record<AccountType, string> = {
+/** Which side of the books a server-owned counter-account represents. */
+export const systemAccountKinds = ["income", "expense", "exchange"] as const;
+export type SystemAccountKind = (typeof systemAccountKinds)[number];
+
+export const accountTypeLabels: Record<UserAccountType, string> = {
   checking: "Checking",
   savings: "Savings",
   credit_card: "Credit Card",
@@ -26,7 +39,7 @@ export const accountTypeLabels: Record<AccountType, string> = {
   other_liability: "Other Liability",
 };
 
-export const liabilityAccountTypes = new Set<AccountType>([
+export const liabilityAccountTypes = new Set<UserAccountType>([
   "credit_card",
   "loan",
   "other_liability",
@@ -144,7 +157,7 @@ export type StagedDraft = z.infer<typeof stagedDraftSchema>;
 
 export const accountCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  type: z.enum(accountTypes),
+  type: z.enum(userAccountTypes),
   currency: currencyCodeSchema,
   openingDate: isoDateSchema,
   openingBalance: decimalStringSchema,

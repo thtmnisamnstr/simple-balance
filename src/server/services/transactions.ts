@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Decimal } from "decimal.js";
 import {
   and,
   count,
@@ -22,6 +23,7 @@ import type {
   BulkTransactionFilter,
   BulkTransactionPatch,
   BulkTransactionSelectionSnapshot,
+  SystemAccountKind,
   PaginatedPage,
   TransactionDraft,
 } from "../../shared/domain.js";
@@ -63,6 +65,7 @@ import {
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
+import { ensureSystemAccount } from "./accounts.js";
 import { normalizeHumanName } from "./names.js";
 import { resolveCanonicalPayee } from "./payees.js";
 
@@ -128,10 +131,64 @@ type PrepareTransactionOptions = {
   allowedArchivedCategoryIds?: ReadonlySet<string>;
 };
 
+/** Counter-accounts keyed by kind and currency. */
+export type SystemAccountMap = Map<string, PostingAccount>;
+
+export const systemAccountKey = (kind: SystemAccountKind, currency: string) =>
+  `${kind}:${currency}`;
+
+function counterAccount(
+  systemAccounts: SystemAccountMap,
+  kind: SystemAccountKind,
+  currency: string,
+) {
+  const account = systemAccounts.get(systemAccountKey(kind, currency));
+  if (!account) {
+    throw validationError(`The ${kind} account for ${currency} is unavailable`);
+  }
+  return account;
+}
+
+function posting(
+  actor: Actor,
+  accountId: string,
+  amount: string | Decimal,
+  currency: string,
+): typeof postings.$inferInsert {
+  return {
+    userId: actor.userId,
+    transactionId: "00000000-0000-0000-0000-000000000000",
+    accountId,
+    amount: canonicalDecimal(amount),
+    currency,
+  };
+}
+
+/** Every entry must settle to zero in each currency it touches. */
+function assertBalanced(prepared: PreparedTransaction) {
+  const totals = new Map<string, Decimal>();
+  for (const entry of prepared.postings) {
+    totals.set(
+      entry.currency,
+      (totals.get(entry.currency) ?? decimal("0")).plus(entry.amount),
+    );
+  }
+  for (const [currency, total] of totals) {
+    if (!total.isZero()) {
+      throw validationError(
+        `Postings for ${currency} do not balance to zero`,
+        { currency, total: canonicalDecimal(total) },
+      );
+    }
+  }
+  return prepared;
+}
+
 export function buildPreparedTransaction(
   actor: Actor,
   draft: TransactionDraft,
   accountMap: Map<string, PostingAccount>,
+  systemAccounts: SystemAccountMap = new Map(),
 ): PreparedTransaction {
   const common = {
     userId: actor.userId,
@@ -155,13 +212,15 @@ export function buildPreparedTransaction(
         destinationCurrency: destination.currency,
       },
       postings: [
-        {
-          userId: actor.userId,
-          transactionId: "00000000-0000-0000-0000-000000000000",
-          accountId: destination.id,
-          amount: canonicalDecimal(draft.amount),
-          currency: destination.currency,
-        },
+        posting(actor, destination.id, draft.amount, destination.currency),
+        // The other half of the entry. Without it the deposit would create
+        // money out of nothing.
+        posting(
+          actor,
+          counterAccount(systemAccounts, "income", destination.currency).id,
+          decimal(draft.amount).negated(),
+          destination.currency,
+        ),
       ],
     };
   }
@@ -177,13 +236,13 @@ export function buildPreparedTransaction(
         sourceCurrency: source.currency,
       },
       postings: [
-        {
-          userId: actor.userId,
-          transactionId: "00000000-0000-0000-0000-000000000000",
-          accountId: source.id,
-          amount: canonicalDecimal(decimal(draft.amount).negated()),
-          currency: source.currency,
-        },
+        posting(actor, source.id, decimal(draft.amount).negated(), source.currency),
+        posting(
+          actor,
+          counterAccount(systemAccounts, "expense", source.currency).id,
+          draft.amount,
+          source.currency,
+        ),
       ],
     };
   }
@@ -229,23 +288,89 @@ export function buildPreparedTransaction(
       destinationCurrency: destination.currency,
       effectiveRate,
     },
-    postings: [
-      {
-        userId: actor.userId,
-        transactionId: "00000000-0000-0000-0000-000000000000",
-        accountId: source.id,
-        amount: canonicalDecimal(decimal(draft.sourceAmount).negated()),
-        currency: source.currency,
-      },
-      {
-        userId: actor.userId,
-        transactionId: "00000000-0000-0000-0000-000000000000",
-        accountId: destination.id,
-        amount: canonicalDecimal(destinationAmount),
-        currency: destination.currency,
-      },
-    ],
+    postings:
+      source.currency === destination.currency
+        ? [
+            posting(
+              actor,
+              source.id,
+              decimal(draft.sourceAmount).negated(),
+              source.currency,
+            ),
+            posting(actor, destination.id, destinationAmount, destination.currency),
+          ]
+        : [
+            posting(
+              actor,
+              source.id,
+              decimal(draft.sourceAmount).negated(),
+              source.currency,
+            ),
+            posting(
+              actor,
+              counterAccount(systemAccounts, "exchange", source.currency).id,
+              draft.sourceAmount,
+              source.currency,
+            ),
+            posting(
+              actor,
+              counterAccount(systemAccounts, "exchange", destination.currency).id,
+              decimal(destinationAmount).negated(),
+              destination.currency,
+            ),
+            posting(actor, destination.id, destinationAmount, destination.currency),
+          ],
   };
+}
+
+/**
+ * Postings are append-only, so money movement is never edited or deleted in
+ * place. Re-posting an entry writes the exact negation of everything already
+ * posted against it, then writes the new set. The rows still sum to the current
+ * position, and the history of how it got there stays readable.
+ *
+ * When the movement is unchanged, nothing is written at all, which is the
+ * common case for a mass edit that only touches labels.
+ */
+export async function repostTransaction(
+  tx: DbTransaction,
+  actor: Actor,
+  transactionId: string,
+  next: (typeof postings.$inferInsert)[],
+) {
+  const current = await tx
+    .select()
+    .from(postings)
+    .where(
+      and(
+        eq(postings.userId, actor.userId),
+        eq(postings.transactionId, transactionId),
+      ),
+    );
+
+  const net = new Map<string, Decimal>();
+  const add = (accountId: string, currency: string, amount: string | Decimal) => {
+    const key = `${accountId}:${currency}`;
+    net.set(key, (net.get(key) ?? decimal("0")).plus(amount));
+  };
+  for (const row of current) add(row.accountId, row.currency, row.amount);
+  for (const row of next) add(row.accountId, row.currency, decimal(row.amount).negated());
+  const unchanged = [...net.values()].every((value) => value.isZero());
+  if (unchanged) return false;
+
+  const reversals = current.map((row) => ({
+    userId: actor.userId,
+    transactionId,
+    accountId: row.accountId,
+    amount: canonicalDecimal(decimal(row.amount).negated()),
+    currency: row.currency,
+  }));
+  const rows = [
+    ...reversals,
+    ...next.map((row) => ({ ...row, transactionId })),
+  ].filter((row) => !decimal(row.amount).isZero());
+  if (rows.length) await tx.insert(postings).values(rows);
+  return true;
 }
 
 export async function prepareTransaction(
@@ -277,6 +402,33 @@ export async function prepareTransaction(
     options.allowedArchivedAccountIds,
   );
 
+  // Resolve the counter-accounts this entry needs before building it, so the
+  // postings can be assembled without further database access.
+  const systemAccounts: SystemAccountMap = new Map();
+  const needed: { kind: SystemAccountKind; currency: string }[] = [];
+  if (draft.type === "deposit") {
+    needed.push({
+      kind: "income",
+      currency: accountMap.get(draft.toAccountId)!.currency,
+    });
+  } else if (draft.type === "withdrawal") {
+    needed.push({
+      kind: "expense",
+      currency: accountMap.get(draft.fromAccountId)!.currency,
+    });
+  } else {
+    const from = accountMap.get(draft.fromAccountId)!.currency;
+    const to = accountMap.get(draft.toAccountId)!.currency;
+    if (from !== to) {
+      needed.push({ kind: "exchange", currency: from });
+      needed.push({ kind: "exchange", currency: to });
+    }
+  }
+  for (const { kind, currency } of needed) {
+    const account = await ensureSystemAccount(tx, actor, kind, currency);
+    systemAccounts.set(systemAccountKey(kind, currency), account);
+  }
+
   if (draft.categoryId) {
     const [category] = await tx
       .select()
@@ -300,7 +452,9 @@ export async function prepareTransaction(
     }
   }
 
-  return buildPreparedTransaction(actor, canonicalDraft, accountMap);
+  return assertBalanced(
+    buildPreparedTransaction(actor, canonicalDraft, accountMap, systemAccounts),
+  );
 }
 
 export async function createTransactionWithinTx(
@@ -1015,24 +1169,9 @@ export async function bulkEditTransactions(
       updatedRows.push(updated);
     }
 
-    await tx
-      .delete(postings)
-      .where(
-        and(
-          eq(postings.userId, actor.userId),
-          inArray(postings.transactionId, snapshotIds),
-        ),
-      );
-    const replacementPostings = plans.flatMap(({ before, prepared }) =>
-      prepared.postings.map((posting) => ({
-        ...posting,
-        transactionId: before.id,
-      })),
-    );
-    if (replacementPostings.length) {
-      await tx.insert(postings).values(replacementPostings);
+    for (const { before, prepared } of plans) {
+      await repostTransaction(tx, actor, before.id, prepared.postings);
     }
-
     for (let index = 0; index < plans.length; index += 1) {
       await writeAudit(tx, actor, {
         entityType: "transaction",
@@ -1257,17 +1396,7 @@ export async function updateTransaction(
       )
       .returning();
     if (!updated) throw staleVersion();
-    await tx
-      .delete(postings)
-      .where(
-        and(
-          eq(postings.transactionId, id),
-          eq(postings.userId, actor.userId),
-        ),
-      );
-    await tx.insert(postings).values(
-      prepared.postings.map((posting) => ({ ...posting, transactionId: id })),
-    );
+    await repostTransaction(tx, actor, id, prepared.postings);
     await writeAudit(tx, actor, {
       entityType: "transaction",
       entityId: id,

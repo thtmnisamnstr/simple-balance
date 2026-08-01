@@ -10,9 +10,9 @@ import {
 } from "react";
 import {
   accountTypeLabels,
-  accountTypes,
+  userAccountTypes,
   liabilityAccountTypes,
-  type AccountType,
+  type UserAccountType,
   type TransactionDraft,
   type TransactionType,
 } from "../shared/domain.js";
@@ -51,7 +51,7 @@ export function AccountForm({
   const queryClient = useQueryClient();
   const timezone = useTimezone();
   const [name, setName] = useState(account?.name ?? "");
-  const [type, setType] = useState<AccountType>(account?.type ?? "checking");
+  const [type, setType] = useState<UserAccountType>(account?.type ?? "checking");
   const [currency, setCurrency] = useState(account?.currency ?? defaultCurrency);
   const [openingDate, setOpeningDate] = useState(
     account?.openingDate ?? calendarDateInTimezone(new Date(), timezone),
@@ -74,7 +74,7 @@ export function AccountForm({
   const [institution, setInstitution] = useState(account?.institution ?? "");
   const [notes, setNotes] = useState(account?.notes ?? "");
 
-  const changeAccountType = (nextType: AccountType) => {
+  const changeAccountType = (nextType: UserAccountType) => {
     const wasLiability = liabilityAccountTypes.has(type);
     const willBeLiability = liabilityAccountTypes.has(nextType);
 
@@ -157,10 +157,10 @@ export function AccountForm({
           <Select
             value={type}
             onChange={(event) =>
-              changeAccountType(event.target.value as AccountType)
+              changeAccountType(event.target.value as UserAccountType)
             }
           >
-            {accountTypes.map((value) => (
+            {userAccountTypes.map((value) => (
               <option key={value} value={value}>
                 {accountTypeLabels[value]}
               </option>

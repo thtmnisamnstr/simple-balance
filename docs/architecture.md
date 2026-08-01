@@ -38,11 +38,21 @@ the application release number, so it changes only when the contract breaks.
 - Account currency or crypto asset symbol is immutable after any opening balance,
   committed posting, or staged reference. Crypto wallets track native quantities;
   they do not create market prices, valuation, or a global FX rate.
-- A deposit has one positive destination posting.
-- A withdrawal has one negative source posting.
-- A transfer has a negative source posting and positive destination posting.
-- Cross-currency transfers retain the sent and received native amounts. The
-  implied rate is audit/display metadata, not a global rate.
+- The books are double-entry. Every transaction settles to zero in each
+  currency it touches, and nothing is written unless it does.
+- A deposit credits the destination account and debits the income account. A
+  withdrawal debits the source account and credits the expense account. Both
+  counter-accounts are created by the server, one per currency, and never
+  appear in account lists or pickers.
+- A same-currency transfer moves between the two accounts directly. A
+  conversion settles through the exchange account so each currency balances on
+  its own rather than netting across the pair.
+- Cross-currency transfers retain the sent and received amounts. The implied
+  rate is audit and display metadata, not a global rate.
+- Postings are append-only. Changing an amount, account, or type reverses the
+  existing postings and writes a new set, so the rows still sum to the current
+  position and the path there stays readable. Editing only labels writes no
+  postings at all.
 - Deleted transactions keep their postings but are excluded by all balance and
   report queries.
 - Transaction mass edits are validate-first and atomic. Explicit selections use

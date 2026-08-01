@@ -347,20 +347,34 @@ integration("atomic committed transaction bulk editing", () => {
         version: created.version + 1,
       });
     }
+    // Postings are append-only, so the edit leaves the original rows in place
+    // and adds reversals plus the new set. What matters is the net position and
+    // that every currency still settles to zero.
     const postingRows = await getDb().execute(sql`
-      select transaction_id, account_id, amount::text
+      select transaction_id, account_id, sum(amount)::text as amount
       from posting
       where user_id = ${actor.userId}
         and transaction_id in (${first.id}::uuid, ${second.id}::uuid)
+      group by transaction_id, account_id
+      having sum(amount) <> 0
       order by transaction_id
     `);
-    expect(postingRows.rows).toHaveLength(2);
     expect(postingRows.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ account_id: savingsId, amount: "11.000000000000000000" }),
         expect.objectContaining({ account_id: savingsId, amount: "22.000000000000000000" }),
       ]),
     );
+    const perCurrency = await getDb().execute(sql`
+      select currency, sum(amount)::text as total
+      from posting
+      where user_id = ${actor.userId}
+        and transaction_id in (${first.id}::uuid, ${second.id}::uuid)
+      group by currency
+    `);
+    expect(perCurrency.rows).toEqual([
+      { currency: "USD", total: "0.000000000000000000" },
+    ]);
     const audits = await getDb().execute(sql`
       select entity_id, operation
       from audit_event

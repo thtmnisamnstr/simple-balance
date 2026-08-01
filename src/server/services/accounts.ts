@@ -6,6 +6,8 @@ import {
   dateRangeSchema,
   liabilityAccountTypes,
   type AccountType,
+  type SystemAccountKind,
+  type UserAccountType,
 } from "../../shared/domain.js";
 import {
   getDb,
@@ -55,10 +57,72 @@ async function activeStagedAccountReferenceCount(
 export type AccountView = ReturnType<typeof accountView>;
 export type AccountBalances = Awaited<ReturnType<typeof getAccountBalances>>;
 
+const systemAccountNames: Record<SystemAccountKind, string> = {
+  income: "Income",
+  expense: "Expenses",
+  exchange: "Currency Exchange",
+};
+
+/**
+ * Find or create the server-owned counter-account that balances the other side
+ * of an entry. One exists per kind and currency, so every currency settles to
+ * zero on its own. Creation is a conflict-tolerant insert because two
+ * concurrent first-ever transactions in the same currency would otherwise race.
+ */
+export async function ensureSystemAccount(
+  tx: DbTransaction,
+  actor: Actor,
+  kind: SystemAccountKind,
+  currency: string,
+) {
+  const existing = await tx
+    .select()
+    .from(ledgerAccounts)
+    .where(
+      and(
+        eq(ledgerAccounts.userId, actor.userId),
+        eq(ledgerAccounts.systemKind, kind),
+        eq(ledgerAccounts.currency, currency),
+      ),
+    )
+    .limit(1);
+  if (existing[0]) return existing[0];
+
+  await tx
+    .insert(ledgerAccounts)
+    .values({
+      userId: actor.userId,
+      name: `${systemAccountNames[kind]} (${currency})`,
+      type: "system",
+      systemKind: kind,
+      currency,
+      openingDate: "1970-01-01",
+      openingBalance: "0",
+    })
+    .onConflictDoNothing();
+
+  const [created] = await tx
+    .select()
+    .from(ledgerAccounts)
+    .where(
+      and(
+        eq(ledgerAccounts.userId, actor.userId),
+        eq(ledgerAccounts.systemKind, kind),
+        eq(ledgerAccounts.currency, currency),
+      ),
+    )
+    .limit(1);
+  if (!created) {
+    throw validationError(`Could not open the ${kind} account for ${currency}`);
+  }
+  return created;
+}
+
 export function presentAccountBalance(type: AccountType, balance: string) {
+  // Only user account types carry a liability presentation.
   const signedBalance = canonicalDecimal(balance);
   const value = decimal(signedBalance);
-  const isLiability = liabilityAccountTypes.has(type);
+  const isLiability = liabilityAccountTypes.has(type as UserAccountType);
   return {
     balance: signedBalance,
     balancePresentation:
@@ -100,6 +164,7 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
     left join posting p on p.account_id = a.id
     left join ledger_transaction t on t.id = p.transaction_id
     where a.user_id = ${actor.userId}
+      and a.system_kind is null
       and (${includeArchived} or a.archived_at is null)
     group by a.id
     order by a.archived_at nulls first, lower(a.name)

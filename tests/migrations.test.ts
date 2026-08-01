@@ -72,9 +72,13 @@ describe("migration baseline", () => {
     expect(sql).toContain(
       'CONSTRAINT "ledger_transaction_shape_check" CHECK',
     );
-    expect(sql).toContain(
-      'CREATE UNIQUE INDEX "posting_transaction_account_unique"',
-    );
+    // Postings are append-only, so one account can carry several generations
+    // for the same transaction and a conversion touches the exchange account in
+    // two currencies. A uniqueness rule there would block both.
+    expect(sql).not.toContain('CREATE UNIQUE INDEX "posting_transaction_account_unique"');
+    expect(sql).toContain('CREATE INDEX "posting_transaction_idx"');
+    expect(sql).toContain("CREATE TYPE \"public\".\"system_account_kind\"");
+    expect(sql).toContain('"system_kind" "system_account_kind"');
     expect(sql).toContain(
       'CONSTRAINT "idempotency_record_request_hash_check" CHECK',
     );

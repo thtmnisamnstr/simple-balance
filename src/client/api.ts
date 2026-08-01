@@ -1,5 +1,5 @@
 import type {
-  AccountType,
+  UserAccountType,
   CategoryKind,
   PaginatedPage,
   Page,
@@ -80,7 +80,7 @@ export type Preferences = {
 export type Account = {
   id: string;
   name: string;
-  type: AccountType;
+  type: UserAccountType;
   currency: string;
   openingDate: string;
   openingBalance: string;
@@ -270,7 +270,7 @@ export type Summary = {
     accounts: {
       id: string;
       name: string;
-      type: AccountType;
+      type: UserAccountType;
       balance: string;
     }[];
     spendingByCategory: {

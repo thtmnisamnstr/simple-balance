@@ -157,7 +157,7 @@ integration("PostgreSQL migrations", () => {
     expect(migrationRows.rows[0]?.count).toBe("1");
   });
 
-  it("enforces ledger shapes, posting uniqueness, and tenant-owned references", async () => {
+  it("enforces ledger shapes, append-only postings, and tenant-owned references", async () => {
     const firstUserId = "migration-constraints-first";
     const secondUserId = "migration-constraints-second";
     const firstAccountId = "10000000-0000-4000-8000-000000000001";
@@ -253,21 +253,37 @@ integration("PostgreSQL migrations", () => {
       constraint: "staged_transaction_import_batch_owner_fk",
     });
 
+    // Postings are append-only. One account legitimately carries several
+    // generations for a transaction once an edit reverses and re-posts it, so
+    // the schema must allow the repeat rather than reject it.
     await databaseClient.query(
       `insert into posting
          (user_id, transaction_id, account_id, amount, currency)
        values ($1, $2, $3, 10, 'USD')`,
       [secondUserId, secondTransactionId, secondAccountId],
     );
+    await databaseClient.query(
+      `insert into posting
+         (user_id, transaction_id, account_id, amount, currency)
+       values ($1, $2, $3, -10, 'USD')`,
+      [secondUserId, secondTransactionId, secondAccountId],
+    );
+    const generations = await databaseClient.query<{ total: string }>(
+      `select sum(amount)::text as total
+         from posting
+        where transaction_id = $1 and account_id = $2`,
+      [secondTransactionId, secondAccountId],
+    );
+    expect(generations.rows[0]?.total).toBe("0.000000000000000000");
+
+    // A zero posting is still meaningless and stays rejected.
     await expect(
       databaseClient.query(
         `insert into posting
            (user_id, transaction_id, account_id, amount, currency)
-         values ($1, $2, $3, 5, 'USD')`,
+         values ($1, $2, $3, 0, 'USD')`,
         [secondUserId, secondTransactionId, secondAccountId],
       ),
-    ).rejects.toMatchObject({
-      constraint: "posting_transaction_account_unique",
-    });
+    ).rejects.toMatchObject({ constraint: "posting_amount_check" });
   });
 });
