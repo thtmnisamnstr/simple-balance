@@ -1,10 +1,10 @@
 # Simple Balance
 
-A modern, self-hosted personal accounting app built around ease of use and safe,
-reviewable automation via AI.
+A modern personal accounting app built around ease of use and safe automation
+via AI. Self-hosted, so the ledger stays yours.
 
-Simple Balance tracks Checking, Savings, Debit Card, Credit Card, Cash, Crypto
-Wallet, Loan, Investment, Asset, and Liability accounts. Wallets can use popular
+Simple Balance tracks Checking, Savings, Credit Card, Cash, Crypto Wallet,
+Loan, Investment, Asset, and Liability accounts. Wallets can use popular
 crypto assets such as BTC, ETH, SOL, USDC, and USDT. It supports deposits,
 withdrawals, same-asset transfers, and per-account conversion transfers with
 distinct sent/received amounts. CSV imports are staged for review; direct
@@ -14,10 +14,10 @@ AI and MCP clients use the same scoped, audited ledger services as the browser.
 They can prepare work for review, but cannot bypass your authentication,
 authorization, duplicate checks, or explicit commit controls.
 
-## Version 0.1.0
+## What it does
 
-This is Simple Balance's first release and database baseline. Its intentionally
-focused feature set is:
+Simple Balance is pre-release and has no published version yet. The current
+feature set is:
 
 - Embedded local authentication by default, with optional allowlisted Google
   login; both methods can open the same isolated private ledger
@@ -42,8 +42,8 @@ focused feature set is:
   persistent dependency
 
 Scheduled transactions, splits, budgets, tags, reconciliation, attachment
-storage, bank sync, global FX/crypto prices, and shared households are outside
-the 0.1.0 scope. Crypto wallets track native asset quantities only; they do not
+storage, bank sync, global FX/crypto prices, and shared households are out of
+scope for now. Crypto wallets track native asset quantities only; they do not
 provide market prices, valuation, staking, or blockchain synchronization.
 
 ## Run for development
@@ -79,10 +79,10 @@ and public HTTPS values, and generate a persistent secret with
 ```sh
 cp .env.example .env
 # Edit .env. APP_BASE_URL must be your public HTTPS origin.
-docker build -t simple-balance:0.1.0 .
+docker build -t simple-balance:local .
 docker run -d --name simple-balance --restart unless-stopped \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
-  --env-file .env -p 127.0.0.1:3000:3000 simple-balance:0.1.0
+  --env-file .env -p 127.0.0.1:3000:3000 simple-balance:local
 ```
 
 Each released tag also publishes a multi-architecture image, so you can pull one
@@ -104,12 +104,12 @@ container, rebuild the image, and run the same command. The external PostgreSQL
 database is not removed:
 
 ```sh
-docker build -t simple-balance:0.1.0 .
+docker build -t simple-balance:local .
 docker stop simple-balance
 docker rm simple-balance
 docker run -d --name simple-balance --restart unless-stopped \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
-  --env-file .env -p 127.0.0.1:3000:3000 simple-balance:0.1.0
+  --env-file .env -p 127.0.0.1:3000:3000 simple-balance:local
 ```
 
 Check startup with `docker logs -f simple-balance` and

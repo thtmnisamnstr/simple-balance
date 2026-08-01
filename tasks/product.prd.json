@@ -1,7 +1,7 @@
 {
   "$schema": "./product.prd.schema.json",
   "product": "Simple Balance",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "stories": [
     {
       "id": "SB-001",

@@ -189,7 +189,7 @@ export default function ImportPage() {
     <>
       <PageHeader
         eyebrow="Import"
-        title="Bring in a bank CSV"
+        title="Import a CSV"
         description="Preview and validate every row before it enters your review queue."
       />
 
@@ -430,8 +430,8 @@ export default function ImportPage() {
             ) : (
               <EmptyState
                 icon={<CheckCircle2 size={23} />}
-                title="Ready when you are"
-                body="A sample of the file will appear here before anything is staged."
+                title="No file yet"
+                body="A sample of the file appears here before anything is staged."
               />
             )}
           </aside>

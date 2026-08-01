@@ -3,7 +3,6 @@ import { z } from "zod";
 export const accountTypes = [
   "checking",
   "savings",
-  "debit_card",
   "credit_card",
   "cash",
   "crypto_wallet",
@@ -18,7 +17,6 @@ export type AccountType = (typeof accountTypes)[number];
 export const accountTypeLabels: Record<AccountType, string> = {
   checking: "Checking",
   savings: "Savings",
-  debit_card: "Debit Card",
   credit_card: "Credit Card",
   cash: "Cash",
   crypto_wallet: "Crypto Wallet",

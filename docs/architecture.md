@@ -17,7 +17,7 @@ flowchart LR
 ```
 
 `/api/v1` is the first stable HTTP contract version. It is independent of the
-application release number (`0.1.0`) and changes only for an incompatible API
+application release number and changes only for an incompatible API
 contract.
 
 ## Boundaries
@@ -75,7 +75,7 @@ OAuth access token. Both resolve an internal `Actor`; every service query includ
 
 Database migrations run at process startup under PostgreSQL advisory lock
 `724202607`, so concurrent starts cannot race. Readiness remains unavailable
-until configuration, database connection, and migrations succeed. The 0.1.0
+until configuration, database connection, and migrations succeed. The current
 schema is one clean initial migration. Every later schema change is a new,
 forward-only migration that preserves existing records and backfills required
 data; operators only replace the application image and restart it. The complete

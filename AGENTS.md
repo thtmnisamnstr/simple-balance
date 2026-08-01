@@ -35,13 +35,12 @@
   collapse a transfer into a single-account transaction in bulk.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
-- Treat `drizzle/0000_v0_1_0_initial.sql` as the immutable release baseline.
-  Every schema change after 0.1.0 needs a new forward-only migration that
-  preserves existing rows and backfills every new required value.
+- Nothing is released yet, so `drizzle/0000_initial.sql` stays a single
+  regenerated baseline. Fold schema changes into it rather than adding forward
+  migrations. Once a version ships, that baseline becomes immutable and every
+  later change needs its own forward-only migration.
 - Startup must remain the only production migration path. Keep migrations safe
-  under the advisory lock, fail readiness on migration failure, and add an
-  upgrade test that starts from the preceding release schema and representative
-  data.
+  under the advisory lock and fail readiness on migration failure.
 
 ## Commands
 

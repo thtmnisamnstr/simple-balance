@@ -290,7 +290,7 @@ export default function StagingPage() {
       <PageHeader
         eyebrow="Review queue"
         title="Staged transactions"
-        description="Review imported or agent-prepared work before it changes any balance."
+        description="Imported and agent-prepared rows, before they reach the ledger."
         actions={
           <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
             <Plus size={16} /> Stage transaction

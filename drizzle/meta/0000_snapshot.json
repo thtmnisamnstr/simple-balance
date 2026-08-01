@@ -1,5 +1,5 @@
 {
-  "id": "ed0baedd-4f81-4082-904b-06d8f64ff7f7",
+  "id": "55a086b7-b436-47ad-b596-613e8c23791e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -2228,7 +2228,6 @@
       "values": [
         "checking",
         "savings",
-        "debit_card",
         "credit_card",
         "cash",
         "crypto_wallet",

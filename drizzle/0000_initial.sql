@@ -1,4 +1,4 @@
-CREATE TYPE "public"."ledger_account_type" AS ENUM('checking', 'savings', 'debit_card', 'credit_card', 'cash', 'crypto_wallet', 'loan', 'investment', 'other_asset', 'other_liability');--> statement-breakpoint
+CREATE TYPE "public"."ledger_account_type" AS ENUM('checking', 'savings', 'credit_card', 'cash', 'crypto_wallet', 'loan', 'investment', 'other_asset', 'other_liability');--> statement-breakpoint
 CREATE TYPE "public"."actor_source" AS ENUM('web', 'mcp');--> statement-breakpoint
 CREATE TYPE "public"."category_kind" AS ENUM('income', 'expense', 'both');--> statement-breakpoint
 CREATE TYPE "public"."staged_status" AS ENUM('staged', 'committed', 'deleted');--> statement-breakpoint

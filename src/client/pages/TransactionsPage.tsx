@@ -7,7 +7,7 @@ export default function TransactionsPage() {
       <PageHeader
         eyebrow="Ledger"
         title="Transactions"
-        description="Deposits, withdrawals, and transfers in plain language."
+        description="Deposits, withdrawals, and transfers."
       />
       <TransactionBrowser />
     </>

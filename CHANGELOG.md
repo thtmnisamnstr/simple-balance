@@ -2,9 +2,9 @@
 
 All notable Simple Balance changes are recorded here by release.
 
-## 0.1.0 - 2026-07-30
+## Unreleased
 
-Initial release:
+Not yet released. Current feature set:
 
 - Self-hosted React and Hono application in one non-root Docker image
 - Embedded local authentication, with optional allowlisted Google login

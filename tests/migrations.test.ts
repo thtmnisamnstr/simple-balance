@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 const migrationDirectory = path.resolve(import.meta.dirname, "../drizzle");
 const metadataDirectory = path.join(migrationDirectory, "meta");
 
-describe("v0.1.0 migration baseline", () => {
-  it("has one intentionally named initial migration and one matching snapshot", async () => {
+describe("migration baseline", () => {
+  it("stays a single regenerated baseline while nothing is released", async () => {
     const migrationFiles = (await readdir(migrationDirectory))
       .filter((name) => name.endsWith(".sql"))
       .sort();
@@ -26,7 +26,7 @@ describe("v0.1.0 migration baseline", () => {
       }>;
     };
 
-    expect(migrationFiles).toEqual(["0000_v0_1_0_initial.sql"]);
+    expect(migrationFiles).toEqual(["0000_initial.sql"]);
     expect(snapshotFiles).toEqual(["0000_snapshot.json"]);
     expect(journal).toMatchObject({
       version: "7",
@@ -35,7 +35,7 @@ describe("v0.1.0 migration baseline", () => {
         {
           idx: 0,
           version: "7",
-          tag: "0000_v0_1_0_initial",
+          tag: "0000_initial",
           breakpoints: true,
         },
       ],
@@ -44,7 +44,7 @@ describe("v0.1.0 migration baseline", () => {
 
   it("models the current schema directly", async () => {
     const sql = await readFile(
-      path.join(migrationDirectory, "0000_v0_1_0_initial.sql"),
+      path.join(migrationDirectory, "0000_initial.sql"),
       "utf8",
     );
     const baselineSnapshot = JSON.parse(
@@ -88,6 +88,7 @@ describe("v0.1.0 migration baseline", () => {
       'CONSTRAINT "staged_transaction_import_batch_owner_fk" FOREIGN KEY ("user_id","import_batch_id")',
     );
     expect(sql).toContain("'crypto_wallet'");
+    expect(sql).not.toContain("'debit_card'");
     expect(sql).toContain('"payee" text NOT NULL');
     expect(sql).toContain('"description" text');
     expect(sql).toContain("numeric(44, 18)");

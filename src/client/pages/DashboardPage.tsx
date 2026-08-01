@@ -44,8 +44,8 @@ export default function DashboardPage() {
     <>
       <PageHeader
         eyebrow="Overview"
-        title="Your money, clearly"
-        description="Balances and cash flow stay separated by currency, so the totals remain honest."
+        title="Overview"
+        description="Balances and cash flow, grouped by currency."
         actions={
           <Button onClick={() => setOpen(true)} disabled={!accounts.data?.length}>
             <Plus size={16} /> Add transaction
