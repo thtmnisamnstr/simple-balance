@@ -6,6 +6,7 @@ import {
   accountCreateSchema,
   accountUpdateSchema,
   bulkDeleteStageSchema,
+  bulkTransactionDeleteSchema,
   bulkTransactionEditSchema,
   bulkTransactionFilterSelectionRequestSchema,
   categoryCreateSchema,
@@ -68,6 +69,7 @@ import {
 } from "./services/staging.js";
 import { getSummary } from "./services/summary.js";
 import {
+  bulkDeleteTransactions,
   bulkEditTransactions,
   createTransaction,
   getBulkTransactionSelection,
@@ -752,6 +754,29 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             { id, input },
             (tx) => updateTransaction(actor, id, input, tx),
           ),
+        ),
+    );
+    server.registerTool(
+      "bulk_delete_transactions",
+      {
+        title: "Bulk delete committed transactions",
+        description:
+          "Atomically soft-delete explicit versioned transactions or a previewed all-matching selection. Rows already deleted are left alone, deleted rows stop affecting balances and reports, and dryRun validates without writing.",
+        inputSchema: bulkTransactionDeleteSchema,
+        outputSchema: mcpOutputSchema(bulkTransactionEditMcpResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      (input) =>
+        runTool(() =>
+          input.dryRun
+            ? bulkDeleteTransactions(actor, input)
+            : runIdempotentMcpMutation(
+                actor,
+                "transaction.bulk_delete",
+                input.idempotencyKey,
+                input,
+                (tx) => bulkDeleteTransactions(actor, input, tx),
+              ),
         ),
     );
     server.registerTool(

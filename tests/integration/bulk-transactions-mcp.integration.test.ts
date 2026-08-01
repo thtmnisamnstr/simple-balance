@@ -91,6 +91,21 @@ describe("bulk transaction MCP tool contracts", () => {
       expect(writeByName.has("preview_bulk_transaction_selection")).toBe(true);
       expect(writeByName.has("bulk_edit_transactions")).toBe(true);
 
+      // Deleting in bulk is a write, so it is gated exactly like editing.
+      expect(readByName.has("bulk_delete_transactions")).toBe(false);
+      expect(
+        stageTools.tools.some((tool) => tool.name === "bulk_delete_transactions"),
+      ).toBe(false);
+      expect(writeByName.has("bulk_delete_transactions")).toBe(true);
+      expect(
+        writeByName.get("bulk_delete_transactions")?.annotations,
+      ).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+
       expect(
         readByName.get("preview_bulk_transaction_selection")?.annotations,
       ).toMatchObject({
