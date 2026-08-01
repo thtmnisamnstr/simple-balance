@@ -12,9 +12,15 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # The README promises PostgreSQL 15 and up, so the oldest supported server
+      # is tested rather than assumed.
+      matrix:
+        postgres: ["15-alpine", "16-alpine"]
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -38,4 +44,5 @@ jobs:
       - run: npm run verify
       - run: npm run test:integration
       - run: npm run ralph -- --dry-run
-      - run: docker build -t simple-balance:test .
+      - if: matrix.postgres == '16-alpine'
+        run: docker build -t simple-balance:test .
