@@ -190,7 +190,7 @@ export default function ImportPage() {
       <PageHeader
         eyebrow="Import"
         title="Import a CSV"
-        description="Preview and validate every row before it enters your review queue."
+        description="Match your columns, check the preview, then stage the rows."
       />
 
       {!accounts.data?.length ? (

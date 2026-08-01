@@ -18,7 +18,7 @@ export default function ActivityPage() {
       <PageHeader
         eyebrow="Security"
         title="Activity history"
-        description="An append-only record of ledger changes made in the web app or through MCP."
+        description="Every change made here or by an agent, kept in order and never rewritten."
       />
       {events.data?.items.length ? (
         <section className="panel activity-list">
@@ -49,7 +49,7 @@ export default function ActivityPage() {
         <EmptyState
           icon={<History size={25} />}
           title="No activity yet"
-          body="Account, category, transaction, import, and agent actions will be recorded here."
+          body="Account, category, transaction, import, and agent actions show up here."
         />
       )}
     </>

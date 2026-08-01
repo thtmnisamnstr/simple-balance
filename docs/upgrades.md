@@ -1,7 +1,10 @@
 # Upgrades and schema evolution
 
-Simple Balance stores all persistent state in PostgreSQL. The application
-container is replaceable and needs no writable volume.
+All persistent state lives in PostgreSQL. The application container is
+disposable and needs no writable volume.
+
+Nothing has shipped yet, so there is no release to upgrade from. What follows is
+the procedure and the contract that take effect once a version does ship.
 
 ## Upgrade procedure
 
@@ -15,8 +18,8 @@ container is replaceable and needs no writable volume.
      'postgresql://simple_balance@database.example:5432/simple_balance'
    ```
 
-   Supply credentials through PostgreSQL's supported secret mechanisms rather
-   than placing a password in shell history.
+   Pass credentials through PostgreSQL's own secret mechanisms. Do not put a
+   password in shell history.
 3. Pull or build the target image using its immutable release tag.
 4. Stop the application container. Keep PostgreSQL running.
 5. Start the target image with the same `DATABASE_URL`, `APP_BASE_URL`,
@@ -27,21 +30,20 @@ container is replaceable and needs no writable volume.
    been checked.
 
 The new process connects to PostgreSQL and applies every pending migration under
-an advisory lock before opening readiness. Data transformations and required
-value population ship inside the release migrations. Operators do not run
-`npm run db:migrate`, copy rows, or repopulate the ledger manually.
+an advisory lock before it opens readiness. Data transformation and backfill
+ride along inside the release migrations. You never run `npm run db:migrate`,
+copy rows, or retype ledger data by hand.
 
-Do not run application versions with different schema expectations
-simultaneously during an upgrade. A schema upgrade can make the database
-incompatible with an earlier image, so rollback means stopping the application
-and restoring the pre-upgrade backup unless the target release explicitly
-documents another safe procedure.
+Never run two application versions with different schema expectations at once.
+A schema upgrade can leave the database unreadable by the older image, so
+rollback means stopping the application and restoring the pre-upgrade backup,
+unless the target release documents something safer.
 
 ## Schema contract
 
-Version 0.1.0 is the database baseline and contains one initial migration.
-Released migrations are immutable. A later release that changes the schema
-must:
+Until a version ships, the schema is one baseline migration that gets
+regenerated in place. The first release freezes that baseline. From then on,
+released migrations are immutable, and any later schema change must:
 
 - add a new, forward-only, version-controlled SQL migration;
 - preserve all ledger, authentication, provenance, idempotency, and audit data;
@@ -55,6 +57,6 @@ must:
   schema plus representative data, runs the current startup migrations, and
   verifies both schema and data.
 
-Internal migrations are necessary for automatic, data-preserving upgrades.
-They let an operator upgrade the image and restart the container without
-manually changing the database or re-entering data.
+Migrations run inside the application because that is what makes an upgrade
+automatic and non-destructive. Swap the image, restart the container, and the
+database catches up on its own.

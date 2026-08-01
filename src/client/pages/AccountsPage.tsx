@@ -85,8 +85,8 @@ export default function AccountsPage({ session }: { session: Session }) {
     <>
       <PageHeader
         eyebrow="Accounts"
-        title="Places your money lives"
-        description="Each account keeps its native currency. In-use accounts are archived instead of erased."
+        title="Accounts"
+        description="Everything you track, from checking and cards to cash and crypto wallets."
         actions={
           <Button onClick={() => setEditing("new")}>
             <Plus size={16} /> New account
@@ -190,7 +190,7 @@ export default function AccountsPage({ session }: { session: Session }) {
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
         title={editing === "new" ? "Create an account" : "Edit account"}
-        description="Balances are signed internally but presented in everyday language."
+        description="Set the opening balance as of the date you start tracking."
       >
         {editing ? (
           <AccountForm

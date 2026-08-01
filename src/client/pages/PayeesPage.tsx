@@ -106,7 +106,7 @@ export default function PayeesPage() {
       <PageHeader
         eyebrow="Organization"
         title="Payees"
-        description="Browse the people and businesses in your transactions, find duplicates, and merge them safely."
+        description="People and businesses you pay or get paid by. Spot near-duplicates and merge them."
       />
 
       {duplicates.data?.length ? (

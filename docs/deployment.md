@@ -21,11 +21,11 @@ redirect URI:
 https://simple-balance.example.com/api/auth/callback/google
 ```
 
-`APP_BASE_URL` must be the canonical public origin and must exactly match the
-browser origin. It is required in production for secure cookies, OAuth issuer
-metadata, redirect validation, and MCP token audience checks—even in local auth
-mode. Use HTTPS outside localhost. `AUTH_SECRET` is also always required in
-production and must remain stable across restarts. Google requests only
+`APP_BASE_URL` must be the canonical public origin, matching the browser origin
+exactly. Production always requires it, including in local auth mode, because
+secure cookies, OAuth issuer metadata, redirect validation, and MCP token
+audience checks all read from it. Use HTTPS outside localhost. `AUTH_SECRET` is
+also always required in production, and it has to stay stable across restarts. Google requests only
 `openid`, `email`, and `profile`; keep its client secret outside the image.
 
 Local authentication does not send verification or recovery email. Keep the

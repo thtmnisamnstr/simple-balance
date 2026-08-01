@@ -3,16 +3,16 @@
 A modern personal accounting app built around ease of use and safe automation
 via AI. Self-hosted, so the ledger stays yours.
 
-Simple Balance tracks Checking, Savings, Credit Card, Cash, Crypto Wallet,
-Loan, Investment, Asset, and Liability accounts. Wallets can use popular
-crypto assets such as BTC, ETH, SOL, USDC, and USDT. It supports deposits,
-withdrawals, same-asset transfers, and per-account conversion transfers with
-distinct sent/received amounts. CSV imports are staged for review; direct
-transactions and selected staged rows can be committed atomically.
+Track checking, savings, credit cards, cash, crypto wallets, loans,
+investments, and anything else you file as an asset or liability. Wallets handle
+BTC, ETH, SOL, USDC, USDT, and friends. Record deposits, withdrawals, and
+transfers, including conversions that keep the sent and received amounts
+separate. CSV imports land in a review queue first. Commit a single row or the
+whole batch, all or nothing.
 
-AI and MCP clients use the same scoped, audited ledger services as the browser.
-They can prepare work for review, but cannot bypass your authentication,
-authorization, duplicate checks, or explicit commit controls.
+AI and MCP clients call the same ledger services the browser does. An agent can
+prepare work and queue it for you. It cannot get around your sign-in, your
+scopes, the duplicate checks, or the commit step.
 
 ## What it does
 
@@ -33,7 +33,7 @@ feature set is:
 - Bank CSV detection, mapping, localized date/number parsing, automatic matching
   and creation of categories/payees, preview, staging, duplicate detection, and
   app export/import round trips
-- Linkable inclusive date ranges and native-currency dashboard groups
+- Date ranges you can link to, and a dashboard summary of the range
 - Append-only web/MCP audit history
 - OAuth-protected Streamable HTTP MCP server with read/stage/write scopes
 - Audience-bound RS256 MCP access tokens with persistent PostgreSQL signing keys,
@@ -137,16 +137,12 @@ HTTPS guidance.
 
 ### Upgrade
 
-Back up PostgreSQL, replace the application container with the image for the
-new release, and wait for `/health/ready`. At startup, Simple Balance applies
-its versioned database migrations under a PostgreSQL advisory lock before it
-becomes ready. Release migrations populate data required by the new schema, so
-operators do not run a separate migration command or re-enter ledger data.
-
-Safe automatic upgrades still require internal database migrations whenever a
-release changes the schema. They are the mechanism that preserves and
-transforms existing data; avoiding them would make upgrades less safe. See the
-[upgrade procedure and schema policy](docs/upgrades.md).
+Nothing has shipped yet, so there is no upgrade path to follow. Once there is:
+back up PostgreSQL, swap the container for the new image, and wait for
+`/health/ready`. Migrations run at startup under an advisory lock and carry
+their own data backfill, so there is no separate migration command and no
+retyping. The full procedure is in
+[upgrades and schema evolution](docs/upgrades.md).
 
 Quality gates:
 

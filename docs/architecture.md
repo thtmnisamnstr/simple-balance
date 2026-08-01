@@ -1,8 +1,8 @@
 # Architecture
 
-Simple Balance is one Node process and one deployable image. PostgreSQL is the only
-stateful dependency. Its browser and AI/MCP clients share one ledger service
-layer, so automation is scoped, validated, and audited like every other action.
+Simple Balance is one Node process and one deployable image. PostgreSQL holds
+all the state. The browser and MCP clients call the same ledger services, so an
+agent action goes through the same scoping, validation, and audit as a click.
 
 ```mermaid
 flowchart LR
@@ -16,9 +16,8 @@ flowchart LR
   OAuth --> DB
 ```
 
-`/api/v1` is the first stable HTTP contract version. It is independent of the
-application release number and changes only for an incompatible API
-contract.
+`/api/v1` is the first stable HTTP contract version. It tracks the contract, not
+the application release number, so it changes only when the contract breaks.
 
 ## Boundaries
 
@@ -30,8 +29,8 @@ contract.
 - `src/server/api.ts` is a transport adapter. It obtains the user from Better Auth
   and never accepts a ledger owner in public input.
 - `src/server/mcp.ts` exposes discrete tools and filters them by OAuth scope.
-- `src/client` uses everyday language and does not calculate authoritative
-  balances.
+- `src/client` renders what the server computes. It never derives a balance of
+  its own.
 
 ## Ledger invariants
 
@@ -73,13 +72,12 @@ Web requests use a same-origin secure session cookie. MCP requests use a scoped
 OAuth access token. Both resolve an internal `Actor`; every service query includes
 `actor.userId`. IDs from a different user resolve as not found.
 
-Database migrations run at process startup under PostgreSQL advisory lock
-`724202607`, so concurrent starts cannot race. Readiness remains unavailable
-until configuration, database connection, and migrations succeed. The current
-schema is one clean initial migration. Every later schema change is a new,
-forward-only migration that preserves existing records and backfills required
-data; operators only replace the application image and restart it. The complete
-contract is in [upgrades and schema evolution](upgrades.md).
+Migrations run at process startup under PostgreSQL advisory lock `724202607`, so
+concurrent starts cannot race. Readiness stays closed until configuration, the
+database connection, and migrations all succeed. Nothing has shipped yet, so the
+schema is a single baseline migration that gets regenerated as it changes. Once
+a version ships, that baseline freezes and every later change becomes its own
+forward-only migration. See [upgrades and schema evolution](upgrades.md).
 
 MCP OAuth access tokens are wrapped as audience-bound RS256 JWTs. The persistent
 private/public JWK pair lives in `auth_mcp_signing_key`; only public key material

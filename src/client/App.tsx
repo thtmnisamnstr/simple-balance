@@ -127,10 +127,10 @@ function SignIn({ error }: { error?: Error }) {
       <section className="auth-card">
         <div className="brand-mark large"><CircleDollarSign size={31} /></div>
         <span className="eyebrow">Private by design</span>
-        <h1>Personal accounting, without the busywork.</h1>
+        <h1>Personal accounting with safe AI automation.</h1>
         <p>
-          Accounts, transactions, CSV review, and scoped agent access, on
-          infrastructure you control.
+          Track accounts and transactions, import statements with a review
+          step, and give AI agents only the access you choose.
         </p>
         {error && !(error instanceof ApiClientError && error.code === "UNAUTHORIZED") ? (
           <Alert>{error.message}</Alert>

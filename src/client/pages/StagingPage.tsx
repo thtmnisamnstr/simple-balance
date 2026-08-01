@@ -290,7 +290,7 @@ export default function StagingPage() {
       <PageHeader
         eyebrow="Review queue"
         title="Staged transactions"
-        description="Imported and agent-prepared rows, before they reach the ledger."
+        description="Rows waiting on you. Nothing here counts until you commit it."
         actions={
           <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
             <Plus size={16} /> Stage transaction
@@ -539,8 +539,8 @@ export default function StagingPage() {
       ) : stagePages.isLoading ? null : (
         <EmptyState
           icon={<ClipboardList size={24} />}
-          title="The review queue is clear"
-          body="CSV imports, manually staged items, and agent-prepared transactions appear here."
+          title="Nothing staged"
+          body="Imported rows, drafts you save for later, and anything an agent prepares land here."
         />
       )}
       <Modal

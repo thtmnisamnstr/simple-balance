@@ -6,8 +6,8 @@ The stateless Streamable HTTP endpoint is:
 https://simple-balance.example.com/mcp
 ```
 
-It is designed for AI and agent clients, with the same ledger validation, review
-workflow, duplicate protections, and audit trail used by the browser.
+Agent clients get the same ledger validation, review workflow, duplicate
+protection, and audit trail the browser gets. Nothing is relaxed for automation.
 
 OAuth discovery is available at:
 
@@ -30,8 +30,8 @@ flow uses Google; `both` presents both methods.
 
 Every authorization request is routed through the consent screen, including
 requests from already signed-in users and clients that omit `prompt=consent`.
-The server—not the dynamically registered client—decides that approval is
-required.
+The server decides that approval is required. A dynamically registered client
+cannot waive it.
 
 OAuth access tokens returned to clients are RS256 JWTs with issuer, subject,
 client, scope, expiry, and an audience fixed to this deployment's `/mcp` resource.
@@ -43,11 +43,10 @@ and whether the user still has an authentication method enabled by the current
 
 ## Scopes
 
-- `ledger:read` — accounts, categories, payees, transactions, staging, summaries,
-  CSV export, and audit history.
-- `ledger:stage` — read access plus staged transaction and CSV-stage mutations.
-- `ledger:write` — all ledger operations, including direct commits and staged
-  commits.
+- `ledger:read`: accounts, categories, payees, transactions, staging,
+  summaries, CSV export, and audit history.
+- `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
+- `ledger:write`: every ledger operation, including direct and staged commits.
 
 Tools are omitted from discovery when the token lacks their scope. All tools
 return both `structuredContent.result` and equivalent JSON text. Money is always a
@@ -63,11 +62,10 @@ the common text/date/category fields, and account reassignment must preserve the
 transaction's native currency. Duplicate validation applies to the final state
 of the complete selection before any row is written.
 
-Payee management is available through `list_payees`,
-`list_duplicate_payees`, and the idempotent `merge_payees` write tool. Payees
-are derived from committed and staged transaction text, so MCP and browser
-operations use the same canonicalization and audit behavior without a separate
-payee record type.
+Payees come from `list_payees`, `list_duplicate_payees`, and the idempotent
+`merge_payees` write tool. There is no separate payee record. Payees are read
+out of committed and staged transaction text, so MCP and the browser share one
+canonicalization and one audit trail.
 
 Use `dryRun: true` on `bulk_edit_transactions`, `stage_csv`, and
 `commit_staged_transactions` to validate a planned mutation without changing the

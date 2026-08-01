@@ -66,11 +66,11 @@
     {
       "id": "SB-007",
       "priority": 70,
-      "title": "Date range and native-currency dashboard",
+      "title": "Date range and dashboard summary",
       "dependsOn": ["SB-005", "SB-006"],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Inclusive presets and custom dates persist in URL parameters", "Balances and cash flow are separated by currency and transfers are excluded"],
+      "acceptanceCriteria": ["Inclusive presets and custom dates persist in URL parameters", "Balances and cash flow are grouped per account currency and transfers are excluded"],
       "verification": ["npm test -- tests/domain.test.ts", "npm run test:integration"]
     },
     {

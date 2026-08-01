@@ -169,7 +169,7 @@ export default function CategoriesPage() {
       <PageHeader
         eyebrow="Organization"
         title="Categories"
-        description="Create simple income and expense labels, find duplicates, and merge them safely."
+        description="Group income and spending. Spot near-duplicates and merge them."
       />
       <section className="panel settings-section">
         <form className="inline-form" onSubmit={addCategory}>
