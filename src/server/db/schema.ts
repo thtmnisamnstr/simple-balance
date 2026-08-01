@@ -397,8 +397,9 @@ export const postings = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    transactionId: uuid("transaction_id")
-      .notNull(),
+    // Null for the opening-balance pair, which records where an account started
+    // rather than a transaction that occurred.
+    transactionId: uuid("transaction_id"),
     accountId: uuid("account_id")
       .notNull(),
     amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),

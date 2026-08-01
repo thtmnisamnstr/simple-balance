@@ -25,17 +25,17 @@ export async function getSummary(actor: Actor, input: unknown) {
       a.name,
       a.type,
       a.currency,
-      (
-        case when a.opening_date <= ${end}::date then a.opening_balance else 0 end
-        + coalesce(sum(case
-            when t.deleted_at is null and t.date <= ${end}::date then p.amount
-            else 0
-          end), 0)
-      )::text as balance
+      coalesce(sum(case
+        when (t.id is null or t.deleted_at is null)
+          and coalesce(t.date, a.opening_date) <= ${end}::date
+        then p.amount
+        else 0
+      end), 0)::text as balance
     from ledger_account a
     left join posting p on p.account_id = a.id
     left join ledger_transaction t on t.id = p.transaction_id
     where a.user_id = ${actor.userId}
+      and a.system_kind is null
       and a.archived_at is null
     group by a.id
     order by a.currency, lower(a.name)

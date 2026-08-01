@@ -24,7 +24,12 @@ export type UserAccountType = (typeof userAccountTypes)[number];
 export type AccountType = (typeof accountTypes)[number];
 
 /** Which side of the books a server-owned counter-account represents. */
-export const systemAccountKinds = ["income", "expense", "exchange"] as const;
+export const systemAccountKinds = [
+  "income",
+  "expense",
+  "exchange",
+  "equity",
+] as const;
 export type SystemAccountKind = (typeof systemAccountKinds)[number];
 
 export const accountTypeLabels: Record<UserAccountType, string> = {

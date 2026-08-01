@@ -1,5 +1,5 @@
 {
-  "id": "8ad8a487-7c18-437b-a425-7e3ec14c360e",
+  "id": "a7dd96f9-b641-4595-8cfc-dc67946ba16f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1260,7 +1260,7 @@
           "name": "transaction_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "account_id": {
           "name": "account_id",
@@ -2299,7 +2299,8 @@
       "values": [
         "income",
         "expense",
-        "exchange"
+        "exchange",
+        "equity"
       ]
     },
     "public.transaction_type": {

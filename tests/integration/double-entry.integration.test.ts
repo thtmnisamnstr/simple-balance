@@ -4,7 +4,13 @@ import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { user } from "../../src/server/db/schema.js";
-import { createAccount, listAccounts } from "../../src/server/services/accounts.js";
+import {
+  createAccount,
+  deleteAccount,
+  getAccount,
+  listAccounts,
+  updateAccount,
+} from "../../src/server/services/accounts.js";
 import {
   createTransaction,
   setTransactionDeleted,
@@ -26,6 +32,27 @@ async function unbalancedTransactions() {
     having sum(p.amount) <> 0
   `);
   return result.rows;
+}
+
+/** Every posting the tenant owns, opening balances included, nets to zero. */
+async function unbalancedCurrencies() {
+  const result = await getDb().execute(sql`
+    select p.currency, sum(p.amount)::text as total
+    from posting p
+    where p.user_id = ${actor.userId}
+    group by p.currency
+    having sum(p.amount) <> 0
+  `);
+  return result.rows;
+}
+
+async function openingPostings(accountId: string) {
+  const result = await getDb().execute(sql`
+    select count(*)::int as count, coalesce(sum(amount), 0)::text as total
+    from posting
+    where account_id = ${accountId}::uuid and transaction_id is null
+  `);
+  return result.rows[0] as { count: number; total: string };
 }
 
 async function postingCount(transactionId: string) {
@@ -261,6 +288,79 @@ integration("double-entry ledger", () => {
     });
 
     expect(await postingCount(created.id)).toBe(before);
+  });
+
+  it("posts an opening balance against the equity account", async () => {
+    const opened = await createAccount(actor, {
+      name: "DE Opening",
+      type: "savings",
+      currency: "USD",
+      openingDate: "2027-01-01",
+      openingBalance: "1250.75",
+    });
+
+    const posted = await openingPostings(opened.id);
+    expect(posted.count).toBe(1);
+    expect(posted.total).toBe("1250.750000000000000000");
+
+    const equity = await getDb().execute(sql`
+      select sum(p.amount)::text as total
+      from posting p
+      join ledger_account a on a.id = p.account_id
+      where a.user_id = ${actor.userId}
+        and a.system_kind = 'equity'
+        and p.currency = 'USD'
+    `);
+    expect(equity.rows[0]).toEqual({ total: "-1250.750000000000000000" });
+
+    // The opening balance is where the account starts, so it shows up in the
+    // balance without a single transaction against it.
+    const account = await getAccount(actor, opened.id);
+    expect(account.balance).toBe("1250.75");
+    expect(await unbalancedCurrencies()).toEqual([]);
+  });
+
+  it("re-posts an opening balance correction rather than rewriting it", async () => {
+    const opened = await createAccount(actor, {
+      name: "DE Correction",
+      type: "savings",
+      currency: "USD",
+      openingDate: "2027-01-01",
+      openingBalance: "100",
+    });
+
+    await updateAccount(actor, opened.id, {
+      openingBalance: "175",
+      expectedVersion: opened.version,
+    });
+
+    // Two rows, not one rewritten row: the original stands and the delta joins it.
+    const posted = await openingPostings(opened.id);
+    expect(posted.count).toBe(2);
+    expect(posted.total).toBe("175.000000000000000000");
+
+    const account = await getAccount(actor, opened.id);
+    expect(account.balance).toBe("175");
+    expect(await unbalancedCurrencies()).toEqual([]);
+  });
+
+  it("retires the opening pair when an unused account is deleted", async () => {
+    const opened = await createAccount(actor, {
+      name: "DE Discarded",
+      type: "savings",
+      currency: "USD",
+      openingDate: "2027-01-01",
+      openingBalance: "60",
+    });
+
+    await deleteAccount(actor, opened.id, opened.version);
+
+    expect((await openingPostings(opened.id)).count).toBe(0);
+    expect(await unbalancedCurrencies()).toEqual([]);
+  });
+
+  it("leaves the whole ledger balanced across every currency", async () => {
+    expect(await unbalancedCurrencies()).toEqual([]);
   });
 
   it("leaves postings untouched when a transaction is deleted", async () => {

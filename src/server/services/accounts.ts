@@ -61,6 +61,7 @@ const systemAccountNames: Record<SystemAccountKind, string> = {
   income: "Income",
   expense: "Expenses",
   exchange: "Currency Exchange",
+  equity: "Opening Balances",
 };
 
 /**
@@ -118,6 +119,60 @@ export async function ensureSystemAccount(
   return created;
 }
 
+/**
+ * Record an account's opening balance in the ledger itself, against the
+ * Opening Balances equity account. Without this the starting position would sit
+ * outside the books and the ledger would not sum to zero.
+ *
+ * The postings carry no transaction because an opening balance is where an
+ * account began, not something that happened. Re-running it reverses whatever
+ * is already posted and writes the new pair, so editing an opening balance
+ * stays append-only like every other correction.
+ */
+export async function postOpeningBalance(
+  tx: DbTransaction,
+  actor: Actor,
+  account: { id: string; currency: string; openingBalance: string },
+) {
+  const equity = await ensureSystemAccount(tx, actor, "equity", account.currency);
+  const existing = await tx
+    .select()
+    .from(postings)
+    .where(
+      and(
+        eq(postings.userId, actor.userId),
+        eq(postings.accountId, account.id),
+        isNull(postings.transactionId),
+      ),
+    );
+  const opening = decimal(account.openingBalance);
+  const current = existing.reduce(
+    (total, row) => total.plus(row.amount),
+    decimal("0"),
+  );
+  if (current.eq(opening)) return;
+
+  const rows: (typeof postings.$inferInsert)[] = [];
+  const difference = opening.minus(current);
+  if (!difference.isZero()) {
+    rows.push({
+      userId: actor.userId,
+      transactionId: null,
+      accountId: account.id,
+      amount: canonicalDecimal(difference),
+      currency: account.currency,
+    });
+    rows.push({
+      userId: actor.userId,
+      transactionId: null,
+      accountId: equity.id,
+      amount: canonicalDecimal(difference.negated()),
+      currency: account.currency,
+    });
+  }
+  if (rows.length) await tx.insert(postings).values(rows);
+}
+
 export function presentAccountBalance(type: AccountType, balance: string) {
   // Only user account types carry a liability presentation.
   const signedBalance = canonicalDecimal(balance);
@@ -153,13 +208,12 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
   const result = await db.execute(sql`
     select
       a.*,
-      (
-        case when a.opening_date <= ${endDate}::date then a.opening_balance else 0 end
-        + coalesce(sum(case
-            when t.deleted_at is null and t.date <= ${endDate}::date then p.amount
-            else 0
-          end), 0)
-      )::text as calculated_balance
+      coalesce(sum(case
+        when (t.id is null or t.deleted_at is null)
+          and coalesce(t.date, a.opening_date) <= ${endDate}::date
+        then p.amount
+        else 0
+      end), 0)::text as calculated_balance
     from ledger_account a
     left join posting p on p.account_id = a.id
     left join ledger_transaction t on t.id = p.transaction_id
@@ -217,56 +271,37 @@ export async function getAccountBalances(
         current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
       )::date::text as today,
       (
-        case
+        coalesce(sum(case
           when ${hasStart}
-            and a.opening_date < ${start}::date
-          then a.opening_balance
+            and (t.id is null or t.deleted_at is null)
+            and coalesce(t.date, a.opening_date) < ${start}::date
+          then p.amount
           else 0
-        end
-        + coalesce(sum(case
-            when ${hasStart}
-              and t.deleted_at is null
-              and t.date < ${start}::date
-            then p.amount
-            else 0
-          end), 0)
+        end), 0)
       )::text as beginning_balance,
       (
-        case
-          when a.opening_date <= ${end}::date
-          then a.opening_balance
+        coalesce(sum(case
+          when (t.id is null or t.deleted_at is null)
+            and coalesce(t.date, a.opening_date) <= ${end}::date
+          then p.amount
           else 0
-        end
-        + coalesce(sum(case
-            when t.deleted_at is null
-              and t.date <= ${end}::date
-            then p.amount
-            else 0
-          end), 0)
+        end), 0)
       )::text as ending_balance,
       (
-        case
-          when a.opening_date <= (
-            current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
-          )::date
-          then a.opening_balance
+        coalesce(sum(case
+          when (t.id is null or t.deleted_at is null)
+            and coalesce(t.date, a.opening_date) <= (
+              current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
+            )::date
+          then p.amount
           else 0
-        end
-        + coalesce(sum(case
-            when t.deleted_at is null
-              and t.date <= (
-                current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
-              )::date
-            then p.amount
-            else 0
-          end), 0)
+        end), 0)
       )::text as current_balance,
       (
-        a.opening_balance
-        + coalesce(sum(case
-            when t.deleted_at is null then p.amount
-            else 0
-          end), 0)
+        coalesce(sum(case
+          when (t.id is null or t.deleted_at is null) then p.amount
+          else 0
+        end), 0)
       )::text as future_balance
     from ledger_account a
     left join user_preferences preferences
@@ -311,6 +346,7 @@ export async function createAccount(
       .insert(ledgerAccounts)
       .values({ userId: actor.userId, ...parsed })
       .returning();
+    await postOpeningBalance(tx, actor, created);
     await writeAudit(tx, actor, {
       entityType: "account",
       entityId: created.id,
@@ -366,6 +402,8 @@ export async function updateAccount(
       )
       .returning();
     if (!updated) throw staleVersion();
+    // Keeps the ledger in step when the declared opening balance changes.
+    await postOpeningBalance(tx, actor, updated);
     await writeAudit(tx, actor, {
       entityType: "account",
       entityId: id,
@@ -464,6 +502,20 @@ export async function deleteAccount(
     if (transactionCount || stageCount) {
       throw conflict("This account is in use. Archive it instead of deleting it.");
     }
+    // Deleting is only allowed while an account has no transactions, so the
+    // opening pair is the only thing it holds. Reverse it to zero, then drop
+    // this side of it: what stays on the equity account still nets out.
+    await postOpeningBalance(tx, actor, { ...before, openingBalance: "0" });
+    await tx
+      .delete(postings)
+      .where(
+        and(
+          eq(postings.userId, actor.userId),
+          eq(postings.accountId, id),
+          isNull(postings.transactionId),
+        ),
+      );
+
     const [deleted] = await tx
       .delete(ledgerAccounts)
       .where(

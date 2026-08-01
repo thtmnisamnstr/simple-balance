@@ -2,7 +2,7 @@ CREATE TYPE "public"."ledger_account_type" AS ENUM('checking', 'savings', 'credi
 CREATE TYPE "public"."actor_source" AS ENUM('web', 'mcp');--> statement-breakpoint
 CREATE TYPE "public"."category_kind" AS ENUM('income', 'expense', 'both');--> statement-breakpoint
 CREATE TYPE "public"."staged_status" AS ENUM('staged', 'committed', 'deleted');--> statement-breakpoint
-CREATE TYPE "public"."system_account_kind" AS ENUM('income', 'expense', 'exchange');--> statement-breakpoint
+CREATE TYPE "public"."system_account_kind" AS ENUM('income', 'expense', 'exchange', 'equity');--> statement-breakpoint
 CREATE TYPE "public"."transaction_type" AS ENUM('deposit', 'withdrawal', 'transfer');--> statement-breakpoint
 CREATE TABLE "auth_account" (
 	"id" text PRIMARY KEY NOT NULL,
@@ -148,7 +148,7 @@ CREATE TABLE "auth_oauth_consent" (
 CREATE TABLE "posting" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" text NOT NULL,
-	"transaction_id" uuid NOT NULL,
+	"transaction_id" uuid,
 	"account_id" uuid NOT NULL,
 	"amount" numeric(44, 18) NOT NULL,
 	"currency" text NOT NULL,
