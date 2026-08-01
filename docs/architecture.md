@@ -24,13 +24,14 @@ the application release number, so it changes only when the contract breaks.
 - `src/shared` owns Zod request contracts, money/date primitives, and portable CSV
   normalization.
 - `src/server/services` owns tenancy, optimistic concurrency, idempotency, audit
-  events, signed postings, summaries, staging, and import/export. The API and MCP
-  layers call these same functions.
+  events, double-entry postings, summaries, staging, and import/export. The API
+  and MCP layers call these same functions.
 - `src/server/api.ts` is a transport adapter. It obtains the user from Better Auth
   and never accepts a ledger owner in public input.
 - `src/server/mcp.ts` exposes discrete tools and filters them by OAuth scope.
 - `src/client` renders what the server computes. It never derives a balance of
-  its own.
+  its own. Lists page by number against a server-supplied total row count;
+  cursor paging remains available for reading a whole ledger straight through.
 
 ## Ledger invariants
 
@@ -41,9 +42,13 @@ the application release number, so it changes only when the contract breaks.
 - The books are double-entry. Every transaction settles to zero in each
   currency it touches, and nothing is written unless it does.
 - A deposit credits the destination account and debits the income account. A
-  withdrawal debits the source account and credits the expense account. Both
-  counter-accounts are created by the server, one per currency, and never
-  appear in account lists or pickers.
+  withdrawal debits the source account and credits the expense account. An
+  opening balance credits the account and debits the equity account, so where
+  an account started is recorded in the books rather than beside them. All
+  counter-accounts are created by the server, one per kind and currency, and
+  never appear in account lists or pickers.
+- Balances come from postings alone. No balance query reads a running total off
+  the account row.
 - A same-currency transfer moves between the two accounts directly. A
   conversion settles through the exchange account so each currency balances on
   its own rather than netting across the pair.
@@ -55,10 +60,12 @@ the application release number, so it changes only when the contract breaks.
   postings at all.
 - Deleted transactions keep their postings but are excluded by all balance and
   report queries.
-- Transaction mass edits are validate-first and atomic. Explicit selections use
-  row versions; all-matching selections use a server-issued count and
-  fingerprint of the filtered `id:version` set so concurrent changes make the
-  request stale instead of silently changing its scope.
+- Transaction mass edits and deletes are validate-first and atomic. Explicit
+  selections use row versions; all-matching selections use a server-issued count
+  and fingerprint of the filtered `id:version` set so concurrent changes make the
+  request stale instead of silently changing its scope. A single request covers
+  at most 10,000 rows, and the HTTP body limit for bulk endpoints is sized from
+  that same cap.
 - Bulk account changes preserve native currency. Transfers may receive common
   field edits but cannot be collapsed into deposits or withdrawals in bulk.
 - Staged rows never affect balances.

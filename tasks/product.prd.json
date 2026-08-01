@@ -142,6 +142,16 @@
       "completed": true,
       "acceptanceCriteria": ["Direct staged and MCP-created transactions produce equivalent balances and audit behavior", "The production image persists through restart and handles SIGTERM", "Ralph dry-run and all quality gates pass"],
       "verification": ["npm run verify", "npm run ralph -- --dry-run", "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"]
+    },
+    {
+      "id": "SB-015",
+      "priority": 150,
+      "title": "Double-entry books and an append-only ledger",
+      "dependsOn": ["SB-014"],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": ["Every transaction settles to zero in each currency it touches, checked before any posting is written", "Deposits balance against income, withdrawals against expense, conversions through exchange, and opening balances against equity", "Counter-accounts are server-owned, one per kind and currency, and never appear in account lists or pickers", "Amount, account, and type corrections reverse the existing postings and write a new set rather than updating or deleting rows", "Label-only edits write no postings, and deleted transactions keep theirs while dropping out of balances and reports", "Balances, dashboards, and reports derive from postings alone"],
+      "verification": ["npm run typecheck", "npm test", "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"]
     }
   ]
 }

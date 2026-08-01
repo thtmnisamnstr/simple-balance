@@ -62,14 +62,25 @@ the common text/date/category fields, and account reassignment must preserve the
 transaction's native currency. Duplicate validation applies to the final state
 of the complete selection before any row is written.
 
+`bulk_delete_transactions` takes the same two selection shapes and soft-deletes
+every row in one transaction. Deleted transactions drop out of balances and
+reports but keep their postings, so the history of what was recorded survives
+the deletion. Either bulk tool accepts at most 10,000 rows per request; larger
+work is split into successive calls, each of which stands or falls on its own.
+
+List tools page two ways. `cursor` walks forward through a stable keyset and is
+the right choice for reading an entire ledger. `page` jumps to a numbered page
+and returns the total row count alongside it, which is what the browser's
+pagination control uses. A cursor wins if both are sent.
+
 Payees come from `list_payees`, `list_duplicate_payees`, and the idempotent
 `merge_payees` write tool. There is no separate payee record. Payees are read
 out of committed and staged transaction text, so MCP and the browser share one
 canonicalization and one audit trail.
 
-Use `dryRun: true` on `bulk_edit_transactions`, `stage_csv`, and
-`commit_staged_transactions` to validate a planned mutation without changing the
-ledger.
+Use `dryRun: true` on `bulk_edit_transactions`, `bulk_delete_transactions`,
+`stage_csv`, and `commit_staged_transactions` to validate a planned mutation
+without changing the ledger.
 
 `stage_csv` accepts the same configured `CSV_MAX_BYTES` payload as the browser
 import workflow. The HTTP MCP request envelope is bounded to accommodate JSON

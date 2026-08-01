@@ -25,7 +25,8 @@ feature set is:
   and payee merging, and filtered transaction views for each account, category,
   and payee
 - Committed transaction CRUD, soft delete/restore, optimistic concurrency,
-  idempotent creation, and atomic mass editing from every transaction view
+  idempotent creation, and atomic mass editing or deletion from every
+  transaction view, up to 10,000 rows at a time
 - Required payees, optional descriptions, and case-insensitive category/payee
   autocomplete while creating or editing transactions
 - Dedicated staged queue with validation, duplicate warnings, batch deletion,
@@ -34,9 +35,12 @@ feature set is:
   and creation of categories/payees, preview, staging, duplicate detection, and
   app export/import round trips
 - Date ranges you can link to, and a dashboard summary of the range
+- Numbered pagination on every transaction list, with staged rows shown
+  alongside committed ones on category and payee pages
 - Double-entry books: every entry settles to zero in each currency, with
-  server-owned income, expense, and exchange counter-accounts doing the
-  balancing
+  server-owned income, expense, exchange, and equity counter-accounts doing the
+  balancing. Opening balances post against equity, so the books sum to zero
+  from the first account onward
 - Append-only postings, so an amount change reverses and re-posts instead of
   rewriting history
 - Append-only web/MCP audit history

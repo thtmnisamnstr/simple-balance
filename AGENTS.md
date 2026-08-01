@@ -22,8 +22,21 @@
 - Keep first-owner creation transactional, serialized outside the application
   pool, and protected by the production setup code. Never expose a first-visitor
   claim race.
-- Deposit: one positive destination posting. Withdrawal: one negative source
-  posting. Transfer: negative source plus positive destination posting.
+- The books are double-entry. Every transaction settles to zero in each currency
+  it touches, checked before anything is written. A deposit credits the
+  destination and debits income; a withdrawal debits the source and credits
+  expense; a same-currency transfer moves between the two accounts; a conversion
+  settles through the exchange account so each currency balances on its own. An
+  opening balance posts against the equity account, so the ledger as a whole
+  nets to zero rather than starting from a number kept outside it.
+- Counter-accounts are server-owned, one per kind and currency, and never appear
+  in account lists or pickers. Never let a person post to one directly.
+- Postings are append-only. To change an amount, account, or type, reverse the
+  existing rows and write a new set. Never update or delete a posting to correct
+  it. Editing only labels writes no postings at all. Deleted transactions keep
+  their postings and are excluded by balance and report queries.
+- Balances derive from postings alone. Never add an account column back into a
+  balance query.
 - Per-account FX stores distinct source/destination native amounts and an implied
   audit rate only. Do not add global rates or revaluation.
 - Staged and soft-deleted transactions never affect balances or reports.
