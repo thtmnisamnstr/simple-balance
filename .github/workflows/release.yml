@@ -37,6 +37,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # Named once so the build and the check after it cannot disagree about
+      # what was supposed to ship.
+      PLATFORMS: linux/amd64,linux/arm64
     steps:
       - name: Resolve the release
         id: release
@@ -106,7 +110,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ env.PLATFORMS }}
           build-args: |
             APP_VERSION=${{ steps.release.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -114,9 +118,33 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # A single-architecture publish looks like a success: the push works, the
+      # tag resolves, and it only fails later on somebody else's machine. So the
+      # manifest that was actually pushed is read back and checked.
+      - name: Check every architecture reached the registry
+        run: |
+          set -euo pipefail
+          ref="${{ steps.release.outputs.image }}:${{ steps.release.outputs.version }}"
+          published="$(docker buildx imagetools inspect "$ref" \
+            --format '{{range .Manifest.Manifests}}{{if ne .Platform.Architecture "unknown"}}{{.Platform.OS}}/{{.Platform.Architecture}} {{end}}{{end}}')"
+          echo "Published: $published"
+          missing=""
+          for want in $(echo "$PLATFORMS" | tr ',' ' '); do
+            case " $published " in
+              *" $want "*) ;;
+              *) missing="$missing $want" ;;
+            esac
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing from the published manifest:$missing" >&2
+            exit 1
+          fi
+          echo "platforms=$published" >> "$GITHUB_OUTPUT"
+
       - name: Say what was published
         run: |
           echo "### Published" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Architectures: \`$PLATFORMS\`" >> "$GITHUB_STEP_SUMMARY"
