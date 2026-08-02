@@ -46,8 +46,11 @@ import {
   Pagination,
   Select,
   SelectionCheckbox,
+  SortableHeader,
+  type SortState,
   Textarea,
 } from "./components.js";
+import type { TransactionSortField } from "../shared/domain.js";
 import { useDateRange } from "./date-range.js";
 import { TransactionForm } from "./forms.js";
 
@@ -197,13 +200,25 @@ export function TransactionBrowser({
   };
   const selectionConstraintKey = JSON.stringify(bulkFilter);
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<SortState<TransactionSortField>>({
+    field: "date",
+    direction: "desc",
+  });
+  // Reordering re-cuts the pages, so the row that was at the top of page three
+  // is no longer there. Going back to the first page is the honest answer.
+  const applySort = (next: SortState<TransactionSortField>) => {
+    setSort(next);
+    setPage(1);
+  };
   const transactions = useQuery({
-    queryKey: ["transactions", params, page],
+    queryKey: ["transactions", params, page, sort],
     queryFn: () =>
       api<PaginatedPage<Transaction>>(
         `/api/v1/transactions?${queryString({
           ...params,
           page: String(page),
+          sort: sort.field,
+          direction: sort.direction,
         })}`,
       ),
     placeholderData: (previous) => previous,
@@ -807,11 +822,39 @@ export function TransactionBrowser({
                       }
                     />
                   </th>
-                  <th>Date</th>
-                  <th>Payee</th>
-                  <th>Account</th>
-                  <th>Category</th>
-                  <th className="align-right">Amount</th>
+                  <SortableHeader
+                    field="date"
+                    label="Date"
+                    lean="descending"
+                    sort={sort}
+                    onSort={applySort}
+                  />
+                  <SortableHeader
+                    field="payee"
+                    label="Payee"
+                    sort={sort}
+                    onSort={applySort}
+                  />
+                  <SortableHeader
+                    field="account"
+                    label="Account"
+                    sort={sort}
+                    onSort={applySort}
+                  />
+                  <SortableHeader
+                    field="category"
+                    label="Category"
+                    sort={sort}
+                    onSort={applySort}
+                  />
+                  <SortableHeader
+                    field="amount"
+                    label="Amount"
+                    lean="descending"
+                    className="align-right"
+                    sort={sort}
+                    onSort={applySort}
+                  />
                   <th>
                     <span className="sr-only">Actions</span>
                   </th>

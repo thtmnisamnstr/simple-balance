@@ -303,7 +303,32 @@ export const queryBooleanSchema = z
   ])
   .default(false);
 
+export const sortDirections = ["asc", "desc"] as const;
+export type SortDirection = (typeof sortDirections)[number];
+
+/** Every column the transaction list puts on screen can order it. */
+export const transactionSortFields = [
+  "date",
+  "payee",
+  "account",
+  "category",
+  "amount",
+] as const;
+export type TransactionSortField = (typeof transactionSortFields)[number];
+
+/** Same rule for the staged queue. */
+export const stageSortFields = [
+  "date",
+  "payee",
+  "account",
+  "status",
+  "amount",
+] as const;
+export type StageSortField = (typeof stageSortFields)[number];
+
 export const listQuerySchema = dateRangeSchema.extend({
+  sort: z.enum(transactionSortFields).default("date"),
+  direction: z.enum(sortDirections).default("desc"),
   cursor: z.string().min(1).max(500).optional(),
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(50),
@@ -320,8 +345,10 @@ export const listQuerySchema = dateRangeSchema.extend({
 // complete current view, while explicit selections carry the optimistic
 // versions shown to the user on the current page. Leaving `page` in would scope
 // a fingerprinted selection to whichever page happened to be open.
+// Order is presentation, not scope. Leaving it in would make two requests that
+// select the same rows look like different selections to the fingerprint.
 export const bulkTransactionFilterSchema = listQuerySchema
-  .omit({ cursor: true, page: true, limit: true })
+  .omit({ cursor: true, page: true, limit: true, sort: true, direction: true })
   .strict();
 
 const bulkTransactionIdSelectionSchema = z
@@ -494,6 +521,7 @@ export type BulkTransactionDeleteInput = z.infer<
 >;
 
 export const stageListQuerySchema = listQuerySchema.extend({
+  sort: z.enum(stageSortFields).default("date"),
   importBatchId: z.string().uuid().optional(),
   validity: z.enum(["valid", "invalid", "duplicate"]).optional(),
 });

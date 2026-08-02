@@ -41,9 +41,14 @@ import {
   Pagination,
   Select,
   SelectionCheckbox,
+  SortableHeader,
+  type SortState,
 } from "../components.js";
 import { TransactionForm } from "../forms.js";
-import { MAX_BULK_SELECTION_ENTRIES } from "../../shared/domain.js";
+import {
+  MAX_BULK_SELECTION_ENTRIES,
+  type StageSortField,
+} from "../../shared/domain.js";
 import { useDateRange } from "../date-range.js";
 import { stagedString, summarizeStagedDraft } from "../staged-draft.js";
 
@@ -98,6 +103,15 @@ export default function StagingPage() {
       ),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
   });
+  const [sort, setSort] = useState<SortState<StageSortField>>({
+    field: "date",
+    direction: "desc",
+  });
+  // Reordering re-cuts the pages, so start again from the first one.
+  const applySort = (next: SortState<StageSortField>) => {
+    setSort(next);
+    setPage(1);
+  };
   const stageQuery = {
     search: search || undefined,
     validity: validity || undefined,
@@ -108,12 +122,14 @@ export default function StagingPage() {
     limit: String(STAGE_PAGE_SIZE),
   };
   const stagePages = useQuery({
-    queryKey: ["staged", stageQuery, page],
+    queryKey: ["staged", stageQuery, page, sort],
     queryFn: ({ signal }) =>
       api<PaginatedPage<StagedTransaction>>(
         `/api/v1/staged-transactions?${queryString({
           ...stageQuery,
           page: String(page),
+          sort: sort.field,
+          direction: sort.direction,
         })}`,
         { signal },
       ),
@@ -425,11 +441,39 @@ export default function StagingPage() {
                     }}
                   />
                 </th>
-                <th>Date</th>
-                <th>Payee</th>
-                <th>Account</th>
-                <th>Status</th>
-                <th className="align-right">Amount</th>
+                <SortableHeader
+                  field="date"
+                  label="Date"
+                  lean="descending"
+                  sort={sort}
+                  onSort={applySort}
+                />
+                <SortableHeader
+                  field="payee"
+                  label="Payee"
+                  sort={sort}
+                  onSort={applySort}
+                />
+                <SortableHeader
+                  field="account"
+                  label="Account"
+                  sort={sort}
+                  onSort={applySort}
+                />
+                <SortableHeader
+                  field="status"
+                  label="Status"
+                  sort={sort}
+                  onSort={applySort}
+                />
+                <SortableHeader
+                  field="amount"
+                  label="Amount"
+                  lean="descending"
+                  className="align-right"
+                  sort={sort}
+                  onSort={applySort}
+                />
                 <th><span className="sr-only">Actions</span></th>
               </tr>
             </thead>

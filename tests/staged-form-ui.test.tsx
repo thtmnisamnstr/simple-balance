@@ -104,6 +104,7 @@ describe("staged transaction editor", () => {
           limit: "100",
         },
         1,
+        { field: "date", direction: "desc" },
       ],
       page,
     );

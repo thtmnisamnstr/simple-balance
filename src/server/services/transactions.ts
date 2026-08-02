@@ -3,12 +3,10 @@ import { Decimal } from "decimal.js";
 import {
   and,
   count,
-  desc,
   eq,
   ilike,
   inArray,
   isNull,
-  lt,
   lte,
   ne,
   notInArray,
@@ -26,6 +24,8 @@ import type {
   SystemAccountKind,
   PaginatedPage,
   TransactionDraft,
+  SortDirection,
+  TransactionSortField,
 } from "../../shared/domain.js";
 import {
   bulkTransactionFilterSelectionRequestSchema,
@@ -65,6 +65,11 @@ import {
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
+import {
+  type SortPlan,
+  keysetAfter,
+  ordered,
+} from "./sorting.js";
 import { ensureSystemAccount } from "./accounts.js";
 import { normalizeHumanName } from "./names.js";
 import { resolveCanonicalPayee } from "./payees.js";
@@ -610,6 +615,62 @@ export async function getTransaction(actor: Actor, id: string) {
   });
 }
 
+/**
+ * The orderings the transaction list offers, one per column it shows.
+ *
+ * Account and category are reached through another table, so they order by a
+ * correlated lookup and cannot be resumed by a keyset cursor. The rest sit on
+ * the row itself and can.
+ */
+function transactionSortPlan(
+  sort: TransactionSortField,
+  direction: SortDirection,
+): SortPlan<TransactionRow> {
+  const id = sql`${transactions.id}`;
+  const tie = ordered(id, direction);
+  const resumable = (expression: SQL, value: (row: TransactionRow) => string) => ({
+    orderBy: [ordered(expression, direction), tie],
+    keyset: keysetAfter(expression, id, direction),
+    cursorValue: value,
+  });
+  const paged = (expression: SQL) => ({
+    orderBy: [ordered(expression, direction), tie],
+    keyset: null,
+    cursorValue: null,
+  });
+
+  switch (sort) {
+    case "payee":
+      return resumable(sql`lower(${transactions.payee})`, (row) =>
+        row.payee.toLowerCase(),
+      );
+    case "amount":
+      // The magnitude the row shows: a deposit records only a destination
+      // amount, everything else records a source amount.
+      return resumable(
+        sql`coalesce(${transactions.sourceAmount}, ${transactions.destinationAmount})`,
+        (row) => String(row.sourceAmount ?? row.destinationAmount ?? "0"),
+      );
+    case "account":
+      return paged(sql`(
+        select lower(name) from ledger_account
+        where ledger_account.user_id = ${transactions.userId}
+          and ledger_account.id = coalesce(
+            ${transactions.sourceAccountId},
+            ${transactions.destinationAccountId}
+          )
+      )`);
+    case "category":
+      return paged(sql`(
+        select lower(name) from category
+        where category.user_id = ${transactions.userId}
+          and category.id = ${transactions.categoryId}
+      )`);
+    default:
+      return resumable(sql`${transactions.date}`, (row) => row.date);
+  }
+}
+
 export async function listTransactions(
   actor: Actor,
   queryInput: unknown,
@@ -619,14 +680,19 @@ export async function listTransactions(
   // before any cursor or page window narrows it.
   const filters = transactionFilterConditions(actor, query);
   const conditions = [...filters];
+  const plan = transactionSortPlan(query.sort, query.direction);
   if (query.cursor) {
-    const cursor = decodeCursor(query.cursor);
-    conditions.push(
-      or(
-        lt(transactions.date, cursor.sort),
-        and(eq(transactions.date, cursor.sort), lt(transactions.id, cursor.id)),
-      )!,
-    );
+    if (!plan.keyset) {
+      throw validationError(
+        "This sort order pages by number rather than by cursor.",
+        { sort: query.sort },
+      );
+    }
+    const cursor = decodeCursor(query.cursor, {
+      key: query.sort,
+      direction: query.direction,
+    });
+    conditions.push(plan.keyset(cursor.sort, cursor.id));
   }
 
   const db = getDb();
@@ -643,22 +709,26 @@ export async function listTransactions(
     .select()
     .from(transactions)
     .where(and(...conditions))
-    .orderBy(desc(transactions.date), desc(transactions.id))
+    .orderBy(...plan.orderBy)
     .limit(query.limit + 1)
     .offset(offset);
   const hasMore = rows.length > query.limit;
   const pageRows = rows.slice(0, query.limit);
+  const last = pageRows.at(-1);
   const items = await db.transaction(async (tx) =>
     Promise.all(pageRows.map((row) => hydrateTransaction(tx, actor, row))),
   );
   return {
     items,
-    nextCursor: hasMore
-      ? encodeCursor({
-          sort: pageRows.at(-1)!.date,
-          id: pageRows.at(-1)!.id,
-        })
-      : null,
+    nextCursor:
+      hasMore && last && plan.cursorValue
+        ? encodeCursor({
+            key: query.sort,
+            direction: query.direction,
+            sort: plan.cursorValue(last),
+            id: last.id,
+          })
+        : null,
     page,
     pageSize: query.limit,
     totalCount,

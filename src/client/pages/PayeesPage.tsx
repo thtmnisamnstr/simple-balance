@@ -22,6 +22,9 @@ import {
   Input,
   PageHeader,
   Select,
+  SortMenu,
+  type SortState,
+  compareForSort,
 } from "../components.js";
 
 function payeeDetailSearch(search: string, payee: string) {
@@ -30,10 +33,22 @@ function payeeDetailSearch(search: string, payee: string) {
   return params.toString();
 }
 
+const payeeSortFields = [
+  { field: "name", label: "Name" },
+  { field: "committed", label: "Committed" },
+  { field: "staged", label: "Staged" },
+  { field: "total", label: "Total transactions" },
+] as const;
+type PayeeSortField = (typeof payeeSortFields)[number]["field"];
+
 export default function PayeesPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortState<PayeeSortField>>({
+    field: "name",
+    direction: "asc",
+  });
   const [participants, setParticipants] = useState<Set<string>>(new Set());
   const [targetPayee, setTargetPayee] = useState("");
   const mergeIdempotencyKey = useRef(crypto.randomUUID());
@@ -84,11 +99,30 @@ export default function PayeesPage() {
 
   const filtered = useMemo(() => {
     const value = search.trim().toLocaleLowerCase();
-    if (!value) return payees.data ?? [];
-    return (payees.data ?? []).filter((payee) =>
-      payee.name.toLocaleLowerCase().includes(value),
-    );
-  }, [payees.data, search]);
+    const matching = value
+      ? (payees.data ?? []).filter((payee) =>
+          payee.name.toLocaleLowerCase().includes(value),
+        )
+      : (payees.data ?? []);
+    return [...matching].sort((left, right) => {
+      const of = (payee: PayeeSummary) => {
+        switch (sort.field) {
+          case "committed":
+            return payee.transactionCount;
+          case "staged":
+            return payee.stagedTransactionCount;
+          case "total":
+            return payee.totalCount;
+          default:
+            return payee.name;
+        }
+      };
+      return (
+        compareForSort(of(left), of(right), sort.direction) ||
+        left.name.localeCompare(right.name)
+      );
+    });
+  }, [payees.data, search, sort]);
 
   const chooseDuplicateGroup = (group: PayeeDuplicateGroup) => {
     const ranked = [...group.payees].sort(
@@ -145,6 +179,7 @@ export default function PayeesPage() {
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
+        <SortMenu fields={payeeSortFields} sort={sort} onSort={setSort} />
       </div>
 
       {selectedPayees.length >= 2 ? (

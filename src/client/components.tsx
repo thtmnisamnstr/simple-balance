@@ -1,5 +1,8 @@
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -18,8 +21,159 @@ import {
   useId,
   useRef,
 } from "react";
+import type { SortDirection } from "../shared/domain.js";
 import type { DatePreset } from "./date-range.js";
 import { useDateRange } from "./date-range.js";
+
+export type SortState<Field extends string> = {
+  field: Field;
+  direction: SortDirection;
+};
+
+/**
+ * Which way a column should go when it is first clicked. Text reads naturally
+ * from A, while dates and amounts are nearly always wanted largest first.
+ */
+export type SortLean = "ascending" | "descending";
+
+/**
+ * A column heading that orders the list. Clicking the active column turns it
+ * around; clicking another takes it over at that column's natural direction.
+ *
+ * `aria-sort` on the header and the wording in the button label are what a
+ * screen reader announces, so the current order is audible rather than only
+ * visible in the arrow.
+ */
+export function SortableHeader<Field extends string>({
+  field,
+  label,
+  sort,
+  onSort,
+  lean = "ascending",
+  className,
+}: {
+  field: Field;
+  label: string;
+  sort: SortState<Field>;
+  onSort: (next: SortState<Field>) => void;
+  lean?: SortLean;
+  className?: string;
+}) {
+  const active = sort.field === field;
+  const direction = active
+    ? sort.direction
+    : lean === "descending"
+      ? "desc"
+      : "asc";
+  const next: SortState<Field> = active
+    ? { field, direction: sort.direction === "asc" ? "desc" : "asc" }
+    : { field, direction };
+  const Icon = !active ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown;
+
+  return (
+    <th
+      className={className}
+      aria-sort={
+        active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"
+      }
+    >
+      <button
+        type="button"
+        className={`sort-header ${active ? "sorted" : ""}`}
+        onClick={() => onSort(next)}
+      >
+        <span>{label}</span>
+        <Icon size={13} aria-hidden="true" />
+        <span className="sr-only">
+          {active
+            ? `Sorted ${sort.direction === "asc" ? "ascending" : "descending"}. Activate to sort ${next.direction === "asc" ? "ascending" : "descending"}.`
+            : `Activate to sort by ${label}.`}
+        </span>
+      </button>
+    </th>
+  );
+}
+
+/**
+ * The same ordering control for lists that are not tables and so have no
+ * headings to click.
+ */
+export function SortMenu<Field extends string>({
+  fields,
+  sort,
+  onSort,
+  label = "Sort by",
+}: {
+  fields: readonly { field: Field; label: string }[];
+  sort: SortState<Field>;
+  onSort: (next: SortState<Field>) => void;
+  label?: string;
+}) {
+  const id = useId();
+  const active = fields.find((entry) => entry.field === sort.field);
+  return (
+    <div className="sort-menu">
+      <label htmlFor={id}>{label}</label>
+      <Select
+        id={id}
+        value={sort.field}
+        onChange={(event) =>
+          onSort({ field: event.target.value as Field, direction: sort.direction })
+        }
+      >
+        {fields.map((entry) => (
+          <option key={entry.field} value={entry.field}>
+            {entry.label}
+          </option>
+        ))}
+      </Select>
+      <button
+        type="button"
+        className="sort-direction"
+        onClick={() =>
+          onSort({
+            field: sort.field,
+            direction: sort.direction === "asc" ? "desc" : "asc",
+          })
+        }
+      >
+        {sort.direction === "asc" ? (
+          <ArrowUp size={14} aria-hidden="true" />
+        ) : (
+          <ArrowDown size={14} aria-hidden="true" />
+        )}
+        <span className="sr-only">
+          {`${active?.label ?? "Sort"} is ${sort.direction === "asc" ? "ascending" : "descending"}. Activate to reverse it.`}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Orders rows in the browser, for lists the server returns whole. Text compares
+ * the way a person reads it, so "Zoe" follows "apple" rather than preceding it,
+ * and blanks always settle at the end whichever way the sort runs.
+ */
+export function compareForSort(
+  left: string | number | null | undefined,
+  right: string | number | null | undefined,
+  direction: SortDirection,
+) {
+  const leftBlank = left === null || left === undefined || left === "";
+  const rightBlank = right === null || right === undefined || right === "";
+  if (leftBlank || rightBlank) {
+    return leftBlank && rightBlank ? 0 : leftBlank ? 1 : -1;
+  }
+  const order =
+    typeof left === "number" && typeof right === "number"
+      ? left - right
+      : String(left).localeCompare(String(right), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+  return direction === "asc" ? order : -order;
+}
 
 /**
  * A checkbox that can also render the mixed state, which React does not expose

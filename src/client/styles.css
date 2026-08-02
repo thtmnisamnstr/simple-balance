@@ -1190,6 +1190,79 @@ input[type="radio"] {
   text-transform: uppercase;
 }
 
+/* The whole heading is the control, so the target is the size of the label. */
+.data-table th:has(.sort-header) {
+  padding: 0;
+}
+
+.sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 11px 14px;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.data-table th.align-right .sort-header {
+  justify-content: flex-end;
+}
+
+.sort-header svg {
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+
+.sort-header:hover svg,
+.sort-header:focus-visible svg {
+  opacity: 0.75;
+}
+
+.sort-header.sorted {
+  color: var(--ink, #1d2b24);
+}
+
+.sort-header.sorted svg {
+  opacity: 1;
+}
+
+.sort-menu {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.sort-menu label {
+  color: #79857e;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.sort-direction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: #4a5750;
+  cursor: pointer;
+}
+
+.sort-direction:hover {
+  border-color: #c3cdc7;
+}
+
 .data-table td {
   padding: 12px 14px;
   border-bottom: 1px solid #edf0ee;

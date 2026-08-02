@@ -27,6 +27,9 @@ import {
   Input,
   PageHeader,
   Select,
+  SortMenu,
+  type SortState,
+  compareForSort,
 } from "../components.js";
 
 const kindLabels: Record<CategoryKind, string> = {
@@ -35,12 +38,23 @@ const kindLabels: Record<CategoryKind, string> = {
   both: "Income or expense",
 };
 
+const categorySortFields = [
+  { field: "name", label: "Name" },
+  { field: "kind", label: "Kind" },
+  { field: "status", label: "Status" },
+] as const;
+type CategorySortField = (typeof categorySortFields)[number]["field"];
+
 export default function CategoriesPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<CategoryKind>("expense");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortState<CategorySortField>>({
+    field: "name",
+    direction: "asc",
+  });
   const [includeArchived, setIncludeArchived] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [targetId, setTargetId] = useState("");
@@ -143,11 +157,28 @@ export default function CategoriesPage() {
 
   const filtered = useMemo(() => {
     const value = search.trim().toLocaleLowerCase();
-    if (!value) return categories.data ?? [];
-    return (categories.data ?? []).filter((category) =>
-      category.name.toLocaleLowerCase().includes(value),
-    );
-  }, [categories.data, search]);
+    const matching = value
+      ? (categories.data ?? []).filter((category) =>
+          category.name.toLocaleLowerCase().includes(value),
+        )
+      : (categories.data ?? []);
+    return [...matching].sort((left, right) => {
+      const of = (category: Category) => {
+        switch (sort.field) {
+          case "kind":
+            return kindLabels[category.kind];
+          case "status":
+            return category.archivedAt ? "Archived" : "Active";
+          default:
+            return category.name;
+        }
+      };
+      return (
+        compareForSort(of(left), of(right), sort.direction) ||
+        left.name.localeCompare(right.name)
+      );
+    });
+  }, [categories.data, search, sort]);
 
   const addCategory = (event: FormEvent) => {
     event.preventDefault();
@@ -236,6 +267,7 @@ export default function CategoriesPage() {
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
+        <SortMenu fields={categorySortFields} sort={sort} onSort={setSort} />
         <label className="check-label">
           <input
             type="checkbox"

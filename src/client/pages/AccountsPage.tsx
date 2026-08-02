@@ -11,7 +11,7 @@ import {
   Trash2,
   WalletCards,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "../router.js";
 import {
   accountTypeLabels,
@@ -28,6 +28,9 @@ import {
   isNegativeMoney,
   Modal,
   PageHeader,
+  SortMenu,
+  type SortState,
+  compareForSort,
 } from "../components.js";
 import { AccountForm } from "../forms.js";
 import { calendarDateInTimezone } from "../timezone.js";
@@ -39,9 +42,22 @@ const iconFor = (type: AccountType) => {
   return Landmark;
 };
 
+const accountSortFields = [
+  { field: "name", label: "Name" },
+  { field: "type", label: "Type" },
+  { field: "currency", label: "Currency" },
+  { field: "balance", label: "Balance" },
+  { field: "status", label: "Status" },
+] as const;
+type AccountSortField = (typeof accountSortFields)[number]["field"];
+
 export default function AccountsPage({ session }: { session: Session }) {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const [sort, setSort] = useState<SortState<AccountSortField>>({
+    field: "name",
+    direction: "asc",
+  });
   const queryClient = useQueryClient();
   const today = calendarDateInTimezone(
     new Date(),
@@ -56,6 +72,32 @@ export default function AccountsPage({ session }: { session: Session }) {
         }`,
       ),
   });
+  // The list arrives whole, so ordering it here keeps it instant and avoids
+  // asking the server to re-sort something it already sent.
+  const sortedAccounts = useMemo(() => {
+    const rows = [...(accounts.data ?? [])];
+    return rows.sort((left, right) => {
+      const value = (account: Account) => {
+        switch (sort.field) {
+          case "type":
+            return accountTypeLabels[account.type] ?? account.type;
+          case "currency":
+            return account.currency;
+          case "balance":
+            return Number(account.balance);
+          case "status":
+            return account.archivedAt ? "Archived" : "Active";
+          default:
+            return account.name;
+        }
+      };
+      return (
+        compareForSort(value(left), value(right), sort.direction) ||
+        left.name.localeCompare(right.name)
+      );
+    });
+  }, [accounts.data, sort]);
+
   const mutation = useMutation({
     mutationFn: ({
       account,
@@ -102,11 +144,12 @@ export default function AccountsPage({ session }: { session: Session }) {
           />
           Show archived accounts
         </label>
+        <SortMenu fields={accountSortFields} sort={sort} onSort={setSort} />
       </div>
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
-      {accounts.data?.length ? (
+      {sortedAccounts.length ? (
         <div className="account-card-grid">
-          {accounts.data.map((account) => {
+          {sortedAccounts.map((account) => {
             const Icon = iconFor(account.type);
             const liability = liabilityAccountTypes.has(account.type);
             return (

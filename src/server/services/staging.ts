@@ -1,11 +1,8 @@
 import {
   and,
   count,
-  desc,
   eq,
   inArray,
-  lt,
-  or,
   sql,
   type SQL,
 } from "drizzle-orm";
@@ -15,6 +12,8 @@ import type {
   PaginatedPage,
   TransactionDraft,
   ValidationIssue,
+  SortDirection,
+  StageSortField,
 } from "../../shared/domain.js";
 import {
   bulkDeleteStageSchema,
@@ -45,6 +44,11 @@ import {
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
+import {
+  type SortPlan,
+  keysetAfter,
+  ordered,
+} from "./sorting.js";
 import { normalizeHumanName } from "./names.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
 import {
@@ -228,6 +232,64 @@ export async function insertImportedStage(
   return created;
 }
 
+/**
+ * A staged row is a draft, so the columns the queue shows live inside unvalidated
+ * JSON. Every expression here reads that JSON as text and compares it as text,
+ * which keeps a malformed draft from turning a sort into a cast error.
+ */
+function stageSortPlan(
+  sort: StageSortField,
+  direction: SortDirection,
+): SortPlan<StagedTransactionRow> {
+  const id = sql`${stagedTransactions.id}`;
+  const tie = ordered(id, direction);
+  const draft = sql`${stagedTransactions.draft}`;
+  const paged = (expression: SQL) => ({
+    orderBy: [ordered(expression, direction), tie],
+    keyset: null,
+    cursorValue: null,
+  });
+
+  switch (sort) {
+    case "payee":
+      return paged(sql`lower(${draft} ->> 'payee')`);
+    case "account":
+      return paged(sql`(
+        select lower(name) from ledger_account
+        where ledger_account.user_id = ${stagedTransactions.userId}
+          and ledger_account.id::text = coalesce(
+            ${draft} ->> 'fromAccountId',
+            ${draft} ->> 'toAccountId'
+          )
+      )`);
+    case "status":
+      // The order the queue reads in: what needs a person, then what might be a
+      // repeat, then what is ready to go.
+      return paged(sql`case
+        when jsonb_array_length(${stagedTransactions.validationIssues}) > 0 then 0
+        when ${stagedTransactions.duplicateOfId} is not null then 1
+        else 2
+      end`);
+    case "amount":
+      return paged(sql`case
+        when ${draft} ->> 'amount' ~ '^-?[0-9]+(\.[0-9]+)?$'
+          then (${draft} ->> 'amount')::numeric
+      end`);
+    default: {
+      // ISO dates sort the same as text, so this ordering can be resumed.
+      const expression = sql`${draft} ->> 'date'`;
+      return {
+        orderBy: [ordered(expression, direction), tie],
+        keyset: keysetAfter(expression, id, direction),
+        cursorValue: (row) => {
+          const value = (row.draft as { date?: unknown }).date;
+          return typeof value === "string" ? value : "";
+        },
+      };
+    }
+  }
+}
+
 export async function listStages(
   actor: Actor,
   input: unknown,
@@ -287,18 +349,19 @@ export async function listStages(
   }
 
   const filters = [...conditions];
+  const plan = stageSortPlan(query.sort, query.direction);
   if (query.cursor) {
-    const cursor = decodeCursor(query.cursor);
-    const sort = new Date(cursor.sort);
-    conditions.push(
-      or(
-        lt(stagedTransactions.createdAt, sort),
-        and(
-          eq(stagedTransactions.createdAt, sort),
-          lt(stagedTransactions.id, cursor.id),
-        ),
-      )!,
-    );
+    if (!plan.keyset) {
+      throw validationError(
+        "This sort order pages by number rather than by cursor.",
+        { sort: query.sort },
+      );
+    }
+    const cursor = decodeCursor(query.cursor, {
+      key: query.sort,
+      direction: query.direction,
+    });
+    conditions.push(plan.keyset(cursor.sort, cursor.id));
   }
 
   const db = getDb();
@@ -314,19 +377,23 @@ export async function listStages(
     .select()
     .from(stagedTransactions)
     .where(and(...conditions))
-    .orderBy(desc(stagedTransactions.createdAt), desc(stagedTransactions.id))
+    .orderBy(...plan.orderBy)
     .limit(query.limit + 1)
     .offset(offset);
   const hasMore = rows.length > query.limit;
   const pageRows = rows.slice(0, query.limit);
+  const last = pageRows.at(-1);
   return {
     items: pageRows.map(stageView),
-    nextCursor: hasMore
-      ? encodeCursor({
-          sort: pageRows.at(-1)!.createdAt.toISOString(),
-          id: pageRows.at(-1)!.id,
-        })
-      : null,
+    nextCursor:
+      hasMore && last && plan.cursorValue
+        ? encodeCursor({
+            key: query.sort,
+            direction: query.direction,
+            sort: plan.cursorValue(last),
+            id: last.id,
+          })
+        : null,
     page,
     pageSize: query.limit,
     totalCount,

@@ -110,7 +110,7 @@ export async function listActiveImportBatches(
   const query = importBatchListQuerySchema.parse(input);
   const conditions = [eq(importBatches.userId, actor.userId)];
   if (query.cursor) {
-    const cursor = decodeCursor(query.cursor);
+    const cursor = decodeCursor(query.cursor, { key: "created", direction: "desc" });
     const createdAt = new Date(cursor.sort);
     if (Number.isNaN(createdAt.getTime())) {
       throw validationError("Cursor is invalid");
@@ -157,6 +157,8 @@ export async function listActiveImportBatches(
     })),
     nextCursor: hasMore
       ? encodeCursor({
+          key: "created",
+          direction: "desc",
           sort: pageRows.at(-1)!.createdAt.toISOString(),
           id: pageRows.at(-1)!.id,
         })

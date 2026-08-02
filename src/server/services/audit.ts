@@ -9,7 +9,7 @@ export async function listAuditEvents(
   options: { cursor?: string; limit?: number } = {},
 ) {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
-  const cursor = options.cursor ? decodeCursor(options.cursor) : null;
+  const cursor = options.cursor ? decodeCursor(options.cursor, { key: "created", direction: "desc" }) : null;
   const rows = await getDb()
     .select()
     .from(auditEvents)
@@ -35,6 +35,8 @@ export async function listAuditEvents(
     items,
     nextCursor: hasMore
       ? encodeCursor({
+          key: "created",
+          direction: "desc",
           sort: items.at(-1)!.createdAt.toISOString(),
           id: items.at(-1)!.id,
         })
