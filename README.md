@@ -69,7 +69,8 @@ it is the email and password you chose. Both servers stay on loopback.
 
 Code reloads as you edit it. After changing dependencies, run `npm install` and
 restart both commands. `docker compose -f compose.dev.yml stop` stops the
-database and keeps its data; adding `-v` deletes it.
+database and keeps its data; `docker compose -f compose.dev.yml down -v` removes
+the containers and deletes it.
 
 ## Run the tests
 
