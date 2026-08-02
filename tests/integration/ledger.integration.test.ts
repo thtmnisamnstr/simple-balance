@@ -22,6 +22,10 @@ import {
 } from "../../src/server/mcp-token.js";
 import { createAccount, listAccounts } from "../../src/server/services/accounts.js";
 import { listAuditEvents } from "../../src/server/services/audit.js";
+import {
+  auditEventResultSchema,
+  cursorPageResultSchema,
+} from "../../src/server/mcp-output-schemas.js";
 import { commitStages, createStage } from "../../src/server/services/staging.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import {
@@ -279,6 +283,20 @@ integration("PostgreSQL ledger integration", () => {
   });
 
   it("writes scoped audit history", async () => {
+    // The MCP tool promises this exact shape. A tool whose output schema does
+    // not match its service fails validation on every call, which no other test
+    // would notice because the service itself is fine.
+    const audited = await listAuditEvents(first, { limit: 100 });
+    expect(
+      cursorPageResultSchema(auditEventResultSchema).safeParse({
+        ...audited,
+        items: audited.items.map((event) => ({
+          ...event,
+          createdAt: event.createdAt.toISOString(),
+        })),
+      }).success,
+    ).toBe(true);
+
     const firstEvents = await listAuditEvents(first, { limit: 100 });
     const secondEvents = await listAuditEvents(second, { limit: 100 });
     expect(firstEvents.items.length).toBeGreaterThan(6);

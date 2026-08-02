@@ -17,6 +17,7 @@ describe("malformed staged draft presentation", () => {
         notes: { nested: ["value"] },
         fromAccountId: ["account"],
         amount: { decimal: "12.34" },
+        externalId: { reference: "STMT-1" },
       }),
     ).toEqual({
       type: "withdrawal",
@@ -28,6 +29,7 @@ describe("malformed staged draft presentation", () => {
       fromAccountId: "",
       toAccountId: "",
       amount: "",
+      externalId: "",
       destinationAmount: "",
     });
   });

@@ -65,6 +65,17 @@ describe("Docker runtime", () => {
     expect(dockerfile).not.toContain("pnpm");
   });
 
+  // Everything referenced by index.html has to reach the build stage. The
+  // favicon lives in public/, which Vite copies into the output, so leaving the
+  // directory out ships an image whose icon 404s and nothing else notices.
+  it("copies every build input the client references", () => {
+    const dockerfile = readFileSync(
+      new URL("../Dockerfile", import.meta.url),
+      "utf8",
+    );
+    expect(dockerfile).toContain("COPY public ./public");
+  });
+
   it("labels the image with its product and the version being built", () => {
     const dockerfile = readFileSync(
       new URL("../Dockerfile", import.meta.url),

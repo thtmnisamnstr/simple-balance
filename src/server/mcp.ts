@@ -96,6 +96,7 @@ import {
   mergedCategoriesResultSchema,
   mergedPayeesResultSchema,
   payeeResultSchema,
+  cursorPageResultSchema,
   pageResultSchema,
   stagedTransactionResultSchema,
   summaryResultSchema,
@@ -373,7 +374,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           limit: z.number().int().min(1).max(200).default(50),
         }),
         outputSchema: mcpOutputSchema(
-          pageResultSchema(auditEventResultSchema),
+          cursorPageResultSchema(auditEventResultSchema),
         ),
         annotations: readAnnotations,
       },

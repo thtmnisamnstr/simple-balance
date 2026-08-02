@@ -166,6 +166,18 @@ export function pageResultSchema<T extends z.ZodType>(itemSchema: T) {
   });
 }
 
+/**
+ * A list that only walks forward. The audit log has no total and no page
+ * numbers, so describing it with the numbered shape would promise fields it
+ * never sends and fail validation on every call.
+ */
+export function cursorPageResultSchema<T extends z.ZodType>(itemSchema: T) {
+  return z.object({
+    items: z.array(itemSchema),
+    nextCursor: nullableStringSchema,
+  });
+}
+
 export const duplicateCategoriesResultSchema = z.array(
   z.object({
     normalizedName: z.string(),

@@ -574,6 +574,11 @@ export function TransactionForm({
         description: description || null,
         categoryId: categoryId || null,
         notes: notes || null,
+        // Carried through rather than edited. This is the reference the row
+        // arrived with from a bank file, and it is what stops the same
+        // statement being imported twice. Dropping it on an edit would let the
+        // next import bring the row back in as a new transaction.
+        externalId: initial?.externalId || null,
       };
       const draft: TransactionDraft =
         type === "deposit"

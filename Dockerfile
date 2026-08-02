@@ -5,6 +5,7 @@ RUN npm ci
 
 FROM dependencies AS build
 COPY tsconfig.json tsconfig.server.json vite.config.ts index.html ./
+COPY public ./public
 COPY src ./src
 RUN npm run build
 
@@ -20,7 +21,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 # The release workflow passes the tag being published so the image reports the
 # version it actually contains.
-ARG APP_VERSION=0.0.0
+ARG APP_VERSION=0.1.0
 LABEL org.opencontainers.image.title="Simple Balance" \
   org.opencontainers.image.description="Self-hosted personal accounting with safe, reviewable AI automation" \
   org.opencontainers.image.version="${APP_VERSION}"

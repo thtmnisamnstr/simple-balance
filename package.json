@@ -1,6 +1,6 @@
 {
   "name": "simple-balance",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Self-hosted personal accounting with safe, reviewable AI automation.",
   "license": "LGPL-3.0-only",
   "private": true,
@@ -23,6 +23,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run tests/integration",
     "verify": "npm run typecheck && npm run test && npm run build",
+    "set-version": "node scripts/set-version.mjs",
     "ralph": "./scripts/ralph/ralph.sh",
     "ralph:status": "node scripts/ralph/runner.mjs status"
   },

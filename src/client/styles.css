@@ -277,7 +277,7 @@ p {
 .user-chip small {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .sign-out,
@@ -570,7 +570,7 @@ a:focus-visible {
 .field-hint,
 .field-error {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .field-error {
@@ -662,7 +662,7 @@ input[type="radio"] {
   border-radius: 99px;
   color: #58665e;
   background: #edf1ee;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 730;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -727,7 +727,7 @@ input[type="radio"] {
 
 .currency-code {
   color: var(--green);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 780;
   letter-spacing: 0.13em;
 }
@@ -774,7 +774,7 @@ input[type="radio"] {
   display: block;
   margin-bottom: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .metric-card strong {
@@ -820,7 +820,7 @@ input[type="radio"] {
 .account-mini-row small {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .spending-row > div:first-child {
@@ -908,7 +908,7 @@ input[type="radio"] {
 
 .account-card-main > span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 630;
 }
 
@@ -946,7 +946,7 @@ input[type="radio"] {
 .account-card-link > footer span {
   margin-bottom: 3px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .account-card-link > footer strong {
@@ -1006,7 +1006,7 @@ input[type="radio"] {
 .balance-snapshot div > span {
   margin-bottom: 4px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .balance-snapshot strong {
@@ -1019,7 +1019,7 @@ input[type="radio"] {
 .balance-snapshot small {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.35;
 }
 
@@ -1051,13 +1051,13 @@ input[type="radio"] {
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  border-top: 1px solid var(--divider);
+  border-top: 1px solid var(--line);
 }
 
 .pagination-summary {
   margin: 0;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 12px;
 }
 
 .pagination-pages {
@@ -1074,23 +1074,23 @@ input[type="radio"] {
   height: 32px;
   place-items: center;
   padding: 0 8px;
-  border: 1px solid var(--divider);
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
-  color: var(--text);
-  font-size: 0.86rem;
+  color: var(--ink);
+  font-size: 12px;
   cursor: pointer;
 }
 
 .pagination-page:hover:not(:disabled),
 .pagination-step:hover:not(:disabled) {
-  border-color: var(--brand);
-  color: var(--brand);
+  border-color: var(--green);
+  color: var(--green);
 }
 
 .pagination-page[aria-current="page"] {
-  border-color: var(--brand);
-  background: var(--brand);
+  border-color: var(--green);
+  background: var(--green);
   color: #fff;
   font-weight: 600;
 }
@@ -1231,7 +1231,7 @@ input[type="radio"] {
 
 .transaction-selection-bar span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .transaction-selection-actions {
@@ -1254,7 +1254,7 @@ input[type="radio"] {
   border-bottom: 1px solid var(--line);
   color: #79857e;
   background: #fafcfa;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.06em;
   text-align: left;
@@ -1338,7 +1338,7 @@ input[type="radio"] {
   padding: 12px 14px;
   border-bottom: 1px solid #edf0ee;
   color: #3e4c44;
-  font-size: 11px;
+  font-size: 13px;
   vertical-align: middle;
 }
 
@@ -1384,7 +1384,7 @@ input[type="radio"] {
 .transaction-cell div > span,
 .table-subtitle {
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .transaction-icon {
@@ -1412,7 +1412,7 @@ input[type="radio"] {
   display: block;
   margin-top: 3px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .row-deleted {
@@ -1434,6 +1434,23 @@ input[type="radio"] {
   color: #758179;
   background: transparent;
   cursor: pointer;
+}
+
+/*
+ * The painted button stays small so a row does not grow, but the area that
+ * responds to a finger reaches the 44px a touch target needs. The overlay sits
+ * behind the icon so neighbouring buttons still take their own taps.
+ */
+.row-actions button::after,
+.icon-button::after {
+  position: absolute;
+  inset: -7px;
+  content: "";
+}
+
+.row-actions button,
+.icon-button {
+  position: relative;
 }
 
 .row-actions button:hover {
@@ -1489,7 +1506,7 @@ input[type="radio"] {
 .bulk-edit-field > small {
   grid-column: 2;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -1510,7 +1527,7 @@ input[type="radio"] {
   gap: 4px;
   margin-top: 5px;
   color: var(--red);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .transaction-type-grid {
@@ -1556,7 +1573,7 @@ input[type="radio"] {
   overflow: hidden;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1603,7 +1620,7 @@ input[type="radio"] {
 .commit-choice small {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .repeat-entry-options {
@@ -1672,7 +1689,7 @@ input[type="radio"] {
 .modal-header p {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .icon-button {
@@ -1728,7 +1745,7 @@ input[type="radio"] {
   border-radius: 8px;
   color: var(--green-dark);
   background: var(--green-soft);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 760;
 }
 
@@ -1740,7 +1757,7 @@ input[type="radio"] {
 .step-heading p {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .file-drop {
@@ -1771,7 +1788,7 @@ input[type="radio"] {
 .file-drop span {
   margin-top: 4px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .file-drop input {
@@ -1808,7 +1825,7 @@ input[type="radio"] {
   padding: 7px 9px;
   border-right: 1px solid #e9eeea;
   border-bottom: 1px solid #e9eeea;
-  font-size: 8px;
+  font-size: 11px;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1863,7 +1880,7 @@ input[type="radio"] {
 .section-title p {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -1899,7 +1916,7 @@ input[type="radio"] {
 
 .category-picker > small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .category-list {
@@ -1971,7 +1988,7 @@ input[type="radio"] {
 .category-select small {
   margin-top: 2px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .duplicate-groups {
@@ -2010,7 +2027,7 @@ input[type="radio"] {
 
 .merge-panel small {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .activity-list {
@@ -2058,7 +2075,7 @@ input[type="radio"] {
 .activity-row small {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .auth-shell {
@@ -2176,7 +2193,7 @@ input[type="radio"] {
 .settings-note {
   margin: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.55;
 }
 

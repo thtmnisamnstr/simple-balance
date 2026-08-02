@@ -22,6 +22,10 @@ export type TransactionFormDraft = {
   toAccountId: string;
   amount: string;
   destinationAmount: string;
+  // Not shown or edited, only carried. This is the reference a row arrived with
+  // from a bank file, and it is what keeps a second import of the same
+  // statement from bringing the row back in as a new transaction.
+  externalId: string;
 };
 
 export function stagedString(value: unknown): string {
@@ -57,6 +61,7 @@ export function draftForTransactionForm(input: unknown): TransactionFormDraft {
         : stagedString(draft.amount),
     destinationAmount:
       type === "transfer" ? stagedString(draft.destinationAmount) : "",
+    externalId: stagedString(draft.externalId),
   };
 }
 
