@@ -429,6 +429,20 @@ export function TransactionBrowser({
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
       ]);
     },
+    // Without this, a selection that went stale leaves the same snapshot in
+    // place and every retry fails against it again, with nothing on screen
+    // explaining why.
+    onError: async (error) => {
+      if (error instanceof ApiClientError && error.code === "STALE_VERSION") {
+        clearTransactionSelection();
+        setBulkNotice({
+          kind: "info",
+          message:
+            "A selected transaction changed. Review the refreshed list and select the transactions again.",
+        });
+        await queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      }
+    },
   });
 
   const bulkMutation = useMutation<

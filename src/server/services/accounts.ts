@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { Decimal } from "decimal.js";
 import type { Actor } from "../../shared/domain.js";
 import {
@@ -21,7 +21,7 @@ import {
   stagedTransactions,
   transactions,
 } from "../db/schema.js";
-import { conflict, notFound, staleVersion, validationError } from "./errors.js";
+import { conflict, notFound, staleVersion, validationError, duplicate } from "./errors.js";
 import {
   canonicalDecimal,
   decimal,
@@ -346,6 +346,37 @@ export async function getAccountBalances(
   };
 }
 
+/**
+ * Account names are unique among the accounts a person keeps. Checking first
+ * turns a clash into a message naming the account it collides with, rather than
+ * letting the unique index raise a bare constraint violation that the error
+ * handler can only report as an unexpected failure.
+ */
+async function assertAccountNameAvailable(
+  tx: DbTransaction,
+  actor: Actor,
+  name: string,
+  excludeId?: string,
+) {
+  const [existing] = await tx
+    .select({ id: ledgerAccounts.id })
+    .from(ledgerAccounts)
+    .where(
+      and(
+        eq(ledgerAccounts.userId, actor.userId),
+        eq(ledgerAccounts.name, name),
+        isNull(ledgerAccounts.systemKind),
+        excludeId ? ne(ledgerAccounts.id, excludeId) : undefined,
+      ),
+    )
+    .limit(1);
+  if (existing) {
+    throw duplicate("An account with this name already exists", {
+      duplicateAccountId: existing.id,
+    });
+  }
+}
+
 export async function createAccount(
   actor: Actor,
   input: unknown,
@@ -353,6 +384,7 @@ export async function createAccount(
 ) {
   const parsed = accountCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
+    await assertAccountNameAvailable(tx, actor, parsed.name);
     const [created] = await tx
       .insert(ledgerAccounts)
       .values({ userId: actor.userId, ...parsed })
@@ -386,6 +418,10 @@ export async function updateAccount(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+
+    if (changes.name && changes.name !== before.name) {
+      await assertAccountNameAvailable(tx, actor, changes.name, id);
+    }
 
     if (changes.currency && changes.currency !== before.currency) {
       const [{ count: postingCount }] = await tx

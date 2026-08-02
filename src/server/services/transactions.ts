@@ -118,6 +118,11 @@ async function getOwnedAccounts(
       and(
         eq(ledgerAccounts.userId, actor.userId),
         inArray(ledgerAccounts.id, [...new Set(ids)]),
+        // The counter-accounts are the ledger's own, and they never appear in a
+        // picker. Naming one directly would post both halves of an entry to the
+        // same account, which nets to nothing while the transaction still reads
+        // as real money moving.
+        isNull(ledgerAccounts.systemKind),
       ),
     );
   if (

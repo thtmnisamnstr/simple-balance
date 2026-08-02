@@ -93,19 +93,39 @@ export const nonNegativeDecimalStringSchema = decimalStringSchema.refine(
   "Amount cannot be negative",
 );
 
+/**
+ * Control characters a person cannot have meant to type. A NUL byte in
+ * particular is rejected by PostgreSQL's own text encoding, so without this it
+ * travels all the way to the driver and comes back as an unexplained server
+ * error rather than as the invalid input it is.
+ *
+ * Line breaks and tabs are left alone for the fields where they read naturally.
+ */
+const forbiddenAnywhere = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
+const forbiddenOnOneLine = /[\u0000-\u001F\u007F]/u;
+
+const oneLine = <T extends z.ZodString>(schema: T) =>
+  schema.refine(
+    (value) => !forbiddenOnOneLine.test(value),
+    "Text cannot contain line breaks or control characters",
+  );
+
+const freeText = <T extends z.ZodString>(schema: T) =>
+  schema.refine(
+    (value) => !forbiddenAnywhere.test(value),
+    "Text cannot contain control characters",
+  );
+
 const transactionCommon = {
   date: isoDateSchema,
-  payee: z.string().trim().min(1, "Payee is required").max(160),
-  description: z
-    .string()
-    .trim()
-    .max(240)
+  payee: oneLine(z.string().trim().min(1, "Payee is required").max(160)),
+  description: freeText(z.string().trim().max(240))
     .optional()
     .nullable()
     .transform((value) => value || null),
   categoryId: z.string().uuid().optional().nullable(),
-  notes: z.string().trim().max(4_000).optional().nullable(),
-  externalId: z.string().trim().max(200).optional().nullable(),
+  notes: freeText(z.string().trim().max(4_000)).optional().nullable(),
+  externalId: oneLine(z.string().trim().max(200)).optional().nullable(),
 };
 
 export const depositDraftSchema = z.object({
@@ -161,13 +181,13 @@ export const stagedDraftSchema = z
 export type StagedDraft = z.infer<typeof stagedDraftSchema>;
 
 export const accountCreateSchema = z.object({
-  name: z.string().trim().min(1).max(120),
+  name: oneLine(z.string().trim().min(1).max(120)),
   type: z.enum(userAccountTypes),
   currency: currencyCodeSchema,
   openingDate: isoDateSchema,
   openingBalance: decimalStringSchema,
-  institution: z.string().trim().max(160).optional().nullable(),
-  notes: z.string().trim().max(2_000).optional().nullable(),
+  institution: oneLine(z.string().trim().max(160)).optional().nullable(),
+  notes: freeText(z.string().trim().max(2_000)).optional().nullable(),
 });
 
 export const accountUpdateSchema = accountCreateSchema
@@ -175,7 +195,7 @@ export const accountUpdateSchema = accountCreateSchema
   .extend({ expectedVersion: z.number().int().positive() });
 
 export const categoryCreateSchema = z.object({
-  name: z.string().trim().min(1).max(120),
+  name: oneLine(z.string().trim().min(1).max(120)),
   kind: z.enum(categoryKinds),
 });
 
@@ -193,14 +213,13 @@ export const categoryMergeSchema = z.object({
 // Payees are intentionally derived from transaction text rather than stored in
 // a separate table. Source names preserve their exact spelling so variants
 // that differ only by case or whitespace can still be selected and merged.
-export const payeeNameSchema = z
-  .string()
-  .min(1)
-  .max(160)
-  .refine((value) => value.trim().length > 0, "Payee is required");
+export const payeeNameSchema = oneLine(z.string().min(1).max(160)).refine(
+  (value) => value.trim().length > 0,
+  "Payee is required",
+);
 
 export const payeeListQuerySchema = z.object({
-  search: z.string().trim().max(160).optional(),
+  search: oneLine(z.string().trim().max(160)).optional(),
 });
 
 export const payeeSummarySchema = z.object({
@@ -334,10 +353,10 @@ export const listQuerySchema = dateRangeSchema.extend({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   accountId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
-  payee: z.string().trim().min(1).max(160).optional(),
+  payee: oneLine(z.string().trim().min(1).max(160)).optional(),
   type: z.enum(transactionTypes).optional(),
   currency: currencyCodeSchema.optional(),
-  search: z.string().trim().max(200).optional(),
+  search: oneLine(z.string().trim().max(200)).optional(),
   includeDeleted: queryBooleanSchema,
 });
 

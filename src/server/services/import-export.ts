@@ -724,15 +724,23 @@ export async function stageCsv(
 }
 
 export async function exportTransactionsCsv(actor: Actor, query: unknown) {
-  const page = await listTransactions(actor, { ...(query as object), limit: 200 });
+  // An export is the whole filtered set, so the caller's window into it is
+  // dropped. Left in, a `page` would start the walk partway down and quietly
+  // leave the earlier rows out of the file. The walk also runs in the one order
+  // a cursor can resume.
+  const window = {
+    ...(query as object),
+    page: 1,
+    cursor: undefined,
+    sort: "date" as const,
+    direction: "desc" as const,
+    limit: 200,
+  };
+  const page = await listTransactions(actor, window);
   const all = [...page.items];
   let cursor = page.nextCursor;
   while (cursor) {
-    const next = await listTransactions(actor, {
-      ...(query as object),
-      limit: 200,
-      cursor,
-    });
+    const next = await listTransactions(actor, { ...window, cursor });
     all.push(...next.items);
     cursor = next.nextCursor;
     if (all.length > 100_000) throw validationError("Export exceeds 100,000 rows");

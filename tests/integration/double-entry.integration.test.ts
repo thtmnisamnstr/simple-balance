@@ -491,6 +491,60 @@ integration("double-entry ledger", () => {
     expect(await unbalancedTransactions()).toEqual([]);
   });
 
+  it("refuses to post a transaction against a counter-account", async () => {
+    const income = await getDb().execute(sql`
+      select id from ledger_account
+      where user_id = ${actor.userId} and system_kind = 'income' and currency = 'USD'
+    `);
+    const incomeId = String((income.rows[0] as { id: string }).id);
+
+    // Both halves would land on the same account and cancel out, so the entry
+    // would read as real money on screen while recording nothing in the books.
+    await expect(
+      createTransaction(
+        actor,
+        {
+          type: "deposit",
+          date: "2027-07-01",
+          payee: "DE counter",
+          description: null,
+          toAccountId: incomeId,
+          amount: "100",
+        },
+        "de-counter",
+      ),
+    ).rejects.toThrow(/accounts are unavailable/);
+  });
+
+  it("reports a repeated account name as a conflict rather than a failure", async () => {
+    await expect(
+      createAccount(actor, {
+        name: "DE Checking",
+        type: "checking",
+        currency: "USD",
+        openingDate: "2027-01-01",
+        openingBalance: "0",
+      }),
+    ).rejects.toMatchObject({ code: "DUPLICATE" });
+  });
+
+  it("refuses text PostgreSQL cannot store rather than failing on the driver", async () => {
+    await expect(
+      createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          date: "2027-07-02",
+          payee: "DE\u0000null",
+          description: null,
+          fromAccountId: checkingId,
+          amount: "5",
+        },
+        "de-nul",
+      ),
+    ).rejects.toThrow();
+  });
+
   it("leaves the whole ledger balanced across every currency", async () => {
     expect(await unbalancedCurrencies()).toEqual([]);
   });

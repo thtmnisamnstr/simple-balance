@@ -32,7 +32,7 @@ import {
   stagedTransactions,
   type StagedTransactionRow,
 } from "../db/schema.js";
-import { duplicate, notFound, staleVersion, validationError, zodIssues } from "./errors.js";
+import { duplicate, notFound, staleVersion, validationError, zodIssues, AppError } from "./errors.js";
 import { decodeCursor, encodeCursor } from "./cursor.js";
 import {
   getIdempotent,
@@ -119,7 +119,10 @@ async function validateDraft(
     if (error instanceof ZodError) {
       return { draft: parsed.data, issues: zodIssues(error), duplicateOfId: null };
     }
-    if (error instanceof Error) {
+    // Only a genuine problem with the row becomes a row issue. A database or
+    // network failure caught here would be filed against the person's data as
+    // though they had typed something wrong, and would never reach the logs.
+    if (error instanceof AppError && error.code === "VALIDATION_ERROR") {
       return {
         draft: parsed.data,
         issues: [{ field: "draft", message: error.message }],

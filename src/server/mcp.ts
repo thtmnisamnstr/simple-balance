@@ -350,7 +350,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Export transactions as CSV",
         description: "Export filtered committed transactions in the round-trip CSV format.",
-        inputSchema: listQuerySchema.omit({ cursor: true, limit: true }),
+        // An export is the whole filtered set, so it advertises no window.
+        inputSchema: listQuerySchema.omit({
+          cursor: true,
+          limit: true,
+          page: true,
+          sort: true,
+          direction: true,
+        }),
         outputSchema: mcpOutputSchema(csvExportResultSchema),
         annotations: readAnnotations,
       },

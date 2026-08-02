@@ -164,11 +164,15 @@ export default function DashboardPage() {
         title="Add a transaction"
         description="Commit it now or stage it for review."
       >
-        <TransactionForm
-          accounts={accounts.data ?? []}
-          categories={categories.data ?? []}
-          onDone={() => setOpen(false)}
-        />
+        {/* Mounted only while the dialog is open, so closing it clears what was
+            half typed instead of leaving it there for next time. */}
+        {open ? (
+          <TransactionForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            onDone={() => setOpen(false)}
+          />
+        ) : null}
       </Modal>
     </>
   );
