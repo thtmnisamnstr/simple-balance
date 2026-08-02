@@ -277,3 +277,10 @@ export function Navigate({
   useEffect(() => navigate(to, { replace }), [navigate, replace, to]);
   return null;
 }
+
+/** The payee detail view is the transaction list filtered to one name. */
+export function payeeDetailSearch(search: string, payee: string) {
+  const params = new URLSearchParams(search);
+  params.set("name", payee);
+  return params.toString();
+}

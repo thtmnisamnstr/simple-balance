@@ -1038,11 +1038,6 @@ input[type="radio"] {
   margin-top: -42px;
 }
 
-.load-more {
-  display: flex;
-  justify-content: center;
-  padding: 16px;
-}
 
 .pagination {
   display: flex;
@@ -1884,9 +1879,6 @@ input[type="radio"] {
   line-height: 1.45;
 }
 
-.category-heading {
-  justify-content: space-between;
-}
 
 .inline-form {
   display: grid;
@@ -2473,10 +2465,6 @@ input[type="radio"] {
   }
   .inline-form {
     grid-template-columns: 1fr;
-  }
-  .category-heading {
-    align-items: flex-start;
-    flex-direction: column;
   }
   .category-toolbar,
   .merge-panel {

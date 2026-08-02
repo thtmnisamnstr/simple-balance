@@ -16,9 +16,6 @@ export class AppError extends Error {
 export const notFound = (message = "The requested record was not found") =>
   new AppError("NOT_FOUND", message, 404);
 
-export const forbidden = (message = "You do not have access to this record") =>
-  new AppError("FORBIDDEN", message, 403);
-
 export const conflict = (message: string, details?: unknown) =>
   new AppError("CONFLICT", message, 409, details);
 

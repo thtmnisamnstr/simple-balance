@@ -91,20 +91,6 @@ export async function hasLocalPassword(userId: string) {
   return Boolean(credential);
 }
 
-export async function hasGoogleAccount(userId: string) {
-  const [google] = await getDb()
-    .select({ id: authAccount.id })
-    .from(authAccount)
-    .where(
-      and(
-        eq(authAccount.userId, userId),
-        eq(authAccount.providerId, "google"),
-      ),
-    )
-    .limit(1);
-  return Boolean(google);
-}
-
 export async function isLedgerUserAuthorized(userId: string, email: string) {
   const linkedAccounts = await getDb()
     .select({

@@ -12,7 +12,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  type FormEvent,
   type InputHTMLAttributes,
   type PropsWithChildren,
   type ReactNode,
@@ -716,10 +715,4 @@ export function formatDate(value: string) {
     day: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
-}
-
-export function useSubmit<T>(
-  handler: (event: FormEvent<HTMLFormElement>) => Promise<T>,
-) {
-  return handler;
 }

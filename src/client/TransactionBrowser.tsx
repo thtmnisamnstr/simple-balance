@@ -16,7 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
-import { Link, useLocation } from "./router.js";
+import { Link, payeeDetailSearch, useLocation } from "./router.js";
 import {
   api,
   ApiClientError,
@@ -61,12 +61,6 @@ const typeMeta = {
   withdrawal: { label: "Withdrawal", icon: ArrowUpRight },
   transfer: { label: "Transfer", icon: ArrowLeftRight },
 };
-
-function payeeDetailSearch(search: string, payee: string) {
-  const params = new URLSearchParams(search);
-  params.set("name", payee);
-  return params.toString();
-}
 
 type SelectionState =
   | { mode: "ids"; versions: Record<string, number> }

@@ -6,7 +6,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { Link, useLocation } from "../router.js";
+import { Link, payeeDetailSearch, useLocation } from "../router.js";
 import {
   api,
   json,
@@ -28,12 +28,6 @@ import {
   ConfirmDialog,
   useConfirm,
 } from "../components.js";
-
-function payeeDetailSearch(search: string, payee: string) {
-  const params = new URLSearchParams(search);
-  params.set("name", payee);
-  return params.toString();
-}
 
 const payeeSortFields = [
   { field: "name", label: "Name" },
