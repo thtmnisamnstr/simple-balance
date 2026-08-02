@@ -178,3 +178,7 @@ by both sides of every boundary.
 ## License
 
 [GNU Lesser General Public License v3.0 only](LICENSE) (`LGPL-3.0-only`).
+
+The LGPL is written as a set of additional permissions on top of the GPL, so
+both texts apply: [LICENSE](LICENSE) is the LGPL supplement and
+[COPYING](COPYING) is the GNU General Public License v3 it builds on.
