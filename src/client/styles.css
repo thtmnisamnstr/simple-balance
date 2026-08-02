@@ -1,4 +1,75 @@
-@import "tailwindcss";
+/*
+ * The app writes its own CSS and uses no utility classes, so it carries its own
+ * reset rather than pulling in a framework for one. These are the normalisations
+ * the components actually rely on: icons that sit on the line rather than the
+ * text baseline, controls that inherit their type, and elements that start
+ * without the browser's own spacing.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  border: 0 solid var(--line, #dde4df);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+ul,
+ol,
+menu {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Without this, icons sit on the text baseline and carry a descender gap. */
+svg,
+img,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  background: transparent;
+}
+
+button {
+  cursor: pointer;
+}
+
+table {
+  border-collapse: collapse;
+  border-color: inherit;
+  text-indent: 0;
+}
+
+/* Links are styled where they are used, so they carry no underline by default. */
+a {
+  color: inherit;
+  text-decoration: inherit;
+}
 
 :root {
   color-scheme: light;
