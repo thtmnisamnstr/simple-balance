@@ -197,6 +197,7 @@ export function TransactionBrowser({
   const selectionConstraintKey = JSON.stringify(bulkFilter);
   const [page, setPage] = useState(1);
   const deletion = useConfirm<number>();
+  const rowDeletion = useConfirm<Transaction>();
   const [sort, setSort] = useState<SortState<TransactionSortField>>({
     field: "date",
     direction: "desc",
@@ -1049,10 +1050,12 @@ export function TransactionBrowser({
                             <button
                               aria-label="Delete"
                               onClick={() =>
-                                deleteMutation.mutate({
-                                  transaction,
-                                  deleted: true,
-                                })
+                                rowDeletion.ask(transaction, () =>
+                                  deleteMutation.mutate({
+                                    transaction,
+                                    deleted: true,
+                                  }),
+                                )
                               }
                             >
                               <Trash2 size={16} />
@@ -1460,6 +1463,18 @@ export function TransactionBrowser({
           ) : null}
         </form>
       </Modal>
+      <ConfirmDialog
+        open={rowDeletion.open}
+        title="Delete this transaction?"
+        description={
+          rowDeletion.value
+            ? `“${rowDeletion.value.payee}” stops counting toward balances and reports. Nothing is erased: turn on “Show deleted” to find and restore it.`
+            : undefined
+        }
+        onConfirm={rowDeletion.confirm}
+        onCancel={rowDeletion.cancel}
+      />
+
       <ConfirmDialog
         open={deletion.open}
         title="Delete these transactions?"

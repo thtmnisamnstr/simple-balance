@@ -433,6 +433,35 @@ p {
 .table-card,
 .account-card,
 .metric-card,
+.skeleton {
+  display: block;
+  border-radius: 10px;
+  background: linear-gradient(90deg, #eef2ef 25%, #f6f9f6 50%, #eef2ef 75%);
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* Money lines up column to column only when every digit is the same width. */
+.data-table td.align-right,
+.amount,
+.metric-value,
+.currency-heading h2,
+.account-balance {
+  font-variant-numeric: tabular-nums;
+}
+
 .empty-state {
   border: 1px solid var(--line);
   background: rgb(255 255 255 / 92%);

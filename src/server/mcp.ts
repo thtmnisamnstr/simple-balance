@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import type { Actor } from "../shared/domain.js";
 import {
   accountCreateSchema,
@@ -23,6 +23,7 @@ import {
   stageUpdateSchema,
   transactionDeletedMutationSchema,
   transactionUpdateSchema,
+  isoDateSchema,
 } from "../shared/domain.js";
 import { getDb, type DbTransaction } from "./db/client.js";
 import {
@@ -48,7 +49,7 @@ import {
   listPayees,
   mergePayees,
 } from "./services/payees.js";
-import { AppError } from "./services/errors.js";
+import { AppError, zodIssues } from "./services/errors.js";
 import {
   getIdempotent,
   lockIdempotencyKey,
@@ -120,13 +121,22 @@ async function runTool(fn: () => Promise<unknown>) {
   try {
     return toolResult(await fn());
   } catch (error) {
-    if (!(error instanceof AppError)) {
+    if (!(error instanceof AppError) && !(error instanceof ZodError)) {
       console.error("Unexpected MCP tool error", error);
     }
+    // An agent can only correct a call it can see the fault in. A schema
+    // failure names the field and what was wrong with it; reporting it as an
+    // unexpected error would leave the agent to guess and retry blind.
     const body =
       error instanceof AppError
         ? { code: error.code, message: error.message, details: error.details }
-        : { code: "INTERNAL_ERROR", message: "An unexpected error occurred" };
+        : error instanceof ZodError
+          ? {
+              code: "VALIDATION_ERROR",
+              message: "Request validation failed",
+              details: zodIssues(error),
+            }
+          : { code: "INTERNAL_ERROR", message: "An unexpected error occurred" };
     return {
       ...toolResult({ error: body }),
       isError: true,
@@ -203,7 +213,11 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "List accounts",
         description: "List this user's accounts and balances in their native currencies.",
         inputSchema: z.object({
-          end: z.string().optional(),
+          end: isoDateSchema
+            .optional()
+            .describe(
+              "Report each balance as of this date. Does not change which accounts come back. Left out, a balance includes every posting, future-dated ones included.",
+            ),
           includeArchived: z.boolean().default(false),
         }),
         outputSchema: mcpOutputSchema(z.array(accountResultSchema)),
@@ -338,8 +352,12 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         description:
           "Calculate balances, deposits, withdrawals, and spending separately by currency.",
         inputSchema: z.object({
-          start: z.string().optional(),
-          end: z.string().optional(),
+          start: isoDateSchema
+            .optional()
+            .describe("First day to include. Left out, the summary starts from the beginning."),
+          end: isoDateSchema
+            .optional()
+            .describe("Last day to include. Left out, the summary runs to the end of the ledger."),
         }),
         outputSchema: mcpOutputSchema(summaryResultSchema),
         annotations: readAnnotations,

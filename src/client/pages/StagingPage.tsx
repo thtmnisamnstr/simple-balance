@@ -1,3 +1,4 @@
+import { useSearchParams } from "../router.js";
 import {
   useInfiniteQuery,
   useMutation,
@@ -89,7 +90,13 @@ export default function StagingPage() {
   const [search, setSearch] = useState("");
   const [validity, setValidity] = useState("");
   const [accountId, setAccountId] = useState("");
-  const [importBatchId, setImportBatchId] = useState("");
+  // Seeded from the link the import hands over, so arriving from an import
+  // opens the queue on the rows that just landed rather than on everything
+  // ever staged.
+  const [searchParams] = useSearchParams();
+  const [importBatchId, setImportBatchId] = useState(
+    () => searchParams.get("importBatchId") ?? "",
+  );
   const [allowDuplicates, setAllowDuplicates] = useState(false);
   const { start, end } = useDateRange();
   const queryClient = useQueryClient();

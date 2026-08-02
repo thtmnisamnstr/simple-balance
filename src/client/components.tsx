@@ -527,6 +527,27 @@ export function PageHeader({
   );
 }
 
+/**
+ * Stands in for content while it loads. Without it the empty state shows first,
+ * so a page with plenty of data still greets you with "nothing here yet" for as
+ * long as the request takes.
+ */
+export function Skeleton({
+  height = 16,
+  width,
+}: {
+  height?: number;
+  width?: number | string;
+}) {
+  return (
+    <span
+      className="skeleton"
+      style={{ height, width: width ?? "100%" }}
+      aria-hidden="true"
+    />
+  );
+}
+
 export function EmptyState({
   icon,
   title,

@@ -1,3 +1,4 @@
+import { Link } from "../router.js";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
@@ -19,6 +20,8 @@ import {
   Modal,
   moneyRatioPercent,
   PageHeader,
+
+  Skeleton,
 } from "../components.js";
 import { useDateRange } from "../date-range.js";
 import { TransactionForm } from "../forms.js";
@@ -54,11 +57,21 @@ export default function DashboardPage() {
       />
       <DateRangeBar />
 
-      {summary.data?.currencies.length === 0 ? (
+      {summary.isPending ? (
+        <div className="currency-sections">
+          <Skeleton height={160} />
+          <Skeleton height={160} />
+        </div>
+      ) : !summary.data?.currencies.length ? (
         <EmptyState
           icon={<Landmark size={25} />}
           title="Create your first account"
-          body="Once an account exists, deposits, withdrawals, and transfers will appear here."
+          body="An account is where your money lives. Once one exists, deposits, withdrawals, and transfers show up here."
+          action={
+            <Link className="button button-primary" to="/accounts">
+              Create an account
+            </Link>
+          }
         />
       ) : (
         <div className="currency-sections">

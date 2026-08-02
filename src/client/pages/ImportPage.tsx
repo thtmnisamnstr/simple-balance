@@ -1,3 +1,4 @@
+import { Link } from "../router.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -8,7 +9,13 @@ import {
 } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import type { CsvMapping } from "../../shared/csv.js";
-import { api, json, type Account, type CsvPreview } from "../api.js";
+import {
+  api,
+  json,
+  queryString,
+  type Account,
+  type CsvPreview,
+} from "../api.js";
 import {
   Alert,
   Badge,
@@ -372,7 +379,20 @@ export default function ImportPage() {
                       {result.importBatchId ? (
                         <>
                           {" "}
-                          <a href="/staged">Open the review queue</a>.
+                          {/* Carries the batch through so the queue opens on
+                              the rows that just arrived, rather than on
+                              everything ever staged. */}
+                          <Link
+                            to={{
+                              pathname: "/staged",
+                              search: queryString({
+                                importBatchId: result.importBatchId,
+                              }),
+                            }}
+                          >
+                            Review these {result.rowCount} rows
+                          </Link>
+                          .
                         </>
                       ) : (
                         " Nothing was changed during this dry run."

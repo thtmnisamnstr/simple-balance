@@ -65,13 +65,17 @@ export const isoDateSchema = z
   .refine((value) => {
     const parsed = new Date(`${value}T00:00:00.000Z`);
     return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().startsWith(value);
-  }, "Date is not valid");
+  }, "Date is not valid")
+  .describe("Calendar date as YYYY-MM-DD, for example 2026-03-14.");
 
 export const currencyCodeSchema = z
   .string()
   .regex(
     /^[A-Z]{2,12}$/,
     "Use an uppercase ISO currency code or supported crypto asset symbol",
+  )
+  .describe(
+    "Uppercase currency code, for example USD or EUR, or a crypto asset symbol such as BTC. An account's currency is fixed once it is in use.",
   );
 
 export const decimalStringSchema = z
@@ -79,14 +83,28 @@ export const decimalStringSchema = z
   .regex(
     /^-?(?:0|[1-9]\d{0,25})(?:\.\d{1,18})?$/,
     "Use a decimal string with at most 26 integer and 18 fractional digits",
+  )
+  .describe(
+    'Money as a decimal STRING, for example "1234.56". Never a JSON number: binary floating point cannot hold these values exactly. Up to 26 digits before the point and 18 after.',
   );
 
-export const positiveDecimalStringSchema = decimalStringSchema.refine(
-  (value) => !value.startsWith("-") && value !== "0" && !/^0\.0+$/.test(value),
-  "Amount must be greater than zero",
-);
+export const positiveDecimalStringSchema = decimalStringSchema
+  .refine(
+    (value) => !value.startsWith("-") && value !== "0" && !/^0\.0+$/.test(value),
+    "Amount must be greater than zero",
+  )
+  .describe(
+    'How much money moved, as a decimal string greater than zero, for example "42.50". Direction comes from the transaction type, so this is never negative.',
+  );
 
-export const idempotencyKeySchema = z.string().trim().min(8).max(200);
+export const idempotencyKeySchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(200)
+  .describe(
+    "A key you choose to make this write safe to retry. Sending the same key again returns the original result instead of recording a second time. Use a fresh one per intended action, for example a UUID.",
+  );
 
 export const nonNegativeDecimalStringSchema = decimalStringSchema.refine(
   (value) => !value.startsWith("-"),
@@ -181,11 +199,19 @@ export const stagedDraftSchema = z
 export type StagedDraft = z.infer<typeof stagedDraftSchema>;
 
 export const accountCreateSchema = z.object({
-  name: oneLine(z.string().trim().min(1).max(120)),
-  type: z.enum(userAccountTypes),
+  name: oneLine(z.string().trim().min(1).max(120)).describe(
+    "What you call this account. Unique among your accounts.",
+  ),
+  type: z.enum(userAccountTypes).describe(
+    "What kind of account this is. credit_card, loan, and other_liability are money you owe; the rest are money you hold.",
+  ),
   currency: currencyCodeSchema,
-  openingDate: isoDateSchema,
-  openingBalance: decimalStringSchema,
+  openingDate: isoDateSchema.describe(
+    "The day this account's history starts. The opening balance is recorded on this date, and transactions before it are not counted in a balance as of a later day.",
+  ),
+  openingBalance: decimalStringSchema.describe(
+    'What the account held on its opening date, as a signed decimal string. Positive for money you hold. NEGATIVE for money you owe, so a credit card with 500 outstanding opens at "-500". Use "0" to start from nothing.',
+  ),
   institution: oneLine(z.string().trim().max(160)).optional().nullable(),
   notes: freeText(z.string().trim().max(2_000)).optional().nullable(),
 });
@@ -485,6 +511,7 @@ export const bulkTransactionEditSchema = z
   })
   .strict();
 
+/** Named so an agent can tell the two selection shapes apart without guessing. */
 export const bulkTransactionDeleteSchema = z
   .object({
     selection: bulkTransactionSelectionSchema,
