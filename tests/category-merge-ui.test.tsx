@@ -37,7 +37,6 @@ afterEach(() => {
 describe("category merging", () => {
   it("lets the selected categories become either the source or target", async () => {
     let mergeBody: Record<string, unknown> | undefined;
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -103,6 +102,11 @@ describe("category merging", () => {
     fireEvent.change(target, { target: { value: groceries.id } });
     expect(mergeButton).toBeEnabled();
     fireEvent.click(mergeButton);
+    fireEvent.click(
+      within(
+        await screen.findByRole("dialog", { name: /Merge these categories/ }),
+      ).getByRole("button", { name: "Merge" }),
+    );
 
     await waitFor(() => {
       expect(mergeBody).toEqual({

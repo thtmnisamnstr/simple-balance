@@ -10,7 +10,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
   Category,
@@ -206,16 +206,6 @@ function baseFetch(
     return new Response("Not found", { status: 404 });
   });
 }
-
-beforeEach(() => {
-  HTMLDialogElement.prototype.showModal = function showModal() {
-    this.setAttribute("open", "");
-  };
-  HTMLDialogElement.prototype.close = function close() {
-    this.removeAttribute("open");
-    this.dispatchEvent(new Event("close"));
-  };
-});
 
 afterEach(() => {
   cleanup();
@@ -451,13 +441,20 @@ describe("transaction mass selection", () => {
         return undefined;
       }),
     );
-    vi.stubGlobal("confirm", vi.fn(() => true));
     renderBrowser();
 
     fireEvent.click(
       (await screen.findAllByRole("checkbox", { name: /Select transaction / }))[0]!,
     );
     fireEvent.click(screen.getByRole("button", { name: "Delete selected" }));
+
+    // The confirmation is the app's own dialog, so it is on the page and has to
+    // be answered the way a person would. Row actions are also called "Delete",
+    // so the click is scoped to the dialog.
+    const confirmation = await screen.findByRole("dialog", {
+      name: /Delete these transactions/,
+    });
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(deleteBodies).toHaveLength(1));
     const body = deleteBodies[0]!;
@@ -469,7 +466,7 @@ describe("transaction mass selection", () => {
     expect(typeof body.idempotencyKey).toBe("string");
   });
 
-  it("does not delete when the confirmation is declined", async () => {
+  it("does not delete when the confirmation is dismissed", async () => {
     const deleteBodies: unknown[] = [];
     vi.stubGlobal(
       "fetch",
@@ -481,13 +478,16 @@ describe("transaction mass selection", () => {
         return undefined;
       }),
     );
-    vi.stubGlobal("confirm", vi.fn(() => false));
     renderBrowser();
 
     fireEvent.click(
       (await screen.findAllByRole("checkbox", { name: /Select transaction / }))[0]!,
     );
     fireEvent.click(screen.getByRole("button", { name: "Delete selected" }));
+    const confirmation = await screen.findByRole("dialog", {
+      name: /Delete these transactions/,
+    });
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Cancel" }));
 
     expect(deleteBodies).toHaveLength(0);
   });

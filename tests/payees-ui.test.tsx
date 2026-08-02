@@ -58,7 +58,6 @@ describe("payee browsing and merging", () => {
       "/payees?start=2026-07-01&end=2026-07-31&preset=custom",
     );
     let mergeBody: Record<string, unknown> | undefined;
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -128,6 +127,11 @@ describe("payee browsing and merging", () => {
     fireEvent.change(target, { target: { value: acmeMarket.name } });
     expect(mergeButton).toBeEnabled();
     fireEvent.click(mergeButton);
+    fireEvent.click(
+      within(
+        await screen.findByRole("dialog", { name: /Merge these payees/ }),
+      ).getByRole("button", { name: "Merge" }),
+    );
 
     await waitFor(() => {
       expect(mergeBody).toEqual({

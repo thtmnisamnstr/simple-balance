@@ -46,9 +46,11 @@ import {
   Pagination,
   Select,
   SelectionCheckbox,
+  ConfirmDialog,
   SortableHeader,
   type SortState,
   Textarea,
+  useConfirm,
 } from "./components.js";
 import type { TransactionSortField } from "../shared/domain.js";
 import { useDateRange } from "./date-range.js";
@@ -200,6 +202,7 @@ export function TransactionBrowser({
   };
   const selectionConstraintKey = JSON.stringify(bulkFilter);
   const [page, setPage] = useState(1);
+  const deletion = useConfirm<number>();
   const [sort, setSort] = useState<SortState<TransactionSortField>>({
     field: "date",
     direction: "desc",
@@ -607,18 +610,13 @@ export function TransactionBrowser({
       selection.mode === "filter"
         ? (filterSelectionPreview.data?.count ?? 0)
         : explicitSelectedCount;
-    if (
-      !window.confirm(
-        `Delete ${count} transaction${count === 1 ? "" : "s"}? They stop affecting balances and can be restored from the deleted view.`,
-      )
-    ) {
-      return;
-    }
-    bulkDeleteMutation.mutate({
-      selection: buildBulkSelection(),
-      idempotencyKey: crypto.randomUUID(),
-      dryRun: false,
-    });
+    deletion.ask(count, () =>
+      bulkDeleteMutation.mutate({
+        selection: buildBulkSelection(),
+        idempotencyKey: crypto.randomUUID(),
+        dryRun: false,
+      }),
+    );
   };
 
   const submitBulkEdit = (event?: FormEvent<HTMLFormElement>) => {
@@ -1468,6 +1466,17 @@ export function TransactionBrowser({
           ) : null}
         </form>
       </Modal>
+      <ConfirmDialog
+        open={deletion.open}
+        title="Delete these transactions?"
+        description={
+          deletion.value
+            ? `${deletion.value} transaction${deletion.value === 1 ? "" : "s"} will stop counting toward balances and reports. Nothing is erased: turn on “Show deleted” to find and restore them.`
+            : undefined
+        }
+        onConfirm={deletion.confirm}
+        onCancel={deletion.cancel}
+      />
     </>
   );
 }

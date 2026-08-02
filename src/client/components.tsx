@@ -20,6 +20,7 @@ import {
   useEffect,
   useId,
   useRef,
+  useState,
 } from "react";
 import type { SortDirection } from "../shared/domain.js";
 import type { DatePreset } from "./date-range.js";
@@ -380,11 +381,78 @@ export function Modal({
             <X size={19} />
           </button>
         </header>
-        <div className="modal-body">{children}</div>
+        {children ? <div className="modal-body">{children}</div> : null}
         {footer ? <footer className="modal-footer">{footer}</footer> : null}
       </div>
     </dialog>
   );
+}
+
+/**
+ * Asks before something irreversible happens, in the app's own dialog rather
+ * than the browser's. The browser's box cannot say what is about to be deleted
+ * beyond a line of text, cannot be read by anything styling the page, and on
+ * some platforms offers to suppress itself entirely, which would silently
+ * approve every later deletion.
+ */
+export function ConfirmDialog({
+  open,
+  title,
+  description,
+  confirmLabel = "Delete",
+  onConfirm,
+  onCancel,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <Modal
+      open={open}
+      title={title}
+      description={description}
+      onClose={onCancel}
+      footer={
+        <>
+          <Button type="button" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" variant="danger" onClick={onConfirm}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      {children ?? null}
+    </Modal>
+  );
+}
+
+/**
+ * Holds what a confirmation is about while its dialog is open, so the caller
+ * writes `ask(thing, run)` instead of threading its own open flag and payload
+ * through component state.
+ */
+export function useConfirm<T>() {
+  const [pending, setPending] = useState<{ value: T; run: () => void } | null>(
+    null,
+  );
+  return {
+    value: pending?.value ?? null,
+    open: pending !== null,
+    ask: (value: T, run: () => void) => setPending({ value, run }),
+    cancel: () => setPending(null),
+    confirm: () => {
+      pending?.run();
+      setPending(null);
+    },
+  };
 }
 
 const presets: { value: DatePreset; label: string }[] = [

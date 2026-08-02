@@ -25,6 +25,8 @@ import {
   SortMenu,
   type SortState,
   compareForSort,
+  ConfirmDialog,
+  useConfirm,
 } from "../components.js";
 
 function payeeDetailSearch(search: string, payee: string) {
@@ -45,6 +47,7 @@ export default function PayeesPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const merge = useConfirm<string>();
   const [sort, setSort] = useState<SortState<PayeeSortField>>({
     field: "name",
     direction: "asc",
@@ -208,13 +211,7 @@ export default function PayeesPage() {
             loading={mergeMutation.isPending}
             disabled={!selectedTarget}
             onClick={() => {
-              if (
-                window.confirm(
-                  `Merge the selected payees into “${selectedTarget?.name}”? This updates their transactions and staged rows.`,
-                )
-              ) {
-                mergeMutation.mutate();
-              }
+              merge.ask(selectedTarget?.name ?? "", () => mergeMutation.mutate());
             }}
           >
             <Combine size={16} /> Merge
@@ -303,6 +300,18 @@ export default function PayeesPage() {
           body="Payees appear here when you commit or stage a transaction."
         />
       )}
+      <ConfirmDialog
+        open={merge.open}
+        title="Merge these payees?"
+        description={
+          merge.value
+            ? `Every transaction and staged row naming the others is rewritten to “${merge.value}”. The change is recorded in the activity log but cannot be undone in one step.`
+            : undefined
+        }
+        confirmLabel="Merge"
+        onConfirm={merge.confirm}
+        onCancel={merge.cancel}
+      />
     </>
   );
 }

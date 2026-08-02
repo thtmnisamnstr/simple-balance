@@ -9,6 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    setupFiles: ["tests/support/dialog.ts"],
     fileParallelism: false,
     coverage: {
       reporter: ["text", "html"],

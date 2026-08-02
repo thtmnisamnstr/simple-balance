@@ -31,6 +31,8 @@ import {
   SortMenu,
   type SortState,
   compareForSort,
+  ConfirmDialog,
+  useConfirm,
 } from "../components.js";
 import { AccountForm } from "../forms.js";
 import { calendarDateInTimezone } from "../timezone.js";
@@ -54,6 +56,7 @@ type AccountSortField = (typeof accountSortFields)[number]["field"];
 export default function AccountsPage({ session }: { session: Session }) {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
+  const removal = useConfirm<Account>();
   const [sort, setSort] = useState<SortState<AccountSortField>>({
     field: "name",
     direction: "asc",
@@ -178,9 +181,9 @@ export default function AccountsPage({ session }: { session: Session }) {
                         <button
                           className="danger"
                           onClick={() => {
-                            if (window.confirm(`Delete unused account “${account.name}”?`)) {
-                              mutation.mutate({ account, action: "delete" });
-                            }
+                            removal.ask(account, () =>
+                              mutation.mutate({ account, action: "delete" }),
+                            );
                           }}
                         >
                           <Trash2 size={15} /> Delete if unused
@@ -243,6 +246,17 @@ export default function AccountsPage({ session }: { session: Session }) {
           />
         ) : null}
       </Modal>
+      <ConfirmDialog
+        open={removal.open}
+        title="Delete this account?"
+        description={
+          removal.value
+            ? `“${removal.value.name}” has no transactions and no ledger history, so deleting it leaves nothing behind. An account you have used cannot be deleted; archive it instead.`
+            : undefined
+        }
+        onConfirm={removal.confirm}
+        onCancel={removal.cancel}
+      />
     </>
   );
 }

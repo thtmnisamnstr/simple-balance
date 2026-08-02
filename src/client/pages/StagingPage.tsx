@@ -41,8 +41,10 @@ import {
   Pagination,
   Select,
   SelectionCheckbox,
+  ConfirmDialog,
   SortableHeader,
   type SortState,
+  useConfirm,
 } from "../components.js";
 import { TransactionForm } from "../forms.js";
 import {
@@ -80,6 +82,9 @@ export default function StagingPage() {
     () => new Map(),
   );
   const [page, setPage] = useState(1);
+  const bulkRemoval = useConfirm<number>();
+  const rowRemoval = useConfirm<StagedTransaction>();
+  const duplicate = useConfirm<StagedTransaction>();
   const [editing, setEditing] = useState<StagedTransaction | "new" | null>(null);
   const [search, setSearch] = useState("");
   const [validity, setValidity] = useState("");
@@ -381,9 +386,9 @@ export default function StagingPage() {
               variant="danger"
               loading={bulkMutation.isPending}
               onClick={() => {
-                if (window.confirm(`Delete ${selectedRows.length} staged transaction(s)?`)) {
-                  bulkMutation.mutate("delete");
-                }
+                bulkRemoval.ask(selectedRows.length, () =>
+                  bulkMutation.mutate("delete"),
+                );
               }}
             >
               <Trash2 size={16} /> Delete
@@ -541,10 +546,12 @@ export default function StagingPage() {
                         aria-label="Commit staged transaction"
                         disabled={Boolean(stage.validationIssues.length)}
                         onClick={() => {
-                          if (
-                            !stage.duplicateOfId ||
-                            window.confirm("Commit this possible duplicate anyway?")
-                          ) {
+                          // Only a possible repeat needs asking about.
+                          if (stage.duplicateOfId) {
+                            duplicate.ask(stage, () =>
+                              rowMutation.mutate({ stage, action: "commit" }),
+                            );
+                          } else {
                             rowMutation.mutate({ stage, action: "commit" });
                           }
                         }}
@@ -557,9 +564,9 @@ export default function StagingPage() {
                       <button
                         aria-label="Delete staged transaction"
                         onClick={() => {
-                          if (window.confirm("Delete this staged transaction?")) {
-                            rowMutation.mutate({ stage, action: "delete" });
-                          }
+                          rowRemoval.ask(stage, () =>
+                            rowMutation.mutate({ stage, action: "delete" }),
+                          );
                         }}
                       >
                         <Trash2 size={16} />
@@ -602,6 +609,34 @@ export default function StagingPage() {
           />
         ) : null}
       </Modal>
+      <ConfirmDialog
+        open={bulkRemoval.open}
+        title="Delete these staged rows?"
+        description={
+          bulkRemoval.value
+            ? `${bulkRemoval.value} row${bulkRemoval.value === 1 ? "" : "s"} will be removed from the review queue. Nothing has been committed yet, so no balance changes.`
+            : undefined
+        }
+        onConfirm={bulkRemoval.confirm}
+        onCancel={bulkRemoval.cancel}
+      />
+
+      <ConfirmDialog
+        open={rowRemoval.open}
+        title="Delete this staged row?"
+        description="It is removed from the review queue. Nothing has been committed, so no balance changes."
+        onConfirm={rowRemoval.confirm}
+        onCancel={rowRemoval.cancel}
+      />
+
+      <ConfirmDialog
+        open={duplicate.open}
+        title="Commit this anyway?"
+        description="This looks like a transaction you already have. Committing it will record a second one."
+        confirmLabel="Commit"
+        onConfirm={duplicate.confirm}
+        onCancel={duplicate.cancel}
+      />
     </>
   );
 }

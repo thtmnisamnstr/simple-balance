@@ -9,9 +9,9 @@ import {
   Tags,
   Trash2,
 } from "lucide-react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "../router.js";
-import type { CategoryKind } from "../../shared/domain.js";
+import { type CategoryKind, categoryKinds } from "../../shared/domain.js";
 import {
   api,
   json,
@@ -30,6 +30,10 @@ import {
   SortMenu,
   type SortState,
   compareForSort,
+  ConfirmDialog,
+  Field,
+  Modal,
+  useConfirm,
 } from "../components.js";
 
 const kindLabels: Record<CategoryKind, string> = {
@@ -45,12 +49,94 @@ const categorySortFields = [
 ] as const;
 type CategorySortField = (typeof categorySortFields)[number]["field"];
 
+/**
+ * Renaming a category and changing what it applies to, in one form. The
+ * applicability was previously typed as free text into a browser prompt, where
+ * a misspelling silently did nothing at all.
+ */
+function CategoryDialog({
+  category,
+  onClose,
+  onSave,
+}: {
+  category: Category | null;
+  onClose: () => void;
+  onSave: (name: string, kind: CategoryKind) => void;
+}) {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<CategoryKind>("expense");
+  useEffect(() => {
+    if (!category) return;
+    setName(category.name);
+    setKind(category.kind);
+  }, [category]);
+
+  const trimmed = name.trim();
+  return (
+    <Modal
+      open={Boolean(category)}
+      title="Edit category"
+      description="Renaming keeps every transaction filed under it."
+      onClose={onClose}
+      footer={
+        <>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="category-edit"
+            disabled={!trimmed}
+          >
+            Save
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="category-edit"
+        className="form-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (trimmed) onSave(trimmed, kind);
+        }}
+      >
+        <Field label="Name">
+          <Input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            autoFocus
+          />
+        </Field>
+        <Field
+          label="Applies to"
+          hint="Whether this category can be chosen for money coming in, going out, or both."
+        >
+          <Select
+            value={kind}
+            onChange={(event) => setKind(event.target.value as CategoryKind)}
+          >
+            {categoryKinds.map((value) => (
+              <option key={value} value={value}>
+                {kindLabels[value]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </form>
+    </Modal>
+  );
+}
+
 export default function CategoriesPage() {
   const location = useLocation();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<CategoryKind>("expense");
   const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<Category | null>(null);
+  const removal = useConfirm<Category>();
+  const merge = useConfirm<string>();
   const [sort, setSort] = useState<SortState<CategorySortField>>({
     field: "name",
     direction: "asc",
@@ -306,13 +392,7 @@ export default function CategoriesPage() {
             loading={mergeMutation.isPending}
             disabled={!target || sourceCategories.length === 0}
             onClick={() => {
-              if (
-                window.confirm(
-                  `Merge the selected categories into “${target?.name}”? This removes the source categories.`,
-                )
-              ) {
-                mergeMutation.mutate();
-              }
+              merge.ask(target?.name ?? "", () => mergeMutation.mutate());
             }}
           >
             <Combine size={16} /> Merge
@@ -376,31 +456,7 @@ export default function CategoriesPage() {
               <div className="row-actions">
                 <button
                   aria-label={`Edit ${category.name}`}
-                  onClick={() => {
-                    const nextName = window
-                      .prompt("Category name", category.name)
-                      ?.trim();
-                    if (!nextName) return;
-                    const nextKind = window
-                      .prompt(
-                        "Applicability: income, expense, or both",
-                        category.kind,
-                      )
-                      ?.trim()
-                      .toLowerCase();
-                    if (
-                      nextKind === "income" ||
-                      nextKind === "expense" ||
-                      nextKind === "both"
-                    ) {
-                      categoryMutation.mutate({
-                        action: "update",
-                        category,
-                        name: nextName,
-                        kind: nextKind,
-                      });
-                    }
-                  }}
+                  onClick={() => setEditing(category)}
                 >
                   <Pencil size={16} />
                 </button>
@@ -422,15 +478,11 @@ export default function CategoriesPage() {
                 </button>
                 <button
                   aria-label={`Delete unused ${category.name}`}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Delete unused category “${category.name}”?`,
-                      )
-                    ) {
-                      categoryMutation.mutate({ action: "delete", category });
-                    }
-                  }}
+                  onClick={() =>
+                    removal.ask(category, () =>
+                      categoryMutation.mutate({ action: "delete", category }),
+                    )
+                  }
                 >
                   <Trash2 size={16} />
                 </button>
@@ -445,6 +497,41 @@ export default function CategoriesPage() {
           body="Add a category or change the search and archive filters."
         />
       )}
+
+      <CategoryDialog
+        category={editing}
+        onClose={() => setEditing(null)}
+        onSave={(name, kind) => {
+          if (!editing) return;
+          categoryMutation.mutate({ action: "update", category: editing, name, kind });
+          setEditing(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={merge.open}
+        title="Merge these categories?"
+        description={
+          merge.value
+            ? `Every transaction and staged row filed under the others moves to “${merge.value}”, and the others are removed. This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Merge"
+        onConfirm={merge.confirm}
+        onCancel={merge.cancel}
+      />
+
+      <ConfirmDialog
+        open={removal.open}
+        title="Delete this category?"
+        description={
+          removal.value
+            ? `“${removal.value.name}” is not used by any transaction. Deleting it cannot be undone. To keep it out of the way instead, archive it.`
+            : undefined
+        }
+        onConfirm={removal.confirm}
+        onCancel={removal.cancel}
+      />
     </>
   );
 }
