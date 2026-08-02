@@ -30,16 +30,28 @@
   opening balance posts against the equity account, so the ledger as a whole
   nets to zero rather than starting from a number kept outside it.
 - Counter-accounts are server-owned, one per kind and currency, and never appear
-  in account lists or pickers. Never let a person post to one directly.
-- Postings are append-only. To change an amount, account, or type, reverse the
-  existing rows and write a new set. Never update or delete a posting to correct
-  it. Editing only labels writes no postings at all. Deleted transactions keep
-  their postings and are excluded by balance and report queries.
+  in account lists or pickers, and no transaction may name one as a side.
+- A posting carries its own date and stands on its own. Balances, cash flow, and
+  spending by category all read the posting table; only a label such as a
+  category is looked up elsewhere. Never compute a monetary figure from
+  `ledger_transaction` columns.
+- Postings are append-only. To correct one, work out the difference per account,
+  currency, and date, and append only that. Never update or delete a posting.
+  An edit that changes nothing about the movement writes nothing at all.
+- Deleting voids an entry by posting its reversal, and restoring posts it back.
+  Nothing filters deleted rows out of a balance, because a voided entry already
+  nets to zero. Editing a deleted entry leaves it void.
 - Balances derive from postings alone. Never add an account column back into a
   balance query.
+- Lists order by any column they display, in either direction. Order is
+  presentation, so it stays out of the fingerprinted bulk selection filter. A
+  cursor records the order it was issued for and is refused under another; an
+  ordering a keyset cannot resume offers no cursor and pages by number instead.
+- Only ask for `nulls last` on a key that can be null. On one that cannot, it
+  stops matching the index and turns a page read into a sort of the whole table.
 - Per-account FX stores distinct source/destination native amounts and an implied
   audit rate only. Do not add global rates or revaluation.
-- Staged and soft-deleted transactions never affect balances or reports.
+- Staged transactions never affect balances or reports.
 - Updates/deletes require an expected version. Creates and commits require
   idempotency. Bulk commits are explicit-ID, validate-first, and atomic.
 - Transaction mass edits are atomic. Explicit rows carry expected versions;

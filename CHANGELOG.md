@@ -12,8 +12,9 @@ Not yet released. Current feature set:
 - Double-entry books: every transaction settles to zero in each currency it
   touches, opening balances post against equity, and server-owned income,
   expense, exchange, and equity counter-accounts stay out of account pickers
-- Append-only postings: corrections reverse and re-post rather than overwrite,
-  so the path to a balance stays readable
+- Append-only postings that carry their own date: a correction appends only the
+  difference, deleting posts a reversal rather than setting a flag, and a
+  balance as of a date is an indexed range rather than a scan of the ledger
 - Balances, dashboards, and reports derived from postings alone
 - Page and all-filtered transaction selection with atomic, concurrency-safe
   mass editing across transaction, account, category, and payee views, up to
@@ -21,6 +22,7 @@ Not yet released. Current feature set:
 - Mass delete for committed transactions from both the web app and MCP
 - Numbered pagination across every transaction list, with staged rows shown
   inline on category and payee detail pages
+- Every list sortable by any column it displays, ascending or descending
 - Required payees, optional descriptions, case-insensitive category/payee
   autocomplete, dedicated category/payee lists, safe merging, and filtered
   transaction views

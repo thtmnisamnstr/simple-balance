@@ -54,12 +54,22 @@ the application release number, so it changes only when the contract breaks.
   its own rather than netting across the pair.
 - Cross-currency transfers retain the sent and received amounts. The implied
   rate is audit and display metadata, not a global rate.
-- Postings are append-only. Changing an amount, account, or type reverses the
-  existing postings and writes a new set, so the rows still sum to the current
-  position and the path there stays readable. Editing only labels writes no
-  postings at all.
-- Deleted transactions keep their postings but are excluded by all balance and
-  report queries.
+- A posting carries its own date, so it stands on its own. Balances, cash flow
+  and spending by category are all read from the posting table, and a balance as
+  of a date is an indexed range rather than a scan of the whole ledger. Only
+  labels, such as which category an entry was filed under, are looked up
+  elsewhere, which is why recategorising updates past reports.
+- Postings are append-only. A correction works out the difference per account,
+  currency and date and appends only that, so changing an amount costs one
+  adjusting entry per side rather than a full reversal and repost. An edit that
+  changes nothing about the movement writes nothing at all.
+- Deleting voids an entry by posting its reversal; restoring posts it back.
+  Nothing is erased, and no balance or report has to remember to filter deleted
+  rows, because a voided entry already nets to zero.
+- Every list orders by any column it displays, in either direction. Order is
+  presentation rather than scope, so it stays out of the fingerprinted bulk
+  selection. A cursor records the order it was issued for and is refused under
+  another; orderings a keyset cannot resume page by number instead.
 - Transaction mass edits and deletes are validate-first and atomic. Explicit
   selections use row versions; all-matching selections use a server-issued count
   and fingerprint of the filtered `id:version` set so concurrent changes make the
