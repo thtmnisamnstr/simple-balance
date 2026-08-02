@@ -1,4 +1,5 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
+import type { Decimal } from "decimal.js";
 import type { Actor } from "../../shared/domain.js";
 import {
   accountCreateSchema,
@@ -120,19 +121,27 @@ export async function ensureSystemAccount(
 }
 
 /**
- * Record an account's opening balance in the ledger itself, against the
- * Opening Balances equity account. Without this the starting position would sit
- * outside the books and the ledger would not sum to zero.
+ * Record where an account started in the ledger itself, against the Opening
+ * Balances equity account. Without this the starting position would sit outside
+ * the books and the ledger as a whole would not sum to zero.
  *
- * The postings carry no transaction because an opening balance is where an
- * account began, not something that happened. Re-running it reverses whatever
- * is already posted and writes the new pair, so editing an opening balance
- * stays append-only like every other correction.
+ * The pair carries no transaction, because an opening balance is where an
+ * account began rather than something that happened. Both halves name the
+ * account they open, so correcting the opening date moves the equity side along
+ * with the account side instead of stranding it on the old day.
+ *
+ * Like every other correction this appends the difference rather than editing
+ * what is already posted, and writes nothing when nothing changed.
  */
 export async function postOpeningBalance(
   tx: DbTransaction,
   actor: Actor,
-  account: { id: string; currency: string; openingBalance: string },
+  account: {
+    id: string;
+    currency: string;
+    openingBalance: string;
+    openingDate: string;
+  },
 ) {
   const equity = await ensureSystemAccount(tx, actor, "equity", account.currency);
   const existing = await tx
@@ -141,35 +150,43 @@ export async function postOpeningBalance(
     .where(
       and(
         eq(postings.userId, actor.userId),
-        eq(postings.accountId, account.id),
-        isNull(postings.transactionId),
+        eq(postings.openingAccountId, account.id),
       ),
     );
-  const opening = decimal(account.openingBalance);
-  const current = existing.reduce(
-    (total, row) => total.plus(row.amount),
-    decimal("0"),
-  );
-  if (current.eq(opening)) return;
 
-  const rows: (typeof postings.$inferInsert)[] = [];
-  const difference = opening.minus(current);
-  if (!difference.isZero()) {
-    rows.push({
+  const opening = decimal(account.openingBalance);
+  const desired = opening.isZero()
+    ? []
+    : [
+        { accountId: account.id, date: account.openingDate, amount: opening },
+        {
+          accountId: equity.id,
+          date: account.openingDate,
+          amount: opening.negated(),
+        },
+      ];
+
+  const net = new Map<string, { accountId: string; date: string; amount: Decimal }>();
+  const add = (accountId: string, date: string, amount: Decimal) => {
+    const key = `${accountId}|${date}`;
+    const slot = net.get(key);
+    if (slot) slot.amount = slot.amount.plus(amount);
+    else net.set(key, { accountId, date, amount });
+  };
+  for (const row of existing) add(row.accountId, row.date, decimal(row.amount).negated());
+  for (const row of desired) add(row.accountId, row.date, row.amount);
+
+  const rows = [...net.values()]
+    .filter((slot) => !slot.amount.isZero())
+    .map((slot) => ({
       userId: actor.userId,
       transactionId: null,
-      accountId: account.id,
-      amount: canonicalDecimal(difference),
+      openingAccountId: account.id,
+      accountId: slot.accountId,
+      date: slot.date,
+      amount: canonicalDecimal(slot.amount),
       currency: account.currency,
-    });
-    rows.push({
-      userId: actor.userId,
-      transactionId: null,
-      accountId: equity.id,
-      amount: canonicalDecimal(difference.negated()),
-      currency: account.currency,
-    });
-  }
+    }));
   if (rows.length) await tx.insert(postings).values(rows);
 }
 
@@ -205,12 +222,8 @@ async function currentBalance(
   const result = await tx.execute(sql`
     select coalesce(sum(p.amount), 0)::text as balance
     from posting p
-    left join ledger_transaction t
-      on t.id = p.transaction_id
-      and t.user_id = p.user_id
     where p.user_id = ${actor.userId}
       and p.account_id = ${accountId}::uuid
-      and (t.id is null or t.deleted_at is null)
   `);
   return String((result.rows[0] as { balance: string }).balance);
 }
@@ -234,15 +247,12 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
   const result = await db.execute(sql`
     select
       a.*,
-      coalesce(sum(case
-        when (t.id is null or t.deleted_at is null)
-          and coalesce(t.date, a.opening_date) <= ${endDate}::date
-        then p.amount
-        else 0
-      end), 0)::text as calculated_balance
+      coalesce(sum(p.amount), 0)::text as calculated_balance
     from ledger_account a
-    left join posting p on p.account_id = a.id
-    left join ledger_transaction t on t.id = p.transaction_id
+    left join posting p
+      on p.user_id = a.user_id
+      and p.account_id = a.id
+      and p.date <= ${endDate}::date
     where a.user_id = ${actor.userId}
       and a.system_kind is null
       and (${includeArchived} or a.archived_at is null)
@@ -296,48 +306,24 @@ export async function getAccountBalances(
       (
         current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
       )::date::text as today,
-      (
-        coalesce(sum(case
-          when ${hasStart}
-            and (t.id is null or t.deleted_at is null)
-            and coalesce(t.date, a.opening_date) < ${start}::date
-          then p.amount
-          else 0
-        end), 0)
-      )::text as beginning_balance,
-      (
-        coalesce(sum(case
-          when (t.id is null or t.deleted_at is null)
-            and coalesce(t.date, a.opening_date) <= ${end}::date
-          then p.amount
-          else 0
-        end), 0)
-      )::text as ending_balance,
-      (
-        coalesce(sum(case
-          when (t.id is null or t.deleted_at is null)
-            and coalesce(t.date, a.opening_date) <= (
-              current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
-            )::date
-          then p.amount
-          else 0
-        end), 0)
-      )::text as current_balance,
-      (
-        coalesce(sum(case
-          when (t.id is null or t.deleted_at is null) then p.amount
-          else 0
-        end), 0)
-      )::text as future_balance
+      coalesce(sum(p.amount) filter (
+        where ${hasStart} and p.date < ${start}::date
+      ), 0)::text as beginning_balance,
+      coalesce(sum(p.amount) filter (
+        where p.date <= ${end}::date
+      ), 0)::text as ending_balance,
+      coalesce(sum(p.amount) filter (
+        where p.date <= (
+          current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
+        )::date
+      ), 0)::text as current_balance,
+      coalesce(sum(p.amount), 0)::text as future_balance
     from ledger_account a
     left join user_preferences preferences
       on preferences.user_id = a.user_id
     left join posting p
       on p.account_id = a.id
       and p.user_id = a.user_id
-    left join ledger_transaction t
-      on t.id = p.transaction_id
-      and t.user_id = a.user_id
     where a.id = ${id}::uuid
       and a.user_id = ${actor.userId}
     group by a.id, preferences.timezone
@@ -531,16 +517,14 @@ export async function deleteAccount(
       throw conflict("This account is in use. Archive it instead of deleting it.");
     }
     // Deleting is only allowed while an account has no transactions, so the
-    // opening pair is the only thing it holds. Reverse it to zero, then drop
-    // this side of it: what stays on the equity account still nets out.
-    await postOpeningBalance(tx, actor, { ...before, openingBalance: "0" });
+    // opening pair is all it holds. Both halves name this account, so the pair
+    // comes out together and the equity side is not left stranded.
     await tx
       .delete(postings)
       .where(
         and(
           eq(postings.userId, actor.userId),
-          eq(postings.accountId, id),
-          isNull(postings.transactionId),
+          eq(postings.openingAccountId, id),
         ),
       );
 

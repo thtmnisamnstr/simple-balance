@@ -149,11 +149,14 @@ CREATE TABLE "posting" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" text NOT NULL,
 	"transaction_id" uuid,
+	"opening_account_id" uuid,
 	"account_id" uuid NOT NULL,
+	"date" date NOT NULL,
 	"amount" numeric(44, 18) NOT NULL,
 	"currency" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "posting_origin_check" CHECK (("posting"."transaction_id" is null) <> ("posting"."opening_account_id" is null)),
 	CONSTRAINT "posting_amount_check" CHECK ("posting"."amount" <> 0),
 	CONSTRAINT "posting_currency_check" CHECK ("posting"."currency" ~ '^[A-Z]{2,12}$')
 );
@@ -328,6 +331,7 @@ ALTER TABLE "auth_oauth_consent" ADD CONSTRAINT "auth_oauth_consent_user_id_auth
 ALTER TABLE "posting" ADD CONSTRAINT "posting_user_id_auth_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."auth_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "posting" ADD CONSTRAINT "posting_transaction_owner_fk" FOREIGN KEY ("user_id","transaction_id") REFERENCES "public"."ledger_transaction"("user_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "posting" ADD CONSTRAINT "posting_account_owner_fk" FOREIGN KEY ("user_id","account_id") REFERENCES "public"."ledger_account"("user_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "posting" ADD CONSTRAINT "posting_opening_account_owner_fk" FOREIGN KEY ("user_id","opening_account_id") REFERENCES "public"."ledger_account"("user_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "auth_session" ADD CONSTRAINT "auth_session_user_id_auth_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."auth_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "staged_transaction" ADD CONSTRAINT "staged_transaction_user_id_auth_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."auth_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "staged_transaction" ADD CONSTRAINT "staged_transaction_duplicate_owner_fk" FOREIGN KEY ("user_id","duplicate_of_id") REFERENCES "public"."ledger_transaction"("user_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -350,7 +354,9 @@ CREATE INDEX "oauth_access_token_user_idx" ON "auth_oauth_access_token" USING bt
 CREATE INDEX "oauth_application_user_idx" ON "auth_oauth_application" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "oauth_consent_client_idx" ON "auth_oauth_consent" USING btree ("client_id");--> statement-breakpoint
 CREATE INDEX "oauth_consent_user_idx" ON "auth_oauth_consent" USING btree ("user_id");--> statement-breakpoint
-CREATE INDEX "posting_user_account_idx" ON "posting" USING btree ("user_id","account_id");--> statement-breakpoint
+CREATE INDEX "posting_opening_account_idx" ON "posting" USING btree ("user_id","opening_account_id");--> statement-breakpoint
+CREATE INDEX "posting_user_account_date_idx" ON "posting" USING btree ("user_id","account_id","date");--> statement-breakpoint
+CREATE INDEX "posting_user_date_idx" ON "posting" USING btree ("user_id","date");--> statement-breakpoint
 CREATE INDEX "posting_transaction_idx" ON "posting" USING btree ("transaction_id");--> statement-breakpoint
 CREATE INDEX "auth_session_user_idx" ON "auth_session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "staged_user_status_created_idx" ON "staged_transaction" USING btree ("user_id","status","created_at","id");--> statement-breakpoint

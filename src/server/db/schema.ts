@@ -397,11 +397,20 @@ export const postings = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    // Null for the opening-balance pair, which records where an account started
-    // rather than a transaction that occurred.
+    // A posting records either a transaction or where an account started.
+    // Exactly one of these is set, which the origin check below enforces.
     transactionId: uuid("transaction_id"),
+    openingAccountId: uuid("opening_account_id"),
     accountId: uuid("account_id")
       .notNull(),
+    // A journal line carries its own date. Money moved on the day it moved, so
+    // balances as of a date read this table alone rather than reaching through
+    // to a transaction, and changing when something happened moves the posting.
+    //
+    // A category is deliberately NOT here. It is a label on the transaction, and
+    // keeping one copy of it means recategorising cannot leave the books and the
+    // reports disagreeing.
+    date: date("date").notNull(),
     amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
     currency: text("currency").notNull(),
     ...timestamps,
@@ -417,8 +426,30 @@ export const postings = pgTable(
       foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
       name: "posting_account_owner_fk",
     }),
-    index("posting_user_account_idx").on(table.userId, table.accountId),
+    // Both halves of an opening pair name the account they open, so moving an
+    // opening date moves the equity side with it.
+    foreignKey({
+      columns: [table.userId, table.openingAccountId],
+      foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
+      name: "posting_opening_account_owner_fk",
+    }),
+    index("posting_opening_account_idx").on(
+      table.userId,
+      table.openingAccountId,
+    ),
+    // Serves every balance-as-of query: one account, dates up to a bound.
+    index("posting_user_account_date_idx").on(
+      table.userId,
+      table.accountId,
+      table.date,
+    ),
+    // Serves the dashboard, which sums a date range across counter-accounts.
+    index("posting_user_date_idx").on(table.userId, table.date),
     index("posting_transaction_idx").on(table.transactionId),
+    check(
+      "posting_origin_check",
+      sql`(${table.transactionId} is null) <> (${table.openingAccountId} is null)`,
+    ),
     check("posting_amount_check", sql`${table.amount} <> 0`),
     check("posting_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
   ],

@@ -1,5 +1,5 @@
 {
-  "id": "a7dd96f9-b641-4595-8cfc-dc67946ba16f",
+  "id": "f3ac38b2-3581-40b8-9532-c07d1abc6c02",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1262,9 +1262,21 @@
           "primaryKey": false,
           "notNull": false
         },
+        "opening_account_id": {
+          "name": "opening_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "account_id": {
           "name": "account_id",
           "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date": {
+          "name": "date",
+          "type": "date",
           "primaryKey": false,
           "notNull": true
         },
@@ -1296,8 +1308,29 @@
         }
       },
       "indexes": {
-        "posting_user_account_idx": {
-          "name": "posting_user_account_idx",
+        "posting_opening_account_idx": {
+          "name": "posting_opening_account_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "opening_account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "posting_user_account_date_idx": {
+          "name": "posting_user_account_date_idx",
           "columns": [
             {
               "expression": "user_id",
@@ -1307,6 +1340,33 @@
             },
             {
               "expression": "account_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "posting_user_date_idx": {
+          "name": "posting_user_date_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "date",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1376,12 +1436,31 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "posting_opening_account_owner_fk": {
+          "name": "posting_opening_account_owner_fk",
+          "tableFrom": "posting",
+          "tableTo": "ledger_account",
+          "columnsFrom": [
+            "user_id",
+            "opening_account_id"
+          ],
+          "columnsTo": [
+            "user_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "posting_origin_check": {
+          "name": "posting_origin_check",
+          "value": "(\"posting\".\"transaction_id\" is null) <> (\"posting\".\"opening_account_id\" is null)"
+        },
         "posting_amount_check": {
           "name": "posting_amount_check",
           "value": "\"posting\".\"amount\" <> 0"

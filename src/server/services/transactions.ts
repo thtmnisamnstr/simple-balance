@@ -149,15 +149,21 @@ function counterAccount(
   return account;
 }
 
+/**
+ * Half of an entry, before it is filed. The date is stamped on once for the
+ * whole entry, because every posting a transaction makes happened on the day
+ * the transaction did.
+ */
+type PostingSeed = Omit<typeof postings.$inferInsert, "date" | "transactionId">;
+
 function posting(
   actor: Actor,
   accountId: string,
   amount: string | Decimal,
   currency: string,
-): typeof postings.$inferInsert {
+): PostingSeed {
   return {
     userId: actor.userId,
-    transactionId: "00000000-0000-0000-0000-000000000000",
     accountId,
     amount: canonicalDecimal(amount),
     currency,
@@ -200,6 +206,8 @@ export function buildPreparedTransaction(
     notes: draft.notes ?? null,
     externalId: draft.externalId ?? null,
   };
+  const entries = (seeds: PostingSeed[]): (typeof postings.$inferInsert)[] =>
+    seeds.map((seed) => ({ ...seed, date: common.date }));
 
   if (draft.type === "deposit") {
     const destination = accountMap.get(draft.toAccountId);
@@ -211,7 +219,7 @@ export function buildPreparedTransaction(
         destinationAmount: canonicalDecimal(draft.amount),
         destinationCurrency: destination.currency,
       },
-      postings: [
+      postings: entries([
         posting(actor, destination.id, draft.amount, destination.currency),
         // The other half of the entry. Without it the deposit would create
         // money out of nothing.
@@ -221,7 +229,7 @@ export function buildPreparedTransaction(
           decimal(draft.amount).negated(),
           destination.currency,
         ),
-      ],
+      ]),
     };
   }
 
@@ -235,7 +243,7 @@ export function buildPreparedTransaction(
         sourceAmount: canonicalDecimal(draft.amount),
         sourceCurrency: source.currency,
       },
-      postings: [
+      postings: entries([
         posting(actor, source.id, decimal(draft.amount).negated(), source.currency),
         posting(
           actor,
@@ -243,7 +251,7 @@ export function buildPreparedTransaction(
           draft.amount,
           source.currency,
         ),
-      ],
+      ]),
     };
   }
 
@@ -288,7 +296,7 @@ export function buildPreparedTransaction(
       destinationCurrency: destination.currency,
       effectiveRate,
     },
-    postings:
+    postings: entries(
       source.currency === destination.currency
         ? [
             posting(
@@ -320,23 +328,28 @@ export function buildPreparedTransaction(
             ),
             posting(actor, destination.id, destinationAmount, destination.currency),
           ],
+    ),
   };
 }
 
 /**
- * Postings are append-only, so money movement is never edited or deleted in
- * place. Re-posting an entry writes the exact negation of everything already
- * posted against it, then writes the new set. The rows still sum to the current
- * position, and the history of how it got there stays readable.
+ * Bring an entry's postings to a desired state without ever editing or deleting
+ * one. The difference between what is posted and what should be posted is
+ * worked out per account, currency, date, and category, and only that
+ * difference is written.
  *
- * When the movement is unchanged, nothing is written at all, which is the
- * common case for a mass edit that only touches labels.
+ * Correcting an amount therefore costs one adjusting posting per side rather
+ * than a full reversal plus a full repost, and an edit that changes nothing
+ * about the movement writes nothing at all. Passing an empty desired set voids
+ * the entry, which is how deletion works; passing its postings back restores it.
+ *
+ * The rows still sum to the current position, and the path there stays legible.
  */
 export async function repostTransaction(
   tx: DbTransaction,
   actor: Actor,
   transactionId: string,
-  next: (typeof postings.$inferInsert)[],
+  next: readonly (typeof postings.$inferInsert)[],
 ) {
   const current = await tx
     .select()
@@ -348,28 +361,45 @@ export async function repostTransaction(
       ),
     );
 
-  const net = new Map<string, Decimal>();
-  const add = (accountId: string, currency: string, amount: string | Decimal) => {
-    const key = `${accountId}:${currency}`;
-    net.set(key, (net.get(key) ?? decimal("0")).plus(amount));
+  type Slot = {
+    accountId: string;
+    currency: string;
+    date: string;
+    amount: Decimal;
   };
-  for (const row of current) add(row.accountId, row.currency, row.amount);
-  for (const row of next) add(row.accountId, row.currency, decimal(row.amount).negated());
-  const unchanged = [...net.values()].every((value) => value.isZero());
-  if (unchanged) return false;
+  const net = new Map<string, Slot>();
+  const add = (
+    row: { accountId: string; currency: string; date: string },
+    amount: Decimal,
+  ) => {
+    const key = `${row.accountId}|${row.currency}|${row.date}`;
+    const slot = net.get(key);
+    if (slot) {
+      slot.amount = slot.amount.plus(amount);
+      return;
+    }
+    net.set(key, {
+      accountId: row.accountId,
+      currency: row.currency,
+      date: row.date,
+      amount,
+    });
+  };
+  for (const row of current) add(row, decimal(row.amount).negated());
+  for (const row of next) add(row, decimal(row.amount));
 
-  const reversals = current.map((row) => ({
-    userId: actor.userId,
-    transactionId,
-    accountId: row.accountId,
-    amount: canonicalDecimal(decimal(row.amount).negated()),
-    currency: row.currency,
-  }));
-  const rows = [
-    ...reversals,
-    ...next.map((row) => ({ ...row, transactionId })),
-  ].filter((row) => !decimal(row.amount).isZero());
-  if (rows.length) await tx.insert(postings).values(rows);
+  const rows = [...net.values()]
+    .filter((slot) => !slot.amount.isZero())
+    .map((slot) => ({
+      userId: actor.userId,
+      transactionId,
+      accountId: slot.accountId,
+      date: slot.date,
+      amount: canonicalDecimal(slot.amount),
+      currency: slot.currency,
+    }));
+  if (!rows.length) return false;
+  await tx.insert(postings).values(rows);
   return true;
 }
 
@@ -1170,7 +1200,13 @@ export async function bulkEditTransactions(
     }
 
     for (const { before, prepared } of plans) {
-      await repostTransaction(tx, actor, before.id, prepared.postings);
+      // A deleted row keeps its labels editable and its ledger void.
+      await repostTransaction(
+        tx,
+        actor,
+        before.id,
+        before.deletedAt ? [] : prepared.postings,
+      );
     }
     for (let index = 0; index < plans.length; index += 1) {
       await writeAudit(tx, actor, {
@@ -1325,6 +1361,7 @@ export async function bulkDeleteTransactions(
         )
         .returning();
       if (!updated) throw staleVersion({ id: before.id });
+      await repostTransaction(tx, actor, before.id, []);
       await writeAudit(tx, actor, {
         entityType: "transaction",
         entityId: before.id,
@@ -1396,7 +1433,14 @@ export async function updateTransaction(
       )
       .returning();
     if (!updated) throw staleVersion();
-    await repostTransaction(tx, actor, id, prepared.postings);
+    // Editing a deleted entry keeps it deleted: the labels change, the ledger
+    // stays void until it is restored.
+    await repostTransaction(
+      tx,
+      actor,
+      id,
+      updated.deletedAt ? [] : prepared.postings,
+    );
     await writeAudit(tx, actor, {
       entityType: "transaction",
       entityId: id,
@@ -1449,6 +1493,24 @@ export async function setTransactionDeleted(
       )
       .returning();
     if (!updated) throw staleVersion();
+    // A deleted entry is voided in the ledger rather than hidden from it, so
+    // no balance or report has to remember to filter it out. Restoring posts
+    // the movement back.
+    const restored = deleted
+      ? []
+      : (
+          await prepareTransaction(tx, actor, transactionToDraft(updated), {
+            allowedArchivedAccountIds: new Set(
+              [updated.sourceAccountId, updated.destinationAccountId].filter(
+                (accountId): accountId is string => accountId !== null,
+              ),
+            ),
+            allowedArchivedCategoryIds: new Set(
+              updated.categoryId ? [updated.categoryId] : [],
+            ),
+          })
+        ).postings;
+    await repostTransaction(tx, actor, id, restored);
     await writeAudit(tx, actor, {
       entityType: "transaction",
       entityId: id,

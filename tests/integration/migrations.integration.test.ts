@@ -237,8 +237,8 @@ integration("PostgreSQL migrations", () => {
     await expect(
       databaseClient.query(
         `insert into posting
-           (user_id, transaction_id, account_id, amount, currency)
-         values ($1, $2, $3, 10, 'USD')`,
+           (user_id, transaction_id, account_id, date, amount, currency)
+         values ($1, $2, $3, '2027-01-01', 10, 'USD')`,
         [firstUserId, secondTransactionId, firstAccountId],
       ),
     ).rejects.toMatchObject({ constraint: "posting_transaction_owner_fk" });
@@ -254,18 +254,18 @@ integration("PostgreSQL migrations", () => {
     });
 
     // Postings are append-only. One account legitimately carries several
-    // generations for a transaction once an edit reverses and re-posts it, so
-    // the schema must allow the repeat rather than reject it.
+    // generations for a transaction once a correction adjusts it, so the schema
+    // must allow the repeat rather than reject it.
     await databaseClient.query(
       `insert into posting
-         (user_id, transaction_id, account_id, amount, currency)
-       values ($1, $2, $3, 10, 'USD')`,
+         (user_id, transaction_id, account_id, date, amount, currency)
+       values ($1, $2, $3, '2027-01-01', 10, 'USD')`,
       [secondUserId, secondTransactionId, secondAccountId],
     );
     await databaseClient.query(
       `insert into posting
-         (user_id, transaction_id, account_id, amount, currency)
-       values ($1, $2, $3, -10, 'USD')`,
+         (user_id, transaction_id, account_id, date, amount, currency)
+       values ($1, $2, $3, '2027-01-01', -10, 'USD')`,
       [secondUserId, secondTransactionId, secondAccountId],
     );
     const generations = await databaseClient.query<{ total: string }>(
@@ -276,12 +276,31 @@ integration("PostgreSQL migrations", () => {
     );
     expect(generations.rows[0]?.total).toBe("0.000000000000000000");
 
+    // A posting records a transaction or an opening balance, never both and
+    // never neither.
+    await expect(
+      databaseClient.query(
+        `insert into posting
+           (user_id, transaction_id, opening_account_id, account_id, date, amount, currency)
+         values ($1, $2, $3, $4, '2027-01-01', 10, 'USD')`,
+        [secondUserId, secondTransactionId, secondAccountId, secondAccountId],
+      ),
+    ).rejects.toMatchObject({ constraint: "posting_origin_check" });
+    await expect(
+      databaseClient.query(
+        `insert into posting
+           (user_id, account_id, date, amount, currency)
+         values ($1, $2, '2027-01-01', 10, 'USD')`,
+        [secondUserId, secondAccountId],
+      ),
+    ).rejects.toMatchObject({ constraint: "posting_origin_check" });
+
     // A zero posting is still meaningless and stays rejected.
     await expect(
       databaseClient.query(
         `insert into posting
-           (user_id, transaction_id, account_id, amount, currency)
-         values ($1, $2, $3, 0, 'USD')`,
+           (user_id, transaction_id, account_id, date, amount, currency)
+         values ($1, $2, $3, '2027-01-01', 0, 'USD')`,
         [secondUserId, secondTransactionId, secondAccountId],
       ),
     ).rejects.toMatchObject({ constraint: "posting_amount_check" });

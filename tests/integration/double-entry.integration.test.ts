@@ -222,7 +222,7 @@ integration("double-entry ledger", () => {
     expect(system.rows.length).toBeGreaterThan(0);
   });
 
-  it("re-posts an amount change instead of rewriting the postings", async () => {
+  it("adjusts an amount change instead of rewriting the postings", async () => {
     const created = await createTransaction(
       actor,
       {
@@ -249,8 +249,9 @@ integration("double-entry ledger", () => {
       expectedVersion: created.version,
     });
 
-    // The original two rows stay, joined by two reversals and the new pair.
-    expect(await postingCount(updated.id)).toBe(6);
+    // The original rows stay untouched. Correcting 10 to 25 costs one adjusting
+    // posting per side, not a full reversal and a full repost.
+    expect(await postingCount(updated.id)).toBe(4);
     const net = await netPostings(updated.id);
     expect(net.map((row) => row.total).sort()).toEqual([
       "-25.000000000000000000",
@@ -395,7 +396,7 @@ integration("double-entry ledger", () => {
     expect(await unbalancedCurrencies()).toEqual([]);
   });
 
-  it("leaves postings untouched when a transaction is deleted", async () => {
+  it("voids the entry in the ledger when a transaction is deleted", async () => {
     const created = await createTransaction(
       actor,
       {
@@ -409,10 +410,27 @@ integration("double-entry ledger", () => {
       "de-delete",
     );
     const before = await postingCount(created.id);
+    expect(before).toBe(2);
 
-    await setTransactionDeleted(actor, created.id, created.version, true);
+    const deleted = await setTransactionDeleted(
+      actor,
+      created.id,
+      created.version,
+      true,
+    );
 
-    expect(await postingCount(created.id)).toBe(before);
+    // Nothing is erased. The movement is reversed, so the entry nets to nothing
+    // and no balance or report has to remember to filter it out.
+    expect(await postingCount(created.id)).toBe(4);
+    expect(await netPostings(created.id)).toEqual([]);
     expect(await unbalancedTransactions()).toEqual([]);
+
+    // Restoring posts it back rather than resurrecting the old rows.
+    await setTransactionDeleted(actor, created.id, deleted.version, false);
+    expect(await postingCount(created.id)).toBe(6);
+    expect((await netPostings(created.id)).map((row) => row.total).sort()).toEqual([
+      "-9.000000000000000000",
+      "9.000000000000000000",
+    ]);
   });
 });
