@@ -38,6 +38,25 @@ release you moved to says otherwise.
 
 This is the reason step 2 is not optional.
 
+## Cutting a release
+
+1. `npm run set-version 0.2.0`, which sets the version in the five places that
+   have to agree.
+2. Commit and push that on the default branch.
+3. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
+   `gh release create v0.2.0`.
+
+Publishing keys off the release itself, not off the tag push, so it runs once
+whether the tag existed beforehand or GitHub creates it. The workflow runs the
+full verification suite first, refuses to publish if the tag and the manifest
+disagree, and then pushes a multi-architecture image to GHCR tagged with the
+version. `latest` moves to it unless the release is marked as a prerelease or
+the version carries a suffix, in which case only the version tag is published.
+
+If a publish fails for a reason that has nothing to do with the code, run the
+release workflow by hand from the Actions tab and give it the tag; it publishes
+the same tags without needing a new release.
+
 ## The schema contract
 
 Before the first release, the schema is a single baseline migration that gets

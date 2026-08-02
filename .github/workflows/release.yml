@@ -1,16 +1,33 @@
 name: release
 
+# Publishing keys off the release itself rather than off the tag push that may
+# or may not accompany it. Cutting a release in the GitHub UI, with `gh release
+# create`, or by publishing a draft all raise this one event, and each raises it
+# exactly once, so an image is never published twice or, worse, not at all.
+#
+# `workflow_dispatch` is here to re-publish an existing release without cutting
+# a new one, which is what you want when a publish failed for a reason that had
+# nothing to do with the code.
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish, for example v0.1.0"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
-  # Publishing runs the same gates as every other push, so a tag can never ship
-  # an image that would have failed verification.
+  # The same gates every push runs. A tag can never ship an image that would
+  # have failed verification.
   verify:
     uses: ./.github/workflows/verify.yml
 
@@ -21,29 +38,49 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-
-      - name: Resolve the release version
+      - name: Resolve the release
         id: release
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          PRERELEASE: ${{ github.event.release.prerelease || false }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          version="${tag#v}"
-          package_version="$(node -p 'require("./package.json").version')"
-          if [ "$version" != "$package_version" ]; then
-            echo "Tag $tag does not match package.json version $package_version" >&2
-            exit 1
-          fi
-          # Only a final release moves `latest`; a prerelease tag publishes its
-          # own version tag and nothing else.
-          prerelease=false
+          case "$TAG" in
+            v*) ;;
+            *) echo "Release tag $TAG must start with v" >&2; exit 1 ;;
+          esac
+          version="${TAG#v}"
+
+          # A prerelease is one GitHub marked as such, or one whose version
+          # carries a suffix. Either way it publishes its own tag and leaves
+          # `latest` where it is.
+          prerelease="$PRERELEASE"
           case "$version" in
             *-*) prerelease=true ;;
           esac
+
           {
+            echo "tag=$TAG"
             echo "version=$version"
             echo "prerelease=$prerelease"
+            # GHCR rejects an uppercase path, and a repository name is free to
+            # contain one.
+            echo "image=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Check the tag against the manifest
+        run: |
+          set -euo pipefail
+          package_version="$(node -p 'require("./package.json").version')"
+          if [ "${{ steps.release.outputs.version }}" != "$package_version" ]; then
+            echo "Release ${{ steps.release.outputs.tag }} does not match package.json version $package_version." >&2
+            echo "Run: npm run set-version ${{ steps.release.outputs.version }}" >&2
+            exit 1
+          fi
 
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
@@ -53,12 +90,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Tags are stated outright rather than inferred from the git ref, so a
+      # dispatch run publishes the same tags a release run does.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ${{ steps.release.outputs.image }}
           tags: |
-            type=semver,pattern={{version}}
+            type=raw,value=${{ steps.release.outputs.version }}
             type=raw,value=latest,enable=${{ steps.release.outputs.prerelease == 'false' }}
           labels: |
             org.opencontainers.image.version=${{ steps.release.outputs.version }}
@@ -74,3 +113,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Say what was published
+        run: |
+          echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

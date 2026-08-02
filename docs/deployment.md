@@ -12,7 +12,7 @@ ones that matter.
 
 | Variable | What it is |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string. Append `?sslmode=require` when the database is not on the same host. |
+| `DATABASE_URL` | PostgreSQL connection string. Append `?sslmode=require` when the database is not on the same host. The database it names is created if the server does not have it yet. |
 | `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. |
 | `APP_BASE_URL` | Your canonical public origin, exactly as the browser sees it. HTTPS anywhere but localhost. |
 
@@ -104,6 +104,28 @@ location / {
 Set `TRUST_PROXY=true` only when every request arrives through a proxy that
 *replaces* `X-Forwarded-Host` and `X-Forwarded-Proto` rather than passing through
 whatever a client sent. If a client can set those headers itself, leave it off.
+
+## Starting from nothing
+
+Point Simple Balance at a PostgreSQL server and it takes care of the rest. If
+the database named in `DATABASE_URL` does not exist, it is created; if it exists
+but is empty, the schema is built; if it is already up to date, nothing happens.
+That is true however you run it, whether that is the container, `npm start`, or
+`npm run dev`, because all of them go through the same startup step.
+
+```sh
+docker run -d --name simple-balance \
+  -e DATABASE_URL='postgresql://postgres:secret@db.example:5432/simple_balance' \
+  -e AUTH_SECRET="$(openssl rand -base64 32)" \
+  -e APP_BASE_URL='https://simple-balance.example.com' \
+  -p 127.0.0.1:3000:3000 \
+  ghcr.io/thtmnisamnstr/simple-balance:latest
+```
+
+Creating the database needs the connecting role to have `CREATEDB`, which the
+default `postgres` superuser has. Without it you get a message naming the
+database and the statement to run, rather than a driver error. Nothing else
+about the server is assumed or altered.
 
 ## Health and shutdown
 
