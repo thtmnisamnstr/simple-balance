@@ -5,8 +5,46 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      # One pull request a week for the routine bumps rather than one per
+      # package. Patches and minors get reviewed together or not at all, so
+      # splitting them across a dozen pull requests spends attention without
+      # buying anything. Majors still arrive on their own, which is where the
+      # attention is worth spending.
+      routine:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # These describe the Node the image actually runs, which is the current
+      # LTS. Taking a major here lets code typecheck against APIs that are not
+      # there at runtime, so it tracks within the major and moves deliberately
+      # when the base image does.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  # The manifest that ships inside the image. It was not watched before, so its
+  # dependencies drifted behind the ones they are meant to mirror.
+  - package-ecosystem: npm
+    directory: "/runtime"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      routine:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    groups:
+      actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
