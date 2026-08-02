@@ -89,8 +89,8 @@ CREATE TABLE "ledger_account" (
 	"version" integer DEFAULT 1 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "ledger_account_user_name_unique" UNIQUE("user_id","name"),
 	CONSTRAINT "ledger_account_user_id_id_unique" UNIQUE("user_id","id"),
+	CONSTRAINT "ledger_account_user_id_currency_unique" UNIQUE("user_id","id","currency"),
 	CONSTRAINT "ledger_account_currency_check" CHECK ("ledger_account"."currency" ~ '^[A-Z]{2,12}$'),
 	CONSTRAINT "ledger_account_version_check" CHECK ("ledger_account"."version" >= 1)
 );
@@ -330,7 +330,7 @@ ALTER TABLE "auth_oauth_consent" ADD CONSTRAINT "auth_oauth_consent_client_id_au
 ALTER TABLE "auth_oauth_consent" ADD CONSTRAINT "auth_oauth_consent_user_id_auth_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."auth_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "posting" ADD CONSTRAINT "posting_user_id_auth_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."auth_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "posting" ADD CONSTRAINT "posting_transaction_owner_fk" FOREIGN KEY ("user_id","transaction_id") REFERENCES "public"."ledger_transaction"("user_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "posting" ADD CONSTRAINT "posting_account_owner_fk" FOREIGN KEY ("user_id","account_id") REFERENCES "public"."ledger_account"("user_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "posting" ADD CONSTRAINT "posting_account_currency_fk" FOREIGN KEY ("user_id","account_id","currency") REFERENCES "public"."ledger_account"("user_id","id","currency") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "posting" ADD CONSTRAINT "posting_opening_account_owner_fk" FOREIGN KEY ("user_id","opening_account_id") REFERENCES "public"."ledger_account"("user_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "auth_session" ADD CONSTRAINT "auth_session_user_id_auth_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."auth_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "staged_transaction" ADD CONSTRAINT "staged_transaction_user_id_auth_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."auth_user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -348,6 +348,7 @@ CREATE INDEX "audit_user_entity_idx" ON "audit_event" USING btree ("user_id","en
 CREATE INDEX "category_user_idx" ON "category" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "import_batch_user_created_idx" ON "import_batch" USING btree ("user_id","created_at","id");--> statement-breakpoint
 CREATE INDEX "ledger_account_user_idx" ON "ledger_account" USING btree ("user_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "ledger_account_user_name_unique" ON "ledger_account" USING btree ("user_id","name") WHERE "ledger_account"."system_kind" is null;--> statement-breakpoint
 CREATE UNIQUE INDEX "ledger_account_system_kind_unique" ON "ledger_account" USING btree ("user_id","system_kind","currency") WHERE "ledger_account"."system_kind" is not null;--> statement-breakpoint
 CREATE INDEX "oauth_access_token_client_idx" ON "auth_oauth_access_token" USING btree ("client_id");--> statement-breakpoint
 CREATE INDEX "oauth_access_token_user_idx" ON "auth_oauth_access_token" USING btree ("user_id");--> statement-breakpoint

@@ -1,5 +1,5 @@
 {
-  "id": "f3ac38b2-3581-40b8-9532-c07d1abc6c02",
+  "id": "02300783-59fc-456c-9aa9-f211530daa9e",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -722,6 +722,28 @@
           "method": "btree",
           "with": {}
         },
+        "ledger_account_user_name_unique": {
+          "name": "ledger_account_user_name_unique",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"ledger_account\".\"system_kind\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "ledger_account_system_kind_unique": {
           "name": "ledger_account_system_kind_unique",
           "columns": [
@@ -768,20 +790,21 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "ledger_account_user_name_unique": {
-          "name": "ledger_account_user_name_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "name"
-          ]
-        },
         "ledger_account_user_id_id_unique": {
           "name": "ledger_account_user_id_id_unique",
           "nullsNotDistinct": false,
           "columns": [
             "user_id",
             "id"
+          ]
+        },
+        "ledger_account_user_id_currency_unique": {
+          "name": "ledger_account_user_id_currency_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "id",
+            "currency"
           ]
         }
       },
@@ -1422,17 +1445,19 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "posting_account_owner_fk": {
-          "name": "posting_account_owner_fk",
+        "posting_account_currency_fk": {
+          "name": "posting_account_currency_fk",
           "tableFrom": "posting",
           "tableTo": "ledger_account",
           "columnsFrom": [
             "user_id",
-            "account_id"
+            "account_id",
+            "currency"
           ],
           "columnsTo": [
             "user_id",
-            "id"
+            "id",
+            "currency"
           ],
           "onDelete": "no action",
           "onUpdate": "no action"

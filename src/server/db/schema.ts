@@ -211,8 +211,21 @@ export const ledgerAccounts = pgTable(
   },
   (table) => [
     index("ledger_account_user_idx").on(table.userId),
-    unique("ledger_account_user_name_unique").on(table.userId, table.name),
+    // Names are unique among the accounts a person keeps. The server's own
+    // counter-accounts are excluded, because naming an account "Expenses (USD)"
+    // would otherwise collide with one and leave the ledger unable to open it.
+    uniqueIndex("ledger_account_user_name_unique")
+      .on(table.userId, table.name)
+      .where(sql`${table.systemKind} is null`),
     unique("ledger_account_user_id_id_unique").on(table.userId, table.id),
+    // Lets postings and transactions carry a foreign key that includes the
+    // currency, so no row can name an amount in a currency its account does
+    // not hold.
+    unique("ledger_account_user_id_currency_unique").on(
+      table.userId,
+      table.id,
+      table.currency,
+    ),
     uniqueIndex("ledger_account_system_kind_unique")
       .on(table.userId, table.systemKind, table.currency)
       .where(sql`${table.systemKind} is not null`),
@@ -421,10 +434,16 @@ export const postings = pgTable(
       foreignColumns: [transactions.userId, transactions.id],
       name: "posting_transaction_owner_fk",
     }).onDelete("cascade"),
+    // Ties the posting to its account and pins its currency to that account's
+    // in one constraint, so a balance can sum without grouping by currency.
     foreignKey({
-      columns: [table.userId, table.accountId],
-      foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
-      name: "posting_account_owner_fk",
+      columns: [table.userId, table.accountId, table.currency],
+      foreignColumns: [
+        ledgerAccounts.userId,
+        ledgerAccounts.id,
+        ledgerAccounts.currency,
+      ],
+      name: "posting_account_currency_fk",
     }),
     // Both halves of an opening pair name the account they open, so moving an
     // opening date moves the equity side with it.

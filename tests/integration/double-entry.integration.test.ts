@@ -392,6 +392,61 @@ integration("double-entry ledger", () => {
     expect(renamed.balance).toBe("150");
   });
 
+  it("lets an account be named after a counter-account without breaking", async () => {
+    // The server's own accounts are named "Expenses (USD)" and the like. If a
+    // person's account name could collide with one, the ledger would be unable
+    // to open the counter-account and every withdrawal in that currency would
+    // fail from then on.
+    const named = await createAccount(actor, {
+      name: "Expenses (USD)",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2027-01-01",
+      openingBalance: "0",
+    });
+
+    const spent = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2027-05-01",
+        payee: "DE collision",
+        description: null,
+        fromAccountId: named.id,
+        amount: "12",
+      },
+      "de-collision",
+    );
+
+    expect((await netPostings(spent.id)).map((row) => row.total).sort()).toEqual([
+      "-12.000000000000000000",
+      "12.000000000000000000",
+    ]);
+    expect(await unbalancedCurrencies()).toEqual([]);
+  });
+
+  it("keeps a posting in its account's own currency", async () => {
+    const euro = await getDb().execute(sql`
+      select id from ledger_account
+      where user_id = ${actor.userId} and name = 'DE Euro'
+    `);
+    const euroAccountId = String((euro.rows[0] as { id: string }).id);
+
+    await expect(
+      getDb().execute(sql`
+        insert into posting (user_id, transaction_id, account_id, date, amount, currency)
+        values (
+          ${actor.userId},
+          ${null},
+          ${euroAccountId}::uuid,
+          '2027-01-01',
+          5,
+          'USD'
+        )
+      `),
+    ).rejects.toThrow();
+  });
+
   it("leaves the whole ledger balanced across every currency", async () => {
     expect(await unbalancedCurrencies()).toEqual([]);
   });

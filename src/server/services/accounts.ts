@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Decimal } from "decimal.js";
 import type { Actor } from "../../shared/domain.js";
 import {
@@ -243,7 +243,6 @@ function accountView(
 
 export async function listAccounts(actor: Actor, end?: string, includeArchived = false) {
   const db = getDb();
-  const endDate = end ?? "9999-12-31";
   const result = await db.execute(sql`
     select
       a.*,
@@ -252,7 +251,7 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
     left join posting p
       on p.user_id = a.user_id
       and p.account_id = a.id
-      and p.date <= ${endDate}::date
+      and p.date <= ${end ?? "9999-12-31"}::date
     where a.user_id = ${actor.userId}
       and a.system_kind is null
       and (${includeArchived} or a.archived_at is null)
@@ -513,7 +512,22 @@ export async function deleteAccount(
       actor,
       id,
     );
-    if (transactionCount || stageCount) {
+    // Ledger history outlives the transaction that made it. Moving a
+    // transaction to another account leaves the adjusting postings behind here,
+    // so the account is still part of the books even though nothing points at
+    // it any more. Counting postings catches that; counting transactions alone
+    // would let the delete through and fail on the foreign key instead.
+    const [{ count: postingCount }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(postings)
+      .where(
+        and(
+          eq(postings.userId, actor.userId),
+          eq(postings.accountId, id),
+          isNotNull(postings.transactionId),
+        ),
+      );
+    if (transactionCount || stageCount || postingCount) {
       throw conflict("This account is in use. Archive it instead of deleting it.");
     }
     // Deleting is only allowed while an account has no transactions, so the

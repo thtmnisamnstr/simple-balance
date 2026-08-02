@@ -196,7 +196,7 @@ integration("PostgreSQL migrations", () => {
       `insert into ledger_transaction
          (id, user_id, type, date, payee, description, destination_account_id,
           destination_amount, destination_currency)
-       values ($1, $2, 'deposit', '2026-01-02', 'Valid payee', 'Valid deposit', $3, 10, 'USD')`,
+       values ($1, $2, 'deposit', '2026-01-02', 'Valid payee', 'Valid deposit', $3, 10, 'USDT')`,
       [secondTransactionId, secondUserId, secondAccountId],
     );
 
@@ -253,19 +253,30 @@ integration("PostgreSQL migrations", () => {
       constraint: "staged_transaction_import_batch_owner_fk",
     });
 
+    // A posting cannot name an amount in a currency its account does not hold,
+    // so a balance can sum without grouping by currency.
+    await expect(
+      databaseClient.query(
+        `insert into posting
+           (user_id, transaction_id, account_id, date, amount, currency)
+         values ($1, $2, $3, '2027-01-01', 10, 'EUR')`,
+        [secondUserId, secondTransactionId, secondAccountId],
+      ),
+    ).rejects.toMatchObject({ constraint: "posting_account_currency_fk" });
+
     // Postings are append-only. One account legitimately carries several
     // generations for a transaction once a correction adjusts it, so the schema
     // must allow the repeat rather than reject it.
     await databaseClient.query(
       `insert into posting
          (user_id, transaction_id, account_id, date, amount, currency)
-       values ($1, $2, $3, '2027-01-01', 10, 'USD')`,
+       values ($1, $2, $3, '2027-01-01', 10, 'USDT')`,
       [secondUserId, secondTransactionId, secondAccountId],
     );
     await databaseClient.query(
       `insert into posting
          (user_id, transaction_id, account_id, date, amount, currency)
-       values ($1, $2, $3, '2027-01-01', -10, 'USD')`,
+       values ($1, $2, $3, '2027-01-01', -10, 'USDT')`,
       [secondUserId, secondTransactionId, secondAccountId],
     );
     const generations = await databaseClient.query<{ total: string }>(
@@ -282,7 +293,7 @@ integration("PostgreSQL migrations", () => {
       databaseClient.query(
         `insert into posting
            (user_id, transaction_id, opening_account_id, account_id, date, amount, currency)
-         values ($1, $2, $3, $4, '2027-01-01', 10, 'USD')`,
+         values ($1, $2, $3, $4, '2027-01-01', 10, 'USDT')`,
         [secondUserId, secondTransactionId, secondAccountId, secondAccountId],
       ),
     ).rejects.toMatchObject({ constraint: "posting_origin_check" });
@@ -290,7 +301,7 @@ integration("PostgreSQL migrations", () => {
       databaseClient.query(
         `insert into posting
            (user_id, account_id, date, amount, currency)
-         values ($1, $2, '2027-01-01', 10, 'USD')`,
+         values ($1, $2, '2027-01-01', 10, 'USDT')`,
         [secondUserId, secondAccountId],
       ),
     ).rejects.toMatchObject({ constraint: "posting_origin_check" });
@@ -300,7 +311,7 @@ integration("PostgreSQL migrations", () => {
       databaseClient.query(
         `insert into posting
            (user_id, transaction_id, account_id, date, amount, currency)
-         values ($1, $2, $3, '2027-01-01', 0, 'USD')`,
+         values ($1, $2, $3, '2027-01-01', 0, 'USDT')`,
         [secondUserId, secondTransactionId, secondAccountId],
       ),
     ).rejects.toMatchObject({ constraint: "posting_amount_check" });
