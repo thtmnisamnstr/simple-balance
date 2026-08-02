@@ -38,62 +38,62 @@ service, so the browser and an agent cannot drift apart.
 
 ## What the ledger guarantees
 
-**Money is a decimal string** at every JSON and MCP boundary, and
-`numeric(44,18)` in PostgreSQL. No binary floating point anywhere near a balance.
+Money is a decimal string at every JSON and MCP boundary, and `numeric(44,18)`
+in PostgreSQL. No binary floating point goes anywhere near a balance.
 
-**The books are double-entry.** Every transaction settles to zero in each
-currency it touches, checked before anything is written. A deposit credits the
-destination and debits income; a withdrawal debits the source and credits
-expense; a same-currency transfer moves between the two accounts; a conversion
-settles through the exchange account so each currency balances on its own rather
-than netting across the pair. An opening balance credits the account and debits
-equity, so where an account started is recorded in the books rather than beside
-them.
+The books are double-entry. Every transaction settles to zero in each currency it
+touches, and that is checked before anything is written. A deposit credits the
+destination and debits income. A withdrawal debits the source and credits
+expense. A same-currency transfer moves between the two accounts. A conversion
+settles through the exchange account, so each currency balances on its own
+rather than netting across the pair. An opening balance credits the account and
+debits equity, which is how where an account started ends up inside the books
+instead of beside them.
 
-Counter-accounts belong to the server, one per kind and currency. They never
-appear in a list or a picker, and no transaction can name one as a side.
+Those counter-accounts belong to the server, one per kind and currency. They
+never appear in a list or a picker, and no transaction can name one as a side.
 
-**Postings are append-only.** A correction works out the difference per account,
-currency, and date and appends only that, so changing an amount costs one
-adjusting row per side. An edit that changes nothing about the movement writes
-nothing at all. Deleting posts the reversal and restoring posts it back, which
-is why no balance or report has to remember to filter deleted rows: a voided
-entry already nets to zero.
+Postings are append-only. Correcting an entry works out the difference per
+account, currency, and date, then appends only that, so changing an amount costs
+one adjusting row per side. An edit that changes nothing about the movement
+writes nothing at all. Deleting posts the reversal and restoring posts it back,
+which is why no balance or report has to remember to filter deleted rows: a
+voided entry already nets to zero.
 
-**A posting carries its own date**, so balances, cash flow, and spending by
-category all read one table, and a balance as of a date is an indexed range
-rather than a scan of the ledger. Labels are the exception: which category an
-entry was filed under is read from the transaction, which is why
-recategorising updates past reports.
+Each posting carries its own date. Balances, cash flow, and spending by category
+therefore read one table, and a balance as of a date is an indexed range rather
+than a scan of the ledger. Labels are the exception. Which category an entry was
+filed under is read from the transaction, which is why recategorising updates
+past reports rather than only future ones.
 
-**Balances come from postings alone.** Nothing reads a running total off an
-account row.
+Balances come from postings and nothing else. No query reads a running total off
+an account row.
 
-**Currencies stay put.** An account's currency is fixed once it is in use, and a
+Currencies stay put. An account's currency is fixed once it is in use, and a
 posting's currency is tied to its account's by foreign key. Cross-currency
 transfers keep the sent and received amounts separately; the implied rate is
-metadata, not a rate the system applies anywhere else.
+metadata, not a rate applied anywhere else.
 
-**Bulk changes are validate-first and atomic.** Explicit selections carry row
-versions. All-matching selections carry a server-issued count and a fingerprint
-of the filtered `id:version` set, so a concurrent change makes the request stale
-rather than quietly changing what it covers. One request covers at most 10,000
-rows, and the HTTP body limit is sized from that cap. Account changes preserve
-native currency, and a transfer cannot be collapsed into a deposit or withdrawal
-in bulk.
+Bulk changes validate first and then apply atomically. Explicit selections carry
+row versions. All-matching selections carry a server-issued count and a
+fingerprint of the filtered `id:version` set, so a concurrent change makes the
+request stale rather than quietly changing what it covers. One request covers at
+most 10,000 rows, and the HTTP body limit is sized from that cap. Account changes
+preserve native currency, and a transfer cannot be collapsed into a deposit or a
+withdrawal in bulk.
 
-**Staged rows never touch balances.** Committing a batch validates every row
-first and runs in a single PostgreSQL transaction.
+Staged rows never touch balances. Committing a batch validates every row first
+and runs in a single PostgreSQL transaction.
 
-**Every transaction has a payee.** It is canonical text on the transaction
-rather than a table of its own; the payee list is a projection of committed and
+Every transaction has a payee. It is canonical text on the transaction rather
+than a table of its own, and the payee list is a projection of committed and
 staged text. Merging rewrites every reference at once, bumps versions, and
 writes audit events.
 
-**Lists order by any column they show**, either direction. Order is presentation,
-not scope, so it stays out of the fingerprinted bulk selection. A cursor records
-the ordering it was issued for and is refused under another; orderings a keyset
-cannot resume page by number instead.
+Lists order by any column they show, in either direction. Order is presentation
+rather than scope, so it stays out of the fingerprinted bulk selection. A cursor
+records the ordering it was issued for and is refused under another; orderings a
+keyset cannot resume page by number instead.
 
 ## Tenancy
 

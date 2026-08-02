@@ -48,44 +48,72 @@ and whether the user still has an authentication method enabled by the current
 - `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
 - `ledger:write`: every ledger operation, including direct and staged commits.
 
-Tools are omitted from discovery when the token lacks their scope. All tools
-return both `structuredContent.result` and equivalent JSON text. Money is always a
-decimal string. Explicit bulk selections carry each row's `expectedVersion`.
-An all-matching selection first uses `preview_bulk_transaction_selection` to
-obtain a count and fingerprint of the exact filtered `id:version` set; the
-destructive request is rejected if that snapshot changes before execution.
+Tools an agent has no scope for are left out of discovery entirely, so it never
+sees a tool it cannot call. Every tool returns both `structuredContent.result`
+and the same thing as JSON text.
 
-`bulk_edit_transactions` can atomically change the date, payee, category,
-account, description, notes, or deposit/withdrawal type for explicit or
-previewed selections. Omitted fields remain unchanged. Transfers accept only
-the common text/date/category fields, and account reassignment must preserve the
-transaction's native currency. Duplicate validation applies to the final state
-of the complete selection before any row is written.
+Money is always a decimal string, never a JSON number, because binary floating
+point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
+idempotency key you choose: send the same key again and you get the original
+result back rather than a second transaction. Fields carry descriptions, so an
+agent reading the schema learns the conventions that matter, including the one
+that catches people out: a credit card or loan opens at a negative balance,
+because that is money owed.
 
-`bulk_delete_transactions` takes the same two selection shapes and soft-deletes
-every row in one transaction. Deleted transactions drop out of balances and
-reports but keep their postings, so the history of what was recorded survives
-the deletion. Either bulk tool accepts at most 10,000 rows per request; larger
-work is split into successive calls, each of which stands or falls on its own.
+## Changing many rows at once
 
-List tools page two ways. `cursor` walks forward through a stable keyset and is
-the right choice for reading an entire ledger. `page` jumps to a numbered page
-and returns the total row count alongside it, which is what the browser's
-pagination control uses. A cursor wins if both are sent.
+There are two ways to say which rows you mean. An explicit selection lists each
+id with the `expectedVersion` you last saw, so a row someone else changed makes
+the request stale instead of silently taking your value. A filter selection says
+"everything matching this", and starts with
+`preview_bulk_transaction_selection`, which returns a count and a fingerprint of
+the exact `id:version` set that matched. Send that fingerprint back with the
+change. If anything in the set moved in between, the request is refused rather
+than quietly covering a different set of rows than you were shown.
 
-Payees come from `list_payees`, `list_duplicate_payees`, and the idempotent
-`merge_payees` write tool. There is no separate payee record. Payees are read
-out of committed and staged transaction text, so MCP and the browser share one
-canonicalization and one audit trail.
+`bulk_edit_transactions` changes the date, payee, category, account,
+description, notes, or deposit/withdrawal type. Fields you leave out stay as
+they are. Transfers accept only the shared text, date, and category fields, and
+moving a transaction to another account cannot change its currency. Duplicate
+checks run against the final state of the whole selection before a single row is
+written.
 
-Use `dryRun: true` on `bulk_edit_transactions`, `bulk_delete_transactions`,
-`stage_csv`, and `commit_staged_transactions` to validate a planned mutation
-without changing the ledger.
+`bulk_delete_transactions` takes the same two selection shapes. Deleting posts
+the reversal rather than erasing anything, so a deleted transaction stops
+counting toward balances and reports while the record of it remains.
 
-`stage_csv` accepts the same configured `CSV_MAX_BYTES` payload as the browser
-import workflow. The HTTP MCP request envelope is bounded to accommodate JSON
-string escaping while the decoded CSV is still checked against the exact byte
-and row limits.
+Either one covers at most 10,000 rows per request. Split larger work across
+calls; each stands or falls on its own.
+
+Pass `dryRun: true` to `bulk_edit_transactions`, `bulk_delete_transactions`,
+`stage_csv`, or `commit_staged_transactions` to find out what a change would do
+without doing it.
+
+## Paging and ordering
+
+Lists page two ways. A `cursor` walks forward through a stable keyset, which is
+what you want for reading a whole ledger. A `page` number jumps straight to a
+page and comes back with the total row count, which is what the browser uses.
+Send both and the cursor wins.
+
+Lists also take `sort` and `direction`. A cursor belongs to the ordering it was
+issued under and is refused if you change the ordering underneath it, because
+resuming a keyset walk in a different order silently skips and repeats rows.
+Ordering by account or category cannot be resumed that way at all, so those
+return no cursor and you page them by number.
+
+## Payees
+
+`list_payees`, `list_duplicate_payees`, and `merge_payees`. There is no payee
+record to fetch: payees are canonical text read out of committed and staged
+transactions, so MCP and the browser share one spelling and one audit trail.
+
+## CSV
+
+`stage_csv` accepts the same payload the browser import does, bounded by
+`CSV_MAX_BYTES` and `CSV_MAX_ROWS`. The MCP request envelope allows extra room
+for JSON string escaping, while the decoded CSV is still measured against the
+real limits.
 
 Removing a Google-only user from `ALLOWED_EMAILS` blocks subsequent web and MCP
 use even if that user is already signed in. A user who also configured a

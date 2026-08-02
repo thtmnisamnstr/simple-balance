@@ -19,26 +19,30 @@ it, the duplicate checks, or the commit step.
 
 ## What it does
 
-- **Accounts** for anything you file as an asset or a liability, each in its own
-  currency. Crypto wallets hold native quantities; there are no market prices.
-- **Transactions**: deposits, withdrawals, and transfers, same-currency or
-  converted, with the payee required and everything else optional.
-- **Editing in bulk**: change or delete up to 10,000 rows in one atomic request,
-  from any transaction view, with a preview of what will be touched.
-- **A review queue** for imports, with validation, duplicate warnings, and an
-  all-or-nothing commit.
-- **CSV import** that detects the format, maps the columns, parses localised
-  dates and numbers, and creates categories and payees as it goes. Exports round
-  trip back in without loss.
-- **Categories and payees** with case-insensitive matching, duplicate detection,
-  and merging that rewrites every reference at once.
-- **A dashboard** of balances, cash flow, and spending by category, over any date
-  range you can link to.
-- **Sorting and pagination** on every list, by any column it shows.
-- **An audit log** of everything the browser or an agent did.
-- **Sign-in** with an embedded local account, optional allowlisted Google, or
-  both against the same ledger.
-- **An MCP server** over OAuth, with separate read, stage, and write scopes.
+Accounts hold anything you file as an asset or a liability, each in its own
+currency. Crypto wallets track native quantities; nothing here quotes a market
+price. Transactions are deposits, withdrawals, and transfers, same-currency or
+converted. The payee is required. Everything else is optional.
+
+Imports go through a review queue. Simple Balance reads the CSV, works out the
+format, maps the columns, parses whatever date and number conventions your bank
+uses, and creates categories and payees as it goes. You look at the result
+before any of it counts. Committing a batch is all or nothing. An export of your
+own data reads back in without losing anything.
+
+Once rows are in, you can change or delete up to 10,000 of them in one request
+that either wholly succeeds or wholly does not, from any view, after seeing what
+it will touch. Categories and payees match case-insensitively, flag their own
+near-duplicates, and merge by rewriting every reference at once.
+
+The dashboard covers balances, cash flow, and spending by category over any date
+range, and the range is in the URL, so you can link to it. Every list sorts by
+any column it shows and pages by number. Everything the browser or an agent did
+is in the audit log.
+
+Sign in with an embedded local account, with allowlisted Google, or with either
+into the same ledger. The MCP server runs over OAuth with separate read, stage,
+and write scopes.
 
 Out of scope for now: scheduled transactions, splits, budgets, tags,
 reconciliation, attachments, bank sync, market prices, and shared households.
@@ -84,16 +88,18 @@ TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/simple_balance_
 
 ## Host it
 
-Build the image, or pull a published one:
+Pull a published image:
 
 ```sh
 docker pull ghcr.io/thtmnisamnstr/simple-balance:latest
 ```
 
 `latest` follows the newest final release. A prerelease tag publishes only its
-own version.
+own version. To build it yourself instead, `docker build -t simple-balance .`
+from a clone.
 
-Configuration is environment variables. Copy the example and fill it in:
+Everything is configured through environment variables. Copy the example and
+fill it in:
 
 ```sh
 cp .env.example .env
@@ -111,10 +117,9 @@ docker run -d --name simple-balance --restart unless-stopped \
   ghcr.io/thtmnisamnstr/simple-balance:latest
 ```
 
-The container runs as a non-root user and needs no writable volume. PostgreSQL
-is the only thing it stores anything in. Keep the loopback binding and put a
-reverse proxy or a private network in front of it rather than publishing the
-port.
+The container runs as a non-root user and never writes to its own filesystem.
+Everything it keeps is in PostgreSQL. Leave it bound to loopback and put a
+reverse proxy or a private network in front, rather than publishing the port.
 
 Watch it come up with `docker logs -f simple-balance`, and check
 `curl -f http://127.0.0.1:3000/health/ready`. Readiness stays closed until
@@ -151,13 +156,13 @@ if you want it to commit. See [MCP](docs/mcp.md).
 
 ## More
 
-- [Architecture](docs/architecture.md) — how it fits together and what the ledger
-  guarantees
-- [Deployment](docs/deployment.md) — every setting, reverse proxy, backups
-- [Upgrades](docs/upgrades.md) — moving between versions
-- [MCP](docs/mcp.md) — scopes, tools, and what an agent can do
+- [Architecture](docs/architecture.md): how it fits together, and what the
+  ledger guarantees
+- [Deployment](docs/deployment.md): every setting, reverse proxies, backups
+- [Upgrades](docs/upgrades.md): moving between versions
+- [MCP](docs/mcp.md): scopes, tools, and what an agent can do
 - [Changelog](CHANGELOG.md)
-- [Contributing](AGENTS.md) — the rules this codebase holds itself to
+- [Contributing](AGENTS.md): the rules this codebase holds itself to
 - [Ralph build loop](scripts/ralph/README.md)
 
 ## Built with
