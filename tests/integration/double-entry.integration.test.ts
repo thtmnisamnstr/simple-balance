@@ -447,6 +447,50 @@ integration("double-entry ledger", () => {
     ).rejects.toThrow();
   });
 
+  it("turns a withdrawal into a deposit without stranding the old shape", async () => {
+    const created = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2027-06-01",
+        payee: "DE reshape",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "40",
+      },
+      "de-reshape",
+    );
+
+    // A prepared deposit only names the destination columns. If the update kept
+    // the source ones from before, the row would carry both halves and the
+    // shape check would reject it.
+    const updated = await updateTransaction(actor, created.id, {
+      draft: {
+        type: "deposit",
+        date: "2027-06-01",
+        payee: "DE reshape",
+        description: null,
+        toAccountId: checkingId,
+        amount: "40",
+      },
+      expectedVersion: created.version,
+    });
+
+    expect(updated.type).toBe("deposit");
+    expect(updated.sourceAccountId).toBeNull();
+    expect(updated.sourceAmount).toBeNull();
+    expect(updated.destinationAmount).toBe("40");
+
+    // The entry now stands as a 40 credit against income. The expense side was
+    // adjusted back to nothing rather than deleted, so it drops out of the net.
+    expect((await netPostings(updated.id)).map((row) => row.total).sort()).toEqual([
+      "-40.000000000000000000",
+      "40.000000000000000000",
+    ]);
+    expect(await unbalancedCurrencies()).toEqual([]);
+    expect(await unbalancedTransactions()).toEqual([]);
+  });
+
   it("leaves the whole ledger balanced across every currency", async () => {
     expect(await unbalancedCurrencies()).toEqual([]);
   });

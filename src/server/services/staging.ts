@@ -244,8 +244,9 @@ function stageSortPlan(
   const id = sql`${stagedTransactions.id}`;
   const tie = ordered(id, direction);
   const draft = sql`${stagedTransactions.draft}`;
+  // Draft fields are optional, so absent values need a defined place to land.
   const paged = (expression: SQL) => ({
-    orderBy: [ordered(expression, direction), tie],
+    orderBy: [ordered(expression, direction, true), tie],
     keyset: null,
     cursorValue: null,
   });

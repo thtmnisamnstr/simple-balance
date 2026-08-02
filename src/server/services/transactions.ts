@@ -350,6 +350,33 @@ export function buildPreparedTransaction(
  *
  * The rows still sum to the current position, and the path there stays legible.
  */
+/**
+ * Every column that describes the shape of a transaction, named explicitly.
+ *
+ * A prepared transaction only carries the columns its own shape needs, so
+ * spreading it into an update leaves the previous shape's columns untouched.
+ * Turning a withdrawal into a deposit that way keeps the old source account and
+ * amount alongside the new destination ones, which the shape check rejects.
+ * Listing them all means the shape being written is the whole shape.
+ */
+function transactionShapeColumns(values: typeof transactions.$inferInsert) {
+  return {
+    type: values.type,
+    date: values.date,
+    payee: values.payee,
+    description: values.description ?? null,
+    categoryId: values.categoryId ?? null,
+    notes: values.notes ?? null,
+    sourceAccountId: values.sourceAccountId ?? null,
+    destinationAccountId: values.destinationAccountId ?? null,
+    sourceAmount: values.sourceAmount ?? null,
+    destinationAmount: values.destinationAmount ?? null,
+    sourceCurrency: values.sourceCurrency ?? null,
+    destinationCurrency: values.destinationCurrency ?? null,
+    effectiveRate: values.effectiveRate ?? null,
+  };
+}
+
 export async function repostTransaction(
   tx: DbTransaction,
   actor: Actor,
@@ -633,8 +660,10 @@ function transactionSortPlan(
     keyset: keysetAfter(expression, id, direction),
     cursorValue: value,
   });
+  // Reached through another table, so the value can be absent and the ordering
+  // has to say where absent belongs.
   const paged = (expression: SQL) => ({
-    orderBy: [ordered(expression, direction), tie],
+    orderBy: [ordered(expression, direction, true), tie],
     keyset: null,
     cursorValue: null,
   });
@@ -1235,25 +1264,13 @@ export async function bulkEditTransactions(
 
     const now = new Date();
     const updatedRows: TransactionRow[] = [];
-    for (const { before, prepared, draft } of plans) {
+    for (const { before, prepared } of plans) {
       const values = prepared.transaction;
       const [updated] = await tx
         .update(transactions)
         .set({
-          type: draft.type,
-          date: draft.date,
-          payee: draft.payee,
-          description: draft.description ?? null,
-          categoryId: draft.categoryId ?? null,
-          notes: draft.notes ?? null,
+          ...transactionShapeColumns(values),
           externalId: before.externalId,
-          sourceAccountId: values.sourceAccountId ?? null,
-          destinationAccountId: values.destinationAccountId ?? null,
-          sourceAmount: values.sourceAmount ?? null,
-          destinationAmount: values.destinationAmount ?? null,
-          sourceCurrency: values.sourceCurrency ?? null,
-          destinationCurrency: values.destinationCurrency ?? null,
-          effectiveRate: values.effectiveRate ?? null,
           version: before.version + 1,
           updatedAt: now,
         })
@@ -1489,8 +1506,8 @@ export async function updateTransaction(
     const [updated] = await tx
       .update(transactions)
       .set({
-        ...prepared.transaction,
-        id: undefined,
+        ...transactionShapeColumns(prepared.transaction),
+        externalId: prepared.transaction.externalId ?? null,
         version: expectedVersion + 1,
         updatedAt: new Date(),
       })

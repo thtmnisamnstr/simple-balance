@@ -15,8 +15,23 @@ export type SortPlan<Row> = {
   cursorValue: ((row: Row) => string) | null;
 };
 
-/** Ascending puts blanks last; descending puts them last too, so a sort never leads with nothing. */
-export function ordered(expression: SQL, direction: SortDirection) {
+/**
+ * One term of an ORDER BY.
+ *
+ * `nulls last` is only for keys that can actually be null. Asking for it on a
+ * key that cannot costs a great deal: a btree read backwards produces
+ * DESC NULLS FIRST, so `desc nulls last` does not match the index and Postgres
+ * falls back to sorting the whole table. On the default newest-first view that
+ * is the difference between reading an index and scanning the ledger.
+ */
+export function ordered(
+  expression: SQL,
+  direction: SortDirection,
+  nullable = false,
+) {
+  if (!nullable) {
+    return direction === "asc" ? sql`${expression} asc` : sql`${expression} desc`;
+  }
   return direction === "asc"
     ? sql`${expression} asc nulls last`
     : sql`${expression} desc nulls last`;

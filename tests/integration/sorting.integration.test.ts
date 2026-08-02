@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { ordered } from "../../src/server/services/sorting.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
@@ -178,6 +179,37 @@ integration("list ordering", () => {
         cursor: first.nextCursor,
       }),
     ).rejects.toThrow(/different sort order/);
+  });
+
+  // The default view is the one every person lands on. Ordering it in a way the
+  // index cannot serve turns reading a page into sorting the whole ledger, and
+  // nothing about the result would look wrong, so the plan itself is asserted.
+  it("reads the default newest-first order straight from the index", async () => {
+    // Sequential scans are turned off for this one plan so the question is only
+    // whether the index CAN serve the order, not whether Postgres bothers on a
+    // handful of rows. A Sort step here would mean the ordering no longer
+    // matches the index and every page would sort the whole ledger.
+    const text = await getDb().transaction(async (tx) => {
+      await tx.execute(sql`set local enable_seqscan = off`);
+      // Built through the same helper the list uses, so the assertion covers
+      // the real ordering rather than a hand-written approximation of it.
+      const order = sql.join(
+        [
+          ordered(sql`ledger_transaction.date`, "desc"),
+          ordered(sql`ledger_transaction.id`, "desc"),
+        ],
+        sql`, `,
+      );
+      const plan = await tx.execute(sql`
+        explain select * from ledger_transaction
+        where user_id = ${actor.userId} and deleted_at is null
+        order by ${order}
+        limit 51
+      `);
+      return plan.rows.map((row) => Object.values(row)[0]).join("\n");
+    });
+    expect(text).toContain("Index Scan Backward using transaction_user_date_idx");
+    expect(text).not.toContain("Sort");
   });
 
   it("pages an account or category sort by number instead of by cursor", async () => {
