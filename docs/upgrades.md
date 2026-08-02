@@ -1,62 +1,62 @@
-# Upgrades and schema evolution
+# Upgrades
 
-All persistent state lives in PostgreSQL. The application container is
-disposable and needs no writable volume.
+Everything persistent is in PostgreSQL. The container holds nothing you need to
+keep, so upgrading is swapping it for a newer one.
 
-Nothing has shipped yet, so there is no release to upgrade from. What follows is
-the procedure and the contract that take effect once a version does ship.
+## How to upgrade
 
-## Upgrade procedure
-
-1. Read the target release in the [changelog](../CHANGELOG.md) and confirm its
-   PostgreSQL and configuration requirements.
-2. Create and verify a PostgreSQL backup. For example:
+1. Read the [changelog](../CHANGELOG.md) for the version you are moving to, and
+   check whether it asks anything new of PostgreSQL or your configuration.
+2. Back the database up, and confirm the backup is good:
 
    ```sh
    pg_dump --format=custom \
      --file=simple-balance-before-upgrade.dump \
-     'postgresql://simple_balance@database.example:5432/simple_balance'
+     "$DATABASE_URL"
    ```
 
-   Pass credentials through PostgreSQL's own secret mechanisms. Do not put a
-   password in shell history.
-3. Pull or build the target image using its immutable release tag.
-4. Stop the application container. Keep PostgreSQL running.
-5. Start the target image with the same `DATABASE_URL`, `APP_BASE_URL`,
-   `AUTH_SECRET`, authentication settings, and container hardening flags.
-6. Follow the startup log and wait for
-   `curl -f http://127.0.0.1:3000/health/ready` to succeed.
-7. Keep the backup until the application and representative ledger data have
-   been checked.
+   Let PostgreSQL handle the password through `~/.pgpass` or the environment
+   rather than typing it into a shell that remembers it.
+3. Pull the image by its version tag, not `latest`, so you know what you are
+   getting.
+4. Stop and remove the application container. Leave PostgreSQL running.
+5. Start the new image with the same settings you had before.
+6. Watch the log, and wait for `curl -f http://127.0.0.1:3000/health/ready`.
+7. Keep the backup until you have used the app enough to trust it.
 
-The new process connects to PostgreSQL and applies every pending migration under
-an advisory lock before it opens readiness. Data transformation and backfill
-ride along inside the release migrations. You never run `npm run db:migrate`,
-copy rows, or retype ledger data by hand.
+The new process applies every pending migration before it opens readiness,
+holding a PostgreSQL advisory lock so two containers starting at once cannot
+race. Any data reshaping a release needs travels inside its migrations. You
+never run a migration command, copy rows, or retype anything.
 
-Never run two application versions with different schema expectations at once.
-A schema upgrade can leave the database unreadable by the older image, so
-rollback means stopping the application and restoring the pre-upgrade backup,
-unless the target release documents something safer.
+## Rolling back
 
-## Schema contract
+Do not run two versions with different schema expectations against one database.
+A migration can leave the schema unreadable to the older image, so rolling back
+means stopping the app and restoring the backup you took in step 2, unless the
+release you moved to says otherwise.
 
-Until a version ships, the schema is one baseline migration that gets
-regenerated in place. The first release freezes that baseline. From then on,
-released migrations are immutable, and any later schema change must:
+This is the reason step 2 is not optional.
 
-- add a new, forward-only, version-controlled SQL migration;
-- preserve all ledger, authentication, provenance, idempotency, and audit data;
-- deterministically populate every required column or derived record for
-  existing rows;
-- use a transaction wherever PostgreSQL permits it and explicitly design any
-  operation that cannot be transactional;
-- remain restart-safe after interruption and fail application readiness on any
-  migration error;
-- include a PostgreSQL integration test that begins with the preceding release
-  schema plus representative data, runs the current startup migrations, and
-  verifies both schema and data.
+## The schema contract
 
-Migrations run inside the application because that is what makes an upgrade
-automatic and non-destructive. Swap the image, restart the container, and the
+Before the first release, the schema is a single baseline migration that gets
+regenerated in place as it changes. The first release freezes it.
+
+After that, released migrations are immutable, and every schema change:
+
+- is a new forward-only migration, checked into version control;
+- preserves every ledger, authentication, provenance, idempotency, and audit
+  row;
+- fills in any new required column for existing rows deterministically;
+- runs inside a transaction wherever PostgreSQL allows one, and states plainly
+  what it does when it cannot;
+- survives being interrupted and restarted, and fails readiness rather than
+  leaving the schema half-changed;
+- ships with an integration test that starts from the previous release's schema
+  with real data in it, runs the migrations, and checks both the shape and the
+  contents afterwards.
+
+Migrations run inside the application rather than as a separate step because
+that is what makes an upgrade one action. Swap the image, start it, and the
 database catches up on its own.

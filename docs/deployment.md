@@ -1,94 +1,95 @@
 # Deployment
 
-## Authentication modes
+Simple Balance is one container and one PostgreSQL database. There is no Redis,
+no sidecar, no object store, and nothing it needs to write to disk.
 
-`AUTH_MODE` accepts:
+## Settings
 
-- `local` (default): embedded email/password authentication. No Google
-  credentials or email allowlist are needed. The first browser visitor needs
-  the one-time code printed in the container startup log to create the sole
-  local owner account.
-- `google`: Google login only. `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a
-  non-empty `ALLOWED_EMAILS` are required.
-- `both`: local and Google login. The local owner email must appear in
-  `ALLOWED_EMAILS`, and Google can be connected from Settings so both methods
-  resolve to the same user and ledger.
+Everything is an environment variable. `.env.example` has the lot; these are the
+ones that matter.
 
-Google modes require a Google OAuth web application with this exact authorized
-redirect URI:
+### Required in production
+
+| Variable | What it is |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string. Append `?sslmode=require` when the database is not on the same host. |
+| `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. |
+| `APP_BASE_URL` | Your canonical public origin, exactly as the browser sees it. HTTPS anywhere but localhost. |
+
+`APP_BASE_URL` is load-bearing beyond cosmetics: secure cookies, the OAuth
+issuer metadata, redirect validation, and the audience on MCP tokens are all
+derived from it. Get it wrong and sign-in fails in ways that look unrelated.
+
+### Optional
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `AUTH_MODE` | `local` | Which sign-in methods are offered. See below. |
+| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. Left unset, one is generated and printed to the startup log. |
+| `PORT` | `3000` | The port inside the container. Change it and your published port mapping has to follow. |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
+| `TRUST_PROXY` | `false` | See the reverse proxy section. Leave it off unless the condition there holds. |
+| `DATABASE_POOL_SIZE` | `10` | Connections held open. Raise it only if you have measured contention. |
+| `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. |
+| `CSV_MAX_ROWS` | `25000` | Most rows accepted from one CSV. |
+
+### Only for Google sign-in
+
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `ALLOWED_EMAILS`. Google modes
+refuse to start if any of the three is missing, rather than silently letting
+everyone in.
+
+## Sign-in modes
+
+`local` is the default and needs no Google configuration at all. The first
+person to visit claims the instance with the one-time code from the startup log,
+and becomes the sole owner.
+
+`google` allows only allowlisted Google accounts. `ALLOWED_EMAILS` is a
+comma-separated list, matched case-insensitively.
+
+`both` offers either, into the same ledger. Create the local owner first, sign in
+with it, then use **Connect Google** in Settings. That link is explicit on
+purpose: two accounts sharing an email address are not assumed to be the same
+person.
+
+For either Google mode, register this exact redirect URI on the Google OAuth web
+application:
 
 ```text
 https://simple-balance.example.com/api/auth/callback/google
 ```
 
-`APP_BASE_URL` must be the canonical public origin, matching the browser origin
-exactly. Production always requires it, including in local auth mode, because
-secure cookies, OAuth issuer metadata, redirect validation, and MCP token
-audience checks all read from it. Use HTTPS outside localhost. `AUTH_SECRET` is
-also always required in production, and it has to stay stable across restarts. Google requests only
-`openid`, `email`, and `profile`; keep its client secret outside the image.
+Simple Balance asks Google for `openid`, `email`, and `profile`, and nothing
+else. Keep the client secret out of the image.
 
-Local authentication does not send verification or recovery email. Keep the
-owner password in a password manager. An authenticated user can change it in
-Settings.
+Local sign-in sends no email, which means there is no password reset. Put the
+owner password in a password manager. It can be changed from Settings by
+whoever is already signed in.
 
-## Docker
-
-The application image requires an external PostgreSQL 15+ server. It does not
-contain or require Redis, an auth sidecar, an object store, or a writable volume.
+## Running it
 
 ```sh
-docker build -t simple-balance:0.1.0 .
-
-docker run --name simple-balance \
+docker run -d --name simple-balance --restart unless-stopped \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   -p 127.0.0.1:3000:3000 \
-  -e DATABASE_URL='postgresql://simple_balance:secret@postgres.example:5432/simple_balance?sslmode=require' \
-  -e APP_BASE_URL='https://simple-balance.example.com' \
-  -e AUTH_SECRET='replace-with-at-least-32-random-characters' \
-  -e AUTH_MODE='local' \
-  simple-balance:0.1.0
+  --env-file .env \
+  ghcr.io/thtmnisamnstr/simple-balance:latest
 ```
 
-Generate `AUTH_SECRET` once with `openssl rand -base64 32` and retain it across
-restarts. While local setup is open, the application generates a one-time owner
-code and prints it to the startup log. Enter that code on the owner form, or set
-`SETUP_TOKEN` to a long value you chose. Invalid codes are rejected before
-registration reaches the database. For `google` or `both`, add:
-
-```sh
--e AUTH_MODE='both' \
--e GOOGLE_CLIENT_ID='client-id.apps.googleusercontent.com' \
--e GOOGLE_CLIENT_SECRET='client-secret' \
--e ALLOWED_EMAILS='owner@example.com,partner@example.com'
-```
-
-`ALLOWED_EMAILS` is case-normalized. Google modes fail closed at startup if any
-Google setting or the allowlist is missing. Choose `both` when the owner should
-be able to use either authentication method. Create the local owner first, sign
-in locally, then use **Connect Google** in Settings. Explicit linking makes both
-methods resolve to the same private ledger; implicit same-email account linking
-is disabled.
-
-`TRUST_PROXY` defaults to `false`. Set it to `true` only when every request
-reaches the app through a trusted reverse proxy that replaces, rather than
-passes through, `X-Forwarded-Host` and `X-Forwarded-Proto`. `APP_BASE_URL`
-remains the canonical public origin. `LOG_LEVEL` accepts `debug`, `info`,
-`warn`, or `error`.
+The container runs as a non-root user and the filesystem can stay read-only. Bind
+to loopback and put a reverse proxy in front rather than publishing the port.
 
 ## Reverse proxy
 
-Terminate TLS at the reverse proxy and forward the original scheme and host. A
-minimal Caddy configuration is:
+Terminate TLS at the proxy and forward the original scheme and host.
 
 ```caddyfile
 simple-balance.example.com {
   reverse_proxy 127.0.0.1:3000
 }
 ```
-
-For nginx:
 
 ```nginx
 location / {
@@ -100,23 +101,49 @@ location / {
 }
 ```
 
-Probe `/health/live` for process liveness and `/health/ready` for database and
-migration readiness. The Node process handles `SIGTERM`, stops accepting requests,
-closes the HTTP server, and drains its PostgreSQL pool.
+Set `TRUST_PROXY=true` only when every request arrives through a proxy that
+*replaces* `X-Forwarded-Host` and `X-Forwarded-Proto` rather than passing through
+whatever a client sent. If a client can set those headers itself, leave it off.
 
-For rebuilds and release upgrades, follow [upgrades and schema
-evolution](upgrades.md). The application runs migrations automatically before
-readiness; `npm run db:migrate` is a development command, not an operator step.
+## Health and shutdown
 
-## Local development
+`/health/live` says the process is up. `/health/ready` says configuration, the
+database, and the migrations have all succeeded, and stays closed until they
+have. Point your orchestrator at readiness.
+
+On `SIGTERM` the process stops accepting connections, closes the HTTP server,
+and drains the database pool before exiting.
+
+## Backups
+
+Everything is in PostgreSQL, so backing up the database backs up the product.
+
+```sh
+pg_dump --format=custom "$DATABASE_URL" > simple-balance-$(date +%F).dump
+```
+
+Restore into an empty database with `pg_restore`. Take a backup before upgrading;
+[upgrades](upgrades.md) explains why.
+
+## Upgrading
+
+Pull the new image, stop and remove the container, start it again with the same
+command. Migrations run at startup under an advisory lock, so concurrent starts
+cannot race each other, and readiness stays closed until they finish.
+`npm run db:migrate` is a development convenience, not an operator step. See
+[upgrades](upgrades.md).
+
+## Development
 
 ```sh
 docker compose -f compose.dev.yml up -d
 npm run dev
 ```
 
-Run Vite in another terminal with `npm run dev:client` and open
-`http://localhost:5173`. Its development proxy routes API, OAuth discovery,
-health, and MCP requests to port 3000. No environment variables are needed:
-create a real local owner on the first visit, then use that login for both the
-web app and MCP OAuth. The API binds to `127.0.0.1` outside production.
+Then `npm run dev:client` in another terminal, and open
+<http://localhost:5173>. Vite proxies the API, OAuth discovery, health, and MCP
+routes to port 3000. No environment variables are needed: create a real owner on
+the first visit and use it for both the web app and MCP OAuth. Outside
+production the API binds to `127.0.0.1`.
+
+The compose file also creates `simple_balance_test` for the integration suite.

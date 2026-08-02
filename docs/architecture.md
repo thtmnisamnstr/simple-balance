@@ -1,113 +1,122 @@
 # Architecture
 
-Simple Balance is one Node process and one deployable image. PostgreSQL holds
-all the state. The browser and MCP clients call the same ledger services, so an
-agent action goes through the same scoping, validation, and audit as a click.
+One Node process, one image, one PostgreSQL database. The browser and any MCP
+client call the same ledger code, so an agent's action goes through the same
+scoping, validation, and audit trail as a click.
 
 ```mermaid
 flowchart LR
   Browser["React browser app"] --> API["Hono /api/v1"]
   Agent["MCP client"] --> OAuth["Better Auth OAuth + PKCE"]
   OAuth --> MCP["Streamable HTTP /mcp"]
-  API --> Services["Ledger domain services"]
+  API --> Services["Ledger services"]
   MCP --> Services
   Services --> DB[("PostgreSQL 15+")]
-  Auth["Local login or optional Google"] --> OAuth
+  Auth["Local or Google sign-in"] --> OAuth
   OAuth --> DB
 ```
 
-`/api/v1` is the first stable HTTP contract version. It tracks the contract, not
-the application release number, so it changes only when the contract breaks.
+`/api/v1` versions the HTTP contract, not the product. It changes when the
+contract breaks, which is not the same as when the app does.
 
-## Boundaries
+## Where things live
 
-- `src/shared` owns Zod request contracts, money/date primitives, and portable CSV
-  normalization.
-- `src/server/services` owns tenancy, optimistic concurrency, idempotency, audit
-  events, double-entry postings, summaries, staging, and import/export. The API
-  and MCP layers call these same functions.
-- `src/server/api.ts` is a transport adapter. It obtains the user from Better Auth
-  and never accepts a ledger owner in public input.
-- `src/server/mcp.ts` exposes discrete tools and filters them by OAuth scope.
-- `src/client` renders what the server computes. It never derives a balance of
-  its own. Lists page by number against a server-supplied total row count;
-  cursor paging remains available for reading a whole ledger straight through.
+| Path | What is in it |
+| --- | --- |
+| `src/shared` | Zod contracts, money and date primitives, CSV normalisation. Imported by both sides. |
+| `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
+| `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
+| `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |
+| `src/server/db` | Drizzle schema, migration runner, connection pool. |
+| `src/client` | The browser app. Renders what the server computed. |
+| `drizzle` | Generated SQL migrations and their snapshots. |
+| `tests` | Unit tests; `tests/integration` needs a real PostgreSQL. |
+| `scripts` | Release helper, development database bootstrap, the Ralph loop. |
 
-## Ledger invariants
+Both transports are adapters. Anything that decides something belongs in a
+service, so the browser and an agent cannot drift apart.
 
-- Money at JSON and MCP boundaries is always a decimal string.
-- Account currency or crypto asset symbol is immutable after any opening balance,
-  committed posting, or staged reference. Crypto wallets track native quantities;
-  they do not create market prices, valuation, or a global FX rate.
-- The books are double-entry. Every transaction settles to zero in each
-  currency it touches, and nothing is written unless it does.
-- A deposit credits the destination account and debits the income account. A
-  withdrawal debits the source account and credits the expense account. An
-  opening balance credits the account and debits the equity account, so where
-  an account started is recorded in the books rather than beside them. All
-  counter-accounts are created by the server, one per kind and currency, and
-  never appear in account lists or pickers.
-- Balances come from postings alone. No balance query reads a running total off
-  the account row.
-- A same-currency transfer moves between the two accounts directly. A
-  conversion settles through the exchange account so each currency balances on
-  its own rather than netting across the pair.
-- Cross-currency transfers retain the sent and received amounts. The implied
-  rate is audit and display metadata, not a global rate.
-- A posting carries its own date, so it stands on its own. Balances, cash flow
-  and spending by category are all read from the posting table, and a balance as
-  of a date is an indexed range rather than a scan of the whole ledger. Only
-  labels, such as which category an entry was filed under, are looked up
-  elsewhere, which is why recategorising updates past reports.
-- Postings are append-only. A correction works out the difference per account,
-  currency and date and appends only that, so changing an amount costs one
-  adjusting entry per side rather than a full reversal and repost. An edit that
-  changes nothing about the movement writes nothing at all.
-- Deleting voids an entry by posting its reversal; restoring posts it back.
-  Nothing is erased, and no balance or report has to remember to filter deleted
-  rows, because a voided entry already nets to zero.
-- Every list orders by any column it displays, in either direction. Order is
-  presentation rather than scope, so it stays out of the fingerprinted bulk
-  selection. A cursor records the order it was issued for and is refused under
-  another; orderings a keyset cannot resume page by number instead.
-- Transaction mass edits and deletes are validate-first and atomic. Explicit
-  selections use row versions; all-matching selections use a server-issued count
-  and fingerprint of the filtered `id:version` set so concurrent changes make the
-  request stale instead of silently changing its scope. A single request covers
-  at most 10,000 rows, and the HTTP body limit for bulk endpoints is sized from
-  that same cap.
-- Bulk account changes preserve native currency. Transfers may receive common
-  field edits but cannot be collapsed into deposits or withdrawals in bulk.
-- Staged rows never affect balances.
-- Mass stage commit validates all rows first and runs in one PostgreSQL
-  transaction.
-- Every transaction requires a payee; its description is optional. Category and
-  payee entry canonicalizes exact existing matches case-insensitively, while
-  category and payee links open their filtered transaction views.
-- Payees remain required canonical text on transactions rather than a separate
-  mutable database entity. The payee list is a tenant-scoped projection of
-  committed and staged transaction text; merging rewrites those references
-  atomically, bumps their versions, and records audit events.
-- Bank CSV staging resolves category and payee names with the same Unicode,
-  whitespace, and case normalization used by the rest of the application.
-  Missing categories are created, incompatible category applicability broadens
-  to Both, and new payee text becomes visible through the derived payee list.
+## What the ledger guarantees
 
-## Request flow and tenancy
+**Money is a decimal string** at every JSON and MCP boundary, and
+`numeric(44,18)` in PostgreSQL. No binary floating point anywhere near a balance.
 
-Web requests use a same-origin secure session cookie. MCP requests use a scoped
-OAuth access token. Both resolve an internal `Actor`; every service query includes
-`actor.userId`. IDs from a different user resolve as not found.
+**The books are double-entry.** Every transaction settles to zero in each
+currency it touches, checked before anything is written. A deposit credits the
+destination and debits income; a withdrawal debits the source and credits
+expense; a same-currency transfer moves between the two accounts; a conversion
+settles through the exchange account so each currency balances on its own rather
+than netting across the pair. An opening balance credits the account and debits
+equity, so where an account started is recorded in the books rather than beside
+them.
 
-Migrations run at process startup under PostgreSQL advisory lock `724202607`, so
-concurrent starts cannot race. Readiness stays closed until configuration, the
-database connection, and migrations all succeed. Nothing has shipped yet, so the
-schema is a single baseline migration that gets regenerated as it changes. Once
-a version ships, that baseline freezes and every later change becomes its own
-forward-only migration. See [upgrades and schema evolution](upgrades.md).
+Counter-accounts belong to the server, one per kind and currency. They never
+appear in a list or a picker, and no transaction can name one as a side.
 
-MCP OAuth access tokens are wrapped as audience-bound RS256 JWTs. The persistent
-private/public JWK pair lives in `auth_mcp_signing_key`; only public key material
-is returned by the JWKS endpoint. A valid JWT must still resolve to its
-non-expired Better Auth access-token row, preserving revocation and scoped
-consent.
+**Postings are append-only.** A correction works out the difference per account,
+currency, and date and appends only that, so changing an amount costs one
+adjusting row per side. An edit that changes nothing about the movement writes
+nothing at all. Deleting posts the reversal and restoring posts it back, which
+is why no balance or report has to remember to filter deleted rows: a voided
+entry already nets to zero.
+
+**A posting carries its own date**, so balances, cash flow, and spending by
+category all read one table, and a balance as of a date is an indexed range
+rather than a scan of the ledger. Labels are the exception: which category an
+entry was filed under is read from the transaction, which is why
+recategorising updates past reports.
+
+**Balances come from postings alone.** Nothing reads a running total off an
+account row.
+
+**Currencies stay put.** An account's currency is fixed once it is in use, and a
+posting's currency is tied to its account's by foreign key. Cross-currency
+transfers keep the sent and received amounts separately; the implied rate is
+metadata, not a rate the system applies anywhere else.
+
+**Bulk changes are validate-first and atomic.** Explicit selections carry row
+versions. All-matching selections carry a server-issued count and a fingerprint
+of the filtered `id:version` set, so a concurrent change makes the request stale
+rather than quietly changing what it covers. One request covers at most 10,000
+rows, and the HTTP body limit is sized from that cap. Account changes preserve
+native currency, and a transfer cannot be collapsed into a deposit or withdrawal
+in bulk.
+
+**Staged rows never touch balances.** Committing a batch validates every row
+first and runs in a single PostgreSQL transaction.
+
+**Every transaction has a payee.** It is canonical text on the transaction
+rather than a table of its own; the payee list is a projection of committed and
+staged text. Merging rewrites every reference at once, bumps versions, and
+writes audit events.
+
+**Lists order by any column they show**, either direction. Order is presentation,
+not scope, so it stays out of the fingerprinted bulk selection. A cursor records
+the ordering it was issued for and is refused under another; orderings a keyset
+cannot resume page by number instead.
+
+## Tenancy
+
+Browser requests carry a same-origin secure session cookie. MCP requests carry a
+scoped OAuth access token. Both resolve to an internal `Actor`, and every service
+query is scoped by `actor.userId`. An id belonging to someone else comes back as
+not found, not as forbidden.
+
+No public input ever names a ledger owner.
+
+## Migrations
+
+They run at process startup under PostgreSQL advisory lock `724202607`, so two
+containers starting together cannot race. Readiness stays closed until
+configuration, the connection, and the migrations have all succeeded.
+
+Until the first release the schema is one baseline migration, regenerated in
+place as it changes. The first release freezes it, and every change after that
+is its own forward-only migration. See [upgrades](upgrades.md).
+
+## MCP tokens
+
+Access tokens are audience-bound RS256 JWTs. The signing key pair lives in
+`auth_mcp_signing_key`; the JWKS endpoint publishes only the public half. A valid
+JWT still has to resolve to a live Better Auth access-token row, so revoking
+consent takes effect immediately rather than when the token happens to expire.
