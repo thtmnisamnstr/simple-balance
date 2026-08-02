@@ -178,6 +178,54 @@ describe("account opening balances", () => {
   });
 });
 
+describe("import references survive an edit", () => {
+  // The reference a row arrived with from a bank file is what stops a second
+  // import of the same statement bringing it back in as a new transaction.
+  // Nothing on the form shows it, so losing it here is invisible until the
+  // duplicate appears months later.
+  it("sends the import reference back when a committed row is edited", async () => {
+    let requestBody: { draft?: Record<string, unknown> } | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname.startsWith("/api/v1/transactions/")) {
+          requestBody = JSON.parse(String(init?.body));
+          return new Response(JSON.stringify(groceryTransaction), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    const client = queryClient();
+    client.setQueryData(["payees", "suggestions", ""], []);
+    render(
+      <QueryClientProvider client={client}>
+        <TransactionForm
+          accounts={[checkingAccount]}
+          categories={[groceriesCategory]}
+          transaction={{ ...groceryTransaction, externalId: "STMT-4021-88" }}
+          onDone={() => undefined}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Payee"), {
+      target: { value: "Acme Markets" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(requestBody).toBeDefined());
+    expect(requestBody?.draft).toMatchObject({ externalId: "STMT-4021-88" });
+  });
+});
+
 describe("configured timezone defaults", () => {
   it("uses the ledger timezone for a new transaction date", () => {
     vi.useFakeTimers();
