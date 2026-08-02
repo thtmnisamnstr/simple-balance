@@ -184,13 +184,19 @@ integration("list ordering", () => {
   // The default view is the one every person lands on. Ordering it in a way the
   // index cannot serve turns reading a page into sorting the whole ledger, and
   // nothing about the result would look wrong, so the plan itself is asserted.
-  it("reads the default newest-first order straight from the index", async () => {
-    // Sequential scans are turned off for this one plan so the question is only
-    // whether the index CAN serve the order, not whether Postgres bothers on a
-    // handful of rows. A Sort step here would mean the ordering no longer
-    // matches the index and every page would sort the whole ledger.
+  it("reads the default newest-first order without sorting", async () => {
+    // The property under test is that the ordering is satisfiable by an index,
+    // not which index the planner happens to prefer. Sequential scans and sorts
+    // are both priced out of the way so the plan has to show whether an index
+    // CAN produce this order. If one cannot, a Sort appears despite the cost.
+    //
+    // Asserting a particular index name here was flaky: this database is shared
+    // by the whole integration suite, so the statistics, and with them the
+    // planner's choice among equally valid indexes, depend on which other tests
+    // have run.
     const text = await getDb().transaction(async (tx) => {
       await tx.execute(sql`set local enable_seqscan = off`);
+      await tx.execute(sql`set local enable_sort = off`);
       // Built through the same helper the list uses, so the assertion covers
       // the real ordering rather than a hand-written approximation of it.
       const order = sql.join(
@@ -208,8 +214,9 @@ integration("list ordering", () => {
       `);
       return plan.rows.map((row) => Object.values(row)[0]).join("\n");
     });
-    expect(text).toContain("Index Scan Backward using transaction_user_date_idx");
+
     expect(text).not.toContain("Sort");
+    expect(text).toContain("Index Scan");
   });
 
   it("pages an account or category sort by number instead of by cursor", async () => {

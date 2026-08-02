@@ -1,11 +1,9 @@
 name: verify
 
+# These gates answer one question: is this safe to merge into main. So they run
+# on pull requests, which covers opening one and every push to its branch, and
+# not on every push to every branch a person happens to be experimenting on.
 on:
-  # Branches only. A tag push already runs these gates through the release
-  # workflow, and without this filter it would run them twice for one push.
-  push:
-    branches:
-      - "**"
   pull_request:
   # The release workflow reuses these gates so a publish cannot outrun them.
   workflow_call:
@@ -47,6 +45,5 @@ jobs:
       - run: npm ci
       - run: npm run verify
       - run: npm run test:integration
-      - run: npm run ralph -- --dry-run
       - if: matrix.postgres == '16-alpine'
         run: docker build -t simple-balance:test .

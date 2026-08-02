@@ -80,6 +80,13 @@ docker build -t simple-balance:test .
 npm run ralph -- --dry-run
 ```
 
+`npm run ralph -- --dry-run` is a local command and is deliberately not part of
+CI. Its Git guard refuses a repository whose config pulls in another file,
+because an included config can set an executable hook. `actions/checkout` does
+exactly that to store its credentials, so the guard is right to object and CI is
+the wrong place to ask it. The guard itself is covered by unit tests, which do
+run in CI.
+
 ## Definition of done
 
 - Add focused tests for changed domain behavior and run the story verification
