@@ -59,10 +59,11 @@ the same tags without needing a new release.
 
 ## The schema contract
 
-Before the first release, the schema is a single baseline migration that gets
-regenerated in place as it changes. The first release freezes it.
+The 0.1.0 baseline is frozen, and so is every migration released after it. A
+released migration has already run against someone's data, so editing one would
+leave their schema and its recorded history disagreeing.
 
-After that, released migrations are immutable, and every schema change:
+Every schema change is therefore a new migration, and each one:
 
 - is a new forward-only migration, checked into version control;
 - preserves every ledger, authentication, provenance, idempotency, and audit

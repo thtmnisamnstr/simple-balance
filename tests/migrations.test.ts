@@ -6,7 +6,10 @@ const migrationDirectory = path.resolve(import.meta.dirname, "../drizzle");
 const metadataDirectory = path.join(migrationDirectory, "meta");
 
 describe("migration baseline", () => {
-  it("stays a single regenerated baseline while nothing is released", async () => {
+  // The 0.1.0 baseline has shipped, so it is frozen. A change here would mean a
+  // database that already ran it now disagrees with its own recorded history.
+  // New schema work adds a migration beside it rather than editing it.
+  it("keeps the released baseline exactly as it shipped", async () => {
     const migrationFiles = (await readdir(migrationDirectory))
       .filter((name) => name.endsWith(".sql"))
       .sort();

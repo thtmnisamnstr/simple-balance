@@ -1,12 +1,22 @@
+# Installed and built output
 node_modules/
 dist/
+*.tsbuildinfo
+
+# Local configuration. The example is the template and stays tracked.
 .env
 .env.*
 !.env.example
-.DS_Store
+
+# Test and tooling output
 coverage/
 playwright-report/
 test-results/
 .ralph/
 outputs/
 *.log
+
+# Editor and operating system leftovers
+.DS_Store
+.idea/
+.vscode/

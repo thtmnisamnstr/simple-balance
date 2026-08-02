@@ -2,7 +2,7 @@
 
 Notable changes, newest first.
 
-## Unreleased
+## 0.1.0 - 2026-08-02
 
 The first release. Everything below is new, so this reads as a description of
 what Simple Balance does rather than a list of differences.

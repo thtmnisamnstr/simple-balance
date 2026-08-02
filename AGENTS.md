@@ -60,10 +60,11 @@
   collapse a transfer into a single-account transaction in bulk.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
-- Nothing is released yet, so `drizzle/0000_initial.sql` stays a single
-  regenerated baseline. Fold schema changes into it rather than adding forward
-  migrations. Once a version ships, that baseline becomes immutable and every
-  later change needs its own forward-only migration.
+- `drizzle/0000_initial.sql` shipped in 0.1.0 and is now frozen. Never edit it
+  and never regenerate it: someone's database has already run it, and changing
+  it would leave their schema and its recorded history disagreeing. Every schema
+  change from here is its own forward-only migration, generated with
+  `npm run db:generate`, carrying whatever backfill it needs.
 - Startup must remain the only production migration path. Keep migrations safe
   under the advisory lock and fail readiness on migration failure.
 
