@@ -1,7 +1,11 @@
 name: verify
 
 on:
+  # Branches only. A tag push already runs these gates through the release
+  # workflow, and without this filter it would run them twice for one push.
   push:
+    branches:
+      - "**"
   pull_request:
   # The release workflow reuses these gates so a publish cannot outrun them.
   workflow_call:

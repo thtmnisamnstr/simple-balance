@@ -2,10 +2,13 @@
 .github
 .ralph
 dist
-node_modules
+# Anywhere, not only at the root: the runtime manifest has its own tree, and a
+# stray copy would be sent to the daemon and could shadow the installed one.
+**/node_modules
 tests
 docs
 scripts
+**/.DS_Store
 *.log
 .env*
 !.env.example

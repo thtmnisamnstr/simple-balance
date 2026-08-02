@@ -279,7 +279,6 @@ export const payeeMergeResultSchema = z.object({
 
 export type PayeeSummary = z.infer<typeof payeeSummarySchema>;
 export type PayeeDuplicateGroup = z.infer<typeof payeeDuplicateGroupSchema>;
-export type PayeeMergeInput = z.infer<typeof payeeMergeSchema>;
 export type PayeeMergeResult = z.infer<typeof payeeMergeResultSchema>;
 
 export const directTransactionCreateSchema = z.object({
@@ -549,9 +548,6 @@ export const bulkTransactionEditResultSchema = z
 export type BulkTransactionFilter = z.infer<
   typeof bulkTransactionFilterSchema
 >;
-export type BulkTransactionFilterSelectionRequest = z.infer<
-  typeof bulkTransactionFilterSelectionRequestSchema
->;
 export type BulkTransactionSelectionSnapshot = z.infer<
   typeof bulkTransactionSelectionSnapshotSchema
 >;
@@ -561,9 +557,6 @@ export type BulkTransactionEditInput = z.infer<
 >;
 export type BulkTransactionEditResult = z.infer<
   typeof bulkTransactionEditResultSchema
->;
-export type BulkTransactionDeleteInput = z.infer<
-  typeof bulkTransactionDeleteSchema
 >;
 
 export const stageListQuerySchema = listQuerySchema.extend({
@@ -581,14 +574,6 @@ export type ApiErrorCode =
   | "STALE_VERSION"
   | "UNAUTHORIZED"
   | "INTERNAL_ERROR";
-
-export type ApiErrorBody = {
-  error: {
-    code: ApiErrorCode;
-    message: string;
-    details?: unknown;
-  };
-};
 
 export type Actor = {
   userId: string;

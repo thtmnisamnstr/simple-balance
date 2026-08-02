@@ -259,13 +259,24 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
     order by a.archived_at nulls first, lower(a.name)
   `);
 
+  // Named column by column rather than spread. The raw query selects a.*, so
+  // spreading it would ship the snake_case originals alongside the camelCase
+  // names every other account response uses, and a caller could reasonably
+  // start depending on either.
   return result.rows.map((row) => {
     const normalized = {
-      ...row,
+      id: row.id,
       userId: row.user_id,
+      name: row.name,
+      type: row.type,
+      systemKind: row.system_kind,
+      currency: row.currency,
+      institution: row.institution,
+      notes: row.notes,
       openingDate: row.opening_date,
       openingBalance: String(row.opening_balance),
       archivedAt: row.archived_at,
+      version: row.version,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     } as unknown as typeof ledgerAccounts.$inferSelect;
