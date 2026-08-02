@@ -163,6 +163,13 @@ export default function StagingPage() {
     queryKey: ["categories"],
     queryFn: () => api<Category[]>("/api/v1/categories"),
   });
+  // A staged draft names its category by id, so the queue needs the list to
+  // show a name instead of a UUID.
+  const categoryNames = useMemo(
+    () =>
+      new Map((categories.data ?? []).map((category) => [category.id, category.name])),
+    [categories.data],
+  );
   const selectedRows = useMemo(() => [...selected.values()], [selected]);
   const selectableRows = stages;
 
@@ -265,7 +272,9 @@ export default function StagingPage() {
     }
   };
   const invalidSelected = selectedRows.some((stage) => stage.validationIssues.length);
-  const duplicateSelected = selectedRows.some((stage) => stage.duplicateOfId);
+  const isPossibleDuplicate = (stage: StagedTransaction) =>
+    Boolean(stage.duplicateOfId) || Boolean(stage.repeatsStagedRow);
+  const duplicateSelected = selectedRows.some(isPossibleDuplicate);
   const duplicateCommitError =
     bulkMutation.error instanceof ApiClientError &&
     bulkMutation.error.code === "DUPLICATE";
@@ -289,7 +298,7 @@ export default function StagingPage() {
       const payload = {
         stagedIds: [stage.id],
         expectedVersions: { [stage.id]: stage.version },
-        allowDuplicates: Boolean(stage.duplicateOfId),
+        allowDuplicates: isPossibleDuplicate(stage),
         dryRun: false,
       };
       return api("/api/v1/staged-transactions/commit", {
@@ -473,6 +482,12 @@ export default function StagingPage() {
                   onSort={applySort}
                 />
                 <SortableHeader
+                  field="category"
+                  label="Category"
+                  sort={sort}
+                  onSort={applySort}
+                />
+                <SortableHeader
                   field="status"
                   label="Status"
                   sort={sort}
@@ -529,10 +544,16 @@ export default function StagingPage() {
                     </td>
                     <td>{summary.account}</td>
                     <td>
+                      {categoryNames.get(stagedString(draft.categoryId)) ??
+                        "Uncategorized"}
+                    </td>
+                    <td>
                       {stage.validationIssues.length ? (
                         <Badge tone="red">Needs attention</Badge>
                       ) : stage.duplicateOfId ? (
-                        <Badge tone="amber">Possible duplicate</Badge>
+                        <Badge tone="amber">Already recorded</Badge>
+                      ) : stage.repeatsStagedRow ? (
+                        <Badge tone="amber">Repeats another row</Badge>
                       ) : (
                         <Badge tone="green">Ready</Badge>
                       )}
@@ -554,7 +575,7 @@ export default function StagingPage() {
                         disabled={Boolean(stage.validationIssues.length)}
                         onClick={() => {
                           // Only a possible repeat needs asking about.
-                          if (stage.duplicateOfId) {
+                          if (isPossibleDuplicate(stage)) {
                             duplicate.ask(stage, () =>
                               rowMutation.mutate({ stage, action: "commit" }),
                             );

@@ -181,6 +181,7 @@ CREATE TABLE "staged_transaction" (
 	"raw_data" jsonb,
 	"validation_issues" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"duplicate_of_id" uuid,
+	"duplicate_key" text,
 	"import_batch_id" uuid,
 	"committed_transaction_id" uuid,
 	"version" integer DEFAULT 1 NOT NULL,
@@ -362,6 +363,7 @@ CREATE INDEX "posting_transaction_idx" ON "posting" USING btree ("transaction_id
 CREATE INDEX "auth_session_user_idx" ON "auth_session" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "staged_user_status_created_idx" ON "staged_transaction" USING btree ("user_id","status","created_at","id");--> statement-breakpoint
 CREATE INDEX "staged_user_import_batch_idx" ON "staged_transaction" USING btree ("user_id","import_batch_id");--> statement-breakpoint
+CREATE INDEX "staged_user_duplicate_key_idx" ON "staged_transaction" USING btree ("user_id","duplicate_key");--> statement-breakpoint
 CREATE INDEX "transaction_user_date_idx" ON "ledger_transaction" USING btree ("user_id","date","id");--> statement-breakpoint
 CREATE INDEX "transaction_user_source_account_idx" ON "ledger_transaction" USING btree ("user_id","source_account_id");--> statement-breakpoint
 CREATE INDEX "transaction_user_destination_account_idx" ON "ledger_transaction" USING btree ("user_id","destination_account_id");--> statement-breakpoint

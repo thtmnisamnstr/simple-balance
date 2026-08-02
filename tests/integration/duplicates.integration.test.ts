@@ -13,6 +13,7 @@ import {
   createStage,
   deleteStages,
   getStage,
+  listStages,
 } from "../../src/server/services/staging.js";
 import {
   createTransaction,
@@ -622,5 +623,63 @@ integration("transaction duplicate protection", () => {
     );
     expect(statuses.filter((status) => status === "deleted")).toHaveLength(2);
     expect(statuses.filter((status) => status === "staged")).toHaveLength(1);
+  });
+
+  // Two rows that repeat each other were refused at commit while the queue's
+  // own "possible duplicate" filter found nothing, so there was no way to see
+  // which rows the refusal was about.
+  it("shows rows that repeat each other, not only rows matching a commit", async () => {
+    const draft = {
+      type: "withdrawal" as const,
+      date: "2027-09-01",
+      payee: "Repeat Shop",
+      description: null,
+      fromAccountId: stagedAccountId,
+      amount: "31.00",
+    };
+    const first = await createStage(actor, {
+      draft,
+      idempotencyKey: "repeat-stage-a",
+    });
+    const second = await createStage(actor, {
+      draft,
+      idempotencyKey: "repeat-stage-b",
+    });
+
+    // Neither matches anything committed, so the old flag stays null.
+    expect(first.duplicateOfId).toBeNull();
+    expect(second.duplicateOfId).toBeNull();
+
+    const flagged = await listStages(actor, {
+      validity: "duplicate",
+      limit: 50,
+    });
+    const ids = flagged.items.map((item) => item.id);
+    expect(ids).toContain(first.id);
+    expect(ids).toContain(second.id);
+    expect(flagged.items.every((item) => item.repeatsStagedRow)).toBe(true);
+
+    // And the commit still refuses them, which is what sent someone looking.
+    await expect(
+      commitStages(actor, {
+        stagedIds: [first.id, second.id],
+        expectedVersions: {
+          [first.id]: first.version,
+          [second.id]: second.version,
+        },
+        idempotencyKey: "repeat-stage-commit",
+      }),
+    ).rejects.toThrow(/duplicate/i);
+
+    // A row on its own is not a repeat of anything.
+    await deleteStages(actor, {
+      stagedIds: [second.id],
+      expectedVersions: { [second.id]: second.version },
+    });
+    const afterRemoval = await listStages(actor, {
+      validity: "duplicate",
+      limit: 50,
+    });
+    expect(afterRemoval.items.map((item) => item.id)).not.toContain(first.id);
   });
 });

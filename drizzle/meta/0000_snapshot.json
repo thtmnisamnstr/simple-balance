@@ -1,5 +1,5 @@
 {
-  "id": "02300783-59fc-456c-9aa9-f211530daa9e",
+  "id": "2262efab-e4bf-4dc1-8a28-feb9ae277941",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1648,6 +1648,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "duplicate_key": {
+          "name": "duplicate_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "import_batch_id": {
           "name": "import_batch_id",
           "type": "uuid",
@@ -1733,6 +1739,27 @@
             },
             {
               "expression": "import_batch_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staged_user_duplicate_key_idx": {
+          "name": "staged_user_duplicate_key_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "duplicate_key",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

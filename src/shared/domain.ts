@@ -365,6 +365,7 @@ export const stageSortFields = [
   "date",
   "payee",
   "account",
+  "category",
   "status",
   "amount",
 ] as const;

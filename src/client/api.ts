@@ -244,6 +244,8 @@ export type StagedTransaction = {
   draft: StagedDraft;
   validationIssues: ValidationIssue[];
   duplicateOfId?: string | null;
+  /** Another row still waiting in the queue carries the same fingerprint. */
+  repeatsStagedRow?: boolean;
   importBatchId?: string | null;
   version: number;
   status: "staged" | "committed" | "deleted";

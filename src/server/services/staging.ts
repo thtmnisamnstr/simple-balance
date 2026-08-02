@@ -4,8 +4,7 @@ import {
   eq,
   inArray,
   sql,
-  type SQL,
-} from "drizzle-orm";
+  type SQL, getTableColumns } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import type {
   Actor,
@@ -62,11 +61,17 @@ import {
 export type StageView = ReturnType<typeof stageView>;
 const referenceUuidSchema = z.string().uuid();
 
-function stageView(row: StagedTransactionRow) {
+function stageView(
+  row: StagedTransactionRow & { repeatsStagedRow?: boolean },
+) {
+  // The fingerprint itself is an internal detail; what a caller needs is
+  // whether the row repeats something, and which something.
+  const { duplicateKey: _duplicateKey, repeatsStagedRow, ...rest } = row;
   return {
-    ...serializeRow(row),
+    ...serializeRow(rest as StagedTransactionRow),
     validationIssues: row.validationIssues as ValidationIssue[],
     draft: row.draft as Partial<TransactionDraft>,
+    repeatsStagedRow: Boolean(repeatsStagedRow),
   };
 }
 
@@ -106,18 +111,32 @@ async function validateDraft(
   draft: TransactionDraft | null;
   issues: ValidationIssue[];
   duplicateOfId: string | null;
+  duplicateKey: string | null;
 }> {
   const parsed = transactionDraftSchema.safeParse(input);
   if (!parsed.success) {
-    return { draft: null, issues: zodIssues(parsed.error), duplicateOfId: null };
+    return {
+      draft: null,
+      issues: zodIssues(parsed.error),
+      duplicateOfId: null,
+      duplicateKey: null,
+    };
   }
+  // Recorded even when the row has other problems, so a queue full of
+  // near-identical rows can still be sorted out before anything is committed.
+  const duplicateKey = transactionDuplicateKeys(parsed.data)[0] ?? null;
   try {
     await prepareTransaction(tx, actor, parsed.data);
     const duplicateOfId = await findDuplicate(tx, actor, parsed.data);
-    return { draft: parsed.data, issues: [], duplicateOfId };
+    return { draft: parsed.data, issues: [], duplicateOfId, duplicateKey };
   } catch (error) {
     if (error instanceof ZodError) {
-      return { draft: parsed.data, issues: zodIssues(error), duplicateOfId: null };
+      return {
+        draft: parsed.data,
+        issues: zodIssues(error),
+        duplicateOfId: null,
+        duplicateKey,
+      };
     }
     // Only a genuine problem with the row becomes a row issue. A database or
     // network failure caught here would be filed against the person's data as
@@ -127,6 +146,7 @@ async function validateDraft(
         draft: parsed.data,
         issues: [{ field: "draft", message: error.message }],
         duplicateOfId: null,
+        duplicateKey,
       };
     }
     throw error;
@@ -173,6 +193,7 @@ export async function createStage(
         rawData: parsed.rawData,
         validationIssues: validation.issues,
         duplicateOfId: validation.duplicateOfId,
+        duplicateKey: validation.duplicateKey,
       })
       .returning();
     const view = stageView(created);
@@ -214,6 +235,7 @@ export async function insertImportedStage(
   const validation = {
     issues: [...(input.initialIssues ?? []), ...draftValidation.issues],
     duplicateOfId: draftValidation.duplicateOfId,
+    duplicateKey: draftValidation.duplicateKey,
   };
   const [created] = await tx
     .insert(stagedTransactions)
@@ -224,6 +246,7 @@ export async function insertImportedStage(
       importBatchId: input.importBatchId,
       validationIssues: validation.issues,
       duplicateOfId: validation.duplicateOfId,
+      duplicateKey: validation.duplicateKey,
     })
     .returning();
   await writeAudit(tx, actor, {
@@ -265,6 +288,12 @@ function stageSortPlan(
             ${draft} ->> 'fromAccountId',
             ${draft} ->> 'toAccountId'
           )
+      )`);
+    case "category":
+      return paged(sql`(
+        select lower(name) from category
+        where category.user_id = ${stagedTransactions.userId}
+          and category.id::text = ${draft} ->> 'categoryId'
       )`);
     case "status":
       // The order the queue reads in: what needs a person, then what might be a
@@ -339,17 +368,36 @@ export async function listStages(
   if (query.end) {
     conditions.push(sql`${stagedTransactions.draft}->>'date' <= ${query.end}`);
   }
+  // A row is a possible duplicate when it matches something already committed,
+  // or when another row still waiting in the queue carries the same fingerprint.
+  // Only the first was recorded before, so two imported copies of one statement
+  // were refused at commit while this filter found nothing to show for it.
+  const repeatsAnotherStagedRow = sql`(
+    ${stagedTransactions.duplicateKey} is not null
+    and exists (
+      select 1 from staged_transaction other
+      where other.user_id = ${stagedTransactions.userId}
+        and other.status = 'staged'
+        and other.deleted_at is null
+        and other.duplicate_key = ${stagedTransactions.duplicateKey}
+        and other.id <> ${stagedTransactions.id}
+    )
+  )`;
+  const possiblyDuplicate = sql`(
+    ${stagedTransactions.duplicateOfId} is not null or ${repeatsAnotherStagedRow}
+  )`;
+
   if (query.validity === "valid") {
     conditions.push(
       sql`jsonb_array_length(${stagedTransactions.validationIssues}) = 0`,
-      sql`${stagedTransactions.duplicateOfId} is null`,
+      sql`not ${possiblyDuplicate}`,
     );
   } else if (query.validity === "invalid") {
     conditions.push(
       sql`jsonb_array_length(${stagedTransactions.validationIssues}) > 0`,
     );
   } else if (query.validity === "duplicate") {
-    conditions.push(sql`${stagedTransactions.duplicateOfId} is not null`);
+    conditions.push(possiblyDuplicate);
   }
 
   const filters = [...conditions];
@@ -378,7 +426,13 @@ export async function listStages(
   const page = query.cursor ? 1 : Math.min(query.page, totalPages);
   const offset = query.cursor ? 0 : (page - 1) * query.limit;
   const rows = await db
-    .select()
+    .select({
+      ...getTableColumns(stagedTransactions),
+      // Whether this row repeats another that is still waiting. It depends on
+      // the rest of the queue, not on the row, so it is answered here rather
+      // than stored.
+      repeatsStagedRow: sql<boolean>`${repeatsAnotherStagedRow}`,
+    })
     .from(stagedTransactions)
     .where(and(...conditions))
     .orderBy(...plan.orderBy)
@@ -447,6 +501,7 @@ export async function updateStage(
         draft: canonicalDraft,
         validationIssues: validation.issues,
         duplicateOfId: validation.duplicateOfId,
+        duplicateKey: validation.duplicateKey,
         version: expectedVersion + 1,
         updatedAt: new Date(),
       })

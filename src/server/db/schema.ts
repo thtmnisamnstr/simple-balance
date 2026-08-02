@@ -486,6 +486,12 @@ export const stagedTransactions = pgTable(
     rawData: jsonb("raw_data"),
     validationIssues: jsonb("validation_issues").default(sql`'[]'::jsonb`).notNull(),
     duplicateOfId: uuid("duplicate_of_id"),
+    // What this row would collide with. `duplicateOfId` names a committed
+    // transaction it repeats; `duplicateKey` is the same fingerprint the commit
+    // check uses, stored so two staged rows that repeat EACH OTHER can be found
+    // before the commit refuses them. Without it that kind of duplicate exists
+    // only for the instant a commit is attempted.
+    duplicateKey: text("duplicate_key"),
     importBatchId: uuid("import_batch_id"),
     committedTransactionId: uuid("committed_transaction_id"),
     version: integer("version").default(1).notNull(),
@@ -518,6 +524,8 @@ export const stagedTransactions = pgTable(
       table.userId,
       table.importBatchId,
     ),
+    // Finding the rows that share a fingerprint is a grouped lookup.
+    index("staged_user_duplicate_key_idx").on(table.userId, table.duplicateKey),
     check("staged_transaction_version_check", sql`${table.version} >= 1`),
     check(
       "staged_transaction_status_check",
