@@ -76,6 +76,8 @@ export type Preferences = {
   userId: string;
   timezone: string;
   defaultCurrency: string;
+  /** False until somebody has actually picked these, rather than been given them. */
+  chosen: boolean;
 };
 
 export type Account = {

@@ -1,4 +1,4 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   CircleDollarSign,
@@ -15,7 +15,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
   Navigate,
   NavLink,
@@ -27,6 +27,7 @@ import {
 import {
   api,
   ApiClientError,
+  json,
   type AuthPublicOptions,
   type Session,
 } from "./api.js";
@@ -44,6 +45,7 @@ import ImportPage from "./pages/ImportPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
 import TransactionsPage from "./pages/TransactionsPage.js";
+import { detectedCurrency, detectedTimezone } from "./locale.js";
 import { TimezoneProvider } from "./timezone.js";
 
 const nav = [
@@ -180,7 +182,7 @@ function SignIn({ error }: { error?: Error }) {
         {options.isPending ? <p>Loading sign-in options…</p> : null}
         {options.error ? <Alert>{options.error.message}</Alert> : null}
         {oauthParams.has("auth_error") ? (
-          <Alert>Google sign-in did not complete. Try again or use your local password.</Alert>
+          <Alert>Google sign-in did not complete. Try again, or sign in with your email and password.</Alert>
         ) : null}
         {awaitingVerification ? (
           <div className="local-auth-form">
@@ -276,7 +278,7 @@ function SignIn({ error }: { error?: Error }) {
             // failures on this page, where they can be read and retried.
             onSubmit={submitLocal}
           >
-            <h2>{setup ? "Create your account" : "Sign in locally"}</h2>
+            <h2>{setup ? "Create your account" : "Sign in with your email"}</h2>
             {setup ? (
               <Field label="Your name">
                 <Input
@@ -498,9 +500,45 @@ function OAuthConsent() {
   );
 }
 
+/**
+ * Start a new account on the timezone and currency the browser already implies.
+ *
+ * Every account used to begin at UTC and USD, which for most of the world is
+ * wrong, and wrong in a way that misdates entries rather than merely looking
+ * odd: something recorded on a California evening falls on tomorrow in UTC.
+ *
+ * Runs once, and only when nobody has chosen yet, so it cannot overwrite a
+ * setting somebody picked on purpose, including a deliberate UTC. That is what
+ * `chosen` is for. It covers whichever way the account was created, because it
+ * keys off the preferences rather than off a sign-up route.
+ */
+function useAdoptBrowserRegion(session: Session) {
+  const queryClient = useQueryClient();
+  const asked = useRef(false);
+  useEffect(() => {
+    if (session.preferences.chosen || asked.current) return;
+    asked.current = true;
+    const timezone = detectedTimezone();
+    const defaultCurrency = detectedCurrency();
+    if (timezone === session.preferences.timezone &&
+        defaultCurrency === session.preferences.defaultCurrency) {
+      return;
+    }
+    void api("/api/v1/preferences", {
+      ...json({ timezone, defaultCurrency }),
+      method: "PUT",
+    })
+      .then(() => queryClient.invalidateQueries({ queryKey: ["session"] }))
+      // Nothing here is worth interrupting somebody for: the defaults still
+      // work, and Settings can change them.
+      .catch(() => undefined);
+  }, [queryClient, session.preferences]);
+}
+
 function Shell({ session }: { session: Session }) {
   const [mobileNav, setMobileNav] = useState(false);
   const location = useLocation();
+  useAdoptBrowserRegion(session);
   const initials = session.user.name
     .split(/\s+/)
     .map((word) => word[0])

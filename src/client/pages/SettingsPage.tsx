@@ -93,9 +93,14 @@ export default function SettingsPage({ session }: { session: Session }) {
       <PageHeader
         eyebrow="Preferences"
         title="Settings"
-        description="Choose local display defaults and manage your sign-in methods."
+        description="Choose how dates and amounts are shown, and manage how you sign in."
       />
       <div className="settings-grid">
+        {/* Two columns of independent cards rather than a grid of rows. Sharing
+            rows made the short panels line up with the tall one beside them,
+            leaving a stretch of nothing between this card and the next one
+            under it. */}
+        <div className="settings-column">
         <section className="panel settings-section">
           <header className="section-title">
             <span><Settings2 size={19} /></span>
@@ -151,7 +156,11 @@ export default function SettingsPage({ session }: { session: Session }) {
           </form>
         </section>
 
+        <ConnectedApps />
+        </div>
+
         {(session.auth.localEnabled || session.auth.googleEnabled) ? (
+          <div className="settings-column">
           <section className="panel settings-section">
             <header className="section-title">
               <span><KeyRound size={19} /></span>
@@ -163,7 +172,7 @@ export default function SettingsPage({ session }: { session: Session }) {
             <div className="auth-method-status">
               {session.auth.localEnabled ? (
                 <div>
-                  <strong>Local password</strong>
+                  <strong>Email and password</strong>
                   <Badge tone={session.auth.localPasswordConfigured ? "green" : undefined}>
                     {session.auth.localPasswordConfigured ? "Ready" : "Not configured"}
                   </Badge>
@@ -205,7 +214,7 @@ export default function SettingsPage({ session }: { session: Session }) {
                   label={
                     session.auth.localPasswordConfigured
                       ? "New password"
-                      : "Create local password"
+                      : "Set a password"
                   }
                   hint="12–128 characters"
                 >
@@ -236,13 +245,13 @@ export default function SettingsPage({ session }: { session: Session }) {
                   <Alert>{passwordMutation.error.message}</Alert>
                 ) : null}
                 {passwordMutation.isSuccess ? (
-                  <Alert kind="success">Local password updated.</Alert>
+                  <Alert kind="success">Password updated.</Alert>
                 ) : null}
                 <div className="form-actions">
                   <Button type="submit" loading={passwordMutation.isPending}>
                     {session.auth.localPasswordConfigured
                       ? "Change password"
-                      : "Add local password"}
+                      : "Set a password"}
                   </Button>
                 </div>
               </form>
@@ -270,9 +279,8 @@ export default function SettingsPage({ session }: { session: Session }) {
               </p>
             ) : null}
           </section>
+          </div>
         ) : null}
-
-        <ConnectedApps />
       </div>
     </>
   );

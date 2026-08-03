@@ -2,6 +2,36 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+### Fixed
+
+Signing up with Google. Better Auth declares its social callback as the route
+pattern `/callback/:id` and hands database hooks that pattern rather than the URL
+requested, so the policy deciding who may open an account was told
+`/callback/:id`, matched nothing, and fell through to refusing. A first-ever
+Google sign-up therefore failed with `unable_to_create_user` while linking
+Google to an account that already existed kept working, because linking creates
+no user. Both forms of the path are now recognised.
+
+### Changed
+
+A new account starts on the timezone and currency its browser implies rather
+than UTC and USD. UTC is wrong for most of the world in a way that misdates
+entries: something recorded on a California evening lands on tomorrow. The
+timezone comes from the browser, which knows it exactly, and the currency from
+the region of its language tag, with USD when the tag names no region. Both are
+ordinary settings afterwards, and nothing is adopted once anybody has chosen.
+
+The sign-in screen and Settings no longer describe anything as "local".
+`AUTH_MODE=local` is a name for a deployment mode, not something a person
+signing in has any use for, and on a hosted instance it suggests the data lives
+on their own machine.
+
+Settings lays its cards out in columns rather than rows, so a short panel no
+longer leaves a stretch of nothing beneath it to line up with the tall one
+beside it.
+
 ## 0.1.1 - 2026-08-03
 
 Two things a first deployment ran into. No schema change, no data migration:

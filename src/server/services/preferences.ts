@@ -28,15 +28,18 @@ export async function getPreferences(actor: Actor) {
     .from(userPreferences)
     .where(eq(userPreferences.userId, actor.userId))
     .limit(1);
-  return (
-    preferences ?? {
-      userId: actor.userId,
-      timezone: "UTC",
-      defaultCurrency: "USD",
-      createdAt: new Date(0),
-      updatedAt: new Date(0),
-    }
-  );
+  // `chosen` is the difference between "this person picked UTC" and "nobody has
+  // picked anything yet", which the browser needs in order to offer what it
+  // knows without ever overriding a decision.
+  if (preferences) return { ...preferences, chosen: true };
+  return {
+    userId: actor.userId,
+    timezone: "UTC",
+    defaultCurrency: "USD",
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    chosen: false,
+  };
 }
 
 export async function setPreferences(actor: Actor, input: unknown) {

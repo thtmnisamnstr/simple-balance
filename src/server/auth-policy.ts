@@ -112,13 +112,32 @@ export async function isLedgerUserAuthorized(userId: string) {
  * configuration and the request rather than from a query. See
  * registration-context.ts for why that matters.
  */
+/**
+ * Whether a hook's path is the social sign-in callback.
+ *
+ * Better Auth declares that route as the pattern `/callback/:id`, and
+ * dispatchAuthEndpoint hands hooks `endpoint.path` rather than the URL that was
+ * actually requested, so a hook is told `/callback/:id` and never
+ * `/callback/google`. Matching only the resolved form meant every first-time
+ * Google sign-up fell through to the fail-closed branch below and was refused,
+ * while linking Google to an account that already existed kept working because
+ * that path never creates a user.
+ *
+ * Both forms are accepted. Google is the only social provider this app
+ * configures, so a social callback is a Google callback; the caller still has
+ * to check that Google is switched on.
+ */
+function isSocialCallbackPath(path?: string | null) {
+  return typeof path === "string" && path.startsWith("/callback/");
+}
+
 export function mayCreateAuthUser(
   email: string,
   path?: string | null,
   emailVerified?: boolean,
 ) {
   const config = getConfig();
-  if (path === "/callback/google") {
+  if (isSocialCallbackPath(path)) {
     if (!config.googleAuthEnabled) return false;
     // A domain entry trusts Google's word that the address belongs to the
     // person signing in. Google says so in email_verified, and an unverified
@@ -172,7 +191,7 @@ export async function mayCreateSession(
   if (path === "/sign-in/email" || path === "/sign-up/email") {
     return config.localAuthEnabled && hasCredentialAccount(linkedAccounts);
   }
-  if (path === "/callback/google") {
+  if (isSocialCallbackPath(path)) {
     return config.googleAuthEnabled && hasLinkedGoogleAccount(linkedAccounts);
   }
   return isLinkedIdentityAuthorized(linkedAccounts);

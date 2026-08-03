@@ -1874,6 +1874,21 @@ input[type="radio"] {
   align-items: start;
 }
 
+/* Each column stacks its own cards, so a tall card cannot push a short one's
+   neighbour down to meet it. */
+.settings-column {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-width: 0;
+}
+
+/* With no sign-in methods to show there is one column, and it takes the width
+   rather than leaving the other half empty. */
+.settings-grid > .settings-column:only-child {
+  grid-column: 1 / -1;
+}
+
 .settings-section {
   display: grid;
   gap: 20px;
