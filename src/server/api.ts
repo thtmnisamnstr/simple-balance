@@ -189,7 +189,20 @@ app.onError((error, c) => {
       422,
     );
   }
-  console.error(error);
+  // Not the error object. Drizzle builds its message out of the failing SQL and
+  // its bound parameters, and one of those parameters is the OAuth access token
+  // the MCP token endpoint looks a grant up by, so logging it whole would write
+  // a live credential into the log on any database hiccup. The statement is
+  // what an operator needs; the values are not.
+  const query = (error as { query?: unknown }).query;
+  if (typeof query === "string") {
+    console.error(
+      `Query failed: ${query}`,
+      (error as { cause?: unknown }).cause ?? error.name,
+    );
+  } else {
+    console.error(error);
+  }
   return c.json(
     { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } },
     500,
@@ -457,10 +470,24 @@ app.all("/mcp", async (c) => {
     });
     return limited ?? handled ?? new Response(null, { status: 500 });
   });
+  // Every credential reaching the handler below is one this rewrote, so the
+  // audience-bound JWT is the only thing that gets in.
+  //
+  // Testing for a "Bearer " prefix and otherwise passing the header through
+  // left a way round it: the library reads the token by stripping that exact
+  // prefix, so a header carrying the bare opaque token and no scheme at all
+  // arrived unchanged and was accepted. That is precisely the token the JWT
+  // wrapper exists to stop being used directly. Anything that is not a JWT
+  // this deployment signed for this resource is now replaced with a value that
+  // cannot match, whatever shape it arrived in.
   const authorization = c.req.raw.headers.get("authorization");
   let authenticatedRequest = c.req.raw;
-  if (authorization?.startsWith("Bearer ")) {
-    const opaqueToken = await unwrapMcpAccessToken(authorization.slice(7));
+  if (authorization !== null) {
+    const scheme = /^bearer +/i.exec(authorization);
+    const presented = scheme ? authorization.slice(scheme[0].length) : null;
+    const opaqueToken = presented
+      ? await unwrapMcpAccessToken(presented)
+      : null;
     const headers = new Headers(c.req.raw.headers);
     headers.set(
       "authorization",
@@ -490,6 +517,11 @@ app.use(
   }),
 );
 app.use("/api/v1/*", async (c, next) => {
+  // Everything below this line is somebody's ledger, and it is reached with a
+  // cookie rather than an Authorization header, so nothing stops a shared cache
+  // or a browser's back-forward store holding on to it by default. Said once
+  // here rather than remembered on each of thirty routes.
+  c.header("Cache-Control", "no-store");
   const identity = await getWebIdentity(c.req.raw.headers);
   if (!identity) {
     await rejectRequestBody(c);
@@ -772,7 +804,26 @@ app.get("/api/v1/audit-events", async (c) =>
 );
 
 if (process.env.NODE_ENV === "production") {
+  // Set after the file is served: the static handler answers with a response of
+  // its own, so a header put on the context beforehand does not survive.
+  //
+  // Vite puts a content hash in every asset filename, so an asset at a given
+  // name never changes and can be kept indefinitely. The shell is the opposite:
+  // its name never changes and its contents do, and it is what names the hashed
+  // assets. Served with no directive at all, a browser is free to guess how
+  // long it stays fresh, and a guess that outlives an upgrade leaves somebody
+  // holding a page that asks for assets which are no longer there.
+  app.use("/assets/*", async (c, next) => {
+    await next();
+    c.res.headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  });
   app.use("/assets/*", serveStatic({ root: "./dist/client" }));
+  app.use("*", async (c, next) => {
+    await next();
+    if (!c.res.headers.has("Cache-Control")) {
+      c.res.headers.set("Cache-Control", "no-cache");
+    }
+  });
   app.get("*", serveStatic({ path: "./dist/client/index.html" }));
 }
 

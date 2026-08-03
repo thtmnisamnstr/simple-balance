@@ -25,21 +25,48 @@ type SigningKey = {
   privateJwk: JWK;
 };
 
+/**
+ * The key is generated once in a deployment's life and never rotated, so it is
+ * held for the process after the first read.
+ *
+ * Reading it used to mean opening a transaction and taking an exclusive
+ * advisory lock, which is right for creating it and far too heavy for using it:
+ * every MCP request, every token issued, and every unauthenticated fetch of the
+ * public JWKS queued behind the same cluster-wide lock, so a stranger could
+ * hold up the whole deployment by asking for the public keys in a loop.
+ */
+let cachedSigningKey: SigningKey | undefined;
+
+const asSigningKey = (row: typeof mcpSigningKeys.$inferSelect): SigningKey => ({
+  ...row,
+  publicJwk: row.publicJwk as JWK,
+  privateJwk: row.privateJwk as JWK,
+});
+
 async function getSigningKey(): Promise<SigningKey> {
-  return getDb().transaction(async (tx) => {
+  if (cachedSigningKey) return cachedSigningKey;
+
+  // Almost always present, and reading it needs no lock at all.
+  const [present] = await getDb()
+    .select()
+    .from(mcpSigningKeys)
+    .where(eq(mcpSigningKeys.id, ACTIVE_KEY_ID))
+    .limit(1);
+  if (present) {
+    cachedSigningKey = asSigningKey(present);
+    return cachedSigningKey;
+  }
+
+  // Only creating one is worth serialising, and only two containers starting
+  // together would ever contend for it.
+  cachedSigningKey = await getDb().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(${MCP_SIGNING_KEY_LOCK})`);
     const [existing] = await tx
       .select()
       .from(mcpSigningKeys)
       .where(eq(mcpSigningKeys.id, ACTIVE_KEY_ID))
       .limit(1);
-    if (existing) {
-      return {
-        ...existing,
-        publicJwk: existing.publicJwk as JWK,
-        privateJwk: existing.privateJwk as JWK,
-      };
-    }
+    if (existing) return asSigningKey(existing);
 
     const { publicKey, privateKey } = generateKeyPairSync("rsa", {
       modulusLength: 2048,
@@ -55,12 +82,9 @@ async function getSigningKey(): Promise<SigningKey> {
         privateJwk,
       })
       .returning();
-    return {
-      ...created,
-      publicJwk: created.publicJwk as JWK,
-      privateJwk: created.privateJwk as JWK,
-    };
+    return asSigningKey(created);
   });
+  return cachedSigningKey;
 }
 
 export async function getMcpJwks() {

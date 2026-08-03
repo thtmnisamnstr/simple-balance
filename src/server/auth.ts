@@ -75,6 +75,10 @@ function createAuthInstance() {
       // switch on together, because requiring an address to be confirmed
       // without being able to send the confirmation would lock everybody out.
       requireEmailVerification: canSendMail,
+      // Somebody resetting a password is often doing it because somebody else
+      // has it. Leaving that person's session open would defeat the point, so
+      // a reset signs everybody out and the new password is what gets back in.
+      revokeSessionsOnPasswordReset: true,
       ...(canSendMail
         ? {
             sendResetPassword: async ({ user, url }) => {

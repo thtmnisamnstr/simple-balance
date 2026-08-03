@@ -12,6 +12,18 @@ async function main() {
   const config = getConfig();
   await runMigrations();
   await checkMailTransport();
+  if (config.isProduction && !config.trustProxy) {
+    // Sign-in attempts are counted per client address, and with no trusted
+    // proxy that address is the other end of the TCP connection. Reached
+    // directly that is each caller, which is what this default is for. Reached
+    // through a reverse proxy it is the proxy, every time, so everybody shares
+    // one allowance and one stranger can spend it for the rest.
+    console.info(
+      "TRUST_PROXY is off, so sign-in rate limits count against the address " +
+        "connecting to this process. Set TRUST_PROXY=true if a reverse proxy " +
+        "sits in front, or every visitor will share one allowance.",
+    );
+  }
   if (
     config.isProduction &&
     config.localAuthEnabled &&

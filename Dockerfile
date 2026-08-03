@@ -24,11 +24,17 @@ ENV PORT=3000
 ARG APP_VERSION=0.1.0
 LABEL org.opencontainers.image.title="Simple Balance" \
   org.opencontainers.image.description="Self-hosted personal accounting with safe, reviewable AI automation" \
-  org.opencontainers.image.version="${APP_VERSION}"
+  org.opencontainers.image.version="${APP_VERSION}" \
+  org.opencontainers.image.licenses="LGPL-3.0-only" \
+  org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"
 COPY --from=runtime-dependencies --chown=node:node /runtime/package.json ./package.json
 COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node drizzle ./drizzle
+# This image conveys an LGPL-3.0 program, so it carries the terms it is offered
+# under. COPYING is the GPL text the LGPL is written as an extension of, and the
+# source label above says where the corresponding source is.
+COPY --chown=node:node LICENSE COPYING ./
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

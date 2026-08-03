@@ -123,6 +123,43 @@ integration("what an MCP client can discover before it has a token", () => {
     }
   });
 
+  // The JWT wrapper exists so that the opaque token Better Auth stores is never
+  // itself a credential. The library reads a token by stripping "Bearer ", so a
+  // header carrying the bare token and no scheme used to arrive unchanged and be
+  // accepted, which is the one thing the wrapper is there to prevent.
+  it("refuses anything at /mcp that is not a JWT it signed", async () => {
+    const initialize = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "shape-check", version: "1" },
+      },
+    };
+    for (const authorization of [
+      "some-opaque-looking-token",
+      "Bearer some-opaque-looking-token",
+      "bearer some-opaque-looking-token",
+      "BEARER some-opaque-looking-token",
+      "Bearer    some-opaque-looking-token",
+      "Basic some-opaque-looking-token",
+      "",
+    ]) {
+      const response = await app.request(`${BASE}/mcp`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          authorization,
+        },
+        body: JSON.stringify(initialize),
+      });
+      expect(response.status, JSON.stringify(authorization)).toBe(401);
+    }
+  });
+
   // The endpoint answers to the bare opaque token rather than the audience-bound
   // JWT, and hands back the refresh token with it.
   it("does not expose Better Auth's mcp/get-session", async () => {
