@@ -134,15 +134,17 @@ deployment of one where the password lives in a password manager.
 | `SMTP_HOST` | unset | The submission server. Setting it turns mail on. |
 | `MAIL_FROM` | unset | The address messages come from. `balance@example.com`, or `Simple Balance <balance@example.com>`. Required alongside `SMTP_HOST`. |
 | `MAIL_REPLY_TO` | unset | Where a reply should go, if not to `MAIL_FROM`. Same two forms. |
-| `SMTP_PORT` | `587`, or `465` for `tls` | |
-| `SMTP_SECURITY` | `starttls` | `starttls` connects in the clear and requires the upgrade, `tls` is encrypted from the first byte, `none` is neither. |
+| `SMTP_PORT` | `587`, or `465` when `SMTP_SSL` is true | |
+| `SMTP_SSL` | `false` | True for a connection encrypted from the first byte, which is what 465 expects. False starts on 587 and upgrades with STARTTLS, which is what nearly every provider wants. |
 | `SMTP_USERNAME` | unset | Set with `SMTP_PASSWORD` or not at all. |
-| `SMTP_PASSWORD` | unset | Refused with `SMTP_SECURITY=none`, which would send it in the open. |
+| `SMTP_PASSWORD` | unset | Never sent unencrypted; see below. |
 
-`starttls` does not merely offer to upgrade, it insists. A relay that does not
-support the extension gets an error rather than your credentials in plain text.
-Only use `none` for a relay on a network you control that offers no encryption,
-and it will not carry a password.
+A password is never sent in the clear. With `SMTP_SSL` false and credentials
+set, the STARTTLS upgrade is required rather than merely attempted, so a relay
+that does not support it gets an error instead of your password. A connection
+with no username and password has nothing to leak on the way, so it is allowed
+to proceed unencrypted against a relay on a network you control, and still
+upgrades whenever the relay offers to.
 
 Use a **submission** service, not the MX host your domain publishes. An MX
 record says where mail *to* your domain is delivered. It does not accept
@@ -157,7 +159,6 @@ For a domain on Google Workspace, either:
 # password, which is not the account password.
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_SECURITY=starttls
 SMTP_USERNAME=balance@example.com
 SMTP_PASSWORD=the-app-password
 MAIL_FROM=Simple Balance <balance@example.com>
@@ -169,7 +170,6 @@ MAIL_FROM=Simple Balance <balance@example.com>
 # and authenticate by IP allowlist, by SMTP credentials, or both.
 SMTP_HOST=smtp-relay.gmail.com
 SMTP_PORT=587
-SMTP_SECURITY=starttls
 ```
 
 Google rewrites `From` to the mailbox that authenticated unless the address is a

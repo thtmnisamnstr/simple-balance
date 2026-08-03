@@ -71,5 +71,7 @@ constraints below win where they disagree.
 - Sending never blocks a request and never throws to the caller. A reset that
   answered differently for a known and an unknown address would be a way to ask
   the server who has an account.
-- STARTTLS is required, not merely attempted, whenever SMTP_SECURITY is starttls.
-  A password is refused outright when SMTP_SECURITY is none.
+- A password is never sent over an unencrypted connection. SMTP_SSL=true is
+  encrypted from the first byte; with SMTP_SSL false and credentials set, the
+  STARTTLS upgrade is required rather than attempted. Only a connection with
+  nothing to authenticate may proceed unencrypted.

@@ -71,7 +71,7 @@ function createAuthInstance() {
       maxPasswordLength: 128,
       // Both of these need somewhere to send a link. A deployment with no mail
       // server keeps the behaviour it has always had: no reset, and an address
-      // nobody is asked to prove. Configure SMTP_URL and MAIL_FROM and the two
+      // nobody is asked to prove. Configure SMTP_HOST and MAIL_FROM and the two
       // switch on together, because requiring an address to be confirmed
       // without being able to send the confirmation would lock everybody out.
       requireEmailVerification: canSendMail,
@@ -156,7 +156,7 @@ function createAuthInstance() {
             //
             // The second is any account made while no mail server is set. Such
             // a deployment never asked, so it must not withhold anything later:
-            // otherwise the day somebody sets SMTP_URL is the day everyone who
+            // otherwise the day somebody sets SMTP_HOST is the day everyone who
             // signed up before it stops being able to sign in.
             if (
               context?.path === "/sign-up/email" &&

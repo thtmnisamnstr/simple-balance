@@ -113,7 +113,7 @@ export function getConfig(): AppConfig {
     ALLOWED_EMAILS: process.env.ALLOWED_EMAILS,
     SMTP_HOST: process.env.SMTP_HOST,
     SMTP_PORT: process.env.SMTP_PORT,
-    SMTP_SECURITY: process.env.SMTP_SECURITY,
+    SMTP_SSL: process.env.SMTP_SSL,
     SMTP_USERNAME: process.env.SMTP_USERNAME,
     SMTP_PASSWORD: process.env.SMTP_PASSWORD,
     MAIL_FROM: process.env.MAIL_FROM,
@@ -171,7 +171,12 @@ export function getConfig(): AppConfig {
 export type MailSettings = {
   host: string;
   port: number;
-  security: "starttls" | "tls" | "none";
+  /**
+   * True for a connection that is encrypted from the first byte, which is what
+   * port 465 expects. False starts in the clear on 587 and upgrades with
+   * STARTTLS, which is what nearly every provider wants, Gmail included.
+   */
+  ssl: boolean;
   username?: string;
   password?: string;
   from: string;
@@ -191,8 +196,6 @@ export type MailSettings = {
 const mailAddress =
   /^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$|^[^<>]+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/;
 
-const mailSecurities = ["starttls", "tls", "none"] as const;
-
 /**
  * Reads the SMTP settings.
  *
@@ -203,7 +206,7 @@ const mailSecurities = ["starttls", "tls", "none"] as const;
 export function parseMailSettings(env: {
   SMTP_HOST?: string;
   SMTP_PORT?: string;
-  SMTP_SECURITY?: string;
+  SMTP_SSL?: string;
   SMTP_USERNAME?: string;
   SMTP_PASSWORD?: string;
   MAIL_FROM?: string;
@@ -219,15 +222,16 @@ export function parseMailSettings(env: {
     );
   }
 
-  const security = z
-    .enum(mailSecurities)
-    .parse((env.SMTP_SECURITY ?? "starttls").toLowerCase());
+  const ssl = z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .parse((env.SMTP_SSL ?? "false").toLowerCase());
   const port = z.coerce
     .number()
     .int()
     .min(1)
     .max(65535)
-    .parse(env.SMTP_PORT ?? (security === "tls" ? 465 : 587));
+    .parse(env.SMTP_PORT ?? (ssl ? 465 : 587));
 
   if (!mailAddress.test(from)) {
     throw new Error(
@@ -250,15 +254,7 @@ export function parseMailSettings(env: {
   if (password && !username) {
     throw new Error("SMTP_PASSWORD is set without SMTP_USERNAME");
   }
-  if (password && security === "none") {
-    throw new Error(
-      "SMTP_SECURITY=none sends the password in the clear. Use starttls or " +
-        "tls, or drop SMTP_USERNAME and SMTP_PASSWORD if the relay does not " +
-        "want them.",
-    );
-  }
-
-  return { host, port, security, username, password, from, replyTo };
+  return { host, port, ssl, username, password, from, replyTo };
 }
 
 /**

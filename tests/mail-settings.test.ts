@@ -22,23 +22,33 @@ describe("reading the mail settings", () => {
     );
   });
 
-  it("defaults to submission over STARTTLS", () => {
+  it("defaults to submission on 587, where STARTTLS does the encrypting", () => {
     expect(
       parseMailSettings({
         SMTP_HOST: "smtp.example.com",
         MAIL_FROM: "balance@example.com",
       }),
-    ).toMatchObject({ port: 587, security: "starttls" });
+    ).toMatchObject({ port: 587, ssl: false });
   });
 
-  it("defaults to the implicit TLS port when asked for TLS", () => {
+  it("moves to the implicit TLS port when asked for SSL", () => {
     expect(
       parseMailSettings({
         SMTP_HOST: "smtp.example.com",
-        SMTP_SECURITY: "TLS",
+        SMTP_SSL: "TRUE",
         MAIL_FROM: "balance@example.com",
       }),
-    ).toMatchObject({ port: 465, security: "tls" });
+    ).toMatchObject({ port: 465, ssl: true });
+  });
+
+  it("refuses an SMTP_SSL that is not true or false", () => {
+    expect(() =>
+      parseMailSettings({
+        SMTP_HOST: "smtp.example.com",
+        MAIL_FROM: "balance@example.com",
+        SMTP_SSL: "yes",
+      }),
+    ).toThrow();
   });
 
   it("takes a name on the from address, and rejects what a mail client would", () => {
@@ -85,20 +95,6 @@ describe("reading the mail settings", () => {
     );
   });
 
-  // Sending a password to a relay that offers no encryption at all is the one
-  // combination worth stopping outright rather than warning about.
-  it("refuses a password over an unencrypted connection", () => {
-    expect(() =>
-      parseMailSettings({
-        SMTP_HOST: "smtp.example.com",
-        MAIL_FROM: "b@example.com",
-        SMTP_SECURITY: "none",
-        SMTP_USERNAME: "u",
-        SMTP_PASSWORD: "p",
-      }),
-    ).toThrow(/clear/);
-  });
-
   it("keeps a password containing URL punctuation intact", () => {
     // The reason these are separate settings rather than one URL: a password
     // pasted from a console is not percent-encoded and should not have to be.
@@ -122,16 +118,23 @@ describe("turning those settings into a connection", () => {
 
   // Without requireTLS, nodemailer carries on unencrypted whenever a relay
   // fails to advertise STARTTLS, which is how credentials end up in the open.
-  it("makes the STARTTLS upgrade compulsory rather than hoped for", () => {
+  it("will not send a password to a relay that refuses to encrypt", () => {
+    expect(
+      smtpOptions(settings({ SMTP_USERNAME: "u", SMTP_PASSWORD: "p" })),
+    ).toMatchObject({ secure: false, requireTLS: true, port: 587 });
+  });
+
+  // A relay on a trusted network with nothing to authenticate has nothing to
+  // leak on the way, and some of them speak no TLS at all.
+  it("does not insist on encryption when there is no password to protect", () => {
     expect(smtpOptions(settings())).toMatchObject({
       secure: false,
-      requireTLS: true,
-      port: 587,
+      requireTLS: false,
     });
   });
 
   it("opens encrypted for implicit TLS", () => {
-    expect(smtpOptions(settings({ SMTP_SECURITY: "tls" }))).toMatchObject({
+    expect(smtpOptions(settings({ SMTP_SSL: "true" }))).toMatchObject({
       secure: true,
       requireTLS: false,
       port: 465,

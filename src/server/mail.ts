@@ -4,7 +4,7 @@ import { getConfig, type MailSettings } from "./config.js";
 /**
  * Outbound mail, and only when a deployment has somewhere to send it.
  *
- * Nothing here is stored. The connection is opened against whatever SMTP_URL
+ * Nothing here is stored. The connection is opened against whatever SMTP_HOST
  * names and pooled for the process, which keeps the promise that PostgreSQL is
  * the only thing this application persists anything in.
  */
@@ -13,21 +13,26 @@ let transport: Transporter | undefined;
 /**
  * The transport, spelled out rather than left to a default.
  *
- * `tls` opens encrypted from the first byte, which is what port 465 expects.
- * `starttls` opens in the clear and upgrades, and `requireTLS` makes that
- * upgrade compulsory: without it nodemailer carries on unencrypted whenever a
- * relay does not advertise the extension, and a password goes out in the open.
- * `none` is for a relay on a trusted network that offers no encryption at all,
- * and the configuration refuses to pair it with a password.
+ * `SMTP_SSL=true` opens encrypted from the first byte, which is what port 465
+ * expects. False starts in the clear on 587 and upgrades with STARTTLS, which
+ * is what nearly every provider wants.
+ *
+ * Whether that upgrade is compulsory depends on there being something worth
+ * protecting. With a username and password, `requireTLS` refuses to carry on
+ * unencrypted, so credentials cannot go out in the open against a relay that
+ * fails to offer the extension. Without them there is nothing to leak on the
+ * way, and a relay on a trusted network that speaks no TLS at all still works;
+ * nodemailer still upgrades whenever the server does offer it.
  */
 export function smtpOptions(mail: MailSettings) {
+  const authenticated = Boolean(mail.username && mail.password);
   return {
     host: mail.host,
     port: mail.port,
-    secure: mail.security === "tls",
-    requireTLS: mail.security === "starttls",
-    ...(mail.username && mail.password
-      ? { auth: { user: mail.username, pass: mail.password } }
+    secure: mail.ssl,
+    requireTLS: !mail.ssl && authenticated,
+    ...(authenticated
+      ? { auth: { user: mail.username!, pass: mail.password! } }
       : {}),
     // Bounded on every leg. Nodemailer waits two minutes to connect and ten to
     // read by default; at the other end of that is somebody watching a sign-in
@@ -70,7 +75,7 @@ export async function checkMailTransport() {
     return true;
   } catch (error) {
     console.error(
-      "SMTP_URL is set but the mail server refused the connection. " +
+      "SMTP_HOST is set but the mail server refused the connection. " +
         "Password resets and address verification will not work, and because " +
         "verification is required whenever mail is configured, nobody will be " +
         "able to finish signing up until this is fixed.",
@@ -117,7 +122,7 @@ export async function sendMail(message: Message) {
     return true;
   } catch (error) {
     console.error(
-      `Could not send "${message.subject}". Check SMTP_URL and MAIL_FROM.`,
+      `Could not send "${message.subject}". Check SMTP_HOST and MAIL_FROM.`,
       error,
     );
     return false;

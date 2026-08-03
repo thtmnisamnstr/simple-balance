@@ -22,7 +22,7 @@ const originalEnvironment = {
   TRUST_PROXY: process.env.TRUST_PROXY,
   SMTP_HOST: process.env.SMTP_HOST,
   SMTP_PORT: process.env.SMTP_PORT,
-  SMTP_SECURITY: process.env.SMTP_SECURITY,
+  SMTP_SSL: process.env.SMTP_SSL,
   MAIL_FROM: process.env.MAIL_FROM,
   MAIL_REPLY_TO: process.env.MAIL_REPLY_TO,
 };
@@ -138,13 +138,12 @@ async function loadApp(withMail: boolean): Promise<App> {
   if (withMail) {
     process.env.SMTP_HOST = "127.0.0.1";
     process.env.SMTP_PORT = String(smtp.port);
-    process.env.SMTP_SECURITY = "none";
     process.env.MAIL_FROM = "Simple Balance <balance@example.com>";
     process.env.MAIL_REPLY_TO = "Simple Balance Help <help@example.com>";
   } else {
     delete process.env.SMTP_HOST;
     delete process.env.SMTP_PORT;
-    delete process.env.SMTP_SECURITY;
+    delete process.env.SMTP_SSL;
     delete process.env.MAIL_FROM;
     delete process.env.MAIL_REPLY_TO;
   }
