@@ -70,6 +70,9 @@ function SignIn({ error }: { error?: Error }) {
   // Null until somebody picks, so the screen can open on whichever form is
   // the likely one once the server says which deployment this is.
   const [registering, setRegistering] = useState<boolean | null>(null);
+  const [recovering, setRecovering] = useState(false);
+  const [resetRequested, setResetRequested] = useState(false);
+  const [awaitingVerification, setAwaitingVerification] = useState(false);
   const options = useQuery({
     queryKey: ["auth-methods"],
     queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
@@ -106,17 +109,51 @@ function SignIn({ error }: { error?: Error }) {
           const payload = await response.json().catch(() => null);
           throw new Error(payload?.message ?? "Account setup failed");
         }
+        // With verification on there is no session yet, and sending somebody to
+        // a ledger they cannot open would only bounce them back here.
+        if (options.data.emailVerificationRequired) {
+          setAwaitingVerification(true);
+          return;
+        }
       } else {
         const result = await authClient.signIn.email({
           email,
           password,
           rememberMe: true,
         });
-        if (result.error) throw new Error(result.error.message ?? "Sign in failed");
+        if (result.error) {
+          // The password was right; the address has just never been confirmed.
+          // Saying so, on the same panel as after signing up, is more use than
+          // repeating the refusal. Another link is already on its way.
+          if (
+            result.error.code === "EMAIL_NOT_VERIFIED" ||
+            result.error.message === "Email not verified"
+          ) {
+            setAwaitingVerification(true);
+            return;
+          }
+          throw new Error(result.error.message ?? "Sign in failed");
+        }
       }
       window.location.assign(returnTo);
     },
   });
+  const requestReset = useMutation({
+    mutationFn: async () => {
+      // The answer is the same whether or not the address is known here, so
+      // that asking is not a way to find out who has an account.
+      await authClient.requestPasswordReset({
+        email,
+        redirectTo: "/reset-password",
+      });
+      setResetRequested(true);
+    },
+  });
+  const submitReset = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLocalFormError("");
+    requestReset.mutate();
+  };
   const submitLocal = (event: FormEvent<HTMLFormElement>) => {
     if (setup && password !== confirmation) {
       event.preventDefault();
@@ -145,7 +182,83 @@ function SignIn({ error }: { error?: Error }) {
         {oauthParams.has("auth_error") ? (
           <Alert>Google sign-in did not complete. Try again or use your local password.</Alert>
         ) : null}
-        {options.data?.localEnabled ? (
+        {awaitingVerification ? (
+          <div className="local-auth-form">
+            <h2>Confirm your email address</h2>
+            <p className="settings-note">
+              A message is on its way to {email}. Open the link in it to confirm
+              the address. Until that is done the account cannot be signed in
+              to. The link lasts an hour, and trying to sign in again sends a
+              fresh one.
+            </p>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setAwaitingVerification(false);
+                setRegistering(false);
+                setPassword("");
+                setConfirmation("");
+              }}
+            >
+              Back to sign in
+            </Button>
+          </div>
+        ) : recovering ? (
+          <form className="local-auth-form" onSubmit={submitReset}>
+            <h2>Reset your password</h2>
+            {resetRequested ? (
+              <>
+                <p className="settings-note">
+                  If {email} has an account here, a link to choose a new
+                  password is on its way. It works once and expires in an hour.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setRecovering(false);
+                    setResetRequested(false);
+                  }}
+                >
+                  Back to sign in
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="settings-note">
+                  Tell us the address on the account and we will send a link to
+                  choose a new password.
+                </p>
+                <Field label="Email address">
+                  <Input
+                    required
+                    name="email"
+                    type="email"
+                    autoComplete="username"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                </Field>
+                {requestReset.error ? (
+                  <Alert>{requestReset.error.message}</Alert>
+                ) : null}
+                <Button type="submit" loading={requestReset.isPending}>
+                  Send the link
+                </Button>
+                <p className="auth-switch">
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setRecovering(false)}
+                  >
+                    Back to sign in
+                  </button>
+                </p>
+              </>
+            )}
+          </form>
+        ) : options.data?.localEnabled ? (
           <form
             className="local-auth-form"
             method="post"
@@ -252,6 +365,22 @@ function SignIn({ error }: { error?: Error }) {
             <Button type="submit" loading={localAuth.isPending}>
               {setup ? "Create account" : "Sign in"}
             </Button>
+            {/* Only offered when there is a mail server to send the link. */}
+            {!setup && options.data.passwordResetAvailable ? (
+              <p className="auth-switch">
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => {
+                    setRecovering(true);
+                    setLocalFormError("");
+                    localAuth.reset();
+                  }}
+                >
+                  Forgot your password?
+                </button>
+              </p>
+            ) : null}
             {/* Nothing to switch to until somebody has claimed the deployment,
                 and nothing to switch to when registration is closed. */}
             {canRegister && !options.data.awaitingFirstAccount ? (
@@ -452,12 +581,118 @@ function Shell({ session }: { session: Session }) {
   );
 }
 
+/**
+ * Where the link in a reset email lands.
+ *
+ * Better Auth checks the token before it redirects here, so arriving with one
+ * means it was real and unexpired at that moment. It is still spent on the
+ * request below rather than trusted a second time.
+ */
+function ResetPassword() {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token") ?? "";
+  const rejected = params.get("error");
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [formError, setFormError] = useState("");
+  const [done, setDone] = useState(false);
+  const submit = useMutation({
+    mutationFn: async () => {
+      const result = await authClient.resetPassword({
+        token,
+        newPassword: password,
+      });
+      if (result.error) {
+        throw new Error(result.error.message ?? "That link could not be used");
+      }
+      setDone(true);
+    },
+  });
+  const unusable = Boolean(rejected) || !token;
+  return (
+    <main className="auth-shell consent-shell">
+      <section className="auth-card">
+        <div className="brand-mark large"><CircleDollarSign size={31} /></div>
+        <span className="eyebrow">Simple Balance</span>
+        {unusable ? (
+          <>
+            <h1>That link has expired.</h1>
+            <p>
+              Reset links work once and last an hour. Ask for a new one and it
+              will arrive in a moment.
+            </p>
+            <Button type="button" onClick={() => window.location.assign("/sign-in")}>
+              Back to sign in
+            </Button>
+          </>
+        ) : done ? (
+          <>
+            <h1>Your password is changed.</h1>
+            <p>Sign in with the new one.</p>
+            <Button type="button" onClick={() => window.location.assign("/sign-in")}>
+              Sign in
+            </Button>
+          </>
+        ) : (
+          <>
+            <h1>Choose a new password.</h1>
+            <form
+              className="local-auth-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setFormError("");
+                if (password !== confirmation) {
+                  setFormError("Passwords do not match");
+                  return;
+                }
+                submit.mutate();
+              }}
+            >
+              <Field label="New password" hint="At least 12 characters">
+                <Input
+                  required
+                  type="password"
+                  minLength={12}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </Field>
+              <Field label="Confirm new password">
+                <Input
+                  required
+                  type="password"
+                  minLength={12}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  value={confirmation}
+                  onChange={(event) => setConfirmation(event.target.value)}
+                />
+              </Field>
+              {formError ? <Alert>{formError}</Alert> : null}
+              {submit.error ? <Alert>{submit.error.message}</Alert> : null}
+              <Button type="submit" loading={submit.isPending}>
+                Change password
+              </Button>
+            </form>
+          </>
+        )}
+      </section>
+    </main>
+  );
+}
+
 export default function App() {
   const session = useQuery({
     queryKey: ["session"],
     queryFn: () => api<Session>("/api/v1/session"),
     retry: false,
   });
+  // Answered before anything is decided about the session, because somebody
+  // resetting a password is by definition unable to sign in. The query above
+  // stays unconditional so the hooks do not change shape under a navigation.
+  if (window.location.pathname === "/reset-password") return <ResetPassword />;
   if (session.isPending) {
     return (
       <div className="loading-screen">

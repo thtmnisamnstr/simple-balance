@@ -81,6 +81,13 @@ keeps the account it already has rather than losing access to its own books.
 Sign in with a password, with Google, or with both on one account. Google
 sign-ups must carry a verified address, so a domain entry means what it says.
 
+Give the deployment a mail server, with `SMTP_HOST` and `MAIL_FROM`, and two
+things follow: a forgotten password can be reset from the sign-in screen, and a
+new account has to open a link sent to its address before it works. That is what
+makes a domain entry mean something in password mode too. Leave them unset and
+neither happens, which is the right answer for a deployment of one. Accounts made
+before a mail server was added keep working after it arrives.
+
 ### Running it
 
 One non-root image that never writes to its own filesystem, with PostgreSQL as

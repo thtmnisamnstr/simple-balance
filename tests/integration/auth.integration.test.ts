@@ -127,6 +127,8 @@ integration("embedded local authentication", () => {
       localRegistrationOpen: true,
       awaitingFirstAccount: true,
       setupTokenRequired: true,
+      passwordResetAvailable: false,
+      emailVerificationRequired: false,
       minimumPasswordLength: 12,
     });
   });

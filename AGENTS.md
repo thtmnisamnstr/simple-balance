@@ -27,6 +27,10 @@
   pool, and protected by the production setup code. Never expose a first-visitor
   claim race. The setup code only ever covers an address `ALLOWED_EMAILS` would
   turn away; addresses it admits register without one.
+- Mail is optional and everything that needs it degrades rather than breaks. A
+  deployment with no SMTP_HOST offers no password reset and asks nobody to
+  confirm an address; one with SMTP_HOST does both. Never make an account that
+  was created without a mail server unusable once one is added.
 - Decisions made inside a Better Auth database hook must come from configuration
   and the request, never from a query. The hook runs inside the sign-up
   transaction, which on a one-connection pool is holding the only connection.

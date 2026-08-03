@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb } from "../../src/server/db/client.js";
@@ -7,6 +9,18 @@ const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
 const databaseName = `simple_balance_migrations_${process.pid}_${Date.now()}`;
 const originalDatabaseUrl = process.env.DATABASE_URL;
+// Read rather than written down, so adding a migration does not mean editing a
+// number here to match.
+const expectedMigrations = String(
+  (
+    JSON.parse(
+      readFileSync(
+        path.resolve(import.meta.dirname, "../../drizzle/meta/_journal.json"),
+        "utf8",
+      ),
+    ) as { entries: unknown[] }
+  ).entries.length,
+);
 let adminClient: PgClient;
 let databaseClient: PgClient;
 
@@ -108,7 +122,7 @@ integration("PostgreSQL migrations", () => {
     const migrationRows = await databaseClient.query<{ count: string }>(
       `select count(*)::text as count from drizzle.__drizzle_migrations`,
     );
-    expect(migrationRows.rows[0]?.count).toBe("1");
+    expect(migrationRows.rows[0]?.count).toBe(expectedMigrations);
 
     const constraints = await databaseClient.query<{ conname: string }>(
       `select conname
@@ -154,7 +168,7 @@ integration("PostgreSQL migrations", () => {
     const migrationRows = await databaseClient.query<{ count: string }>(
       `select count(*)::text as count from drizzle.__drizzle_migrations`,
     );
-    expect(migrationRows.rows[0]?.count).toBe("1");
+    expect(migrationRows.rows[0]?.count).toBe(expectedMigrations);
   });
 
   it("enforces ledger shapes, append-only postings, and tenant-owned references", async () => {

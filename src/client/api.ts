@@ -59,6 +59,8 @@ export type AuthPublicOptions = {
   localRegistrationOpen: boolean;
   awaitingFirstAccount: boolean;
   setupTokenRequired: boolean;
+  passwordResetAvailable: boolean;
+  emailVerificationRequired: boolean;
   minimumPasswordLength: number;
 };
 

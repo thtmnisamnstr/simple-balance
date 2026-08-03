@@ -29,19 +29,30 @@ describe("migration baseline", () => {
       }>;
     };
 
-    expect(migrationFiles).toEqual(["0000_initial.sql"]);
-    expect(snapshotFiles).toEqual(["0000_snapshot.json"]);
-    expect(journal).toMatchObject({
+    // Frozen means unchanged and still first, not alone. Later work is expected
+    // to sit beside it; what must never happen is the baseline itself moving.
+    expect(migrationFiles[0]).toBe("0000_initial.sql");
+    expect(snapshotFiles[0]).toBe("0000_snapshot.json");
+    expect(journal).toMatchObject({ version: "7", dialect: "postgresql" });
+    expect(journal.entries[0]).toMatchObject({
+      idx: 0,
       version: "7",
-      dialect: "postgresql",
-      entries: [
-        {
-          idx: 0,
-          version: "7",
-          tag: "0000_initial",
-          breakpoints: true,
-        },
-      ],
+      tag: "0000_initial",
+      breakpoints: true,
+    });
+
+    // Every migration is numbered in order, appears once, and carries the
+    // snapshot drizzle-kit needs to work out the next one.
+    expect(journal.entries.map((entry) => entry.idx)).toEqual(
+      journal.entries.map((_, index) => index),
+    );
+    expect(migrationFiles).toHaveLength(journal.entries.length);
+    expect(snapshotFiles).toHaveLength(journal.entries.length);
+    journal.entries.forEach((entry, index) => {
+      expect(migrationFiles[index]).toBe(`${entry.tag}.sql`);
+      expect(snapshotFiles[index]).toBe(
+        `${String(index).padStart(4, "0")}_snapshot.json`,
+      );
     });
   });
 

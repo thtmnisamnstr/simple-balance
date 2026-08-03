@@ -135,8 +135,12 @@ configuration, the database connection, and the migrations have all succeeded.
 The logs print a one-time setup code on first run. Enter it on the
 account-creation screen to claim the instance. Set `SETUP_TOKEN` yourself if you
 would rather choose it. Either way the code stops working once an account
-exists, so nobody can claim an instance just because they found it. There is no
-password reset, so put the password in a password manager.
+exists, so nobody can claim an instance just because they found it.
+
+Give it a mail server with `SMTP_HOST` and `MAIL_FROM` and people can reset a
+forgotten password, and a new account has to confirm its address before it
+works. Without one, neither happens and a lost password means editing the
+database, so put it in a password manager.
 
 After that, who else may register is up to `ALLOWED_EMAILS`. Leave it unset and
 nobody can, which keeps the deployment yours alone. List addresses

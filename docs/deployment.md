@@ -73,12 +73,14 @@ because the alternative would mean an unset list locked every existing user out
 of their own books. To remove somebody, delete their account, which takes their
 data with it.
 
-A domain entry means whoever can reach the sign-up form and type an address at
-that domain gets an account under it. There is no email verification in local
-password mode, so `pinecone.io` is a statement about who you expect to find the
-deployment, not proof of employment. In `google` mode the same entry is much
-stronger, because Google has verified the address before it reaches us and an
-unverified claim is refused.
+A domain entry is only as strong as the proof behind the address. In `google`
+mode it is strong: Google has confirmed the address before it reaches us, and an
+unconfirmed claim is refused. In local password mode it depends on whether this
+deployment can send mail. With SMTP configured, a new account has to open a link
+sent to the address before it can be signed in to, so `pinecone.io` means
+somebody who can read mail at that domain. Without SMTP nothing is confirmed,
+and the entry is a statement about who you expect to find the deployment rather
+than proof of anything.
 
 ## Sign-in modes
 
@@ -111,17 +113,60 @@ yourself if you would rather choose the code than read it from a log. When
 `ALLOWED_EMAILS` already admits the first person, no code is asked for, because
 it would guard a door anyone could walk around.
 
-Local sign-in sends no email, so there is no password reset. Everyone keeps
-their own password in a password manager, and can change it from Settings while
-signed in. Recovering a lost one means editing the database. On a deployment
-with more than one person on it, that is worth saying out loud before they sign
-up rather than after.
+Passwords can be changed from Settings by whoever is signed in. What happens
+when one is *lost* depends on whether this deployment can send mail; see below.
 
 Sign-up and sign-in are rate limited to a few attempts per client address every
 ten seconds. The count lives in the process's memory, so it resets on restart
 and each replica counts separately. Set `TRUST_PROXY=true` when a reverse proxy
 sets `X-Forwarded-For`; otherwise the address is taken from the connection
 itself, which a caller cannot choose.
+
+## Sending mail
+
+Set `SMTP_HOST` and `MAIL_FROM` and two things switch on together: people can
+reset a forgotten password, and a new account has to confirm its address before
+it works. Leave them unset and neither happens, which is the right answer for a
+deployment of one where the password lives in a password manager.
+
+| Variable | Default | What it is |
+| --- | --- | --- |
+| `SMTP_HOST` | unset | The submission server. Setting it turns mail on. |
+| `MAIL_FROM` | unset | The address messages come from. `balance@example.com`, or `Simple Balance <balance@example.com>`. Required alongside `SMTP_HOST`. |
+| `SMTP_PORT` | `587`, or `465` for `tls` | |
+| `SMTP_SECURITY` | `starttls` | `starttls` connects in the clear and requires the upgrade, `tls` is encrypted from the first byte, `none` is neither. |
+| `SMTP_USERNAME` | unset | Set with `SMTP_PASSWORD` or not at all. |
+| `SMTP_PASSWORD` | unset | Refused with `SMTP_SECURITY=none`, which would send it in the open. |
+
+`starttls` does not merely offer to upgrade, it insists. A relay that does not
+support the extension gets an error rather than your credentials in plain text.
+Only use `none` for a relay on a network you control that offers no encryption,
+and it will not carry a password.
+
+Use a **submission** service, not the MX host your domain publishes. An MX
+record says where mail *to* your domain is delivered; it does not accept mail
+*from* you. For a domain on Google Workspace that means `smtp.gmail.com` with an
+app password, or `smtp-relay.gmail.com` once the relay is enabled in the admin
+console, rather than any `aspmx` or `gmr-smtp-in` host.
+
+Every link in these messages is built from `APP_BASE_URL`. If it is wrong the
+links point somewhere the recipient cannot use, and there is nothing they can do
+about it from their end.
+
+The connection is opened once at startup so a wrong setting is reported in the
+log rather than discovered by somebody locked out. A refusal is logged and the
+server carries on, because the ledger works whether or not mail does. Reset and
+verification links last an hour and work once.
+
+### With no mail server
+
+Nobody can reset a forgotten password, and recovering one means editing the
+database. Accounts are usable the moment they are created because nothing is
+waiting to be confirmed. On a deployment with more than one person, say that
+before they sign up rather than after.
+
+Accounts created while no mail server was configured keep working if one is
+added later. They were admitted under the rules that applied at the time.
 
 ## Running it
 

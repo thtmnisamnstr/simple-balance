@@ -58,3 +58,18 @@ constraints below win where they disagree.
   transaction, and querying from it deadlocks a one-connection pool.
 - Every PostgreSQL advisory lock id lives in `src/server/db/advisory-locks.ts`.
   They share one namespace, so a duplicate silently merges two unrelated locks.
+
+## Optional mail
+
+- SMTP_HOST plus MAIL_FROM turn on password reset and address verification
+  together, and their absence turns both off. Neither may become mandatory: a
+  deployment with no mail server is a supported deployment.
+- An account created while no mail server was configured is created verified.
+  Otherwise the day an operator sets SMTP_HOST is the day everyone who signed up
+  before it loses access. The same applies to the setup-code claim, which proves
+  control of the server rather than of an inbox.
+- Sending never blocks a request and never throws to the caller. A reset that
+  answered differently for a known and an unknown address would be a way to ask
+  the server who has an account.
+- STARTTLS is required, not merely attempted, whenever SMTP_SECURITY is starttls.
+  A password is refused outright when SMTP_SECURITY is none.

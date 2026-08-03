@@ -71,6 +71,15 @@ export type AppConfig = {
   googleClientId?: string;
   googleClientSecret?: string;
   registration: RegistrationRule;
+  /**
+   * Where to send mail from, when there is anywhere to send it.
+   *
+   * Undefined is the ordinary case: a deployment with no mail server attached.
+   * Everything that would need to send a message is switched off rather than
+   * failing, which is what keeps a single-user install and a development
+   * machine working with no configuration at all.
+   */
+  mail?: MailSettings;
   port: number;
   logLevel: "debug" | "info" | "warn" | "error";
   trustProxy: boolean;
@@ -102,6 +111,12 @@ export function getConfig(): AppConfig {
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     ALLOWED_EMAILS: process.env.ALLOWED_EMAILS,
+    SMTP_HOST: process.env.SMTP_HOST,
+    SMTP_PORT: process.env.SMTP_PORT,
+    SMTP_SECURITY: process.env.SMTP_SECURITY,
+    SMTP_USERNAME: process.env.SMTP_USERNAME,
+    SMTP_PASSWORD: process.env.SMTP_PASSWORD,
+    MAIL_FROM: process.env.MAIL_FROM,
   };
   if (isProduction) {
     productionSchema.parse(values);
@@ -109,6 +124,7 @@ export function getConfig(): AppConfig {
   if (googleAuthEnabled) {
     googleAuthSchema.parse(values);
   }
+  const mail = parseMailSettings(values);
   const registration = parseRegistrationRule(values.ALLOWED_EMAILS);
   if (googleAuthEnabled && registration.kind === "closed") {
     throw new Error(
@@ -132,6 +148,7 @@ export function getConfig(): AppConfig {
     googleClientId: values.GOOGLE_CLIENT_ID,
     googleClientSecret: values.GOOGLE_CLIENT_SECRET,
     registration,
+    mail,
     port,
     logLevel,
     trustProxy,
@@ -139,6 +156,92 @@ export function getConfig(): AppConfig {
   };
   process.env.DATABASE_URL ??= cached.databaseUrl;
   return cached;
+}
+
+/**
+ * How this deployment reaches a mail server, if it has one.
+ *
+ * `security` is spelled out rather than inferred from a port, because the
+ * difference matters and guessing it wrong is silent: `starttls` refuses to
+ * carry on unencrypted if the server does not offer the upgrade, which is what
+ * stops a password being sent in the clear to a relay that quietly does not
+ * support it.
+ */
+export type MailSettings = {
+  host: string;
+  port: number;
+  security: "starttls" | "tls" | "none";
+  username?: string;
+  password?: string;
+  from: string;
+};
+
+const mailSecurities = ["starttls", "tls", "none"] as const;
+
+/**
+ * Reads the SMTP settings.
+ *
+ * SMTP_HOST and MAIL_FROM turn mail on, and both are needed: half a mail
+ * configuration is a deployment that believes it can send a password reset and
+ * cannot, which is only discovered by somebody already locked out.
+ */
+export function parseMailSettings(env: {
+  SMTP_HOST?: string;
+  SMTP_PORT?: string;
+  SMTP_SECURITY?: string;
+  SMTP_USERNAME?: string;
+  SMTP_PASSWORD?: string;
+  MAIL_FROM?: string;
+}): MailSettings | undefined {
+  const host = env.SMTP_HOST?.trim();
+  const from = env.MAIL_FROM?.trim();
+  if (!host && !from) return undefined;
+  if (!host || !from) {
+    throw new Error(
+      "SMTP_HOST and MAIL_FROM must be set together. Set both to send password " +
+        "resets and address verification, or neither to send no mail at all.",
+    );
+  }
+
+  const security = z
+    .enum(mailSecurities)
+    .parse((env.SMTP_SECURITY ?? "starttls").toLowerCase());
+  const port = z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(65535)
+    .parse(env.SMTP_PORT ?? (security === "tls" ? 465 : 587));
+
+  // Shown as-is by mail clients, so it has to be something they will accept:
+  // either bare, or the "Name <address>" form.
+  if (
+    !/^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$|^[^<>]+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/.test(
+      from,
+    )
+  ) {
+    throw new Error(
+      'MAIL_FROM must be an email address, optionally with a name: "Simple Balance <balance@example.com>"',
+    );
+  }
+
+  const username = env.SMTP_USERNAME?.trim() || undefined;
+  const password = env.SMTP_PASSWORD || undefined;
+  if (username && !password) {
+    throw new Error("SMTP_USERNAME is set without SMTP_PASSWORD");
+  }
+  if (password && !username) {
+    throw new Error("SMTP_PASSWORD is set without SMTP_USERNAME");
+  }
+  if (password && security === "none") {
+    throw new Error(
+      "SMTP_SECURITY=none sends the password in the clear. Use starttls or " +
+        "tls, or drop SMTP_USERNAME and SMTP_PASSWORD if the relay does not " +
+        "want them.",
+    );
+  }
+
+  return { host, port, security, username, password, from };
 }
 
 /**

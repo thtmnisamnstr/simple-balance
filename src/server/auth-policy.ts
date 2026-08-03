@@ -1,5 +1,6 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import { getConfig, isEmailAllowed, isRegistrationClosed } from "./config.js";
+import { mailEnabled } from "./mail.js";
 import { getDb } from "./db/client.js";
 import { account as authAccount, user } from "./db/schema.js";
 import { isBootstrapClaim } from "./registration-context.js";
@@ -197,6 +198,11 @@ export async function getPublicAuthOptions() {
     // route would not have checked it anyway.
     setupTokenRequired:
       config.isProduction && unclaimed && isRegistrationClosed(),
+    // Both need a mail server. Without one there is no link to send, so the
+    // screen must not offer a reset it cannot perform, and a new account is
+    // usable straight away rather than waiting on a message that never comes.
+    passwordResetAvailable: config.localAuthEnabled && mailEnabled(),
+    emailVerificationRequired: config.localAuthEnabled && mailEnabled(),
     minimumPasswordLength: 12,
   };
 }

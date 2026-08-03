@@ -10,12 +10,22 @@ import {
   mayCreateSession,
 } from "./auth-policy.js";
 import { getConfig } from "./config.js";
+import {
+  mailEnabled,
+  passwordResetMessage,
+  sendMail,
+  verificationMessage,
+} from "./mail.js";
+import { isBootstrapClaim } from "./registration-context.js";
 import { getDb } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { user } from "./db/schema.js";
 
 function createAuthInstance() {
   const config = getConfig();
+  // Both features act on password accounts. In google mode there are none, and
+  // offering a reset there would mint a credential the account policy refuses.
+  const canSendMail = config.localAuthEnabled && mailEnabled();
   const supportedScopes = [
     "openid",
     "profile",
@@ -37,6 +47,19 @@ function createAuthInstance() {
     },
     advanced: {
       trustedProxyHeaders: config.trustProxy,
+      // Better Auth otherwise awaits sendVerificationEmail and
+      // sendResetPassword inline. That puts a slow relay in front of a person
+      // waiting on a sign-up button, and makes the response time differ
+      // depending on whether the address was already taken, which is a way to
+      // ask the server who has an account. Handing the promise off makes every
+      // branch answer at the same speed.
+      backgroundTasks: {
+        handler: (promise: Promise<unknown>) => {
+          void promise.catch((error) => {
+            console.error("A background auth task failed", error);
+          });
+        },
+      },
       // Rate limiting counts per client address, read from x-forwarded-for.
       // That header is only worth believing because every request reaching this
       // handler has passed through withCountableClientAddress, which replaces
@@ -46,7 +69,44 @@ function createAuthInstance() {
       enabled: config.localAuthEnabled,
       minPasswordLength: 12,
       maxPasswordLength: 128,
+      // Both of these need somewhere to send a link. A deployment with no mail
+      // server keeps the behaviour it has always had: no reset, and an address
+      // nobody is asked to prove. Configure SMTP_URL and MAIL_FROM and the two
+      // switch on together, because requiring an address to be confirmed
+      // without being able to send the confirmation would lock everybody out.
+      requireEmailVerification: canSendMail,
+      ...(canSendMail
+        ? {
+            sendResetPassword: async ({ user, url }) => {
+              await sendMail({
+                to: user.email,
+                ...passwordResetMessage(url, config.baseUrl),
+              });
+            },
+          }
+        : {}),
     },
+    ...(canSendMail
+      ? {
+          emailVerification: {
+            sendVerificationEmail: async ({ user, url }) => {
+              await sendMail({
+                to: user.email,
+                ...verificationMessage(url, config.baseUrl),
+              });
+            },
+            sendOnSignUp: true,
+            // Somebody who lost the first message can ask for another by
+            // trying to sign in, which is what they will do anyway.
+            sendOnSignIn: true,
+            // Deliberately not autoSignInAfterVerification. The token is a
+            // stateless JWT that stays valid for its hour, so anyone who came
+            // by the link afterwards would be signed in as its owner. Opening
+            // it confirms the address; signing in still takes the password.
+            expiresIn: 3600,
+          },
+        }
+      : {}),
     account: {
       encryptOAuthTokens: true,
       accountLinking: {
@@ -75,12 +135,37 @@ function createAuthInstance() {
     databaseHooks: {
       user: {
         create: {
-          before: async (newUser, context) =>
-            mayCreateAuthUser(
-              newUser.email,
-              context?.path,
-              newUser.emailVerified,
-            ),
+          before: async (newUser, context) => {
+            if (
+              !mayCreateAuthUser(
+                newUser.email,
+                context?.path,
+                newUser.emailVerified,
+              )
+            ) {
+              return false;
+            }
+            // Two local sign-ups are settled here rather than left to wait on
+            // a message.
+            //
+            // The first is the account claimed with the code printed to the
+            // server's own log, which proves control of this deployment better
+            // than an inbox does. Asking for the round-trip as well would mean
+            // a mail server configured slightly wrong locks the operator out of
+            // the instance they just created, with the setup code spent.
+            //
+            // The second is any account made while no mail server is set. Such
+            // a deployment never asked, so it must not withhold anything later:
+            // otherwise the day somebody sets SMTP_URL is the day everyone who
+            // signed up before it stops being able to sign in.
+            if (
+              context?.path === "/sign-up/email" &&
+              (isBootstrapClaim() || !canSendMail)
+            ) {
+              return { data: { ...newUser, emailVerified: true } };
+            }
+            return true;
+          },
         },
       },
       session: {

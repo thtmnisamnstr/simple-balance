@@ -3,6 +3,7 @@ import app from "./api.js";
 import { getConfig } from "./config.js";
 import { closeDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { checkMailTransport, closeMail } from "./mail.js";
 import { isLocalBootstrapOpen } from "./auth-policy.js";
 import { getOwnerSetupToken } from "./setup-token.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
@@ -10,6 +11,7 @@ import { createGracefulShutdown } from "./server-lifecycle.js";
 async function main() {
   const config = getConfig();
   await runMigrations();
+  await checkMailTransport();
   if (
     config.isProduction &&
     config.localAuthEnabled &&
@@ -31,7 +33,10 @@ async function main() {
 
   const shutdown = createGracefulShutdown({
     server,
-    closeResources: closeDb,
+    closeResources: async () => {
+      await closeMail();
+      await closeDb();
+    },
     exit: (code) => process.exit(code),
   });
   process.on("SIGTERM", () => shutdown("SIGTERM"));
