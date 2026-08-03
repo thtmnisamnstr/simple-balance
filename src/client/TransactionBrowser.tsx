@@ -55,6 +55,7 @@ import {
 import type { TransactionSortField } from "../shared/domain.js";
 import { useDateRange } from "./date-range.js";
 import { TransactionForm } from "./forms.js";
+import { newIdempotencyKey } from "./idempotency.js";
 
 const typeMeta = {
   deposit: { label: "Deposit", icon: ArrowDownLeft },
@@ -558,7 +559,7 @@ export function TransactionBrowser({
         )?.id,
       ),
     );
-    setBulkIdempotencyKey(crypto.randomUUID());
+    setBulkIdempotencyKey(newIdempotencyKey());
     setBulkEditing(true);
   };
 
@@ -608,7 +609,7 @@ export function TransactionBrowser({
     deletion.ask(count, () =>
       bulkDeleteMutation.mutate({
         selection: buildBulkSelection(),
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: newIdempotencyKey(),
         dryRun: false,
       }),
     );
@@ -617,7 +618,7 @@ export function TransactionBrowser({
   const submitBulkEdit = (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     if (!canSubmitBulkEdit) return;
-    const idempotencyKey = bulkIdempotencyKey ?? crypto.randomUUID();
+    const idempotencyKey = bulkIdempotencyKey ?? newIdempotencyKey();
     if (!bulkIdempotencyKey) setBulkIdempotencyKey(idempotencyKey);
     const bulkSelection = buildBulkSelection();
     bulkMutation.mutate({

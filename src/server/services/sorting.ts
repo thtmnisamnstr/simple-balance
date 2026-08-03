@@ -13,6 +13,17 @@ export type SortPlan<Row> = {
   orderBy: SQL[];
   keyset: ((value: string, id: string) => SQL) | null;
   cursorValue: ((row: Row) => string) | null;
+  /**
+   * Checks that a cursor's remembered value is the shape this ordering compares
+   * against, before it becomes a bound parameter.
+   *
+   * A cursor is something the caller hands back, so its contents are as
+   * untrusted as anything else they send. The value is compared against a date
+   * or a numeric column, and PostgreSQL answers a value it cannot read with an
+   * error, which surfaces as an unexplained 500 rather than as the invalid
+   * cursor it is. Orderings compared as text need nothing here.
+   */
+  parseCursorValue?: (value: string) => void;
 };
 
 /**

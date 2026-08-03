@@ -148,8 +148,11 @@ export function verificationMessage(url: string, appUrl: string) {
     body:
       `Somebody signed up at ${appUrl} with this address.\n\n` +
       `Open this link to confirm it is yours and finish setting up the account:\n\n${url}\n\n` +
-      "The link works once and expires in an hour. Until it is used, the " +
-      "account cannot be signed in to." +
+      // Not "works once": unlike the reset link, which is spent on use, this
+      // one is a signed token that simply stops being valid after its hour.
+      // Opening it again only confirms an address that is already confirmed.
+      "The link expires in an hour. Until it is used, the account cannot be " +
+      "signed in to, and trying to sign in sends a fresh one." +
       signature,
   };
 }

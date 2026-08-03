@@ -5,6 +5,7 @@ import {
   accountCreateSchema,
   accountUpdateSchema,
   dateRangeSchema,
+  isoDateSchema,
   liabilityAccountTypes,
   type AccountType,
   type SystemAccountKind,
@@ -242,6 +243,10 @@ function accountView(
 }
 
 export async function listAccounts(actor: Actor, end?: string, includeArchived = false) {
+  // Bound as a parameter below, so this is not an injection, but an unparseable
+  // value still reaches PostgreSQL and comes back as a failed cast, which the
+  // caller sees as an unexplained 500 rather than as the typo it was.
+  const asOf = end === undefined ? undefined : isoDateSchema.parse(end);
   const db = getDb();
   const result = await db.execute(sql`
     select
@@ -251,7 +256,7 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
     left join posting p
       on p.user_id = a.user_id
       and p.account_id = a.id
-      and p.date <= ${end ?? "9999-12-31"}::date
+      and p.date <= ${asOf ?? "9999-12-31"}::date
     where a.user_id = ${actor.userId}
       and a.system_kind is null
       and (${includeArchived} or a.archived_at is null)

@@ -33,6 +33,8 @@ import {
   bulkTransactionDeleteSchema,
   bulkTransactionEditSchema,
   bulkTransactionSelectionSnapshotSchema,
+  decimalStringSchema,
+  isoDateSchema,
   listQuerySchema,
   positiveDecimalStringSchema,
   transactionDraftSchema,
@@ -660,10 +662,15 @@ function transactionSortPlan(
 ): SortPlan<TransactionRow> {
   const id = sql`${transactions.id}`;
   const tie = ordered(id, direction);
-  const resumable = (expression: SQL, value: (row: TransactionRow) => string) => ({
+  const resumable = (
+    expression: SQL,
+    value: (row: TransactionRow) => string,
+    parseCursorValue?: (value: string) => void,
+  ) => ({
     orderBy: [ordered(expression, direction), tie],
     keyset: keysetAfter(expression, id, direction),
     cursorValue: value,
+    parseCursorValue,
   });
   // Reached through another table, so the value can be absent and the ordering
   // has to say where absent belongs.
@@ -684,6 +691,10 @@ function transactionSortPlan(
       return resumable(
         sql`coalesce(${transactions.sourceAmount}, ${transactions.destinationAmount})`,
         (row) => String(row.sourceAmount ?? row.destinationAmount ?? "0"),
+        // Compared against numeric(44,18).
+        (value) => {
+          decimalStringSchema.parse(value);
+        },
       );
     case "account":
       return paged(sql`(
@@ -701,7 +712,10 @@ function transactionSortPlan(
           and category.id = ${transactions.categoryId}
       )`);
     default:
-      return resumable(sql`${transactions.date}`, (row) => row.date);
+      // Compared against a date column.
+      return resumable(sql`${transactions.date}`, (row) => row.date, (value) => {
+        isoDateSchema.parse(value);
+      });
   }
 }
 
@@ -726,6 +740,11 @@ export async function listTransactions(
       key: query.sort,
       direction: query.direction,
     });
+    try {
+      plan.parseCursorValue?.(cursor.sort);
+    } catch {
+      throw validationError("Cursor is invalid");
+    }
     conditions.push(plan.keyset(cursor.sort, cursor.id));
   }
 

@@ -28,6 +28,7 @@ import {
   ConfirmDialog,
   useConfirm,
 } from "../components.js";
+import { newIdempotencyKey } from "../idempotency.js";
 
 const payeeSortFields = [
   { field: "name", label: "Name" },
@@ -48,7 +49,7 @@ export default function PayeesPage() {
   });
   const [participants, setParticipants] = useState<Set<string>>(new Set());
   const [targetPayee, setTargetPayee] = useState("");
-  const mergeIdempotencyKey = useRef(crypto.randomUUID());
+  const mergeIdempotencyKey = useRef(newIdempotencyKey());
   const payees = useQuery({
     queryKey: ["payees", "list"],
     queryFn: () => api<PayeeSummary[]>("/api/v1/payees"),
@@ -82,7 +83,7 @@ export default function PayeesPage() {
       );
     },
     onSuccess: async () => {
-      mergeIdempotencyKey.current = crypto.randomUUID();
+      mergeIdempotencyKey.current = newIdempotencyKey();
       setParticipants(new Set());
       setTargetPayee("");
       await Promise.all([

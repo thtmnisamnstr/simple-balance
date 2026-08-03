@@ -145,6 +145,22 @@ export type NormalizedCsvRow = {
   rawData: Record<string, string>;
 };
 
+/**
+ * A cell, or the empty string when the row has no such column.
+ *
+ * A mapping names the column each field comes from, and the names come from
+ * whoever is doing the import. Indexing straight into the row would answer
+ * `__proto__` or `constructor` with something inherited rather than with a
+ * cell, and `?? ""` does not catch it because it is not missing, just not a
+ * string. What arrives downstream is then an object where text was expected.
+ */
+function cell(row: Record<string, string>, column: string | undefined) {
+  if (!column) return "";
+  if (!Object.hasOwn(row, column)) return "";
+  const value = row[column];
+  return typeof value === "string" ? value : "";
+}
+
 export function normalizeCsvRows(
   rows: Record<string, string>[],
   options: CsvNormalizeOptions,
@@ -152,18 +168,18 @@ export function normalizeCsvRows(
   const { mapping } = options;
   return rows.map((row) => {
     const issues: { field: string; message: string }[] = [];
-    const date = parseCsvDate(row[mapping.date] ?? "", options.dateFormat);
+    const date = parseCsvDate(cell(row, mapping.date), options.dateFormat);
     if (!date) issues.push({ field: "date", message: "Date could not be parsed" });
 
-    const payee = (row[mapping.payee] ?? "").trim();
+    const payee = cell(row, mapping.payee).trim();
     if (!payee) issues.push({ field: "payee", message: "Payee is required" });
     const description = mapping.description
-      ? (row[mapping.description] ?? "").trim() || null
+      ? cell(row, mapping.description).trim() || null
       : null;
 
-    const signedRaw = mapping.amount ? row[mapping.amount] ?? "" : "";
-    const debitRaw = mapping.debit ? row[mapping.debit] ?? "" : "";
-    const creditRaw = mapping.credit ? row[mapping.credit] ?? "" : "";
+    const signedRaw = cell(row, mapping.amount);
+    const debitRaw = cell(row, mapping.debit);
+    const creditRaw = cell(row, mapping.credit);
     const signedAmount = mapping.amount
       ? parseLocalizedAmount(signedRaw, options.decimalSeparator)
       : null;
@@ -242,8 +258,8 @@ export function normalizeCsvRows(
       date,
       payee,
       description,
-      notes: mapping.notes ? row[mapping.notes] || null : null,
-      externalId: mapping.externalId ? row[mapping.externalId] || null : null,
+      notes: cell(row, mapping.notes) || null,
+      externalId: cell(row, mapping.externalId) || null,
     };
 
     const draft: TransactionDraft =

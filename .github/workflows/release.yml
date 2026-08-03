@@ -26,39 +26,50 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # The same gates every push runs. A tag can never ship an image that would
-  # have failed verification.
-  verify:
-    uses: ./.github/workflows/verify.yml
-
-  publish:
-    needs: verify
+  # Which tag is being published is settled before anything is tested, so the
+  # gates can be pointed at it. A dispatched re-publish starts from a branch
+  # rather than from the tag, and testing the branch while shipping the tag is
+  # the one combination that can put an unverified image on the registry.
+  resolve:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    env:
-      # Named once so the build and the check after it cannot disagree about
-      # what was supposed to ship.
-      PLATFORMS: linux/amd64,linux/arm64
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      image: ${{ steps.release.outputs.image }}
     steps:
       - name: Resolve the release
         id: release
         env:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
-          PRERELEASE: ${{ github.event.release.prerelease || false }}
+          MARKED_PRERELEASE: ${{ github.event.release.prerelease }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           case "$TAG" in
-            v*) ;;
-            *) echo "Release tag $TAG must start with v" >&2; exit 1 ;;
+            v[0-9]*) ;;
+            *) echo "Release tag $TAG must look like v1.2.3" >&2; exit 1 ;;
+          esac
+          # This value becomes a git ref, an image tag, and part of a shell
+          # command, so anything beyond a version is refused here rather than
+          # carried into all three.
+          case "$TAG" in
+            *[!A-Za-z0-9.+-]*)
+              echo "Release tag $TAG contains unexpected characters" >&2
+              exit 1
+              ;;
           esac
           version="${TAG#v}"
 
           # A prerelease is one GitHub marked as such, or one whose version
           # carries a suffix. Either way it publishes its own tag and leaves
-          # `latest` where it is.
-          prerelease="$PRERELEASE"
+          # `latest` where it is. A dispatch has no release object to consult,
+          # so it will not move `latest` on to a version it cannot ask about
+          # unless the version itself says plainly that it is final.
+          prerelease=false
+          if [ "$EVENT" = "release" ]; then
+            prerelease="${MARKED_PRERELEASE:-false}"
+          fi
           case "$version" in
             *-*) prerelease=true ;;
           esac
@@ -72,17 +83,41 @@ jobs:
             echo "image=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           } >> "$GITHUB_OUTPUT"
 
+  # The same gates every pull request runs, against the exact commit being
+  # shipped. A tag can never ship an image that would have failed them.
+  verify:
+    needs: resolve
+    uses: ./.github/workflows/verify.yml
+    with:
+      ref: ${{ needs.resolve.outputs.tag }}
+
+  publish:
+    needs: [resolve, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      # Named once so the build and the check after it cannot disagree about
+      # what was supposed to ship.
+      PLATFORMS: linux/amd64,linux/arm64
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.release.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.tag }}
 
       - name: Check the tag against the manifest
+        # Read as environment variables rather than pasted into the script, so
+        # the shell sees values rather than something it might interpret.
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
           package_version="$(node -p 'require("./package.json").version')"
-          if [ "${{ steps.release.outputs.version }}" != "$package_version" ]; then
-            echo "Release ${{ steps.release.outputs.tag }} does not match package.json version $package_version." >&2
-            echo "Run: npm run set-version ${{ steps.release.outputs.version }}" >&2
+          if [ "$VERSION" != "$package_version" ]; then
+            echo "Release $TAG does not match package.json version $package_version." >&2
+            echo "Run: npm run set-version $VERSION" >&2
             exit 1
           fi
 
@@ -107,12 +142,12 @@ jobs:
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ steps.release.outputs.image }}
+          images: ${{ needs.resolve.outputs.image }}
           tags: |
-            type=raw,value=${{ steps.release.outputs.version }}
-            type=raw,value=latest,enable=${{ steps.release.outputs.prerelease == 'false' }}
+            type=raw,value=${{ needs.resolve.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.resolve.outputs.prerelease == 'false' }}
           labels: |
-            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            org.opencontainers.image.version=${{ needs.resolve.outputs.version }}
 
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -120,7 +155,7 @@ jobs:
           push: true
           platforms: ${{ env.PLATFORMS }}
           build-args: |
-            APP_VERSION=${{ steps.release.outputs.version }}
+            APP_VERSION=${{ needs.resolve.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -130,9 +165,12 @@ jobs:
       # tag resolves, and it only fails later on somebody else's machine. So the
       # manifest that was actually pushed is read back and checked.
       - name: Check every architecture reached the registry
+        env:
+          IMAGE: ${{ needs.resolve.outputs.image }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
-          ref="${{ steps.release.outputs.image }}:${{ steps.release.outputs.version }}"
+          ref="$IMAGE:$VERSION"
           published="$(docker buildx imagetools inspect "$ref" \
             --format '{{range .Manifest.Manifests}}{{if ne .Platform.Architecture "unknown"}}{{.Platform.OS}}/{{.Platform.Architecture}} {{end}}{{end}}')"
           echo "Published: $published"

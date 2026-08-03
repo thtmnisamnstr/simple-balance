@@ -338,3 +338,50 @@ describe("CSV normalization", () => {
     });
   });
 });
+
+// A mapping names the column each field is read from, and the names come from
+// whoever is doing the import rather than from us.
+describe("reading a CSV cell", () => {
+  const mapping = (over: Record<string, string>) => ({
+    date: "Date",
+    payee: "Memo",
+    amount: "Amount",
+    ...over,
+  });
+
+  it("treats an inherited property name as a missing column", () => {
+    for (const inherited of ["__proto__", "constructor", "toString"]) {
+      const rows = normalizeCsvRows(
+        [{ Date: "2026-07-30", Memo: "Paycheck", Amount: "10.00" }],
+        {
+          mapping: mapping({ payee: inherited }),
+          dateFormat: "YMD",
+          decimalSeparator: ".",
+          defaultAccountId: accountId,
+        },
+      );
+      // No throw, and the row simply says the field is missing.
+      expect(rows[0]!.draft, inherited).toBeNull();
+      expect(
+        rows[0]!.issues.some((issue) => issue.field === "payee"),
+        inherited,
+      ).toBe(true);
+    }
+  });
+
+  it("still reads a column that is genuinely named that", () => {
+    const rows = normalizeCsvRows(
+      [{ Date: "2026-07-30", __proto__: "Paycheck", Amount: "10.00" } as never],
+      {
+        mapping: mapping({ payee: "__proto__" }),
+        dateFormat: "YMD",
+        decimalSeparator: ".",
+        defaultAccountId: accountId,
+      },
+    );
+    // A row cannot carry an own property called __proto__ through an object
+    // literal, so this stays the missing-column case rather than becoming a
+    // way to reach the prototype.
+    expect(rows[0]!.draft).toBeNull();
+  });
+});

@@ -3,8 +3,8 @@
  * Set the release version everywhere it is written down.
  *
  * The version appears in the application manifest, the runtime manifest that
- * ships inside the image, both lockfiles, and the Dockerfile's default build
- * argument. `npm run verify` checks that the two manifests agree, and the
+ * ships inside the image, both lockfiles, the Dockerfile's default build
+ * argument, and the constant the MCP server announces to its clients. `npm run verify` checks that the two manifests agree, and the
  * release workflow refuses to publish when the tag and the manifest disagree,
  * so changing one by hand and missing another fails late and confusingly.
  *
@@ -57,5 +57,19 @@ if (updated === dockerfile) {
 }
 writeFileSync(dockerfilePath, updated);
 console.log(`  Dockerfile -> ${version}`);
+
+// The MCP server announces this to every client that connects.
+const versionModulePath = path.join(root, "src/shared/version.ts");
+const versionModule = readFileSync(versionModulePath, "utf8");
+const rewritten = versionModule.replace(
+  /^export const APP_VERSION = ".*";$/m,
+  `export const APP_VERSION = "${version}";`,
+);
+if (rewritten === versionModule) {
+  console.error("Could not find APP_VERSION in src/shared/version.ts.");
+  process.exit(1);
+}
+writeFileSync(versionModulePath, rewritten);
+console.log(`  src/shared/version.ts -> ${version}`);
 
 console.log(`\nNow commit, then tag: git tag v${version}`);

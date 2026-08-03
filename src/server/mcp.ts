@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z, ZodError } from "zod";
 import type { Actor } from "../shared/domain.js";
+import { APP_VERSION } from "../shared/version.js";
 import {
   accountCreateSchema,
   accountUpdateSchema,
@@ -203,7 +204,7 @@ function hasScope(scopes: Set<string>, scope: string) {
 export function createMcpServer(actor: Actor, scopes: Set<string>) {
   const server = new McpServer({
     name: "simple-balance",
-    version: "0.1.0",
+    version: APP_VERSION,
   });
 
   if (hasScope(scopes, "ledger:read")) {

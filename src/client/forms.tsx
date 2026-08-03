@@ -38,6 +38,7 @@ import {
 import { draftForTransactionForm } from "./staged-draft.js";
 import { currencyOptionLabel, currencyOptions } from "./select-options.js";
 import { calendarDateInTimezone, useTimezone } from "./timezone.js";
+import { newIdempotencyKey } from "./idempotency.js";
 
 export function AccountForm({
   account,
@@ -510,7 +511,7 @@ export function TransactionForm({
   const [categoryPickerVersion, setCategoryPickerVersion] = useState(0);
   const [repeatNotice, setRepeatNotice] = useState("");
   const payeeListId = useId();
-  const submissionIdempotencyKey = useRef(crypto.randomUUID());
+  const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const queryClient = useQueryClient();
   const payees = useQuery({
     queryKey: ["payees", "suggestions", payee.trim().toLowerCase()],
@@ -629,7 +630,7 @@ export function TransactionForm({
       });
     },
     onSuccess: async () => {
-      submissionIdempotencyKey.current = crypto.randomUUID();
+      submissionIdempotencyKey.current = newIdempotencyKey();
       setAllowDuplicate(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),

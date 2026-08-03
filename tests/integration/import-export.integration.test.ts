@@ -20,7 +20,10 @@ import {
   stageCsv,
 } from "../../src/server/services/import-export.js";
 import { createStage, getStage } from "../../src/server/services/staging.js";
-import { createTransaction } from "../../src/server/services/transactions.js";
+import {
+  createTransaction,
+  setTransactionDeleted,
+} from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -600,4 +603,35 @@ integration("CSV import and export identification", () => {
       ],
     });
   });
+  // A deleted entry is void: its postings net to zero and it is no part of any
+  // balance. The file carries no column saying so, so a deleted row in it would
+  // be indistinguishable from live money to whatever reads the file back.
+  it("never exports a deleted transaction, even when the view asked for them", async () => {
+    const created = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-09-09",
+        payee: "Exported Then Voided",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "42.00",
+      },
+      "csv-export-deleted-row",
+    );
+    await setTransactionDeleted(actor, created.id, created.version, true);
+
+    for (const query of [
+      { start: "2026-09-09", end: "2026-09-09" },
+      { start: "2026-09-09", end: "2026-09-09", includeDeleted: true },
+      { start: "2026-09-09", end: "2026-09-09", includeDeleted: "true" },
+    ]) {
+      const exported = await exportTransactionsCsv(actor, query);
+      expect(exported.csv, JSON.stringify(query)).not.toContain(
+        "Exported Then Voided",
+      );
+      expect(exported.rowCount, JSON.stringify(query)).toBe(0);
+    }
+  });
+
 });

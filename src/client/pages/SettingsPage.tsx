@@ -1,8 +1,8 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Link, Settings2 } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "../router.js";
-import { api, json, type Session } from "../api.js";
+import { api, json, type AuthPublicOptions, type Session } from "../api.js";
 import { authClient } from "../auth-client.js";
 import {
   Alert,
@@ -22,6 +22,14 @@ import {
 
 export default function SettingsPage({ session }: { session: Session }) {
   const queryClient = useQueryClient();
+  // Whether a forgotten password can be recovered is a property of the
+  // deployment, not of the account, so it comes from the same place the
+  // sign-in screen asks.
+  const authOptions = useQuery({
+    queryKey: ["auth-methods"],
+    queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
+    retry: false,
+  });
   const [searchParams] = useSearchParams();
   const [timezone, setTimezone] = useState(session.preferences.timezone);
   const [currency, setCurrency] = useState(session.preferences.defaultCurrency);
@@ -254,8 +262,9 @@ export default function SettingsPage({ session }: { session: Session }) {
             ) : null}
             {session.auth.localPasswordConfigured ? (
               <p className="settings-note">
-                There is no email-based password recovery in this self-hosted
-                version. Keep the password in a password manager.
+                {authOptions.data?.passwordResetAvailable
+                  ? "Forgotten this password? The sign-in screen can send a link to reset it."
+                  : "This deployment has no mail server, so a forgotten password cannot be reset. Keep it in a password manager."}
               </p>
             ) : null}
           </section>

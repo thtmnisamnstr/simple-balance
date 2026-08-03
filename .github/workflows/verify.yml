@@ -6,7 +6,15 @@ name: verify
 on:
   pull_request:
   # The release workflow reuses these gates so a publish cannot outrun them.
+  # It passes the tag being published, because a reusable workflow called from
+  # this repository always runs the definition at the caller's ref, and a
+  # dispatched re-publish is started from a branch rather than from the tag.
   workflow_call:
+    inputs:
+      ref:
+        description: "Commit, branch, or tag to test. Defaults to the caller's."
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -16,10 +24,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # The README promises PostgreSQL 15 and up, so the oldest supported server
-      # is tested rather than assumed.
+      # The README promises PostgreSQL 15 and up and Node 22.22.2 and up, so
+      # the oldest of each is tested rather than assumed. The image ships Node
+      # 24; 22 is here because `npm start` on a host is a supported way to run
+      # this and the manifest says it works.
       matrix:
         postgres: ["15-alpine", "16-alpine"]
+        node: ["22", "24"]
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -38,12 +49,20 @@ jobs:
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/simple_balance_test
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      # TEST_DATABASE_URL is set for the whole job, so the suite `verify` runs
+      # already includes the integration tests. It is unset here so that step
+      # stays the fast one it is meant to be, and the integration suite runs
+      # once, in the step named after it.
       - run: npm run verify
+        env:
+          TEST_DATABASE_URL: ""
       - run: npm run test:integration
-      - if: matrix.postgres == '16-alpine'
+      - if: matrix.postgres == '16-alpine' && matrix.node == '24'
         run: docker build -t simple-balance:test .

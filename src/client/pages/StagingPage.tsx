@@ -54,6 +54,7 @@ import {
 } from "../../shared/domain.js";
 import { useDateRange } from "../date-range.js";
 import { stagedString, summarizeStagedDraft } from "../staged-draft.js";
+import { newIdempotencyKey } from "../idempotency.js";
 
 function stageSummary(stage: StagedTransaction, accounts: Account[]) {
   return summarizeStagedDraft(stage.draft, accounts);
@@ -71,7 +72,7 @@ function retainedIdempotencyKey(
   const fingerprint = JSON.stringify(payload);
   const existing = keys.get(fingerprint);
   if (existing) return existing;
-  const created = crypto.randomUUID();
+  const created = newIdempotencyKey();
   keys.set(fingerprint, created);
   return created;
 }

@@ -25,6 +25,7 @@ import {
   PageHeader,
   Select,
 } from "../components.js";
+import { newIdempotencyKey } from "../idempotency.js";
 
 type StageResult = {
   fileName: string;
@@ -122,7 +123,7 @@ export default function ImportPage() {
   const [dateFormat, setDateFormat] = useState<"YMD" | "MDY" | "DMY">("YMD");
   const [decimalSeparator, setDecimalSeparator] = useState<"." | ",">(".");
   const [result, setResult] = useState<StageResult | null>(null);
-  const stageIdempotencyKey = useRef(crypto.randomUUID());
+  const stageIdempotencyKey = useRef(newIdempotencyKey());
 
   const accounts = useQuery({
     queryKey: ["accounts"],
@@ -142,7 +143,7 @@ export default function ImportPage() {
       setMapping(inferMapping(parsed.headers));
       setDefaultAccountId((current) => current || accounts.data?.[0]?.id || "");
       setResult(null);
-      stageIdempotencyKey.current = crypto.randomUUID();
+      stageIdempotencyKey.current = newIdempotencyKey();
     },
   });
 
@@ -164,7 +165,7 @@ export default function ImportPage() {
     onSuccess: async (value, dryRun) => {
       setResult(value);
       if (!dryRun) {
-        stageIdempotencyKey.current = crypto.randomUUID();
+        stageIdempotencyKey.current = newIdempotencyKey();
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["categories"] }),
           queryClient.invalidateQueries({ queryKey: ["payees"] }),

@@ -735,6 +735,12 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
     sort: "date" as const,
     direction: "desc" as const,
     limit: 200,
+    // Never the deleted ones, whatever the view being exported was showing. A
+    // deleted entry is void: its postings net to zero and it is not part of the
+    // balance. The file carries no column saying so, so including it would put
+    // a row indistinguishable from live money in front of the importer, and
+    // reading the file back would raise the voided amount from the dead.
+    includeDeleted: false,
   };
   const page = await listTransactions(actor, window);
   const all = [...page.items];
