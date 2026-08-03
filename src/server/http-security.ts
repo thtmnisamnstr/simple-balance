@@ -242,6 +242,44 @@ export function withCountableClientAddress(
   return new Request(request, { headers });
 }
 
+/**
+ * Give every cookie leaving the auth routes the flags the session cookie gets.
+ *
+ * Better Auth marks its own session cookie `HttpOnly`, `Secure`, and with the
+ * `__Secure-` prefix, but the OIDC plugin's `oidc_login_prompt` gets none of
+ * them. That cookie holds the pending authorization: the client, the redirect,
+ * the scope, the state, and the PKCE challenge. It is signed, so nobody can
+ * forge one, and it is the reading that matters. Without `Secure` a browser
+ * will send it over plaintext to a deployment that is otherwise entirely
+ * HTTPS, and without `HttpOnly` any script on the page can read an
+ * authorization in flight.
+ *
+ * Nothing in the browser app reads a cookie, so there is nothing to break by
+ * closing both. `Secure` is added only when this deployment is actually served
+ * over HTTPS; adding it on a plaintext development origin would make the
+ * browser drop the cookie and the flow would stop working.
+ */
+export function hardenAuthCookies(baseUrl: string): MiddlewareHandler {
+  const secure = baseUrl.startsWith("https:");
+  return async (context, next) => {
+    await next();
+    const cookies = context.res.headers.getSetCookie();
+    if (!cookies.length) return;
+    const hardened = cookies.map((cookie) => {
+      const flags = cookie.split(";").map((part) => part.trim().toLowerCase());
+      let result = cookie;
+      if (!flags.includes("httponly")) result += "; HttpOnly";
+      if (secure && !flags.includes("secure")) result += "; Secure";
+      return result;
+    });
+    if (hardened.every((cookie, index) => cookie === cookies[index])) return;
+    context.res.headers.delete("set-cookie");
+    for (const cookie of hardened) {
+      context.res.headers.append("set-cookie", cookie);
+    }
+  };
+}
+
 type NativeOutgoingResponse = {
   shouldKeepAlive?: boolean;
   writableFinished?: boolean;

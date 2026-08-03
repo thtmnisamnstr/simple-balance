@@ -37,6 +37,7 @@ import { getAuthBootstrapLockPool, getDb } from "./db/client.js";
 import { verification } from "./db/schema.js";
 import {
   boundRequestBody,
+  hardenAuthCookies,
   protectAuthMutation,
   protectBrowserMutation,
   rejectRequestBody,
@@ -222,6 +223,7 @@ app.get("/health/ready", async (c) => {
 });
 
 app.use("/api/auth/*", protectAuthMutation(getConfig().baseUrl));
+app.use("/api/auth/*", hardenAuthCookies(getConfig().baseUrl));
 
 // Everything below hands its request to Better Auth through this, so the
 // rate limiter always counts against an address the caller cannot choose.
