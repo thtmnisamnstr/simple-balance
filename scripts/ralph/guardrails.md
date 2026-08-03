@@ -75,3 +75,30 @@ constraints below win where they disagree.
   encrypted from the first byte; with SMTP_SSL false and credentials set, the
   STARTTLS upgrade is required rather than attempted. Only a connection with
   nothing to authenticate may proceed unencrypted.
+
+## Transport and token handling
+
+- The `/mcp` bearer gate accepts only a JWT this deployment signed. The scheme
+  is matched case-insensitively and with any run of spaces, and anything that is
+  not a valid audience-bound JWT is replaced with a token that cannot resolve.
+  Better Auth reads a bearer by stripping the prefix, so a header carrying a
+  bare opaque token and no scheme would otherwise arrive intact and be accepted,
+  which is the one thing the JWT wrapper exists to prevent.
+- The consent endpoint compares the pending authorization to the session
+  approving it. Better Auth requires a session there but never checks that it
+  belongs to the request being approved, so without this one account can approve
+  an authorization another started.
+- The MCP signing key is read without a lock and cached for the process. Taking
+  the advisory lock to read it put every MCP request, every token issued, and
+  every unauthenticated JWKS fetch behind one cluster-wide lock. Only creating
+  the key is worth serializing.
+- Error responses carry no internal detail, `/api/v1` is never cached, and the
+  content security policy names no `unsafe-inline` and no permitted frame
+  ancestor.
+
+## Reading a page
+
+- Hydrating a list means one batched lookup per referenced table, not one pair
+  per row. Page reads run inside a transaction, so per-row lookups share a
+  single connection and run sequentially: a fifty-row page cost a hundred round
+  trips before this was batched.

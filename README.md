@@ -110,10 +110,10 @@ cp .env.example .env
 ```
 
 `DATABASE_URL` and `AUTH_SECRET` are required, and `APP_BASE_URL` must be your
-public HTTPS origin in production. Point `DATABASE_URL` at a PostgreSQL server
-and Simple Balance sorts the rest out on startup: it creates the database if the
-server does not have it, builds the schema if the database is empty, and does
-nothing if it is already current. Generate the secret with
+public HTTPS origin in production. Point `DATABASE_URL` at a PostgreSQL 15 or
+newer server and Simple Balance sorts the rest out on startup: it creates the
+database if the server does not have it, builds the schema if the database is
+empty, and does nothing if it is already current. Generate the secret with
 `openssl rand -base64 32` and keep it: changing it signs everyone out. Google
 settings are only needed if you turn Google sign-in on.
 

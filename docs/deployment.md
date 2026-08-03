@@ -3,6 +3,9 @@
 Simple Balance is one container and one PostgreSQL database. There is no Redis,
 no sidecar, no object store, and nothing it needs to write to disk.
 
+PostgreSQL 15 or newer. Every release is tested against 15 and 16, on Node 22
+and 24. Nothing else is assumed about the server.
+
 ## Settings
 
 Everything is an environment variable. `.env.example` has the lot; these are the
@@ -12,7 +15,7 @@ ones that matter.
 
 | Variable | What it is |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL connection string. Append `?sslmode=require` when the database is not on the same host. The database it names is created if the server does not have it yet. |
+| `DATABASE_URL` | PostgreSQL 15+ connection string. Append `?sslmode=require` when the database is not on the same host. The database it names is created if the server does not have it yet. |
 | `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. |
 | `APP_BASE_URL` | Your canonical public origin, exactly as the browser sees it. HTTPS anywhere but localhost. |
 
@@ -29,7 +32,7 @@ derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 | `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. Left unset, one is generated and printed to the startup log. |
 | `PORT` | `3000` | The port inside the container. Change it and your published port mapping has to follow. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
-| `TRUST_PROXY` | `false` | See the reverse proxy section. Leave it off unless the condition there holds. |
+| `TRUST_PROXY` | `false` | Turn it on when a reverse proxy sits in front and replaces `X-Forwarded-For`. See the reverse proxy section; getting it wrong costs per-visitor rate limiting. |
 | `DATABASE_POOL_SIZE` | `10` | Connections held open. Raise it only if you have measured contention. |
 | `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. |
 | `CSV_MAX_ROWS` | `25000` | Most rows accepted from one CSV. |
@@ -118,9 +121,8 @@ when one is *lost* depends on whether this deployment can send mail; see below.
 
 Sign-up and sign-in are rate limited to a few attempts per client address every
 ten seconds. The count lives in the process's memory, so it resets on restart
-and each replica counts separately. Set `TRUST_PROXY=true` when a reverse proxy
-sets `X-Forwarded-For`; otherwise the address is taken from the connection
-itself, which a caller cannot choose.
+and each replica counts separately. Which address they are counted against
+depends on `TRUST_PROXY`; see the reverse proxy section.
 
 ## Sending mail
 
@@ -226,15 +228,25 @@ location / {
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # $remote_addr, not $proxy_add_x_forwarded_for. The latter appends to
+    # whatever the client sent, which both lets a client put an address of its
+    # choosing at the front of the list and produces a chain nothing downstream
+    # can resolve to one caller.
+    proxy_set_header X-Forwarded-For $remote_addr;
 }
 ```
 
-Set `TRUST_PROXY=true` only when every request arrives through a proxy that
-*replaces* `X-Forwarded-Host`, `X-Forwarded-Proto`, and `X-Forwarded-For` rather
-than passing through whatever a client sent. If a client can set those headers
-itself, leave it off: with it off the sign-in rate limit counts against the
-connection's own address, which is worth more than a header anyone can type.
+Then set `TRUST_PROXY=true`. Sign-in attempts are counted per client address,
+and with this off that address is the far end of the connection, which behind a
+proxy is the proxy itself for every visitor. Everybody would share one
+allowance, and one stranger could spend it for the rest. The server says which
+of the two it is doing when it starts.
+
+Only leave `TRUST_PROXY` off when the application is reached directly, or when
+the proxy in front passes through `X-Forwarded-For` rather than replacing it.
+With it off, an address a caller made up is ignored in favour of the connection
+they actually opened; with it on and a proxy that appends, a caller can put
+whatever they like at the front of the chain.
 
 ## Starting from nothing
 

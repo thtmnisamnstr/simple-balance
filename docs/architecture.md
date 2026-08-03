@@ -118,9 +118,10 @@ They run at process startup under PostgreSQL advisory lock `724202607`, so two
 containers starting together cannot race. Readiness stays closed until
 configuration, the connection, and the migrations have all succeeded.
 
-The 0.1.0 baseline is frozen. Every schema change since is its own
-forward-only migration, because a database out there has already run what came
-before. See [upgrades](upgrades.md).
+Migrations are forward-only, and a migration is frozen once it ships in a
+release: by then it has run against somebody's data, and rewriting it would put
+their schema and its recorded history out of step. Every schema change after
+that is a new migration. See [upgrades](upgrades.md).
 
 ## MCP tokens
 

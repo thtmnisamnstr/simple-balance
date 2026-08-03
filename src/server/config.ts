@@ -262,8 +262,8 @@ export function parseMailSettings(env: {
  *
  * `closed` is what an unset list means: whoever already has an account keeps it,
  * and nobody new can register. That is the safe reading of "nothing was
- * configured", and it is what an existing single-owner deployment expects to
- * happen when it takes an upgrade.
+ * configured", and it keeps a deployment that never set the variable private to
+ * the person who claimed it.
  */
 export type RegistrationRule =
   | { kind: "closed" }

@@ -59,9 +59,9 @@ the same tags without needing a new release.
 
 ## The schema contract
 
-The 0.1.0 baseline is frozen, and so is every migration released after it. A
-released migration has already run against someone's data, so editing one would
-leave their schema and its recorded history disagreeing.
+Once a migration ships in a release it is frozen, starting with the ones in
+0.1.0. A released migration has run against somebody's data by then, and editing
+it would leave their schema and its recorded history disagreeing.
 
 Every schema change is therefore a new migration, and each one:
 
