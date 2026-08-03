@@ -191,7 +191,12 @@ export async function getPublicAuthOptions() {
     // Nobody has an account yet, so there is nobody to sign in as and the
     // screen should open on the create-account form.
     awaitingFirstAccount: unclaimed,
-    setupTokenRequired: config.isProduction && unclaimed,
+    // Only when the rule admits nobody, which is the one case the code exists
+    // for. Asking for it whenever a deployment is unclaimed would demand a
+    // server log from people ALLOWED_EMAILS already lets in, and the sign-up
+    // route would not have checked it anyway.
+    setupTokenRequired:
+      config.isProduction && unclaimed && isRegistrationClosed(),
     minimumPasswordLength: 12,
   };
 }

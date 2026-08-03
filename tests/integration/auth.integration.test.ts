@@ -24,7 +24,15 @@ const originalEnvironment = {
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
   ALLOWED_EMAILS: process.env.ALLOWED_EMAILS,
   SETUP_TOKEN: process.env.SETUP_TOKEN,
+  TRUST_PROXY: process.env.TRUST_PROXY,
 };
+
+// Sign-up and sign-in are rate limited per client address, a few attempts every
+// ten seconds. This file makes more attempts than that, and would otherwise
+// make them all from the one address a request with no socket falls back to.
+// Each attempt therefore arrives from its own, the way separate people would.
+let nextClient = 0;
+const fromNewClient = () => `198.51.100.${(nextClient += 1) % 250}`;
 const setupToken = "integration-owner-setup-token";
 
 function cookieHeader(response: Response) {
@@ -39,6 +47,7 @@ function authRequest(path: string, body?: unknown, cookie?: string) {
     method: body === undefined ? "GET" : "POST",
     headers: {
       origin: "http://localhost:3000",
+      "x-forwarded-for": fromNewClient(),
       ...(body === undefined ? {} : { "content-type": "application/json" }),
       ...(cookie ? { cookie } : {}),
     },
@@ -56,6 +65,7 @@ function formRequest(
     headers: {
       origin: "http://localhost:3000",
       referer: "http://localhost:3000/sign-in",
+      "x-forwarded-for": fromNewClient(),
       "content-type": "application/x-www-form-urlencoded",
       ...(cookie ? { cookie } : {}),
     },
@@ -89,6 +99,7 @@ integration("embedded local authentication", () => {
     process.env.APP_BASE_URL = "http://localhost:3000";
     process.env.AUTH_SECRET = "auth-integration-secret-at-least-32-characters";
     process.env.SETUP_TOKEN = setupToken;
+    process.env.TRUST_PROXY = "true";
     delete process.env.GOOGLE_CLIENT_ID;
     delete process.env.GOOGLE_CLIENT_SECRET;
     delete process.env.ALLOWED_EMAILS;

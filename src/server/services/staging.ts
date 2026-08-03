@@ -310,7 +310,15 @@ function stageSortPlan(
       end`);
     default: {
       // ISO dates sort the same as text, so this ordering can be resumed.
-      const expression = sql`${draft} ->> 'date'`;
+      //
+      // A staged row need not carry a date at all: a CSV line the parser could
+      // not read is stored with whatever it managed, and those are exactly the
+      // rows somebody is here to fix. Left as NULL, such a row makes the keyset
+      // row comparison evaluate to NULL and drop out of every resumed page,
+      // while the cursor written for it says "" and matches nothing after it.
+      // Coalescing to "" gives them one real place in the order: first
+      // ascending, last descending, and visible either way.
+      const expression = sql`coalesce(${draft} ->> 'date', '')`;
       return {
         orderBy: [ordered(expression, direction), tie],
         keyset: keysetAfter(expression, id, direction),

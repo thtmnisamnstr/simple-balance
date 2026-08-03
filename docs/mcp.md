@@ -116,11 +116,23 @@ transactions, so MCP and the browser share one spelling and one audit trail.
 for JSON string escaping, while the decoded CSV is still measured against the
 real limits.
 
-`ALLOWED_EMAILS` governs who may register, not who may keep signing in.
-Removing an address does not revoke the tokens or sessions of an account that
-already exists, over MCP or over the web. Deleting the account does, and takes
-its data with it.
+Staging a CSV creates the categories its rows name, the same way the browser
+import does, so a `ledger:stage` token can add categories even though it cannot
+touch a transaction. Each one is written to the audit log as `create_from_csv`,
+so they are visible in Activity and can be merged or deleted afterwards.
+
+## Revoking access
+
+`ALLOWED_EMAILS` governs who may register, not who may keep signing in. Removing
+an address does not revoke the tokens or sessions of an account that already
+exists, over MCP or over the web.
 
 Turning a sign-in method off does revoke it. An account that only ever had
 Google loses both web and MCP access when `AUTH_MODE` drops to `local`, and an
 account that also set a local password keeps working through that.
+
+To cut off one MCP client rather than a person, delete its rows from
+`auth_oauth_access_token` (and `auth_oauth_application` to stop it registering
+again under the same client id). There is no screen for this yet. Changing
+`AUTH_SECRET` invalidates every web session at once but leaves MCP tokens
+alone, and access tokens expire an hour after they are issued.

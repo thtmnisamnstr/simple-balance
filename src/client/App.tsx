@@ -154,11 +154,14 @@ function SignIn({ error }: { error?: Error }) {
                 ? "/api/auth/sign-up/email"
                 : "/api/auth/sign-in/email"
             }
-            // Better Auth's MCP plugin completes the stored OAuth prompt by
-            // redirecting after login. A native form keeps that redirect as a
-            // top-level navigation instead of following the agent callback in
-            // a background fetch.
-            onSubmit={isMcpAuthorization ? undefined : submitLocal}
+            // Submitted here rather than natively, even mid-authorization. A
+            // native post hands the browser whatever the endpoint returns, and
+            // a refused password or a closed registration returns JSON, which
+            // leaves somebody staring at a raw error object on an API URL with
+            // no way back into the flow. Signing in and then navigating to the
+            // authorization endpoint reaches the same consent screen and keeps
+            // failures on this page, where they can be read and retried.
+            onSubmit={submitLocal}
           >
             <h2>{setup ? "Create your account" : "Sign in locally"}</h2>
             {setup ? (
@@ -280,7 +283,14 @@ function SignIn({ error }: { error?: Error }) {
                 authClient.signIn.social({
                   provider: "google",
                   callbackURL: returnTo,
-                  errorCallbackURL: "/sign-in?auth_error=google",
+                  // Carries the authorization parameters back, so a failed
+                  // attempt returns to a page that can still finish the flow
+                  // rather than to a bare sign-in screen.
+                  errorCallbackURL: `/sign-in${
+                    isMcpAuthorization
+                      ? `${location.search}&auth_error=google`
+                      : "?auth_error=google"
+                  }`,
                 })
               }
             >
@@ -293,8 +303,9 @@ function SignIn({ error }: { error?: Error }) {
               Continue with Google
             </Button>
             <small>
-              Google access is limited to allowlisted emails. If you created the
-              owner locally, connect Google once in Settings before using this button.
+              Who may register with Google is set by the server. If you already
+              have an account with a password, connect Google once in Settings
+              before using this button.
             </small>
           </>
         ) : null}

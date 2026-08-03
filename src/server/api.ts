@@ -121,6 +121,13 @@ app.use(
       scriptSrc: ["'self'"],
       connectSrc: ["'self'"],
     },
+    // Not the `no-referrer` this defaults to. Under that policy a browser sends
+    // `Origin: null` on a form submission, including the sign-in form posting to
+    // this very server, and protectAuthMutation rightly refuses an origin it
+    // cannot recognise. That broke MCP authorization, where the sign-in form is
+    // submitted natively so the OAuth redirect stays a top-level navigation.
+    // `same-origin` still sends nothing at all to anybody else.
+    referrerPolicy: "same-origin",
     strictTransportSecurity: getConfig().isProduction
       ? "max-age=31536000; includeSubDomains"
       : false,
@@ -342,6 +349,16 @@ app.get("/api/auth/mcp/authorize", (c) => {
   authorizationUrl.searchParams.set("prompt", "consent");
   return getAuth().handler(authRequest(c, new Request(authorizationUrl, c.req.raw)));
 });
+// Better Auth publishes this, and it answers to the bare opaque token rather
+// than to the audience-bound JWT the /mcp route insists on. What it returns is
+// the whole stored grant, refresh token included. Since the access token
+// carries the opaque token as a readable claim, leaving this reachable would
+// let anything that ever saw one access token — a proxy, a log — trade it for
+// seven days of access. Nothing here calls it.
+app.on(["GET", "POST"], "/api/auth/mcp/get-session", (c) =>
+  c.json({ code: "NOT_FOUND", message: "No such endpoint" }, 404),
+);
+
 app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)));
 const mcpScopes = [
   "openid",
@@ -352,16 +369,53 @@ const mcpScopes = [
   "ledger:stage",
   "ledger:write",
 ];
-app.get("/.well-known/oauth-authorization-server", async (c) => {
+const discoveryHeaders = (c: Context) => {
+  // Discovery is read by clients that are not browsers and have no origin to
+  // speak of, which is why the library marks it public. Re-wrapping the body
+  // below would otherwise drop that.
+  c.header("Access-Control-Allow-Origin", "*");
+  c.header("Cache-Control", "public, max-age=300");
+};
+
+const authorizationServerMetadata = async (c: Context) => {
+  discoveryHeaders(c);
   const response = await oAuthDiscoveryMetadata(getAuth())(c.req.raw);
   const metadata = (await response.json()) as Record<string, unknown>;
   return c.json({ ...metadata, scopes_supported: mcpScopes });
-});
-app.get("/.well-known/oauth-protected-resource", async (c) => {
+};
+
+const protectedResourceMetadata = async (c: Context) => {
+  discoveryHeaders(c);
   const response = await oAuthProtectedResourceMetadata(getAuth())(c.req.raw);
   const metadata = (await response.json()) as Record<string, unknown>;
   return c.json({ ...metadata, scopes_supported: mcpScopes });
-});
+};
+
+app.get("/.well-known/oauth-authorization-server", authorizationServerMetadata);
+app.get("/.well-known/oauth-protected-resource", protectedResourceMetadata);
+
+// RFC 9728 puts the resource's own path after the well-known segment, so a
+// client told the resource is <origin>/mcp looks here first. It is the same
+// document; answering only at the root left the single-page app returning its
+// HTML with a 200, which a client cannot parse and will not retry.
+app.get("/.well-known/oauth-protected-resource/mcp", protectedResourceMetadata);
+app.get("/.well-known/oauth-authorization-server/mcp", authorizationServerMetadata);
+
+// This deployment issues id tokens and answers userinfo, so a client that
+// discovers the OpenID way rather than the OAuth way is asking a fair question
+// and gets the same answer.
+app.get("/.well-known/openid-configuration", authorizationServerMetadata);
+app.get("/.well-known/openid-configuration/mcp", authorizationServerMetadata);
+
+// Anything else under /.well-known belongs to a protocol nobody here speaks.
+// Say so, rather than letting the catch-all hand back an HTML page that a
+// client will try to parse as JSON.
+app.all("/.well-known/*", (c) =>
+  c.json(
+    { error: "not_found", error_description: "No metadata is published here" },
+    404,
+  ),
+);
 
 const authenticatedMcpBodyLimit = boundRequestBody({
   maxBytes: (context) => requestBodyLimit(context.req.path),

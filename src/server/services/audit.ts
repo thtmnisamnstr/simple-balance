@@ -2,7 +2,7 @@ import { and, desc, eq, lt, or } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import { auditEvents } from "../db/schema.js";
-import { decodeCursor, encodeCursor } from "./cursor.js";
+import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
 
 export async function listAuditEvents(
   actor: Actor,
@@ -14,6 +14,7 @@ export async function listAuditEvents(
   const requested = Number.isFinite(options.limit) ? options.limit! : 50;
   const limit = Math.min(Math.max(Math.trunc(requested), 1), 200);
   const cursor = options.cursor ? decodeCursor(options.cursor, { key: "created", direction: "desc" }) : null;
+  const resumeFrom = cursor ? cursorInstant(cursor) : null;
   const rows = await getDb()
     .select()
     .from(auditEvents)
@@ -22,9 +23,9 @@ export async function listAuditEvents(
         eq(auditEvents.userId, actor.userId),
         cursor
           ? or(
-              lt(auditEvents.createdAt, new Date(cursor.sort)),
+              lt(auditEvents.createdAt, resumeFrom!),
               and(
-                eq(auditEvents.createdAt, new Date(cursor.sort)),
+                eq(auditEvents.createdAt, resumeFrom!),
                 lt(auditEvents.id, cursor.id),
               ),
             )

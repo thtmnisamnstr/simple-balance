@@ -40,3 +40,19 @@ export function decodeCursor(
   }
   return parsed;
 }
+
+/**
+ * The moment a cursor is resuming from.
+ *
+ * A cursor is a value the caller hands back, so its contents are as untrusted
+ * as anything else they send. Passing an unparseable one straight to a Date or
+ * to a PostgreSQL cast turns a typo into a 500 that says nothing; this makes it
+ * the same "start again from the first page" answer as any other bad cursor.
+ */
+export function cursorInstant(cursor: CursorValue) {
+  const instant = new Date(cursor.sort);
+  if (Number.isNaN(instant.getTime())) {
+    throw validationError("Cursor is invalid");
+  }
+  return instant;
+}

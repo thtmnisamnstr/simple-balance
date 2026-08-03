@@ -46,7 +46,7 @@ import {
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
-import { decodeCursor, encodeCursor } from "./cursor.js";
+import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
 import { cleanHumanName, normalizeHumanName } from "./names.js";
 import { seedCanonicalPayeeCache } from "./payees.js";
 import { insertImportedStage } from "./staging.js";
@@ -111,7 +111,7 @@ export async function listActiveImportBatches(
   const conditions = [eq(importBatches.userId, actor.userId)];
   if (query.cursor) {
     const cursor = decodeCursor(query.cursor, { key: "created", direction: "desc" });
-    const createdAt = new Date(cursor.sort);
+    const createdAt = cursorInstant(cursor);
     if (Number.isNaN(createdAt.getTime())) {
       throw validationError("Cursor is invalid");
     }

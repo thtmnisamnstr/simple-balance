@@ -17,6 +17,8 @@ MCP clients call the same code the browser does. An agent can prepare work and
 queue it for review. It cannot get around your sign-in, the scopes you granted
 it, the duplicate checks, or the commit step.
 
+![The Simple Balance overview: balances, cash flow, and spending by category, shown per currency for a month of activity](docs/images/dashboard.png)
+
 ## What it does
 
 Accounts hold anything you file as an asset or a liability, each in its own

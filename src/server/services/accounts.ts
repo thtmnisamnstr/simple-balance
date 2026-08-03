@@ -263,6 +263,13 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
   // spreading it would ship the snake_case originals alongside the camelCase
   // names every other account response uses, and a caller could reasonably
   // start depending on either.
+  // A raw query hands timestamps back as PostgreSQL writes them, while the
+  // Drizzle paths hand back Dates that serialise as ISO 8601. Both describe
+  // themselves with the same schema, so a caller reading one and then the other
+  // sees the same field in two shapes. These become Dates to match.
+  const timestamp = (value: unknown) =>
+    value === null || value === undefined ? null : new Date(String(value));
+
   return result.rows.map((row) => {
     const normalized = {
       id: row.id,
@@ -275,10 +282,10 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
       notes: row.notes,
       openingDate: row.opening_date,
       openingBalance: String(row.opening_balance),
-      archivedAt: row.archived_at,
+      archivedAt: timestamp(row.archived_at),
       version: row.version,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+      createdAt: timestamp(row.created_at),
+      updatedAt: timestamp(row.updated_at),
     } as unknown as typeof ledgerAccounts.$inferSelect;
     return accountView(normalized, String(row.calculated_balance));
   });

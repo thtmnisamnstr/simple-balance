@@ -49,10 +49,13 @@ const productionSchema = z.object({
   AUTH_SECRET: z.string().min(32),
 });
 
+// ALLOWED_EMAILS is not checked for length here. A minimum of three characters
+// made sense when every entry had to be an address; it rejects `*`, which is
+// now the documented way to say anybody. Whether the list admits somebody is
+// checked below, where the message can say what to do about it.
 const googleAuthSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
-  ALLOWED_EMAILS: z.string().min(3),
 });
 
 export const authModes = ["local", "google", "both"] as const;
