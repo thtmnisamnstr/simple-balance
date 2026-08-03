@@ -95,6 +95,53 @@ integration("what an MCP client can discover before it has a token", () => {
     }
   });
 
+  /**
+   * A trailing slash is a different path to a router, and only `/mcp` was
+   * registered. A client configured with `/mcp/` completed OAuth, had its grant
+   * recorded, held a valid token, and then got a bare 404 from the catch-all on
+   * every call, which reads to an agent as an authorization failure.
+   */
+  it("answers on the transport path with or without a trailing slash", async () => {
+    const initialize = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "slash-check", version: "1" },
+      },
+    };
+    for (const path of ["/mcp", "/mcp/"]) {
+      const response = await app.request(`${BASE}${path}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(initialize),
+      });
+      // Unauthenticated either way, and never a 404: the route has to exist for
+      // the authorization challenge to be the answer.
+      expect(response.status, path).toBe(401);
+    }
+  });
+
+  it("publishes discovery under the resource path with or without one", async () => {
+    for (const path of [
+      "/.well-known/oauth-protected-resource/mcp",
+      "/.well-known/oauth-protected-resource/mcp/",
+      "/.well-known/oauth-authorization-server/mcp",
+      "/.well-known/oauth-authorization-server/mcp/",
+    ]) {
+      const response = await app.request(`${BASE}${path}`);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("content-type"), path).toContain(
+        "application/json",
+      );
+    }
+  });
+
   it("says no to a well-known name it does not publish, rather than serving the app", async () => {
     const response = await app.request(`${BASE}/.well-known/webfinger`);
     expect(response.status).toBe(404);

@@ -6,6 +6,10 @@ The stateless Streamable HTTP endpoint is:
 https://simple-balance.example.com/mcp
 ```
 
+A trailing slash works too. `/mcp` is the canonical form and the one discovery
+advertises, but `/mcp/` reaches the same endpoint, because a client configured
+with one used to complete the whole OAuth flow and then get a 404 on every call.
+
 Agent clients get the same ledger validation, review workflow, duplicate
 protection, and audit trail the browser gets. Nothing is relaxed for automation.
 

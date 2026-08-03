@@ -167,6 +167,7 @@ const globalBodyLimit = boundRequestBody({
 app.use("*", async (context, next) => {
   if (
     context.req.path === "/mcp" ||
+    context.req.path === "/mcp/" ||
     context.req.path === "/api/v1" ||
     context.req.path.startsWith("/api/v1/")
   ) {
@@ -611,12 +612,16 @@ app.get("/.well-known/oauth-protected-resource", protectedResourceMetadata);
 // HTML with a 200, which a client cannot parse and will not retry.
 app.get("/.well-known/oauth-protected-resource/mcp", protectedResourceMetadata);
 app.get("/.well-known/oauth-authorization-server/mcp", authorizationServerMetadata);
+// And with the slash, for the same reason the transport accepts one.
+app.get("/.well-known/oauth-protected-resource/mcp/", protectedResourceMetadata);
+app.get("/.well-known/oauth-authorization-server/mcp/", authorizationServerMetadata);
 
 // This deployment issues id tokens and answers userinfo, so a client that
 // discovers the OpenID way rather than the OAuth way is asking a fair question
 // and gets the same answer.
 app.get("/.well-known/openid-configuration", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp", authorizationServerMetadata);
+app.get("/.well-known/openid-configuration/mcp/", authorizationServerMetadata);
 
 // Anything else under /.well-known belongs to a protocol nobody here speaks.
 // Say so, rather than letting the catch-all hand back an HTML page that a
@@ -631,7 +636,24 @@ app.all("/.well-known/*", (c) =>
 const authenticatedMcpBodyLimit = boundRequestBody({
   maxBytes: (context) => requestBodyLimit(context.req.path),
 });
-app.all("/mcp", async (c) => {
+/**
+ * The endpoint answers on `/mcp` and on `/mcp/`.
+ *
+ * They are different paths to a router, and only the first was registered, so a
+ * client configured with the trailing slash got a bare 404 from the catch-all
+ * after completing OAuth perfectly well. The grant appeared in Settings, the
+ * token was valid, and every call failed on a route that did not exist. A
+ * trailing slash is the most ordinary thing in the world to paste, so it is
+ * accepted rather than corrected.
+ *
+ * `/mcp` stays the canonical form: it is what discovery advertises and what the
+ * audience on every token is bound to, neither of which depends on the path a
+ * request happened to arrive on.
+ */
+app.all("/mcp/", (c) => mcpTransport(c));
+app.all("/mcp", (c) => mcpTransport(c));
+
+async function mcpTransport(c: Context<{ Variables: Variables }>) {
   const protectedMcp = withMcpAuth(getAuth(), async (request, session) => {
     const identity = await actorFromMcpSession(session);
     if (!identity) {
@@ -689,7 +711,7 @@ app.all("/mcp", async (c) => {
     statusText: response.statusText,
     headers,
   });
-});
+}
 
 app.use(
   "/api/v1/*",

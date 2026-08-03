@@ -2,6 +2,18 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+### Fixed
+
+The MCP endpoint answers on `/mcp/` as well as `/mcp`. They are different paths
+to a router and only the second was registered, so a client configured with the
+trailing slash completed OAuth correctly, had its grant recorded in Settings and
+a valid token in hand, and then got a bare 404 on every call, which an agent
+reports as an authorization problem. Discovery under the resource path accepts
+the slash for the same reason, and the larger request body an MCP CSV upload is
+allowed now applies to both spellings.
+
 ## 0.1.2 - 2026-08-03
 
 ### Added
