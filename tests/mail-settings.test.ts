@@ -55,6 +55,26 @@ describe("reading the mail settings", () => {
     }
   });
 
+  it("takes a reply address, and leaves it unset when nobody gave one", () => {
+    const base = { SMTP_HOST: "smtp.example.com", MAIL_FROM: "b@example.com" };
+    expect(parseMailSettings(base)?.replyTo).toBeUndefined();
+    expect(
+      parseMailSettings({ ...base, MAIL_REPLY_TO: "  support@example.com " })
+        ?.replyTo,
+    ).toBe("support@example.com");
+    expect(
+      parseMailSettings({
+        ...base,
+        MAIL_REPLY_TO: "Simple Balance <support@example.com>",
+      })?.replyTo,
+    ).toBe("Simple Balance <support@example.com>");
+    for (const bad of ["support", "support@", "@example.com"]) {
+      expect(() =>
+        parseMailSettings({ ...base, MAIL_REPLY_TO: bad }),
+      ).toThrow(/MAIL_REPLY_TO/);
+    }
+  });
+
   it("refuses a username without its password, and the reverse", () => {
     const base = { SMTP_HOST: "smtp.example.com", MAIL_FROM: "b@example.com" };
     expect(() => parseMailSettings({ ...base, SMTP_USERNAME: "u" })).toThrow(

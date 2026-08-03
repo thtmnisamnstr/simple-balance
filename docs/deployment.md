@@ -133,6 +133,7 @@ deployment of one where the password lives in a password manager.
 | --- | --- | --- |
 | `SMTP_HOST` | unset | The submission server. Setting it turns mail on. |
 | `MAIL_FROM` | unset | The address messages come from. `balance@example.com`, or `Simple Balance <balance@example.com>`. Required alongside `SMTP_HOST`. |
+| `MAIL_REPLY_TO` | unset | Where a reply should go, if not to `MAIL_FROM`. Same two forms. |
 | `SMTP_PORT` | `587`, or `465` for `tls` | |
 | `SMTP_SECURITY` | `starttls` | `starttls` connects in the clear and requires the upgrade, `tls` is encrypted from the first byte, `none` is neither. |
 | `SMTP_USERNAME` | unset | Set with `SMTP_PASSWORD` or not at all. |
@@ -144,10 +145,37 @@ Only use `none` for a relay on a network you control that offers no encryption,
 and it will not carry a password.
 
 Use a **submission** service, not the MX host your domain publishes. An MX
-record says where mail *to* your domain is delivered; it does not accept mail
-*from* you. For a domain on Google Workspace that means `smtp.gmail.com` with an
-app password, or `smtp-relay.gmail.com` once the relay is enabled in the admin
-console, rather than any `aspmx` or `gmr-smtp-in` host.
+record says where mail *to* your domain is delivered. It does not accept
+authenticated submission, does not relay to other domains, and listens on a port
+most hosts block outbound, so `aspmx.l.google.com` or `gmr-smtp-in.l.google.com`
+will not work here however correct they look in your DNS.
+
+For a domain on Google Workspace, either:
+
+```sh
+# One mailbox. Needs 2-Step Verification on that account and then an app
+# password, which is not the account password.
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+SMTP_USERNAME=balance@example.com
+SMTP_PASSWORD=the-app-password
+MAIL_FROM=Simple Balance <balance@example.com>
+```
+
+```sh
+# The Workspace relay, which can send as any address in the domain. Turn it on
+# first under Apps > Google Workspace > Gmail > Routing > SMTP relay service,
+# and authenticate by IP allowlist, by SMTP credentials, or both.
+SMTP_HOST=smtp-relay.gmail.com
+SMTP_PORT=587
+SMTP_SECURITY=starttls
+```
+
+Google rewrites `From` to the mailbox that authenticated unless the address is a
+verified alias on it, or the relay is set to allow any sender in the domain. If
+that leaves messages coming from somewhere nobody reads, set `MAIL_REPLY_TO` to
+an address somebody does.
 
 Every link in these messages is built from `APP_BASE_URL`. If it is wrong the
 links point somewhere the recipient cannot use, and there is nothing they can do

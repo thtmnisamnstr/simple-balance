@@ -24,6 +24,7 @@ const originalEnvironment = {
   SMTP_PORT: process.env.SMTP_PORT,
   SMTP_SECURITY: process.env.SMTP_SECURITY,
   MAIL_FROM: process.env.MAIL_FROM,
+  MAIL_REPLY_TO: process.env.MAIL_REPLY_TO,
 };
 
 let nextClient = 0;
@@ -139,11 +140,13 @@ async function loadApp(withMail: boolean): Promise<App> {
     process.env.SMTP_PORT = String(smtp.port);
     process.env.SMTP_SECURITY = "none";
     process.env.MAIL_FROM = "Simple Balance <balance@example.com>";
+    process.env.MAIL_REPLY_TO = "Simple Balance Help <help@example.com>";
   } else {
     delete process.env.SMTP_HOST;
     delete process.env.SMTP_PORT;
     delete process.env.SMTP_SECURITY;
     delete process.env.MAIL_FROM;
+    delete process.env.MAIL_REPLY_TO;
   }
   vi.resetModules();
   const { closeDb } = await import("../../src/server/db/client.js");
@@ -336,6 +339,16 @@ integration("password reset and address verification", () => {
       newPassword: "yet-another-password",
     });
     expect(again.status).toBeGreaterThanOrEqual(400);
+  });
+
+  // Relays that will not let a message claim any sender it likes leave a
+  // deployment sending as a mailbox nobody reads, so replies need somewhere
+  // else to land.
+  it("sends from the configured address and replies to the configured one", async () => {
+    const message = await smtp.waitFor("newcomer@example.com", /reset-password/);
+    const headers = message.body.replace(/=\r?\n/g, "");
+    expect(headers).toMatch(/^From: Simple Balance <balance@example\.com>/m);
+    expect(headers).toMatch(/^Reply-To: Simple Balance Help <help@example\.com>/m);
   });
 
   // Asking about an address must not be a way to find out who has an account.

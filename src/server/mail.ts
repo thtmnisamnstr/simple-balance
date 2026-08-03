@@ -107,6 +107,9 @@ export async function sendMail(message: Message) {
   try {
     await sender.sendMail({
       from: mail.from,
+      // Only when it is somewhere else. Without the header a reply goes to the
+      // sender, which is the right default when that address is read.
+      ...(mail.replyTo ? { replyTo: mail.replyTo } : {}),
       to: message.to,
       subject: message.subject,
       text: message.body,

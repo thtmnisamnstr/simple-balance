@@ -117,6 +117,7 @@ export function getConfig(): AppConfig {
     SMTP_USERNAME: process.env.SMTP_USERNAME,
     SMTP_PASSWORD: process.env.SMTP_PASSWORD,
     MAIL_FROM: process.env.MAIL_FROM,
+    MAIL_REPLY_TO: process.env.MAIL_REPLY_TO,
   };
   if (isProduction) {
     productionSchema.parse(values);
@@ -174,7 +175,21 @@ export type MailSettings = {
   username?: string;
   password?: string;
   from: string;
+  /**
+   * Where a reply should go, when that is not the address it came from.
+   *
+   * Some relays will not let a message claim any sender they like. Google
+   * rewrites `From` to the mailbox that authenticated unless the address is a
+   * verified alias, so a deployment can end up sending as a mailbox nobody
+   * reads. This puts a real address on the reply instead.
+   */
+  replyTo?: string;
 };
+
+// Displayed as-is by mail clients, so it has to be something they will accept:
+// either bare, or the "Name <address>" form.
+const mailAddress =
+  /^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$|^[^<>]+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/;
 
 const mailSecurities = ["starttls", "tls", "none"] as const;
 
@@ -192,6 +207,7 @@ export function parseMailSettings(env: {
   SMTP_USERNAME?: string;
   SMTP_PASSWORD?: string;
   MAIL_FROM?: string;
+  MAIL_REPLY_TO?: string;
 }): MailSettings | undefined {
   const host = env.SMTP_HOST?.trim();
   const from = env.MAIL_FROM?.trim();
@@ -213,15 +229,16 @@ export function parseMailSettings(env: {
     .max(65535)
     .parse(env.SMTP_PORT ?? (security === "tls" ? 465 : 587));
 
-  // Shown as-is by mail clients, so it has to be something they will accept:
-  // either bare, or the "Name <address>" form.
-  if (
-    !/^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$|^[^<>]+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/.test(
-      from,
-    )
-  ) {
+  if (!mailAddress.test(from)) {
     throw new Error(
       'MAIL_FROM must be an email address, optionally with a name: "Simple Balance <balance@example.com>"',
+    );
+  }
+
+  const replyTo = env.MAIL_REPLY_TO?.trim() || undefined;
+  if (replyTo && !mailAddress.test(replyTo)) {
+    throw new Error(
+      'MAIL_REPLY_TO must be an email address, optionally with a name: "Simple Balance <support@example.com>"',
     );
   }
 
@@ -241,7 +258,7 @@ export function parseMailSettings(env: {
     );
   }
 
-  return { host, port, security, username, password, from };
+  return { host, port, security, username, password, from, replyTo };
 }
 
 /**
