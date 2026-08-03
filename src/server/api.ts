@@ -80,6 +80,10 @@ import {
   stageCsv,
 } from "./services/import-export.js";
 import {
+  deleteOwnAccount,
+  summarizeOwnData,
+} from "./services/account-deletion.js";
+import {
   listConnectedApps,
   pruneAbandonedClients,
   revokeConnectedApp,
@@ -759,6 +763,18 @@ app.put("/api/v1/preferences", async (c) =>
   c.json(await setPreferences(c.get("actor"), await body(c))),
 );
 
+// What deleting this account would destroy, and then destroying it. Both are
+// reachable only with a session cookie, because that is what every /api/v1 route
+// resolves: an MCP token cannot get here, and an agent must never be able to
+// delete the person whose ledger it was given a corner of.
+app.get("/api/v1/me/data", async (c) =>
+  c.json(await summarizeOwnData(c.get("actor"))),
+);
+
+app.delete("/api/v1/me", async (c) =>
+  c.json(await deleteOwnAccount(c.get("actor"), await body(c))),
+);
+
 // Taking back an agent's access. The same thing is reachable over MCP, where
 // listing needs ledger:read and revoking needs ledger:write, so a stolen
 // read-only token cannot spend its last minutes locking out the agents it was
@@ -1021,6 +1037,16 @@ if (process.env.NODE_ENV === "production") {
       c.res.headers.set("Cache-Control", "no-cache");
     }
   });
+  // Anything the build actually produced at the root of the client bundle:
+  // the icon, and whatever is added beside it later. Without this the only
+  // static route was /assets/*, so a request for /favicon.svg fell through to
+  // the catch-all below and was answered with index.html under a
+  // text/html content type. The file was in the image the whole time; nothing
+  // routed to it, and a browser handed HTML for an image shows no icon.
+  //
+  // serveStatic calls next() when there is no such file, so a real page path
+  // still reaches the single-page shell underneath.
+  app.use("*", serveStatic({ root: "./dist/client" }));
   app.get("*", serveStatic({ path: "./dist/client/index.html" }));
 }
 

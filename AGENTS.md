@@ -60,6 +60,13 @@
 - A summary stops at today in the person's own timezone, whatever end date is
   asked for, and reports the day it used. Money dated in the future has not
   moved, so it counts toward neither a balance nor a cash flow.
+- A table that holds somebody's data references `auth_user` with
+  `on delete cascade`, because deleting an account is one delete of that row and
+  nothing enumerates tables. Add the cascade with the table; without it the
+  deletion fails rather than silently leaving data, which is the right failure
+  but still a bug.
+- Deleting an account is reachable from a session and never from an MCP token.
+  An agent must not be able to delete the person it was lent access to.
 - Balances derive from postings alone. Never add an account column back into a
   balance query.
 - Lists order by any column they display, in either direction. Order is

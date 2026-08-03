@@ -2242,6 +2242,17 @@ input[type="radio"] {
   font-size: 12px;
 }
 
+/* Set apart from the panels above it, because nothing in it can be undone. */
+.danger-zone {
+  margin-top: 14px;
+  border-color: #e8c9c6;
+}
+
+.danger-zone .section-title > span {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
 .connected-app {
   display: flex;
   align-items: center;

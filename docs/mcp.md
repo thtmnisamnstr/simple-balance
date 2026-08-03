@@ -134,6 +134,14 @@ import does, so a `ledger:stage` token can add categories even though it cannot
 touch a transaction. Each one is written to the audit log as `create_from_csv`,
 so they are visible in Activity and can be merged or deleted afterwards.
 
+## What an agent cannot do
+
+Delete the account. That is reachable only from a signed-in browser, because
+every `/api/v1` route resolves a session cookie and an MCP token never becomes
+one. An agent holding `ledger:write` can change and remove entries, and every
+one of those is recoverable from the audit trail or by restoring a deleted row;
+deleting the person is not, so it is not a tool.
+
 ## Revoking access
 
 `ALLOWED_EMAILS` governs who may register, not who may keep signing in. Removing

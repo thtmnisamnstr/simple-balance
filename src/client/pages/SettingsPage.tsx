@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, KeyRound, Link, Settings2 } from "lucide-react";
+import { Bot, KeyRound, Link, Settings2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "../router.js";
 import { api, json, type AuthPublicOptions, type Session } from "../api.js";
@@ -282,7 +282,162 @@ export default function SettingsPage({ session }: { session: Session }) {
           </div>
         ) : null}
       </div>
+
+      <DeleteAccount session={session} />
     </>
+  );
+}
+
+type OwnDataSummary = {
+  accounts: number;
+  transactions: number;
+  categories: number;
+  stagedTransactions: number;
+  importBatches: number;
+  payees: number;
+  connectedAgents: number;
+};
+
+const plural = (count: number, one: string, many = `${one}s`) =>
+  `${count.toLocaleString()} ${count === 1 ? one : many}`;
+
+/** "a, b and c", skipping the parts that do not apply to this account. */
+const readableList = (parts: (string | null)[]) => {
+  const present = parts.filter((part): part is string => Boolean(part));
+  if (present.length <= 1) return present.join("");
+  return `${present.slice(0, -1).join(", ")} and ${present[present.length - 1]}`;
+};
+
+/**
+ * Leaving, and taking everything with you.
+ *
+ * Its own section at the foot of the page rather than a menu item, because
+ * nothing here is recoverable and it should not sit next to anything somebody
+ * clicks by habit. What will be destroyed is counted and shown before the
+ * confirmation, and the address has to be typed: it is the one thing on the
+ * screen a stray click cannot produce.
+ */
+function DeleteAccount({ session }: { session: Session }) {
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [open, setOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const summary = useQuery({
+    queryKey: ["own-data"],
+    queryFn: () => api<OwnDataSummary>("/api/v1/me/data"),
+    enabled: open,
+  });
+  const deletion = useMutation({
+    mutationFn: () =>
+      api("/api/v1/me", { ...json({ confirmEmail }), method: "DELETE" }),
+    onSuccess: () => {
+      // The session went with the account, so there is nothing to return to.
+      // A full load rather than a route change, to leave no cached ledger
+      // behind in memory.
+      window.location.href = "/";
+    },
+  });
+
+  const matches =
+    confirmEmail.trim().toLowerCase() === session.user.email.trim().toLowerCase();
+
+  return (
+    <section className="panel settings-section danger-zone">
+      <header className="section-title">
+        <span><TriangleAlert size={19} /></span>
+        <div>
+          <h2>Delete this account</h2>
+          <p>
+            Everything in it goes: accounts, transactions, categories, payees,
+            staged rows, import history, and every agent you have connected.
+            This cannot be undone and there is no copy kept.
+          </p>
+        </div>
+      </header>
+
+      {open ? (
+        <>
+          {summary.isLoading ? <p className="settings-note">Counting…</p> : null}
+          {summary.error ? <Alert>{summary.error.message}</Alert> : null}
+          {summary.data ? (
+            <p className="settings-note">
+              This will delete{" "}
+              {plural(summary.data.transactions, "transaction")} across{" "}
+              {plural(summary.data.accounts, "account")}, along with{" "}
+              {readableList([
+                plural(summary.data.categories, "category", "categories"),
+                plural(summary.data.payees, "payee"),
+                summary.data.stagedTransactions > 0
+                  ? plural(summary.data.stagedTransactions, "staged row")
+                  : null,
+                summary.data.importBatches > 0
+                  ? plural(summary.data.importBatches, "import")
+                  : null,
+                summary.data.connectedAgents > 0
+                  ? plural(summary.data.connectedAgents, "connected agent")
+                  : null,
+              ])}
+              .
+            </p>
+          ) : null}
+          <Field
+            label="Type your email address to confirm"
+            hint={session.user.email}
+          >
+            <Input
+              value={confirmEmail}
+              autoComplete="off"
+              onChange={(event) => setConfirmEmail(event.target.value)}
+              placeholder={session.user.email}
+            />
+          </Field>
+          {deletion.error ? <Alert>{deletion.error.message}</Alert> : null}
+          <div className="form-actions">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setOpen(false);
+                setConfirmEmail("");
+                deletion.reset();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              disabled={!matches}
+              loading={deletion.isPending}
+              onClick={() => setConfirmDelete(true)}
+            >
+              Delete my account and all my data
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="form-actions">
+          <Button type="button" variant="danger" onClick={() => setOpen(true)}>
+            Delete this account
+          </Button>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete this account for good?"
+        description={
+          summary.data
+            ? `${plural(summary.data.transactions, "transaction")} across ${plural(summary.data.accounts, "account")} and everything else in this ledger will be removed now. There is no copy and no undo. Any agent you have connected loses access immediately.`
+            : "Everything in this ledger will be removed now. There is no copy and no undo."
+        }
+        confirmLabel="Delete everything"
+        onConfirm={() => {
+          setConfirmDelete(false);
+          deletion.mutate();
+        }}
+        onCancel={() => setConfirmDelete(false)}
+      />
+    </section>
   );
 }
 

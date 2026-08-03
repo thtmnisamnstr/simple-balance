@@ -26,9 +26,9 @@ currency. Crypto wallets track native quantities; nothing here quotes a market
 price. Retiring an account archives it, which posts whatever it still holds out
 to equity so the account closes at zero and stops counting toward your totals
 without the books going out of balance; restoring it puts the balance back, and
-its history is readable throughout. Transactions are
-deposits, withdrawals, and transfers, same-currency or converted. The payee is
-required. Everything else is optional.
+its history stays readable throughout. Transactions are deposits, withdrawals,
+and transfers, same-currency or converted. The payee is required. Everything
+else is optional.
 
 Imports go through a review queue. Simple Balance reads the CSV, works out the
 format, maps the columns, parses whatever date and number conventions your bank
@@ -43,15 +43,18 @@ near-duplicates, and merge by rewriting every reference at once.
 
 The dashboard covers balances, cash flow, and spending by category over any date
 range, and the range is in the URL, so you can link to it. It stops at today
-whatever range you pick, because money dated next month is not money you
-have. Every list sorts by
-any column it shows and pages by number. Everything the browser or an agent did
-is in the audit log.
+whatever range you pick, because money dated next month is not money you have.
+Every list sorts by any column it shows and pages by number. Everything the
+browser or an agent did is in the audit log.
 
-Sign in with an embedded local account, with Google, or with both on the same
+Sign in with an email and password, with Google, or with both on the same
 account. One deployment can hold any number of people, each with their own
 separate books, and `ALLOWED_EMAILS` decides who may join. The MCP server runs
 over OAuth with separate read, stage, and write scopes.
+
+Leaving is yours to do. Settings deletes the account and everything in it,
+after counting what that is and asking you to type your address. Nothing is
+kept, and no agent can do it for you.
 
 Out of scope for now: scheduled transactions, splits, budgets, tags,
 reconciliation, attachments, bank sync, market prices, and shared households.

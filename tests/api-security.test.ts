@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import app from "../src/server/api.js";
 import { getConfig } from "../src/server/config.js";
@@ -131,5 +133,57 @@ describe("API transport security wiring", () => {
     });
     expect(response.status).toBe(401);
     expect(response.headers.get("connection")).toBe("close");
+  });
+});
+
+/**
+ * The icon lived in the built bundle the whole time and nothing routed to it:
+ * only /assets/* was served statically, so /favicon.svg fell through to the
+ * single-page shell and a browser was handed index.html under text/html for an
+ * image request. It showed no icon and reported no error.
+ *
+ * Asserted against the source rather than by making a request, because the
+ * static routes only exist when NODE_ENV is production and `npm run verify`
+ * runs the tests before the build, so there is no bundle to serve when this
+ * runs. What can be checked always is the wiring: a handler for the bundle root
+ * has to come before the catch-all, or the catch-all answers first. The
+ * behaviour itself is verified against the built container.
+ */
+describe("static files at the root of the client bundle", () => {
+  const source = readFileSync(
+    path.join(import.meta.dirname, "..", "src/server/api.ts"),
+    "utf8",
+  );
+
+  it("serves the bundle root before falling back to the shell", () => {
+    // Specifically the wildcard one. Matching the bare serveStatic call found
+    // the /assets/* handler, which contains the same text and is already before
+    // the fallback, so this passed with the root handler deleted.
+    const rootHandler = source.indexOf(
+      'app.use("*", serveStatic({ root: "./dist/client" }))',
+    );
+    const shellFallback = source.indexOf(
+      'serveStatic({ path: "./dist/client/index.html" })',
+    );
+    expect(rootHandler, "a handler for the bundle root").toBeGreaterThan(-1);
+    expect(shellFallback, "the single-page fallback").toBeGreaterThan(-1);
+    expect(rootHandler).toBeLessThan(shellFallback);
+  });
+
+  it("keeps the icon the document asks for in the bundle", () => {
+    const html = readFileSync(
+      path.join(import.meta.dirname, "..", "index.html"),
+      "utf8",
+    );
+    for (const match of html.matchAll(/<link[^>]+href="\/([^"]+)"/g)) {
+      const file = match[1];
+      // Hashed assets are emitted by the build; these are the ones copied
+      // verbatim out of public/, so they have to be there to be copied.
+      if (file.startsWith("assets/")) continue;
+      expect(
+        existsSync(path.join(import.meta.dirname, "..", "public", file)),
+        `public/${file} is referenced by index.html`,
+      ).toBe(true);
+    }
   });
 });

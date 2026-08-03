@@ -2,7 +2,25 @@
 
 Notable changes, newest first.
 
-## Unreleased
+## 0.1.2 - 2026-08-03
+
+### Added
+
+Deleting your own account, from Settings, taking everything in it: accounts,
+transactions and the postings under them, categories, payees, staged rows,
+import history, preferences, audit history, sessions, sign-in methods, and every
+agent you had connected. What will go is counted and shown first, and the address
+on the account has to be typed, because that is the one thing on the screen a
+stray click cannot produce. Nothing is kept and there is no undo.
+
+It works by one delete: every table holding a person's data references
+`auth_user` with `on delete cascade`, so nothing enumerates tables and a table
+added later cannot be forgotten. The test reads the tables out of the database
+and asserts not one row of the deleted account is left in any of them, which a
+hand-kept list would not have done.
+
+An agent cannot do it. Deleting is reachable only with a session cookie, which
+an MCP token never becomes.
 
 ### Fixed
 
@@ -13,6 +31,12 @@ requested, so the policy deciding who may open an account was told
 Google sign-up therefore failed with `unable_to_create_user` while linking
 Google to an account that already existed kept working, because linking creates
 no user. Both forms of the path are now recognised.
+
+The icon. It was in the built bundle and nothing routed to it: only `/assets/*`
+was served as files, so a request for `/favicon.svg` fell through to the
+single-page shell and a browser was handed HTML under a `text/html` content type
+for an image. The whole root of the bundle is served now, and the Apple touch
+icon is a PNG rather than an SVG, which iOS does not accept.
 
 ### Changed
 

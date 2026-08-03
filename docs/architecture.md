@@ -129,6 +129,20 @@ audit history. The counter-accounts the ledger keeps for income, expenses,
 exchange, and opening balances belong to a user too, so one person's spending
 can never land in another's income statement.
 
+Deleting an account removes the row in `auth_user`, and every table holding
+somebody's data references it with `on delete cascade`, so the ledger goes with
+it in one statement. That is deliberately the whole mechanism: a hand-kept list
+of tables to empty is a list somebody forgets to add to, and what it forgets is
+data left behind after a person asked for it to be gone. A table added later
+with a `user_id` and no cascade does not leave data quietly, it makes the
+deletion fail, which is the safe way for that mistake to surface. The one thing
+no cascade reaches is `auth_verification`, which has no user column; a pending
+password reset holds the user id in its value and is removed explicitly.
+
+Deleting is reachable only with a session cookie. Every `/api/v1` route resolves
+one, so an MCP token cannot reach it and no agent can delete the person whose
+ledger it was lent a corner of.
+
 `ALLOWED_EMAILS` is consulted when an account is created and at no other time.
 It is optional, so making it a condition of signing in would shut everyone out
 of a deployment that never set one.
