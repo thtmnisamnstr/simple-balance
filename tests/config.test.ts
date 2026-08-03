@@ -58,7 +58,9 @@ describe("authentication configuration", () => {
       localAuthEnabled: true,
       googleAuthEnabled: false,
     });
-    expect(getConfig().allowedEmails.size).toBe(0);
+    // Nothing configured means nobody new registers, which is what an existing
+    // deployment expects an upgrade to do.
+    expect(getConfig().registration).toEqual({ kind: "closed" });
   });
 
   it.each([
@@ -160,9 +162,13 @@ describe("authentication configuration", () => {
     const { getConfig } = await import("../src/server/config.js");
     const config = getConfig();
     expect(config.authMode).toBe("both");
-    expect([...config.allowedEmails]).toEqual([
-      "owner@example.com",
-      "second@example.com",
-    ]);
+    expect(config.registration).toMatchObject({ kind: "list" });
+    const rule = config.registration as {
+      kind: "list";
+      emails: Set<string>;
+      domains: Set<string>;
+    };
+    expect([...rule.emails]).toEqual(["owner@example.com", "second@example.com"]);
+    expect([...rule.domains]).toEqual([]);
   });
 });

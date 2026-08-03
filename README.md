@@ -40,9 +40,10 @@ range, and the range is in the URL, so you can link to it. Every list sorts by
 any column it shows and pages by number. Everything the browser or an agent did
 is in the audit log.
 
-Sign in with an embedded local account, with allowlisted Google, or with either
-into the same ledger. The MCP server runs over OAuth with separate read, stage,
-and write scopes.
+Sign in with an embedded local account, with Google, or with both on the same
+account. One deployment can hold any number of people, each with their own
+separate books, and `ALLOWED_EMAILS` decides who may join. The MCP server runs
+over OAuth with separate read, stage, and write scopes.
 
 Out of scope for now: scheduled transactions, splits, budgets, tags,
 reconciliation, attachments, bank sync, market prices, and shared households.
@@ -64,8 +65,8 @@ npm run dev:client
 ```
 
 Open <http://localhost:5173>. Development needs no environment variables and no
-configuration. The first visit asks you to create the owner account; after that
-it is the email and password you chose. Both servers stay on loopback.
+configuration. The first visit asks you to create an account; after that it is
+the email and password you chose. Both servers stay on loopback.
 
 Code reloads as you edit it. After changing dependencies, run `npm install` and
 restart both commands. `docker compose -f compose.dev.yml stop` stops the
@@ -131,9 +132,15 @@ configuration, the database connection, and the migrations have all succeeded.
 
 The logs print a one-time setup code on first run. Enter it on the
 account-creation screen to claim the instance. Set `SETUP_TOKEN` yourself if you
-would rather choose it. Either way the code stops working once an owner exists,
-so nobody can claim an instance just because they found it. There is no password
-reset, so put the owner password in a password manager.
+would rather choose it. Either way the code stops working once an account
+exists, so nobody can claim an instance just because they found it. There is no
+password reset, so put the password in a password manager.
+
+After that, who else may register is up to `ALLOWED_EMAILS`. Leave it unset and
+nobody can, which keeps the deployment yours alone. List addresses
+(`you@example.com`), whole domains (`example.com`), or `*` for anybody, and
+those people get accounts of their own. They cannot see yours and you cannot see
+theirs.
 
 To move to a newer image, pull it, stop and remove the container, and start it
 again with the same command. Your database is untouched, and migrations run at
@@ -143,9 +150,9 @@ startup. See [upgrades](docs/upgrades.md).
 
 | `AUTH_MODE` | What it does | Also needs |
 | --- | --- | --- |
-| `local` (default) | The embedded account only | Nothing |
-| `google` | Allowlisted Google only | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAILS` |
-| `both` | Either, into the same ledger | The same three, with the owner's email in `ALLOWED_EMAILS` |
+| `local` (default) | Email and password | Nothing. Add `ALLOWED_EMAILS` to let others register |
+| `google` | Google accounts `ALLOWED_EMAILS` admits | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAILS` |
+| `both` | Either, and both on one account | The same three |
 
 With Google enabled, register the callback as
 `https://YOUR-DOMAIN/api/auth/callback/google`. Full settings and reverse-proxy

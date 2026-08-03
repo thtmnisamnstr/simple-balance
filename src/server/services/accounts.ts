@@ -289,7 +289,16 @@ export async function getAccount(actor: Actor, id: string) {
   const [account] = await db
     .select()
     .from(ledgerAccounts)
-    .where(and(eq(ledgerAccounts.id, id), eq(ledgerAccounts.userId, actor.userId)))
+    .where(
+      and(
+        eq(ledgerAccounts.id, id),
+        eq(ledgerAccounts.userId, actor.userId),
+        // The income, expense, exchange and equity accounts are the ledger's
+        // own bookkeeping. Every other path hides them, so fetching one by id
+        // should not be the exception that puts them on show.
+        isNull(ledgerAccounts.systemKind),
+      ),
+    )
     .limit(1);
   if (!account) throw notFound("Account not found");
   return accountView(account, await currentBalance(db, actor, account.id));

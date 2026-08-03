@@ -25,6 +25,7 @@ derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `AUTH_MODE` | `local` | Which sign-in methods are offered. See below. |
+| `ALLOWED_EMAILS` | unset | Who may register. Unset admits nobody but the first account. See below. |
 | `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. Left unset, one is generated and printed to the startup log. |
 | `PORT` | `3000` | The port inside the container. Change it and your published port mapping has to follow. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
@@ -35,23 +36,60 @@ derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 
 ### Only for Google sign-in
 
-`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `ALLOWED_EMAILS`. Google modes
-refuse to start if any of the three is missing, rather than silently letting
-everyone in.
+`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Google modes refuse to start
+without them, and without an `ALLOWED_EMAILS` that admits somebody, rather than
+silently letting everyone in.
+
+## Who may register
+
+`ALLOWED_EMAILS` decides who can create an account. It is a comma-separated
+list, matched case-insensitively, and each entry is one of:
+
+| Entry | Admits |
+| --- | --- |
+| `you@example.com` | That address, and only it. A plus tag is a different address. |
+| `example.com` | Anybody at that domain. |
+| `@example.com` | The same thing, written the way people often expect. |
+| `*` | Anybody at all. |
+
+A domain matches only itself. Allowing `example.com` does not allow
+`someone@mail.example.com`, because a subdomain is a different domain and may be
+under somebody else's control.
+
+Leaving `ALLOWED_EMAILS` unset admits nobody. That is what makes an
+unconfigured deployment a private one: the person who claims it with the setup
+code gets an account, and nobody else can register. Set the variable when you
+want to let other people in.
+
+Every account is separate. Two people on one deployment cannot see each other's
+accounts, transactions, categories, payees, or totals, and neither can name the
+other's records by id.
+
+### What the list does and does not do
+
+The list decides who may *open* an account. It has no say after that. Somebody
+you remove keeps the account they already have, along with everything in it,
+because the alternative would mean an unset list locked every existing user out
+of their own books. To remove somebody, delete their account, which takes their
+data with it.
+
+A domain entry means whoever can reach the sign-up form and type an address at
+that domain gets an account under it. There is no email verification in local
+password mode, so `pinecone.io` is a statement about who you expect to find the
+deployment, not proof of employment. In `google` mode the same entry is much
+stronger, because Google has verified the address before it reaches us and an
+unverified claim is refused.
 
 ## Sign-in modes
 
-`local` is the default and needs no Google configuration at all. The first
-person to visit claims the instance with the one-time code from the startup log,
-and becomes the sole owner.
+`local` is the default and needs no Google configuration at all.
 
-`google` allows only allowlisted Google accounts. `ALLOWED_EMAILS` is a
-comma-separated list, matched case-insensitively.
+`google` allows Google accounts that `ALLOWED_EMAILS` admits.
 
-`both` offers either, into the same ledger. Create the local owner first, sign in
-with it, then use **Connect Google** in Settings. That link is explicit on
-purpose: two accounts sharing an email address are not assumed to be the same
-person.
+`both` offers either. To use both for one account, create the local account
+first, sign in with it, then use **Connect Google** in Settings. That link is
+explicit on purpose: two accounts sharing an email address are not assumed to be
+the same person.
 
 For either Google mode, register this exact redirect URI on the Google OAuth web
 application:
@@ -63,9 +101,27 @@ https://simple-balance.example.com/api/auth/callback/google
 Simple Balance asks Google for `openid`, `email`, and `profile`, and nothing
 else. Keep the client secret out of the image.
 
-Local sign-in sends no email, which means there is no password reset. Put the
-owner password in a password manager. It can be changed from Settings by
-whoever is already signed in.
+## Passwords and the first account
+
+The logs print a one-time setup code the first time a deployment starts with no
+accounts in it. Whoever holds that code can create an account the registration
+rule would otherwise turn away, which is what makes an unconfigured deployment
+usable at all. It stops working the moment an account exists. Set `SETUP_TOKEN`
+yourself if you would rather choose the code than read it from a log. When
+`ALLOWED_EMAILS` already admits the first person, no code is asked for, because
+it would guard a door anyone could walk around.
+
+Local sign-in sends no email, so there is no password reset. Everyone keeps
+their own password in a password manager, and can change it from Settings while
+signed in. Recovering a lost one means editing the database. On a deployment
+with more than one person on it, that is worth saying out loud before they sign
+up rather than after.
+
+Sign-up and sign-in are rate limited to a few attempts per client address every
+ten seconds. The count lives in the process's memory, so it resets on restart
+and each replica counts separately. Set `TRUST_PROXY=true` when a reverse proxy
+sets `X-Forwarded-For`; otherwise the address is taken from the connection
+itself, which a caller cannot choose.
 
 ## Running it
 
@@ -102,8 +158,10 @@ location / {
 ```
 
 Set `TRUST_PROXY=true` only when every request arrives through a proxy that
-*replaces* `X-Forwarded-Host` and `X-Forwarded-Proto` rather than passing through
-whatever a client sent. If a client can set those headers itself, leave it off.
+*replaces* `X-Forwarded-Host`, `X-Forwarded-Proto`, and `X-Forwarded-For` rather
+than passing through whatever a client sent. If a client can set those headers
+itself, leave it off: with it off the sign-in rate limit counts against the
+connection's own address, which is worth more than a header anyone can type.
 
 ## Starting from nothing
 
@@ -164,8 +222,8 @@ npm run dev
 
 Then `npm run dev:client` in another terminal, and open
 <http://localhost:5173>. Vite proxies the API, OAuth discovery, health, and MCP
-routes to port 3000. No environment variables are needed: create a real owner on
-the first visit and use it for both the web app and MCP OAuth. Outside
+routes to port 3000. No environment variables are needed: create a real account
+on the first visit and use it for both the web app and MCP OAuth. Outside
 production the API binds to `127.0.0.1`.
 
 The compose file also creates `simple_balance_test` for the integration suite.

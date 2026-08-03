@@ -10,6 +10,7 @@ import {
   protectAuthMutation,
   protectBrowserMutation,
   requestBodyLimit,
+  withCountableClientAddress,
 } from "../src/server/http-security.js";
 import {
   MAX_BULK_SELECTION_ENTRIES,
@@ -358,5 +359,65 @@ describe("bounded request bodies", () => {
     expect(requestBodyLimit("/api/v1/accounts")).toBe(
       API_REQUEST_BODY_LIMIT_BYTES,
     );
+  });
+});
+
+/**
+ * The rate limiter counts sign-up and sign-in attempts per client address, and
+ * it learns that address from x-forwarded-for. These cover the two ways that
+ * goes wrong when nothing rewrites the header: a caller who supplies one to buy
+ * extra attempts, and a caller who supplies none so that everybody shares a
+ * bucket.
+ */
+describe("the address a rate limit is counted against", () => {
+  const withPeer = (peer?: string) =>
+    ({ env: { incoming: { socket: { remoteAddress: peer } } } }) as never;
+
+  it("replaces a caller's own x-forwarded-for with the connection's address", async () => {
+    const request = new Request("https://balance.example.com/api/auth/sign-up/email", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": "198.51.100.7",
+      },
+      body: JSON.stringify({ email: "someone@example.com" }),
+    });
+
+    const counted = withCountableClientAddress(request, withPeer("203.0.113.4"), false);
+    expect(counted.headers.get("x-forwarded-for")).toBe("203.0.113.4");
+    // The request still has to be usable afterwards.
+    expect(await counted.json()).toEqual({ email: "someone@example.com" });
+  });
+
+  it("adds the connection's address when the caller sent none", () => {
+    const request = new Request("https://balance.example.com/api/auth/sign-in/email", {
+      method: "POST",
+      body: "{}",
+    });
+    const counted = withCountableClientAddress(request, withPeer("203.0.113.9"), false);
+    expect(counted.headers.get("x-forwarded-for")).toBe("203.0.113.9");
+  });
+
+  it("drops a claimed address when the connection has none to offer", () => {
+    const request = new Request("https://balance.example.com/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "x-forwarded-for": "198.51.100.7" },
+      body: "{}",
+    });
+    const counted = withCountableClientAddress(request, withPeer(undefined), false);
+    expect(counted.headers.get("x-forwarded-for")).toBeNull();
+  });
+
+  // With a proxy in front, the header is the proxy's statement rather than the
+  // caller's, and the connection address is only ever the proxy itself.
+  it("leaves the header alone when a proxy is trusted", () => {
+    const request = new Request("https://balance.example.com/api/auth/sign-in/email", {
+      method: "POST",
+      headers: { "x-forwarded-for": "198.51.100.7" },
+      body: "{}",
+    });
+    const counted = withCountableClientAddress(request, withPeer("10.0.0.1"), true);
+    expect(counted.headers.get("x-forwarded-for")).toBe("198.51.100.7");
+    expect(counted).toBe(request);
   });
 });

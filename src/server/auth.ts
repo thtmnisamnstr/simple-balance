@@ -37,6 +37,10 @@ function createAuthInstance() {
     },
     advanced: {
       trustedProxyHeaders: config.trustProxy,
+      // Rate limiting counts per client address, read from x-forwarded-for.
+      // That header is only worth believing because every request reaching this
+      // handler has passed through withCountableClientAddress, which replaces
+      // it with the peer address of the connection unless a proxy is trusted.
     },
     emailAndPassword: {
       enabled: config.localAuthEnabled,
@@ -72,53 +76,32 @@ function createAuthInstance() {
       user: {
         create: {
           before: async (newUser, context) =>
-            mayCreateAuthUser(newUser.email, context?.path),
+            mayCreateAuthUser(
+              newUser.email,
+              context?.path,
+              newUser.emailVerified,
+            ),
         },
       },
       session: {
         create: {
           before: async (newSession, context) => {
             const transactionAdapter = context?.context.internalAdapter;
-            const sessionUser = transactionAdapter
-              ? await transactionAdapter.findUserById(newSession.userId)
-              : (
-                  await getDb()
-                    .select({ email: user.email })
-                    .from(user)
-                    .where(eq(user.id, newSession.userId))
-                    .limit(1)
-                )[0];
             const linkedAccounts = transactionAdapter
               ? await transactionAdapter.findAccounts(newSession.userId)
               : undefined;
-            return Boolean(
-              sessionUser &&
-                (await mayCreateSession(
-                  newSession.userId,
-                  sessionUser.email,
-                  context?.path,
-                  linkedAccounts,
-                )),
+            return mayCreateSession(
+              newSession.userId,
+              context?.path,
+              linkedAccounts,
             );
           },
         },
       },
       account: {
         create: {
-          before: async (newAccount, context) => {
-            const transactionUser =
-              newAccount.providerId === "google" && context
-                ? await context.context.internalAdapter.findUserById(
-                    newAccount.userId,
-                  )
-                : null;
-            return mayCreateProviderAccount(
-              newAccount.providerId,
-              newAccount.userId,
-              context?.path,
-              transactionUser?.email,
-            );
-          },
+          before: async (newAccount) =>
+            mayCreateProviderAccount(newAccount.providerId),
         },
       },
     },
@@ -158,10 +141,7 @@ export type AuthInstance = ReturnType<typeof getAuth>;
 
 export async function getWebIdentity(headers: Headers) {
   const session = await getAuth().api.getSession({ headers });
-  if (
-    !session ||
-    !(await isLedgerUserAuthorized(session.user.id, session.user.email))
-  ) {
+  if (!session || !(await isLedgerUserAuthorized(session.user.id))) {
     return null;
   }
   return session;
@@ -173,14 +153,11 @@ export async function actorFromMcpSession(session: {
   scopes: string;
 }): Promise<{ actor: Actor; scopes: Set<string> } | null> {
   const [authUser] = await getDb()
-    .select({ id: user.id, email: user.email })
+    .select({ id: user.id })
     .from(user)
     .where(eq(user.id, session.userId))
     .limit(1);
-  if (
-    !authUser ||
-    !(await isLedgerUserAuthorized(authUser.id, authUser.email))
-  ) {
+  if (!authUser || !(await isLedgerUserAuthorized(authUser.id))) {
     return null;
   }
   return {

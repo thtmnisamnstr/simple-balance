@@ -4,9 +4,9 @@ import { getConfig } from "./config.js";
 let generatedToken: string | undefined;
 
 /**
- * Production owner setup is intentionally protected even when the container is
- * already reachable. The token is either operator-supplied or generated once
- * for this process and printed at startup while bootstrap remains open.
+ * A reachable production container should not be claimable by whoever finds it
+ * first. The token is either operator-supplied or generated once for this
+ * process, and it is printed at startup only while no account exists.
  */
 export function getOwnerSetupToken() {
   if (!getConfig().isProduction) return undefined;

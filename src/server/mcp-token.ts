@@ -9,6 +9,7 @@ import {
   type JWK,
 } from "jose";
 import { getConfig } from "./config.js";
+import { MCP_SIGNING_KEY_LOCK } from "./db/advisory-locks.js";
 import { getDb } from "./db/client.js";
 import {
   mcpSigningKeys,
@@ -16,7 +17,6 @@ import {
 } from "./db/schema.js";
 
 const ACTIVE_KEY_ID = "mcp-active-rs256";
-const KEY_LOCK = 724_202_608;
 
 type SigningKey = {
   id: string;
@@ -27,7 +27,7 @@ type SigningKey = {
 
 async function getSigningKey(): Promise<SigningKey> {
   return getDb().transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(${KEY_LOCK})`);
+    await tx.execute(sql`select pg_advisory_xact_lock(${MCP_SIGNING_KEY_LOCK})`);
     const [existing] = await tx
       .select()
       .from(mcpSigningKeys)

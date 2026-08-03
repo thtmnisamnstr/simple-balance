@@ -15,11 +15,9 @@ async function main() {
     config.localAuthEnabled &&
     (await isLocalBootstrapOpen())
   ) {
+    console.info(`First-run setup code: ${getOwnerSetupToken()}`);
     console.info(
-      `First-run owner setup code: ${getOwnerSetupToken()}`,
-    );
-    console.info(
-      "Create the owner account now; this code is ignored after setup completes.",
+      "Use it to create the first account. It stops working once one exists; after that, ALLOWED_EMAILS decides who may register.",
     );
   }
   const server = serve({

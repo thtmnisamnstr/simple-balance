@@ -8,7 +8,11 @@ export async function listAuditEvents(
   actor: Actor,
   options: { cursor?: string; limit?: number } = {},
 ) {
-  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  // `?? 50` does not catch a limit that parsed to NaN, and Math.min/max carry
+  // NaN straight through to the query, where it becomes a 500 rather than the
+  // default the caller expected.
+  const requested = Number.isFinite(options.limit) ? options.limit! : 50;
+  const limit = Math.min(Math.max(Math.trunc(requested), 1), 200);
   const cursor = options.cursor ? decodeCursor(options.cursor, { key: "created", direction: "desc" }) : null;
   const rows = await getDb()
     .select()

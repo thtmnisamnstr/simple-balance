@@ -67,6 +67,9 @@ function SignIn({ error }: { error?: Error }) {
   const [setupToken, setSetupToken] = useState("");
   const confirmationInput = useRef<HTMLInputElement>(null);
   const [localFormError, setLocalFormError] = useState("");
+  // Null until somebody picks, so the screen can open on whichever form is
+  // the likely one once the server says which deployment this is.
+  const [registering, setRegistering] = useState<boolean | null>(null);
   const options = useQuery({
     queryKey: ["auth-methods"],
     queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
@@ -85,10 +88,13 @@ function SignIn({ error }: { error?: Error }) {
     isMcpAuthorization
       ? `/api/auth/mcp/authorize${location.search}`
       : pageReturnTo;
+  const canRegister = options.data?.localRegistrationOpen ?? false;
+  const setup =
+    canRegister && (registering ?? (options.data?.awaitingFirstAccount ?? false));
   const localAuth = useMutation({
     mutationFn: async () => {
       if (!options.data) throw new Error("Authentication options are unavailable");
-      if (options.data.localRegistrationOpen) {
+      if (setup) {
         if (password !== confirmation) throw new Error("Passwords do not match");
         const response = await fetch("/api/auth/sign-up/email", {
           method: "POST",
@@ -121,7 +127,6 @@ function SignIn({ error }: { error?: Error }) {
     setLocalFormError("");
     localAuth.mutate();
   };
-  const setup = options.data?.localRegistrationOpen;
   return (
     <main className="auth-shell">
       <section className="auth-card">
@@ -155,12 +160,7 @@ function SignIn({ error }: { error?: Error }) {
             // a background fetch.
             onSubmit={isMcpAuthorization ? undefined : submitLocal}
           >
-            <h2>{setup ? "Create your owner account" : "Sign in locally"}</h2>
-            {setup && options.data.mode === "both" ? (
-              <small>
-                Use the owner email configured in the server’s ALLOWED_EMAILS list.
-              </small>
-            ) : null}
+            <h2>{setup ? "Create your account" : "Sign in locally"}</h2>
             {setup ? (
               <Field label="Your name">
                 <Input
@@ -232,8 +232,8 @@ function SignIn({ error }: { error?: Error }) {
             ) : null}
             {setup && options.data.setupTokenRequired ? (
               <Field
-                label="Owner setup code"
-                hint="Copy this one-time code from the container startup logs"
+                label="Setup code"
+                hint="Copy this one-time code from the server startup logs"
               >
                 <Input
                   required
@@ -249,6 +249,24 @@ function SignIn({ error }: { error?: Error }) {
             <Button type="submit" loading={localAuth.isPending}>
               {setup ? "Create account" : "Sign in"}
             </Button>
+            {/* Nothing to switch to until somebody has claimed the deployment,
+                and nothing to switch to when registration is closed. */}
+            {canRegister && !options.data.awaitingFirstAccount ? (
+              <p className="auth-switch">
+                {setup ? "Already have an account?" : "New here?"}{" "}
+                <button
+                  type="button"
+                  className="link-button"
+                  onClick={() => {
+                    setRegistering(!setup);
+                    setLocalFormError("");
+                    localAuth.reset();
+                  }}
+                >
+                  {setup ? "Sign in" : "Create an account"}
+                </button>
+              </p>
+            ) : null}
           </form>
         ) : null}
         {options.data?.googleEnabled ? (

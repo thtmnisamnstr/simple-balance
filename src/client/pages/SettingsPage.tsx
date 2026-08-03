@@ -239,20 +239,14 @@ export default function SettingsPage({ session }: { session: Session }) {
             ) : null}
             {session.auth.googleEnabled && !session.auth.googleLinked ? (
               <div className="provider-action">
-                {session.auth.googleEligible ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    loading={googleLinkMutation.isPending}
-                    onClick={() => googleLinkMutation.mutate()}
-                  >
-                    <Link size={16} /> Connect Google
-                  </Button>
-                ) : (
-                  <Alert kind="info">
-                    Add this account’s email to ALLOWED_EMAILS before connecting Google.
-                  </Alert>
-                )}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  loading={googleLinkMutation.isPending}
+                  onClick={() => googleLinkMutation.mutate()}
+                >
+                  <Link size={16} /> Connect Google
+                </Button>
                 {googleLinkMutation.error ? (
                   <Alert>{googleLinkMutation.error.message}</Alert>
                 ) : null}

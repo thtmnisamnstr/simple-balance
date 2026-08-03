@@ -102,7 +102,15 @@ scoped OAuth access token. Both resolve to an internal `Actor`, and every servic
 query is scoped by `actor.userId`. An id belonging to someone else comes back as
 not found, not as forbidden.
 
-No public input ever names a ledger owner.
+No public input ever names a user. One deployment may hold many people; each
+sees only their own accounts, transactions, categories, payees, totals, and
+audit history. The counter-accounts the ledger keeps for income, expenses,
+exchange, and opening balances belong to a user too, so one person's spending
+can never land in another's income statement.
+
+`ALLOWED_EMAILS` is consulted when an account is created and at no other time.
+It is optional, so making it a condition of signing in would shut everyone out
+of a deployment that never set one.
 
 ## Migrations
 

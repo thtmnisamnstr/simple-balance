@@ -30,7 +30,8 @@ import {
   hasLocalPassword,
   isLocalBootstrapOpen,
 } from "./auth-policy.js";
-import { getConfig } from "./config.js";
+import { getConfig, isEmailAllowed, isRegistrationClosed } from "./config.js";
+import { LOCAL_BOOTSTRAP_LOCK } from "./db/advisory-locks.js";
 import { getAuthBootstrapLockPool, getDb } from "./db/client.js";
 import {
   boundRequestBody,
@@ -38,8 +39,10 @@ import {
   protectBrowserMutation,
   rejectRequestBody,
   requestBodyLimit,
+  withCountableClientAddress,
 } from "./http-security.js";
 import { handleMcpRequest } from "./mcp.js";
+import { runAsBootstrapClaim } from "./registration-context.js";
 import {
   getMcpJwks,
   issueMcpAccessToken,
@@ -183,11 +186,15 @@ app.get("/health/ready", async (c) => {
 
 app.use("/api/auth/*", protectAuthMutation(getConfig().baseUrl));
 
+// Everything below hands its request to Better Auth through this, so the
+// rate limiter always counts against an address the caller cannot choose.
+const authRequest = (c: Context, request: Request = c.req.raw) =>
+  withCountableClientAddress(request, c, getConfig().trustProxy);
+
 app.get("/api/auth/methods", async (c) =>
   c.json(await getPublicAuthOptions()),
 );
 
-const localBootstrapLockId = 724_202_608;
 let localBootstrapBusy = false;
 app.post("/api/auth/sign-up/email", async (c) => {
   if (!getConfig().localAuthEnabled) {
@@ -197,29 +204,53 @@ app.post("/api/auth/sign-up/email", async (c) => {
     );
   }
   const contentType = c.req.header("content-type") ?? "";
-  const setupPayload = contentType.includes("application/x-www-form-urlencoded")
+  const payload = contentType.includes("application/x-www-form-urlencoded")
     ? Object.fromEntries(await c.req.raw.clone().formData())
     : await c.req.raw.clone().json().catch(() => ({}));
-  if (
-    !isOwnerSetupTokenValid(
-      setupPayload && typeof setupPayload === "object"
-        ? (setupPayload as Record<string, unknown>).setupToken
-        : undefined,
-    )
-  ) {
+  const field = (name: string) =>
+    payload && typeof payload === "object"
+      ? (payload as Record<string, unknown>)[name]
+      : undefined;
+
+  const email = field("email");
+
+  // Anyone the registration rule admits signs up directly. The setup code is
+  // for the other case: a deployment nobody has claimed yet, where the rule
+  // admits nobody and the code printed in the log is the only way in. Holding
+  // the code proves you can read the server's output, which is a good enough
+  // stand-in for owning it.
+  if (typeof email === "string" && isEmailAllowed(email)) {
+    return await getAuth().handler(authRequest(c));
+  }
+
+  if (!(await isLocalBootstrapOpen())) {
     return c.json(
       {
-        code: "INVALID_SETUP_TOKEN",
-        message: "The owner setup code is missing or invalid.",
+        code: "REGISTRATION_CLOSED",
+        message: isRegistrationClosed()
+          ? "This instance is not accepting new accounts."
+          : "That email address is not allowed to register here.",
       },
       403,
     );
   }
+
+  if (!isOwnerSetupTokenValid(field("setupToken"))) {
+    return c.json(
+      {
+        code: "INVALID_SETUP_TOKEN",
+        message: "The setup code is missing or invalid.",
+      },
+      403,
+    );
+  }
+  // Only the claim races, and it happens once in a deployment's life. Sign-ups
+  // that the rule already admits returned above without coming near this lock.
   if (localBootstrapBusy) {
     return c.json(
       {
         code: "REGISTRATION_BUSY",
-        message: "Owner setup is already in progress. Try again.",
+        message: "Setup is already in progress. Try again.",
       },
       409,
     );
@@ -231,33 +262,36 @@ app.post("/api/auth/sign-up/email", async (c) => {
     client = await getAuthBootstrapLockPool().connect();
     const result = await client.query<{ acquired: boolean }>(
       "select pg_try_advisory_lock($1) as acquired",
-      [localBootstrapLockId],
+      [LOCAL_BOOTSTRAP_LOCK],
     );
     acquired = result.rows[0]?.acquired === true;
     if (!acquired) {
       return c.json(
         {
           code: "REGISTRATION_BUSY",
-          message: "Owner setup is already in progress on another instance. Try again.",
+          message: "Setup is already in progress on another instance. Try again.",
         },
         409,
       );
     }
+    // Re-read under the lock: two people may have raced to claim this, and the
+    // loser's code no longer buys anything the rule would not have given them.
     if (!(await isLocalBootstrapOpen())) {
       return c.json(
         {
           code: "REGISTRATION_CLOSED",
-          message:
-            "The local owner account is already configured. Sign in with that account.",
+          message: isRegistrationClosed()
+            ? "This instance is not accepting new accounts."
+            : "That email address is not allowed to register here.",
         },
-        409,
+        403,
       );
     }
-    return await getAuth().handler(c.req.raw);
+    return await runAsBootstrapClaim(() => getAuth().handler(authRequest(c)));
   } finally {
     try {
       if (client && acquired) {
-        await client.query("select pg_advisory_unlock($1)", [localBootstrapLockId]);
+        await client.query("select pg_advisory_unlock($1)", [LOCAL_BOOTSTRAP_LOCK]);
       }
     } finally {
       client?.release();
@@ -273,11 +307,11 @@ app.on(["GET", "POST"], "/api/auth/callback/google", async (c) => {
       404,
     );
   }
-  return getAuth().handler(c.req.raw);
+  return getAuth().handler(authRequest(c));
 });
 
 app.post("/api/auth/mcp/token", async (c) => {
-  const response = await getAuth().handler(c.req.raw);
+  const response = await getAuth().handler(authRequest(c));
   if (!response.ok) return response;
   const payload = (await response.json()) as Record<string, unknown>;
   if (typeof payload.access_token === "string") {
@@ -306,9 +340,9 @@ app.get("/api/auth/mcp/authorize", (c) => {
   // untrusted, so make consent a server policy instead of a client choice.
   const authorizationUrl = new URL(c.req.raw.url);
   authorizationUrl.searchParams.set("prompt", "consent");
-  return getAuth().handler(new Request(authorizationUrl, c.req.raw));
+  return getAuth().handler(authRequest(c, new Request(authorizationUrl, c.req.raw)));
 });
-app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(c.req.raw));
+app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)));
 const mcpScopes = [
   "openid",
   "profile",

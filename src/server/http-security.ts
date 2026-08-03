@@ -210,10 +210,37 @@ type NativeIncomingRequest = {
   ) => unknown;
   socket?: {
     destroyed?: boolean;
+    remoteAddress?: string;
     destroy: () => unknown;
     destroySoon?: () => unknown;
   };
 };
+
+/**
+ * The address the rate limiter should count against, as a request it can read.
+ *
+ * Sign-up and sign-in are limited per client address, and the address is taken
+ * from `x-forwarded-for`. Behind a proxy that header is authoritative. Without
+ * one it is whatever the caller typed, so a caller who varies it gets as many
+ * attempts as they like — and a caller who omits it puts everyone in a single
+ * shared bucket, where four requests lock the rest of the world out.
+ *
+ * So when no proxy is trusted, the header is replaced with the peer address of
+ * the actual TCP connection, which nobody on the far end can choose.
+ */
+export function withCountableClientAddress(
+  request: Request,
+  context: Context,
+  trustProxy: boolean,
+) {
+  if (trustProxy) return request;
+  const bindings = context.env as NodeTransportBindings | undefined;
+  const peer = bindings?.incoming?.socket?.remoteAddress;
+  const headers = new Headers(request.headers);
+  if (peer) headers.set("x-forwarded-for", peer);
+  else headers.delete("x-forwarded-for");
+  return new Request(request, { headers });
+}
 
 type NativeOutgoingResponse = {
   shouldKeepAlive?: boolean;

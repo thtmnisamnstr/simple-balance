@@ -57,6 +57,7 @@ export type AuthPublicOptions = {
   localEnabled: boolean;
   googleEnabled: boolean;
   localRegistrationOpen: boolean;
+  awaitingFirstAccount: boolean;
   setupTokenRequired: boolean;
   minimumPasswordLength: number;
 };
@@ -67,7 +68,6 @@ export type UserAuthState = {
   googleEnabled: boolean;
   localPasswordConfigured: boolean;
   googleLinked: boolean;
-  googleEligible: boolean;
 };
 
 export type Preferences = {

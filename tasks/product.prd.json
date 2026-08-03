@@ -20,17 +20,17 @@
       "dependsOn": ["SB-001"],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["The initial Drizzle migration covers auth, ledger, staging, idempotency, and audit tables", "All finance records and queries are scoped to the authenticated user", "Schema changes require forward-only data-preserving migrations and preceding-release upgrade tests"],
+      "acceptanceCriteria": ["The initial Drizzle migration covers auth, ledger, staging, idempotency, and audit tables", "All finance records and queries are scoped to the authenticated user", "One tenant cannot read or alter another's records by id, in single or bulk paths, and counter-accounts are per tenant", "Schema changes require forward-only data-preserving migrations and preceding-release upgrade tests"],
       "verification": ["npm run typecheck", "npm run test:integration"]
     },
     {
       "id": "SB-003",
       "priority": 30,
-      "title": "Local and optional Google auth boundary",
+      "title": "Multi-tenant local and optional Google auth boundary",
       "dependsOn": ["SB-002"],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Embedded Better Auth local login is the zero-Google-config default", "Google and both modes request openid email profile and fail closed on ALLOWED_EMAILS", "A linked user can use local or Google login for the same ledger", "Production first-owner setup requires a one-time startup code and is atomic under concurrency", "Zero-environment-variable development uses the real local login through the Vite origin"],
+      "acceptanceCriteria": ["Embedded Better Auth local login is the zero-Google-config default", "Google and both modes request openid email profile and refuse to start unless ALLOWED_EMAILS admits somebody", "ALLOWED_EMAILS admits exact addresses, whole domains, and * for anyone, and an unset list admits nobody", "ALLOWED_EMAILS is applied when an account is created and never as a condition of signing in", "One deployment holds many accounts, each seeing only its own ledger, and a linked user can reach one account by local or Google login", "Production first-account setup requires a one-time startup code only when the list would refuse the address, and is atomic under concurrency", "Zero-environment-variable development uses the real local login through the Vite origin"],
       "verification": ["npm run typecheck", "npm test"]
     },
     {

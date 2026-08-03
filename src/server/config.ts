@@ -67,7 +67,7 @@ export type AppConfig = {
   googleAuthEnabled: boolean;
   googleClientId?: string;
   googleClientSecret?: string;
-  allowedEmails: Set<string>;
+  registration: RegistrationRule;
   port: number;
   logLevel: "debug" | "info" | "warn" | "error";
   trustProxy: boolean;
@@ -106,15 +106,11 @@ export function getConfig(): AppConfig {
   if (googleAuthEnabled) {
     googleAuthSchema.parse(values);
   }
-  const allowedEmails = new Set(
-    (values.ALLOWED_EMAILS ?? "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  );
-  if (googleAuthEnabled && allowedEmails.size === 0) {
+  const registration = parseRegistrationRule(values.ALLOWED_EMAILS);
+  if (googleAuthEnabled && registration.kind === "closed") {
     throw new Error(
-      "ALLOWED_EMAILS must contain at least one email address when Google login is enabled",
+      "ALLOWED_EMAILS must list who may sign in when Google login is enabled. " +
+        "Use email addresses, domains such as example.com, or * for anyone.",
     );
   }
   cached = {
@@ -132,7 +128,7 @@ export function getConfig(): AppConfig {
     googleAuthEnabled,
     googleClientId: values.GOOGLE_CLIENT_ID,
     googleClientSecret: values.GOOGLE_CLIENT_SECRET,
-    allowedEmails,
+    registration,
     port,
     logLevel,
     trustProxy,
@@ -142,6 +138,98 @@ export function getConfig(): AppConfig {
   return cached;
 }
 
+/**
+ * Who may hold an account on this deployment.
+ *
+ * `closed` is what an unset list means: whoever already has an account keeps it,
+ * and nobody new can register. That is the safe reading of "nothing was
+ * configured", and it is what an existing single-owner deployment expects to
+ * happen when it takes an upgrade.
+ */
+export type RegistrationRule =
+  | { kind: "closed" }
+  | { kind: "anyone" }
+  | { kind: "list"; emails: ReadonlySet<string>; domains: ReadonlySet<string> };
+
+/**
+ * Reads ALLOWED_EMAILS. Entries are comma separated and may be:
+ *
+ *   *                  anyone at all
+ *   you@example.com    that address
+ *   example.com        any address at that domain
+ *   @example.com       the same, written the way people often expect
+ *
+ * A domain matches only itself: example.com does not admit
+ * someone@mail.example.com, because that is a different domain and a
+ * subdomain someone else may control.
+ */
+export function parseRegistrationRule(raw: string | undefined): RegistrationRule {
+  const entries = (raw ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+  if (entries.length === 0) return { kind: "closed" };
+  if (entries.includes("*")) return { kind: "anyone" };
+
+  const emails = new Set<string>();
+  const domains = new Set<string>();
+  for (const entry of entries) {
+    if (entry.includes("@")) {
+      // A leading @ means the whole domain; an @ in the middle means one person.
+      const bare = entry.startsWith("@") ? entry.slice(1) : null;
+      if (bare !== null) {
+        assertDomain(bare, entry);
+        domains.add(bare);
+      } else {
+        assertEmail(entry);
+        emails.add(entry);
+      }
+      continue;
+    }
+    assertDomain(entry, entry);
+    domains.add(entry);
+  }
+  return { kind: "list", emails, domains };
+}
+
+function assertDomain(candidate: string, entry: string) {
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(candidate)) {
+    throw new Error(
+      `ALLOWED_EMAILS entry "${entry}" is not a usable domain. ` +
+        "Write a domain as example.com, an address as you@example.com, or * for anyone.",
+    );
+  }
+}
+
+function assertEmail(entry: string) {
+  const [local, ...rest] = entry.split("@");
+  if (!local || rest.length !== 1) {
+    throw new Error(
+      `ALLOWED_EMAILS entry "${entry}" is not a usable email address.`,
+    );
+  }
+  assertDomain(rest[0]!, entry);
+}
+
+/**
+ * Whether this address may hold an account here.
+ *
+ * The address is compared as written apart from case. A plus tag is part of the
+ * address, so admitting you@example.com does not admit you+other@example.com;
+ * admit the domain if that is what you meant.
+ */
 export function isEmailAllowed(email: string) {
-  return getConfig().allowedEmails.has(email.trim().toLowerCase());
+  const rule = getConfig().registration;
+  if (rule.kind === "closed") return false;
+  if (rule.kind === "anyone") return true;
+  const normalized = email.trim().toLowerCase();
+  if (rule.emails.has(normalized)) return true;
+  const at = normalized.lastIndexOf("@");
+  if (at < 0) return false;
+  return rule.domains.has(normalized.slice(at + 1));
+}
+
+/** True when nobody new may register, whatever the sign-in mode. */
+export function isRegistrationClosed() {
+  return getConfig().registration.kind === "closed";
 }

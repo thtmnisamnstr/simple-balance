@@ -67,11 +67,25 @@ even discoverable. Schema fields carry descriptions, so an agent does not have
 to infer that money is a string or that a credit card opens negative. Access
 tokens are audience-bound RS256 JWTs backed by revocable records.
 
+### Accounts and who may have one
+
+One deployment holds as many people as you let it. Each has their own accounts,
+transactions, categories, payees, totals, and audit history, and none of them
+can see or name another's. `ALLOWED_EMAILS` decides who may register: exact
+addresses, whole domains such as `example.com`, or `*` for anybody. Leave it
+unset and nobody can, which keeps a personal deployment personal.
+
+It governs registration and nothing else, so an address removed from the list
+keeps the account it already has rather than losing access to its own books.
+
+Sign in with a password, with Google, or with both on one account. Google
+sign-ups must carry a verified address, so a domain entry means what it says.
+
 ### Running it
 
 One non-root image that never writes to its own filesystem, with PostgreSQL as
 the only thing it stores anything in. Migrations run at startup under an
 advisory lock, and readiness stays closed until they finish. Local sign-in works
-with no configuration at all; Google is optional and allowlisted.
+with no configuration at all; Google is optional.
 
 Tagged multi-architecture images publish to GHCR on release.

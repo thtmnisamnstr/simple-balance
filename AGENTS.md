@@ -16,12 +16,20 @@
   decimal strings and PostgreSQL `numeric(44,18)`.
 - Never accept a public `userId`. Derive it from the authenticated `Actor`, and
   scope every finance read/write by that ID.
-- Keep `AUTH_MODE=local` as the default. Google credentials and `ALLOWED_EMAILS`
-  are required only for `google` or `both`; never apply the Google allowlist to
-  a valid local credential user.
-- Keep first-owner creation transactional, serialized outside the application
+- Keep `AUTH_MODE=local` as the default. Google credentials are required only for
+  `google` or `both`.
+- One deployment holds many people. `ALLOWED_EMAILS` decides who may create an
+  account, on every sign-up path, local and Google alike. It decides nothing
+  after that: never make it a condition of signing in, of keeping a session, or
+  of linking a second method to an account that already exists. It is optional,
+  so a deployment that never set one would otherwise lock everyone out.
+- Keep the first-account claim transactional, serialized outside the application
   pool, and protected by the production setup code. Never expose a first-visitor
-  claim race.
+  claim race. The setup code only ever covers an address `ALLOWED_EMAILS` would
+  turn away; addresses it admits register without one.
+- Decisions made inside a Better Auth database hook must come from configuration
+  and the request, never from a query. The hook runs inside the sign-up
+  transaction, which on a one-connection pool is holding the only connection.
 - The books are double-entry. Every transaction settles to zero in each currency
   it touches, checked before anything is written. A deposit credits the
   destination and debits income; a withdrawal debits the source and credits

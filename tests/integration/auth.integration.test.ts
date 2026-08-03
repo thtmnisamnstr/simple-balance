@@ -114,6 +114,7 @@ integration("embedded local authentication", () => {
       localEnabled: true,
       googleEnabled: false,
       localRegistrationOpen: true,
+      awaitingFirstAccount: true,
       setupTokenRequired: true,
       minimumPasswordLength: 12,
     });
@@ -213,7 +214,10 @@ integration("embedded local authentication", () => {
     expect(credentials[0].password?.length).toBeGreaterThan(30);
   });
 
-  it("uses the local session for the ledger and closes registration", async () => {
+  // This deployment names nobody in ALLOWED_EMAILS, which is the single-user
+  // configuration: one account exists, the setup code is spent, and the rule
+  // admits no one else. A second person cannot get in even holding the code.
+  it("uses the local session and admits nobody else while the rule is closed", async () => {
     const session = await authRequest("/api/v1/session", undefined, ownerCookie);
     expect(session.status).toBe(200);
     expect(await session.json()).toMatchObject({
@@ -225,14 +229,22 @@ integration("embedded local authentication", () => {
       },
     });
     const methods = await authRequest("/api/auth/methods");
-    expect(await methods.json()).toMatchObject({ localRegistrationOpen: false });
+    expect(await methods.json()).toMatchObject({
+      localRegistrationOpen: false,
+      awaitingFirstAccount: false,
+      setupTokenRequired: false,
+    });
     const secondSignup = await authRequest("/api/auth/sign-up/email", {
-      name: "Another Owner",
+      name: "Another Person",
       email: "another@example.com",
-      password: "another-owner-password",
+      password: "another-person-password",
       setupToken,
     });
-    expect(secondSignup.status).toBe(409);
+    expect(secondSignup.status).toBe(403);
+    expect(await secondSignup.json()).toMatchObject({
+      code: "REGISTRATION_CLOSED",
+    });
+    expect(await getDb().select().from(user)).toHaveLength(1);
   });
 
   it("rejects cross-origin finance and session mutations", async () => {

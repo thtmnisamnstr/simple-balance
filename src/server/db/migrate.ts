@@ -1,9 +1,8 @@
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
+import { MIGRATION_LOCK } from "./advisory-locks.js";
 import { closeDb, getPool } from "./client.js";
-
-const MIGRATION_LOCK = 724_202_607;
 
 /**
  * PostgreSQL's code for "that database does not exist". The driver reports it

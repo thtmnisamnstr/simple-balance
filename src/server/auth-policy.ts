@@ -1,7 +1,8 @@
 import { and, eq, isNotNull } from "drizzle-orm";
-import { getConfig, isEmailAllowed } from "./config.js";
+import { getConfig, isEmailAllowed, isRegistrationClosed } from "./config.js";
 import { getDb } from "./db/client.js";
 import { account as authAccount, user } from "./db/schema.js";
+import { isBootstrapClaim } from "./registration-context.js";
 
 export type UserAuthState = {
   mode: "local" | "google" | "both";
@@ -9,7 +10,6 @@ export type UserAuthState = {
   googleEnabled: boolean;
   localPasswordConfigured: boolean;
   googleLinked: boolean;
-  googleEligible: boolean;
 };
 
 export type LinkedAuthAccount = {
@@ -27,19 +27,31 @@ function hasLinkedGoogleAccount(accounts: LinkedAuthAccount[]) {
   return accounts.some((linked) => linked.providerId === "google");
 }
 
-function isLinkedIdentityAuthorized(
-  email: string,
-  accounts: LinkedAuthAccount[],
-) {
+/**
+ * Whether an existing account may still be used at all.
+ *
+ * ALLOWED_EMAILS decides who may *open* an account here; it deliberately has no
+ * say from then on. It is optional, so treating it as a sign-in gate would shut
+ * everyone out of a deployment that never set one, and narrowing it from
+ * `pinecone.io` to a shorter list would silently take people's own books away
+ * from them mid-session. Removing someone is deleting their account, which is
+ * an explicit act with an obvious consequence.
+ */
+function isLinkedIdentityAuthorized(accounts: LinkedAuthAccount[]) {
   const config = getConfig();
   return (
     (config.localAuthEnabled && hasCredentialAccount(accounts)) ||
-    (config.googleAuthEnabled &&
-      isEmailAllowed(email) &&
-      hasLinkedGoogleAccount(accounts))
+    (config.googleAuthEnabled && hasLinkedGoogleAccount(accounts))
   );
 }
 
+/**
+ * True while nobody has an account yet, so the deployment is unclaimed.
+ *
+ * A deployment that names nobody in ALLOWED_EMAILS admits nobody, which would
+ * leave a fresh install with no way in at all. The setup code printed at
+ * startup covers exactly that gap, and only until somebody takes it.
+ */
 export async function isLocalBootstrapOpen() {
   const [existingUser] = await getDb()
     .select({ id: user.id })
@@ -50,29 +62,19 @@ export async function isLocalBootstrapOpen() {
 
 export async function getUserAuthState(userId: string): Promise<UserAuthState> {
   const config = getConfig();
-  const [linkedAccounts, [authUser]] = await Promise.all([
-    getDb()
-      .select({
-        providerId: authAccount.providerId,
-        password: authAccount.password,
-      })
-      .from(authAccount)
-      .where(eq(authAccount.userId, userId)),
-    getDb()
-      .select({ email: user.email })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1),
-  ]);
+  const linkedAccounts = await getDb()
+    .select({
+      providerId: authAccount.providerId,
+      password: authAccount.password,
+    })
+    .from(authAccount)
+    .where(eq(authAccount.userId, userId));
   return {
     mode: config.authMode,
     localEnabled: config.localAuthEnabled,
     googleEnabled: config.googleAuthEnabled,
     localPasswordConfigured: hasCredentialAccount(linkedAccounts),
     googleLinked: hasLinkedGoogleAccount(linkedAccounts),
-    googleEligible:
-      config.googleAuthEnabled &&
-      Boolean(authUser && isEmailAllowed(authUser.email)),
   };
 }
 
@@ -91,7 +93,7 @@ export async function hasLocalPassword(userId: string) {
   return Boolean(credential);
 }
 
-export async function isLedgerUserAuthorized(userId: string, email: string) {
+export async function isLedgerUserAuthorized(userId: string) {
   const linkedAccounts = await getDb()
     .select({
       providerId: authAccount.providerId,
@@ -99,47 +101,60 @@ export async function isLedgerUserAuthorized(userId: string, email: string) {
     })
     .from(authAccount)
     .where(eq(authAccount.userId, userId));
-  return isLinkedIdentityAuthorized(email, linkedAccounts);
+  return isLinkedIdentityAuthorized(linkedAccounts);
 }
 
-export async function mayCreateAuthUser(email: string, path?: string | null) {
+/**
+ * The one place a new tenant is admitted, whichever door they came through.
+ *
+ * This runs inside Better Auth's sign-up transaction, so it answers from the
+ * configuration and the request rather than from a query. See
+ * registration-context.ts for why that matters.
+ */
+export function mayCreateAuthUser(
+  email: string,
+  path?: string | null,
+  emailVerified?: boolean,
+) {
   const config = getConfig();
-  if (path === "/sign-up/email") {
-    return (
-      config.localAuthEnabled &&
-      (config.authMode !== "both" || isEmailAllowed(email))
-    );
-  }
   if (path === "/callback/google") {
-    return config.googleAuthEnabled && isEmailAllowed(email);
+    if (!config.googleAuthEnabled) return false;
+    // A domain entry trusts Google's word that the address belongs to the
+    // person signing in. Google says so in email_verified, and an unverified
+    // claim to someone@pinecone.io is worth nothing.
+    if (emailVerified === false) return false;
+    return isEmailAllowed(email);
+  }
+  if (path === "/sign-up/email") {
+    if (!config.localAuthEnabled) return false;
+    // Or the setup code, which the route validated under the bootstrap lock
+    // before handing over.
+    return isEmailAllowed(email) || isBootstrapClaim();
   }
   return false;
 }
 
-export async function mayCreateProviderAccount(
-  providerId: string,
-  userId: string,
-  path?: string | null,
-  userEmail?: string | null,
-) {
+/**
+ * Adding a second way to sign in to an account somebody already holds.
+ *
+ * Better Auth is configured to link only an identical, explicitly confirmed
+ * address (`allowDifferentEmails: false`, `disableImplicitLinking: true`), so
+ * this is the same person reaching their own ledger by another route rather
+ * than a new tenant arriving.
+ */
+export function mayCreateProviderAccount(providerId: string) {
   const config = getConfig();
   if (providerId === "credential") return config.localAuthEnabled;
-  if (providerId !== "google" || !config.googleAuthEnabled) return false;
-  if (userEmail) return isEmailAllowed(userEmail);
-  const [authUser] = await getDb()
-    .select({ email: user.email })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-  if (authUser) return isEmailAllowed(authUser.email);
-  // A new Google user's row may still be inside Better Auth's transaction.
-  // Its email was already checked by mayCreateAuthUser in the same callback.
-  return path === "/callback/google";
+  return providerId === "google" && config.googleAuthEnabled;
 }
 
+/**
+ * Signing in has to prove the method is switched on and that this account
+ * actually has an identity of that kind. It deliberately says nothing about
+ * ALLOWED_EMAILS; see isLinkedIdentityAuthorized for why.
+ */
 export async function mayCreateSession(
   userId: string,
-  email: string,
   path?: string | null,
   transactionAccounts?: LinkedAuthAccount[],
 ) {
@@ -157,24 +172,26 @@ export async function mayCreateSession(
     return config.localAuthEnabled && hasCredentialAccount(linkedAccounts);
   }
   if (path === "/callback/google") {
-    return (
-      config.googleAuthEnabled &&
-      isEmailAllowed(email) &&
-      hasLinkedGoogleAccount(linkedAccounts)
-    );
+    return config.googleAuthEnabled && hasLinkedGoogleAccount(linkedAccounts);
   }
-  return isLinkedIdentityAuthorized(email, linkedAccounts);
+  return isLinkedIdentityAuthorized(linkedAccounts);
 }
 
 export async function getPublicAuthOptions() {
   const config = getConfig();
+  // An unclaimed deployment shows the form even when the rule admits nobody,
+  // because the setup code is the way in and there is nothing else to offer.
+  const unclaimed = await isLocalBootstrapOpen();
   return {
     mode: config.authMode,
     localEnabled: config.localAuthEnabled,
     googleEnabled: config.googleAuthEnabled,
     localRegistrationOpen:
-      config.localAuthEnabled && (await isLocalBootstrapOpen()),
-    setupTokenRequired: config.isProduction,
+      config.localAuthEnabled && (unclaimed || !isRegistrationClosed()),
+    // Nobody has an account yet, so there is nobody to sign in as and the
+    // screen should open on the create-account form.
+    awaitingFirstAccount: unclaimed,
+    setupTokenRequired: config.isProduction && unclaimed,
     minimumPasswordLength: 12,
   };
 }

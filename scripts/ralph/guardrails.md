@@ -30,3 +30,31 @@ append new ones.
 - Never rewrite a released migration. Add a forward-only migration with
   deterministic data backfills and a preceding-release upgrade test. Startup
   remains the production migration path.
+
+## Multi-tenant registration (supersedes the single-owner entries above)
+
+The deployment is no longer one person's. Where the entries above say "owner",
+read "the account being created", and where they describe registration closing
+after the first user, read the following instead. Nothing above is deleted; the
+constraints below win where they disagree.
+
+- One deployment holds many accounts. Each has its own books and its own
+  server-owned counter-accounts. Never let a query, a report, or a total reach
+  across `user_id`, and never accept a `userId` from the caller.
+- `ALLOWED_EMAILS` decides who may create an account. It applies on every
+  sign-up path, local and Google alike. It applies nowhere else: not to signing
+  in, not to keeping a session, not to linking a second method to an account
+  that already exists. The variable is optional, so treating it as a sign-in
+  gate would lock every user out of a deployment that never set one.
+- An unset `ALLOWED_EMAILS` admits nobody. That is what keeps an unconfigured
+  deployment private, and it is what an upgrading single-owner deployment
+  expects.
+- The startup setup code covers exactly one gap: an unclaimed deployment whose
+  rule admits nobody. An address the rule already admits registers without a
+  code, including the first one. Keep the claim serialized by the advisory lock;
+  ordinary sign-ups must not touch that lock.
+- Registration decisions inside a Better Auth database hook must be answerable
+  from configuration and the request alone. The hook runs inside the sign-up
+  transaction, and querying from it deadlocks a one-connection pool.
+- Every PostgreSQL advisory lock id lives in `src/server/db/advisory-locks.ts`.
+  They share one namespace, so a duplicate silently merges two unrelated locks.

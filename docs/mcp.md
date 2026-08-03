@@ -23,9 +23,10 @@ hard-code authorization endpoints.
 
 The MCP OAuth flow uses whichever interactive sign-in methods `AUTH_MODE`
 enables. In the default `local` mode, the MCP client opens the browser
-authorization page, the owner signs in with the same email and password used by
-the web app, approves the requested scopes, and the client completes PKCE token
-exchange. Google credentials are not involved. In `google` mode the same browser
+authorization page, the person signs in with the same email and password they
+use for the web app, approves the requested scopes, and the client completes
+PKCE token exchange. The token is bound to whoever signed in, and reaches their
+books alone. Google credentials are not involved. In `google` mode the same browser
 flow uses Google; `both` presents both methods.
 
 Every authorization request is routed through the consent screen, including
@@ -115,7 +116,11 @@ transactions, so MCP and the browser share one spelling and one audit trail.
 for JSON string escaping, while the decoded CSV is still measured against the
 real limits.
 
-Removing a Google-only user from `ALLOWED_EMAILS` blocks subsequent web and MCP
-use even if that user is already signed in. A user who also configured a
-local password remains eligible through local authentication while local mode is
-enabled.
+`ALLOWED_EMAILS` governs who may register, not who may keep signing in.
+Removing an address does not revoke the tokens or sessions of an account that
+already exists, over MCP or over the web. Deleting the account does, and takes
+its data with it.
+
+Turning a sign-in method off does revoke it. An account that only ever had
+Google loses both web and MCP access when `AUTH_MODE` drops to `local`, and an
+account that also set a local password keeps working through that.
