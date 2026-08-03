@@ -90,3 +90,50 @@ describe("MCP output contracts", () => {
     expect(createAccountSchema).not.toEqual(transactionSchema);
   });
 });
+
+describe("revoking an agent over MCP", () => {
+  const resources: {
+    client?: Client;
+    server?: ReturnType<typeof createMcpServer>;
+  } = {};
+
+  afterEach(async () => {
+    await resources.client?.close();
+    await resources.server?.close();
+    resources.client = undefined;
+    resources.server = undefined;
+  });
+
+  async function toolsFor(scopes: string[]) {
+    resources.server = createMcpServer(
+      { userId: "revoke-scope-user", source: "mcp", clientId: "revoke-scope" },
+      new Set(scopes),
+    );
+    resources.client = new Client({ name: "revoke-scope-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await resources.server.connect(serverTransport);
+    await resources.client.connect(clientTransport);
+    const { tools } = await resources.client.listTools();
+    return tools.map((tool) => tool.name);
+  }
+
+  // Seeing what has access is a read. Taking it away is not, so an agent given
+  // only read cannot lock the other agents out.
+  it("offers the listing at read scope but not the revoke", async () => {
+    const names = await toolsFor(["ledger:read"]);
+    expect(names).toContain("list_connected_agents");
+    expect(names).not.toContain("revoke_connected_agent");
+  });
+
+  it("offers both at write scope", async () => {
+    const names = await toolsFor(["ledger:read", "ledger:write"]);
+    expect(names).toContain("list_connected_agents");
+    expect(names).toContain("revoke_connected_agent");
+  });
+
+  it("does not offer the revoke at stage scope", async () => {
+    const names = await toolsFor(["ledger:stage"]);
+    expect(names).toContain("list_connected_agents");
+    expect(names).not.toContain("revoke_connected_agent");
+  });
+});

@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { Client as PgClient } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
@@ -214,5 +214,151 @@ integration("revoking an agent's access from the browser", () => {
     await expect(
       revokeConnectedApp(owner, "client-never-existed"),
     ).rejects.toThrow(/No access for that application was found/);
+  });
+});
+
+integration("keeping dynamic client registration from growing forever", () => {
+  const pruneDatabase = `simple_balance_prune_${process.pid}_${Date.now()}`;
+  let pruneAdmin: PgClient;
+  let app: (typeof import("../../src/server/api.js"))["default"];
+  const BASE = "http://localhost:3000";
+
+  beforeAll(async () => {
+    pruneAdmin = new PgClient({ connectionString: connection });
+    await pruneAdmin.connect();
+    await pruneAdmin.query(`create database "${pruneDatabase}"`);
+    const databaseUrl = new URL(connection!);
+    databaseUrl.pathname = `/${pruneDatabase}`;
+    process.env.DATABASE_URL = databaseUrl.toString();
+    process.env.APP_BASE_URL = BASE;
+    process.env.AUTH_SECRET = "prune-secret-at-least-32-characters-long";
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    const { runMigrations: migrate } = await import("../../src/server/db/migrate.js");
+    await migrate();
+    const { getDb: db } = await import("../../src/server/db/client.js");
+    const { user: users } = await import("../../src/server/db/schema.js");
+    await db().insert(users).values({
+      id: owner.userId,
+      name: "Owner",
+      email: "prune-owner@example.com",
+      emailVerified: true,
+    });
+    ({ default: app } = await import("../../src/server/api.js"));
+  });
+
+  afterAll(async () => {
+    const { closeDb: shut } = await import("../../src/server/db/client.js");
+    await shut();
+    await pruneAdmin.query(`drop database if exists "${pruneDatabase}"`);
+    await pruneAdmin.end();
+    delete process.env.APP_BASE_URL;
+    delete process.env.AUTH_SECRET;
+    delete process.env.NODE_ENV;
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
+
+  const register = (body: Record<string, unknown>) =>
+    app.request(`${BASE}/api/auth/mcp/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  // 60 KiB of client_name fits inside the 64 KiB auth body limit, and used to
+  // land in a row nothing would ever delete.
+  it("clamps a client name that tries to park kilobytes in the table", async () => {
+    const response = await register({
+      client_name: "N".repeat(60_000),
+      redirect_uris: ["http://127.0.0.1:7777/callback"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+    });
+    expect([200, 201]).toContain(response.status);
+    const { client_id: clientId } = (await response.json()) as { client_id: string };
+
+    const { getDb: db } = await import("../../src/server/db/client.js");
+    const { oauthApplication: table } = await import("../../src/server/db/schema.js");
+    const [row] = await db()
+      .select()
+      .from(table)
+      .where(eq(table.clientId, clientId));
+    expect(row.name.length).toBe(200);
+  });
+
+  it("caps how many redirect URIs one registration can carry", async () => {
+    const response = await register({
+      client_name: "Many Redirects",
+      redirect_uris: Array.from({ length: 500 }, (_, i) => `http://127.0.0.1:7777/cb${i}`),
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+    });
+    expect([200, 201]).toContain(response.status);
+    const { client_id: clientId } = (await response.json()) as { client_id: string };
+    const { getDb: db } = await import("../../src/server/db/client.js");
+    const { oauthApplication: table } = await import("../../src/server/db/schema.js");
+    const [row] = await db()
+      .select()
+      .from(table)
+      .where(eq(table.clientId, clientId));
+    expect(row.redirectUrls.split(",").length).toBeLessThanOrEqual(20);
+  });
+
+  it("sweeps a registration nobody ever completed, and keeps one that was", async () => {
+    const { getDb: db } = await import("../../src/server/db/client.js");
+    const { oauthApplication: apps, oauthConsent: consents } = await import(
+      "../../src/server/db/schema.js"
+    );
+    const { pruneAbandonedClients: prune } = await import(
+      "../../src/server/services/connected-apps.js"
+    );
+    const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+    await db().insert(apps).values([
+      {
+        id: "abandoned-app",
+        name: "Abandoned",
+        clientId: "abandoned-client",
+        redirectUrls: "http://127.0.0.1:7777/cb",
+        type: "web",
+        createdAt: old,
+        updatedAt: old,
+      },
+      {
+        id: "approved-app",
+        name: "Approved",
+        clientId: "approved-client",
+        redirectUrls: "http://127.0.0.1:7777/cb",
+        type: "web",
+        createdAt: old,
+        updatedAt: old,
+      },
+      {
+        id: "fresh-app",
+        name: "Fresh",
+        clientId: "fresh-client",
+        redirectUrls: "http://127.0.0.1:7777/cb",
+        type: "web",
+      },
+    ]);
+    await db().insert(consents).values({
+      id: "keeps-approved",
+      clientId: "approved-client",
+      userId: owner.userId,
+      scopes: "ledger:read",
+      consentGiven: true,
+    });
+
+    await prune();
+
+    const remaining = (await db().select().from(apps)).map((row) => row.clientId);
+    expect(remaining).not.toContain("abandoned-client");
+    // Approved by somebody, so not this sweep's business.
+    expect(remaining).toContain("approved-client");
+    // Too new to judge: an authorization may still be in flight.
+    expect(remaining).toContain("fresh-client");
   });
 });

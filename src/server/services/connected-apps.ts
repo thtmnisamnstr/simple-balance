@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
@@ -223,4 +223,42 @@ export async function countConnectedApps(actor: Actor) {
       ),
     );
   return row?.count ?? 0;
+}
+
+/**
+ * How long an unclaimed dynamic registration is kept.
+ *
+ * Registration is open and unauthenticated, which RFC 7591 intends, but the
+ * rows it creates had no expiry and nothing ever deleted them. A caller could
+ * therefore leave permanent rows behind at the rate limiter's pace, and each
+ * one could carry as much free text as the request body allowed.
+ *
+ * An authorization takes a person seconds to approve. A registration that after
+ * a day has no consent from anybody and has never been issued a token is one
+ * nobody completed, so it is swept.
+ */
+const ABANDONED_CLIENT_AGE_MS = 24 * 60 * 60 * 1000;
+
+export async function pruneAbandonedClients(now = new Date()) {
+  const cutoff = new Date(now.getTime() - ABANDONED_CLIENT_AGE_MS);
+  const removed = await getDb()
+    .delete(oauthApplication)
+    .where(
+      and(
+        // Only the anonymous ones. A registration tied to an account was made
+        // deliberately and is not this sweep's business.
+        isNull(oauthApplication.userId),
+        lt(oauthApplication.createdAt, cutoff),
+        sql`not exists (
+          select 1 from ${oauthConsent}
+          where ${oauthConsent.clientId} = ${oauthApplication.clientId}
+        )`,
+        sql`not exists (
+          select 1 from ${oauthAccessToken}
+          where ${oauthAccessToken.clientId} = ${oauthApplication.clientId}
+        )`,
+      ),
+    )
+    .returning({ clientId: oauthApplication.clientId });
+  return removed.length;
 }

@@ -119,6 +119,11 @@ transactions, so MCP and the browser share one spelling and one audit trail.
 
 ## CSV
 
+Registration is open, as RFC 7591 intends, but bounded: the text fields are
+clamped to lengths a real client has no trouble with, and a registration that
+after a day nobody has approved and that has never been issued a token is swept
+away.
+
 `stage_csv` accepts the same payload the browser import does, bounded by
 `CSV_MAX_BYTES` and `CSV_MAX_ROWS`. The MCP request envelope allows extra room
 for JSON string escaping, while the decoded CSV is still measured against the
@@ -138,6 +143,13 @@ exists, over MCP or over the web.
 Turning a sign-in method off does revoke it. An account that only ever had
 Google loses both web and MCP access when `AUTH_MODE` drops to `local`, and an
 account that also set a local password keeps working through that.
+
+An agent can see and manage this too. `list_connected_agents` needs only
+`ledger:read` and returns every client this person has approved, including the
+one asking. `revoke_connected_agent` needs `ledger:write`, so a token granted
+read alone cannot lock the other agents out, and an agent can pass its own
+client id to disconnect itself cleanly. Every revocation is written to the audit
+log whoever did it.
 
 To cut off one client rather than a person, open **Settings > Connected
 agents**. Every client you have approved is listed with what it may do, and
