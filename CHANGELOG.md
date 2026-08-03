@@ -49,7 +49,10 @@ review queue. Committing a batch validates every row first and runs as one
 transaction. Simple Balance's own export reads back in without loss.
 
 Categories and payees match case-insensitively, surface their own near
-duplicates, and merge by rewriting every reference at once.
+duplicates, and merge by rewriting every reference at once. Typing a category on
+a transaction is enough: an existing one is matched whatever its capitalization,
+and a new one is created on save, so a ledger does not end up with three
+spellings of the same thing.
 
 ### Using it
 
@@ -62,7 +65,9 @@ happen and how to undo it.
 ### Agents
 
 An MCP server over OAuth with separate read, stage, and write scopes, calling
-the same ledger code the browser does. Tools outside a token's scope are not
+the same ledger code the browser does. Settings lists every agent you have
+approved and what it may do, and revoking one deletes its tokens rather than
+waiting for them to lapse, so it loses access on its next call. Tools outside a token's scope are not
 even discoverable. Schema fields carry descriptions, so an agent does not have
 to infer that money is a string or that a credit card opens negative. Access
 tokens are audience-bound RS256 JWTs backed by revocable records.

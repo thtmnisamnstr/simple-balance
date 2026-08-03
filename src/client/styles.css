@@ -2227,6 +2227,33 @@ input[type="radio"] {
   font-size: 12px;
 }
 
+.connected-app {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fafcfb;
+  font-size: 12px;
+}
+
+.connected-app > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.connected-app strong {
+  margin-right: 8px;
+  overflow-wrap: anywhere;
+}
+
+.connected-app .settings-note {
+  margin: 0;
+}
+
 .provider-action {
   display: grid;
   gap: 10px;

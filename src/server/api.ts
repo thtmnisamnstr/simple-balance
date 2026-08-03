@@ -79,6 +79,10 @@ import {
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
+import {
+  listConnectedApps,
+  revokeConnectedApp,
+} from "./services/connected-apps.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
   listDuplicatePayees,
@@ -680,6 +684,17 @@ app.post("/api/v1/auth/local-password", async (c) => {
 });
 app.put("/api/v1/preferences", async (c) =>
   c.json(await setPreferences(c.get("actor"), await body(c))),
+);
+
+// Taking back an agent's access. Browser-only on purpose: a token that has been
+// stolen must not be able to spend its last minutes tidying up after itself by
+// revoking the grants of whoever it was stolen from.
+app.get("/api/v1/connected-apps", async (c) =>
+  c.json(await listConnectedApps(c.get("actor"))),
+);
+
+app.delete("/api/v1/connected-apps/:clientId", async (c) =>
+  c.json(await revokeConnectedApp(c.get("actor"), c.req.param("clientId"))),
 );
 
 app.get("/api/v1/accounts", async (c) =>

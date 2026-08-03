@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Link, Settings2 } from "lucide-react";
+import { Bot, KeyRound, Link, Settings2 } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "../router.js";
 import { api, json, type AuthPublicOptions, type Session } from "../api.js";
@@ -8,10 +8,12 @@ import {
   Alert,
   Badge,
   Button,
+  ConfirmDialog,
   Field,
   Input,
   PageHeader,
   Select,
+  useConfirm,
 } from "../components.js";
 import {
   currencyOptionLabel,
@@ -269,7 +271,125 @@ export default function SettingsPage({ session }: { session: Session }) {
             ) : null}
           </section>
         ) : null}
+
+        <ConnectedApps />
       </div>
     </>
+  );
+}
+
+type ConnectedApp = {
+  clientId: string;
+  name: string;
+  scopes: string[];
+  authorizedAt: string | null;
+  lastIssuedAt: string | null;
+  expiresAt: string | null;
+  activeTokenCount: number;
+  hasLiveAccess: boolean;
+};
+
+const scopeSummary = (scopes: string[]) => {
+  const ledger = scopes.filter((scope) => scope.startsWith("ledger:"));
+  if (ledger.includes("ledger:write")) return "Read, stage, and commit";
+  if (ledger.includes("ledger:stage")) return "Read and queue for review";
+  if (ledger.includes("ledger:read")) return "Read only";
+  return "No ledger access";
+};
+
+const when = (value: string | null) =>
+  value ? new Date(value).toLocaleString() : null;
+
+/**
+ * What an agent was allowed to do, and the way to stop it.
+ *
+ * Authorizing an MCP client was previously a one-way door from the browser.
+ * Revoking here deletes the tokens rather than waiting for them to expire, so
+ * an agent loses access on its very next call.
+ */
+function ConnectedApps() {
+  const queryClient = useQueryClient();
+  const revocation = useConfirm<ConnectedApp>();
+  const apps = useQuery({
+    queryKey: ["connected-apps"],
+    queryFn: () => api<ConnectedApp[]>("/api/v1/connected-apps"),
+  });
+  const revokeMutation = useMutation({
+    mutationFn: (clientId: string) =>
+      // The body is empty but has to be sent: /api/v1 requires a JSON content
+      // type on anything that changes state, which a cross-origin form cannot
+      // set. Every other destructive call in the app carries one for the same
+      // reason.
+      api(`/api/v1/connected-apps/${encodeURIComponent(clientId)}`, {
+        ...json({}),
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["connected-apps"] });
+    },
+  });
+
+  return (
+    <section className="panel settings-section">
+      <header className="section-title">
+        <span><Bot size={19} /></span>
+        <div>
+          <h2>Connected agents</h2>
+          <p>MCP clients you have let into this ledger, and what each may do.</p>
+        </div>
+      </header>
+
+      {apps.isLoading ? <p className="settings-note">Loading…</p> : null}
+      {apps.error ? <Alert>{apps.error.message}</Alert> : null}
+      {revokeMutation.error ? <Alert>{revokeMutation.error.message}</Alert> : null}
+
+      {apps.data && apps.data.length === 0 ? (
+        <p className="settings-note">
+          Nothing is connected. An agent appears here once you approve it, and
+          you can withdraw that approval at any time.
+        </p>
+      ) : null}
+
+      {apps.data?.map((app) => (
+        <div key={app.clientId} className="connected-app">
+          <div>
+            <strong>{app.name}</strong>
+            <Badge tone={app.hasLiveAccess ? "green" : undefined}>
+              {app.hasLiveAccess ? "Active" : "No live token"}
+            </Badge>
+            <p className="settings-note">
+              {scopeSummary(app.scopes)}
+              {when(app.authorizedAt) ? ` · approved ${when(app.authorizedAt)}` : ""}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="danger"
+            loading={
+              revokeMutation.isPending &&
+              revokeMutation.variables === app.clientId
+            }
+            onClick={() =>
+              revocation.ask(app, () => revokeMutation.mutate(app.clientId))
+            }
+          >
+            Revoke
+          </Button>
+        </div>
+      ))}
+
+      <ConfirmDialog
+        open={revocation.open}
+        title="Revoke this agent's access?"
+        description={
+          revocation.value
+            ? `“${revocation.value.name}” loses access immediately, including any token it is already holding, and it cannot renew. Your ledger is not changed and anything it already recorded stays. To let it back in, authorize it again from the agent itself.`
+            : undefined
+        }
+        confirmLabel="Revoke"
+        onConfirm={revocation.confirm}
+        onCancel={revocation.cancel}
+      />
+    </section>
   );
 }

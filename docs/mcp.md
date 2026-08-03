@@ -53,6 +53,14 @@ Tools an agent has no scope for are left out of discovery entirely, so it never
 sees a tool it cannot call. Every tool returns both `structuredContent.result`
 and the same thing as JSON text.
 
+A transaction can name its category instead of citing an id. Send
+`categoryName` and the server matches it against the categories you already
+have, ignoring case and surrounding space, and creates one only when nothing
+matches; `categoryId` wins if you send both. An existing category that does not
+cover the side being posted is widened rather than duplicated, and an archived
+one named again comes back. This is the same rule a CSV import follows, so an
+agent writing "groceries" cannot start a second spelling of "Groceries".
+
 Money is always a decimal string, never a JSON number, because binary floating
 point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
 idempotency key you choose: send the same key again and you get the original
@@ -131,8 +139,17 @@ Turning a sign-in method off does revoke it. An account that only ever had
 Google loses both web and MCP access when `AUTH_MODE` drops to `local`, and an
 account that also set a local password keeps working through that.
 
-To cut off one MCP client rather than a person, delete its rows from
-`auth_oauth_access_token` (and `auth_oauth_application` to stop it registering
-again under the same client id). There is no screen for this yet. Changing
-`AUTH_SECRET` invalidates every web session at once but leaves MCP tokens
-alone, and access tokens expire an hour after they are issued.
+To cut off one client rather than a person, open **Settings > Connected
+agents**. Every client you have approved is listed with what it may do, and
+revoking one deletes its tokens instead of waiting for them to lapse, so it
+loses access on its very next call. The refresh token lives on the same row, so
+it cannot mint a replacement, and the approval goes too: the client has to ask
+again, and you have to say yes again.
+
+Revoking is per person. Another account that approved the same client keeps
+working, and the client's registration itself is left alone, because it is not
+yours to delete.
+
+Changing `AUTH_SECRET` invalidates every web session at once but leaves MCP
+tokens alone, so it is not a way to do this. Access tokens expire an hour after
+they are issued if you do nothing.

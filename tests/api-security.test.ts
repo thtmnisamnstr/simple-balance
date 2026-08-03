@@ -39,6 +39,45 @@ describe("API transport security wiring", () => {
     expect(response.status).toBe(403);
   });
 
+  // Revoking an agent is a DELETE with nothing to say, which is exactly the
+  // shape that fell through the gap: /api/v1 demands a JSON content type on
+  // anything that changes state, so a fetch that sent no body at all was
+  // refused with a 415 the browser never surfaced. Both halves are pinned here
+  // because the requirement is deliberate and the client has to satisfy it.
+  it("refuses a state-changing request that names no content type", async () => {
+    const response = await app.request(
+      `${applicationOrigin}/api/v1/connected-apps/some-client`,
+      {
+        method: "DELETE",
+        headers: {
+          cookie: "better-auth.session_token=untrusted",
+          origin: applicationOrigin,
+        },
+      },
+    );
+    expect(response.status).toBe(415);
+    expect(await response.json()).toMatchObject({
+      error: { code: "UNSUPPORTED_MEDIA_TYPE" },
+    });
+  });
+
+  it("lets a bodyless revoke through the media type gate to authentication", async () => {
+    const response = await app.request(
+      `${applicationOrigin}/api/v1/connected-apps/some-client`,
+      {
+        method: "DELETE",
+        headers: {
+          cookie: "better-auth.session_token=untrusted",
+          origin: applicationOrigin,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      },
+    );
+    expect(response.status).not.toBe(415);
+    expect(response.status).toBe(401);
+  });
+
   it("rejects an oversized auth body before Better Auth parses it", async () => {
     const response = await app.request(
       `${applicationOrigin}/api/auth/sign-in/email`,

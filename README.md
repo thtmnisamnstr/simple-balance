@@ -169,7 +169,9 @@ guidance are in [deployment](docs/deployment.md).
 The MCP endpoint is `/mcp`, protected by OAuth. Point a client at your origin
 and it discovers the rest. Grant `ledger:read` to let an agent look, add
 `ledger:stage` to let it queue work for your review, and add `ledger:write` only
-if you want it to commit. See [MCP](docs/mcp.md).
+if you want it to commit. Settings lists what you have approved, and revoking an
+agent there cuts it off on its next call rather than whenever its token happens
+to expire. See [MCP](docs/mcp.md).
 
 ## More
 
