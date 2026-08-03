@@ -29,6 +29,11 @@ PKCE token exchange. The token is bound to whoever signed in, and reaches their
 books alone. Google credentials are not involved. In `google` mode the same browser
 flow uses Google; `both` presents both methods.
 
+Registration is open, as RFC 7591 intends, but bounded: the text fields are
+clamped to lengths a real client has no trouble with, and a registration that
+after a day nobody has approved and that has never been issued a token is swept
+away.
+
 Every authorization request is routed through the consent screen, including
 requests from already signed-in users and clients that omit `prompt=consent`.
 The server decides that approval is required. A dynamically registered client
@@ -118,11 +123,6 @@ record to fetch: payees are canonical text read out of committed and staged
 transactions, so MCP and the browser share one spelling and one audit trail.
 
 ## CSV
-
-Registration is open, as RFC 7591 intends, but bounded: the text fields are
-clamped to lengths a real client has no trouble with, and a registration that
-after a day nobody has approved and that has never been issued a token is swept
-away.
 
 `stage_csv` accepts the same payload the browser import does, bounded by
 `CSV_MAX_BYTES` and `CSV_MAX_ROWS`. The MCP request envelope allows extra room

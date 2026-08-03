@@ -7,11 +7,16 @@ import { runMigrations } from "../../src/server/db/migrate.js";
 import { ledgerAccounts, postings, user } from "../../src/server/db/schema.js";
 import {
   createAccount,
+  deleteAccount,
   getAccount,
   setAccountArchived,
 } from "../../src/server/services/accounts.js";
 import { getSummary } from "../../src/server/services/summary.js";
-import { createTransaction } from "../../src/server/services/transactions.js";
+import {
+  createTransaction,
+  getTransaction,
+  setTransactionDeleted,
+} from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -190,6 +195,41 @@ integration("archiving an account closes its balance out to equity", () => {
     expect(await ledgerSumsToZero()).toEqual(["USD=0"]);
   });
 
+  // Archiving closes an account to zero, but a transaction that ran through it
+  // can still be edited or deleted afterwards. Reposting into a closed account
+  // stranded money there, and because no total counts an archived account the
+  // headline went short by exactly that amount - the same hole, through a
+  // different door.
+  it("keeps a closed account at zero when its history is edited afterwards", async () => {
+    const closed = await openAccount("Closed Later", "0");
+    const spend = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: today(),
+        payee: "Last Purchase",
+        description: null,
+        amount: "75.00",
+        fromAccountId: closed.id,
+      },
+      nextKey(),
+    );
+    const loaded = await getAccount(actor, closed.id);
+    await setAccountArchived(actor, closed.id, loaded.version, true);
+    expect((await getAccount(actor, closed.id)).balance).toBe("0");
+
+    // Delete the transaction that ran through it, after it was closed.
+    await setTransactionDeleted(actor, spend.id, spend.version, true);
+    expect((await getAccount(actor, closed.id)).balance).toBe("0");
+    expect(await ledgerSumsToZero()).toEqual(["USD=0"]);
+
+    // And restoring it.
+    const deleted = await getTransaction(actor, spend.id);
+    await setTransactionDeleted(actor, spend.id, deleted.version, false);
+    expect((await getAccount(actor, closed.id)).balance).toBe("0");
+    expect(await ledgerSumsToZero()).toEqual(["USD=0"]);
+  });
+
   it("writes nothing extra when an empty account is archived", async () => {
     const empty = await openAccount("Empty", "0");
     const before = await getDb()
@@ -278,5 +318,61 @@ integration("a summary stops at today", () => {
     const currency = summary.currencies.find((entry) => entry.currency === "USD")!;
     expect(Number(currency.balance)).toBe(165);
     expect(summary.asOf).toBe("2026-01-01");
+  });
+});
+
+integration("an account that was archived can still be tidied away", () => {
+  const tidyActor: Actor = { userId: "tidy-user", source: "web" };
+  const tidyDatabase = `simple_balance_tidy_${process.pid}_${Date.now()}`;
+  let tidyAdmin: PgClient;
+
+  beforeAll(async () => {
+    tidyAdmin = new PgClient({ connectionString: connection });
+    await tidyAdmin.connect();
+    await tidyAdmin.query(`create database "${tidyDatabase}"`);
+    const databaseUrl = new URL(connection!);
+    databaseUrl.pathname = `/${tidyDatabase}`;
+    process.env.DATABASE_URL = databaseUrl.toString();
+    await runMigrations();
+    await getDb().insert(user).values({
+      id: tidyActor.userId,
+      name: "Tidy",
+      email: "tidy@example.com",
+      emailVerified: true,
+    });
+  });
+
+  afterAll(async () => {
+    await closeDb();
+    await tidyAdmin.query(`drop database if exists "${tidyDatabase}"`);
+    await tidyAdmin.end();
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
+
+  // Archiving leaves closing postings behind. They net to zero once the account
+  // is restored, but the rows remain, and deleting only ever removed the
+  // opening pair - so the account could never be deleted again and the caller
+  // got a foreign-key error rather than an answer.
+  it("deletes one that was archived and restored, with no transactions", async () => {
+    const spare = await createAccount(tidyActor, {
+      name: "Opened By Mistake",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "50",
+    });
+    await setAccountArchived(tidyActor, spare.id, spare.version, true);
+    const archived = await getAccount(tidyActor, spare.id);
+    await setAccountArchived(tidyActor, spare.id, archived.version, false);
+    const restored = await getAccount(tidyActor, spare.id);
+
+    await deleteAccount(tidyActor, spare.id, restored.version);
+
+    const left = await getDb()
+      .select()
+      .from(postings)
+      .where(eq(postings.userId, tidyActor.userId));
+    expect(left).toHaveLength(0);
   });
 });

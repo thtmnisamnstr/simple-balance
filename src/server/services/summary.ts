@@ -85,6 +85,10 @@ export async function getSummary(
       and a.system_kind in ('income', 'expense')
       and p.date between ${start}::date and ${end}::date
       and (${includeArchived} or not exists (
+        -- Whether this entry still runs through an archived account, by net
+        -- rather than by the presence of a row. A correction that moved it on
+        -- to a live account leaves its old postings behind netting to zero,
+        -- and matching those dropped the entry from the figures for good.
         select 1
         from posting sibling
         join ledger_account side
@@ -94,6 +98,8 @@ export async function getSummary(
           and sibling.transaction_id = p.transaction_id
           and side.system_kind is null
           and side.archived_at is not null
+        group by sibling.account_id
+        having sum(sibling.amount) <> 0
       ))
     group by p.currency
   `);
@@ -120,6 +126,10 @@ export async function getSummary(
     where p.user_id = ${actor.userId}
       and p.date between ${start}::date and ${end}::date
       and (${includeArchived} or not exists (
+        -- Whether this entry still runs through an archived account, by net
+        -- rather than by the presence of a row. A correction that moved it on
+        -- to a live account leaves its old postings behind netting to zero,
+        -- and matching those dropped the entry from the figures for good.
         select 1
         from posting sibling
         join ledger_account side
@@ -129,6 +139,8 @@ export async function getSummary(
           and sibling.transaction_id = p.transaction_id
           and side.system_kind is null
           and side.archived_at is not null
+        group by sibling.account_id
+        having sum(sibling.amount) <> 0
       ))
     group by p.currency, c.id, c.name
     having sum(p.amount) <> 0

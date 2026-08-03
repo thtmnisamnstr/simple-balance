@@ -269,7 +269,7 @@ export default function AccountsPage({ session }: { session: Session }) {
         title="Archive this account?"
         description={
           closing.value
-            ? `${formatMoney(closing.value.balance, closing.value.currency)} is posted out of “${closing.value.name}” to Opening Balances so the account closes at zero, which is why your totals will not change. Its history stays, and restoring the account posts the balance back.`
+            ? `${formatMoney(closing.value.balance, closing.value.currency)} is posted out of “${closing.value.name}” to Opening Balances, so the account closes at zero and that amount stops counting toward your totals. The books stay balanced and its history stays readable. Restoring the account posts the balance back.`
             : undefined
         }
         confirmLabel="Archive"

@@ -379,6 +379,10 @@ const REGISTRATION_TEXT_LIMITS: Record<string, number> = {
   software_statement: 8_000,
   contacts: 500,
   scope: 2_000,
+  // The one field with no shape at all, and the one Better Auth stores
+  // verbatim. Bounding everything else and leaving this open would have moved
+  // the problem rather than fixed it.
+  metadata: 4_000,
 };
 
 function boundedRegistration(body: Record<string, unknown>) {
@@ -404,16 +408,34 @@ function boundedRegistration(body: Record<string, unknown>) {
       .slice(0, 20)
       .map((entry) => (typeof entry === "string" ? entry.slice(0, 2_000) : entry));
   }
+  if (
+    bounded.metadata !== undefined &&
+    typeof bounded.metadata === "object" &&
+    bounded.metadata !== null
+  ) {
+    const encoded = JSON.stringify(bounded.metadata);
+    if (encoded.length > REGISTRATION_TEXT_LIMITS.metadata) delete bounded.metadata;
+  }
   if (!bounded.client_name) bounded.client_name = "Unnamed MCP client";
   return bounded;
 }
 
+// Registration is unauthenticated, so one sweep per request would let a caller
+// drive a table-wide delete at the rate limiter's pace. Once every ten minutes
+// is plenty for rows that are only eligible after a day.
+const PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+let lastPruneAt = 0;
+
 app.post("/api/auth/mcp/register", async (c) => {
-  // Sweeping here rather than on a timer keeps the work proportional to the
-  // thing that creates it, and a failed sweep must never fail a registration.
-  void pruneAbandonedClients().catch((error) => {
-    console.error("Could not prune abandoned OAuth clients", error);
-  });
+  // A failed sweep must never fail a registration, and the clock moves before
+  // the work starts so concurrent requests cannot all decide to sweep.
+  const now = Date.now();
+  if (now - lastPruneAt >= PRUNE_INTERVAL_MS) {
+    lastPruneAt = now;
+    void pruneAbandonedClients().catch((error) => {
+      console.error("Could not prune abandoned OAuth clients", error);
+    });
+  }
   const body = await c.req.raw
     .clone()
     .json()
@@ -737,9 +759,10 @@ app.put("/api/v1/preferences", async (c) =>
   c.json(await setPreferences(c.get("actor"), await body(c))),
 );
 
-// Taking back an agent's access. Browser-only on purpose: a token that has been
-// stolen must not be able to spend its last minutes tidying up after itself by
-// revoking the grants of whoever it was stolen from.
+// Taking back an agent's access. The same thing is reachable over MCP, where
+// listing needs ledger:read and revoking needs ledger:write, so a stolen
+// read-only token cannot spend its last minutes locking out the agents it was
+// stolen from. Every revocation is written to the audit log either way.
 app.get("/api/v1/connected-apps", async (c) =>
   c.json(await listConnectedApps(c.get("actor"))),
 );

@@ -185,7 +185,7 @@ jobs:
             echo "Missing from the published manifest:$missing" >&2
             exit 1
           fi
-          echo "platforms=$published" >> "$GITHUB_OUTPUT"
+          echo "Published for:$published"
 
       - name: Say what was published
         run: |

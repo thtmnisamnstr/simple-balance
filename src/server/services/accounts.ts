@@ -30,6 +30,7 @@ import {
   serializeRow,
   writeAudit,
 } from "./helpers.js";
+import { getPreferences } from "./preferences.js";
 
 function stagedAccountReference(accountId: string) {
   return sql`(
@@ -67,12 +68,6 @@ const systemAccountNames: Record<SystemAccountKind, string> = {
 };
 
 /**
- * Find or create the server-owned counter-account that balances the other side
- * of an entry. One exists per kind and currency, so every currency settles to
- * zero on its own. Creation is a conflict-tolerant insert because two
- * concurrent first-ever transactions in the same currency would otherwise race.
- */
-/**
  * The counter-accounts a transaction settles against, found once per
  * transaction rather than once per row.
  *
@@ -105,6 +100,12 @@ export async function ensureSystemAccount(
   return found;
 }
 
+/**
+ * Find or create the server-owned counter-account that balances the other side
+ * of an entry. One exists per kind and currency, so every currency settles to
+ * zero on its own. Creation is a conflict-tolerant insert because two
+ * concurrent first-ever transactions in the same currency would otherwise race.
+ */
 async function ensureSystemAccountUncached(
   tx: DbTransaction,
   actor: Actor,
@@ -268,11 +269,18 @@ export async function postClosingBalance(
   // The balance to clear is the one the account holds on its own terms, so a
   // closing pair already posted is left out of the sum rather than making the
   // account look like it needs closing twice.
+  // Today where this person lives. current_date is the database session's day,
+  // which for anyone west of it is tomorrow for part of every evening, and
+  // every other "as of today" figure uses the preference timezone.
+  const { timezone } = await getPreferences(actor);
   const measured = await tx.execute(sql`
     select
       coalesce(sum(p.amount) filter (where p.closing_account_id is null), 0)::text
         as open_balance,
-      greatest(current_date, coalesce(max(p.date), current_date))::text as closing_date
+      greatest(
+        (current_timestamp at time zone ${timezone})::date,
+        coalesce(max(p.date), (current_timestamp at time zone ${timezone})::date)
+      )::text as closing_date
     from posting p
     where p.user_id = ${actor.userId}
       and p.account_id = ${account.id}::uuid
@@ -613,6 +621,10 @@ export async function updateAccount(
     if (!updated) throw staleVersion();
     // Keeps the ledger in step when the declared opening balance changes.
     await postOpeningBalance(tx, actor, updated);
+    // Re-posting the opening balance of an archived account would otherwise put
+    // money back into one that is supposed to hold nothing, where no total
+    // counts it.
+    await postClosingBalance(tx, actor, updated, updated.archivedAt !== null);
     const balance = await currentBalance(tx, actor, updated.id);
     await writeAudit(tx, actor, {
       entityType: "account",
@@ -731,14 +743,18 @@ export async function deleteAccount(
       throw conflict("This account is in use. Archive it instead of deleting it.");
     }
     // Deleting is only allowed while an account has no transactions, so the
-    // opening pair is all it holds. Both halves name this account, so the pair
-    // comes out together and the equity side is not left stranded.
+    // opening pair and any closing pair are all it holds. An account that was
+    // archived and restored still has the closing rows, netting to zero;
+    // leaving them behind made the delete fail on a foreign key with a raw
+    // database error rather than an answer. Both halves of each pair name this
+    // account, so they come out together and no equity side is stranded.
     await tx
       .delete(postings)
       .where(
         and(
           eq(postings.userId, actor.userId),
-          eq(postings.openingAccountId, id),
+          sql`(${postings.openingAccountId} = ${id}::uuid
+            or ${postings.closingAccountId} = ${id}::uuid)`,
         ),
       );
 

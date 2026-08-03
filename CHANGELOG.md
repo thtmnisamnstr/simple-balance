@@ -71,12 +71,16 @@ happen and how to undo it.
 ### Agents
 
 An MCP server over OAuth with separate read, stage, and write scopes, calling
-the same ledger code the browser does. Settings lists every agent you have
-approved and what it may do, and revoking one deletes its tokens rather than
-waiting for them to lapse, so it loses access on its next call. Tools outside a token's scope are not
+the same ledger code the browser does. Tools outside a token's scope are not
 even discoverable. Schema fields carry descriptions, so an agent does not have
 to infer that money is a string or that a credit card opens negative. Access
 tokens are audience-bound RS256 JWTs backed by revocable records.
+
+Settings lists every agent you have approved and what it may do, and revoking
+one deletes its tokens rather than waiting for them to lapse, so it loses access
+on its next call. An agent can do the same: listing what is connected needs only
+read, and revoking needs write, so a read-only token cannot lock your other
+agents out.
 
 ### Accounts and who may have one
 
@@ -96,8 +100,8 @@ Give the deployment a mail server, with `SMTP_HOST` and `MAIL_FROM`, and two
 things follow: a forgotten password can be reset from the sign-in screen, and a
 new account has to open a link sent to its address before it works. That is what
 makes a domain entry mean something in password mode too. Leave them unset and
-neither happens, which is the right answer for a deployment of one. Accounts made
-before a mail server was added keep working after it arrives.
+neither happens, which is the right answer for a deployment of one. Accounts
+made before a mail server was added keep working after it arrives.
 
 ### Running it
 

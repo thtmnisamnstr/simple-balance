@@ -40,7 +40,7 @@ This is the reason step 2 is not optional.
 
 ## Cutting a release
 
-1. `npm run set-version 0.2.0`, which sets the version in the five places that
+1. `npm run set-version 0.2.0`, which sets the version in the seven places that
    have to agree.
 2. Commit and push that on the default branch.
 3. Cut a release on GitHub against tag `v0.2.0`, from the UI or with

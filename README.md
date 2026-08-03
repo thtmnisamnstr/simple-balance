@@ -24,8 +24,9 @@ it, the duplicate checks, or the commit step.
 Accounts hold anything you file as an asset or a liability, each in its own
 currency. Crypto wallets track native quantities; nothing here quotes a market
 price. Retiring an account archives it, which posts whatever it still holds out
-to equity so it closes at zero and leaves your totals alone; restoring it puts
-the balance back, and its history is readable throughout. Transactions are
+to equity so the account closes at zero and stops counting toward your totals
+without the books going out of balance; restoring it puts the balance back, and
+its history is readable throughout. Transactions are
 deposits, withdrawals, and transfers, same-currency or converted. The payee is
 required. Everything else is optional.
 
@@ -42,7 +43,8 @@ near-duplicates, and merge by rewriting every reference at once.
 
 The dashboard covers balances, cash flow, and spending by category over any date
 range, and the range is in the URL, so you can link to it. It stops at today
-whatever range you pick, because money dated next month is not money you have. Every list sorts by
+whatever range you pick, because money dated next month is not money you
+have. Every list sorts by
 any column it shows and pages by number. Everything the browser or an agent did
 is in the audit log.
 

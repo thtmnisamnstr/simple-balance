@@ -72,7 +72,14 @@ function stageView(
     ...serializeRow(rest as StagedTransactionRow),
     validationIssues: row.validationIssues as ValidationIssue[],
     draft: row.draft as Partial<TransactionDraft>,
-    repeatsStagedRow: Boolean(repeatsStagedRow),
+    // Only the list query works this out, because it is a comparison against
+    // the rest of the queue. Where it was not computed the answer is unknown
+    // rather than no, and saying `false` there contradicted what the same row
+    // reports in a list.
+    repeatsStagedRow:
+      repeatsStagedRow === undefined || repeatsStagedRow === null
+        ? null
+        : Boolean(repeatsStagedRow),
   };
 }
 
@@ -125,7 +132,21 @@ async function validateDraft(
   }
   // Recorded even when the row has other problems, so a queue full of
   // near-identical rows can still be sorted out before anything is committed.
-  const duplicateKey = transactionDuplicateKeys(parsed.data)[0] ?? null;
+  //
+  // One column holds one key, and a draft can have two: the heuristic
+  // fingerprint and, when the bank gave it a reference, `external:<id>`. The
+  // external one is preferred because it is an identity rather than a guess -
+  // two rows carrying it are the same transaction whatever else differs.
+  // Taking the first of the sorted pair instead chose between them by
+  // alphabet, which flagged neither reliably.
+  //
+  // This is the queue's badge, not the guard. Committing compares every key of
+  // every selected row against every other (commitStages), so a pair this
+  // misses - one row with a reference and one without, alike enough to share a
+  // heuristic key - is still refused at the point it would matter.
+  const stagedKeys = transactionDuplicateKeys(parsed.data);
+  const duplicateKey =
+    stagedKeys.find((key) => key.startsWith("external:")) ?? stagedKeys[0] ?? null;
   try {
     await prepareTransaction(tx, actor, parsed.data);
     const duplicateOfId = await findDuplicate(tx, actor, parsed.data);

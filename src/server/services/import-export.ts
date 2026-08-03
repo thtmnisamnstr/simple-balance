@@ -117,9 +117,6 @@ export async function listActiveImportBatches(
   if (query.cursor) {
     const cursor = decodeCursor(query.cursor, { key: "created", direction: "desc" });
     const createdAt = cursorInstant(cursor);
-    if (Number.isNaN(createdAt.getTime())) {
-      throw validationError("Cursor is invalid");
-    }
     conditions.push(
       or(
         lt(importBatches.createdAt, createdAt),

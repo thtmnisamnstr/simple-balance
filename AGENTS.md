@@ -79,9 +79,11 @@
   collapse a transfer into a single-account transaction in bulk.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
-- `drizzle/0000_initial.sql` shipped in 0.1.0 and is now frozen. Never edit it
-  and never regenerate it: someone's database has already run it, and changing
-  it would leave their schema and its recorded history disagreeing. Every schema
+- Every migration that shipped in 0.1.0 is frozen: `0000_initial.sql`,
+  `0001_verify_existing_accounts.sql`, and `0002_account_closing_postings.sql`.
+  Never edit or regenerate one: someone's database has already run it, and
+  changing it would leave their schema and its recorded history disagreeing.
+  Every schema
   change from here is its own forward-only migration, generated with
   `npm run db:generate`, carrying whatever backfill it needs.
 - Startup must remain the only production migration path. Keep migrations safe

@@ -20,8 +20,10 @@ import { writeAudit } from "./helpers.js";
  *
  * Everything here is scoped to the signed-in person. Two people may have
  * authorized the same client, and revoking is about this person's grant, not
- * about the client itself, so nothing here disables or deletes the
- * registration that another account may still be relying on.
+ * about the client itself, so revoking never disables or deletes a
+ * registration another account may still be relying on. The sweep at the end
+ * of this file does delete registrations, but only ones nobody has approved
+ * and that have never held a token, which is a different thing.
  */
 
 export type ConnectedApp = {

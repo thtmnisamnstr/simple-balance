@@ -414,20 +414,20 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       },
       (input) => runTool(() => listAuditEvents(actor, input)),
     );
-  }
 
-  server.registerTool(
-    "list_connected_agents",
-    {
-      title: "List connected agents",
-      description:
-        "List the MCP clients this person has authorized, what each may do, and whether it currently holds a live token. Includes you.",
-      inputSchema: z.object({}),
-      outputSchema: mcpOutputSchema(connectedAppListSchema),
-      annotations: readAnnotations,
-    },
-    () => runTool(() => listConnectedApps(actor)),
-  );
+    server.registerTool(
+      "list_connected_agents",
+      {
+        title: "List connected agents",
+        description:
+          "List the MCP clients this person has authorized, what each may do, and whether it currently holds a live token. Includes you.",
+        inputSchema: z.object({}),
+        outputSchema: mcpOutputSchema(connectedAppListSchema),
+        annotations: readAnnotations,
+      },
+      () => runTool(() => listConnectedApps(actor)),
+    );
+  }
 
   if (scopes.has("ledger:stage") || scopes.has("ledger:write")) {
     server.registerTool(

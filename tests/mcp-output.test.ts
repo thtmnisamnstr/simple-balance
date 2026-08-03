@@ -117,6 +117,22 @@ describe("revoking an agent over MCP", () => {
     return tools.map((tool) => tool.name);
   }
 
+  // The listing was registered outside every scope check, so a token holding no
+  // ledger scope at all could enumerate somebody's connected agents. With it
+  // back inside the read gate such a token has no tools whatsoever, and a
+  // server with none does not offer tools/list at all.
+  it("offers neither to a token with no ledger scope", async () => {
+    const names = await toolsFor(["openid", "profile", "email"]).catch(
+      (error: Error) => error,
+    );
+    if (Array.isArray(names)) {
+      expect(names).not.toContain("list_connected_agents");
+      expect(names).not.toContain("revoke_connected_agent");
+      return;
+    }
+    expect(String(names)).toMatch(/Method not found/);
+  });
+
   // Seeing what has access is a read. Taking it away is not, so an agent given
   // only read cannot lock the other agents out.
   it("offers the listing at read scope but not the revoke", async () => {

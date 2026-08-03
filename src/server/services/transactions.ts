@@ -6,6 +6,7 @@ import {
   eq,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   lte,
   ne,
@@ -72,7 +73,7 @@ import {
   keysetAfter,
   ordered,
 } from "./sorting.js";
-import { ensureSystemAccount } from "./accounts.js";
+import { ensureSystemAccount, postClosingBalance } from "./accounts.js";
 import { resolveDraftCategory } from "./categories.js";
 import { normalizeHumanName } from "./names.js";
 import { resolveCanonicalPayee } from "./payees.js";
@@ -440,7 +441,49 @@ export async function repostTransaction(
     }));
   if (!rows.length) return false;
   await tx.insert(postings).values(rows);
+
+  // An archived account was closed out to zero, and this just posted into it.
+  // Editing or deleting a transaction that ran through one would otherwise
+  // strand money in an account no total counts, which is the exact hole
+  // archiving was changed to close. Re-closing here covers every path, because
+  // every repost comes through this function.
+  await reconcileClosedAccounts(
+    tx,
+    actor,
+    rows.map((row) => row.accountId),
+  );
   return true;
+}
+
+/**
+ * Put an archived account back at zero after something posted into it.
+ *
+ * Cheap for the ordinary case: accounts that are not archived are filtered out
+ * in one query, and a live one never reaches postClosingBalance.
+ */
+async function reconcileClosedAccounts(
+  tx: DbTransaction,
+  actor: Actor,
+  accountIds: readonly string[],
+) {
+  const touched = [...new Set(accountIds)];
+  if (!touched.length) return;
+  const archived = await tx
+    .select({
+      id: ledgerAccounts.id,
+      currency: ledgerAccounts.currency,
+    })
+    .from(ledgerAccounts)
+    .where(
+      and(
+        eq(ledgerAccounts.userId, actor.userId),
+        inArray(ledgerAccounts.id, touched),
+        isNotNull(ledgerAccounts.archivedAt),
+      ),
+    );
+  for (const account of archived) {
+    await postClosingBalance(tx, actor, account, true);
+  }
 }
 
 export async function prepareTransaction(

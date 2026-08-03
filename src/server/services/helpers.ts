@@ -175,12 +175,6 @@ export async function lockIdempotencyKey(
 }
 
 /**
- * Serialize mutations involving account references that cannot all be
- * represented by foreign keys (notably staged JSON drafts). Always acquire all
- * account locks in sorted order before acquiring the category namespace lock,
- * then the payee namespace lock.
- */
-/**
  * Which advisory locks a transaction has already taken.
  *
  * These are xact locks: PostgreSQL holds them until commit and taking one twice
@@ -207,6 +201,12 @@ async function takeTransactionLock(tx: DbTransaction, lockKey: string) {
   held.add(lockKey);
 }
 
+/**
+ * Serialize mutations involving account references that cannot all be
+ * represented by foreign keys (notably staged JSON drafts). Always acquire all
+ * account locks in sorted order before acquiring the category namespace lock,
+ * then the payee namespace lock.
+ */
 export async function lockAccountReferences(
   tx: DbTransaction,
   actor: Actor,

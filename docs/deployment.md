@@ -186,7 +186,10 @@ about it from their end.
 The connection is opened once at startup so a wrong setting is reported in the
 log rather than discovered by somebody locked out. A refusal is logged and the
 server carries on, because the ledger works whether or not mail does. Reset and
-verification links last an hour and work once.
+verification links last an hour. A reset link is consumed the moment it is
+used, so it works once. A verification link is a signed token rather than a
+stored one, so it keeps working for the rest of its hour; opening it only
+confirms the address, and signing in still takes the password.
 
 ### With no mail server
 

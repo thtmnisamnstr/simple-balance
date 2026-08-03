@@ -52,7 +52,9 @@ instead of beside them.
 
 Archiving an account is the closing entry to that opening one: whatever the
 account still holds is posted out to the same equity account and the account
-ends at zero. That is what lets a total leave archived accounts out without
+ends at zero. It stays at zero: correcting or deleting a transaction that ran
+through a closed account re-closes it, so an ordinary correction cannot leave
+money stranded somewhere no total counts. That is what lets a total leave archived accounts out without
 going wrong, and restoring the account posts the balance back. A closing pair
 is dated the later of today and the account's last posting, so an account
 holding something dated later still ends at zero rather than reviving on that
@@ -84,7 +86,9 @@ today" while the cash flow beside it counted the same entry as money that had
 moved. The summary reports the day it actually used, and its balance, cash flow,
 and category figures all cover the same accounts and the same days: leave
 archived accounts out and their activity goes out with them, ask for them and
-both come back.
+both come back. A closed account comes back holding zero, because that is what
+it holds: its balance left for equity when it was archived, and only the
+activity that ran through it returns to the flow figures.
 
 Currencies stay put. An account's currency is fixed once it is in use, and a
 posting's currency is tied to its account's by foreign key. Cross-currency
