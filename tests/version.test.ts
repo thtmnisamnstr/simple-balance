@@ -10,7 +10,7 @@ const manifestVersion = (relative: string) =>
   (JSON.parse(read(relative)) as { version: string }).version;
 
 /**
- * The version is written in six places, and `npm run set-version` is what keeps
+ * The version is written in seven places, and `npm run set-version` is what keeps
  * them together. Any one of them left behind is only noticed later: a stale
  * manifest stops the release workflow, and a stale constant quietly tells every
  * MCP client the wrong thing for as long as nobody looks.
@@ -43,6 +43,10 @@ describe("the release version", () => {
     expect(read("Dockerfile")).toContain(`ARG APP_VERSION=${version}`);
   });
 
+  it("is the version the product backlog says it describes", () => {
+    expect(manifestVersion("tasks/product.prd.json")).toBe(version);
+  });
+
   // Everything above is only kept true by one script, so it has to know about
   // every one of them.
   it("is covered by set-version", () => {
@@ -54,6 +58,7 @@ describe("the release version", () => {
       "runtime/package-lock.json",
       "Dockerfile",
       "src/shared/version.ts",
+      "tasks/product.prd.json",
     ]) {
       expect(script, target).toContain(target);
     }

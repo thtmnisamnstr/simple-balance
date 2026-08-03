@@ -49,6 +49,11 @@ import {
 import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
 import { cleanHumanName, normalizeHumanName } from "./names.js";
 import { seedCanonicalPayeeCache } from "./payees.js";
+import {
+  categoryKindForDraft,
+  combineCategoryKinds,
+  preferredCategory,
+} from "./categories.js";
 import { insertImportedStages } from "./staging.js";
 import { listTransactions } from "./transactions.js";
 
@@ -290,26 +295,6 @@ export type CsvReferenceResolution = {
     resolution: "existing" | "new";
   }[];
 };
-
-function categoryKindForDraft(draft: TransactionDraft): CategoryKind {
-  if (draft.type === "deposit") return "income";
-  if (draft.type === "withdrawal") return "expense";
-  return "both";
-}
-
-function combineCategoryKinds(
-  left: CategoryKind,
-  right: CategoryKind,
-): CategoryKind {
-  return left === right ? left : "both";
-}
-
-function preferredCategory(left: CategoryRow, right: CategoryRow) {
-  if (Boolean(left.archivedAt) !== Boolean(right.archivedAt)) {
-    return left.archivedAt ? 1 : -1;
-  }
-  return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
-}
 
 async function canonicalizeImportedPayees(
   tx: DbTransaction,

@@ -605,7 +605,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "archive_account",
       {
         title: "Archive or restore account",
-        description: "Hide an in-use account without deleting its history, or restore it.",
+        description:
+          "Retire an account, or bring one back. Archiving posts whatever the account still holds out to the Opening Balances equity account, so it closes at zero and drops out of balances and summaries while its history stays readable. Restoring posts the balance back. This moves money in the books, so confirm it with the person first.",
         inputSchema: z.object({
           id: z.string().uuid(),
           expectedVersion: z.number().int().positive(),

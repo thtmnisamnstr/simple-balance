@@ -23,8 +23,11 @@ it, the duplicate checks, or the commit step.
 
 Accounts hold anything you file as an asset or a liability, each in its own
 currency. Crypto wallets track native quantities; nothing here quotes a market
-price. Transactions are deposits, withdrawals, and transfers, same-currency or
-converted. The payee is required. Everything else is optional.
+price. Retiring an account archives it, which posts whatever it still holds out
+to equity so it closes at zero and leaves your totals alone; restoring it puts
+the balance back, and its history is readable throughout. Transactions are
+deposits, withdrawals, and transfers, same-currency or converted. The payee is
+required. Everything else is optional.
 
 Imports go through a review queue. Simple Balance reads the CSV, works out the
 format, maps the columns, parses whatever date and number conventions your bank
@@ -38,7 +41,8 @@ it will touch. Categories and payees match case-insensitively, flag their own
 near-duplicates, and merge by rewriting every reference at once.
 
 The dashboard covers balances, cash flow, and spending by category over any date
-range, and the range is in the URL, so you can link to it. Every list sorts by
+range, and the range is in the URL, so you can link to it. It stops at today
+whatever range you pick, because money dated next month is not money you have. Every list sorts by
 any column it shows and pages by number. Everything the browser or an agent did
 is in the audit log.
 

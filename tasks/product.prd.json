@@ -1,7 +1,7 @@
 {
   "$schema": "./product.prd.schema.json",
   "product": "Simple Balance",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "stories": [
     {
       "id": "SB-001",
@@ -10,148 +10,290 @@
       "dependsOn": [],
       "networkAllowed": true,
       "completed": true,
-      "acceptanceCriteria": ["One npm TypeScript package builds the React client and Hono server", "Typecheck, unit test, build, and combined verify commands exist"],
-      "verification": ["npm run typecheck", "npm test", "npm run build"]
+      "acceptanceCriteria": [
+        "One npm TypeScript package builds the React client and Hono server",
+        "Typecheck, unit test, build, and combined verify commands exist"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "npm run build"
+      ]
     },
     {
       "id": "SB-002",
       "priority": 20,
       "title": "PostgreSQL schema and tenant boundary",
-      "dependsOn": ["SB-001"],
+      "dependsOn": [
+        "SB-001"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["The initial Drizzle migration covers auth, ledger, staging, idempotency, and audit tables", "All finance records and queries are scoped to the authenticated user", "One tenant cannot read or alter another's records by id, in single or bulk paths, and counter-accounts are per tenant", "Schema changes require forward-only data-preserving migrations and preceding-release upgrade tests"],
-      "verification": ["npm run typecheck", "npm run test:integration"]
+      "acceptanceCriteria": [
+        "The initial Drizzle migration covers auth, ledger, staging, idempotency, and audit tables",
+        "All finance records and queries are scoped to the authenticated user",
+        "One tenant cannot read or alter another's records by id, in single or bulk paths, and counter-accounts are per tenant",
+        "Schema changes require forward-only data-preserving migrations and preceding-release upgrade tests"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm run test:integration"
+      ]
     },
     {
       "id": "SB-003",
       "priority": 30,
       "title": "Multi-tenant local and optional Google auth boundary",
-      "dependsOn": ["SB-002"],
+      "dependsOn": [
+        "SB-002"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Embedded Better Auth local login is the zero-Google-config default", "Google and both modes request openid email profile and refuse to start unless ALLOWED_EMAILS admits somebody", "ALLOWED_EMAILS admits exact addresses, whole domains, and * for anyone, and an unset list admits nobody", "ALLOWED_EMAILS is applied when an account is created and never as a condition of signing in", "One deployment holds many accounts, each seeing only its own ledger, and a linked user can reach one account by local or Google login", "Production first-account setup requires a one-time startup code only when the list would refuse the address, and is atomic under concurrency", "Zero-environment-variable development uses the real local login through the Vite origin"],
-      "verification": ["npm run typecheck", "npm test"]
+      "acceptanceCriteria": [
+        "Embedded Better Auth local login is the zero-Google-config default",
+        "Google and both modes request openid email profile and refuse to start unless ALLOWED_EMAILS admits somebody",
+        "ALLOWED_EMAILS admits exact addresses, whole domains, and * for anyone, and an unset list admits nobody",
+        "ALLOWED_EMAILS is applied when an account is created and never as a condition of signing in",
+        "One deployment holds many accounts, each seeing only its own ledger, and a linked user can reach one account by local or Google login",
+        "Production first-account setup requires a one-time startup code only when the list would refuse the address, and is atomic under concurrency",
+        "Zero-environment-variable development uses the real local login through the Vite origin"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test"
+      ]
     },
     {
       "id": "SB-004",
       "priority": 40,
       "title": "Accounts and categories",
-      "dependsOn": ["SB-002", "SB-003"],
+      "dependsOn": [
+        "SB-002",
+        "SB-003"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Account and category CRUD use everyday types and optimistic concurrency", "In-use records archive and account currency locks after use"],
-      "verification": ["npm test -- tests/ledger.test.ts", "npm run typecheck"]
+      "acceptanceCriteria": [
+        "Account and category CRUD use everyday types and optimistic concurrency",
+        "In-use records archive and account currency locks after use"
+      ],
+      "verification": [
+        "npm test -- tests/ledger.test.ts",
+        "npm run typecheck"
+      ]
     },
     {
       "id": "SB-005",
       "priority": 50,
       "title": "Transaction engine",
-      "dependsOn": ["SB-004"],
+      "dependsOn": [
+        "SB-004"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Deposits withdrawals and transfers create correct atomic signed postings", "Per-account FX retains sent and received native amounts", "CRUD soft delete restore versioning and idempotency are enforced", "Explicit-version and fingerprinted all-filter mass edits validate first rebuild postings and commit atomically"],
-      "verification": ["npm test -- tests/ledger.test.ts", "npm run test:integration"]
+      "acceptanceCriteria": [
+        "Deposits withdrawals and transfers create correct atomic signed postings",
+        "Per-account FX retains sent and received native amounts",
+        "CRUD soft delete restore versioning and idempotency are enforced",
+        "Explicit-version and fingerprinted all-filter mass edits validate first rebuild postings and commit atomically"
+      ],
+      "verification": [
+        "npm test -- tests/ledger.test.ts",
+        "npm run test:integration"
+      ]
     },
     {
       "id": "SB-006",
       "priority": 60,
       "title": "Transaction browser UI",
-      "dependsOn": ["SB-005"],
+      "dependsOn": [
+        "SB-005"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Responsive UI provides account and committed transaction CRUD", "Liability balances and transaction types use everyday language", "Every transaction list supports page and all-matching selection with accessible atomic mass editing"],
-      "verification": ["npm exec vitest run tests/transaction-bulk-edit-ui.test.tsx", "npm run typecheck", "npm run build"]
+      "acceptanceCriteria": [
+        "Responsive UI provides account and committed transaction CRUD",
+        "Liability balances and transaction types use everyday language",
+        "Every transaction list supports page and all-matching selection with accessible atomic mass editing"
+      ],
+      "verification": [
+        "npm exec vitest run tests/transaction-bulk-edit-ui.test.tsx",
+        "npm run typecheck",
+        "npm run build"
+      ]
     },
     {
       "id": "SB-007",
       "priority": 70,
       "title": "Date range and dashboard summary",
-      "dependsOn": ["SB-005", "SB-006"],
+      "dependsOn": [
+        "SB-005",
+        "SB-006"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Inclusive presets and custom dates persist in URL parameters", "Balances and cash flow are grouped per account currency and transfers are excluded"],
-      "verification": ["npm test -- tests/domain.test.ts", "npm run test:integration"]
+      "acceptanceCriteria": [
+        "Inclusive presets and custom dates persist in URL parameters",
+        "Balances and cash flow are grouped per account currency and transfers are excluded"
+      ],
+      "verification": [
+        "npm test -- tests/domain.test.ts",
+        "npm run test:integration"
+      ]
     },
     {
       "id": "SB-008",
       "priority": 80,
       "title": "Staged transaction workflow",
-      "dependsOn": ["SB-005"],
+      "dependsOn": [
+        "SB-005"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Staged rows support filters create update selected delete dry-run and commit", "Mass commit validates first and changes all rows or none"],
-      "verification": ["npm run test:integration", "npm run typecheck"]
+      "acceptanceCriteria": [
+        "Staged rows support filters create update selected delete dry-run and commit",
+        "Mass commit validates first and changes all rows or none"
+      ],
+      "verification": [
+        "npm run test:integration",
+        "npm run typecheck"
+      ]
     },
     {
       "id": "SB-009",
       "priority": 90,
       "title": "CSV import and export",
-      "dependsOn": ["SB-008"],
+      "dependsOn": [
+        "SB-008"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Import detects maps previews validates and stages bank CSV", "App exports re-import without losing per-account FX transfer structure"],
-      "verification": ["npm test -- tests/domain.test.ts", "npm run typecheck"]
+      "acceptanceCriteria": [
+        "Import detects maps previews validates and stages bank CSV",
+        "App exports re-import without losing per-account FX transfer structure"
+      ],
+      "verification": [
+        "npm test -- tests/domain.test.ts",
+        "npm run typecheck"
+      ]
     },
     {
       "id": "SB-010",
       "priority": 100,
       "title": "MCP OAuth",
-      "dependsOn": ["SB-003"],
+      "dependsOn": [
+        "SB-003"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Stateless Streamable HTTP MCP is protected by OAuth discovery and PKCE", "Read stage and write scopes are least privilege"],
-      "verification": ["npm run typecheck", "npm run build"]
+      "acceptanceCriteria": [
+        "Stateless Streamable HTTP MCP is protected by OAuth discovery and PKCE",
+        "Read stage and write scopes are least privilege"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm run build"
+      ]
     },
     {
       "id": "SB-011",
       "priority": 110,
       "title": "MCP ledger tools",
-      "dependsOn": ["SB-005", "SB-008", "SB-009", "SB-010"],
+      "dependsOn": [
+        "SB-005",
+        "SB-008",
+        "SB-009",
+        "SB-010"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Discrete tools expose ledger staging summary CSV audit and fingerprint-protected bulk-edit services", "Tools return structured content and accurate behavior annotations"],
-      "verification": ["npm run typecheck", "npm run test:integration"]
+      "acceptanceCriteria": [
+        "Discrete tools expose ledger staging summary CSV audit and fingerprint-protected bulk-edit services",
+        "Tools return structured content and accurate behavior annotations"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm run test:integration"
+      ]
     },
     {
       "id": "SB-012",
       "priority": 120,
       "title": "Audit and security hardening",
-      "dependsOn": ["SB-011"],
+      "dependsOn": [
+        "SB-011"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Mutations record actor source and before or after values", "Cross-tenant IDs cannot be used for reads or writes"],
-      "verification": ["npm run test:integration", "npm run verify"]
+      "acceptanceCriteria": [
+        "Mutations record actor source and before or after values",
+        "Cross-tenant IDs cannot be used for reads or writes"
+      ],
+      "verification": [
+        "npm run test:integration",
+        "npm run verify"
+      ]
     },
     {
       "id": "SB-013",
       "priority": 130,
       "title": "Production container",
-      "dependsOn": ["SB-012"],
+      "dependsOn": [
+        "SB-012"
+      ],
       "networkAllowed": true,
       "completed": true,
-      "acceptanceCriteria": ["A multi-stage non-root image contains production dependencies app and migrations", "Startup migration lock readiness liveness and graceful shutdown work with external PostgreSQL"],
-      "verification": ["docker build -t simple-balance:test .", "npm run verify"]
+      "acceptanceCriteria": [
+        "A multi-stage non-root image contains production dependencies app and migrations",
+        "Startup migration lock readiness liveness and graceful shutdown work with external PostgreSQL"
+      ],
+      "verification": [
+        "docker build -t simple-balance:test .",
+        "npm run verify"
+      ]
     },
     {
       "id": "SB-014",
       "priority": 140,
       "title": "End-to-end acceptance",
-      "dependsOn": ["SB-013"],
+      "dependsOn": [
+        "SB-013"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Direct staged and MCP-created transactions produce equivalent balances and audit behavior", "The production image persists through restart and handles SIGTERM", "Ralph dry-run and all quality gates pass"],
-      "verification": ["npm run verify", "npm run ralph -- --dry-run", "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"]
+      "acceptanceCriteria": [
+        "Direct staged and MCP-created transactions produce equivalent balances and audit behavior",
+        "The production image persists through restart and handles SIGTERM",
+        "Ralph dry-run and all quality gates pass"
+      ],
+      "verification": [
+        "npm run verify",
+        "npm run ralph -- --dry-run",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
+      ]
     },
     {
       "id": "SB-015",
       "priority": 150,
       "title": "Double-entry books and an append-only ledger",
-      "dependsOn": ["SB-014"],
+      "dependsOn": [
+        "SB-014"
+      ],
       "networkAllowed": false,
       "completed": true,
-      "acceptanceCriteria": ["Every transaction settles to zero in each currency it touches, checked before any posting is written", "Deposits balance against income, withdrawals against expense, conversions through exchange, and opening balances against equity", "Counter-accounts are server-owned, one per kind and currency, and never appear in account lists or pickers", "Amount, account, and type corrections reverse the existing postings and write a new set rather than updating or deleting rows", "Label-only edits write no postings, and deleted transactions keep theirs while dropping out of balances and reports", "Balances, dashboards, and reports derive from postings alone"],
-      "verification": ["npm run typecheck", "npm test", "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"]
+      "acceptanceCriteria": [
+        "Every transaction settles to zero in each currency it touches, checked before any posting is written",
+        "Deposits balance against income, withdrawals against expense, conversions through exchange, and opening balances against equity",
+        "Counter-accounts are server-owned, one per kind and currency, and never appear in account lists or pickers",
+        "Amount, account, and type corrections reverse the existing postings and write a new set rather than updating or deleting rows",
+        "Label-only edits write no postings, and deleted transactions keep theirs while dropping out of balances and reports",
+        "Balances, dashboards, and reports derive from postings alone"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
+      ]
     }
   ]
 }

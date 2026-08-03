@@ -45,31 +45,46 @@ for (const relative of manifests) {
   console.log(`  ${relative} -> ${version}`);
 }
 
-const dockerfilePath = path.join(root, "Dockerfile");
-const dockerfile = readFileSync(dockerfilePath, "utf8");
-const updated = dockerfile.replace(
+/**
+ * Rewrite one line, and fail only when the line is not there.
+ *
+ * Testing whether the file changed instead conflates "no such line" with
+ * "already says that", so setting the version to the one already set reported
+ * a missing Dockerfile line and stopped before the files after it.
+ */
+function rewriteLine(relative, pattern, replacement, describe) {
+  const file = path.join(root, relative);
+  const before = readFileSync(file, "utf8");
+  if (!pattern.test(before)) {
+    console.error(`Could not find ${describe} in ${relative}.`);
+    process.exit(1);
+  }
+  const after = before.replace(pattern, replacement);
+  if (after !== before) writeFileSync(file, after);
+  console.log(`  ${relative} -> ${version}`);
+}
+
+rewriteLine(
+  "Dockerfile",
   /^ARG APP_VERSION=.*$/m,
   `ARG APP_VERSION=${version}`,
+  "ARG APP_VERSION",
 );
-if (updated === dockerfile) {
-  console.error("Could not find ARG APP_VERSION in the Dockerfile.");
-  process.exit(1);
-}
-writeFileSync(dockerfilePath, updated);
-console.log(`  Dockerfile -> ${version}`);
 
 // The MCP server announces this to every client that connects.
-const versionModulePath = path.join(root, "src/shared/version.ts");
-const versionModule = readFileSync(versionModulePath, "utf8");
-const rewritten = versionModule.replace(
+rewriteLine(
+  "src/shared/version.ts",
   /^export const APP_VERSION = ".*";$/m,
   `export const APP_VERSION = "${version}";`,
+  "APP_VERSION",
 );
-if (rewritten === versionModule) {
-  console.error("Could not find APP_VERSION in src/shared/version.ts.");
-  process.exit(1);
-}
-writeFileSync(versionModulePath, rewritten);
-console.log(`  src/shared/version.ts -> ${version}`);
+
+// The Ralph backlog names the version it describes. Left behind it drifts, and
+// the file is the one place a reader looks for what the product is at.
+const prdPath = path.join(root, "tasks/product.prd.json");
+const prd = JSON.parse(readFileSync(prdPath, "utf8"));
+prd.version = version;
+writeFileSync(prdPath, `${JSON.stringify(prd, null, 2)}\n`);
+console.log(`  tasks/product.prd.json -> ${version}`);
 
 console.log(`\nNow commit, then tag: git tag v${version}`);

@@ -211,20 +211,6 @@ export async function revokeConnectedApp(
   });
 }
 
-/** How many live grants this person has, for the Settings summary line. */
-export async function countConnectedApps(actor: Actor) {
-  const [row] = await getDb()
-    .select({ count: sql<number>`count(distinct ${oauthConsent.clientId})::int` })
-    .from(oauthConsent)
-    .where(
-      and(
-        eq(oauthConsent.userId, actor.userId),
-        eq(oauthConsent.consentGiven, true),
-      ),
-    );
-  return row?.count ?? 0;
-}
-
 /**
  * How long an unclaimed dynamic registration is kept.
  *

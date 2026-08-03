@@ -250,15 +250,6 @@ async function prepareImportedStage(
   };
 }
 
-export async function insertImportedStage(
-  tx: DbTransaction,
-  actor: Actor,
-  input: ImportedStageInput,
-) {
-  const [created] = await insertImportedStages(tx, actor, [input]);
-  return created;
-}
-
 /**
  * Stage a whole file's worth of rows with two statements per chunk instead of
  * two per row.

@@ -53,6 +53,13 @@
 - Deleting voids an entry by posting its reversal, and restoring posts it back.
   Nothing filters deleted rows out of a balance, because a voided entry already
   nets to zero. Editing a deleted entry leaves it void.
+- Archiving an account posts whatever it still holds out to the same equity
+  account, so it closes at zero and restoring posts the balance back. That is
+  what lets a total leave archived accounts out and still be right; never make
+  a figure correct by filtering alone while the figures beside it do not.
+- A summary stops at today in the person's own timezone, whatever end date is
+  asked for, and reports the day it used. Money dated in the future has not
+  moved, so it counts toward neither a balance nor a cash flow.
 - Balances derive from postings alone. Never add an account column back into a
   balance query.
 - Lists order by any column they display, in either direction. Order is
