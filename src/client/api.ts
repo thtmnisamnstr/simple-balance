@@ -264,6 +264,9 @@ export type ImportBatchSummary = {
 
 export type Summary = {
   range: { start: string | null; end: string | null };
+  /** The day the figures are really as of, which is today when the range runs past it. */
+  asOf: string;
+  includesArchived: boolean;
   currencies: {
     currency: string;
     balance: string;
@@ -275,6 +278,7 @@ export type Summary = {
       name: string;
       type: UserAccountType;
       balance: string;
+      archivedAt: string | null;
     }[];
     spendingByCategory: {
       categoryId: string | null;

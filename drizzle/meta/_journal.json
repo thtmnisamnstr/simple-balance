@@ -15,6 +15,13 @@
       "when": 1785704824358,
       "tag": "0001_verify_existing_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785730300257,
+      "tag": "0002_account_closing_postings",
+      "breakpoints": true
     }
   ]
 }

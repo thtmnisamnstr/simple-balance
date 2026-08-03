@@ -3,6 +3,19 @@ import type { Actor } from "../../shared/domain.js";
 import { dateRangeSchema } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
+import { getPreferences } from "./preferences.js";
+
+/** The calendar date it is where this person lives, not where the server runs. */
+function todayIn(timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
 
 type CurrencySummary = {
   currency: string;
@@ -10,21 +23,40 @@ type CurrencySummary = {
   deposits: string;
   withdrawals: string;
   netCashFlow: string;
-  accounts: { id: string; name: string; type: string; balance: string }[];
+  accounts: {
+    id: string;
+    name: string;
+    type: string;
+    balance: string;
+    archivedAt: string | null;
+  }[];
   spendingByCategory: { categoryId: string | null; category: string; amount: string }[];
 };
 
-export async function getSummary(actor: Actor, input: unknown) {
+export async function getSummary(
+  actor: Actor,
+  input: unknown,
+  includeArchived = false,
+) {
   const range = dateRangeSchema.parse(input);
   const start = range.start ?? "0001-01-01";
-  const end = range.end ?? "9999-12-31";
   const db = getDb();
+  const { timezone } = await getPreferences(actor);
+  const today = todayIn(timezone);
+  // An open-ended range meant 9999-12-31, so a transaction dated next month
+  // counted toward a balance the page called "as of today" and toward the cash
+  // flow beside it. Money dated in the future has not moved yet, so the whole
+  // summary stops at today unless a narrower end was asked for. The date it
+  // actually used is returned, so nothing has to guess what it is showing.
+  const requestedEnd = range.end ?? "9999-12-31";
+  const end = requestedEnd < today ? requestedEnd : today;
   const accountResult = await db.execute(sql`
     select
       a.id,
       a.name,
       a.type,
       a.currency,
+      a.archived_at,
       coalesce(sum(p.amount), 0)::text as balance
     from ledger_account a
     left join posting p
@@ -33,7 +65,7 @@ export async function getSummary(actor: Actor, input: unknown) {
       and p.date <= ${end}::date
     where a.user_id = ${actor.userId}
       and a.system_kind is null
-      and a.archived_at is null
+      and (${includeArchived} or a.archived_at is null)
     group by a.id
     order by a.currency, lower(a.name)
   `);
@@ -52,6 +84,17 @@ export async function getSummary(actor: Actor, input: unknown) {
     where p.user_id = ${actor.userId}
       and a.system_kind in ('income', 'expense')
       and p.date between ${start}::date and ${end}::date
+      and (${includeArchived} or not exists (
+        select 1
+        from posting sibling
+        join ledger_account side
+          on side.user_id = sibling.user_id
+          and side.id = sibling.account_id
+        where sibling.user_id = p.user_id
+          and sibling.transaction_id = p.transaction_id
+          and side.system_kind is null
+          and side.archived_at is not null
+      ))
     group by p.currency
   `);
   // The amount is the posting's; the transaction is joined only for the label
@@ -76,6 +119,17 @@ export async function getSummary(actor: Actor, input: unknown) {
       and c.id = t.category_id
     where p.user_id = ${actor.userId}
       and p.date between ${start}::date and ${end}::date
+      and (${includeArchived} or not exists (
+        select 1
+        from posting sibling
+        join ledger_account side
+          on side.user_id = sibling.user_id
+          and side.id = sibling.account_id
+        where sibling.user_id = p.user_id
+          and sibling.transaction_id = p.transaction_id
+          and side.system_kind is null
+          and side.archived_at is not null
+      ))
     group by p.currency, c.id, c.name
     having sum(p.amount) <> 0
     order by p.currency, sum(p.amount) desc
@@ -104,6 +158,7 @@ export async function getSummary(actor: Actor, input: unknown) {
       name: String(row.name),
       type: String(row.type),
       balance,
+      archivedAt: row.archived_at ? new Date(String(row.archived_at)).toISOString() : null,
     });
     summary.balance = canonicalDecimal(decimal(summary.balance).plus(balance));
   }
@@ -125,6 +180,10 @@ export async function getSummary(actor: Actor, input: unknown) {
 
   return {
     range: { start: range.start ?? null, end: range.end ?? null },
+    // What the figures are actually as of, which is not the requested end when
+    // that end is in the future.
+    asOf: end,
+    includesArchived: includeArchived,
     currencies: [...currencies.values()].sort((a, b) =>
       a.currency.localeCompare(b.currency),
     ),

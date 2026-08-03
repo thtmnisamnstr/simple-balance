@@ -16,6 +16,12 @@ post against equity, so the ledger sums to zero from the first account onward.
 None of those counter-accounts appear in a picker, and no transaction can name
 one as a side.
 
+Archiving an account posts its remaining balance out to equity, so it closes at
+zero and the totals that leave it out stay right. Restoring puts the balance
+back. The dashboard stops at today, so an entry dated next month is not counted
+as money you have, and its balance, cash flow, and spending all describe the
+same set of accounts.
+
 Postings are append-only and carry their own date. Correcting an entry appends
 only the difference, so changing an amount costs one adjusting row per side and
 an edit that touches only labels writes nothing at all. Deleting posts the

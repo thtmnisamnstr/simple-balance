@@ -120,7 +120,7 @@ export default function DashboardPage() {
                 <article className="panel">
                   <header className="panel-header">
                     <h3>Accounts</h3>
-                    <span>As of {end || "today"}</span>
+                    <span>As of {summary.data?.asOf ?? end ?? "today"}</span>
                   </header>
                   <div className="account-mini-list">
                     {currency.accounts.map((account) => (

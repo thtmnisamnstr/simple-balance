@@ -50,6 +50,15 @@ rather than netting across the pair. An opening balance credits the account and
 debits equity, which is how where an account started ends up inside the books
 instead of beside them.
 
+Archiving an account is the closing entry to that opening one: whatever the
+account still holds is posted out to the same equity account and the account
+ends at zero. That is what lets a total leave archived accounts out without
+going wrong, and restoring the account posts the balance back. A closing pair
+is dated the later of today and the account's last posting, so an account
+holding something dated later still ends at zero rather than reviving on that
+day; a balance as of an earlier date is untouched, because the money was
+genuinely there then.
+
 Those counter-accounts belong to the server, one per kind and currency. They
 never appear in a list or a picker, and no transaction can name one as a side.
 
@@ -68,6 +77,14 @@ past reports rather than only future ones.
 
 Balances come from postings and nothing else. No query reads a running total off
 an account row.
+
+The dashboard stops at today. An open-ended range used to mean the end of time,
+so an entry dated next month counted toward a figure the page called "as of
+today" while the cash flow beside it counted the same entry as money that had
+moved. The summary reports the day it actually used, and its balance, cash flow,
+and category figures all cover the same accounts and the same days: leave
+archived accounts out and their activity goes out with them, ask for them and
+both come back.
 
 Currencies stay put. An account's currency is fixed once it is in use, and a
 posting's currency is tied to its account's by foreign key. Cross-currency

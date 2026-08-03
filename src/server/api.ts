@@ -81,6 +81,7 @@ import {
 } from "./services/import-export.js";
 import {
   listConnectedApps,
+  pruneAbandonedClients,
   revokeConnectedApp,
 } from "./services/connected-apps.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
@@ -353,36 +354,86 @@ app.on(["GET", "POST"], "/api/auth/callback/google", async (c) => {
   return getAuth().handler(authRequest(c));
 });
 
-// `client_name` is optional in RFC 7591, and a client that leaves it out is
-// within its rights. The column it lands in is not null, so the insert failed
-// and the client got a 500 with nothing to act on. An unnamed client gets a
-// plain placeholder, which is also what the consent screen will show the person
-// being asked to trust it.
+/**
+ * Dynamic client registration, bounded.
+ *
+ * RFC 7591 registration is open and unauthenticated by design, and Better Auth
+ * stored whatever arrived. Two things followed. `client_name` is optional in
+ * the spec, but the column it lands in is not null, so a client within its
+ * rights to omit it got a 500 with nothing to act on. And every free-text field
+ * was unbounded, so a caller could park close to the whole 64 KiB request body
+ * in a permanent row and repeat at the rate limiter's pace.
+ *
+ * So the text is clamped to lengths a real client has no trouble with, an
+ * unnamed one gets the placeholder the consent screen can show, and each
+ * registration sweeps away the anonymous ones nobody ever completed.
+ */
+const REGISTRATION_TEXT_LIMITS: Record<string, number> = {
+  client_name: 200,
+  client_uri: 2_000,
+  logo_uri: 2_000,
+  tos_uri: 2_000,
+  policy_uri: 2_000,
+  software_id: 200,
+  software_version: 100,
+  software_statement: 8_000,
+  contacts: 500,
+  scope: 2_000,
+};
+
+function boundedRegistration(body: Record<string, unknown>) {
+  const bounded: Record<string, unknown> = { ...body };
+  for (const [field, limit] of Object.entries(REGISTRATION_TEXT_LIMITS)) {
+    const value = bounded[field];
+    if (typeof value === "string" && value.length > limit) {
+      bounded[field] = value.slice(0, limit);
+    }
+    if (Array.isArray(value)) {
+      bounded[field] = value
+        .slice(0, 20)
+        .map((entry) =>
+          typeof entry === "string" ? entry.slice(0, limit) : entry,
+        );
+    }
+  }
+  // Each redirect is a URL a browser has to be able to reach, and twenty is
+  // already more than any real client registers.
+  const redirects = bounded.redirect_uris;
+  if (Array.isArray(redirects)) {
+    bounded.redirect_uris = redirects
+      .slice(0, 20)
+      .map((entry) => (typeof entry === "string" ? entry.slice(0, 2_000) : entry));
+  }
+  if (!bounded.client_name) bounded.client_name = "Unnamed MCP client";
+  return bounded;
+}
+
 app.post("/api/auth/mcp/register", async (c) => {
+  // Sweeping here rather than on a timer keeps the work proportional to the
+  // thing that creates it, and a failed sweep must never fail a registration.
+  void pruneAbandonedClients().catch((error) => {
+    console.error("Could not prune abandoned OAuth clients", error);
+  });
   const body = await c.req.raw
     .clone()
     .json()
     .catch(() => null);
-  if (
-    body &&
-    typeof body === "object" &&
-    !(body as { client_name?: unknown }).client_name
-  ) {
-    const named = { ...(body as object), client_name: "Unnamed MCP client" };
-    const headers = new Headers(c.req.raw.headers);
-    headers.delete("content-length");
-    return getAuth().handler(
-      authRequest(
-        c,
-        new Request(c.req.raw.url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(named),
-        }),
-      ),
-    );
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return getAuth().handler(authRequest(c));
   }
-  return getAuth().handler(authRequest(c));
+  const bounded = boundedRegistration(body as Record<string, unknown>);
+  const headers = new Headers(c.req.raw.headers);
+  headers.delete("content-length");
+  return getAuth().handler(
+    authRequest(
+      c,
+      new Request(c.req.raw.url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(bounded),
+      }),
+    ),
+  );
 });
 
 app.post("/api/auth/mcp/token", async (c) => {
@@ -909,7 +960,13 @@ app.get("/api/v1/csv/export", async (c) => {
 });
 
 app.get("/api/v1/summary", async (c) =>
-  c.json(await getSummary(c.get("actor"), query(c))),
+  c.json(
+    await getSummary(
+      c.get("actor"),
+      query(c),
+      c.req.query("includeArchived") === "true",
+    ),
+  ),
 );
 app.get("/api/v1/audit-events", async (c) =>
   c.json(

@@ -70,6 +70,10 @@ import {
   listStages,
   updateStage,
 } from "./services/staging.js";
+import {
+  listConnectedApps,
+  revokeConnectedApp,
+} from "./services/connected-apps.js";
 import { getSummary } from "./services/summary.js";
 import {
   bulkDeleteTransactions,
@@ -102,6 +106,8 @@ import {
   cursorPageResultSchema,
   pageResultSchema,
   stagedTransactionResultSchema,
+  connectedAppListSchema,
+  revokedConnectedAppSchema,
   summaryResultSchema,
   transactionResultSchema,
 } from "./mcp-output-schemas.js";
@@ -355,19 +361,24 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Get financial summary",
         description:
-          "Calculate balances, deposits, withdrawals, and spending separately by currency.",
+          "Calculate balances, deposits, withdrawals, and spending separately by currency. Nothing dated after today is counted, whatever end date you ask for, because money dated in the future has not moved yet; the asOf field says which day the figures are really as of.",
         inputSchema: z.object({
           start: isoDateSchema
             .optional()
             .describe("First day to include. Left out, the summary starts from the beginning."),
           end: isoDateSchema
             .optional()
-            .describe("Last day to include. Left out, the summary runs to the end of the ledger."),
+            .describe("Last day to include. Left out, the summary runs to today. An end after today is treated as today."),
+          includeArchived: z
+            .boolean()
+            .optional()
+            .describe("Count archived accounts and their activity too. Off by default: archiving posts an account's balance out to equity, so an archived account holds nothing and its past activity is left out of the totals."),
         }),
         outputSchema: mcpOutputSchema(summaryResultSchema),
         annotations: readAnnotations,
       },
-      (input) => runTool(() => getSummary(actor, input)),
+      ({ includeArchived, ...input }) =>
+        runTool(() => getSummary(actor, input, includeArchived ?? false)),
     );
     server.registerTool(
       "export_transactions_csv",
@@ -404,6 +415,19 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       (input) => runTool(() => listAuditEvents(actor, input)),
     );
   }
+
+  server.registerTool(
+    "list_connected_agents",
+    {
+      title: "List connected agents",
+      description:
+        "List the MCP clients this person has authorized, what each may do, and whether it currently holds a live token. Includes you.",
+      inputSchema: z.object({}),
+      outputSchema: mcpOutputSchema(connectedAppListSchema),
+      annotations: readAnnotations,
+    },
+    () => runTool(() => listConnectedApps(actor)),
+  );
 
   if (scopes.has("ledger:stage") || scopes.has("ledger:write")) {
     server.registerTool(
@@ -502,6 +526,35 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
   }
 
   if (scopes.has("ledger:write")) {
+    server.registerTool(
+      "revoke_connected_agent",
+      {
+        title: "Revoke a connected agent",
+        description:
+          "Cut an MCP client off from this ledger now rather than at token expiry. Its access tokens are deleted, so it stops on its next call, and its refresh token goes with them. The approval is withdrawn too, so it has to be authorized again. Pass your own client id to disconnect yourself. This is the same action as Settings > Connected agents in the browser.",
+        inputSchema: z.object({
+          clientId: z
+            .string()
+            .min(1)
+            .describe(
+              "The client id to cut off, as returned by list_connected_agents.",
+            ),
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(revokedConnectedAppSchema),
+        annotations: destructiveAnnotations,
+      },
+      ({ clientId, idempotencyKey }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "connected_app.revoke",
+            idempotencyKey,
+            { clientId },
+            (tx) => revokeConnectedApp(actor, clientId, tx),
+          ),
+        ),
+    );
     server.registerTool(
       "create_account",
       {

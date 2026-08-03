@@ -83,7 +83,7 @@ integration("one tenant cannot reach another", () => {
       name: "Alice Checking",
       type: "checking",
       currency: "USD",
-      openingDate: "2027-01-01",
+      openingDate: "2026-01-01",
       openingBalance: "1000",
     });
     aliceAccountId = account.id;
@@ -94,7 +94,7 @@ integration("one tenant cannot reach another", () => {
       alice,
       {
         type: "withdrawal",
-        date: "2027-02-01",
+        date: "2026-02-01",
         payee: "Alice Only Payee",
         description: null,
         categoryId: aliceCategoryId,
@@ -111,7 +111,7 @@ integration("one tenant cannot reach another", () => {
         name: "Mallory Checking",
         type: "checking",
         currency: "USD",
-        openingDate: "2027-01-01",
+        openingDate: "2026-01-01",
         openingBalance: "5",
       })
     ).id;
@@ -181,7 +181,7 @@ integration("one tenant cannot reach another", () => {
       updateTransaction(mallory, aliceTransactionId, {
         draft: {
           type: "withdrawal",
-          date: "2027-02-01",
+          date: "2026-02-01",
           payee: "Rewritten",
           description: null,
           fromAccountId: malloryAccountId,
@@ -274,7 +274,7 @@ integration("one tenant cannot reach another", () => {
         name: "Alice Checking",
         type: "checking",
         currency: "USD",
-        openingDate: "2027-01-01",
+        openingDate: "2026-01-01",
         openingBalance: "0",
       }),
     ).resolves.toMatchObject({ name: "Alice Checking" });

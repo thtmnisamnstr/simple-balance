@@ -72,7 +72,40 @@ const systemAccountNames: Record<SystemAccountKind, string> = {
  * zero on its own. Creation is a conflict-tolerant insert because two
  * concurrent first-ever transactions in the same currency would otherwise race.
  */
+/**
+ * The counter-accounts a transaction settles against, found once per
+ * transaction rather than once per row.
+ *
+ * There is one of each kind per currency and nothing inside a transaction can
+ * remove one, so the second lookup can only return what the first did. On a
+ * CSV import that repeated select ran for every row staged.
+ */
+const systemAccountsByTx = new WeakMap<
+  object,
+  Map<string, typeof ledgerAccounts.$inferSelect>
+>();
+
 export async function ensureSystemAccount(
+  tx: DbTransaction,
+  actor: Actor,
+  kind: SystemAccountKind,
+  currency: string,
+) {
+  const cacheKey = `${actor.userId}|${kind}|${currency}`;
+  let cache = systemAccountsByTx.get(tx as object);
+  if (!cache) {
+    cache = new Map();
+    systemAccountsByTx.set(tx as object, cache);
+  }
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const found = await ensureSystemAccountUncached(tx, actor, kind, currency);
+  cache.set(cacheKey, found);
+  return found;
+}
+
+async function ensureSystemAccountUncached(
   tx: DbTransaction,
   actor: Actor,
   kind: SystemAccountKind,
@@ -183,6 +216,102 @@ export async function postOpeningBalance(
       userId: actor.userId,
       transactionId: null,
       openingAccountId: account.id,
+      closingAccountId: null,
+      accountId: slot.accountId,
+      date: slot.date,
+      amount: canonicalDecimal(slot.amount),
+      currency: account.currency,
+    }));
+  if (rows.length) await tx.insert(postings).values(rows);
+}
+
+/**
+ * Close an account out to equity so it ends at zero, and put it back when the
+ * account is reopened.
+ *
+ * Archiving used to hide an account that still held money. The dashboard then
+ * left it out of the balance while the cash-flow and category figures beside it
+ * still counted its activity, so the headline total was short by whatever the
+ * account held and nothing on the page said so. Deleting is refused for any
+ * account with history, which made archiving the only way to retire one, so the
+ * ungated path was also the mandatory one.
+ *
+ * So archiving now records what an opening balance records, in reverse: the
+ * remaining balance is posted out of the account and into the same Opening
+ * Balances equity account it came from. The money leaves the books the way it
+ * entered them, and the ledger still sums to zero.
+ *
+ * The entry is dated the later of today and the account's last posting, so an
+ * account holding a future-dated transaction still ends at zero rather than
+ * coming back to life on that date. A balance as of an earlier day is
+ * unaffected, because the money really was there then.
+ *
+ * Reopening appends the reversal rather than deleting the pair, which is the
+ * same rule every other correction in this ledger follows.
+ */
+export async function postClosingBalance(
+  tx: DbTransaction,
+  actor: Actor,
+  account: { id: string; currency: string },
+  archived: boolean,
+) {
+  const existing = await tx
+    .select()
+    .from(postings)
+    .where(
+      and(
+        eq(postings.userId, actor.userId),
+        eq(postings.closingAccountId, account.id),
+      ),
+    );
+
+  // The balance to clear is the one the account holds on its own terms, so a
+  // closing pair already posted is left out of the sum rather than making the
+  // account look like it needs closing twice.
+  const measured = await tx.execute(sql`
+    select
+      coalesce(sum(p.amount) filter (where p.closing_account_id is null), 0)::text
+        as open_balance,
+      greatest(current_date, coalesce(max(p.date), current_date))::text as closing_date
+    from posting p
+    where p.user_id = ${actor.userId}
+      and p.account_id = ${account.id}::uuid
+  `);
+  const { open_balance: openBalance, closing_date: closingDate } = measured
+    .rows[0] as { open_balance: string; closing_date: string };
+  const remaining = decimal(openBalance);
+
+  const desired =
+    archived && !remaining.isZero()
+      ? [
+          { accountId: account.id, date: closingDate, amount: remaining.negated() },
+          {
+            accountId: (
+              await ensureSystemAccount(tx, actor, "equity", account.currency)
+            ).id,
+            date: closingDate,
+            amount: remaining,
+          },
+        ]
+      : [];
+
+  const net = new Map<string, { accountId: string; date: string; amount: Decimal }>();
+  const add = (accountId: string, date: string, amount: Decimal) => {
+    const key = `${accountId}|${date}`;
+    const slot = net.get(key);
+    if (slot) slot.amount = slot.amount.plus(amount);
+    else net.set(key, { accountId, date, amount });
+  };
+  for (const row of existing) add(row.accountId, row.date, decimal(row.amount).negated());
+  for (const row of desired) add(row.accountId, row.date, row.amount);
+
+  const rows = [...net.values()]
+    .filter((slot) => !slot.amount.isZero())
+    .map((slot) => ({
+      userId: actor.userId,
+      transactionId: null,
+      openingAccountId: null,
+      closingAccountId: account.id,
       accountId: slot.accountId,
       date: slot.date,
       amount: canonicalDecimal(slot.amount),
@@ -536,6 +665,9 @@ export async function setAccountArchived(
       )
       .returning();
     if (!updated) throw staleVersion();
+    // After the flag is set, so the closing pair and the state it reflects are
+    // written in the same transaction or neither is.
+    await postClosingBalance(tx, actor, updated, archived);
     await writeAudit(tx, actor, {
       entityType: "account",
       entityId: id,

@@ -410,10 +410,15 @@ export const postings = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    // A posting records either a transaction or where an account started.
-    // Exactly one of these is set, which the origin check below enforces.
+    // A posting records a transaction, where an account started, or where one
+    // was closed. Exactly one of these is set, which the origin check below
+    // enforces.
     transactionId: uuid("transaction_id"),
     openingAccountId: uuid("opening_account_id"),
+    // Archiving an account posts its remaining balance out to equity so the
+    // account ends at zero. Both halves name the account being closed, the same
+    // way an opening pair does, so unarchiving can find and undo them.
+    closingAccountId: uuid("closing_account_id"),
     accountId: uuid("account_id")
       .notNull(),
     // A journal line carries its own date. Money moved on the day it moved, so
@@ -456,6 +461,15 @@ export const postings = pgTable(
       table.userId,
       table.openingAccountId,
     ),
+    foreignKey({
+      columns: [table.userId, table.closingAccountId],
+      foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
+      name: "posting_closing_account_owner_fk",
+    }),
+    index("posting_closing_account_idx").on(
+      table.userId,
+      table.closingAccountId,
+    ),
     // Serves every balance-as-of query: one account, dates up to a bound.
     index("posting_user_account_date_idx").on(
       table.userId,
@@ -467,7 +481,9 @@ export const postings = pgTable(
     index("posting_transaction_idx").on(table.transactionId),
     check(
       "posting_origin_check",
-      sql`(${table.transactionId} is null) <> (${table.openingAccountId} is null)`,
+      sql`(case when ${table.transactionId} is null then 0 else 1 end)
+        + (case when ${table.openingAccountId} is null then 0 else 1 end)
+        + (case when ${table.closingAccountId} is null then 0 else 1 end) = 1`,
     ),
     check("posting_amount_check", sql`${table.amount} <> 0`),
     check("posting_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),

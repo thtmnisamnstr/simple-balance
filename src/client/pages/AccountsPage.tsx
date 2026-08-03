@@ -26,6 +26,7 @@ import {
   EmptyState,
   formatMoney,
   isNegativeMoney,
+  isPositiveMoney,
   Modal,
   PageHeader,
   SortMenu,
@@ -53,10 +54,15 @@ const accountSortFields = [
 ] as const;
 type AccountSortField = (typeof accountSortFields)[number]["field"];
 
+/** Non-zero without turning a decimal string into a float. */
+const hasBalance = (amount: string) =>
+  isPositiveMoney(amount) || isNegativeMoney(amount);
+
 export default function AccountsPage({ session }: { session: Session }) {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
   const removal = useConfirm<Account>();
+  const closing = useConfirm<Account>();
   const [sort, setSort] = useState<SortState<AccountSortField>>({
     field: "name",
     direction: "asc",
@@ -173,7 +179,19 @@ export default function AccountsPage({ session }: { session: Session }) {
                           <Pencil size={15} /> Edit
                         </button>
                         <button
-                          onClick={() => mutation.mutate({ account, action: "archive" })}
+                          onClick={() => {
+                            // Archiving now moves money: the balance is posted
+                            // out to equity so the account ends at zero.
+                            // Restoring puts it back, and neither is something
+                            // to do by brushing past a menu item.
+                            if (!account.archivedAt && hasBalance(account.balance)) {
+                              closing.ask(account, () =>
+                                mutation.mutate({ account, action: "archive" }),
+                              );
+                              return;
+                            }
+                            mutation.mutate({ account, action: "archive" });
+                          }}
                         >
                           {account.archivedAt ? <ArchiveRestore size={15} /> : <Archive size={15} />}
                           {account.archivedAt ? "Restore" : "Archive"}
@@ -246,6 +264,19 @@ export default function AccountsPage({ session }: { session: Session }) {
           />
         ) : null}
       </Modal>
+      <ConfirmDialog
+        open={closing.open}
+        title="Archive this account?"
+        description={
+          closing.value
+            ? `${formatMoney(closing.value.balance, closing.value.currency)} is posted out of “${closing.value.name}” to Opening Balances so the account closes at zero, which is why your totals will not change. Its history stays, and restoring the account posts the balance back.`
+            : undefined
+        }
+        confirmLabel="Archive"
+        onConfirm={closing.confirm}
+        onCancel={closing.cancel}
+      />
+
       <ConfirmDialog
         open={removal.open}
         title="Delete this account?"

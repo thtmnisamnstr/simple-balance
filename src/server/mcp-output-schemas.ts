@@ -207,6 +207,8 @@ export const summaryResultSchema = z.object({
     start: nullableStringSchema,
     end: nullableStringSchema,
   }),
+  asOf: z.string(),
+  includesArchived: z.boolean(),
   currencies: z.array(
     z.object({
       currency: z.string(),
@@ -220,6 +222,7 @@ export const summaryResultSchema = z.object({
           name: z.string(),
           type: z.string(),
           balance: decimalSchema,
+          archivedAt: nullableStringSchema,
         }),
       ),
       spendingByCategory: z.array(
@@ -340,3 +343,22 @@ export const committedStagesResultSchema = z.union([
     ),
   }),
 ]);
+
+export const connectedAppSchema = z.object({
+  clientId: z.string(),
+  name: z.string(),
+  scopes: z.array(z.string()),
+  authorizedAt: nullableStringSchema,
+  lastIssuedAt: nullableStringSchema,
+  expiresAt: nullableStringSchema,
+  activeTokenCount: z.number().int().nonnegative(),
+  hasLiveAccess: z.boolean(),
+});
+
+export const connectedAppListSchema = z.array(connectedAppSchema);
+
+export const revokedConnectedAppSchema = z.object({
+  clientId: z.string(),
+  name: z.string(),
+  revokedTokenCount: z.number().int().nonnegative(),
+});
