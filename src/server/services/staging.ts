@@ -42,6 +42,7 @@ import {
   serializeRow,
   setIdempotent,
   writeAudit,
+  writeAuditMany,
 } from "./helpers.js";
 import {
   type SortPlan,
@@ -215,15 +216,18 @@ export async function createStage(
   });
 }
 
-export async function insertImportedStage(
+type ImportedStageInput = {
+  draft: unknown;
+  rawData: unknown;
+  importBatchId: string;
+  initialIssues?: ValidationIssue[];
+};
+
+/** Everything a staged row needs decided, with nothing written yet. */
+async function prepareImportedStage(
   tx: DbTransaction,
   actor: Actor,
-  input: {
-    draft: unknown;
-    rawData: unknown;
-    importBatchId: string;
-    initialIssues?: ValidationIssue[];
-  },
+  input: ImportedStageInput,
 ) {
   await lockStagedDraftReferences(tx, actor, [input.draft]);
   const canonicalDraft = await canonicalizeStagedDraftPayee(
@@ -232,29 +236,71 @@ export async function insertImportedStage(
     input.draft,
   );
   const draftValidation = await validateDraft(tx, actor, canonicalDraft);
-  const validation = {
-    issues: [...(input.initialIssues ?? []), ...draftValidation.issues],
+  return {
+    userId: actor.userId,
+    draft: canonicalDraft ?? {},
+    rawData: input.rawData,
+    importBatchId: input.importBatchId,
+    validationIssues: [
+      ...(input.initialIssues ?? []),
+      ...draftValidation.issues,
+    ],
     duplicateOfId: draftValidation.duplicateOfId,
     duplicateKey: draftValidation.duplicateKey,
   };
-  const [created] = await tx
-    .insert(stagedTransactions)
-    .values({
-      userId: actor.userId,
-      draft: canonicalDraft ?? {},
-      rawData: input.rawData,
-      importBatchId: input.importBatchId,
-      validationIssues: validation.issues,
-      duplicateOfId: validation.duplicateOfId,
-      duplicateKey: validation.duplicateKey,
-    })
-    .returning();
-  await writeAudit(tx, actor, {
-    entityType: "staged_transaction",
-    entityId: created.id,
-    operation: "create_from_csv",
-    after: stageView(created),
-  });
+}
+
+export async function insertImportedStage(
+  tx: DbTransaction,
+  actor: Actor,
+  input: ImportedStageInput,
+) {
+  const [created] = await insertImportedStages(tx, actor, [input]);
+  return created;
+}
+
+/**
+ * Stage a whole file's worth of rows with two statements per chunk instead of
+ * two per row.
+ *
+ * Each row still has to be checked against the ledger on its own, because that
+ * is what the review queue is for. What it does not need is its own insert and
+ * its own audit round trip: those are the same statement repeated, and on a
+ * twelve-thousand-row import they were most of the wall clock.
+ */
+export async function insertImportedStages(
+  tx: DbTransaction,
+  actor: Actor,
+  inputs: readonly ImportedStageInput[],
+) {
+  if (!inputs.length) return [];
+  const values = [];
+  for (const input of inputs) {
+    values.push(await prepareImportedStage(tx, actor, input));
+  }
+
+  // Bounded so one enormous file cannot build a statement PostgreSQL refuses
+  // for having too many bind parameters.
+  const CHUNK = 500;
+  const created: (typeof stagedTransactions.$inferSelect)[] = [];
+  for (let start = 0; start < values.length; start += CHUNK) {
+    const inserted = await tx
+      .insert(stagedTransactions)
+      .values(values.slice(start, start + CHUNK))
+      .returning();
+    created.push(...inserted);
+  }
+
+  await writeAuditMany(
+    tx,
+    actor,
+    created.map((row) => ({
+      entityType: "staged_transaction",
+      entityId: row.id,
+      operation: "create_from_csv",
+      after: stageView(row),
+    })),
+  );
   return created;
 }
 

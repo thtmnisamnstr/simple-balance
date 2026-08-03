@@ -47,6 +47,43 @@ export async function writeAudit(
   });
 }
 
+/**
+ * Write many audit events in one statement.
+ *
+ * A CSV import records one event per staged row. Sent one at a time that is a
+ * round trip per row on top of the insert it describes, which is half the
+ * write cost of an import for no benefit: they all land in the same
+ * transaction and either commit together or not at all.
+ */
+export async function writeAuditMany(
+  tx: DbTransaction,
+  actor: Actor,
+  events: readonly {
+    entityType: string;
+    entityId: string;
+    operation: string;
+    before?: unknown;
+    after?: unknown;
+  }[],
+) {
+  if (!events.length) return;
+  const CHUNK = 500;
+  for (let start = 0; start < events.length; start += CHUNK) {
+    await tx.insert(auditEvents).values(
+      events.slice(start, start + CHUNK).map((event) => ({
+        userId: actor.userId,
+        actorSource: actor.source,
+        clientId: actor.clientId,
+        entityType: event.entityType,
+        entityId: event.entityId,
+        operation: event.operation,
+        before: event.before ?? null,
+        after: event.after ?? null,
+      })),
+    );
+  }
+}
+
 export async function getIdempotent<T>(
   tx: DbTransaction,
   actor: Actor,
@@ -143,6 +180,33 @@ export async function lockIdempotencyKey(
  * account locks in sorted order before acquiring the category namespace lock,
  * then the payee namespace lock.
  */
+/**
+ * Which advisory locks a transaction has already taken.
+ *
+ * These are xact locks: PostgreSQL holds them until commit and taking one twice
+ * in the same transaction does nothing. Asking again was therefore a round trip
+ * that could only ever return immediately, which is invisible on one row and
+ * expensive on twelve thousand: a CSV import re-took the same account, category
+ * and payee locks for every row it staged.
+ *
+ * Keyed on the transaction object itself, so the memo cannot outlive it or leak
+ * into another one.
+ */
+const locksHeld = new WeakMap<object, Set<string>>();
+
+async function takeTransactionLock(tx: DbTransaction, lockKey: string) {
+  let held = locksHeld.get(tx as object);
+  if (!held) {
+    held = new Set();
+    locksHeld.set(tx as object, held);
+  }
+  if (held.has(lockKey)) return;
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
+  );
+  held.add(lockKey);
+}
+
 export async function lockAccountReferences(
   tx: DbTransaction,
   actor: Actor,
@@ -150,10 +214,7 @@ export async function lockAccountReferences(
 ) {
   const sortedIds = [...new Set(accountIds)].sort();
   for (const accountId of sortedIds) {
-    const lockKey = `account-reference:${actor.userId}:${accountId}`;
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
-    );
+    await takeTransactionLock(tx, `account-reference:${actor.userId}:${accountId}`);
   }
 }
 
@@ -161,10 +222,7 @@ export async function lockCategoryNamespace(
   tx: DbTransaction,
   actor: Actor,
 ) {
-  const lockKey = `categories:${actor.userId}`;
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
-  );
+  await takeTransactionLock(tx, `categories:${actor.userId}`);
 }
 
 /**
@@ -176,10 +234,7 @@ export async function lockPayeeNamespace(
   tx: DbTransaction,
   actor: Actor,
 ) {
-  const lockKey = `payees:${actor.userId}`;
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
-  );
+  await takeTransactionLock(tx, `payees:${actor.userId}`);
 }
 
 export async function setIdempotent(

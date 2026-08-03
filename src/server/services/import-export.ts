@@ -49,7 +49,7 @@ import {
 import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
 import { cleanHumanName, normalizeHumanName } from "./names.js";
 import { seedCanonicalPayeeCache } from "./payees.js";
-import { insertImportedStage } from "./staging.js";
+import { insertImportedStages } from "./staging.js";
 import { listTransactions } from "./transactions.js";
 
 const APP_CSV_FORMAT = "simple-balance-csv-1";
@@ -698,18 +698,17 @@ export async function stageCsv(
       after: serializeRow(batch),
     });
 
-    const stagedIds: string[] = [];
-    for (let index = 0; index < rows.length; index += 1) {
-      const normalizedRow = rows[index];
-      const rawData = parsedCsv.data[index];
-      const staged = await insertImportedStage(tx, actor, {
+    const staged = await insertImportedStages(
+      tx,
+      actor,
+      rows.map((normalizedRow, index) => ({
         draft: normalizedRow.draft ?? {},
-        rawData,
+        rawData: parsedCsv.data[index],
         importBatchId: batch.id,
         initialIssues: normalizedRow.issues,
-      });
-      stagedIds.push(staged.id);
-    }
+      })),
+    );
+    const stagedIds = staged.map((row) => row.id);
     const response = { ...preview, importBatchId: batch.id, stagedIds };
     await setIdempotent(
       tx,
