@@ -598,6 +598,77 @@ export async function createTransaction(
   });
 }
 
+/**
+ * Names for a whole page of rows in two queries rather than two per row.
+ *
+ * hydrateTransaction is right for the one row a write returns. Mapping it over
+ * a page is not: the rows are read inside one transaction, so they share a
+ * single connection and the lookups run one after another rather than at once.
+ * A fifty-row page meant a hundred sequential round trips to say what fifty
+ * accounts and categories are called.
+ */
+async function hydrateTransactions(
+  tx: DbTransaction,
+  actor: Actor,
+  rows: TransactionRow[],
+) {
+  if (!rows.length) return [];
+  const accountIds = [
+    ...new Set(
+      rows.flatMap((row) =>
+        [row.sourceAccountId, row.destinationAccountId].filter(
+          (value): value is string => Boolean(value),
+        ),
+      ),
+    ),
+  ];
+  const categoryIds = [
+    ...new Set(
+      rows
+        .map((row) => row.categoryId)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  ];
+
+  const accountRows = accountIds.length
+    ? await tx
+        .select({
+          id: ledgerAccounts.id,
+          name: ledgerAccounts.name,
+          currency: ledgerAccounts.currency,
+        })
+        .from(ledgerAccounts)
+        .where(
+          and(
+            eq(ledgerAccounts.userId, actor.userId),
+            inArray(ledgerAccounts.id, accountIds),
+          ),
+        )
+    : [];
+  const categoryRows = categoryIds.length
+    ? await tx
+        .select({ id: categories.id, name: categories.name, kind: categories.kind })
+        .from(categories)
+        .where(
+          and(
+            eq(categories.userId, actor.userId),
+            inArray(categories.id, categoryIds),
+          ),
+        )
+    : [];
+
+  const accountMap = new Map(accountRows.map((account) => [account.id, account]));
+  const categoryMap = new Map(categoryRows.map((category) => [category.id, category]));
+  return rows.map((row) =>
+    transactionView(
+      row,
+      row.sourceAccountId ? accountMap.get(row.sourceAccountId) : null,
+      row.destinationAccountId ? accountMap.get(row.destinationAccountId) : null,
+      row.categoryId ? categoryMap.get(row.categoryId) : undefined,
+    ),
+  );
+}
+
 async function hydrateTransaction(
   tx: DbTransaction,
   actor: Actor,
@@ -769,7 +840,7 @@ export async function listTransactions(
   const pageRows = rows.slice(0, query.limit);
   const last = pageRows.at(-1);
   const items = await db.transaction(async (tx) =>
-    Promise.all(pageRows.map((row) => hydrateTransaction(tx, actor, row))),
+    hydrateTransactions(tx, actor, pageRows),
   );
   return {
     items,
