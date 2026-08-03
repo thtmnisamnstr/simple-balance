@@ -352,3 +352,15 @@ export function isEmailAllowed(email: string) {
 export function isRegistrationClosed() {
   return getConfig().registration.kind === "closed";
 }
+
+/**
+ * True when the rule admits every address there is.
+ *
+ * The setup code is checked only after the rule has turned an address away, so
+ * a rule that turns nobody away makes the code unreachable. Worth naming,
+ * because "is the code any use here" is not the same question as "is it
+ * required", and the startup log needs the first one.
+ */
+export function isRegistrationOpenToAnyone() {
+  return getConfig().registration.kind === "anyone";
+}

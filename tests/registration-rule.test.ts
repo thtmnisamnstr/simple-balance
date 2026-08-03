@@ -97,4 +97,39 @@ describe("matching an address against the rule", () => {
     expect(await matches("", "anyone@anywhere.test")).toBe(false);
     expect(await matches("*", "anyone@anywhere.test")).toBe(true);
   });
+
+  /**
+   * Whether the setup code is any use is a different question from whether it
+   * is required, and the startup log needs the first one. The sign-up route
+   * reads the code only after the rule has turned an address away, so a rule
+   * that turns nobody away makes it unreachable. Printing one anyway told the
+   * operator to go and find a code no request would ever look at.
+   */
+  describe("whether the setup code can be used at all", () => {
+    const openToAnyone = async (allowed: string) => {
+      process.env.ALLOWED_EMAILS = allowed;
+      process.env.AUTH_MODE = "local";
+      vi.resetModules();
+      const { isRegistrationOpenToAnyone } = await import(
+        "../src/server/config.js"
+      );
+      return isRegistrationOpenToAnyone();
+    };
+
+    it("is no use when the rule admits everyone", async () => {
+      expect(await openToAnyone("*")).toBe(true);
+    });
+
+    it("is the only way in when the rule admits nobody", async () => {
+      expect(await openToAnyone("")).toBe(false);
+    });
+
+    // The middle case, and the reason this is not just isRegistrationClosed:
+    // an address the list does not name still needs the code while the
+    // instance is unclaimed.
+    it("still reachable when the rule names some addresses", async () => {
+      expect(await openToAnyone("you@example.com")).toBe(false);
+      expect(await openToAnyone("example.com")).toBe(false);
+    });
+  });
 });

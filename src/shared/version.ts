@@ -6,4 +6,4 @@
  * change. `npm run set-version` rewrites it alongside the manifests, and a test
  * fails if it ever disagrees with package.json.
  */
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = "0.1.1";

@@ -1,6 +1,10 @@
 import { serve } from "@hono/node-server";
 import app from "./api.js";
-import { getConfig } from "./config.js";
+import {
+  getConfig,
+  isRegistrationClosed,
+  isRegistrationOpenToAnyone,
+} from "./config.js";
 import { closeDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { checkMailTransport, closeMail } from "./mail.js";
@@ -35,14 +39,21 @@ async function main() {
         "sits in front, or every visitor will share one allowance.",
     );
   }
+  // The code is read only after ALLOWED_EMAILS has turned an address away, so a
+  // rule admitting everyone makes it unreachable. Printing one there told the
+  // operator to use something no request would ever look at, and sent them
+  // hunting for a code the sign-up form does not ask for.
   if (
     config.isProduction &&
     config.localAuthEnabled &&
+    !isRegistrationOpenToAnyone() &&
     (await isLocalBootstrapOpen())
   ) {
     console.info(`First-run setup code: ${getOwnerSetupToken()}`);
     console.info(
-      "Use it to create the first account. It stops working once one exists; after that, ALLOWED_EMAILS decides who may register.",
+      isRegistrationClosed()
+        ? "ALLOWED_EMAILS admits nobody, so this is the only way to create the first account. It stops working once one exists."
+        : "Addresses ALLOWED_EMAILS admits do not need it. This claims the instance with an address it would turn away, and stops working once an account exists.",
     );
   }
   const server = serve({

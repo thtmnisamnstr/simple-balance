@@ -2,6 +2,32 @@
 
 Notable changes, newest first.
 
+## 0.1.1 - 2026-08-03
+
+Two things a first deployment ran into. No schema change, no data migration:
+pull the new image and restart.
+
+### Fixed
+
+Reaching a database on another host over TLS. The deployment guide said to
+append `?sslmode=require`, which in libpq means "encrypt and do not check the
+certificate" but in node-postgres does check it. A self-hosted PostgreSQL almost
+always presents a certificate it signed itself, so the setting the guide
+recommended was the one that could not work, and it failed with
+`DEPTH_ZERO_SELF_SIGNED_CERT` while Node advised installing a root CA that does
+not exist. Use `?sslmode=no-verify` for a self-signed server: the connection is
+still encrypted, it just stops checking who signed the certificate. The guide
+now sets out all three modes and what each does, and the startup failure names
+the one to use instead of leaving an operator with a certificate error and no
+way forward.
+
+The first-run setup code is no longer printed where it cannot be used. The code
+is read only after `ALLOWED_EMAILS` has turned an address away, so a rule
+admitting everyone makes it unreachable, and printing one sent operators looking
+for a code the sign-up form does not ask for. Where it is still live, the log
+now says which it is: the only way in when the rule admits nobody, or the way to
+claim the instance with an address the rule would turn away.
+
 ## 0.1.0 - 2026-08-02
 
 The first release. Everything below is new, so this reads as a description of
