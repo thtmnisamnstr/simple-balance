@@ -10,6 +10,17 @@ import { createGracefulShutdown } from "./server-lifecycle.js";
 
 async function main() {
   const config = getConfig();
+  if (!config.isProduction) {
+    // Several protections read this rather than being switched on separately:
+    // the first-account setup code is not demanded, the rate limiter is off,
+    // and secure cookies are not required. That is right for `npm run dev` and
+    // wrong, silently, for a built server somebody starts by hand.
+    console.warn(
+      "NODE_ENV is not production. The first-run setup code is not required, " +
+        "sign-in attempts are not rate limited, and cookies are not marked " +
+        "secure. Set NODE_ENV=production before exposing this to anybody.",
+    );
+  }
   await runMigrations();
   await checkMailTransport();
   if (config.isProduction && !config.trustProxy) {

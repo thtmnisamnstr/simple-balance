@@ -251,7 +251,7 @@ export default function AccountsPage({ session }: { session: Session }) {
         title="Delete this account?"
         description={
           removal.value
-            ? `“${removal.value.name}” has no transactions and no ledger history, so deleting it leaves nothing behind. An account you have used cannot be deleted; archive it instead.`
+            ? `An account can only be deleted while it has no transactions and no ledger history. If “${removal.value.name}” has either, this is refused and nothing changes. To put a used account out of the way, archive it instead.`
             : undefined
         }
         onConfirm={removal.confirm}

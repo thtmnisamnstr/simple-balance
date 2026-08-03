@@ -526,7 +526,7 @@ export default function CategoriesPage() {
         title="Delete this category?"
         description={
           removal.value
-            ? `“${removal.value.name}” is not used by any transaction. Deleting it cannot be undone. To keep it out of the way instead, archive it.`
+            ? `A category can only be deleted while nothing is filed under it. If anything still names “${removal.value.name}”, this is refused and nothing changes. Deleting one that is unused cannot be undone; to put it out of the way instead, archive it.`
             : undefined
         }
         onConfirm={removal.confirm}

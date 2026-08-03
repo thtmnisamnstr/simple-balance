@@ -345,19 +345,31 @@ export default function StagingPage() {
             placeholder="Search staged transactions"
           />
         </label>
-        <Select value={validity} onChange={(event) => setValidity(event.target.value)}>
+        <Select
+          aria-label="Filter by status"
+          value={validity}
+          onChange={(event) => setValidity(event.target.value)}
+        >
           <option value="">All statuses</option>
           <option value="valid">Ready to commit</option>
           <option value="invalid">Needs attention</option>
           <option value="duplicate">Possible duplicate</option>
         </Select>
-        <Select value={accountId} onChange={(event) => setAccountId(event.target.value)}>
+        <Select
+          aria-label="Filter by account"
+          value={accountId}
+          onChange={(event) => setAccountId(event.target.value)}
+        >
           <option value="">All accounts</option>
           {accounts.data?.map((account) => (
             <option key={account.id} value={account.id}>{account.name}</option>
           ))}
         </Select>
-        <Select value={importBatchId} onChange={(event) => setImportBatchId(event.target.value)}>
+        <Select
+          aria-label="Filter by import batch"
+          value={importBatchId}
+          onChange={(event) => setImportBatchId(event.target.value)}
+        >
           <option value="">All batches</option>
           {batches.map((batch) => (
             <option key={batch.id} value={batch.id}>

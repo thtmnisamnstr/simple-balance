@@ -18,6 +18,7 @@ import {
   directTransactionCreateSchema,
   idempotencyKeySchema,
   listQuerySchema,
+  payeeListQuerySchema,
   payeeMergeSchema,
   stageCreateSchema,
   stageListQuerySchema,
@@ -268,7 +269,10 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "List payees",
         description:
           "List canonical payee names derived from committed and staged transactions.",
-        inputSchema: z.object({ search: z.string().trim().max(200).optional() }),
+        // The service's own schema, so what is advertised and what is accepted
+        // cannot drift. They already had: this said 200 characters where the
+        // service allows 160 and strips line breaks.
+        inputSchema: payeeListQuerySchema,
         outputSchema: mcpOutputSchema(z.array(payeeResultSchema)),
         annotations: readAnnotations,
       },

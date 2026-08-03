@@ -4,8 +4,9 @@ import {
   oAuthProtectedResourceMetadata,
   withMcpAuth,
 } from "better-auth/plugins";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Hono, type Context } from "hono";
+import { getCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
 import type { PoolClient } from "pg";
 import { z } from "zod";
@@ -33,6 +34,7 @@ import {
 import { getConfig, isEmailAllowed, isRegistrationClosed } from "./config.js";
 import { LOCAL_BOOTSTRAP_LOCK } from "./db/advisory-locks.js";
 import { getAuthBootstrapLockPool, getDb } from "./db/client.js";
+import { verification } from "./db/schema.js";
 import {
   boundRequestBody,
   protectAuthMutation,
@@ -345,6 +347,38 @@ app.on(["GET", "POST"], "/api/auth/callback/google", async (c) => {
   return getAuth().handler(authRequest(c));
 });
 
+// `client_name` is optional in RFC 7591, and a client that leaves it out is
+// within its rights. The column it lands in is not null, so the insert failed
+// and the client got a 500 with nothing to act on. An unnamed client gets a
+// plain placeholder, which is also what the consent screen will show the person
+// being asked to trust it.
+app.post("/api/auth/mcp/register", async (c) => {
+  const body = await c.req.raw
+    .clone()
+    .json()
+    .catch(() => null);
+  if (
+    body &&
+    typeof body === "object" &&
+    !(body as { client_name?: unknown }).client_name
+  ) {
+    const named = { ...(body as object), client_name: "Unnamed MCP client" };
+    const headers = new Headers(c.req.raw.headers);
+    headers.delete("content-length");
+    return getAuth().handler(
+      authRequest(
+        c,
+        new Request(c.req.raw.url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(named),
+        }),
+      ),
+    );
+  }
+  return getAuth().handler(authRequest(c));
+});
+
 app.post("/api/auth/mcp/token", async (c) => {
   const response = await getAuth().handler(authRequest(c));
   if (!response.ok) return response;
@@ -386,6 +420,72 @@ app.get("/api/auth/mcp/authorize", (c) => {
 app.on(["GET", "POST"], "/api/auth/mcp/get-session", (c) =>
   c.json({ code: "NOT_FOUND", message: "No such endpoint" }, 404),
 );
+
+/**
+ * The consent code this request is answering, from the body or the cookie
+ * Better Auth falls back to, in that order, exactly as the handler does.
+ */
+async function pendingConsentCode(c: Context) {
+  const body = await c.req.raw
+    .clone()
+    .json()
+    .catch(() => null);
+  const fromBody =
+    body && typeof body === "object"
+      ? (body as { consent_code?: unknown }).consent_code
+      : undefined;
+  if (typeof fromBody === "string" && fromBody) return fromBody;
+  const cookie = getCookie(c, "oidc_consent_prompt");
+  // The cookie is signed as `value.signature`; only the value names the record.
+  return cookie ? decodeURIComponent(cookie.split(".", 1)[0]!) : null;
+}
+
+/** Who started the authorization this consent code belongs to. */
+async function pendingConsentUserId(consentCode: string) {
+  const [pending] = await getDb()
+    .select({ value: verification.value })
+    .from(verification)
+    .where(eq(verification.identifier, consentCode))
+    .limit(1);
+  if (!pending) return null;
+  try {
+    const parsed = JSON.parse(pending.value) as { userId?: unknown };
+    return typeof parsed.userId === "string" ? parsed.userId : null;
+  } catch {
+    return null;
+  }
+}
+
+// Approving an authorization has to be done by the person it belongs to.
+//
+// Better Auth requires a session on this route but never compares it to the
+// pending record it is approving: the user and client come from the stored
+// authorize request, and the signed-in account is not consulted. Since consent
+// is forced on for every client here, this screen is the only gate, and without
+// this check one account could answer for a request made by another. PKCE keeps
+// the resulting code from being redeemed by anybody but the client that started
+// the flow, so the harm was consent nobody gave and a stalled authorization for
+// the person who did start it, rather than a usable token.
+app.post("/api/auth/oauth2/consent", async (c) => {
+  const identity = await getWebIdentity(c.req.raw.headers);
+  if (!identity) {
+    return c.json({ code: "UNAUTHORIZED", message: "Sign in is required" }, 401);
+  }
+  const consentCode = await pendingConsentCode(c);
+  if (consentCode) {
+    const owner = await pendingConsentUserId(consentCode);
+    if (owner && owner !== identity.user.id) {
+      return c.json(
+        {
+          code: "CONSENT_NOT_YOURS",
+          message: "That authorization request was started by a different account.",
+        },
+        403,
+      );
+    }
+  }
+  return getAuth().handler(authRequest(c));
+});
 
 app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)));
 const mcpScopes = [

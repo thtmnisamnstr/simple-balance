@@ -160,6 +160,46 @@ integration("what an MCP client can discover before it has a token", () => {
     }
   });
 
+  // Consent is forced on for every client here, so this screen is the only gate
+  // on an authorization. Better Auth requires a session on that route but never
+  // compares it to the pending request being approved.
+  it("will not let one account approve an authorization another started", async () => {
+    const approve = async (consentCode: string, cookie: string) =>
+      app.request(`${BASE}/api/auth/oauth2/consent`, {
+        method: "POST",
+        headers: { origin: BASE, "content-type": "application/json", cookie },
+        body: JSON.stringify({ accept: true, consent_code: consentCode }),
+      });
+
+    // No session at all is refused before anything is looked up.
+    expect((await approve("any-code", "")).status).toBe(401);
+
+    const signUp = await app.request(`${BASE}/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: {
+        origin: BASE,
+        "content-type": "application/json",
+        "x-forwarded-for": "198.51.100.201",
+      },
+      body: JSON.stringify({
+        name: "Consent Bystander",
+        email: "bystander@example.com",
+        password: "bystander-password-1",
+      }),
+    });
+    expect(signUp.status).toBe(200);
+    const cookie = signUp.headers
+      .getSetCookie()
+      .map((value) => value.split(";", 1)[0])
+      .join("; ");
+
+    // A code that names a request belonging to nobody in this session. The
+    // guard cannot find an owner, so the library's own checks answer, and what
+    // must not happen is a 200.
+    const response = await approve("a-code-that-is-not-theirs", cookie);
+    expect(response.status).not.toBe(200);
+  });
+
   // The endpoint answers to the bare opaque token rather than the audience-bound
   // JWT, and hands back the refresh token with it.
   it("does not expose Better Auth's mcp/get-session", async () => {

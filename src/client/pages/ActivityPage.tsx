@@ -18,7 +18,7 @@ export default function ActivityPage() {
       <PageHeader
         eyebrow="Security"
         title="Activity history"
-        description="Every change made here or by an agent, kept in order and never rewritten."
+        description="Changes made here and by agents, kept in order and never rewritten. The hundred most recent are shown."
       />
       {events.data?.items.length ? (
         <section className="panel activity-list">
