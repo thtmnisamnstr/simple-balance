@@ -1,5 +1,9 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { Actor } from "../../shared/domain.js";
+import type {
+  Actor,
+  CategoryKind,
+  TransactionDraft,
+} from "../../shared/domain.js";
 import {
   categoryCreateSchema,
   categoryMergeSchema,
@@ -28,7 +32,7 @@ import {
   serializeRow,
   writeAudit,
 } from "./helpers.js";
-import { normalizeHumanName } from "./names.js";
+import { cleanHumanName, normalizeHumanName } from "./names.js";
 
 async function findNormalizedNameConflict(
   tx: DbTransaction,
@@ -66,6 +70,135 @@ async function assertNormalizedNameAvailable(
       normalizedName: normalizeHumanName(name),
     });
   }
+}
+
+/** The kind an entry of this type needs a category to cover. */
+export function categoryKindForDraft(draft: TransactionDraft): CategoryKind {
+  if (draft.type === "deposit") return "income";
+  if (draft.type === "withdrawal") return "expense";
+  return "both";
+}
+
+/** One category asked to cover both sides has to be usable on both. */
+export function combineCategoryKinds(
+  left: CategoryKind,
+  right: CategoryKind,
+): CategoryKind {
+  return left === right ? left : "both";
+}
+
+/** Live categories first, then a stable order, so a match never depends on row order. */
+export function preferredCategory(left: CategoryRow, right: CategoryRow) {
+  if (Boolean(left.archivedAt) !== Boolean(right.archivedAt)) {
+    return left.archivedAt ? 1 : -1;
+  }
+  return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+}
+
+/**
+ * Turn a category the caller named into one this ledger owns.
+ *
+ * Matching ignores case and surrounding space, so "groceries" typed against an
+ * existing "Groceries" files the entry under the category already there. It is
+ * the same rule a CSV import follows, and it is the reason a ledger does not
+ * accumulate three spellings of the same thing.
+ *
+ * Two things follow from matching a category that does not currently fit:
+ *
+ * A category filed under expenses that is now wanted for a deposit is widened
+ * to cover both rather than duplicated, because the alternative is refusing a
+ * name the user can plainly see in their own list, or creating a second
+ * category the uniqueness rule would reject anyway.
+ *
+ * An archived one is brought back. The user just named it, which is a clearer
+ * statement that they want it than the archiving was that they did not.
+ *
+ * This writes, so it belongs only on paths that are already committing. Callers
+ * that merely validate must not use it.
+ */
+export async function resolveCategoryByName(
+  tx: DbTransaction,
+  actor: Actor,
+  name: string,
+  kind: CategoryKind,
+): Promise<CategoryRow> {
+  const parsed = categoryCreateSchema.parse({ name: cleanHumanName(name), kind });
+  await lockCategoryNamespace(tx, actor);
+  const owned = await tx
+    .select()
+    .from(categories)
+    .where(eq(categories.userId, actor.userId));
+  const normalizedName = normalizeHumanName(parsed.name);
+  const [existing] = owned
+    .filter((row) => normalizeHumanName(row.name) === normalizedName)
+    .sort(preferredCategory);
+
+  if (!existing) {
+    const [created] = await tx
+      .insert(categories)
+      .values({ userId: actor.userId, ...parsed })
+      .returning();
+    await writeAudit(tx, actor, {
+      entityType: "category",
+      entityId: created.id,
+      operation: "create_from_transaction",
+      after: serializeRow(created),
+    });
+    return created;
+  }
+
+  const resolvedKind = combineCategoryKinds(existing.kind, parsed.kind);
+  if (existing.archivedAt === null && resolvedKind === existing.kind) {
+    return existing;
+  }
+  const [updated] = await tx
+    .update(categories)
+    .set({
+      kind: resolvedKind,
+      archivedAt: null,
+      version: existing.version + 1,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(categories.id, existing.id),
+        eq(categories.userId, actor.userId),
+        eq(categories.version, existing.version),
+      ),
+    )
+    .returning();
+  if (!updated) throw staleVersion();
+  await writeAudit(tx, actor, {
+    entityType: "category",
+    entityId: existing.id,
+    operation: "update_from_transaction",
+    before: serializeRow(existing),
+    after: serializeRow(updated),
+  });
+  return updated;
+}
+
+/**
+ * Settle a draft's category before anything is written.
+ *
+ * An id the caller supplied wins outright; a name is only consulted when there
+ * is no id. The name is dropped on the way out so everything downstream sees a
+ * draft with exactly one way of saying which category this is.
+ */
+export async function resolveDraftCategory<T extends TransactionDraft>(
+  tx: DbTransaction,
+  actor: Actor,
+  draft: T,
+): Promise<T> {
+  const { categoryName, ...rest } = draft;
+  if (!categoryName || draft.categoryId) return { ...rest } as T;
+  const category = await resolveCategoryByName(
+    tx,
+    actor,
+    categoryName,
+    categoryKindForDraft(draft),
+  );
+  return { ...rest, categoryId: category.id } as T;
 }
 
 async function activeStagedCategoryReferenceCount(

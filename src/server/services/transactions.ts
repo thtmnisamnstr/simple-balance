@@ -73,6 +73,7 @@ import {
   ordered,
 } from "./sorting.js";
 import { ensureSystemAccount } from "./accounts.js";
+import { resolveDraftCategory } from "./categories.js";
 import { normalizeHumanName } from "./names.js";
 import { resolveCanonicalPayee } from "./payees.js";
 
@@ -529,10 +530,14 @@ export async function prepareTransaction(
 export async function createTransactionWithinTx(
   tx: DbTransaction,
   actor: Actor,
-  draft: TransactionDraft,
+  input: TransactionDraft,
   auditOperation = "create",
   allowDuplicate = false,
 ) {
+  // A named category becomes a real one here rather than inside
+  // prepareTransaction, which is also how a staged row is checked and must
+  // stay free of side effects.
+  const draft = await resolveDraftCategory(tx, actor, input);
   const prepared = await prepareTransaction(tx, actor, draft);
   await assertDuplicateAllowed(tx, actor, draft, allowDuplicate);
   const [created] = await tx.insert(transactions).values(prepared.transaction).returning();
@@ -1593,11 +1598,12 @@ export async function updateTransaction(
     const allowedArchivedCategoryIds = new Set(
       before.categoryId ? [before.categoryId] : [],
     );
-    const prepared = await prepareTransaction(tx, actor, draft, {
+    const resolvedDraft = await resolveDraftCategory(tx, actor, draft);
+    const prepared = await prepareTransaction(tx, actor, resolvedDraft, {
       allowedArchivedAccountIds,
       allowedArchivedCategoryIds,
     });
-    await assertDuplicateAllowed(tx, actor, draft, allowDuplicate, id);
+    await assertDuplicateAllowed(tx, actor, resolvedDraft, allowDuplicate, id);
     const [updated] = await tx
       .update(transactions)
       .set({

@@ -319,19 +319,30 @@ function normalizeAutocompleteValue(value: string) {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
+/**
+ * Naming a category rather than creating one first.
+ *
+ * There is no button here. What the person typed travels with the transaction
+ * and the server settles it on save: an existing name matches whatever its
+ * capitalization, and only a genuinely new one becomes a new category. That is
+ * also why the field is controlled from above rather than holding its own copy
+ * of the text, which used to be discarded every time the category list
+ * refetched.
+ */
 function CategoryPicker({
   categories,
   type,
   categoryId,
+  categoryName,
   onChange,
 }: {
   categories: Category[];
   type: TransactionType;
   categoryId: string;
-  onChange: (categoryId: string) => void;
+  categoryName: string;
+  onChange: (categoryId: string, categoryName: string) => void;
 }) {
   const listId = useId();
-  const queryClient = useQueryClient();
   const compatible = useMemo(
     () =>
       categories.filter((category) => {
@@ -342,95 +353,53 @@ function CategoryPicker({
           (type === "withdrawal" && category.kind === "expense")
         );
       }),
-    [categories, type],
+    [categories, categoryId, type],
   );
-  const selected = categories.find((category) => category.id === categoryId);
-  const [value, setValue] = useState(selected?.name ?? "");
 
-  useEffect(() => {
-    const next = categories.find((category) => category.id === categoryId);
-    setValue(next?.name ?? "");
-  }, [categories, categoryId]);
-
-  const normalized = normalizeCategoryName(value);
-  const exact = compatible.find(
+  const normalized = normalizeCategoryName(categoryName);
+  // What the server will actually store: trimmed, with runs of space collapsed.
+  // The hint below is a preview of the result, so it has to show that rather
+  // than the raw keystrokes.
+  const cleaned = categoryName.trim().replace(/\s+/g, " ");
+  // Deliberately every category, not just the compatible ones. A name that
+  // belongs to a category filed under the other side still names something
+  // that exists, and the server widens that category rather than refusing the
+  // entry or starting a second spelling of it.
+  const existing = categories.find(
     (category) => normalizeCategoryName(category.name) === normalized,
   );
-  const createMutation = useMutation({
-    mutationFn: () =>
-      api<Category>(
-        "/api/v1/categories",
-        json({
-          name: value.trim().replace(/\s+/g, " "),
-          kind:
-            type === "deposit"
-              ? "income"
-              : type === "withdrawal"
-                ? "expense"
-                : "both",
-        }),
-      ),
-    onSuccess: async (category) => {
-      onChange(category.id);
-      setValue(category.name);
-      await queryClient.invalidateQueries({ queryKey: ["categories"] });
-    },
-    onError: (error) => {
-      if (!(error instanceof ApiClientError) || error.code !== "DUPLICATE") return;
-      const details = error.details as { duplicateCategoryId?: string } | undefined;
-      if (!details?.duplicateCategoryId) return;
-      const duplicateCategory = categories.find(
-        (category) => category.id === details.duplicateCategoryId,
-      );
-      if (duplicateCategory) {
-        onChange(duplicateCategory.id);
-        setValue(duplicateCategory.name);
-      }
-    },
-  });
 
   return (
     <div className="category-picker">
-      <div className="inline-input-action">
-        <Input
-          list={listId}
-          role="combobox"
-          aria-autocomplete="list"
-          aria-controls={listId}
-          value={value}
-          onChange={(event) => {
-            const next = event.target.value;
-            const match = compatible.find(
-              (category) =>
-                normalizeCategoryName(category.name) ===
-                normalizeCategoryName(next),
-            );
-            setValue(match?.name ?? next);
-            onChange(match?.id ?? "");
-          }}
-          placeholder="Type to search or add"
-        />
-        <datalist id={listId}>
-          {compatible.map((category) => (
-            <option key={category.id} value={category.name} />
-          ))}
-        </datalist>
-        {normalized && !exact ? (
-          <Button
-            type="button"
-            variant="secondary"
-            loading={createMutation.isPending}
-            onClick={() => createMutation.mutate()}
-          >
-            Add “{value.trim()}”
-          </Button>
-        ) : null}
-      </div>
-      {createMutation.error ? (
-        <small className="field-error">{createMutation.error.message}</small>
+      <Input
+        list={listId}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-controls={listId}
+        value={categoryName}
+        onChange={(event) => {
+          const next = event.target.value;
+          const match = categories.find(
+            (category) =>
+              normalizeCategoryName(category.name) ===
+              normalizeCategoryName(next),
+          );
+          // Matching by name keeps the spelling already in the ledger, so the
+          // field shows what the entry will actually be filed under.
+          onChange(match?.id ?? "", match?.name ?? next);
+        }}
+        placeholder="Type to search or add"
+      />
+      <datalist id={listId}>
+        {compatible.map((category) => (
+          <option key={category.id} value={category.name} />
+        ))}
+      </datalist>
+      {normalized && !existing ? (
+        <small>Saving will add “{cleaned}” as a new category.</small>
       ) : null}
-      {value && !categoryId && !createMutation.isPending ? (
-        <small>Select a suggestion or add this as a new category.</small>
+      {normalized && existing && !categoryId ? (
+        <small>Will use your existing “{existing.name}”.</small>
       ) : null}
     </div>
   );
@@ -493,6 +462,13 @@ export function TransactionForm({
   const [categoryId, setCategoryId] = useState(
     initial?.categoryId ?? initialCategoryId ?? "",
   );
+  const [categoryName, setCategoryName] = useState(
+    () =>
+      categories.find(
+        (category) =>
+          category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
+      )?.name ?? "",
+  );
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [fromAccountId, setFromAccountId] = useState(
     initial?.fromAccountId || initialAccountIds.fromAccountId,
@@ -539,8 +515,17 @@ export function TransactionForm({
         type === "transfer")
     ) {
       setCategoryId("");
+      setCategoryName("");
     }
   }, [categories, categoryId, type]);
+
+  // A category chosen somewhere other than this field - editing an existing
+  // transaction, or a link that prefills one - still has to show its name.
+  useEffect(() => {
+    if (!categoryId) return;
+    const selected = categories.find((category) => category.id === categoryId);
+    if (selected && selected.name !== categoryName) setCategoryName(selected.name);
+  }, [categories, categoryId]);
 
   const source = accounts.find((account) => account.id === fromAccountId);
   const destination = accounts.find((account) => account.id === toAccountId);
@@ -557,6 +542,9 @@ export function TransactionForm({
     setPayee(initialPayee ?? "");
     setDescription("");
     setCategoryId(initialCategoryId ?? "");
+    setCategoryName(
+      categories.find((category) => category.id === initialCategoryId)?.name ?? "",
+    );
     setCategoryPickerVersion((version) => version + 1);
     setNotes("");
     setFromAccountId(accountIds.fromAccountId);
@@ -574,6 +562,10 @@ export function TransactionForm({
         payee,
         description: description || null,
         categoryId: categoryId || null,
+        // Only when the field did not settle on one this ledger already has.
+        // The server matches it case-insensitively and creates it only if it
+        // is genuinely new.
+        categoryName: categoryId ? null : categoryName.trim() || null,
         notes: notes || null,
         // Carried through rather than edited. This is the reference the row
         // arrived with from a bank file, and it is what stops the same
@@ -822,7 +814,11 @@ export function TransactionForm({
             categories={categories}
             type={type}
             categoryId={categoryId ?? ""}
-            onChange={setCategoryId}
+            categoryName={categoryName}
+            onChange={(nextId, nextName) => {
+              setCategoryId(nextId);
+              setCategoryName(nextName);
+            }}
           />
         </Field>
         <Field label="Description" hint="Optional">

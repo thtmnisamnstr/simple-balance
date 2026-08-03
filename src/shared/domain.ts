@@ -142,6 +142,18 @@ const transactionCommon = {
     .nullable()
     .transform((value) => value || null),
   categoryId: z.string().uuid().optional().nullable(),
+  // Naming a category instead of picking one. The name is matched against the
+  // categories this ledger already has, ignoring case and surrounding space, and
+  // only creates one when nothing matches. That is the same rule a CSV import
+  // follows, so typing "groceries" where "Groceries" exists files the entry
+  // under the category already there rather than starting a second spelling of
+  // it. Ignored when categoryId is given, since an id is already an answer.
+  categoryName: oneLine(z.string().trim().min(1).max(120))
+    .optional()
+    .nullable()
+    .describe(
+      'A category by name rather than by id, matched case-insensitively against your existing categories and created only if it is genuinely new. Ignored when categoryId is set. Use this when you know what to call it but not its id, for example "Groceries".',
+    ),
   notes: freeText(z.string().trim().max(4_000)).optional().nullable(),
   externalId: oneLine(z.string().trim().max(200)).optional().nullable(),
 };
