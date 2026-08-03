@@ -15,7 +15,7 @@ ones that matter.
 
 | Variable | What it is |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL 15+ connection string. Append `?sslmode=require` when the database is not on the same host. The database it names is created if the server does not have it yet. |
+| `DATABASE_URL` | PostgreSQL 15+ connection string. Encrypt it when the database is not on the same host; see TLS below for which `sslmode` to use. The database it names is created if the server does not have it yet. |
 | `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. |
 | `APP_BASE_URL` | Your canonical public origin, exactly as the browser sees it. HTTPS anywhere but localhost. |
 
@@ -42,6 +42,30 @@ derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Google modes refuse to start
 without them, and without an `ALLOWED_EMAILS` that admits somebody, rather than
 silently letting everyone in.
+
+## Reaching the database over a network
+
+A database on another host should be reached over TLS, or the password and every
+row of the ledger cross the network in the clear. Which `sslmode` to put in
+`DATABASE_URL` depends on who signed the server's certificate.
+
+| `sslmode` | Encrypted | Certificate checked | Use it when |
+| --- | --- | --- | --- |
+| omitted | No | n/a | The database is on the same host, or reached over a private network you trust. |
+| `no-verify` | Yes | No | The server presents a certificate it signed itself, which a self-hosted PostgreSQL usually does. |
+| `verify-full` | Yes | Yes | The server has a certificate from a CA the container already trusts, such as a managed database. |
+
+Do not reach for `require`. In libpq it means "encrypt and do not check the
+certificate", and it is the setting most people try first, but node-postgres
+does check the certificate, so against a self-signed server it fails with
+`DEPTH_ZERO_SELF_SIGNED_CERT` and Node advises installing a root CA that does
+not exist. The server refuses to start and says which setting to use instead.
+
+`no-verify` is a real improvement on no TLS at all: the connection is encrypted,
+so nothing on the network can read it. It cannot tell you that the host
+answering is the host you meant, so on a network where somebody could stand in
+the middle, put the server's CA where the container trusts it and use
+`verify-full`.
 
 ## Who may register
 

@@ -90,11 +90,42 @@ export async function runMigrations() {
 /**
  * A pool client, creating the database first if the server has never seen it.
  */
+/**
+ * Certificate failures node-postgres reports when TLS is on but the chain does
+ * not check out. A self-hosted PostgreSQL almost always presents a certificate
+ * it signed itself, and Node's own advice for this is to install the root CA,
+ * which there is no root CA for.
+ */
+const TLS_TRUST_FAILURES = new Set([
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "CERT_HAS_EXPIRED",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+]);
+
 async function connectForMigration() {
   try {
     return await getPool().connect();
   } catch (error) {
-    if ((error as { code?: string }).code !== UNDEFINED_DATABASE) throw error;
+    const code = (error as { code?: string }).code;
+    if (code && TLS_TRUST_FAILURES.has(code)) {
+      // `sslmode=require` reads as "encrypt, do not check the certificate" in
+      // libpq, and node-postgres does check it, so the setting most people
+      // reach for is the one that fails here.
+      throw new Error(
+        `The database refused a verified TLS connection (${code}). ` +
+          "If it presents a certificate it signed itself, which a self-hosted " +
+          "PostgreSQL usually does, use ?sslmode=no-verify in DATABASE_URL: " +
+          "that still encrypts the connection but stops checking who signed " +
+          "the certificate. Use ?sslmode=verify-full only when the server has " +
+          "a certificate from a CA this container already trusts.",
+        { cause: error },
+      );
+    }
+    if (code !== UNDEFINED_DATABASE) throw error;
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw error;
     await createDatabaseIfMissing(connectionString);
