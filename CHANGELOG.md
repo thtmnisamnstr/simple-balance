@@ -4,6 +4,32 @@ Notable changes, newest first.
 
 ## Unreleased
 
+### Added
+
+Mass edit for staged rows, on the same terms as committed ones. Select rows in
+the review queue, or select everything matching the current filters, and change
+the date, payee, category, account, description, notes, or deposit/withdrawal
+type in one atomic request. This is the fastest way through the case the queue
+exists for: a CSV whose account column meant nothing to the importer leaves
+several hundred rows all failing the same check, and one edit fixes the lot.
+
+Every row it writes is validated again, so a batch that was failing on a missing
+account comes back ready to commit, and the reply says how many are ready and
+how many still need attention. The selection is protected the way a committed
+mass edit is: explicit rows carry the version they were read at, and an
+all-matching selection carries a server-issued count and `id:version`
+fingerprint, so a row that moved underneath makes the whole request stale rather
+than quietly taking a value nobody saw.
+
+Account and type are refused on a transfer, which has two accounts and no single
+one to move. Setting an account on a row that does not yet say which way the
+money went is refused unless the same edit sets the type. Both refuse rather
+than skip, so the count of rows changed always matches what was selected.
+
+Agents get the same thing through `bulk_edit_staged_transactions` and
+`preview_bulk_staged_selection`, with `dryRun` to see what a change would do
+first.
+
 ### Changed
 
 Uncategorised spending sits at the bottom of spending by category rather than

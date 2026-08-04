@@ -96,7 +96,9 @@ import {
   mergePayees,
 } from "./services/payees.js";
 import {
+  bulkEditStages,
   commitStages,
+  previewBulkStageSelection,
   createStage,
   deleteStages,
   getStage,
@@ -993,6 +995,16 @@ app.post("/api/v1/staged-transactions", async (c) =>
 app.put("/api/v1/staged-transactions/:id", async (c) =>
   c.json(await updateStage(c.get("actor"), c.req.param("id"), await body(c))),
 );
+// The same two shapes the committed routes take: resolve a filter selection
+// into a count and a fingerprint first, then send that back with the edit.
+app.post("/api/v1/staged-transactions/bulk-selection", async (c) =>
+  c.json(await previewBulkStageSelection(c.get("actor"), await body(c))),
+);
+
+app.post("/api/v1/staged-transactions/bulk-edit", async (c) =>
+  c.json(await bulkEditStages(c.get("actor"), await body(c))),
+);
+
 app.post("/api/v1/staged-transactions/delete", async (c) =>
   c.json(await deleteStages(c.get("actor"), bulkDeleteStageSchema.parse(await body(c)))),
 );

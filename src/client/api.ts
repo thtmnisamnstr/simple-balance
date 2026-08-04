@@ -256,6 +256,40 @@ export type StagedTransaction = {
   createdAt: string;
 };
 
+/**
+ * The staged queue works in explicit ids, because it already holds the selected
+ * rows to decide whether a commit is safe. The server also accepts a filter
+ * selection, which is what an agent uses to reach a whole import batch without
+ * listing it.
+ */
+export type StagedBulkEditSelection = {
+  mode: "ids";
+  items: { id: string; expectedVersion: number }[];
+};
+
+export type StagedBulkEditPatch = {
+  date?: string;
+  payee?: string;
+  categoryId?: string | null;
+  accountId?: string;
+  description?: string | null;
+  notes?: string | null;
+  type?: "deposit" | "withdrawal";
+};
+
+export type StagedBulkEditResult = {
+  dryRun: boolean;
+  updatedCount: number;
+  validCount: number;
+  invalidCount: number;
+  items: {
+    id: string;
+    version: number;
+    issueCount: number;
+    possiblyDuplicate: boolean;
+  }[];
+};
+
 export type ImportBatchSummary = {
   id: string;
   fileName: string;

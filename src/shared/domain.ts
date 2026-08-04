@@ -578,6 +578,163 @@ export const stageListQuerySchema = listQuerySchema.extend({
   validity: z.enum(["valid", "invalid", "duplicate"]).optional(),
 });
 
+/**
+ * Changing many staged rows at once, on the same terms as committed ones.
+ *
+ * The selection is the same shape and carries the same guarantees: a list of
+ * ids each with the version it was read at, or "everything matching this view"
+ * with a count and a fingerprint of the exact set. What differs is what is being
+ * changed. A staged row is a draft rather than an entry in the books, so nothing
+ * here moves money; it rewrites the draft and revalidates it, and the queue
+ * shows what would happen at commit.
+ */
+export const bulkStageFilterSchema = stageListQuerySchema
+  .omit({ cursor: true, page: true, limit: true, sort: true, direction: true })
+  .strict();
+
+const bulkStageIdSelectionSchema = z
+  .object({
+    mode: z.literal("ids"),
+    items: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            expectedVersion: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(MAX_BULK_SELECTION_ENTRIES),
+  })
+  .strict()
+  .superRefine((selection, context) => {
+    const ids = selection.items.map((item) => item.id);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["items"],
+        message: "Staged transaction IDs must be unique",
+      });
+    }
+  });
+
+const bulkStageFilterSelectionSchema = z
+  .object({
+    mode: z.literal("filter"),
+    filter: bulkStageFilterSchema,
+    excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
+    expectedCount: z.number().int().nonnegative(),
+    expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict()
+  .superRefine((selection, context) => {
+    if (new Set(selection.excludedIds).size !== selection.excludedIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["excludedIds"],
+        message: "Excluded staged transaction IDs must be unique",
+      });
+    }
+  });
+
+export const bulkStageSelectionSchema = z.discriminatedUnion("mode", [
+  bulkStageIdSelectionSchema,
+  bulkStageFilterSelectionSchema,
+]);
+
+export const bulkStageFilterSelectionRequestSchema = z
+  .object({
+    filter: bulkStageFilterSchema,
+    excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
+  })
+  .strict()
+  .superRefine((selection, context) => {
+    if (new Set(selection.excludedIds).size !== selection.excludedIds.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["excludedIds"],
+        message: "Excluded staged transaction IDs must be unique",
+      });
+    }
+  });
+
+export const bulkStageSelectionSnapshotSchema = z
+  .object({
+    count: z.number().int().nonnegative(),
+    fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    invalidCount: z.number().int().nonnegative(),
+    duplicateCount: z.number().int().nonnegative(),
+    transferCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/**
+ * `null` clears a field; leaving one out leaves it alone. Account and type are
+ * refused for a transfer, which has two sides and no single account to move,
+ * exactly as they are on committed rows.
+ */
+export const bulkStagePatchSchema = z
+  .object({
+    date: isoDateSchema.optional(),
+    payee: z.string().trim().min(1, "Payee is required").max(160).optional(),
+    categoryId: z.string().uuid().nullable().optional(),
+    accountId: z.string().uuid().optional(),
+    description: z
+      .string()
+      .trim()
+      .max(240)
+      .nullable()
+      .optional()
+      .transform((value) => (value === "" ? null : value)),
+    notes: z
+      .string()
+      .trim()
+      .max(4_000)
+      .nullable()
+      .optional()
+      .transform((value) => (value === "" ? null : value)),
+    type: z.enum(["deposit", "withdrawal"]).optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "Choose at least one field to update",
+  });
+
+export const bulkStageEditSchema = z
+  .object({
+    selection: bulkStageSelectionSchema,
+    patch: bulkStagePatchSchema,
+    idempotencyKey: idempotencyKeySchema,
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+
+export const bulkStageEditItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    version: z.number().int().positive(),
+    issueCount: z.number().int().nonnegative(),
+    possiblyDuplicate: z.boolean(),
+  })
+  .strict();
+
+export const bulkStageEditResultSchema = z
+  .object({
+    dryRun: z.boolean(),
+    updatedCount: z.number().int().nonnegative(),
+    // What the queue will look like afterwards, which is the thing somebody is
+    // usually editing in bulk to change.
+    validCount: z.number().int().nonnegative(),
+    invalidCount: z.number().int().nonnegative(),
+    items: z.array(bulkStageEditItemSchema),
+  })
+  .strict();
+
+export type BulkStageEditInput = z.infer<typeof bulkStageEditSchema>;
+export type BulkStagePatch = z.infer<typeof bulkStagePatchSchema>;
+export type BulkStageEditResult = z.infer<typeof bulkStageEditResultSchema>;
+
 export type ApiErrorCode =
   | "VALIDATION_ERROR"
   | "DUPLICATE"

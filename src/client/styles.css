@@ -1215,6 +1215,11 @@ input[type="radio"] {
 .bulk-actions {
   display: flex;
   align-items: center;
+  /* Six controls fit here at once: the count, whole-list selection, commit,
+     edit, delete, clear, and the duplicate override. Wrapping keeps the last
+     of them on screen on a narrow window rather than off the edge of it. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 7px;
   margin-left: auto;
 }

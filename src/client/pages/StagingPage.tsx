@@ -14,7 +14,8 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import { isoDateSchema } from "../../shared/domain.js";
 import {
   api,
@@ -26,6 +27,9 @@ import {
   type ImportBatchSummary,
   type PaginatedPage,
   type Page,
+  type StagedBulkEditPatch,
+  type StagedBulkEditResult,
+  type StagedBulkEditSelection,
   type StagedTransaction,
 } from "../api.js";
 import {
@@ -44,6 +48,7 @@ import {
   SelectionCheckbox,
   ConfirmDialog,
   SortableHeader,
+  Textarea,
   type SortState,
   useConfirm,
 } from "../components.js";
@@ -64,6 +69,49 @@ function stageSummary(stage: StagedTransaction, accounts: Account[]) {
 const MAX_BULK_STAGES = MAX_BULK_SELECTION_ENTRIES;
 const STAGE_PAGE_SIZE = 100;
 const SELECT_ALL_FETCH_SIZE = 200;
+
+type BulkEditField = keyof StagedBulkEditPatch;
+
+const bulkEditFields: BulkEditField[] = [
+  "date",
+  "payee",
+  "categoryId",
+  "accountId",
+  "description",
+  "notes",
+  "type",
+];
+
+const emptyBulkEditEnabled = (): Record<BulkEditField, boolean> => ({
+  date: false,
+  payee: false,
+  categoryId: false,
+  accountId: false,
+  description: false,
+  notes: false,
+  type: false,
+});
+
+const emptyBulkEditValues = () => ({
+  date: "",
+  payee: "",
+  categoryId: "",
+  accountId: "",
+  description: "",
+  notes: "",
+  type: "withdrawal" as "deposit" | "withdrawal",
+});
+
+/**
+ * Which account field a draft carries follows from its type, so a row that is
+ * neither a deposit nor a withdrawal has no side to move an account to. A row a
+ * parser could not read may carry no type at all, which is exactly the row
+ * somebody opened this queue to repair.
+ */
+const draftType = (stage: StagedTransaction) =>
+  stagedString(stage.draft.type).trim();
+const isOneSided = (stage: StagedTransaction) =>
+  draftType(stage) === "deposit" || draftType(stage) === "withdrawal";
 
 function retainedIdempotencyKey(
   keys: Map<string, string>,
@@ -99,6 +147,12 @@ export default function StagingPage() {
     () => searchParams.get("importBatchId") ?? "",
   );
   const [allowDuplicates, setAllowDuplicates] = useState(false);
+  const [bulkEditing, setBulkEditing] = useState(false);
+  const [bulkEnabled, setBulkEnabled] = useState(emptyBulkEditEnabled);
+  const [bulkValues, setBulkValues] = useState(emptyBulkEditValues);
+  const [bulkEditKey, setBulkEditKey] = useState<string | null>(null);
+  const [bulkEditNotice, setBulkEditNotice] = useState<string | null>(null);
+  const payeeListId = useId();
   const { start, end } = useDateRange();
   const queryClient = useQueryClient();
   const bulkCommitKeys = useRef(new Map<string, string>());
@@ -174,9 +228,24 @@ export default function StagingPage() {
   const selectedRows = useMemo(() => [...selected.values()], [selected]);
   const selectableRows = stages;
 
+  const payeeSuggestions = useQuery({
+    queryKey: ["payees", "suggestions", bulkValues.payee.trim().toLowerCase()],
+    queryFn: () =>
+      api<string[]>(
+        `/api/v1/payees/suggestions?search=${encodeURIComponent(
+          bulkValues.payee.trim(),
+        )}`,
+      ),
+    enabled: bulkEditing && bulkEnabled.payee,
+    placeholderData: (previous) => previous,
+  });
+
   useEffect(() => {
     setSelected(new Map());
     setAllowDuplicates(false);
+    setBulkEditing(false);
+    setBulkEditKey(null);
+    setBulkEditNotice(null);
     setPage(1);
   }, [search, validity, accountId, importBatchId, start, end]);
 
@@ -221,6 +290,127 @@ export default function StagingPage() {
       ]);
     },
   });
+
+  const selectedTransferCount = selectedRows.filter(
+    (stage) => draftType(stage) === "transfer",
+  ).length;
+  const selectionContainsTransfers = selectedTransferCount > 0;
+  // Rows the parser could not type at all. An account can still be set on them,
+  // but only in the same edit that says which way the money went.
+  const selectedUntypedCount = selectedRows.filter(
+    (stage) => !isOneSided(stage) && draftType(stage) !== "transfer",
+  ).length;
+  const accountNeedsType = selectedUntypedCount > 0 && !bulkEnabled.type;
+  const accountChangeUnavailable = selectionContainsTransfers;
+  const accountChangeBlocked =
+    bulkEnabled.accountId &&
+    (accountChangeUnavailable ||
+      accountNeedsType ||
+      !bulkValues.accountId);
+  const typeChangeUnavailable = selectionContainsTransfers;
+  const typeChangeBlocked = bulkEnabled.type && typeChangeUnavailable;
+  const hasEnabledBulkField = bulkEditFields.some((field) => bulkEnabled[field]);
+  const canSubmitBulkEdit =
+    selectedRows.length > 0 &&
+    hasEnabledBulkField &&
+    (!bulkEnabled.date || /^\d{4}-\d{2}-\d{2}$/.test(bulkValues.date)) &&
+    (!bulkEnabled.payee || Boolean(bulkValues.payee.trim())) &&
+    !accountChangeBlocked &&
+    !typeChangeBlocked;
+
+  const bulkEditMutation = useMutation<
+    StagedBulkEditResult,
+    Error,
+    {
+      selection: StagedBulkEditSelection;
+      patch: StagedBulkEditPatch;
+      idempotencyKey: string;
+      dryRun: false;
+    }
+  >({
+    mutationFn: (request) =>
+      api<StagedBulkEditResult>("/api/v1/staged-transactions/bulk-edit", {
+        ...json(request),
+      }),
+    onSuccess: async (result) => {
+      setBulkEditing(false);
+      setBulkEditKey(null);
+      setSelected(new Map());
+      setBulkEditNotice(
+        `${result.updatedCount} staged row${
+          result.updatedCount === 1 ? "" : "s"
+        } updated. ${result.validCount} ready to commit, ${
+          result.invalidCount
+        } still needing attention.`,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["staged"] }),
+        queryClient.invalidateQueries({ queryKey: ["payees"] }),
+        queryClient.invalidateQueries({ queryKey: ["categories"] }),
+      ]);
+    },
+    // Otherwise a selection that went stale stays on screen and every retry
+    // fails against the same versions, with nothing saying why.
+    onError: async (error) => {
+      if (error instanceof ApiClientError && error.code === "STALE_VERSION") {
+        setBulkEditing(false);
+        setBulkEditKey(null);
+        setSelected(new Map());
+        setBulkEditNotice(
+          "A selected row changed. Review the refreshed queue and select the rows again.",
+        );
+        await queryClient.invalidateQueries({ queryKey: ["staged"] });
+      }
+    },
+  });
+
+  const openBulkEditor = () => {
+    bulkEditMutation.reset();
+    setBulkEnabled(emptyBulkEditEnabled());
+    setBulkValues(emptyBulkEditValues());
+    setBulkEditKey(newIdempotencyKey());
+    setBulkEditNotice(null);
+    setBulkEditing(true);
+  };
+
+  const closeBulkEditor = () => {
+    setBulkEditing(false);
+    setBulkEditKey(null);
+    bulkEditMutation.reset();
+  };
+
+  const submitBulkEdit = (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+    if (!canSubmitBulkEdit) return;
+    const idempotencyKey = bulkEditKey ?? newIdempotencyKey();
+    if (!bulkEditKey) setBulkEditKey(idempotencyKey);
+    bulkEditMutation.mutate({
+      selection: {
+        mode: "ids",
+        items: selectedRows.map((stage) => ({
+          id: stage.id,
+          expectedVersion: stage.version,
+        })),
+      },
+      patch: {
+        ...(bulkEnabled.date ? { date: bulkValues.date } : {}),
+        ...(bulkEnabled.payee ? { payee: bulkValues.payee.trim() } : {}),
+        ...(bulkEnabled.categoryId
+          ? { categoryId: bulkValues.categoryId || null }
+          : {}),
+        ...(bulkEnabled.accountId ? { accountId: bulkValues.accountId } : {}),
+        ...(bulkEnabled.description
+          ? { description: bulkValues.description.trim() || null }
+          : {}),
+        ...(bulkEnabled.notes
+          ? { notes: bulkValues.notes.trim() || null }
+          : {}),
+        ...(bulkEnabled.type ? { type: bulkValues.type } : {}),
+      },
+      idempotencyKey,
+      dryRun: false,
+    });
+  };
 
   const allSelected =
     Boolean(selectableRows.length) &&
@@ -412,6 +602,13 @@ export default function StagingPage() {
               <CheckCheck size={16} /> Commit selected
             </Button>
             <Button
+              type="button"
+              variant="secondary"
+              onClick={openBulkEditor}
+            >
+              <Pencil size={16} /> Edit selected
+            </Button>
+            <Button
               variant="danger"
               loading={bulkMutation.isPending}
               onClick={() => {
@@ -445,6 +642,7 @@ export default function StagingPage() {
       {bulkMutation.error || rowMutation.error ? (
         <Alert>{(bulkMutation.error ?? rowMutation.error)!.message}</Alert>
       ) : null}
+      {bulkEditNotice ? <Alert kind="info">{bulkEditNotice}</Alert> : null}
       {stagePages.error || batchPages.error ? (
         <Alert>{(stagePages.error ?? batchPages.error)!.message}</Alert>
       ) : null}
@@ -649,6 +847,306 @@ export default function StagingPage() {
             onDone={() => setEditing(null)}
           />
         ) : null}
+      </Modal>
+      <Modal
+        open={bulkEditing}
+        onClose={closeBulkEditor}
+        title="Mass edit staged rows"
+        description="Choose only the fields you want to change. Nothing is committed: the rows are updated in the queue and checked again, so filling in what was missing can clear their warnings."
+        footer={
+          <div className="form-actions">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={closeBulkEditor}
+              disabled={bulkEditMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="staged-bulk-edit-form"
+              loading={bulkEditMutation.isPending}
+              disabled={!canSubmitBulkEdit}
+            >
+              Apply changes
+            </Button>
+          </div>
+        }
+      >
+        <form
+          id="staged-bulk-edit-form"
+          className="bulk-edit-form"
+          onSubmit={submitBulkEdit}
+        >
+          <p className="bulk-edit-selection-summary">
+            {`${selectedRows.length} selected staged row${
+              selectedRows.length === 1 ? "" : "s"
+            } will be edited.`}
+          </p>
+
+          {bulkEditMutation.error ? (
+            <Alert>{bulkEditMutation.error.message}</Alert>
+          ) : null}
+
+          {selectionContainsTransfers ? (
+            <Alert kind="info">
+              This selection contains {selectedTransferCount} transfer
+              {selectedTransferCount === 1 ? "" : "s"}. You can change common
+              details, but Account and Type are unavailable for transfers.
+            </Alert>
+          ) : selectedUntypedCount ? (
+            <Alert kind="info">
+              {selectedUntypedCount} selected row
+              {selectedUntypedCount === 1 ? " does" : "s do"} not say whether
+              money came in or went out. Change Type in the same edit to set an
+              account on {selectedUntypedCount === 1 ? "it" : "them"}.
+            </Alert>
+          ) : null}
+
+          <div className="bulk-edit-fields">
+            <div className={bulkEnabled.date ? "bulk-edit-field enabled" : "bulk-edit-field"}>
+              <label className="bulk-edit-toggle">
+                <input
+                  type="checkbox"
+                  checked={bulkEnabled.date}
+                  onChange={(event) =>
+                    setBulkEnabled((current) => ({
+                      ...current,
+                      date: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Change date</span>
+              </label>
+              <Input
+                aria-label="New date"
+                type="date"
+                value={bulkValues.date}
+                disabled={!bulkEnabled.date}
+                required={bulkEnabled.date}
+                onChange={(event) =>
+                  setBulkValues((current) => ({
+                    ...current,
+                    date: event.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className={bulkEnabled.payee ? "bulk-edit-field enabled" : "bulk-edit-field"}>
+              <label className="bulk-edit-toggle">
+                <input
+                  type="checkbox"
+                  checked={bulkEnabled.payee}
+                  onChange={(event) =>
+                    setBulkEnabled((current) => ({
+                      ...current,
+                      payee: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Change payee</span>
+              </label>
+              <Input
+                aria-label="New payee"
+                list={payeeListId}
+                value={bulkValues.payee}
+                disabled={!bulkEnabled.payee}
+                required={bulkEnabled.payee}
+                placeholder="Start typing a payee"
+                onChange={(event) =>
+                  setBulkValues((current) => ({
+                    ...current,
+                    payee: event.target.value,
+                  }))
+                }
+              />
+              <datalist id={payeeListId}>
+                {payeeSuggestions.data?.map((payee) => (
+                  <option key={payee} value={payee} />
+                ))}
+              </datalist>
+            </div>
+
+            <div className={bulkEnabled.categoryId ? "bulk-edit-field enabled" : "bulk-edit-field"}>
+              <label className="bulk-edit-toggle">
+                <input
+                  type="checkbox"
+                  checked={bulkEnabled.categoryId}
+                  onChange={(event) =>
+                    setBulkEnabled((current) => ({
+                      ...current,
+                      categoryId: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Change category</span>
+              </label>
+              <Select
+                aria-label="New category"
+                value={bulkValues.categoryId}
+                disabled={!bulkEnabled.categoryId}
+                onChange={(event) =>
+                  setBulkValues((current) => ({
+                    ...current,
+                    categoryId: event.target.value,
+                  }))
+                }
+              >
+                <option value="">Uncategorized (clear)</option>
+                {(categories.data ?? []).map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+
+            <div className={bulkEnabled.accountId ? "bulk-edit-field enabled" : "bulk-edit-field"}>
+              <label className="bulk-edit-toggle">
+                <input
+                  type="checkbox"
+                  checked={bulkEnabled.accountId}
+                  disabled={accountChangeUnavailable}
+                  onChange={(event) =>
+                    setBulkEnabled((current) => ({
+                      ...current,
+                      accountId: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Change account</span>
+              </label>
+              <Select
+                aria-label="New account"
+                value={bulkValues.accountId}
+                disabled={!bulkEnabled.accountId}
+                required={bulkEnabled.accountId}
+                onChange={(event) =>
+                  setBulkValues((current) => ({
+                    ...current,
+                    accountId: event.target.value,
+                  }))
+                }
+              >
+                <option value="">Choose an account</option>
+                {(accounts.data ?? [])
+                  .filter((account) => !account.archivedAt)
+                  .map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name} ({account.currency})
+                    </option>
+                  ))}
+              </Select>
+              {accountChangeUnavailable ? (
+                <small>
+                  Account cannot be mass edited when a transfer is selected.
+                </small>
+              ) : bulkEnabled.accountId && accountNeedsType ? (
+                <small>
+                  Some selected rows have no type yet. Turn on Change type to
+                  set an account on them.
+                </small>
+              ) : null}
+            </div>
+
+            <div className={bulkEnabled.description ? "bulk-edit-field enabled" : "bulk-edit-field"}>
+              <label className="bulk-edit-toggle">
+                <input
+                  type="checkbox"
+                  checked={bulkEnabled.description}
+                  onChange={(event) =>
+                    setBulkEnabled((current) => ({
+                      ...current,
+                      description: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Change description</span>
+              </label>
+              <Input
+                aria-label="New description"
+                value={bulkValues.description}
+                disabled={!bulkEnabled.description}
+                placeholder="Leave blank to clear"
+                onChange={(event) =>
+                  setBulkValues((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+              />
+              {bulkEnabled.description ? <small>Leave blank to clear.</small> : null}
+            </div>
+
+            <div className={bulkEnabled.notes ? "bulk-edit-field enabled" : "bulk-edit-field"}>
+              <label className="bulk-edit-toggle">
+                <input
+                  type="checkbox"
+                  checked={bulkEnabled.notes}
+                  onChange={(event) =>
+                    setBulkEnabled((current) => ({
+                      ...current,
+                      notes: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Change notes</span>
+              </label>
+              <Textarea
+                aria-label="New notes"
+                rows={3}
+                value={bulkValues.notes}
+                disabled={!bulkEnabled.notes}
+                placeholder="Leave blank to clear"
+                onChange={(event) =>
+                  setBulkValues((current) => ({
+                    ...current,
+                    notes: event.target.value,
+                  }))
+                }
+              />
+              {bulkEnabled.notes ? <small>Leave blank to clear.</small> : null}
+            </div>
+
+            <div className={bulkEnabled.type ? "bulk-edit-field enabled" : "bulk-edit-field"}>
+              <label className="bulk-edit-toggle">
+                <input
+                  type="checkbox"
+                  checked={bulkEnabled.type}
+                  disabled={typeChangeUnavailable}
+                  onChange={(event) =>
+                    setBulkEnabled((current) => ({
+                      ...current,
+                      type: event.target.checked,
+                    }))
+                  }
+                />
+                <span>Change type</span>
+              </label>
+              <Select
+                aria-label="New transaction type"
+                value={bulkValues.type}
+                disabled={!bulkEnabled.type}
+                onChange={(event) =>
+                  setBulkValues((current) => ({
+                    ...current,
+                    type: event.target.value as "deposit" | "withdrawal",
+                  }))
+                }
+              >
+                <option value="deposit">Deposit</option>
+                <option value="withdrawal">Withdrawal</option>
+              </Select>
+              {typeChangeUnavailable ? (
+                <small>
+                  Type cannot be mass edited when a transfer is selected.
+                </small>
+              ) : null}
+            </div>
+          </div>
+        </form>
       </Modal>
       <ConfirmDialog
         open={bulkRemoval.open}

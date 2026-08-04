@@ -36,10 +36,13 @@ uses, and creates categories and payees as it goes. You look at the result
 before any of it counts. Committing a batch is all or nothing. An export of your
 own data reads back in without losing anything.
 
-Once rows are in, you can change or delete up to 10,000 of them in one request
-that either wholly succeeds or wholly does not, from any view, after seeing what
-it will touch. Categories and payees match case-insensitively, flag their own
-near-duplicates, and merge by rewriting every reference at once.
+You can change or delete up to 10,000 rows in one request that either wholly
+succeeds or wholly does not, from any view, after seeing what it will touch.
+That works on the queue as well as on committed rows, which is how you fix a
+file whose account or category column meant nothing to the importer: one edit
+over the whole batch, and the rows it repairs come back ready to commit.
+Categories and payees match case-insensitively, flag their own near-duplicates,
+and merge by rewriting every reference at once.
 
 The dashboard covers balances, cash flow, and spending by category over any date
 range, and the range is in the URL, so you can link to it. It stops at today

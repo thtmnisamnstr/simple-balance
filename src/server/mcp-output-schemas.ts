@@ -1,6 +1,8 @@
 import { z } from "zod";
 import {
   accountTypes,
+  bulkStageEditResultSchema,
+  bulkStageSelectionSnapshotSchema,
   bulkTransactionEditResultSchema,
   bulkTransactionSelectionSnapshotSchema,
   categoryKinds,
@@ -308,6 +310,11 @@ export const deletedEntityResultSchema = z.object({
 export const deletedStagesResultSchema = z.object({
   deletedIds: z.array(uuidSchema),
 });
+
+export const bulkStageSelectionSnapshotResultSchema =
+  bulkStageSelectionSnapshotSchema;
+
+export const bulkStageEditMcpResultSchema = bulkStageEditResultSchema;
 
 export const mergedCategoriesResultSchema = z.object({
   targetCategory: categoryResultSchema,

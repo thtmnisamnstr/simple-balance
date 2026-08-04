@@ -80,10 +80,12 @@
 - Staged transactions never affect balances or reports.
 - Updates/deletes require an expected version. Creates and commits require
   idempotency. Bulk commits are explicit-ID, validate-first, and atomic.
-- Transaction mass edits are atomic. Explicit rows carry expected versions;
-  all-filtered selections carry a server-issued count and `id:version`
-  fingerprint. Never silently move a transaction into a different currency or
-  collapse a transfer into a single-account transaction in bulk.
+- Transaction and staged mass edits are atomic and share one selection contract.
+  Explicit rows carry expected versions; all-filtered selections carry a
+  server-issued count and `id:version` fingerprint. Never silently move a
+  transaction into a different currency or collapse a transfer into a
+  single-account transaction in bulk. A staged mass edit revalidates every row
+  it writes, and refuses rather than skips a row it cannot give one account to.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
 - Every migration that shipped in 0.1.0 is frozen: `0000_initial.sql`,

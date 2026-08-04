@@ -29,6 +29,8 @@ const bulkRequestPaths = new Set([
   "/api/v1/transactions/bulk-selection",
   "/api/v1/staged-transactions/commit",
   "/api/v1/staged-transactions/delete",
+  "/api/v1/staged-transactions/bulk-edit",
+  "/api/v1/staged-transactions/bulk-selection",
 ]);
 const REJECTED_BODY_DRAIN_LIMIT_BYTES = 128 * 1024;
 const REJECTED_BODY_DRAIN_TIMEOUT_MS = 250;

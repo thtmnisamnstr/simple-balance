@@ -84,10 +84,11 @@ There are two ways to say which rows you mean. An explicit selection lists each
 id with the `expectedVersion` you last saw, so a row someone else changed makes
 the request stale instead of silently taking your value. A filter selection says
 "everything matching this", and starts with
-`preview_bulk_transaction_selection`, which returns a count and a fingerprint of
-the exact `id:version` set that matched. Send that fingerprint back with the
-change. If anything in the set moved in between, the request is refused rather
-than quietly covering a different set of rows than you were shown.
+`preview_bulk_transaction_selection` (or `preview_bulk_staged_selection` for the
+queue), which returns a count and a fingerprint of the exact `id:version` set
+that matched. Send that fingerprint back with the change. If anything in the set
+moved in between, the request is refused rather than quietly covering a
+different set of rows than you were shown.
 
 `bulk_edit_transactions` changes the date, payee, category, account,
 description, notes, or deposit/withdrawal type. Fields you leave out stay as
@@ -100,12 +101,25 @@ written.
 the reversal rather than erasing anything, so a deleted transaction stops
 counting toward balances and reports while the record of it remains.
 
-Either one covers at most 10,000 rows per request. Split larger work across
+`bulk_edit_staged_transactions` does the same job on the review queue, with the
+same two selection shapes and the same fields. What differs is what happens
+afterwards, and it is simpler: a staged row is a draft, so nothing posts,
+reverses, or moves a balance. Every row it touches is validated again, so
+filling in the account or category an import could not resolve clears the issues
+that were blocking a commit, and the reply says how many of the rows are ready
+now and how many still need attention. Account and type are refused on a
+transfer, which has two accounts and no single one to move. Setting an account
+on a row that does not yet say whether the money came in or went out is refused
+too, unless the same call sets the type; there is otherwise no side to write it
+to. Both are refused rather than skipped, so the number of rows changed always
+matches the selection.
+
+Any of them covers at most 10,000 rows per request. Split larger work across
 calls; each stands or falls on its own.
 
 Pass `dryRun: true` to `bulk_edit_transactions`, `bulk_delete_transactions`,
-`stage_csv`, or `commit_staged_transactions` to find out what a change would do
-without doing it.
+`bulk_edit_staged_transactions`, `stage_csv`, or `commit_staged_transactions` to
+find out what a change would do without doing it.
 
 ## Paging and ordering
 

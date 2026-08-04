@@ -7,6 +7,8 @@ import {
   accountCreateSchema,
   accountUpdateSchema,
   bulkDeleteStageSchema,
+  bulkStageEditSchema,
+  bulkStageFilterSelectionRequestSchema,
   bulkTransactionDeleteSchema,
   bulkTransactionEditSchema,
   bulkTransactionFilterSelectionRequestSchema,
@@ -63,11 +65,13 @@ import {
   stageCsv,
 } from "./services/import-export.js";
 import {
+  bulkEditStages,
   commitStages,
   createStage,
   deleteStages,
   getStage,
   listStages,
+  previewBulkStageSelection,
   updateStage,
 } from "./services/staging.js";
 import {
@@ -89,6 +93,8 @@ import {
   accountBalancesResultSchema,
   accountResultSchema,
   auditEventResultSchema,
+  bulkStageEditMcpResultSchema,
+  bulkStageSelectionSnapshotResultSchema,
   bulkTransactionEditMcpResultSchema,
   bulkTransactionSelectionSnapshotResultSchema,
   categoryResultSchema,
@@ -333,6 +339,18 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       (input) => runTool(() => getBulkTransactionSelection(actor, input)),
     );
     server.registerTool(
+      "preview_bulk_staged_selection",
+      {
+        title: "Preview a bulk staged selection",
+        description:
+          "Resolve all staged transactions matching a filter, minus explicit exclusions, into the count and fingerprint required for a safe all-matching bulk edit.",
+        inputSchema: bulkStageFilterSelectionRequestSchema,
+        outputSchema: mcpOutputSchema(bulkStageSelectionSnapshotResultSchema),
+        annotations: readAnnotations,
+      },
+      (input) => runTool(() => previewBulkStageSelection(actor, input)),
+    );
+    server.registerTool(
       "list_staged_transactions",
       {
         title: "List staged transactions",
@@ -496,6 +514,29 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             input,
             (tx) => deleteStages(actor, input, tx),
           ),
+        ),
+    );
+    server.registerTool(
+      "bulk_edit_staged_transactions",
+      {
+        title: "Bulk edit staged transactions",
+        description:
+          "Atomically edit explicit versioned staged transactions or a previewed all-matching selection. Every row is validated again afterwards, so filling in a missing account or category clears the issues that were blocking a commit. Account and type are refused on transfers, and dryRun validates without writing.",
+        inputSchema: bulkStageEditSchema,
+        outputSchema: mcpOutputSchema(bulkStageEditMcpResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      (input) =>
+        runTool(() =>
+          input.dryRun
+            ? bulkEditStages(actor, input)
+            : runIdempotentMcpMutation(
+                actor,
+                "stage.bulkEdit",
+                input.idempotencyKey,
+                input,
+                (tx) => bulkEditStages(actor, input, tx),
+              ),
         ),
     );
     server.registerTool(

@@ -14,6 +14,7 @@ import {
 } from "../src/server/http-security.js";
 import {
   MAX_BULK_SELECTION_ENTRIES,
+  bulkStageEditSchema,
   bulkTransactionEditSchema,
   commitStageSchema,
 } from "../src/shared/domain.js";
@@ -292,9 +293,12 @@ describe("bounded request bodies", () => {
     process.env.CSV_MAX_BYTES = "1024";
     for (const path of [
       "/api/v1/transactions/bulk-edit",
+      "/api/v1/transactions/bulk-delete",
       "/api/v1/transactions/bulk-selection",
       "/api/v1/staged-transactions/commit",
       "/api/v1/staged-transactions/delete",
+      "/api/v1/staged-transactions/bulk-edit",
+      "/api/v1/staged-transactions/bulk-selection",
     ]) {
       expect(apiRequestBodyLimit(path)).toBe(BULK_REQUEST_BODY_LIMIT_BYTES);
     }
@@ -347,6 +351,30 @@ describe("bounded request bodies", () => {
     expect(bulkTransactionEditSchema.safeParse(body).success).toBe(true);
     expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(
       apiRequestBodyLimit("/api/v1/transactions/bulk-edit"),
+    );
+  });
+
+  it("accepts a maximum staged bulk edit without hitting the body limit", () => {
+    const body = {
+      selection: {
+        mode: "ids" as const,
+        items: Array.from({ length: MAX_BULK_SELECTION_ENTRIES }, () => ({
+          id: randomUUID(),
+          expectedVersion: Number.MAX_SAFE_INTEGER,
+        })),
+      },
+      patch: {
+        date: "2026-01-01",
+        payee: "p".repeat(160),
+        description: "d".repeat(240),
+        notes: "n".repeat(4_000),
+      },
+      idempotencyKey: "k".repeat(200),
+      dryRun: false,
+    };
+    expect(bulkStageEditSchema.safeParse(body).success).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(body))).toBeLessThanOrEqual(
+      apiRequestBodyLimit("/api/v1/staged-transactions/bulk-edit"),
     );
   });
 

@@ -104,7 +104,14 @@ preserve native currency, and a transfer cannot be collapsed into a deposit or a
 withdrawal in bulk.
 
 Staged rows never touch balances. Committing a batch validates every row first
-and runs in a single PostgreSQL transaction.
+and runs in a single PostgreSQL transaction. A staged mass edit uses the same
+two selection shapes, resolved through the same filter predicates the queue
+listing uses, so a selection can only ever cover rows that were on screen. It
+writes drafts rather than postings, and revalidates each row it writes, so the
+queue's verdict on a row is current the moment the edit lands. A row it cannot
+give exactly one account to, a transfer or a row with no type yet, is refused
+rather than skipped: skipping would report a number of rows changed that does
+not match the selection.
 
 Every transaction has a payee. It is canonical text on the transaction rather
 than a table of its own, and the payee list is a projection of committed and

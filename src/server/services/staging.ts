@@ -1,13 +1,17 @@
+import { createHash } from "node:crypto";
 import {
   and,
   count,
   eq,
   inArray,
+  notInArray,
   sql,
   type SQL, getTableColumns } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import type {
   Actor,
+  BulkStageEditResult,
+  BulkStagePatch,
   PaginatedPage,
   TransactionDraft,
   ValidationIssue,
@@ -16,7 +20,11 @@ import type {
 } from "../../shared/domain.js";
 import {
   bulkDeleteStageSchema,
+  bulkStageEditSchema,
+  bulkStageFilterSelectionRequestSchema,
+  bulkStageSelectionSnapshotSchema,
   commitStageSchema,
+  MAX_BULK_SELECTION_ENTRIES,
   stageCreateSchema,
   stageListQuerySchema,
   stageUpdateSchema,
@@ -24,6 +32,7 @@ import {
 } from "../../shared/domain.js";
 import {
   getDb,
+  type Database,
   type DbTransaction,
   withTransaction,
 } from "../db/client.js";
@@ -389,13 +398,55 @@ function stageSortPlan(
   }
 }
 
-export async function listStages(
+/**
+ * A row is a possible duplicate when it matches something already committed, or
+ * when another row still waiting in the queue carries the same fingerprint.
+ * Only the first was recorded before, so two imported copies of one statement
+ * were refused at commit while this filter found nothing to show for it.
+ *
+ * At module scope because it depends on no query, and both the filter and the
+ * flag the list reports read it.
+ */
+const repeatsAnotherStagedRow = sql`(
+  ${stagedTransactions.duplicateKey} is not null
+  and exists (
+    select 1 from staged_transaction other
+    where other.user_id = ${stagedTransactions.userId}
+      and other.status = 'staged'
+      and other.deleted_at is null
+      and other.duplicate_key = ${stagedTransactions.duplicateKey}
+      and other.id <> ${stagedTransactions.id}
+  )
+)`;
+const possiblyDuplicate = sql`(
+  ${stagedTransactions.duplicateOfId} is not null or ${repeatsAnotherStagedRow}
+)`;
+
+export type StageFilterQuery = Pick<
+  z.infer<typeof stageListQuerySchema>,
+  | "importBatchId"
+  | "search"
+  | "accountId"
+  | "type"
+  | "categoryId"
+  | "payee"
+  | "start"
+  | "end"
+  | "validity"
+>;
+
+/**
+ * The rows a staged view is showing, as SQL.
+ *
+ * Lifted out of listStages so a bulk selection resolves exactly what the list
+ * resolved. A second copy of these predicates is a second definition of "the
+ * rows you are looking at", and the day they drift is the day a mass edit
+ * touches something that was never on screen.
+ */
+export function stageFilterConditions(
   actor: Actor,
-  input: unknown,
-): Promise<PaginatedPage<StageView>> {
-  const query = stageListQuerySchema.parse(input);
-  // Keep the cursor window out of `conditions` until the filters are complete,
-  // so the total can be counted against the filters alone.
+  query: StageFilterQuery,
+) {
   const conditions: SQL[] = [
     eq(stagedTransactions.userId, actor.userId),
     eq(stagedTransactions.status, "staged"),
@@ -434,24 +485,6 @@ export async function listStages(
   if (query.end) {
     conditions.push(sql`${stagedTransactions.draft}->>'date' <= ${query.end}`);
   }
-  // A row is a possible duplicate when it matches something already committed,
-  // or when another row still waiting in the queue carries the same fingerprint.
-  // Only the first was recorded before, so two imported copies of one statement
-  // were refused at commit while this filter found nothing to show for it.
-  const repeatsAnotherStagedRow = sql`(
-    ${stagedTransactions.duplicateKey} is not null
-    and exists (
-      select 1 from staged_transaction other
-      where other.user_id = ${stagedTransactions.userId}
-        and other.status = 'staged'
-        and other.deleted_at is null
-        and other.duplicate_key = ${stagedTransactions.duplicateKey}
-        and other.id <> ${stagedTransactions.id}
-    )
-  )`;
-  const possiblyDuplicate = sql`(
-    ${stagedTransactions.duplicateOfId} is not null or ${repeatsAnotherStagedRow}
-  )`;
 
   if (query.validity === "valid") {
     conditions.push(
@@ -465,7 +498,17 @@ export async function listStages(
   } else if (query.validity === "duplicate") {
     conditions.push(possiblyDuplicate);
   }
+  return conditions;
+}
 
+export async function listStages(
+  actor: Actor,
+  input: unknown,
+): Promise<PaginatedPage<StageView>> {
+  const query = stageListQuerySchema.parse(input);
+  // Keep the cursor window out of `conditions` until the filters are complete,
+  // so the total can be counted against the filters alone.
+  const conditions = stageFilterConditions(actor, query);
   const filters = [...conditions];
   const plan = stageSortPlan(query.sort, query.direction);
   if (query.cursor) {
@@ -810,5 +853,342 @@ export async function commitStages(
       response,
     );
     return response;
+  });
+}
+
+/**
+ * Changing many staged rows at once.
+ *
+ * The safety model is the committed one, because a person selecting rows should
+ * not have to learn two of them: a list of ids each carrying the version it was
+ * read at, or "everything matching this view" carrying a count and a
+ * fingerprint of the exact id:version set. Either way a row that moved
+ * underneath makes the whole request stale rather than quietly taking a value
+ * somebody never saw.
+ *
+ * What differs from the committed version is what happens after the selection
+ * is settled, and it is simpler: a staged row is a draft, so nothing here posts,
+ * reverses, or touches a balance. The patch is written into the draft, the payee
+ * is canonicalised the way a single edit does it, and the row is validated
+ * again so the queue's own verdict on it is current. A patch that turns an
+ * invalid row valid is the ordinary reason to do this at all.
+ */
+function stageSelectionFingerprint(
+  rows: readonly Pick<typeof stagedTransactions.$inferSelect, "id" | "version">[],
+) {
+  const payload = [...rows]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((row) => `${row.id}:${row.version}`)
+    .join("\n");
+  return createHash("sha256").update(payload).digest("hex");
+}
+
+function stageSelectionSummary(
+  rows: readonly (typeof stagedTransactions.$inferSelect)[],
+) {
+  let invalidCount = 0;
+  let duplicateCount = 0;
+  let transferCount = 0;
+  for (const row of rows) {
+    if ((row.validationIssues as unknown[]).length) invalidCount += 1;
+    if (row.duplicateOfId) duplicateCount += 1;
+    if ((row.draft as { type?: unknown }).type === "transfer") transferCount += 1;
+  }
+  return { invalidCount, duplicateCount, transferCount };
+}
+
+async function selectStageFilterRows(
+  runner: DbTransaction | Database,
+  actor: Actor,
+  request: { filter: StageFilterQuery; excludedIds: string[] },
+  lockRows = false,
+) {
+  const conditions = stageFilterConditions(actor, request.filter);
+  if (request.excludedIds.length) {
+    conditions.push(notInArray(stagedTransactions.id, request.excludedIds));
+  }
+  const query = runner
+    .select()
+    .from(stagedTransactions)
+    .where(and(...conditions))
+    .orderBy(stagedTransactions.id);
+  return lockRows ? query.for("update") : query;
+}
+
+/**
+ * The count and fingerprint the browser sends back with a filter selection, so
+ * the server can tell whether it is about to change the set it was shown.
+ */
+export async function previewBulkStageSelection(actor: Actor, input: unknown) {
+  const parsed = bulkStageFilterSelectionRequestSchema.parse(input);
+  const rows = await selectStageFilterRows(getDb(), actor, parsed);
+  return bulkStageSelectionSnapshotSchema.parse({
+    count: rows.length,
+    fingerprint: stageSelectionFingerprint(rows),
+    ...stageSelectionSummary(rows),
+  });
+}
+
+/** Apply one patch to one draft, leaving anything it does not mention alone. */
+function patchedStageDraft(draft: Record<string, unknown>, patch: BulkStagePatch) {
+  const next: Record<string, unknown> = { ...draft };
+  if (patch.date !== undefined) next.date = patch.date;
+  if (patch.payee !== undefined) next.payee = patch.payee;
+  if (patch.categoryId !== undefined) next.categoryId = patch.categoryId;
+  if (patch.description !== undefined) next.description = patch.description;
+  if (patch.notes !== undefined) next.notes = patch.notes;
+
+  // Type and account move together, because which account field a draft carries
+  // is decided by its type. A transfer has two sides and no single account to
+  // move, so both are refused for one rather than guessed at.
+  const currentType = patch.type ?? (next.type as string | undefined);
+  if (patch.type !== undefined) next.type = patch.type;
+  if (patch.accountId !== undefined) {
+    if (currentType === "deposit") {
+      next.toAccountId = patch.accountId;
+      delete next.fromAccountId;
+    } else if (currentType === "withdrawal") {
+      next.fromAccountId = patch.accountId;
+      delete next.toAccountId;
+    }
+  } else if (patch.type !== undefined) {
+    // Changed type with no new account: carry the account it already had over
+    // to the side the new type reads, so the row does not silently lose it.
+    if (patch.type === "deposit" && next.fromAccountId !== undefined) {
+      next.toAccountId = next.fromAccountId;
+      delete next.fromAccountId;
+    }
+    if (patch.type === "withdrawal" && next.toAccountId !== undefined) {
+      next.fromAccountId = next.toAccountId;
+      delete next.toAccountId;
+    }
+  }
+  return next;
+}
+
+export async function bulkEditStages(
+  actor: Actor,
+  input: unknown,
+  transaction?: DbTransaction,
+) {
+  const parsed = bulkStageEditSchema.parse(input);
+  const { selection, patch } = parsed;
+
+  return withTransaction(transaction, async (tx) => {
+    if (!parsed.dryRun) {
+      await lockIdempotencyKey(tx, actor, "stage.bulkEdit", parsed.idempotencyKey);
+      const existing = await getIdempotent<BulkStageEditResult>(
+        tx,
+        actor,
+        "stage.bulkEdit",
+        parsed.idempotencyKey,
+        { selection, patch },
+      );
+      if (existing) return existing;
+    }
+
+    let rows: (typeof stagedTransactions.$inferSelect)[];
+    if (selection.mode === "ids") {
+      rows = await tx
+        .select()
+        .from(stagedTransactions)
+        .where(
+          and(
+            eq(stagedTransactions.userId, actor.userId),
+            inArray(
+              stagedTransactions.id,
+              selection.items.map((item) => item.id),
+            ),
+            eq(stagedTransactions.status, "staged"),
+          ),
+        )
+        .orderBy(stagedTransactions.id)
+        .for("update");
+      if (rows.length !== selection.items.length) {
+        throw notFound("One or more staged transactions are unavailable");
+      }
+      const expected = new Map(
+        selection.items.map((item) => [item.id, item.expectedVersion]),
+      );
+      for (const row of rows) {
+        if (expected.get(row.id) !== row.version) {
+          throw staleVersion({ id: row.id, currentVersion: row.version });
+        }
+      }
+    } else {
+      rows = await selectStageFilterRows(tx, actor, selection, true);
+      const fingerprint = stageSelectionFingerprint(rows);
+      if (
+        rows.length !== selection.expectedCount ||
+        fingerprint !== selection.expectedFingerprint
+      ) {
+        throw staleVersion({
+          expectedCount: selection.expectedCount,
+          currentCount: rows.length,
+          expectedFingerprint: selection.expectedFingerprint,
+          currentFingerprint: fingerprint,
+        });
+      }
+    }
+
+    if (rows.length > MAX_BULK_SELECTION_ENTRIES) {
+      throw validationError(
+        `A bulk edit covers at most ${MAX_BULK_SELECTION_ENTRIES} staged transactions`,
+      );
+    }
+
+    // Which account field a draft carries is decided by its type, so a row whose
+    // type gives no answer is refused rather than silently skipped: quietly
+    // leaving one out would report a number of rows changed that does not match
+    // what was selected.
+    const draftType = (row: (typeof rows)[number]) =>
+      (row.draft as { type?: unknown }).type;
+    if (patch.accountId !== undefined || patch.type !== undefined) {
+      // A transfer has two accounts and no single one to move, and no answer for
+      // which of them survives becoming a one-sided type.
+      const transfers = rows.filter((row) => draftType(row) === "transfer");
+      if (transfers.length) {
+        throw validationError(
+          "Account and type cannot be changed on a transfer. Deselect the transfers in this selection, or change only the fields they share.",
+          { transferIds: transfers.map((row) => row.id) },
+        );
+      }
+    }
+    if (patch.accountId !== undefined && patch.type === undefined) {
+      // A row the parser could not read may carry no type at all, and there is
+      // no side to write an account to until it has one.
+      const untyped = rows.filter(
+        (row) => draftType(row) !== "deposit" && draftType(row) !== "withdrawal",
+      );
+      if (untyped.length) {
+        throw validationError(
+          "Some of these rows do not say whether money came in or went out, so an account cannot be set on them. Set the type in the same edit.",
+          { untypedIds: untyped.map((row) => row.id) },
+        );
+      }
+    }
+
+    const drafts = rows.map((row) =>
+      patchedStageDraft(row.draft as Record<string, unknown>, patch),
+    );
+    await lockStagedDraftReferences(tx, actor, drafts);
+
+    const planned: {
+      row: (typeof stagedTransactions.$inferSelect);
+      draft: unknown;
+      issues: ValidationIssue[];
+      duplicateOfId: string | null;
+      duplicateKey: string | null;
+    }[] = [];
+    for (const [index, row] of rows.entries()) {
+      const canonical = await canonicalizeStagedDraftPayee(tx, actor, drafts[index]);
+      const validation = await validateDraft(tx, actor, canonical);
+      planned.push({
+        row,
+        draft: canonical,
+        issues: validation.issues,
+        duplicateOfId: validation.duplicateOfId,
+        duplicateKey: validation.duplicateKey,
+      });
+    }
+
+    const items = planned.map((entry) => ({
+      id: entry.row.id,
+      version: entry.row.version + (parsed.dryRun ? 0 : 1),
+      issueCount: entry.issues.length,
+      possiblyDuplicate: entry.duplicateOfId !== null,
+    }));
+    const result: BulkStageEditResult = {
+      dryRun: parsed.dryRun,
+      updatedCount: planned.length,
+      validCount: planned.filter((entry) => entry.issues.length === 0).length,
+      invalidCount: planned.filter((entry) => entry.issues.length > 0).length,
+      items,
+    };
+    if (parsed.dryRun) return result;
+
+    // Written a chunk at a time rather than a row at a time. Ten thousand rows
+    // is the documented ceiling, and a statement each would be twenty thousand
+    // sequential round trips holding a row lock and a pool connection.
+    // Bounded so one full-size selection cannot build a statement PostgreSQL
+    // refuses for having too many bind parameters.
+    const CHUNK = 500;
+    const now = new Date();
+    for (let start = 0; start < planned.length; start += CHUNK) {
+      const batch = planned.slice(start, start + CHUNK);
+      const patches = sql.join(
+        batch.map(
+          (entry) =>
+            sql`(${entry.row.id}::uuid, ${JSON.stringify(entry.draft)}::jsonb, ${JSON.stringify(entry.issues)}::jsonb, ${entry.duplicateOfId}::uuid, ${entry.duplicateKey}::text, ${entry.row.version}::integer)`,
+        ),
+        sql`, `,
+      );
+      const written = await tx
+        .update(stagedTransactions)
+        .set({
+          draft: sql`patched.draft`,
+          validationIssues: sql`patched.validation_issues`,
+          duplicateOfId: sql`patched.duplicate_of_id`,
+          duplicateKey: sql`patched.duplicate_key`,
+          version: sql`${stagedTransactions.version} + 1`,
+          updatedAt: now,
+        })
+        .from(
+          sql`(values ${patches}) as patched (id, draft, validation_issues, duplicate_of_id, duplicate_key, expected_version)`,
+        )
+        .where(
+          and(
+            eq(stagedTransactions.id, sql`patched.id`),
+            eq(stagedTransactions.userId, actor.userId),
+            eq(stagedTransactions.version, sql`patched.expected_version`),
+            eq(stagedTransactions.status, "staged"),
+          ),
+        );
+      // Every row was locked `for update` when the selection was resolved, so a
+      // short write means one of them stopped matching between the read and the
+      // write. Refusing the whole transaction is the only safe answer.
+      if (written.rowCount !== batch.length) {
+        throw staleVersion({
+          expectedCount: batch.length,
+          currentCount: written.rowCount,
+        });
+      }
+    }
+
+    // Read back rather than assumed, so an audit record says what actually
+    // landed. One query per chunk against rows this transaction holds locked.
+    const before = new Map(planned.map((entry) => [entry.row.id, entry.row]));
+    const audits: Parameters<typeof writeAuditMany>[2][number][] = [];
+    for (let start = 0; start < planned.length; start += CHUNK) {
+      const ids = planned.slice(start, start + CHUNK).map((entry) => entry.row.id);
+      const rows = await tx
+        .select()
+        .from(stagedTransactions)
+        .where(
+          and(
+            eq(stagedTransactions.userId, actor.userId),
+            inArray(stagedTransactions.id, ids),
+          ),
+        );
+      for (const row of rows) {
+        audits.push({
+          entityType: "staged_transaction",
+          entityId: row.id,
+          operation: "bulk_edit",
+          before: stageView(before.get(row.id)!),
+          after: stageView(row),
+        });
+      }
+    }
+    await writeAuditMany(tx, actor, audits);
+    await setIdempotent(
+      tx,
+      actor,
+      "stage.bulkEdit",
+      parsed.idempotencyKey,
+      { selection, patch },
+      result,
+    );
+    return result;
   });
 }
