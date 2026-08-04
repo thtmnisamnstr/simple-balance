@@ -18,6 +18,7 @@ import {
   formatMoney,
   isNegativeMoney,
   Modal,
+  largestMoney,
   moneyRatioPercent,
   PageHeader,
 
@@ -143,11 +144,27 @@ export default function DashboardPage() {
                   </header>
                   {currency.spendingByCategory.length ? (
                     <div className="spending-list">
-                      {currency.spendingByCategory.slice(0, 7).map((item) => {
-                        const percent = moneyRatioPercent(
-                          item.amount,
-                          currency.spendingByCategory[0]?.amount ?? "1",
+                      {(() => {
+                        // Uncategorised arrives last from the server and stays
+                        // last here, but it is kept rather than cut: it is the
+                        // one row that says there is filing left to do, and
+                        // losing it at rank eight would hide that.
+                        const named = currency.spendingByCategory.filter(
+                          (item) => item.categoryId !== null,
                         );
+                        const unnamed = currency.spendingByCategory.filter(
+                          (item) => item.categoryId === null,
+                        );
+                        return [...named.slice(0, 7), ...unnamed];
+                      })().map((item, _index, shown) => {
+                        // Scaled against the largest row on show rather than
+                        // the first. With uncategorised moved off the top the
+                        // first row is no longer necessarily the biggest, and a
+                        // ratio over one is clamped to a full bar, which would
+                        // draw two different amounts the same width.
+                        const widest =
+                          largestMoney(shown.map((entry) => entry.amount)) ?? "1";
+                        const percent = moneyRatioPercent(item.amount, widest);
                         return (
                           <div key={item.categoryId ?? "uncategorized"} className="spending-row">
                             <div>

@@ -703,6 +703,35 @@ export function isPositiveMoney(amount: string) {
   return !amount.startsWith("-") && !/^0(?:\.0+)?$/.test(amount);
 }
 
+/**
+ * The largest of several decimal money strings, compared exactly.
+ *
+ * Bar widths need the biggest row on show, and the biggest is no longer simply
+ * the first now that uncategorised spending is pinned to the bottom of the
+ * list. Compared as scaled integers rather than through Number, so a value with
+ * eighteen fractional digits is ordered by what it says and not by what a float
+ * can hold.
+ */
+export function largestMoney(amounts: readonly string[]) {
+  const parse = (value: string) => {
+    const match = /^(\d+)(?:\.(\d{1,18}))?$/.exec(value);
+    return match ? { integer: match[1], fraction: match[2] ?? "" } : null;
+  };
+  let best: string | undefined;
+  let bestUnits = -1n;
+  for (const amount of amounts) {
+    const parsed = parse(amount);
+    if (!parsed) continue;
+    // A common scale for every comparison, so 1.5 and 1.45 order correctly.
+    const units = BigInt(`${parsed.integer}${parsed.fraction.padEnd(18, "0")}`);
+    if (units > bestUnits) {
+      bestUnits = units;
+      best = amount;
+    }
+  }
+  return best;
+}
+
 export function moneyRatioPercent(amount: string, maximum: string) {
   const parse = (value: string) => {
     const match = /^(\d+)(?:\.(\d{1,18}))?$/.exec(value);

@@ -144,7 +144,12 @@ export async function getSummary(
       ))
     group by p.currency, c.id, c.name
     having sum(p.amount) <> 0
-    order by p.currency, sum(p.amount) desc
+    -- Uncategorised last, whatever it totals. It is not a category somebody
+    -- chose, so ranking it against the ones they did puts "work still to do" at
+    -- the top of a list meant to answer where the money went. Sorted here
+    -- rather than in the page, so an agent reading the summary sees the same
+    -- order.
+    order by p.currency, (c.id is null), sum(p.amount) desc
   `);
 
   const currencies = new Map<string, CurrencySummary>();

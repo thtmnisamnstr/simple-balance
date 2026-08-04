@@ -245,6 +245,80 @@ integration("archiving an account closes its balance out to equity", () => {
   });
 });
 
+integration("where uncategorised spending sits in the summary", () => {
+  const catActor: Actor = { userId: "spend-order-user", source: "web" };
+  const catDatabase = `simple_balance_spendorder_${process.pid}_${Date.now()}`;
+  let catAdmin: PgClient;
+
+  beforeAll(async () => {
+    catAdmin = new PgClient({ connectionString: connection });
+    await catAdmin.connect();
+    await catAdmin.query(`create database "${catDatabase}"`);
+    const databaseUrl = new URL(connection!);
+    databaseUrl.pathname = `/${catDatabase}`;
+    process.env.DATABASE_URL = databaseUrl.toString();
+    await runMigrations();
+    await getDb().insert(user).values({
+      id: catActor.userId,
+      name: "Spend Order",
+      email: "spend-order@example.com",
+      emailVerified: true,
+    });
+    const account = await createAccount(catActor, {
+      name: "Checking",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "10000",
+    });
+    // Deliberately the largest: uncategorised outspends every named category,
+    // which is exactly when ranking it by amount put it at the top.
+    const spend = async (amount: string, payee: string, category?: string) =>
+      createTransaction(
+        catActor,
+        {
+          type: "withdrawal",
+          date: today(),
+          payee,
+          description: null,
+          amount,
+          fromAccountId: account.id,
+          ...(category ? { categoryName: category } : {}),
+        },
+        `spend-${payee}`.padEnd(16, "0").slice(0, 16),
+      );
+    await spend("900.00", "Landlord", "Rent");
+    await spend("300.00", "Market", "Food");
+    await spend("5000.00", "Mystery");
+  });
+
+  afterAll(async () => {
+    await closeDb();
+    await catAdmin.query(`drop database if exists "${catDatabase}"`);
+    await catAdmin.end();
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
+
+  it("puts it last even when it is the largest, so the order is the same everywhere", async () => {
+    const summary = await getSummary(catActor, {});
+    const spending = summary.currencies.find(
+      (entry) => entry.currency === "USD",
+    )!.spendingByCategory;
+
+    expect(spending.map((entry) => entry.category)).toEqual([
+      "Rent",
+      "Food",
+      "Uncategorized",
+    ]);
+    // The named ones are still ordered by amount among themselves.
+    expect(Number(spending[0].amount)).toBeGreaterThan(Number(spending[1].amount));
+    // And it is genuinely the biggest, which is the case that used to top the list.
+    expect(Number(spending[2].amount)).toBeGreaterThan(Number(spending[0].amount));
+    expect(spending[2].categoryId).toBeNull();
+  });
+});
+
 integration("a summary stops at today", () => {
   const futureActor: Actor = { userId: "summary-future-user", source: "web" };
   const futureDatabase = `simple_balance_future_${process.pid}_${Date.now()}`;

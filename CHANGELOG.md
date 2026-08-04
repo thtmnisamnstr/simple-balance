@@ -4,6 +4,16 @@ Notable changes, newest first.
 
 ## Unreleased
 
+### Changed
+
+Uncategorised spending sits at the bottom of spending by category rather than
+wherever its total ranks. It is not a category anybody chose, so putting it
+first answers "what needs filing" on a panel that was asked where the money
+went. It is still shown, and shown even when the list is cut short, because it
+is the one row that says there is filing left to do. Ordered in the summary
+itself, so an agent reading `get_financial_summary` sees the same order as the
+page.
+
 ### Fixed
 
 The MCP endpoint answers on `/mcp/` as well as `/mcp`. They are different paths
