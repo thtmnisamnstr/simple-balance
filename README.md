@@ -200,6 +200,7 @@ to expire. See [MCP](docs/mcp.md).
 - [Deployment](docs/deployment.md): every setting, reverse proxies, backups
 - [Upgrades](docs/upgrades.md): moving between versions
 - [MCP](docs/mcp.md): scopes, tools, and what an agent can do
+- [Roadmap](docs/roadmap.md): what is planned, in order, and the evidence for it
 - [Changelog](CHANGELOG.md)
 - [Contributing](AGENTS.md): the rules this codebase holds itself to
 - [Ralph build loop](scripts/ralph/README.md)
