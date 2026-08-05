@@ -13,9 +13,12 @@ currency it touches, corrections are posted rather than typed over, and deleting
 something reverses it instead of erasing it. What you did to your ledger, and
 when, stays readable.
 
-MCP clients call the same code the browser does. An agent can prepare work and
-queue it for review. It cannot get around your sign-in, the scopes you granted
-it, the duplicate checks, or the commit step.
+MCP clients call the same code the browser does, and can do everything you can:
+the whole ledger, imports, templates, mass edits, and your own settings. Two
+things stay yours alone, deleting the account and setting a password, because
+they are account management rather than bookkeeping. An agent cannot get around
+your sign-in, the scopes you granted it, the duplicate checks, or the commit
+step.
 
 ![The Simple Balance overview: balances, cash flow, and spending by category, shown per currency for a month of activity](docs/images/dashboard.png)
 

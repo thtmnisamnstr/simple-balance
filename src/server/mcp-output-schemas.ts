@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   accountTypes,
+  transactionTemplateDraftSchema,
   bulkStageEditResultSchema,
   bulkStageSelectionSnapshotSchema,
   bulkTransactionEditResultSchema,
@@ -319,6 +320,56 @@ export const csvStageResultSchema = z.union([
     stagedIds: z.array(uuidSchema),
   }),
 ]);
+
+export const transactionTemplateResultSchema = z
+  .object({
+    ...versionedEntitySchema,
+    name: z.string(),
+    draft: transactionTemplateDraftSchema,
+  })
+  .passthrough();
+
+export const preferencesResultSchema = z
+  .object({
+    userId: z.string(),
+    timezone: z.string(),
+    defaultCurrency: z.string(),
+    chosen: z.boolean(),
+  })
+  .passthrough();
+
+export const importBatchResultSchema = z.object({
+  id: uuidSchema,
+  fileName: z.string(),
+  rowCount: z.number().int().nonnegative(),
+  stagedCount: z.number().int().nonnegative(),
+  createdAt: timestampSchema,
+});
+
+export const csvFilePreviewResultSchema = z.object({
+  delimiter: z.string(),
+  headers: z.array(z.string()),
+  rows: z.array(z.record(z.string(), z.string())),
+  errors: z.array(z.string()),
+});
+
+export const identityResultSchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  email: z.string(),
+  clientId: nullableStringSchema,
+  source: z.string(),
+});
+
+export const ownDataSummaryResultSchema = z.object({
+  accounts: z.number().int().nonnegative(),
+  transactions: z.number().int().nonnegative(),
+  categories: z.number().int().nonnegative(),
+  stagedTransactions: z.number().int().nonnegative(),
+  importBatches: z.number().int().nonnegative(),
+  payees: z.number().int().nonnegative(),
+  connectedAgents: z.number().int().nonnegative(),
+});
 
 export const deletedEntityResultSchema = z.object({
   id: uuidSchema,

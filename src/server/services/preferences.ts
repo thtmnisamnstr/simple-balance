@@ -2,11 +2,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Actor } from "../../shared/domain.js";
 import { currencyCodeSchema } from "../../shared/domain.js";
-import { getDb } from "../db/client.js";
+import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import { userPreferences } from "../db/schema.js";
 import { serializeRow, writeAudit } from "./helpers.js";
 
-const preferenceSchema = z.object({
+export const preferenceSchema = z.object({
   timezone: z
     .string()
     .min(1)
@@ -42,9 +42,28 @@ export async function getPreferences(actor: Actor) {
   };
 }
 
-export async function setPreferences(actor: Actor, input: unknown) {
-  const parsed = preferenceSchema.parse(input);
-  return getDb().transaction(async (tx) => {
+/**
+ * The stored shape needs both fields, but a caller changing only one should not
+ * have to send the other back or risk overwriting it with a guess. What is left
+ * out keeps whatever is there now.
+ */
+export const preferencePatchSchema = preferenceSchema.partial();
+
+export async function setPreferences(
+  actor: Actor,
+  input: unknown,
+  transaction?: DbTransaction,
+) {
+  const patch = preferencePatchSchema.parse(input);
+  const current = await getPreferences(actor);
+  const parsed = preferenceSchema.parse({
+    timezone: patch.timezone ?? current.timezone,
+    defaultCurrency: patch.defaultCurrency ?? current.defaultCurrency,
+  });
+  // Takes a transaction rather than always opening one, like every other write
+  // here. Opening its own inside a caller's would take a second connection out
+  // of the pool and commit on its own terms.
+  return withTransaction(transaction, async (tx) => {
     const [before] = await tx
       .select()
       .from(userPreferences)
@@ -65,6 +84,9 @@ export async function setPreferences(actor: Actor, input: unknown) {
       before: before ? serializeRow(before) : undefined,
       after: serializeRow(preferences),
     });
-    return preferences;
+    // The same shape the read returns, `chosen` included. Setting one is what
+    // choosing means, and two shapes for one record would leave a caller
+    // reading a field on one path that is missing on the other.
+    return { ...serializeRow(preferences), chosen: true };
   });
 }

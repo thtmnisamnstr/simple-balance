@@ -65,8 +65,15 @@
   nothing enumerates tables. Add the cascade with the table; without it the
   deletion fails rather than silently leaving data, which is the right failure
   but still a bug.
-- Deleting an account is reachable from a session and never from an MCP token.
-  An agent must not be able to delete the person it was lent access to.
+- The MCP surface has feature parity with the web app, and `tests/mcp-parity.test.ts`
+  compares them route by route. A new `/api/v1` route needs a tool in the same
+  change, or a named exception carrying its reason.
+- Two exceptions, both account management rather than bookkeeping: deleting an
+  account and setting a sign-in password are reachable from a session and never
+  from an MCP token.
+- A tool whose result does not satisfy its declared output schema has that
+  result silently dropped, so exercise new tools over a real connection rather
+  than trusting the schema alone.
 - Balances derive from postings alone. Never add an account column back into a
   balance query.
 - Lists order by any column they display, in either direction. Order is

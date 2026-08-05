@@ -14,6 +14,11 @@ import {
   listTransactionTemplates,
   updateTransactionTemplate,
 } from "../../src/server/services/transaction-templates.js";
+import { getIdentity } from "../../src/server/services/identity.js";
+import {
+  getPreferences,
+  setPreferences,
+} from "../../src/server/services/preferences.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -355,6 +360,110 @@ integration("saving a transaction as a template", () => {
       fromAccountId: checkingId,
       toAccountId: savingsId,
       amount: "200.00",
+    });
+  });
+});
+
+integration("what an agent reads about the person and their settings", () => {
+  const solo: Actor = { userId: "identity-owner", source: "mcp", clientId: "agent-7" };
+  const soloDatabase = `simple_balance_identity_${process.pid}_${Date.now()}`;
+  let client: PgClient;
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+
+  beforeAll(async () => {
+    client = new PgClient({ connectionString: connection });
+    await client.connect();
+    await client.query(`create database "${soloDatabase}"`);
+    const url = new URL(connection!);
+    url.pathname = `/${soloDatabase}`;
+    process.env.DATABASE_URL = url.toString();
+    await runMigrations();
+    await getDb().insert(user).values({
+      id: solo.userId,
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      emailVerified: true,
+    });
+  });
+
+  afterAll(async () => {
+    await closeDb();
+    await client.query(`drop database if exists "${soloDatabase}"`);
+    await client.end();
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+  });
+
+  it("reports who the books belong to, and the client asking", async () => {
+    expect(await getIdentity(solo)).toEqual({
+      userId: solo.userId,
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+      clientId: "agent-7",
+      source: "mcp",
+    });
+  });
+
+  // Nothing about how they sign in. That is deployment plumbing, and an agent
+  // has no use for knowing which credential doors exist.
+  it("says nothing about sign-in methods", async () => {
+    const identity = await getIdentity(solo);
+    for (const leak of ["password", "google", "mode", "localEnabled"]) {
+      expect(Object.keys(identity)).not.toContain(leak);
+    }
+  });
+
+  /**
+   * Until somebody picks, the answer is a default rather than a decision, and
+   * an agent has to be able to tell the two apart before it reports what "this
+   * month" covered.
+   */
+  it("distinguishes a default from a choice", async () => {
+    const before = await getPreferences(solo);
+    expect(before).toMatchObject({
+      timezone: "UTC",
+      defaultCurrency: "USD",
+      chosen: false,
+    });
+
+    await setPreferences(solo, {
+      timezone: "Europe/London",
+      defaultCurrency: "GBP",
+    });
+    expect(await getPreferences(solo)).toMatchObject({
+      timezone: "Europe/London",
+      defaultCurrency: "GBP",
+      chosen: true,
+    });
+  });
+
+  // The stored record needs both, so without this a caller changing the
+  // timezone would silently overwrite the currency with a guess.
+  it("changes one setting without disturbing the other", async () => {
+    await setPreferences(solo, {
+      timezone: "Europe/London",
+      defaultCurrency: "GBP",
+    });
+
+    await setPreferences(solo, { timezone: "America/New_York" });
+    expect(await getPreferences(solo)).toMatchObject({
+      timezone: "America/New_York",
+      defaultCurrency: "GBP",
+    });
+
+    await setPreferences(solo, { defaultCurrency: "EUR" });
+    expect(await getPreferences(solo)).toMatchObject({
+      timezone: "America/New_York",
+      defaultCurrency: "EUR",
+    });
+  });
+
+  it("refuses a timezone no calendar recognises", async () => {
+    await expect(
+      setPreferences(solo, { timezone: "Middle/Earth" }),
+    ).rejects.toThrow();
+    expect(await getPreferences(solo)).toMatchObject({
+      timezone: "America/New_York",
     });
   });
 });

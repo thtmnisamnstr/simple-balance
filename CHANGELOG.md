@@ -31,8 +31,8 @@ dropped with a note if it is not there any more. Templates outlive the accounts
 they mention rather than being deleted along with them. Rename, reshape, or
 delete them under Settings.
 
-Agents deliberately get no tools for this. A template is a saved preference for
-a form, and an agent already composes a whole transaction directly.
+Agents get templates too, through `list_transaction_templates` and the create,
+update, and delete tools.
 
 The categories list says how much each category is actually used: how many
 committed transactions, how many rows still waiting in the review queue, and the
@@ -71,6 +71,25 @@ than skip, so the count of rows changed always matches what was selected.
 Agents get the same thing through `bulk_edit_staged_transactions` and
 `preview_bulk_staged_selection`, with `dryRun` to see what a change would do
 first.
+
+The MCP surface now does everything the web app does. Fourteen tools closed the
+gaps that had accumulated: reading and setting the timezone and default
+currency, which is the one that mattered most because what counts as today is
+decided by the person's timezone and an agent previously had no way to read it
+or explain the figures it was given; payee suggestions, which is how an agent
+avoids forking a shop into a second spelling; previewing a CSV's columns before
+staging it and listing the imports still awaiting review; fetching a single
+account or category; the five template tools; counting everything in the ledger;
+and `whoami`, which also lets a client pick itself out of the list of connected
+agents.
+
+Two things stay out of an agent's reach, and they are now the whole of the list
+rather than the part somebody remembered to write down: deleting the account,
+which destroys the audit trail that makes every other agent action recoverable,
+and setting a sign-in password. Both are account management rather than
+bookkeeping. A test compares the two surfaces route by route and fails if a
+capability lands on one without reaching the other, so the boundary cannot drift
+quietly.
 
 ### Changed
 

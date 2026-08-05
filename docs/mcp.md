@@ -152,6 +152,64 @@ transactions and staged rows already committed or discarded. A row that has been
 committed is counted once, as a transaction, not again as the staged row it came
 from.
 
+## Knowing where you are
+
+`whoami` reports whose books these are and the client id this call is authorized
+under, which is how a client picks itself out of `list_connected_agents`. It
+says nothing about how the person signs in.
+
+`get_preferences` reports their timezone and default currency, and reading it
+matters more than it sounds. What counts as today is decided by their timezone
+rather than the server's, and `get_financial_summary`, `list_accounts`, and
+`get_account_balances` all resolve "today" through it. Without reading it an
+agent cannot explain the `asOf` it was given or predict which day an entry dated
+today will land on. `chosen: false` means nobody has picked yet rather than that
+they chose UTC.
+
+`set_preferences` changes either one; what you leave out keeps its current
+value. There is no version to check on this record and no undo beyond setting it
+back, so confirm it with the person first.
+
+`summarize_own_data` counts everything in the ledger.
+
+## Imports
+
+`preview_csv` reads the delimiter, headers, and first rows of a file without
+staging anything, which is how you work out the column mapping before calling
+`stage_csv`.
+
+`list_import_batches` lists the imports that still have rows waiting in the
+review queue. A batch leaves this list once all its rows are committed or
+discarded, so an empty result means the queue is clear rather than that the
+import failed. The id is what scopes a staged listing or a bulk edit to one
+file, which is how a whole import gets corrected in one go.
+
+## Transaction templates
+
+`list_transaction_templates`, `get_transaction_template`,
+`create_transaction_template`, `update_transaction_template`, and
+`delete_transaction_template`.
+
+A template is a saved starting point for a transaction, not a record of one: it
+posts nothing and moves no balance. Its draft is partial on purpose, and a field
+it does not carry is one to fill in each time. Reading them is how you record
+something the way this person usually records it rather than guessing at their
+shape.
+
+Three keys the draft refuses rather than ignores, each because storing it would
+make every transaction from the template wrong in a way nobody would notice. A
+`date`, which would post entries into a month nobody is looking at; using a
+template always means today. A `categoryName`, because naming a category creates
+it when nothing matches, so one misspelling would make a fresh category on every
+use. And an `externalId`, which is the reference a bank statement row was
+imported under: copied onto every transaction made from the template, it would
+make the next real import of that row look like one already seen.
+
+Updating replaces the draft whole rather than merging, so a field left out of
+the new draft is dropped. The account and category a template names carry no
+foreign key, so a template outlives them and holds an id that is resolved when it
+is used and dropped when it no longer resolves.
+
 ## Payees
 
 `list_payees`, `list_duplicate_payees`, and `merge_payees`. There is no payee
@@ -172,18 +230,23 @@ so they are visible in Activity and can be merged or deleted afterwards.
 
 ## What an agent cannot do
 
-Delete the account. That is reachable only from a signed-in browser, because
-every `/api/v1` route resolves a session cookie and an MCP token never becomes
-one. An agent holding `ledger:write` can change and remove entries, and every
-one of those is recoverable from the audit trail or by restoring a deleted row;
-deleting the person is not, so it is not a tool.
+Two things, and the line between them and everything else is the same one: an
+agent does the bookkeeping, and the account itself belongs to the person.
 
-Read or write a transaction template. Templates are a saved starting point for
-the browser's own form, and there is no tool for listing, creating, or using
-one. An agent composes a whole transaction directly and needs no prefill to do
-it, so the tools would only spend an agent's attention on a preference that is
-not its own. If you want an agent to record something the way you usually
-record it, tell it the shape rather than pointing it at a template.
+**Delete the account.** It destroys every account, transaction, posting,
+category, payee, staged row, import, session, agent grant, and the audit trail
+that would otherwise record what happened. Nothing restores any of it. Every
+other write an agent can make is recoverable, from the audit trail or by
+restoring a deleted row; this one is not, so it stays something a person does
+while signed in.
+
+**Set a sign-in password.** Adding a credential to an account is account
+management rather than bookkeeping, and an agent cannot undo it from its side.
+
+Everything else the browser can do, an agent can do. A test compares the two
+surfaces route by route and fails if a capability lands on one without reaching
+the other, so this list is the whole of it rather than the part somebody
+remembered to write down.
 
 ## Revoking access
 

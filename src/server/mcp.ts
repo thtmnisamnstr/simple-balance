@@ -24,6 +24,8 @@ import {
   payeeMergeSchema,
   stageCreateSchema,
   stageListQuerySchema,
+  transactionTemplateCreateSchema,
+  transactionTemplateUpdateSchema,
   stageUpdateSchema,
   transactionDeletedMutationSchema,
   transactionUpdateSchema,
@@ -33,6 +35,7 @@ import { getDb, type DbTransaction } from "./db/client.js";
 import {
   createAccount,
   deleteAccount,
+  getAccount,
   getAccountBalances,
   listAccounts,
   setAccountArchived,
@@ -42,6 +45,7 @@ import { listAuditEvents } from "./services/audit.js";
 import {
   createCategory,
   deleteCategory,
+  getCategory,
   listCategorySummaries,
   listDuplicateCategories,
   mergeCategories,
@@ -51,8 +55,16 @@ import {
 import {
   listDuplicatePayees,
   listPayees,
+  listPayeeSuggestions,
   mergePayees,
 } from "./services/payees.js";
+import {
+  createTransactionTemplate,
+  deleteTransactionTemplate,
+  getTransactionTemplate,
+  listTransactionTemplates,
+  updateTransactionTemplate,
+} from "./services/transaction-templates.js";
 import { AppError, zodIssues } from "./services/errors.js";
 import {
   getIdempotent,
@@ -62,8 +74,17 @@ import {
 import {
   csvStageInputSchema,
   exportTransactionsCsv,
+  getCsvPreview,
+  listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
+import {
+  getPreferences,
+  preferencePatchSchema,
+  setPreferences,
+} from "./services/preferences.js";
+import { summarizeOwnData } from "./services/account-deletion.js";
+import { getIdentity } from "./services/identity.js";
 import {
   bulkEditStages,
   commitStages,
@@ -115,8 +136,14 @@ import {
   stagedTransactionResultSchema,
   connectedAppListSchema,
   revokedConnectedAppSchema,
+  csvFilePreviewResultSchema,
+  identityResultSchema,
+  importBatchResultSchema,
+  ownDataSummaryResultSchema,
+  preferencesResultSchema,
   summaryResultSchema,
   transactionResultSchema,
+  transactionTemplateResultSchema,
 } from "./mcp-output-schemas.js";
 
 const toolResult = (result: unknown) => {
@@ -340,6 +367,135 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         annotations: readAnnotations,
       },
       (input) => runTool(() => getBulkTransactionSelection(actor, input)),
+    );
+    server.registerTool(
+      "get_account",
+      {
+        title: "Get account",
+        description:
+          "Get one account by ID, with its balance as of today in this person's timezone. An archived account comes back too, so read archivedAt rather than assuming a result means it is in use.",
+        inputSchema: z.object({ id: z.string().uuid() }),
+        outputSchema: mcpOutputSchema(accountResultSchema),
+        annotations: readAnnotations,
+      },
+      ({ id }) => runTool(() => getAccount(actor, id)),
+    );
+    server.registerTool(
+      "get_category",
+      {
+        title: "Get category",
+        description:
+          "Get one category by ID. An archived category comes back as well, so check archivedAt before filing anything under it.",
+        inputSchema: z.object({ id: z.string().uuid() }),
+        outputSchema: mcpOutputSchema(categoryResultSchema),
+        annotations: readAnnotations,
+      },
+      ({ id }) => runTool(() => getCategory(actor, id)),
+    );
+    server.registerTool(
+      "whoami",
+      {
+        title: "Who this ledger belongs to",
+        description:
+          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in list_connected_agents. It reports nothing about how they sign in.",
+        inputSchema: z.object({}),
+        outputSchema: mcpOutputSchema(identityResultSchema),
+        annotations: readAnnotations,
+      },
+      () => runTool(() => getIdentity(actor)),
+    );
+    server.registerTool(
+      "get_preferences",
+      {
+        title: "Get regional preferences",
+        description:
+          "This person's timezone and default currency. Read it before dating anything: what counts as today is decided by their timezone, not the server's, and a transaction dated by the wrong one lands on the wrong day.",
+        inputSchema: z.object({}),
+        outputSchema: mcpOutputSchema(preferencesResultSchema),
+        annotations: readAnnotations,
+      },
+      () => runTool(() => getPreferences(actor)),
+    );
+    server.registerTool(
+      "list_payee_suggestions",
+      {
+        title: "Suggest payee spellings",
+        description:
+          "Canonical payee spellings matching what you have so far, drawn from committed and staged entries. Use it before naming a payee: a payee is text on the transaction rather than a record, so a second spelling is a second payee in every list and report.",
+        inputSchema: z.object({
+          search: z
+            .string()
+            .max(160)
+            .optional()
+            .describe("What has been typed so far. Left out, the most common spellings come back."),
+        }),
+        outputSchema: mcpOutputSchema(z.array(z.string())),
+        annotations: readAnnotations,
+      },
+      ({ search }) => runTool(() => listPayeeSuggestions(actor, search)),
+    );
+    server.registerTool(
+      "list_import_batches",
+      {
+        title: "List import batches",
+        description:
+          "CSV imports that still have rows waiting in the review queue. The id is what scopes a staged listing or a bulk edit to one file, which is how a whole import is corrected in one go.",
+        inputSchema: listQuerySchema,
+        outputSchema: mcpOutputSchema(
+          cursorPageResultSchema(importBatchResultSchema),
+        ),
+        annotations: readAnnotations,
+      },
+      (input) => runTool(() => listActiveImportBatches(actor, input)),
+    );
+    server.registerTool(
+      "preview_csv",
+      {
+        title: "Preview CSV columns",
+        description:
+          "Read the delimiter, headers, and first rows of a CSV without staging anything or touching the ledger. Use it to work out the column mapping before calling stage_csv.",
+        inputSchema: z.object({
+          csv: z.string().min(1).describe("The file's text."),
+        }),
+        outputSchema: mcpOutputSchema(csvFilePreviewResultSchema),
+        annotations: readAnnotations,
+      },
+      ({ csv }) => runTool(async () => getCsvPreview(csv)),
+    );
+    server.registerTool(
+      "summarize_own_data",
+      {
+        title: "Count everything in this ledger",
+        description:
+          "How many accounts, transactions, categories, staged rows, import batches, payees, and connected agents this person has.",
+        inputSchema: z.object({}),
+        outputSchema: mcpOutputSchema(ownDataSummaryResultSchema),
+        annotations: readAnnotations,
+      },
+      () => runTool(() => summarizeOwnData(actor)),
+    );
+    server.registerTool(
+      "list_transaction_templates",
+      {
+        title: "List transaction templates",
+        description:
+          "List saved starting points for a transaction. A template is a partial draft: a field it does not carry is one to fill in when it is used. It records nothing and affects no balance.",
+        inputSchema: z.object({}),
+        outputSchema: mcpOutputSchema(z.array(transactionTemplateResultSchema)),
+        annotations: readAnnotations,
+      },
+      () => runTool(() => listTransactionTemplates(actor)),
+    );
+    server.registerTool(
+      "get_transaction_template",
+      {
+        title: "Get transaction template",
+        description: "Get one saved transaction template by ID.",
+        inputSchema: z.object({ id: z.string().uuid() }),
+        outputSchema: mcpOutputSchema(transactionTemplateResultSchema),
+        annotations: readAnnotations,
+      },
+      ({ id }) => runTool(() => getTransactionTemplate(actor, id)),
     );
     server.registerTool(
       "preview_bulk_staged_selection",
@@ -763,6 +919,102 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             idempotencyKey,
             { id, expectedVersion, archived },
             (tx) => setCategoryArchived(actor, id, expectedVersion, archived, tx),
+          ),
+        ),
+    );
+    server.registerTool(
+      "set_preferences",
+      {
+        title: "Set regional preferences",
+        description:
+          "Set the timezone or the default currency. What you leave out keeps its current value. The timezone decides what today means everywhere a date is worked out, so changing it changes which day an open-ended range stops at and which day an entry dated \"today\" lands on. Confirm it with the person before changing it; there is no version to check and no undo beyond setting it back.",
+        inputSchema: preferencePatchSchema.extend({
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(preferencesResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      ({ idempotencyKey, ...input }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "preferences.set",
+            idempotencyKey,
+            input,
+            (tx) => setPreferences(actor, input, tx),
+          ),
+        ),
+    );
+    server.registerTool(
+      "create_transaction_template",
+      {
+        title: "Create transaction template",
+        description:
+          "Save a starting point for the transaction form. Leave a field out to make it one the person fills in each time; an amount is the usual one to omit. The date, a category named rather than chosen, and a bank import reference are refused: a stored date would post entries into a past month, a named category would be created afresh on every use, and an import reference copied onto every transaction would make the next real import of that row look like one already seen.",
+        inputSchema: transactionTemplateCreateSchema.extend({
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(transactionTemplateResultSchema),
+        annotations: additiveAnnotations,
+      },
+      ({ idempotencyKey, ...input }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "transactionTemplate.create",
+            idempotencyKey,
+            input,
+            (tx) => createTransactionTemplate(actor, input, tx),
+          ),
+        ),
+    );
+    server.registerTool(
+      "update_transaction_template",
+      {
+        title: "Update transaction template",
+        description:
+          "Rename a template or replace what it remembers, using the expected record version. Sending a draft replaces it whole rather than merging, so a field left out of the new draft is dropped from the template.",
+        inputSchema: z.object({
+          id: z.string().uuid(),
+          input: transactionTemplateUpdateSchema,
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(transactionTemplateResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      ({ id, input, idempotencyKey }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "transactionTemplate.update",
+            idempotencyKey,
+            { id, input },
+            (tx) => updateTransactionTemplate(actor, id, input, tx),
+          ),
+        ),
+    );
+    server.registerTool(
+      "delete_transaction_template",
+      {
+        title: "Delete transaction template",
+        description:
+          "Delete a saved template. Transactions already made from it are untouched, because a template is only a starting point and nothing points back to it.",
+        inputSchema: z.object({
+          id: z.string().uuid(),
+          expectedVersion: z.number().int().positive(),
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(deletedEntityResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      ({ id, expectedVersion, idempotencyKey }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "transactionTemplate.delete",
+            idempotencyKey,
+            { id, expectedVersion },
+            (tx) => deleteTransactionTemplate(actor, id, expectedVersion, tx),
           ),
         ),
     );
