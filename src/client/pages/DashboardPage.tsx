@@ -12,6 +12,7 @@ import { useState } from "react";
 import { accountTypeLabels } from "../../shared/domain.js";
 import { api, queryString, type Account, type Category, type Summary } from "../api.js";
 import {
+  Alert,
   Button,
   DateRangeBar,
   EmptyState,
@@ -21,7 +22,6 @@ import {
   largestMoney,
   moneyRatioPercent,
   PageHeader,
-
   Skeleton,
 } from "../components.js";
 import { useDateRange } from "../date-range.js";
@@ -58,12 +58,15 @@ export default function DashboardPage() {
       />
       <DateRangeBar />
 
+      {summary.error ? <Alert>{summary.error.message}</Alert> : null}
+      {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
+
       {summary.isPending ? (
         <div className="currency-sections">
           <Skeleton height={160} />
           <Skeleton height={160} />
         </div>
-      ) : !summary.data?.currencies.length ? (
+      ) : summary.error ? null : !summary.data?.currencies.length ? (
         <EmptyState
           icon={<Landmark size={25} />}
           title="Create your first account"

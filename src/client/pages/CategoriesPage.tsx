@@ -206,7 +206,15 @@ export default function CategoriesPage() {
     },
     onSuccess: async () => {
       setName("");
-      await queryClient.invalidateQueries({ queryKey: ["categories"] });
+      // A rename changes what every transaction row and every category figure
+      // says, so those have to be refetched too. The merge below already does
+      // this; a rename is the same change by another name.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["categories"] }),
+        queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+        queryClient.invalidateQueries({ queryKey: ["staged"] }),
+        queryClient.invalidateQueries({ queryKey: ["summary"] }),
+      ]);
     },
   });
 
@@ -422,6 +430,9 @@ export default function CategoriesPage() {
         </section>
       ) : null}
 
+      {categories.error ? <Alert>{categories.error.message}</Alert> : null}
+      {duplicates.error ? <Alert>{duplicates.error.message}</Alert> : null}
+
       {filtered.length ? (
         <div className="category-list category-page-list">
           {filtered.map((category) => (
@@ -509,7 +520,9 @@ export default function CategoriesPage() {
             </div>
           ))}
         </div>
-      ) : (
+      ) : categories.isPending ? (
+        <p className="settings-note">Loading categories…</p>
+      ) : categories.error ? null : (
         <EmptyState
           icon={<Tags size={24} />}
           title="No categories in this view"

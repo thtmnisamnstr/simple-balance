@@ -287,6 +287,12 @@ describe("bounded request bodies", () => {
     expect(apiRequestBodyLimit("/api/v1/csv/preview")).toBe(71_680);
     expect(apiRequestBodyLimit("/api/v1/csv/stage")).toBe(71_680);
     expect(apiRequestBodyLimit("/mcp")).toBe(71_680);
+    // `/mcp/` is routed to the same endpoint, so it has to be sized the same.
+    // It was not, which left a client configured with the trailing slash - the
+    // configuration that spelling exists to support - refused a CSV upload the
+    // other spelling was allowed.
+    expect(apiRequestBodyLimit("/mcp/")).toBe(71_680);
+    expect(requestBodyLimit("/mcp/")).toBe(71_680);
   });
 
   it("lets bulk routes carry an entry for every selectable row", () => {

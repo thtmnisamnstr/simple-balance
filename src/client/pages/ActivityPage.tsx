@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Bot, History, Monitor } from "lucide-react";
 import { api, type AuditEvent, type Page } from "../api.js";
-import { Badge, EmptyState, PageHeader } from "../components.js";
+import { Alert, Badge, EmptyState, PageHeader } from "../components.js";
 
 function sentence(event: AuditEvent) {
   const entity = event.entityType.replaceAll("_", " ");
@@ -20,6 +20,7 @@ export default function ActivityPage() {
         title="Activity history"
         description="Changes made here and by agents, kept in order and never rewritten. The hundred most recent are shown."
       />
+      {events.error ? <Alert>{events.error.message}</Alert> : null}
       {events.data?.items.length ? (
         <section className="panel activity-list">
           {events.data.items.map((event) => {
@@ -45,7 +46,9 @@ export default function ActivityPage() {
             );
           })}
         </section>
-      ) : (
+      ) : events.isPending ? (
+        <p className="settings-note">Loading activity…</p>
+      ) : events.error ? null : (
         <EmptyState
           icon={<History size={25} />}
           title="No activity yet"

@@ -54,7 +54,11 @@ import {
   Textarea,
   useConfirm,
 } from "./components.js";
-import { draftForTransactionForm, templateDraftFromDraft } from "./staged-draft.js";
+import {
+  draftForTransactionForm,
+  summarizeStagedDraft,
+  templateDraftFromDraft,
+} from "./staged-draft.js";
 import type { TransactionSortField } from "../shared/domain.js";
 import { useDateRange } from "./date-range.js";
 import { TemplateForm, TransactionForm, draftFromTransaction } from "./forms.js";
@@ -881,8 +885,13 @@ export function TransactionBrowser({
                       : "Incomplete row";
                   const stagedDate =
                     typeof draft.date === "string" ? draft.date : null;
-                  const stagedAmount =
-                    typeof draft.amount === "string" ? draft.amount : null;
+                  // The same summary the staged queue itself shows, so a
+                  // transfer reports an amount here rather than nothing and the
+                  // figure is formatted like every other on the page.
+                  const stagedSummary = summarizeStagedDraft(
+                    stage.draft,
+                    accounts.data ?? [],
+                  );
                   return (
                     <tr key={`staged-${stage.id}`} className="row-staged">
                       <td className="checkbox-cell">
@@ -898,10 +907,12 @@ export function TransactionBrowser({
                           <Badge tone="amber">Staged</Badge>
                         </div>
                       </td>
-                      <td>—</td>
+                      <td>{stagedSummary.account}</td>
                       <td>—</td>
                       <td className="align-right">
-                        {stagedAmount ?? "—"}
+                        {stagedSummary.amount && stagedSummary.currency
+                          ? formatMoney(stagedSummary.amount, stagedSummary.currency)
+                          : "—"}
                       </td>
                       <td>
                         <Link className="text-link" to="/staged">

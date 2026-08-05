@@ -91,6 +91,72 @@ bookkeeping. A test compares the two surfaces route by route and fails if a
 capability lands on one without reaching the other, so the boundary cannot drift
 quietly.
 
+### Fixed
+
+A quality pass over the whole application, driven by nine independent reviews
+and by running it and using it. Everything below was found rather than
+suspected, and each one has a test that fails without the fix.
+
+Archiving an account could hang forever on a small connection pool. The closing
+entry it posts read the person's timezone from the pool while its own
+transaction was holding the only connection, so with `DATABASE_POOL_SIZE=1` the
+request waited on itself: no answer, no error, nothing in the log. Preference
+reads now travel on the transaction the caller already has.
+
+An idle database connection that dropped took the whole container with it. `pg`
+reports those on the pool rather than on any request, and with no listener that
+is an uncaught exception and an exit, so a database restart or a proxy timeout
+became a crash instead of a reconnect.
+
+The accounts list sorted balances through `Number`, which cannot hold the
+eighteen decimal places the ledger stores, so two balances differing in the last
+of them sorted arbitrarily. Balances now compare exactly, sign included.
+
+A staged row whose date column held something that is not a date turned the
+category and payee pages white. `Intl` throws on a date it cannot read, and the
+throw unmounted the page. Dates that cannot be read are now shown as they
+arrived, which is what somebody needs to see to fix them.
+
+A staged mass edit accepted `currency` and `includeDeleted` filters, advertised
+them to agents, and applied neither. Narrowing an edit to one currency would
+have had the preview count and the fingerprint agree and then rewritten every
+row in the queue. Both are now refused rather than ignored.
+
+A category could become permanently undeletable with nothing on screen to
+explain it: the guard counted staged rows that had already been committed, which
+keep their draft, so a category showing no transactions at all still refused to
+go.
+
+A mistyped id in a URL returned 500 and wrote a Postgres stack trace to the log,
+on every `/:id` route. Ids are now checked before they reach a query.
+
+Six pages told people they had nothing when a request had actually failed:
+"Create your first account", "No accounts yet", "No categories in this view",
+"No activity yet", "Create an account first". Each now shows the error, and none
+of them claims emptiness while still loading.
+
+Renaming a category left the old name on the transactions list and in the
+spending figures until something else happened to refresh them. Committing a
+transaction that created a category or a payee did not refresh either list.
+
+The staged queue's row cap notice was tested against the page rather than the
+total, so it could never appear however long the queue was, and a whole-list
+selection that hit the cap still said "All … selected". It now says how many of
+how many, and a selection that fails partway says so instead of quietly
+stopping.
+
+An MCP client configured with a trailing slash was capped at 256 KiB rather than
+the CSV-sized limit, so it could complete the OAuth flow and then be refused an
+upload the other spelling was allowed. The CHANGELOG entry that claimed
+otherwise has been corrected.
+
+The mobile navigation stayed in the tab order while off screen, so tabbing from
+the header walked into a menu nobody could see.
+
+Also removed: three CSS rules no component used, two type exports nothing
+imported, and a `vitest` run that collected a second copy of every test when a
+git worktree sat inside the repo.
+
 ### Changed
 
 Uncategorised spending sits at the bottom of spending by category rather than
@@ -108,8 +174,10 @@ to a router and only the second was registered, so a client configured with the
 trailing slash completed OAuth correctly, had its grant recorded in Settings and
 a valid token in hand, and then got a bare 404 on every call, which an agent
 reports as an authorization problem. Discovery under the resource path accepts
-the slash for the same reason, and the larger request body an MCP CSV upload is
-allowed now applies to both spellings.
+the slash for the same reason, and so does the larger request body an MCP CSV
+upload is allowed: the route was registered for both spellings but the body
+limit still recognised only one, so a client using the slash could reach the
+endpoint and then be refused a payload the other spelling was allowed.
 
 ## 0.1.2 - 2026-08-03
 

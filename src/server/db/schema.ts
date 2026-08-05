@@ -655,8 +655,6 @@ export const transactionTemplates = pgTable(
   ],
 );
 
-export type LedgerAccountRow = typeof ledgerAccounts.$inferSelect;
 export type CategoryRow = typeof categories.$inferSelect;
 export type TransactionRow = typeof transactions.$inferSelect;
 export type StagedTransactionRow = typeof stagedTransactions.$inferSelect;
-export type TransactionTemplateRow = typeof transactionTemplates.$inferSelect;

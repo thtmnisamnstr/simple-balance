@@ -259,7 +259,7 @@ export function AccountForm({
  * own component because the template editor needs exactly this and a second
  * copy would be a second answer to "what counts as the same payee".
  */
-export function PayeeInput({
+function PayeeInput({
   value,
   onChange,
   required = false,
@@ -993,6 +993,10 @@ export function TransactionForm({
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        // Naming a category or a payee that does not exist yet creates it, so
+        // the lists that show them are out of date the moment this returns.
+        queryClient.invalidateQueries({ queryKey: ["categories"] }),
+        queryClient.invalidateQueries({ queryKey: ["payees"] }),
       ]);
       if (!transaction && !staged && createAnother) {
         if (resetAfterSave) resetCreateDraft();

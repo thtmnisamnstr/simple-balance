@@ -465,10 +465,16 @@ export function boundRequestBody(options: BodyLimitOptions): MiddlewareHandler {
 }
 
 export function apiRequestBodyLimit(path: string) {
+  // `/mcp/` is the same endpoint as `/mcp` and is routed as such, so it has to
+  // be sized as such too. Missing it left a client configured with the trailing
+  // slash - the very configuration that spelling exists to support - capped at
+  // the generic limit, so a CSV upload or a large bulk selection came back 413
+  // while the identical call without the slash was allowed sixty times as much.
+  const mcp = path === "/mcp" || path === "/mcp/";
   if (
     path === "/api/v1/csv/preview" ||
     path === "/api/v1/csv/stage" ||
-    path === "/mcp"
+    mcp
   ) {
     return (
       configuredCsvMaxBytes() * JSON_STRING_WORST_CASE_EXPANSION +

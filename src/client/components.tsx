@@ -802,6 +802,35 @@ export function isPositiveMoney(amount: string) {
 }
 
 /**
+ * A decimal money string as a scaled integer, or null if it is not money.
+ *
+ * Eighteen fractional digits is the scale the database stores, so scaling every
+ * value to it puts any two on the same footing: 1.5 and 1.45 compare by what
+ * they say rather than by which has more digits.
+ */
+export function moneyUnits(value: string) {
+  const match = /^(-?)(\d+)(?:\.(\d{1,18}))?$/.exec(value.trim());
+  if (!match) return null;
+  const units = BigInt(`${match[2]}${(match[3] ?? "").padEnd(18, "0")}`);
+  return match[1] === "-" ? -units : units;
+}
+
+/**
+ * Orders two money strings exactly.
+ *
+ * Never through Number: a balance is a decimal string carrying up to eighteen
+ * fractional digits, and a float cannot hold those, so two different balances
+ * can compare equal and sort into whichever order they happened to arrive in.
+ * Anything unparseable sorts last, the way a blank does elsewhere.
+ */
+export function compareMoney(left: string, right: string) {
+  const a = moneyUnits(left);
+  const b = moneyUnits(right);
+  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+  return a === b ? 0 : a < b ? -1 : 1;
+}
+
+/**
  * The largest of several decimal money strings, compared exactly.
  *
  * Bar widths need the biggest row on show, and the biggest is no longer simply
@@ -856,11 +885,20 @@ export function moneyRatioPercent(amount: string, maximum: string) {
   return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
+/**
+ * Total on purpose. A staged row is allowed to hold whatever a CSV put in its
+ * date column, and Intl throws a RangeError on an invalid date, which unmounts
+ * the tree and leaves a white page rather than a badly formatted cell. Anything
+ * this cannot read is shown as it arrived, which is also what somebody needs to
+ * see in order to fix it.
+ */
 export function formatDate(value: string) {
+  const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(day.getTime())) return value;
   return new Intl.DateTimeFormat(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",
     timeZone: "UTC",
-  }).format(new Date(`${value.slice(0, 10)}T00:00:00Z`));
+  }).format(day);
 }

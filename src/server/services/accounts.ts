@@ -272,7 +272,7 @@ export async function postClosingBalance(
   // Today where this person lives. current_date is the database session's day,
   // which for anyone west of it is tomorrow for part of every evening, and
   // every other "as of today" figure uses the preference timezone.
-  const { timezone } = await getPreferences(actor);
+  const { timezone } = await getPreferences(actor, tx);
   const measured = await tx.execute(sql`
     select
       coalesce(sum(p.amount) filter (where p.closing_account_id is null), 0)::text

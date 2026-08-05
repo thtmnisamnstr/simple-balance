@@ -456,9 +456,7 @@ p {
 /* Money lines up column to column only when every digit is the same width. */
 .data-table td.align-right,
 .amount,
-.metric-value,
-.currency-heading h2,
-.account-balance {
+.currency-heading h2 {
   font-variant-numeric: tabular-nums;
 }
 
@@ -1971,21 +1969,6 @@ input[type="radio"] {
   gap: 8px;
 }
 
-.inline-input-action {
-  display: flex;
-  align-items: stretch;
-  gap: 7px;
-}
-
-.inline-input-action .input {
-  min-width: 0;
-}
-
-.inline-input-action .button {
-  max-width: 48%;
-  white-space: normal;
-}
-
 .category-picker {
   display: grid;
   gap: 5px;
@@ -2483,10 +2466,18 @@ input[type="radio"] {
   .sidebar {
     transform: translateX(-102%);
     box-shadow: 18px 0 55px rgb(20 36 27 / 18%);
-    transition: transform 180ms ease;
+    transition:
+      transform 180ms ease,
+      visibility 180ms;
+    /* Moved off screen it is still focusable, so tabbing from the header walked
+       into a menu nobody can see and ended on Sign out. Hidden takes it out of
+       the tab order; the transform still does the animation. */
+    visibility: hidden;
   }
+
   .sidebar.open {
     transform: translateX(0);
+    visibility: visible;
   }
   .mobile-close {
     display: grid;

@@ -201,7 +201,10 @@ export default function ImportPage() {
         description="Match your columns, check the preview, then stage the rows."
       />
 
-      {!accounts.data?.length ? (
+      {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
+      {accounts.isPending ? (
+        <p className="settings-note">Loading accounts…</p>
+      ) : accounts.error ? null : !accounts.data?.length ? (
         <EmptyState
           icon={<FileSpreadsheet size={25} />}
           title="Create an account first"

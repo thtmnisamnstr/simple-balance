@@ -4,7 +4,7 @@ import type { Actor } from "../../shared/domain.js";
 import { currencyCodeSchema } from "../../shared/domain.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import { userPreferences } from "../db/schema.js";
-import { serializeRow, writeAudit } from "./helpers.js";
+import { serializeRow, writeAudit, type Executor } from "./helpers.js";
 
 export const preferenceSchema = z.object({
   timezone: z
@@ -22,8 +22,14 @@ export const preferenceSchema = z.object({
   defaultCurrency: currencyCodeSchema,
 });
 
-export async function getPreferences(actor: Actor) {
-  const [preferences] = await getDb()
+/**
+ * Takes an executor because a caller inside a transaction must not reach into
+ * the pool for a second connection. On a one-connection pool that waits for a
+ * connection its own open transaction is holding, which is a deadlock that only
+ * appears under a small pool and then never resolves.
+ */
+export async function getPreferences(actor: Actor, executor: Executor = getDb()) {
+  const [preferences] = await executor
     .select()
     .from(userPreferences)
     .where(eq(userPreferences.userId, actor.userId))
@@ -55,7 +61,7 @@ export async function setPreferences(
   transaction?: DbTransaction,
 ) {
   const patch = preferencePatchSchema.parse(input);
-  const current = await getPreferences(actor);
+  const current = await getPreferences(actor, transaction ?? getDb());
   const parsed = preferenceSchema.parse({
     timezone: patch.timezone ?? current.timezone,
     defaultCurrency: patch.defaultCurrency ?? current.defaultCurrency,

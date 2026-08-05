@@ -576,12 +576,17 @@ export async function deleteCategory(
       .select({ count: sql<number>`count(*)::int` })
       .from(transactions)
       .where(and(eq(transactions.userId, actor.userId), eq(transactions.categoryId, id)));
+    // Only rows still in the queue. A row that has been committed keeps its
+    // draft, and the transaction it became is already counted above, so
+    // counting both left a category that nothing uses permanently undeletable
+    // with nothing on screen to explain why.
     const [{ count: stagedCount }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(stagedTransactions)
       .where(
         and(
           eq(stagedTransactions.userId, actor.userId),
+          eq(stagedTransactions.status, "staged"),
           sql`${stagedTransactions.draft} ->> 'categoryId' = ${id}`,
         ),
       );

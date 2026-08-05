@@ -445,6 +445,7 @@ export default function StagingPage() {
    */
   const selectAllMatching = async () => {
     setSelectingAll(true);
+    setBulkEditNotice(null);
     try {
       const collected = new Map<string, StagedTransaction>();
       for (
@@ -468,6 +469,22 @@ export default function StagingPage() {
         if (current >= result.totalPages || !result.items.length) break;
       }
       setSelected(collected);
+      // Truncation is said out loud. "All 25,000 matching selected" when only
+      // 10,000 were taken is the kind of wrong that is only discovered by the
+      // rows that were left behind.
+      if (collected.size < totalMatching) {
+        setBulkEditNotice(
+          `${collected.size.toLocaleString()} of ${totalMatching.toLocaleString()} matching rows selected, which is as many as one action covers. Deal with these, then select the rest.`,
+        );
+      }
+    } catch (error) {
+      // Without this the walk rejects into nothing and the bar simply stops
+      // growing, with no way to tell that from having finished.
+      setBulkEditNotice(
+        error instanceof Error
+          ? `Could not select every matching row: ${error.message}`
+          : "Could not select every matching row.",
+      );
     } finally {
       setSelectingAll(false);
     }
@@ -590,7 +607,9 @@ export default function StagingPage() {
           <div className="bulk-actions">
             <span>
               {allMatchingSelected && totalMatching > stages.length
-                ? `All ${selectedRows.length} matching staged transactions selected`
+                ? selectedRows.length < totalMatching
+                  ? `${selectedRows.length.toLocaleString()} of ${totalMatching.toLocaleString()} matching selected`
+                  : `All ${selectedRows.length} matching staged transactions selected`
                 : `${selectedRows.length} selected`}
             </span>
             {canSelectAllMatching ? (
@@ -656,7 +675,10 @@ export default function StagingPage() {
       {stagePages.error || batchPages.error ? (
         <Alert>{(stagePages.error ?? batchPages.error)!.message}</Alert>
       ) : null}
-      {stages.length > MAX_BULK_STAGES ? (
+      {/* The whole matching set, not the page: a page holds at most 100 rows
+          and the cap is 10,000, so testing the page meant this could never
+          appear however long the queue was. */}
+      {totalMatching > MAX_BULK_STAGES ? (
         <Alert kind="info">
           Bulk actions are limited to {MAX_BULK_STAGES.toLocaleString()} rows
           at a time. Commit or delete the selected group, then continue with

@@ -32,6 +32,7 @@ import {
   SortMenu,
   type SortState,
   compareForSort,
+  compareMoney,
   ConfirmDialog,
   useConfirm,
 } from "../components.js";
@@ -86,14 +87,22 @@ export default function AccountsPage({ session }: { session: Session }) {
   const sortedAccounts = useMemo(() => {
     const rows = [...(accounts.data ?? [])];
     return rows.sort((left, right) => {
+      // A balance is compared as a decimal rather than through Number, because a
+      // float cannot hold eighteen fractional digits and two balances that
+      // differ in the last of them would otherwise sort arbitrarily.
+      if (sort.field === "balance") {
+        const order = compareMoney(left.balance, right.balance);
+        return (
+          (sort.direction === "asc" ? order : -order) ||
+          left.name.localeCompare(right.name)
+        );
+      }
       const value = (account: Account) => {
         switch (sort.field) {
           case "type":
             return accountTypeLabels[account.type] ?? account.type;
           case "currency":
             return account.currency;
-          case "balance":
-            return Number(account.balance);
           case "status":
             return account.archivedAt ? "Archived" : "Active";
           default:
@@ -155,6 +164,7 @@ export default function AccountsPage({ session }: { session: Session }) {
         </label>
         <SortMenu fields={accountSortFields} sort={sort} onSort={setSort} />
       </div>
+      {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
       {sortedAccounts.length ? (
         <div className="account-card-grid">
@@ -237,7 +247,9 @@ export default function AccountsPage({ session }: { session: Session }) {
             );
           })}
         </div>
-      ) : (
+      ) : accounts.isPending ? (
+        <p className="settings-note">Loading accounts…</p>
+      ) : accounts.error ? null : (
         <EmptyState
           icon={<Landmark size={24} />}
           title="No accounts yet"

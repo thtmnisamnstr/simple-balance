@@ -126,6 +126,10 @@ import {
 } from "./services/transactions.js";
 import { isOwnerSetupTokenValid } from "./setup-token.js";
 
+const uuidPathSchema = z
+  .string()
+  .uuid("Not a valid identifier");
+
 type Variables = {
   actor: Actor;
   authUser: { id: string; name: string; email: string; image?: string | null };
@@ -751,6 +755,17 @@ app.use(
   boundRequestBody({ maxBytes: (context) => requestBodyLimit(context.req.path) }),
 );
 const body = async (c: Context<{ Variables: Variables }>) => c.req.json<unknown>();
+
+/**
+ * The id out of the path, checked before it reaches a query.
+ *
+ * Without this an id that is not a uuid travels all the way to PostgreSQL and
+ * comes back as a failed cast, which the caller sees as an unexplained 500 and
+ * the operator as a stack trace in the log, for what was only ever a mistyped
+ * URL. The same reasoning as the date parse in listAccounts.
+ */
+const pathId = (c: Context<{ Variables: Variables }>, name = "id") =>
+  uuidPathSchema.parse(c.req.param(name));
 const query = (c: Context<{ Variables: Variables }>) => c.req.query();
 
 app.get("/api/v1/session", async (c) =>
@@ -832,7 +847,7 @@ app.get("/api/v1/accounts/:id/balances", async (c) =>
   c.json(
     await getAccountBalances(
       c.get("actor"),
-      c.req.param("id"),
+      pathId(c),
       dateRangeSchema.parse({
         start: c.req.query("start"),
         end: c.req.query("end"),
@@ -841,13 +856,13 @@ app.get("/api/v1/accounts/:id/balances", async (c) =>
   ),
 );
 app.get("/api/v1/accounts/:id", async (c) =>
-  c.json(await getAccount(c.get("actor"), c.req.param("id"))),
+  c.json(await getAccount(c.get("actor"), pathId(c))),
 );
 app.post("/api/v1/accounts", async (c) =>
   c.json(await createAccount(c.get("actor"), await body(c)), 201),
 );
 app.put("/api/v1/accounts/:id", async (c) =>
-  c.json(await updateAccount(c.get("actor"), c.req.param("id"), await body(c))),
+  c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),
 );
 app.post("/api/v1/accounts/:id/archive", async (c) => {
   const parsed = versionedMutationSchema
@@ -856,7 +871,7 @@ app.post("/api/v1/accounts/:id/archive", async (c) => {
   return c.json(
     await setAccountArchived(
       c.get("actor"),
-      c.req.param("id"),
+      pathId(c),
       parsed.expectedVersion,
       parsed.archived,
     ),
@@ -865,7 +880,7 @@ app.post("/api/v1/accounts/:id/archive", async (c) => {
 app.delete("/api/v1/accounts/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
   return c.json(
-    await deleteAccount(c.get("actor"), c.req.param("id"), parsed.expectedVersion),
+    await deleteAccount(c.get("actor"), pathId(c), parsed.expectedVersion),
   );
 });
 
@@ -886,13 +901,13 @@ app.get("/api/v1/categories/summaries", async (c) =>
   ),
 );
 app.get("/api/v1/categories/:id", async (c) =>
-  c.json(await getCategory(c.get("actor"), c.req.param("id"))),
+  c.json(await getCategory(c.get("actor"), pathId(c))),
 );
 app.get("/api/v1/transaction-templates", async (c) =>
   c.json(await listTransactionTemplates(c.get("actor"))),
 );
 app.get("/api/v1/transaction-templates/:id", async (c) =>
-  c.json(await getTransactionTemplate(c.get("actor"), c.req.param("id"))),
+  c.json(await getTransactionTemplate(c.get("actor"), pathId(c))),
 );
 app.post("/api/v1/transaction-templates", async (c) =>
   c.json(await createTransactionTemplate(c.get("actor"), await body(c)), 201),
@@ -901,7 +916,7 @@ app.put("/api/v1/transaction-templates/:id", async (c) =>
   c.json(
     await updateTransactionTemplate(
       c.get("actor"),
-      c.req.param("id"),
+      pathId(c),
       await body(c),
     ),
   ),
@@ -911,7 +926,7 @@ app.delete("/api/v1/transaction-templates/:id", async (c) => {
   return c.json(
     await deleteTransactionTemplate(
       c.get("actor"),
-      c.req.param("id"),
+      pathId(c),
       parsed.expectedVersion,
     ),
   );
@@ -947,7 +962,7 @@ app.post("/api/v1/categories", async (c) =>
   c.json(await createCategory(c.get("actor"), await body(c)), 201),
 );
 app.put("/api/v1/categories/:id", async (c) =>
-  c.json(await updateCategory(c.get("actor"), c.req.param("id"), await body(c))),
+  c.json(await updateCategory(c.get("actor"), pathId(c), await body(c))),
 );
 app.post("/api/v1/categories/:id/archive", async (c) => {
   const parsed = versionedMutationSchema
@@ -956,7 +971,7 @@ app.post("/api/v1/categories/:id/archive", async (c) => {
   return c.json(
     await setCategoryArchived(
       c.get("actor"),
-      c.req.param("id"),
+      pathId(c),
       parsed.expectedVersion,
       parsed.archived,
     ),
@@ -965,7 +980,7 @@ app.post("/api/v1/categories/:id/archive", async (c) => {
 app.delete("/api/v1/categories/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
   return c.json(
-    await deleteCategory(c.get("actor"), c.req.param("id"), parsed.expectedVersion),
+    await deleteCategory(c.get("actor"), pathId(c), parsed.expectedVersion),
   );
 });
 
@@ -997,7 +1012,7 @@ app.post("/api/v1/transactions/bulk-delete", async (c) =>
   ),
 );
 app.get("/api/v1/transactions/:id", async (c) =>
-  c.json(await getTransaction(c.get("actor"), c.req.param("id"))),
+  c.json(await getTransaction(c.get("actor"), pathId(c))),
 );
 app.post("/api/v1/transactions", async (c) => {
   const parsed = directTransactionCreateSchema.parse(await body(c));
@@ -1012,14 +1027,14 @@ app.post("/api/v1/transactions", async (c) => {
   );
 });
 app.put("/api/v1/transactions/:id", async (c) =>
-  c.json(await updateTransaction(c.get("actor"), c.req.param("id"), await body(c))),
+  c.json(await updateTransaction(c.get("actor"), pathId(c), await body(c))),
 );
 app.post("/api/v1/transactions/:id/deleted", async (c) => {
   const parsed = transactionDeletedMutationSchema.parse(await body(c));
   return c.json(
     await setTransactionDeleted(
       c.get("actor"),
-      c.req.param("id"),
+      pathId(c),
       parsed.expectedVersion,
       parsed.deleted,
       parsed.allowDuplicate,
@@ -1031,13 +1046,13 @@ app.get("/api/v1/staged-transactions", async (c) =>
   c.json(await listStages(c.get("actor"), query(c))),
 );
 app.get("/api/v1/staged-transactions/:id", async (c) =>
-  c.json(await getStage(c.get("actor"), c.req.param("id"))),
+  c.json(await getStage(c.get("actor"), pathId(c))),
 );
 app.post("/api/v1/staged-transactions", async (c) =>
   c.json(await createStage(c.get("actor"), await body(c)), 201),
 );
 app.put("/api/v1/staged-transactions/:id", async (c) =>
-  c.json(await updateStage(c.get("actor"), c.req.param("id"), await body(c))),
+  c.json(await updateStage(c.get("actor"), pathId(c), await body(c))),
 );
 // The same two shapes the committed routes take: resolve a filter selection
 // into a count and a fingerprint first, then send that back with the edit.

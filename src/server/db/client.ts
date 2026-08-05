@@ -16,6 +16,15 @@ export function getPool() {
       max: configuredDatabasePoolSize(),
       connectionTimeoutMillis: 10_000,
     });
+    // An idle client whose connection drops - a database restart, a network
+    // blip, an idle timeout on a proxy - emits on the pool rather than on any
+    // request. Unhandled, that is an uncaught exception and the process exits,
+    // so a momentary blip takes the container down instead of being retried on
+    // the next query. pg has already removed and destroyed the client by the
+    // time this runs; there is nothing to do but say so.
+    pool.on("error", (error) => {
+      console.error("Idle database client error", error);
+    });
   }
   return pool;
 }

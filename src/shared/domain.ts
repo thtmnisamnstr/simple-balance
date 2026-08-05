@@ -652,8 +652,27 @@ export const stageListQuerySchema = listQuerySchema.extend({
  * here moves money; it rewrites the draft and revalidates it, and the queue
  * shows what would happen at commit.
  */
+/**
+ * Only the fields `stageFilterConditions` actually applies.
+ *
+ * `currency` and `includeDeleted` come along from the list query and mean
+ * nothing to a staged row: a draft carries no currency of its own, and a staged
+ * row is either in the queue or gone. Left in they were accepted and ignored,
+ * so an agent narrowing an edit to one currency would have had the count and
+ * the fingerprint agree with it and then rewrite every row in the queue.
+ * Refused rather than dropped, so a filter that cannot be honoured is an error
+ * instead of a silent widening.
+ */
 export const bulkStageFilterSchema = stageListQuerySchema
-  .omit({ cursor: true, page: true, limit: true, sort: true, direction: true })
+  .omit({
+    cursor: true,
+    page: true,
+    limit: true,
+    sort: true,
+    direction: true,
+    currency: true,
+    includeDeleted: true,
+  })
   .strict();
 
 const bulkStageIdSelectionSchema = z

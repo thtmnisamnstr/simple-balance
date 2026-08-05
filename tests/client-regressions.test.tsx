@@ -326,8 +326,14 @@ describe("transaction payee and category entry", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        requestUrl = new URL(String(input), window.location.origin);
-        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        const url = new URL(String(input), window.location.origin);
+        // The save itself, not whichever request happens to be last. Saving
+        // invalidates the payee and category lists, so a suggestions refetch
+        // lands after the PUT and used to be what this read.
+        if (init?.method) {
+          requestUrl = url;
+          requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+        }
         return new Response(JSON.stringify(groceryTransaction), {
           status: 200,
           headers: { "Content-Type": "application/json" },
