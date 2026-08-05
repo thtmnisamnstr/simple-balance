@@ -6,6 +6,20 @@ Notable changes, newest first.
 
 ### Added
 
+The categories list says how much each category is actually used: how many
+committed transactions, how many rows still waiting in the review queue, and the
+two added together, the same three numbers the payees list has always shown. You
+can sort by any of them, so the category nothing has ever been filed under is
+one click away, which is the one worth archiving or merging. A category with
+nothing under it is listed at zero rather than left out.
+
+The counts cover the whole ledger rather than a date range, because this page
+has no date range on it. A category's own page does, and shows it, so a badge
+reading 43 landing on a list of 7 has its reason on screen.
+
+Agents get the same three numbers from `list_categories`, which is the cheapest
+way to stop a ledger accumulating a third spelling of Groceries.
+
 Mass edit for staged rows, on the same terms as committed ones. Select rows in
 the review queue, or select everything matching the current filters, and change
 the date, payee, category, account, description, notes, or deposit/withdrawal

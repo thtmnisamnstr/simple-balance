@@ -134,6 +134,24 @@ resuming a keyset walk in a different order silently skips and repeats rows.
 Ordering by account or category cannot be resumed that way at all, so those
 return no cursor and you page them by number.
 
+## Categories
+
+`list_categories`, `list_duplicate_categories`, and `merge_categories`, plus the
+create, update, and archive tools.
+
+Listing reports how many committed transactions and how many staged rows use
+each category, and the two added together, the same three numbers `list_payees`
+gives. Read them before creating one: the most common way a ledger ends up with
+three spellings of the same category is an agent adding one it could have
+reused, and a usage count is what tells you which spelling is the established
+one and which is the stray to merge away. A category nothing uses comes back at
+zero rather than being left out, because that is the one worth archiving.
+
+The counts cover the whole ledger, not a date range, and leave out deleted
+transactions and staged rows already committed or discarded. A row that has been
+committed is counted once, as a transaction, not again as the staged row it came
+from.
+
 ## Payees
 
 `list_payees`, `list_duplicate_payees`, and `merge_payees`. There is no payee

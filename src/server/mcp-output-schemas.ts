@@ -92,6 +92,24 @@ export const categoryResultSchema = z
   })
   .passthrough();
 
+/**
+ * Declared separately rather than by widening `categoryResultSchema`, which is
+ * also what a merge result and a duplicate group report. Those come from
+ * sources that carry no counts, and a schema promising fields they do not have
+ * is worse than no promise at all.
+ */
+export const categorySummaryResultSchema = z
+  .object({
+    ...versionedEntitySchema,
+    name: z.string(),
+    kind: z.enum(categoryKinds),
+    archivedAt: timestampSchema.nullable(),
+    transactionCount: z.number().int().nonnegative(),
+    stagedTransactionCount: z.number().int().nonnegative(),
+    totalCount: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
 const accountReferenceSchema = z
   .object({
     id: uuidSchema,

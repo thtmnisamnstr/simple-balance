@@ -18,6 +18,7 @@ import {
   type Category,
   type CategoryDuplicateGroup,
   type CategoryMergeResult,
+  type CategorySummary,
 } from "../api.js";
 import {
   Alert,
@@ -46,6 +47,9 @@ const categorySortFields = [
   { field: "name", label: "Name" },
   { field: "kind", label: "Kind" },
   { field: "status", label: "Status" },
+  { field: "committed", label: "Committed" },
+  { field: "staged", label: "Staged" },
+  { field: "total", label: "Total transactions" },
 ] as const;
 type CategorySortField = (typeof categorySortFields)[number]["field"];
 
@@ -145,10 +149,12 @@ export default function CategoriesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [targetId, setTargetId] = useState("");
   const categories = useQuery({
-    queryKey: ["categories", includeArchived],
+    queryKey: ["categories", "summaries", includeArchived],
     queryFn: () =>
-      api<Category[]>(
-        `/api/v1/categories${includeArchived ? "?includeArchived=true" : ""}`,
+      api<CategorySummary[]>(
+        `/api/v1/categories/summaries${
+          includeArchived ? "?includeArchived=true" : ""
+        }`,
       ),
   });
   const duplicates = useQuery({
@@ -249,12 +255,18 @@ export default function CategoriesPage() {
         )
       : (categories.data ?? []);
     return [...matching].sort((left, right) => {
-      const of = (category: Category) => {
+      const of = (category: CategorySummary) => {
         switch (sort.field) {
           case "kind":
             return kindLabels[category.kind];
           case "status":
             return category.archivedAt ? "Archived" : "Active";
+          case "committed":
+            return category.transactionCount;
+          case "staged":
+            return category.stagedTransactionCount;
+          case "total":
+            return category.totalCount;
           default:
             return category.name;
         }
@@ -286,7 +298,7 @@ export default function CategoriesPage() {
       <PageHeader
         eyebrow="Organization"
         title="Categories"
-        description="Group income and spending. Spot near-duplicates and merge them."
+        description="Group income and spending, with how much each one is used across the whole ledger. Spot near-duplicates and merge them."
       />
       <section className="panel settings-section">
         <form className="inline-form" onSubmit={addCategory}>
@@ -444,12 +456,19 @@ export default function CategoriesPage() {
                       {category.name}
                     </Link>
                   </strong>
-                  <small>{kindLabels[category.kind]}</small>
+                  <small>
+                    {kindLabels[category.kind]} · {category.transactionCount}{" "}
+                    committed · {category.stagedTransactionCount} staged
+                  </small>
                 </span>
               </div>
               <div>
                 <Badge tone={category.kind === "expense" ? "red" : "green"}>
                   {kindLabels[category.kind]}
+                </Badge>
+                <Badge tone="blue">
+                  {category.totalCount} transaction
+                  {category.totalCount === 1 ? "" : "s"}
                 </Badge>
                 {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>

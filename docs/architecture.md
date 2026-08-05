@@ -118,6 +118,16 @@ than a table of its own, and the payee list is a projection of committed and
 staged text. Merging rewrites every reference at once, bumps versions, and
 writes audit events.
 
+A category is a real row, so its list is cheap and its usage counts are not.
+They are read from `ledger_transaction` and `staged_transaction` rather than
+from postings, which is allowed because a row count is not a monetary figure;
+money still comes only from postings. The counts are served from their own
+endpoint rather than added to the category list, because most callers of that
+list are pickers rendering a dropdown and would be paying for two aggregates to
+do it. Both are aggregated before they are joined: counting across the join
+reports one for a category nothing references, and the two sides multiplied
+together when both match.
+
 Lists order by any column they show, in either direction. Order is presentation
 rather than scope, so it stays out of the fingerprinted bulk selection. A cursor
 records the ordering it was issued for and is refused under another; orderings a

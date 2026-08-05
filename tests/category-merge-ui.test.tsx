@@ -11,22 +11,28 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Category, CategoryMergeResult } from "../src/client/api.js";
+import type { CategoryMergeResult, CategorySummary } from "../src/client/api.js";
 import CategoriesPage from "../src/client/pages/CategoriesPage.js";
 import { BrowserRouter } from "../src/client/router.js";
 
-const groceries: Category = {
+const groceries: CategorySummary = {
   id: "11111111-1111-4111-8111-111111111111",
   name: "Groceries",
   kind: "expense",
   version: 2,
+  transactionCount: 6,
+  stagedTransactionCount: 0,
+  totalCount: 6,
 };
 
-const grocery: Category = {
+const grocery: CategorySummary = {
   id: "22222222-2222-4222-8222-222222222222",
   name: "Grocery",
   kind: "expense",
   version: 4,
+  transactionCount: 1,
+  stagedTransactionCount: 2,
+  totalCount: 3,
 };
 
 afterEach(() => {
@@ -57,7 +63,7 @@ describe("category merging", () => {
           };
           return Response.json(result);
         }
-        if (url.pathname === "/api/v1/categories") {
+        if (url.pathname === "/api/v1/categories/summaries") {
           return Response.json([groceries, grocery]);
         }
         return new Response("Not found", { status: 404 });

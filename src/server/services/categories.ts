@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import type {
   Actor,
   CategoryKind,
@@ -273,6 +273,123 @@ export async function listCategories(actor: Actor, includeArchived = false) {
       ),
     )
     .orderBy(categories.kind, categories.name);
+}
+
+/**
+ * The same list, plus how much each category is actually used.
+ *
+ * Kept apart from `listCategories` because most callers of that are pickers -
+ * the category select on every transaction form, the mass edit modals, the
+ * staging queue - and they would be paying for two aggregates to render a
+ * dropdown. The browser holds this list under three separate cache keys and
+ * every category, import, or staging write invalidates all of them, so the
+ * waste would land on nearly every page.
+ *
+ * Counts are ledger-wide. Neither this page nor the payee list carries a date
+ * range, so a range-scoped number would be one the reader could not explain or
+ * change. A category detail page does have a range bar, and shows it, so a
+ * badge reading 43 landing on a list of 7 is a difference the reader can see
+ * the reason for.
+ */
+export async function listCategorySummaries(
+  actor: Actor,
+  includeArchived = false,
+) {
+  const db = getDb();
+  // Aggregated before the join rather than counted across it: `count(*)` over a
+  // left join reports 1 for a category nothing references, and the product of
+  // the two sides when both match.
+  const committedUse = db
+    .select({
+      categoryId: transactions.categoryId,
+      total: sql<number>`count(*)::int`.as("committed_count"),
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, actor.userId),
+        sql`${transactions.deletedAt} is null`,
+        sql`${transactions.categoryId} is not null`,
+      ),
+    )
+    .groupBy(transactions.categoryId)
+    .as("committed_use");
+  const stagedUse = db
+    .select({
+      // Named apart from the committed side's column: the join below has to
+      // spell this one out in SQL, and two derived tables offering the same
+      // bare name is ambiguous.
+      categoryId: sql<string>`${stagedTransactions.draft} ->> 'categoryId'`.as(
+        "staged_category_id",
+      ),
+      total: sql<number>`count(*)::int`.as("staged_count"),
+    })
+    .from(stagedTransactions)
+    .where(
+      and(
+        // Load-bearing in a way its twin on the committed side is not. A
+        // transaction's category is held to the same owner by a foreign key; a
+        // draft names its category as free JSON text that nothing constrains,
+        // so somebody else's staged row can carry this person's category id and
+        // only this line keeps it out of their count.
+        eq(stagedTransactions.userId, actor.userId),
+        eq(stagedTransactions.status, "staged"),
+        // A staged draft is unvalidated, so this slot can hold anything at all.
+        // Nothing but a string could match an id anyway; this keeps the rest out
+        // of the grouping rather than leaning on that.
+        sql`jsonb_typeof(${stagedTransactions.draft} -> 'categoryId') = 'string'`,
+      ),
+    )
+    .groupBy(sql`${stagedTransactions.draft} ->> 'categoryId'`)
+    .as("staged_use");
+
+  const rows = await db
+    .select({
+      ...getTableColumns(categories),
+      transactionCount: sql<number>`coalesce(${committedUse.total}, 0)::int`,
+      stagedTransactionCount: sql<number>`coalesce(${stagedUse.total}, 0)::int`,
+    })
+    .from(categories)
+    // Left joined so a category nothing references still appears, reported as
+    // zero. That is the row somebody came here to find.
+    .leftJoin(committedUse, eq(committedUse.categoryId, categories.id))
+    // The id is cast to text rather than the draft to uuid. Casting the other
+    // way raises on the first draft holding something that is not a uuid, and
+    // staging accepts those on purpose, so one bad import would take the whole
+    // page down with no way back from the UI.
+    .leftJoin(stagedUse, sql`${stagedUse.categoryId} = ${categories.id}::text`)
+    .where(
+      and(
+        eq(categories.userId, actor.userId),
+        includeArchived ? sql`true` : sql`${categories.archivedAt} is null`,
+      ),
+    )
+    .orderBy(categories.kind, categories.name);
+
+  return rows.map((row) => {
+    const transactionCount = referenceCount(row.transactionCount);
+    const stagedTransactionCount = referenceCount(row.stagedTransactionCount);
+    return {
+      ...row,
+      transactionCount,
+      stagedTransactionCount,
+      totalCount: transactionCount + stagedTransactionCount,
+    };
+  });
+}
+
+/**
+ * `count(*)` is a bigint, and node-postgres hands those back as strings, so a
+ * missing cast would make the total the two counts concatenated rather than
+ * added. The casts above are what prevent that; this is the check that says so
+ * out loud if one is ever dropped.
+ */
+function referenceCount(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error("Database returned an invalid category reference count");
+  }
+  return parsed;
 }
 
 export async function getCategory(actor: Actor, id: string) {

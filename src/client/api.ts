@@ -122,6 +122,18 @@ export type Category = {
   version: number;
 };
 
+/**
+ * A category plus how much it is used. Its own type rather than fields on
+ * `Category`, because a category reached through a transaction, a merge result,
+ * or a duplicate group carries no counts, and optional counts would leave every
+ * reader guessing whether zero means zero or means nobody asked.
+ */
+export type CategorySummary = Category & {
+  transactionCount: number;
+  stagedTransactionCount: number;
+  totalCount: number;
+};
+
 export type CategoryDuplicateGroup = {
   normalizedName: string;
   count: number;

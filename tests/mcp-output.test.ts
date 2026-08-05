@@ -58,6 +58,9 @@ describe("MCP output contracts", () => {
       byName.get("create_transaction")?.outputSchema,
     );
     const payeeSchema = JSON.stringify(byName.get("list_payees")?.outputSchema);
+    const categorySchema = JSON.stringify(
+      byName.get("list_categories")?.outputSchema,
+    );
     const mergePayeeSchema = JSON.stringify(
       byName.get("merge_payees")?.outputSchema,
     );
@@ -74,6 +77,12 @@ describe("MCP output contracts", () => {
     expect(createAccountSchema).toContain('"openingBalance"');
     expect(transactionSchema).toContain('"destinationAmount"');
     expect(payeeSchema).toContain('"stagedTransactionCount"');
+    // Published rather than merely tolerated: the result schema passes unknown
+    // keys through, so a count that is not declared here is one no agent can
+    // discover from the tool listing.
+    expect(categorySchema).toContain('"transactionCount"');
+    expect(categorySchema).toContain('"stagedTransactionCount"');
+    expect(categorySchema).toContain('"totalCount"');
     expect(mergePayeeSchema).toContain('"mergedSourcePayees"');
     expect(bulkPreviewSchema).toContain('"fingerprint"');
     expect(bulkPreviewSchema).toContain('"transferCount"');

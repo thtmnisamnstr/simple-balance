@@ -67,6 +67,7 @@ import {
   deleteCategory,
   getCategory,
   listCategories,
+  listCategorySummaries,
   listDuplicateCategories,
   mergeCategories,
   setCategoryArchived,
@@ -868,6 +869,14 @@ app.get("/api/v1/categories", async (c) =>
 );
 app.get("/api/v1/categories/duplicates", async (c) =>
   c.json(await listDuplicateCategories(c.get("actor"))),
+);
+app.get("/api/v1/categories/summaries", async (c) =>
+  c.json(
+    await listCategorySummaries(
+      c.get("actor"),
+      c.req.query("includeArchived") === "true",
+    ),
+  ),
 );
 app.get("/api/v1/categories/:id", async (c) =>
   c.json(await getCategory(c.get("actor"), c.req.param("id"))),

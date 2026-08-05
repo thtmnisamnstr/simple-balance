@@ -42,7 +42,7 @@ import { listAuditEvents } from "./services/audit.js";
 import {
   createCategory,
   deleteCategory,
-  listCategories,
+  listCategorySummaries,
   listDuplicateCategories,
   mergeCategories,
   setCategoryArchived,
@@ -98,6 +98,7 @@ import {
   bulkTransactionEditMcpResultSchema,
   bulkTransactionSelectionSnapshotResultSchema,
   categoryResultSchema,
+  categorySummaryResultSchema,
   committedStagesResultSchema,
   csvExportResultSchema,
   csvStageResultSchema,
@@ -256,12 +257,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "list_categories",
       {
         title: "List categories",
-        description: "List income and expense categories.",
+        description:
+          "List income and expense categories with how many committed and staged transactions use each one, so an existing category can be reused rather than a second spelling of it created. Counts cover the whole ledger and leave out deleted transactions and staged rows already committed or discarded.",
         inputSchema: z.object({ includeArchived: z.boolean().default(false) }),
-        outputSchema: mcpOutputSchema(z.array(categoryResultSchema)),
+        outputSchema: mcpOutputSchema(z.array(categorySummaryResultSchema)),
         annotations: readAnnotations,
       },
-      (input) => runTool(() => listCategories(actor, input.includeArchived)),
+      (input) =>
+        runTool(() => listCategorySummaries(actor, input.includeArchived)),
     );
     server.registerTool(
       "list_duplicate_categories",
