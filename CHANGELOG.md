@@ -6,6 +6,34 @@ Notable changes, newest first.
 
 ### Added
 
+Templates, for the transactions you enter again and again. Open the menu on any
+row, on the transactions list or the review queue, and save it as a template:
+what you keep is a starting point, not a copy. Anything you clear before saving
+is simply not saved, which is the point of the feature rather than a limitation
+of it. A template with a payee and a category and no amount is the one most
+people want, because the amount is the part that changes.
+
+Pick one from the new dropdown at the top of Add transaction and the form fills
+in. From there it is an ordinary form: change anything, change everything, the
+template is untouched. There is no path from that form back to the template, so
+that is a property of the code rather than a promise about it.
+
+Three things a template deliberately never keeps. The date, because a template
+means today and a stored one would post transactions into a month you were not
+looking at. A typed category name, because naming a category creates it when
+nothing matches, so a mistyped one would make a fresh category every time you
+used the template. And the reference a row came in from a bank file under,
+because copying that into every transaction made from the template would make
+the next real import of that statement row look like one already seen.
+
+An account or category the template names is looked up when you use it, and
+dropped with a note if it is not there any more. Templates outlive the accounts
+they mention rather than being deleted along with them. Rename, reshape, or
+delete them under Settings.
+
+Agents deliberately get no tools for this. A template is a saved preference for
+a form, and an agent already composes a whole transaction directly.
+
 The categories list says how much each category is actually used: how many
 committed transactions, how many rows still waiting in the review queue, and the
 two added together, the same three numbers the payees list has always shown. You

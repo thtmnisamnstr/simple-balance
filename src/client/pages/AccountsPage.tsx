@@ -5,7 +5,6 @@ import {
   Building2,
   CreditCard,
   Landmark,
-  MoreHorizontal,
   Pencil,
   Plus,
   Trash2,
@@ -29,6 +28,7 @@ import {
   isPositiveMoney,
   Modal,
   PageHeader,
+  RowMenu,
   SortMenu,
   type SortState,
   compareForSort,
@@ -170,44 +170,39 @@ export default function AccountsPage({ session }: { session: Session }) {
                   <span className="account-icon"><Icon size={20} /></span>
                   <div className="account-card-actions">
                     {account.archivedAt ? <Badge>Archived</Badge> : null}
-                    <details className="menu">
-                      <summary aria-label={`Actions for ${account.name}`}>
-                        <MoreHorizontal size={18} />
-                      </summary>
-                      <div className="menu-popover">
-                        <button onClick={() => setEditing(account)}>
-                          <Pencil size={15} /> Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            // Archiving now moves money: the balance is posted
-                            // out to equity so the account ends at zero.
-                            // Restoring puts it back, and neither is something
-                            // to do by brushing past a menu item.
-                            if (!account.archivedAt && hasBalance(account.balance)) {
-                              closing.ask(account, () =>
-                                mutation.mutate({ account, action: "archive" }),
-                              );
-                              return;
-                            }
-                            mutation.mutate({ account, action: "archive" });
-                          }}
-                        >
-                          {account.archivedAt ? <ArchiveRestore size={15} /> : <Archive size={15} />}
-                          {account.archivedAt ? "Restore" : "Archive"}
-                        </button>
-                        <button
-                          className="danger"
-                          onClick={() => {
-                            removal.ask(account, () =>
-                              mutation.mutate({ account, action: "delete" }),
+                    <RowMenu label={`Actions for ${account.name}`}>
+                      <button onClick={() => setEditing(account)}>
+                        <Pencil size={15} /> Edit
+                      </button>
+                      <button
+                        onClick={() => {
+                          // Archiving now moves money: the balance is posted
+                          // out to equity so the account ends at zero.
+                          // Restoring puts it back, and neither is something
+                          // to do by brushing past a menu item.
+                          if (!account.archivedAt && hasBalance(account.balance)) {
+                            closing.ask(account, () =>
+                              mutation.mutate({ account, action: "archive" }),
                             );
-                          }}
-                        >
-                          <Trash2 size={15} /> Delete if unused
-                        </button>
-                      </div>
-                    </details>
+                            return;
+                          }
+                          mutation.mutate({ account, action: "archive" });
+                        }}
+                      >
+                        {account.archivedAt ? <ArchiveRestore size={15} /> : <Archive size={15} />}
+                        {account.archivedAt ? "Restore" : "Archive"}
+                      </button>
+                      <button
+                        className="danger"
+                        onClick={() => {
+                          removal.ask(account, () =>
+                            mutation.mutate({ account, action: "delete" }),
+                          );
+                        }}
+                      >
+                        <Trash2 size={15} /> Delete if unused
+                      </button>
+                    </RowMenu>
                   </div>
                 </header>
                 <Link

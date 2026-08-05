@@ -619,7 +619,44 @@ export const auditEvents = pgTable(
   ],
 );
 
+/**
+ * A saved starting point for the transaction form. It records nothing that has
+ * happened, posts nothing, and touches no balance.
+ *
+ * The account and category it names live inside the JSON with no foreign key,
+ * deliberately. A key would cascade, so tidying up an old account would take the
+ * user's saved templates with it, which is a loss they never asked for. What
+ * they hold instead is an id that is looked up when the template is used and
+ * quietly dropped if it no longer resolves.
+ */
+export const transactionTemplates = pgTable(
+  "transaction_template",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // A partial draft: a field the user left blank is absent rather than empty,
+    // so "not saved" and "saved as nothing" cannot be confused at the point of
+    // use.
+    draft: jsonb("draft").notNull(),
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("transaction_template_user_idx").on(table.userId),
+    unique("transaction_template_user_name_unique").on(table.userId, table.name),
+    check(
+      "transaction_template_name_check",
+      sql`char_length(btrim(${table.name})) between 1 and 120`,
+    ),
+    check("transaction_template_version_check", sql`${table.version} >= 1`),
+  ],
+);
+
 export type LedgerAccountRow = typeof ledgerAccounts.$inferSelect;
 export type CategoryRow = typeof categories.$inferSelect;
 export type TransactionRow = typeof transactions.$inferSelect;
 export type StagedTransactionRow = typeof stagedTransactions.$inferSelect;
+export type TransactionTemplateRow = typeof transactionTemplates.$inferSelect;

@@ -113,6 +113,14 @@ give exactly one account to, a transfer or a row with no type yet, is refused
 rather than skipped: skipping would report a number of rows changed that does
 not match the selection.
 
+A template is a saved starting point for the transaction form, not a record of
+anything: it posts nothing and never touches a balance. The account and category
+it names live inside its JSON with no foreign key, deliberately, because a key
+would cascade and tidying up an old account would take the saved template with
+it. What it holds instead is an id resolved when the template is used and
+dropped, with a note, when it no longer resolves. Ownership of those ids is
+checked when the template is written rather than when it is read.
+
 Every transaction has a payee. It is canonical text on the transaction rather
 than a table of its own, and the payee list is a projection of committed and
 staged text. Merging rewrites every reference at once, bumps versions, and

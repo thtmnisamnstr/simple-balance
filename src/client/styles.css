@@ -1167,6 +1167,15 @@ input[type="radio"] {
   box-shadow: 0 15px 38px rgb(26 45 34 / 14%);
 }
 
+/* Fixed rather than absolute, so a row menu is not clipped by the horizontal
+   scroll on .table-card. The offsets come from the trigger's position at the
+   moment it opens. */
+.row-menu-popover {
+  position: fixed;
+  top: auto;
+  right: auto;
+}
+
 .menu-popover button {
   display: flex;
   align-items: center;
@@ -1463,6 +1472,33 @@ input[type="radio"] {
   color: #758179;
   background: transparent;
   cursor: pointer;
+}
+
+/*
+ * A details element is block-level, so without this the overflow menu drops to
+ * its own line under the icons it belongs beside. Its trigger is sized to match
+ * them so the row of icons stays even.
+ */
+.row-actions .menu {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.row-actions .menu summary {
+  width: 29px;
+  height: 29px;
+}
+
+/*
+ * A row's own icons are fixed squares. The menu's items are ordinary rows of
+ * icon and label, and inherit that sizing without this, which crushes each one
+ * into a 29px box and pushes its text outside the popover.
+ */
+.row-actions .menu-popover button {
+  display: flex;
+  width: 100%;
+  height: auto;
+  justify-content: flex-start;
 }
 
 /*

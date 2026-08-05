@@ -36,6 +36,11 @@ uses, and creates categories and payees as it goes. You look at the result
 before any of it counts. Committing a batch is all or nothing. An export of your
 own data reads back in without losing anything.
 
+A transaction you enter often can be saved as a template from any row and picked
+from a dropdown next time. It fills the form in and then gets out of the way:
+what you change afterwards is yours alone, and the template is not touched. It
+is a starting point, not a scheduled transaction, which stays out of scope.
+
 You can change or delete up to 10,000 rows in one request that either wholly
 succeeds or wholly does not, from any view, after seeing what it will touch.
 That works on the queue as well as on committed rows, which is how you fix a

@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Search,
   Trash2,
+  LayoutTemplate,
 } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { Link, payeeDetailSearch, useLocation } from "./router.js";
@@ -44,6 +45,7 @@ import {
   Input,
   Modal,
   Pagination,
+  RowMenu,
   Select,
   SelectionCheckbox,
   ConfirmDialog,
@@ -52,9 +54,10 @@ import {
   Textarea,
   useConfirm,
 } from "./components.js";
+import { draftForTransactionForm, templateDraftFromDraft } from "./staged-draft.js";
 import type { TransactionSortField } from "../shared/domain.js";
 import { useDateRange } from "./date-range.js";
-import { TransactionForm } from "./forms.js";
+import { TemplateForm, TransactionForm, draftFromTransaction } from "./forms.js";
 import { newIdempotencyKey } from "./idempotency.js";
 
 const typeMeta = {
@@ -155,6 +158,7 @@ export function TransactionBrowser({
   const { start, end } = useDateRange();
   const location = useLocation();
   const [editing, setEditing] = useState<Transaction | "new" | null>(null);
+  const [savingTemplate, setSavingTemplate] = useState<Transaction | null>(null);
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
   const [accountId, setAccountId] = useState(fixedAccountId ?? "");
@@ -1061,6 +1065,13 @@ export function TransactionBrowser({
                             >
                               <Trash2 size={16} />
                             </button>
+                            <RowMenu label={`Actions for ${transaction.payee}`}>
+                              <button
+                                onClick={() => setSavingTemplate(transaction)}
+                              >
+                                <LayoutTemplate size={15} /> Save as template
+                              </button>
+                            </RowMenu>
                           </>
                         )}
                       </td>
@@ -1109,6 +1120,21 @@ export function TransactionBrowser({
             initialPayee={fixedPayee}
             initialType={initialType}
             onDone={() => setEditing(null)}
+          />
+        ) : null}
+      </Modal>
+      <Modal
+        open={Boolean(savingTemplate)}
+        onClose={() => setSavingTemplate(null)}
+        title="Save as template"
+        description="A starting point for the next one like this. Anything you leave blank is not saved, and you fill it in when you use the template."
+      >
+        {savingTemplate ? (
+          <TemplateForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            initialDraft={templateDraftFromDraft(draftForTransactionForm(draftFromTransaction(savingTemplate)))}
+            onDone={() => setSavingTemplate(null)}
           />
         ) : null}
       </Modal>

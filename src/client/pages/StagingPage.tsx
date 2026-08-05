@@ -13,6 +13,7 @@ import {
   Plus,
   Search,
   Trash2,
+  LayoutTemplate,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -44,6 +45,7 @@ import {
   Modal,
   PageHeader,
   Pagination,
+  RowMenu,
   Select,
   SelectionCheckbox,
   ConfirmDialog,
@@ -52,13 +54,18 @@ import {
   type SortState,
   useConfirm,
 } from "../components.js";
-import { TransactionForm } from "../forms.js";
+import { TemplateForm, TransactionForm } from "../forms.js";
 import {
   MAX_BULK_SELECTION_ENTRIES,
   type StageSortField,
 } from "../../shared/domain.js";
 import { useDateRange } from "../date-range.js";
-import { stagedString, summarizeStagedDraft } from "../staged-draft.js";
+import {
+  draftForTransactionForm,
+  stagedString,
+  summarizeStagedDraft,
+  templateDraftFromDraft,
+} from "../staged-draft.js";
 import { newIdempotencyKey } from "../idempotency.js";
 
 function stageSummary(stage: StagedTransaction, accounts: Account[]) {
@@ -136,6 +143,9 @@ export default function StagingPage() {
   const rowRemoval = useConfirm<StagedTransaction>();
   const duplicate = useConfirm<StagedTransaction>();
   const [editing, setEditing] = useState<StagedTransaction | "new" | null>(null);
+  const [savingTemplate, setSavingTemplate] = useState<StagedTransaction | null>(
+    null,
+  );
   const [search, setSearch] = useState("");
   const [validity, setValidity] = useState("");
   const [accountId, setAccountId] = useState("");
@@ -810,6 +820,11 @@ export default function StagingPage() {
                       >
                         <Trash2 size={16} />
                       </button>
+                      <RowMenu label={`Actions for ${payee}`}>
+                        <button onClick={() => setSavingTemplate(stage)}>
+                          <LayoutTemplate size={15} /> Save as template
+                        </button>
+                      </RowMenu>
                     </td>
                   </tr>
                 );
@@ -845,6 +860,23 @@ export default function StagingPage() {
             staged={editing === "new" ? undefined : editing}
             initialMode="stage"
             onDone={() => setEditing(null)}
+          />
+        ) : null}
+      </Modal>
+      <Modal
+        open={Boolean(savingTemplate)}
+        onClose={() => setSavingTemplate(null)}
+        title="Save as template"
+        description="A starting point for the next one like this. Anything you leave blank is not saved, and you fill it in when you use the template."
+      >
+        {savingTemplate ? (
+          <TemplateForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            initialDraft={templateDraftFromDraft(
+              draftForTransactionForm(savingTemplate.draft),
+            )}
+            onDone={() => setSavingTemplate(null)}
           />
         ) : null}
       </Modal>

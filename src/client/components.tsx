@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
+  MoreHorizontal,
   X,
 } from "lucide-react";
 import {
@@ -333,6 +334,103 @@ export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={`input textarea ${props.className ?? ""}`} />;
+}
+
+/**
+ * The overflow menu on a row, as a native disclosure.
+ *
+ * The popover is positioned fixed rather than absolute, which the accounts
+ * cards do not need but a table row does: `.table-card` scrolls horizontally,
+ * and an absolutely positioned popover inside it is clipped by that scroll
+ * container and cannot be read. The trade is that a fixed popover does not
+ * travel with the page, so it closes on scroll and resize rather than drifting
+ * away from the row it belongs to.
+ *
+ * Deliberately not `role="menu"`. Those roles promise a screen reader arrow-key
+ * navigation, and a roving tabindex exists nowhere else in this client. A
+ * disclosure that behaves like a disclosure is honest; menu roles without the
+ * keyboard behaviour they imply are worse than none.
+ */
+export function RowMenu({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  const details = useRef<HTMLDetailsElement>(null);
+  const summary = useRef<HTMLElement>(null);
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(
+    null,
+  );
+
+  const close = (returnFocus = false) => {
+    if (!details.current?.open) return;
+    details.current.open = false;
+    if (returnFocus) summary.current?.focus();
+  };
+
+  useEffect(() => {
+    const element = details.current;
+    if (!element) return;
+    const onToggle = () => {
+      if (!element.open || !summary.current) {
+        setAnchor(null);
+        return;
+      }
+      const rect = summary.current.getBoundingClientRect();
+      setAnchor({ top: rect.bottom + 5, right: window.innerWidth - rect.right });
+    };
+    element.addEventListener("toggle", onToggle);
+    return () => element.removeEventListener("toggle", onToggle);
+  }, []);
+
+  useEffect(() => {
+    if (!anchor) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close(true);
+    };
+    const onPointerDown = (event: Event) => {
+      if (!details.current?.contains(event.target as Node)) close();
+    };
+    const onReflow = () => close();
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    // Capturing, so a scroll inside the table is caught as well as the page's.
+    window.addEventListener("scroll", onReflow, true);
+    window.addEventListener("resize", onReflow);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("scroll", onReflow, true);
+      window.removeEventListener("resize", onReflow);
+    };
+  }, [anchor]);
+
+  return (
+    <details className="menu" ref={details}>
+      {/* The role and expanded state are spelled out rather than left to the
+          browser's own mapping for a summary, which assistive technology does
+          not report consistently. What it does natively is exactly this. */}
+      <summary
+        ref={summary}
+        role="button"
+        aria-expanded={Boolean(anchor)}
+        aria-label={label}
+      >
+        <MoreHorizontal size={18} />
+      </summary>
+      <div
+        className="menu-popover row-menu-popover"
+        style={anchor ? { top: anchor.top, right: anchor.right } : undefined}
+        // Choosing something closes the menu. Without this it stays open behind
+        // whatever the choice opened, and is still there afterwards.
+        onClick={() => close()}
+      >
+        {children}
+      </div>
+    </details>
+  );
 }
 
 export function Modal({

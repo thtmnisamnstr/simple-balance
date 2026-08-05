@@ -4,6 +4,7 @@ import type {
   PaginatedPage,
   Page,
   StagedDraft,
+  TransactionTemplateDraft,
   TransactionType,
   ValidationIssue,
 } from "../shared/domain.js";
@@ -300,6 +301,19 @@ export type StagedBulkEditResult = {
     issueCount: number;
     possiblyDuplicate: boolean;
   }[];
+};
+
+/**
+ * A saved starting point for the transaction form. The draft is partial on
+ * purpose: a key that is not there is a field the person left for later.
+ */
+export type TransactionTemplate = {
+  id: string;
+  name: string;
+  draft: TransactionTemplateDraft;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ImportBatchSummary = {

@@ -1,8 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, KeyRound, Link, Settings2, TriangleAlert } from "lucide-react";
+import {
+  Bot,
+  KeyRound,
+  LayoutTemplate,
+  Link,
+  Pencil,
+  Settings2,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "../router.js";
-import { api, json, type AuthPublicOptions, type Session } from "../api.js";
+import {
+  api,
+  json,
+  type Account,
+  type AuthPublicOptions,
+  type Category,
+  type Session,
+  type TransactionTemplate,
+} from "../api.js";
 import { authClient } from "../auth-client.js";
 import {
   Alert,
@@ -11,10 +28,12 @@ import {
   ConfirmDialog,
   Field,
   Input,
+  Modal,
   PageHeader,
   Select,
   useConfirm,
 } from "../components.js";
+import { TemplateForm } from "../forms.js";
 import {
   currencyOptionLabel,
   currencyOptions,
@@ -156,6 +175,7 @@ export default function SettingsPage({ session }: { session: Session }) {
           </form>
         </section>
 
+        <TransactionTemplates />
         <ConnectedApps />
         </div>
 
@@ -470,6 +490,135 @@ const when = (value: string | null) =>
  * Revoking here deletes the tokens rather than waiting for them to expire, so
  * an agent loses access on its very next call.
  */
+/**
+ * Where a saved template is renamed, reshaped, or thrown away.
+ *
+ * Templates are made from a transaction row rather than here, so this is not a
+ * create screen. It exists because without it a mistyped template would be
+ * permanent: a template that names an account since archived would keep
+ * offering a field the form has to drop, and nothing could be done about it.
+ */
+function TransactionTemplates() {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState<TransactionTemplate | null>(null);
+  const removal = useConfirm<TransactionTemplate>();
+  const templates = useQuery({
+    queryKey: ["transaction-templates"],
+    queryFn: () => api<TransactionTemplate[]>("/api/v1/transaction-templates"),
+  });
+  const accounts = useQuery({
+    queryKey: ["accounts"],
+    queryFn: () => api<Account[]>("/api/v1/accounts"),
+  });
+  const categories = useQuery({
+    queryKey: ["categories", true],
+    queryFn: () => api<Category[]>("/api/v1/categories?includeArchived=true"),
+  });
+  const deletion = useMutation({
+    mutationFn: (template: TransactionTemplate) =>
+      api(`/api/v1/transaction-templates/${template.id}`, {
+        ...json({ expectedVersion: template.version }),
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["transaction-templates"] });
+    },
+  });
+
+  const accountName = (id?: string) =>
+    accounts.data?.find((account) => account.id === id)?.name;
+  const summarize = (template: TransactionTemplate) => {
+    const draft = template.draft;
+    const parts = [
+      draft.type,
+      draft.payee,
+      draft.amount,
+      accountName(draft.fromAccountId ?? draft.toAccountId),
+      categories.data?.find((category) => category.id === draft.categoryId)?.name,
+    ].filter(Boolean);
+    return parts.join(" · ");
+  };
+
+  return (
+    <section className="panel settings-section">
+      <header className="section-title">
+        <span><LayoutTemplate size={19} /></span>
+        <div>
+          <h2>Transaction templates</h2>
+          <p>
+            Starting points for the transaction form. Save one from any row on
+            the transactions or staged list.
+          </p>
+        </div>
+      </header>
+
+      {templates.isLoading ? <p className="settings-note">Loading…</p> : null}
+      {templates.error ? <Alert>{templates.error.message}</Alert> : null}
+      {deletion.error ? <Alert>{deletion.error.message}</Alert> : null}
+
+      {templates.data && templates.data.length === 0 ? (
+        <p className="settings-note">
+          You have none yet. Open the menu on a transaction and choose “Save as
+          template”.
+        </p>
+      ) : null}
+
+      {templates.data?.map((template) => (
+        <div key={template.id} className="connected-app">
+          <div>
+            <strong>{template.name}</strong>
+            <p className="settings-note">{summarize(template)}</p>
+          </div>
+          <div className="row-actions">
+            <button
+              aria-label={`Edit ${template.name}`}
+              onClick={() => setEditing(template)}
+            >
+              <Pencil size={16} />
+            </button>
+            <button
+              aria-label={`Delete ${template.name}`}
+              onClick={() =>
+                removal.ask(template, () => deletion.mutate(template))
+              }
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <Modal
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        title="Edit template"
+        description="Anything you leave blank is not saved, and you fill it in when you use the template."
+      >
+        {editing ? (
+          <TemplateForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            template={editing}
+            onDone={() => setEditing(null)}
+          />
+        ) : null}
+      </Modal>
+
+      <ConfirmDialog
+        open={removal.open}
+        title="Delete this template?"
+        description={
+          removal.value
+            ? `“${removal.value.name}” is removed from the list you pick from. Transactions you already made from it are untouched.`
+            : undefined
+        }
+        onConfirm={removal.confirm}
+        onCancel={removal.cancel}
+      />
+    </section>
+  );
+}
+
 function ConnectedApps() {
   const queryClient = useQueryClient();
   const revocation = useConfirm<ConnectedApp>();

@@ -226,6 +226,19 @@ export async function lockCategoryNamespace(
 }
 
 /**
+ * Serialize changes to the tenant's template names, which are compared the way
+ * category names are and so need the same protection against two requests each
+ * finding the name free. Taken last of all the namespace locks, because nothing
+ * else ever takes it.
+ */
+export async function lockTransactionTemplateNamespace(
+  tx: DbTransaction,
+  actor: Actor,
+) {
+  await takeTransactionLock(tx, `transaction-templates:${actor.userId}`);
+}
+
+/**
  * Serialize changes to the tenant's derived payee namespace. This lock is
  * distinct from category and account locks because payees have no backing
  * table row that PostgreSQL could lock for us.

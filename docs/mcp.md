@@ -178,6 +178,13 @@ one. An agent holding `ledger:write` can change and remove entries, and every
 one of those is recoverable from the audit trail or by restoring a deleted row;
 deleting the person is not, so it is not a tool.
 
+Read or write a transaction template. Templates are a saved starting point for
+the browser's own form, and there is no tool for listing, creating, or using
+one. An agent composes a whole transaction directly and needs no prefill to do
+it, so the tools would only spend an agent's attention on a preference that is
+not its own. If you want an agent to record something the way you usually
+record it, tell it the shape rather than pointing it at a template.
+
 ## Revoking access
 
 `ALLOWED_EMAILS` governs who may register, not who may keep signing in. Removing

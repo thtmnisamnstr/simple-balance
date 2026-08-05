@@ -210,6 +210,70 @@ export const stagedDraftSchema = z
 
 export type StagedDraft = z.infer<typeof stagedDraftSchema>;
 
+/**
+ * The most templates one person may keep. The list is unpaginated and fetched
+ * whenever the transaction form opens, and each row carries a JSON draft, so it
+ * is heavier per row than the category list it otherwise resembles.
+ */
+export const MAX_TRANSACTION_TEMPLATES = 200;
+
+/**
+ * A field left blank is a field the template does not have. Storing `""` would
+ * make "not saved" and "saved as nothing" the same value in the JSON, and the
+ * form applying it could not tell which one the user meant.
+ */
+const blankToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    schema.optional(),
+  );
+
+/**
+ * What a template remembers. These are the transaction form's own field names
+ * rather than the posted draft's, because a template is a starting point for
+ * that form and nothing else reads it.
+ *
+ * Strict rather than permissive, and three keys are refused rather than ignored:
+ *
+ * `date` - a template carrying one would post transactions dated months back
+ * every time it was used, moving balances the person was not looking at. Using a
+ * template always means today.
+ *
+ * `categoryName` - naming a category rather than picking one creates it when
+ * nothing matches, so a template holding a typo would make a fresh category on
+ * every use. Templates hold an id or nothing.
+ *
+ * `externalId` - the reference a bank statement row was imported under. Copied
+ * into a template it would be copied into every transaction made from it, and
+ * the next real import of that row would be swallowed as one already seen.
+ */
+export const transactionTemplateDraftSchema = z
+  .object({
+    type: z.enum(transactionTypes),
+    payee: blankToAbsent(oneLine(z.string().trim().max(160))),
+    fromAccountId: blankToAbsent(z.string().uuid()),
+    toAccountId: blankToAbsent(z.string().uuid()),
+    amount: blankToAbsent(positiveDecimalStringSchema),
+    destinationAmount: blankToAbsent(positiveDecimalStringSchema),
+    categoryId: blankToAbsent(z.string().uuid()),
+    description: blankToAbsent(freeText(z.string().trim().max(240))),
+    notes: blankToAbsent(freeText(z.string().trim().max(4_000))),
+  })
+  .strict();
+
+export type TransactionTemplateDraft = z.infer<
+  typeof transactionTemplateDraftSchema
+>;
+
+export const transactionTemplateCreateSchema = z.object({
+  name: oneLine(z.string().trim().min(1).max(120)),
+  draft: transactionTemplateDraftSchema,
+});
+
+export const transactionTemplateUpdateSchema = transactionTemplateCreateSchema
+  .partial()
+  .extend({ expectedVersion: z.number().int().positive() });
+
 export const accountCreateSchema = z.object({
   name: oneLine(z.string().trim().min(1).max(120)).describe(
     "What you call this account. Unique among your accounts.",
