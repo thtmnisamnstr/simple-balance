@@ -387,10 +387,6 @@ dependency, a rate limit, and a source of numbers that can be wrong in a product
 whose whole argument is that its numbers are right. Holding crypto as a native
 quantity says exactly what is known and nothing more.
 
-**A native mobile app.** The browser works on a phone, and an agent works
-anywhere. A second client would double the parity burden between the UI and MCP
-that is currently held by a test.
-
 **A rules engine for auto-categorisation.** The agent is the rules engine. One
 holding `ledger:read` and `ledger:stage` categorises better than any pattern
 list and leaves its work somewhere it can be looked at. A second, dumber
