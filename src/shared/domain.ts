@@ -746,11 +746,18 @@ export type BulkTransactionEditResult = z.infer<
   typeof bulkTransactionEditResultSchema
 >;
 
-export const stageListQuerySchema = listQuerySchema.extend({
-  sort: z.enum(stageSortFields).default("date"),
-  importBatchId: z.string().uuid().optional(),
-  validity: z.enum(["valid", "invalid", "duplicate"]).optional(),
-});
+/**
+ * `currency` and `includeDeleted` are dropped rather than inherited. A draft
+ * carries no currency of its own, and a staged row is in the queue or gone
+ * rather than deleted, so both would be accepted and then ignored.
+ */
+export const stageListQuerySchema = listQuerySchema
+  .omit({ currency: true, includeDeleted: true })
+  .extend({
+    sort: z.enum(stageSortFields).default("date"),
+    importBatchId: z.string().uuid().optional(),
+    validity: z.enum(["valid", "invalid", "duplicate"]).optional(),
+  });
 
 /**
  * Changing many staged rows at once, on the same terms as committed ones.
@@ -763,15 +770,12 @@ export const stageListQuerySchema = listQuerySchema.extend({
  * shows what would happen at commit.
  */
 /**
- * Only the fields `stageFilterConditions` actually applies.
+ * Only the fields `stageFilterConditions` actually applies, with the paging and
+ * ordering that describe a view rather than scope it taken out.
  *
- * `currency` and `includeDeleted` come along from the list query and mean
- * nothing to a staged row: a draft carries no currency of its own, and a staged
- * row is either in the queue or gone. Left in they were accepted and ignored,
- * so an agent narrowing an edit to one currency would have had the count and
- * the fingerprint agree with it and then rewrite every row in the queue.
- * Refused rather than dropped, so a filter that cannot be honoured is an error
- * instead of a silent widening.
+ * `.strict()` is the load-bearing part: a filter this cannot honour is an error
+ * rather than a key quietly dropped, because a selection resolves twice and an
+ * ignored filter makes the count and the fingerprint agree about the wrong set.
  */
 export const bulkStageFilterSchema = stageListQuerySchema
   .omit({
@@ -780,8 +784,6 @@ export const bulkStageFilterSchema = stageListQuerySchema
     limit: true,
     sort: true,
     direction: true,
-    currency: true,
-    includeDeleted: true,
   })
   .strict();
 

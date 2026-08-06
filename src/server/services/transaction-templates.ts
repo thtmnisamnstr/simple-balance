@@ -167,7 +167,7 @@ function assertPatchFitsType(
   patch: TransactionTemplateBulkPatch,
 ) {
   const effectiveType = (row: { draft: TransactionTemplateDraft }) =>
-    patch.type ?? row.draft.type;
+    patch.type === null ? undefined : (patch.type ?? row.draft.type);
   for (const side of ["fromAccountId", "toAccountId"] as const) {
     if (!patch[side]) continue;
     const stranded = rows.filter((row) => {

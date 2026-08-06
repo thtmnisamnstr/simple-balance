@@ -941,6 +941,26 @@ integration("saving a transaction as a template", () => {
       expect((await storedDraft(template.id)).payee).toBe("After");
     });
 
+    // Clearing the type removes the constraint rather than leaving the old one
+    // in force, so a side the cleared type no longer rules out can be set in
+    // the same patch.
+    it("lets a cleared type free the account side it ruled out", async () => {
+      const deposit = await make("Bulk clear type", {
+        type: "deposit",
+        toAccountId: checkingId,
+      });
+      await bulkEditTransactionTemplates(owner, {
+        selection: {
+          items: [{ id: deposit.id, expectedVersion: deposit.version }],
+        },
+        patch: { type: null, fromAccountId: savingsId },
+        idempotencyKey: nextKey(),
+      });
+      const draft = await storedDraft(deposit.id);
+      expect(draft).toMatchObject({ fromAccountId: savingsId });
+      expect("type" in draft).toBe(false);
+    });
+
     it("writes nothing on a dry run", async () => {
       const template = await make("Bulk dry run", {
         type: "withdrawal",
