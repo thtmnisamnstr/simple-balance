@@ -8,7 +8,7 @@ import {
   Upload,
 } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
-import type { CsvMapping } from "../../shared/csv.js";
+import { isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
 import {
   api,
   json,
@@ -64,11 +64,6 @@ const aliases: Record<keyof CsvMapping, string[]> = {
   payee: ["payee", "merchant", "description", "memo", "details", "name"],
   category: ["category"],
   notes: ["notes", "note"],
-  type: ["transaction_type", "type"],
-  fromAccount: ["source_account_id", "from account"],
-  toAccount: ["destination_account_id", "to account"],
-  sourceAmount: ["source_amount"],
-  destinationAmount: ["destination_amount"],
   externalId: ["transaction_id", "id", "external id"],
 };
 
@@ -130,6 +125,8 @@ export default function ImportPage() {
     queryFn: () => api<Account[]>("/api/v1/accounts"),
   });
 
+  const appExport = preview ? isAppExportCsv(preview.headers) : false;
+
   const previewMutation = useMutation({
     mutationFn: async (file: File) => {
       const contents = await file.text();
@@ -156,7 +153,7 @@ export default function ImportPage() {
           fileName,
           idempotencyKey: stageIdempotencyKey.current,
           defaultAccountId,
-          mapping,
+          mapping: appExport ? undefined : mapping,
           dateFormat,
           decimalSeparator,
           dryRun,
@@ -176,15 +173,11 @@ export default function ImportPage() {
     },
   });
 
-  const roundTrip = preview?.headers.includes("transaction_type") ?? false;
-  const hasAmounts = Boolean(
-    mapping.amount ||
-      mapping.debit ||
-      mapping.credit ||
-      (mapping.type && mapping.sourceAmount && mapping.destinationAmount),
-  );
+  const hasAmounts = Boolean(mapping.amount || mapping.debit || mapping.credit);
   const ready = Boolean(
-    csv && defaultAccountId && mapping.date && mapping.payee && hasAmounts,
+    csv &&
+      defaultAccountId &&
+      (appExport || (mapping.date && mapping.payee && hasAmounts)),
   );
   const sampleHeaders = useMemo(() => preview?.headers.slice(0, 8) ?? [], [preview]);
 
@@ -198,7 +191,11 @@ export default function ImportPage() {
       <PageHeader
         eyebrow="Import"
         title="Import a CSV"
-        description="Match your columns, check the preview, then stage the rows."
+        description={
+          appExport
+            ? "Choose the account, check the preview, then stage the rows."
+            : "Match your columns, check the preview, then stage the rows."
+        }
       />
 
       {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
@@ -208,7 +205,7 @@ export default function ImportPage() {
         <EmptyState
           icon={<FileSpreadsheet size={25} />}
           title="Create an account first"
-          body="A bank CSV needs a default account so deposits and withdrawals have a destination."
+          body="A CSV needs an account for its rows to be posted against."
         />
       ) : (
         <div className="import-layout">
@@ -232,22 +229,27 @@ export default function ImportPage() {
                 <div className="step-heading">
                   <span>2</span>
                   <div>
-                    <h2>Map the columns</h2>
+                    <h2>{appExport ? "Choose the account" : "Map the columns"}</h2>
                     <p>
                       Detected <strong>{preview.delimiter === "\t" ? "tab" : preview.delimiter}</strong>{" "}
                       delimiter and {preview.headers.length} columns.
                     </p>
                   </div>
                 </div>
-                {roundTrip ? (
+                {appExport ? (
                   <Alert kind="info">
-                    This looks like an app export. Transfer accounts and per-account
-                    currency amounts will be preserved.
+                    This is a Simple Balance export, so its dates, amounts,
+                    categories, and text are read from the columns it already
+                    names and there is nothing to map. Every row is posted
+                    against the account you choose here, whichever account the
+                    file was exported from. Transfers name a second account,
+                    which is a choice this screen cannot make, so they arrive in
+                    the queue asking for it.
                   </Alert>
                 ) : null}
                 <div className="form-grid">
-                  <div className="two-columns">
-                    <Field label="Default account">
+                  <div className={appExport ? undefined : "two-columns"}>
+                    <Field label="Account">
                       <Select
                         value={defaultAccountId}
                         onChange={(event) => setDefaultAccountId(event.target.value)}
@@ -259,95 +261,101 @@ export default function ImportPage() {
                         ))}
                       </Select>
                     </Field>
-                    <Field label="Date format">
-                      <Select
-                        value={dateFormat}
-                        onChange={(event) =>
-                          setDateFormat(event.target.value as typeof dateFormat)
-                        }
-                      >
-                        <option value="YMD">YYYY-MM-DD</option>
-                        <option value="MDY">MM/DD/YYYY</option>
-                        <option value="DMY">DD/MM/YYYY</option>
-                      </Select>
-                    </Field>
+                    {appExport ? null : (
+                      <Field label="Date format">
+                        <Select
+                          value={dateFormat}
+                          onChange={(event) =>
+                            setDateFormat(event.target.value as typeof dateFormat)
+                          }
+                        >
+                          <option value="YMD">YYYY-MM-DD</option>
+                          <option value="MDY">MM/DD/YYYY</option>
+                          <option value="DMY">DD/MM/YYYY</option>
+                        </Select>
+                      </Field>
+                    )}
                   </div>
-                  <div className="two-columns">
-                    <MappingField
-                      label="Date"
-                      required
-                      headers={preview.headers}
-                      value={mapping.date}
-                      onChange={(date) => setMapping((value) => ({ ...value, date }))}
-                    />
-                    <MappingField
-                      label="Payee"
-                      required
-                      headers={preview.headers}
-                      value={mapping.payee}
-                      onChange={(payee) => setMapping((value) => ({ ...value, payee }))}
-                    />
-                  </div>
-                  <div className="three-columns">
-                    <MappingField
-                      label="Signed amount"
-                      headers={preview.headers}
-                      value={mapping.amount}
-                      onChange={(amount) => setMapping((value) => ({ ...value, amount }))}
-                    />
-                    <MappingField
-                      label="Debit"
-                      headers={preview.headers}
-                      value={mapping.debit}
-                      onChange={(debit) => setMapping((value) => ({ ...value, debit }))}
-                    />
-                    <MappingField
-                      label="Credit"
-                      headers={preview.headers}
-                      value={mapping.credit}
-                      onChange={(credit) => setMapping((value) => ({ ...value, credit }))}
-                    />
-                  </div>
-                  <div className="two-columns">
-                    <MappingField
-                      label="Category"
-                      headers={preview.headers}
-                      value={mapping.category}
-                      onChange={(category) =>
-                        setMapping((value) => ({ ...value, category }))
-                      }
-                    />
-                    <MappingField
-                      label="Description"
-                      headers={preview.headers}
-                      value={mapping.description}
-                      onChange={(description) =>
-                        setMapping((value) => ({ ...value, description }))
-                      }
-                    />
-                  </div>
-                  <div className="two-columns">
-                    <MappingField
-                      label="Notes"
-                      headers={preview.headers}
-                      value={mapping.notes}
-                      onChange={(notes) => setMapping((value) => ({ ...value, notes }))}
-                    />
-                    <Field label="Decimal separator">
-                      <Select
-                        value={decimalSeparator}
-                        onChange={(event) =>
-                          setDecimalSeparator(event.target.value as "." | ",")
-                        }
-                      >
-                        <option value=".">1,234.56</option>
-                        <option value=",">1.234,56</option>
-                      </Select>
-                    </Field>
-                  </div>
-                  {!hasAmounts ? (
-                    <Alert>Map a signed amount column or one or both debit/credit columns.</Alert>
-                  ) : null}
+                  {appExport ? null : (
+                    <>
+                      <div className="two-columns">
+                        <MappingField
+                          label="Date"
+                          required
+                          headers={preview.headers}
+                          value={mapping.date}
+                          onChange={(date) => setMapping((value) => ({ ...value, date }))}
+                        />
+                        <MappingField
+                          label="Payee"
+                          required
+                          headers={preview.headers}
+                          value={mapping.payee}
+                          onChange={(payee) => setMapping((value) => ({ ...value, payee }))}
+                        />
+                      </div>
+                      <div className="three-columns">
+                        <MappingField
+                          label="Signed amount"
+                          headers={preview.headers}
+                          value={mapping.amount}
+                          onChange={(amount) => setMapping((value) => ({ ...value, amount }))}
+                        />
+                        <MappingField
+                          label="Debit"
+                          headers={preview.headers}
+                          value={mapping.debit}
+                          onChange={(debit) => setMapping((value) => ({ ...value, debit }))}
+                        />
+                        <MappingField
+                          label="Credit"
+                          headers={preview.headers}
+                          value={mapping.credit}
+                          onChange={(credit) => setMapping((value) => ({ ...value, credit }))}
+                        />
+                      </div>
+                      <div className="two-columns">
+                        <MappingField
+                          label="Category"
+                          headers={preview.headers}
+                          value={mapping.category}
+                          onChange={(category) =>
+                            setMapping((value) => ({ ...value, category }))
+                          }
+                        />
+                        <MappingField
+                          label="Description"
+                          headers={preview.headers}
+                          value={mapping.description}
+                          onChange={(description) =>
+                            setMapping((value) => ({ ...value, description }))
+                          }
+                        />
+                      </div>
+                      <div className="two-columns">
+                        <MappingField
+                          label="Notes"
+                          headers={preview.headers}
+                          value={mapping.notes}
+                          onChange={(notes) => setMapping((value) => ({ ...value, notes }))}
+                        />
+                        <Field label="Decimal separator">
+                          <Select
+                            value={decimalSeparator}
+                            onChange={(event) =>
+                              setDecimalSeparator(event.target.value as "." | ",")
+                            }
+                          >
+                            <option value=".">1,234.56</option>
+                            <option value=",">1.234,56</option>
+                          </Select>
+                        </Field>
+                      </div>
+                      {!hasAmounts ? (
+                        <Alert>Map a signed amount column or one or both debit/credit columns.</Alert>
+                      ) : null}
+                    </>
+                  )}
                 </div>
                 <div className="step-heading">
                   <span>3</span>

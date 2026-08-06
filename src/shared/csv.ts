@@ -6,6 +6,42 @@ import {
   type TransactionDraft,
 } from "./domain.js";
 
+export const APP_CSV_FORMAT = "simple-balance-csv-1";
+
+/**
+ * The columns an export writes. A file carrying all of them is one of ours.
+ *
+ * The four account columns are written for a person to read and are never read
+ * back, because they name accounts in the ledger the file came from rather than
+ * the one it is going into.
+ */
+export const APP_CSV_COLUMNS = [
+  "simple_balance_format",
+  "transaction_id",
+  "transaction_type",
+  "date",
+  "payee",
+  "description",
+  "category_id",
+  "category_name",
+  "notes",
+  "roundtrip_text_json",
+  "source_account_id",
+  "source_account_name",
+  "source_amount",
+  "source_currency",
+  "destination_account_id",
+  "destination_account_name",
+  "destination_amount",
+  "destination_currency",
+  "effective_rate",
+] as const;
+
+export function isAppExportCsv(headers: readonly string[]) {
+  const available = new Set(headers);
+  return APP_CSV_COLUMNS.every((column) => available.has(column));
+}
+
 export const csvMappingSchema = z
   .object({
     date: z.string().min(1),
@@ -16,25 +52,11 @@ export const csvMappingSchema = z
     credit: z.string().optional(),
     category: z.string().optional(),
     notes: z.string().optional(),
-    type: z.string().optional(),
-    fromAccount: z.string().optional(),
-    toAccount: z.string().optional(),
-    sourceAmount: z.string().optional(),
-    destinationAmount: z.string().optional(),
     externalId: z.string().optional(),
   })
   .refine(
-    (mapping) =>
-      Boolean(
-        mapping.amount ||
-          mapping.debit ||
-          mapping.credit ||
-          (mapping.type && mapping.sourceAmount && mapping.destinationAmount),
-      ),
-    {
-      message:
-        "Map an amount column, debit/credit columns, or the app export transaction fields",
-    },
+    (mapping) => Boolean(mapping.amount || mapping.debit || mapping.credit),
+    { message: "Map an amount column, or a debit column, or a credit column" },
   );
 
 export type CsvMapping = z.infer<typeof csvMappingSchema>;

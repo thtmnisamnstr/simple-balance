@@ -176,7 +176,8 @@ back, so confirm it with the person first.
 
 `preview_csv` reads the delimiter, headers, and first rows of a file without
 staging anything, which is how you work out the column mapping before calling
-`stage_csv`.
+`stage_csv`. A file carrying every column a Simple Balance export writes needs
+no mapping, so `stage_csv` takes one without a `mapping` at all.
 
 `list_import_batches` lists the imports that still have rows waiting in the
 review queue. A batch leaves this list once all its rows are committed or
@@ -222,6 +223,12 @@ transactions, so MCP and the browser share one spelling and one audit trail.
 `CSV_MAX_BYTES` and `CSV_MAX_ROWS`. The MCP request envelope allows extra room
 for JSON string escaping, while the decoded CSV is still measured against the
 real limits.
+
+`defaultAccountId` is the account every row is posted against, and it is the
+only thing that decides where they land. No account is ever read out of the
+file, including out of one of our own exports, whose account columns name the
+ledger it came from. A transfer needs two accounts and an import names one, so
+those rows stage with everything else they carry and an issue asking for both.
 
 Staging a CSV creates the categories its rows name, the same way the browser
 import does, so a `ledger:stage` token can add categories even though it cannot

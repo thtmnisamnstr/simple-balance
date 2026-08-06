@@ -93,6 +93,35 @@ quietly.
 
 ### Fixed
 
+An export could only be imported back into the ledger it came from. The importer
+recognised its own format and then read the account ids out of the file, and
+those ids name accounts of the ledger that wrote it. Into a different account,
+a different person's books, or a fresh install they resolved to nothing, so
+every row was rejected with "An exported account is unavailable" and staged
+blank: no payee, no account, no category, no amount. A 5,334-row file arrived as
+5,334 empty rows.
+
+No account is read out of a file any more, by any import path. The account is
+the one chosen on the import screen, which is the only thing that decides where
+rows land. The same export now stages with its payees, amounts, categories,
+notes, and bank references intact, against whichever account was picked, for
+whoever picked it.
+
+An export also needs no column mapping now. Its columns are already known, so
+the import screen asks for the account and nothing else, and `stage_csv` takes
+one with no `mapping` at all.
+
+Transfers are the one row this cannot decide. A transfer moves between two
+accounts and an import names one, so those rows stage with everything else they
+carry and ask for both accounts in the queue, where mass edit can answer for
+every transfer in a file at once. Which side to put the chosen account on is not
+guessed: a transfer pointed the wrong way is a wrong entry one click from being
+committed.
+
+A row that cannot be turned into a draft now keeps whatever could be read from
+it rather than staging empty, so what reaches the queue is a row missing one
+field instead of a row missing everything.
+
 A quality pass over the whole application, driven by nine independent reviews
 and by running it and using it. Everything below was found rather than
 suspected, and each one has a test that fails without the fix.

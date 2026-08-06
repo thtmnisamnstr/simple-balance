@@ -9,11 +9,11 @@ import {
   type Actor,
   type CategoryKind,
   type Page,
-  type TransactionDraft,
-  type ValidationIssue,
 } from "../../shared/domain.js";
 import {
+  APP_CSV_FORMAT,
   csvMappingSchema,
+  isAppExportCsv,
   normalizeCsvRows,
   previewCsv,
   rowsToCsv,
@@ -57,35 +57,21 @@ import {
 import { insertImportedStages } from "./staging.js";
 import { listTransactions } from "./transactions.js";
 
-const APP_CSV_FORMAT = "simple-balance-csv-1";
-const APP_CSV_COLUMNS = [
-  "simple_balance_format",
-  "transaction_id",
-  "transaction_type",
-  "date",
-  "payee",
-  "description",
-  "category_id",
-  "category_name",
-  "notes",
-  "roundtrip_text_json",
-  "source_account_id",
-  "source_account_name",
-  "source_amount",
-  "source_currency",
-  "destination_account_id",
-  "destination_account_name",
-  "destination_amount",
-  "destination_currency",
-  "effective_rate",
-] as const;
-
 export const csvStageInputSchema = z.object({
   csv: z.string().min(1),
   fileName: z.string().trim().min(1).max(240),
   idempotencyKey: idempotencyKeySchema,
-  defaultAccountId: z.string().uuid(),
-  mapping: csvMappingSchema,
+  defaultAccountId: z
+    .string()
+    .uuid()
+    .describe(
+      "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land.",
+    ),
+  mapping: csvMappingSchema
+    .optional()
+    .describe(
+      "Which column holds which field. Not needed for a Simple Balance export, whose columns are already known.",
+    ),
   dateFormat: z.enum(["YMD", "MDY", "DMY"]).default("YMD"),
   decimalSeparator: z.enum([".", ","]).default("."),
   dryRun: z.boolean().default(false),
@@ -168,15 +154,23 @@ export async function listActiveImportBatches(
   };
 }
 
-function isAppRoundTripCsv(headers: readonly string[]) {
-  const available = new Set(headers);
-  return APP_CSV_COLUMNS.every((column) => available.has(column));
-}
-
-function roundTripDraft(
+/**
+ * A row of one of our own exports, read against the account chosen for this
+ * import.
+ *
+ * The account is that choice and nothing else. Not one of the file's four
+ * account columns is read: they belong to the ledger it came from, so a
+ * different account, a different person, or a fresh install resolves none of
+ * them. Which side the amount sits on comes from the row's type instead.
+ *
+ * A row that cannot be made into a draft is still handed back with everything
+ * that could be read, because a queue of rows missing one field can be repaired
+ * and a queue of blank rows cannot.
+ */
+function appExportDraft(
   row: Record<string, string>,
-  allowedAccountIds: Set<string>,
-): { draft: TransactionDraft | null; issues: ValidationIssue[] } {
+  accountId: string,
+): CsvStageRow {
   if (row.simple_balance_format !== APP_CSV_FORMAT) {
     return {
       draft: null,
@@ -201,73 +195,76 @@ function roundTripDraft(
         }
       })(),
     );
-  if (!protectedText.success) {
+  const common = {
+    date: row.date,
+    payee: protectedText.success ? protectedText.data.payee : row.payee,
+    description: protectedText.success
+      ? protectedText.data.description
+      : row.description || null,
+    categoryId: row.category_id || null,
+    notes: protectedText.success ? protectedText.data.notes : row.notes || null,
+    externalId: row.transaction_id || null,
+  };
+
+  if (row.transaction_type === "transfer") {
     return {
       draft: null,
+      partial: {
+        type: "transfer",
+        sourceAmount: row.source_amount,
+        destinationAmount: row.destination_amount,
+        ...common,
+      },
       issues: [{
-        field: "roundtrip_text_json",
-        message: "The Simple Balance round-trip text payload is invalid",
+        field: "account",
+        message:
+          "A transfer moves between two accounts and an import chooses one, so pick both here",
       }],
     };
   }
-  const common = {
-    date: row.date,
-    payee: protectedText.data.payee,
-    description: protectedText.data.description,
-    categoryId: row.category_id || null,
-    notes: protectedText.data.notes,
-    externalId: row.transaction_id || null,
-  };
-  let candidate: unknown;
+
+  let candidate: Record<string, unknown>;
   if (row.transaction_type === "deposit") {
     candidate = {
       type: "deposit",
-      toAccountId: row.destination_account_id,
+      toAccountId: accountId,
       amount: row.destination_amount,
       ...common,
     };
   } else if (row.transaction_type === "withdrawal") {
     candidate = {
       type: "withdrawal",
-      fromAccountId: row.source_account_id,
+      fromAccountId: accountId,
       amount: row.source_amount,
-      ...common,
-    };
-  } else if (row.transaction_type === "transfer") {
-    candidate = {
-      type: "transfer",
-      fromAccountId: row.source_account_id,
-      toAccountId: row.destination_account_id,
-      sourceAmount: row.source_amount,
-      destinationAmount: row.destination_amount,
       ...common,
     };
   } else {
     return {
       draft: null,
+      partial: { ...common },
       issues: [{ field: "type", message: "Transaction type is not recognized" }],
+    };
+  }
+
+  if (!protectedText.success) {
+    return {
+      draft: null,
+      partial: candidate,
+      issues: [{
+        field: "roundtrip_text_json",
+        message: "The Simple Balance round-trip text payload is invalid",
+      }],
     };
   }
   const parsed = transactionDraftSchema.safeParse(candidate);
   if (!parsed.success) {
     return {
       draft: null,
+      partial: candidate,
       issues: parsed.error.issues.map((issue) => ({
         field: issue.path.join("."),
         message: issue.message,
       })),
-    };
-  }
-  const referencedIds =
-    parsed.data.type === "deposit"
-      ? [parsed.data.toAccountId]
-      : parsed.data.type === "withdrawal"
-        ? [parsed.data.fromAccountId]
-        : [parsed.data.fromAccountId, parsed.data.toAccountId];
-  if (referencedIds.some((id) => !allowedAccountIds.has(id))) {
-    return {
-      draft: null,
-      issues: [{ field: "account", message: "An exported account is unavailable" }],
     };
   }
   return { draft: parsed.data, issues: [] };
@@ -275,6 +272,7 @@ function roundTripDraft(
 
 type CsvStageRow = Pick<NormalizedCsvRow, "draft" | "issues"> & {
   rawData?: Record<string, string>;
+  partial?: Record<string, unknown>;
 };
 
 export type CsvReferenceResolution = {
@@ -596,10 +594,20 @@ export async function stageCsv(
       throw validationError("Default account is unavailable");
     }
 
-    const roundTrip = isAppRoundTripCsv(parsedCsv.meta.fields ?? []);
-    const rows: CsvStageRow[] = roundTrip
-      ? parsedCsv.data.map((row) => roundTripDraft(row, allowedAccountIds))
-      : normalizeCsvRows(parsedCsv.data, parsed);
+    const appExport = isAppExportCsv(parsedCsv.meta.fields ?? []);
+    let rows: CsvStageRow[];
+    if (appExport) {
+      rows = parsedCsv.data.map((row) =>
+        appExportDraft(row, parsed.defaultAccountId),
+      );
+    } else if (parsed.mapping) {
+      rows = normalizeCsvRows(parsedCsv.data, {
+        ...parsed,
+        mapping: parsed.mapping,
+      });
+    } else {
+      throw validationError("Map the columns this file uses");
+    }
 
     if (!parsed.dryRun) {
       // Preserve the global mutation lock order: account references first,
@@ -625,18 +633,19 @@ export async function stageCsv(
       canonicalByName: canonicalPayees,
     } = await canonicalizeImportedPayees(tx, actor, rows);
     seedCanonicalPayeeCache(tx, canonicalPayees);
-    if (roundTrip) {
+    if (appExport) {
       // An export restored into another ledger carries category ids that do not
       // exist here. Drop those so the exported category_name can resolve them,
       // instead of importing every row with no category at all.
       const ownedCategoryIds = new Set(categoryRows.map((row) => row.id));
       for (const row of rows) {
-        if (
-          row.draft?.categoryId &&
-          !ownedCategoryIds.has(row.draft.categoryId)
-        ) {
-          row.draft = { ...row.draft, categoryId: null };
+        const categoryId: unknown =
+          row.draft?.categoryId ?? row.partial?.categoryId;
+        if (typeof categoryId !== "string" || ownedCategoryIds.has(categoryId)) {
+          continue;
         }
+        if (row.draft) row.draft = { ...row.draft, categoryId: null };
+        if (row.partial) row.partial = { ...row.partial, categoryId: null };
       }
     }
     const categoryResolution = await resolveImportedCategories(
@@ -644,7 +653,7 @@ export async function stageCsv(
       actor,
       rows,
       parsedCsv.data,
-      roundTrip ? "category_name" : parsed.mapping.category,
+      appExport ? "category_name" : parsed.mapping?.category,
       categoryRows,
       !parsed.dryRun,
     );
@@ -669,7 +678,7 @@ export async function stageCsv(
         fileName: parsed.fileName,
         fileHash,
         delimiter: parsedCsv.meta.delimiter,
-        mapping: parsed.mapping,
+        mapping: parsed.mapping ?? {},
         rowCount: rows.length,
       })
       .returning();
@@ -684,7 +693,7 @@ export async function stageCsv(
       tx,
       actor,
       rows.map((normalizedRow, index) => ({
-        draft: normalizedRow.draft ?? {},
+        draft: normalizedRow.draft ?? normalizedRow.partial ?? {},
         rawData: parsedCsv.data[index],
         importBatchId: batch.id,
         initialIssues: normalizedRow.issues,

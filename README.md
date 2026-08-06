@@ -36,8 +36,13 @@ else is optional.
 Imports go through a review queue. Simple Balance reads the CSV, works out the
 format, maps the columns, parses whatever date and number conventions your bank
 uses, and creates categories and payees as it goes. You look at the result
-before any of it counts. Committing a batch is all or nothing. An export of your
-own data reads back in without losing anything.
+before any of it counts. Committing a batch is all or nothing.
+
+One of its own exports needs no mapping at all: pick the account and stage it.
+The account is that choice and nothing else, so a file exported from one ledger
+imports into another, or into somebody else's, or into a fresh install. A
+transfer names a second account, which is a choice the import screen cannot
+make, so those rows arrive in the queue asking for it.
 
 A transaction you enter often can be saved as a template from any row and picked
 from a dropdown next time. It fills the form in and then gets out of the way:

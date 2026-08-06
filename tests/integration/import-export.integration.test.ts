@@ -484,7 +484,7 @@ integration("CSV import and export identification", () => {
     expect(primaryCategory?.id).not.toBe(otherCategory.id);
   });
 
-  it("marks exports explicitly and restores cross-currency transfer structure", async () => {
+  it("marks exports explicitly and asks for both accounts of a transfer", async () => {
     const euroId = (
       await createAccount(actor, {
         name: "CSV Euro Cash",
@@ -522,30 +522,206 @@ integration("CSV import and export identification", () => {
       fileName: "simple-balance-export.csv",
       idempotencyKey: "csv-preview-round-trip-transfer",
       defaultAccountId: checkingId,
-      mapping: {
-        date: "date",
-        payee: "description",
-        description: "description",
-        amount: "source_amount",
-      },
-      dateFormat: "YMD",
-      decimalSeparator: ".",
       dryRun: true,
     });
+    // Two accounts and one choice, so the row keeps everything it can and the
+    // queue is asked for the rest. Which side the choice belongs on is not
+    // guessed: a transfer pointed the wrong way is a wrong entry one click from
+    // being committed.
     expect(preview).toMatchObject({
-      validCount: 1,
-      invalidCount: 0,
+      validCount: 0,
+      invalidCount: 1,
       sample: [
         {
-          draft: {
-            type: "transfer",
-            fromAccountId: checkingId,
-            toAccountId: euroId,
-            sourceAmount: "110",
-            destinationAmount: "100",
-          },
+          draft: null,
+          issues: [
+            {
+              field: "account",
+              message:
+                "A transfer moves between two accounts and an import chooses one, so pick both here",
+            },
+          ],
         },
       ],
+    });
+  });
+
+  /**
+   * The file names the accounts of the ledger it came from, and a different
+   * account, a different person, or a fresh install resolves none of those ids.
+   * So the account is the one chosen for the import, and never one read back
+   * out of the file.
+   */
+  it("posts an export against the account chosen for the import", async () => {
+    const cardId = (
+      await createAccount(actor, {
+        name: "CSV Other Card",
+        type: "credit_card",
+        currency: "USD",
+        openingDate: "2026-01-01",
+        openingBalance: "0",
+      })
+    ).id;
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-06-04",
+        payee: "Elsewhere",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "42.50",
+      },
+      "csv-account-choice-withdrawal",
+    );
+    await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        date: "2026-06-04",
+        payee: "Refund",
+        description: null,
+        toAccountId: checkingId,
+        amount: "9.99",
+      },
+      "csv-account-choice-deposit",
+    );
+    const exported = await exportTransactionsCsv(actor, {
+      start: "2026-06-04",
+      end: "2026-06-04",
+    });
+    expect(exported.csv).toContain(checkingId);
+
+    const preview = (await stageCsv(actor, {
+      csv: exported.csv,
+      fileName: "simple-balance-export.csv",
+      idempotencyKey: "csv-account-choice",
+      defaultAccountId: cardId,
+      dryRun: true,
+    })) as {
+      validCount: number;
+      invalidCount: number;
+      sample: { draft: Record<string, string> | null }[];
+    };
+
+    expect(preview.validCount).toBe(2);
+    expect(preview.invalidCount).toBe(0);
+    const drafts = preview.sample.map((row) => row.draft);
+    expect(drafts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "withdrawal",
+          fromAccountId: cardId,
+          payee: "Elsewhere",
+        description: null,
+          amount: "42.5",
+        }),
+        expect.objectContaining({
+          type: "deposit",
+          toAccountId: cardId,
+          payee: "Refund",
+        description: null,
+          amount: "9.99",
+        }),
+      ]),
+    );
+    for (const draft of drafts) {
+      expect(JSON.stringify(draft)).not.toContain(checkingId);
+    }
+  });
+
+  it("takes an export with no column mapping at all", async () => {
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-06-05",
+        payee: "No mapping needed",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "5.00",
+      },
+      "csv-no-mapping",
+    );
+    const exported = await exportTransactionsCsv(actor, {
+      start: "2026-06-05",
+      end: "2026-06-05",
+    });
+    await expect(
+      stageCsv(actor, {
+        csv: exported.csv,
+        fileName: "simple-balance-export.csv",
+        idempotencyKey: "csv-no-mapping-stage",
+        defaultAccountId: checkingId,
+        dryRun: true,
+      }),
+    ).resolves.toMatchObject({ validCount: 1, invalidCount: 0 });
+
+    // A file that is not one of ours still has to say which column is which.
+    await expect(
+      stageCsv(actor, {
+        csv: "date,payee,amount\n2026-06-05,Somebody,-5.00\n",
+        fileName: "bank.csv",
+        idempotencyKey: "csv-no-mapping-bank",
+        defaultAccountId: checkingId,
+        dryRun: true,
+      }),
+    ).rejects.toThrow(/Map the columns/);
+  });
+
+  it("lets a different person import an export of someone else's ledger", async () => {
+    const stranger: Actor = { userId: "csv-stranger-user", source: "web" };
+    await getDb().insert(user).values({
+      id: stranger.userId,
+      name: "CSV Stranger",
+      email: "csv-stranger@example.com",
+      emailVerified: true,
+    });
+    const strangerAccountId = (
+      await createAccount(stranger, {
+        name: "Stranger Wallet",
+        type: "cash",
+        currency: "USD",
+        openingDate: "2026-01-01",
+        openingBalance: "0",
+      })
+    ).id;
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-06-06",
+        payee: "Crossing tenants",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "12.34",
+      },
+      "csv-cross-tenant-source",
+    );
+    const exported = await exportTransactionsCsv(actor, {
+      start: "2026-06-06",
+      end: "2026-06-06",
+    });
+
+    const preview = (await stageCsv(stranger, {
+      csv: exported.csv,
+      fileName: "someone-elses-export.csv",
+      idempotencyKey: "csv-cross-tenant",
+      defaultAccountId: strangerAccountId,
+      dryRun: true,
+    })) as {
+      validCount: number;
+      invalidCount: number;
+      sample: { draft: Record<string, string> | null }[];
+    };
+
+    expect(preview.validCount).toBe(1);
+    expect(preview.invalidCount).toBe(0);
+    expect(preview.sample[0]!.draft).toMatchObject({
+      type: "withdrawal",
+      fromAccountId: strangerAccountId,
+      payee: "Crossing tenants",
+      amount: "12.34",
     });
   });
 
