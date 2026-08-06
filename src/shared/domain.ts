@@ -106,11 +106,6 @@ export const idempotencyKeySchema = z
     "A key you choose to make this write safe to retry. Sending the same key again returns the original result instead of recording a second time. Use a fresh one per intended action, for example a UUID.",
   );
 
-export const nonNegativeDecimalStringSchema = decimalStringSchema.refine(
-  (value) => !value.startsWith("-"),
-  "Amount cannot be negative",
-);
-
 /**
  * Control characters a person cannot have meant to type. A NUL byte in
  * particular is rejected by PostgreSQL's own text encoding, so without this it
@@ -929,7 +924,6 @@ export const bulkStageEditResultSchema = z
   })
   .strict();
 
-export type BulkStageEditInput = z.infer<typeof bulkStageEditSchema>;
 export type BulkStagePatch = z.infer<typeof bulkStagePatchSchema>;
 export type BulkStageEditResult = z.infer<typeof bulkStageEditResultSchema>;
 

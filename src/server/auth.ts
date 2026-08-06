@@ -226,7 +226,6 @@ export function getAuth(): ConcreteAuth {
   return created;
 }
 
-export type AuthInstance = ReturnType<typeof getAuth>;
 
 export async function getWebIdentity(headers: Headers) {
   const session = await getAuth().api.getSession({ headers });

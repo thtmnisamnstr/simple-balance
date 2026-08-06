@@ -57,8 +57,6 @@ async function activeStagedAccountReferenceCount(
   return count;
 }
 
-export type AccountView = ReturnType<typeof accountView>;
-export type AccountBalances = Awaited<ReturnType<typeof getAccountBalances>>;
 
 const systemAccountNames: Record<SystemAccountKind, string> = {
   income: "Income",

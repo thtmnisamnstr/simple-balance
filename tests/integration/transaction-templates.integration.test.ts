@@ -16,10 +16,11 @@ import {
   listTransactionTemplates,
   updateTransactionTemplate,
 } from "../../src/server/services/transaction-templates.js";
-import { createStage } from "../../src/server/services/staging.js";
+import { createStage, listStages } from "../../src/server/services/staging.js";
 import {
   createTransaction,
   setTransactionDeleted,
+  updateTransaction,
 } from "../../src/server/services/transactions.js";
 import { getIdentity } from "../../src/server/services/identity.js";
 import {
@@ -459,6 +460,90 @@ integration("saving a transaction as a template", () => {
         (row) => row.id === template.id,
       )!;
       expect(after.transactionCount).toBe(0);
+    });
+
+    /**
+     * Applying a template while editing is the whole reason the picker is on
+     * the edit form, so the edit has to record it. The update writes a column
+     * list rather than the whole row, and a column left out of that list keeps
+     * whatever was there.
+     */
+    it("records a template applied while editing an entry", async () => {
+      const template = await createTransactionTemplate(owner, {
+        name: "Applied on edit",
+        draft: withdrawal({ payee: "Later" }),
+      });
+      const created = await createTransaction(
+        owner,
+        {
+          type: "withdrawal",
+          date: "2026-05-06",
+          payee: "Before",
+          description: null,
+          fromAccountId: checkingId,
+          amount: "15.00",
+        },
+        "count-edit-1",
+      );
+      expect(
+        (await listTransactionTemplates(owner)).find((r) => r.id === template.id)!
+          .transactionCount,
+      ).toBe(0);
+
+      await updateTransaction(owner, created.id, {
+        expectedVersion: created.version,
+        draft: {
+          type: "withdrawal",
+          date: "2026-05-06",
+          payee: "After",
+          description: null,
+          fromAccountId: checkingId,
+          amount: "15.00",
+          templateId: template.id,
+        },
+      });
+
+      expect(
+        (await listTransactionTemplates(owner)).find((r) => r.id === template.id)!
+          .transactionCount,
+      ).toBe(1);
+    });
+
+    it("lists only the staged rows that came from one template", async () => {
+      const mine = await createTransactionTemplate(owner, {
+        name: "Staged filter mine",
+        draft: withdrawal({ payee: "Mine" }),
+      });
+      await createStage(owner, {
+        draft: {
+          type: "withdrawal",
+          date: "2026-05-07",
+          payee: "From the template",
+          fromAccountId: checkingId,
+          amount: "16.00",
+          templateId: mine.id,
+        },
+        idempotencyKey: "staged-filter-1",
+      });
+      await createStage(owner, {
+        draft: {
+          type: "withdrawal",
+          date: "2026-05-07",
+          payee: "From nothing",
+          fromAccountId: checkingId,
+          amount: "17.00",
+        },
+        idempotencyKey: "staged-filter-2",
+      });
+
+      const filtered = await listStages(owner, {
+        templateId: mine.id,
+        limit: 100,
+      });
+      expect(filtered.items).toHaveLength(1);
+      expect(filtered.items[0]!.draft).toMatchObject({
+        payee: "From the template",
+      });
     });
 
     it("will not count another person's entry", async () => {

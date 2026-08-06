@@ -2625,13 +2625,6 @@ input[type="radio"] {
   .category-page-list .category-row > div:nth-child(2) {
     display: none;
   }
-  .inline-input-action {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .inline-input-action .button {
-    max-width: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

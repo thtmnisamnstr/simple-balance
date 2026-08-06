@@ -235,18 +235,29 @@ export function TransactionBrowser({
     placeholderData: (previous) => previous,
   });
   const staged = useQuery({
-    queryKey: ["staged", "for-browser", fixedCategoryId, fixedPayee, start, end],
+    queryKey: [
+      "staged",
+      "for-browser",
+      fixedCategoryId,
+      fixedTemplateId,
+      fixedPayee,
+      start,
+      end,
+    ],
     queryFn: () =>
       api<PaginatedPage<StagedTransaction>>(
         `/api/v1/staged-transactions?${queryString({
           categoryId: fixedCategoryId,
+          templateId: fixedTemplateId,
           payee: fixedPayee,
           start,
           end,
           limit: "100",
         })}`,
       ),
-    enabled: includeStaged && Boolean(fixedCategoryId || fixedPayee),
+    enabled:
+      includeStaged &&
+      Boolean(fixedCategoryId || fixedTemplateId || fixedPayee),
   });
   const accounts = useQuery({
     queryKey: ["accounts"],

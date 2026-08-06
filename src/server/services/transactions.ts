@@ -377,6 +377,7 @@ function transactionShapeColumns(values: typeof transactions.$inferInsert) {
     payee: values.payee,
     description: values.description ?? null,
     categoryId: values.categoryId ?? null,
+    templateId: values.templateId ?? null,
     notes: values.notes ?? null,
     sourceAccountId: values.sourceAccountId ?? null,
     destinationAccountId: values.destinationAccountId ?? null,

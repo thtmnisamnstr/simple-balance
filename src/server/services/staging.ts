@@ -429,6 +429,7 @@ export type StageFilterQuery = Pick<
   | "accountId"
   | "type"
   | "categoryId"
+  | "templateId"
   | "payee"
   | "start"
   | "end"
@@ -470,6 +471,11 @@ export function stageFilterConditions(
   if (query.categoryId) {
     conditions.push(
       sql`${stagedTransactions.draft}->>'categoryId' = ${query.categoryId}`,
+    );
+  }
+  if (query.templateId) {
+    conditions.push(
+      sql`${stagedTransactions.draft}->>'templateId' = ${query.templateId}`,
     );
   }
   if (query.payee) {
