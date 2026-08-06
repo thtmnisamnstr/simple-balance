@@ -267,12 +267,44 @@ describe("the templates screen", () => {
   });
 
   it("selects every matching template, not only the ones on this page", async () => {
-    stubApi([rent, coffee, salary]);
-    await renderPage([rent, coffee, salary]);
+    // More than one page of them, or selecting the page and selecting every
+    // match are the same answer and this proves nothing.
+    const crowd = Array.from({ length: 30 }, (_, index) => ({
+      ...coffee,
+      id: `eeeeeeee-eeee-4eee-8eee-${String(index).padStart(12, "0")}`,
+      name: `Filler ${String(index).padStart(2, "0")}`,
+    }));
+    stubApi(crowd);
+    await renderPage(crowd);
+    expect(screen.getAllByRole("row").length - 1).toBe(25);
 
-    fireEvent.click(screen.getByLabelText("Select Rent"));
-    fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
-    expect(screen.getByText("3 templates selected")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Select Filler 00"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Select all 30 matching" }),
+    );
+    expect(screen.getByText("30 templates selected")).toBeInTheDocument();
+  });
+
+  it("pages through the list and comes back to page one on a search", async () => {
+    const crowd = Array.from({ length: 30 }, (_, index) => ({
+      ...coffee,
+      id: `ffffffff-ffff-4fff-8fff-${String(index).padStart(12, "0")}`,
+      name: `Filler ${String(index).padStart(2, "0")}`,
+    }));
+    stubApi(crowd);
+    await renderPage(crowd);
+    expect(screen.queryByText("Filler 25")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
+    expect(await screen.findByText("Filler 25")).toBeInTheDocument();
+    expect(screen.queryByText("Filler 00")).toBeNull();
+
+    // Narrowing to one match while sitting on page two has to show it rather
+    // than an empty page the person cannot get off.
+    fireEvent.change(screen.getByPlaceholderText("Search templates"), {
+      target: { value: "Filler 03" },
+    });
+    expect(await screen.findByText("Filler 03")).toBeInTheDocument();
   });
 
   it("confirms before deleting a selection, then posts it", async () => {
