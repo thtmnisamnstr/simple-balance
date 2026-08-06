@@ -136,6 +136,7 @@ export const transactionResultSchema = z
     payee: z.string(),
     description: nullableStringSchema,
     categoryId: uuidSchema.nullable(),
+    templateId: uuidSchema.nullable().optional(),
     notes: nullableStringSchema,
     externalId: nullableStringSchema,
     sourceAccountId: uuidSchema.nullable(),

@@ -89,7 +89,7 @@ export type ImportBatchSummary = {
   createdAt: string;
 };
 
-const importBatchListQuerySchema = z.object({
+export const importBatchListQuerySchema = z.object({
   cursor: z.string().min(1).max(500).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });

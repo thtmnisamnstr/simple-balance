@@ -204,4 +204,28 @@ describe("what an agent can reach compared with the browser", () => {
       ).toBeGreaterThan(30);
     }
   });
+
+  /**
+   * A tool declaring a wider schema than its service parses is worse than a
+   * missing filter: the agent is told the parameter exists, sends it, and
+   * either has it silently ignored or is refused for a value the tool said was
+   * fine. Where a service parses input itself, the tool has to declare that
+   * same schema rather than a convenient superset.
+   */
+  it("declares the schema each listing actually parses", async () => {
+    const source = await readFile(
+      new URL("../src/server/mcp.ts", import.meta.url),
+      "utf8",
+    );
+    const declared = (tool: string) =>
+      new RegExp(`"${tool}",[\\s\\S]{0,900}?inputSchema: ([A-Za-z.]+)`).exec(
+        source,
+      )?.[1];
+
+    expect(declared("list_transactions")).toBe("listQuerySchema");
+    expect(declared("list_staged_transactions")).toBe("stageListQuerySchema");
+    // Its service reads a cursor and a limit and nothing else, and caps that
+    // limit lower than the shared listing schema does.
+    expect(declared("list_import_batches")).toBe("importBatchListQuerySchema");
+  });
 });

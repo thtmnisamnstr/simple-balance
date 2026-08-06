@@ -79,6 +79,7 @@ import {
   csvStageInputSchema,
   exportTransactionsCsv,
   getCsvPreview,
+  importBatchListQuerySchema,
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
@@ -445,7 +446,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "List import batches",
         description:
           "CSV imports that still have rows waiting in the review queue. The id is what scopes a staged listing or a bulk edit to one file, which is how a whole import is corrected in one go.",
-        inputSchema: listQuerySchema,
+        inputSchema: importBatchListQuerySchema,
         outputSchema: mcpOutputSchema(
           cursorPageResultSchema(importBatchResultSchema),
         ),

@@ -170,7 +170,7 @@
       "completed": true,
       "acceptanceCriteria": [
         "Import detects maps previews validates and stages bank CSV",
-        "App exports re-import without losing per-account FX transfer structure"
+        "App exports re-import into any account without losing per-account FX amounts, and a transfer asks for its two accounts rather than naming the exporting ledger's"
       ],
       "verification": [
         "npm test -- tests/domain.test.ts",

@@ -306,7 +306,7 @@ More than one person on one set of books, with a role deciding what each may do.
 
 The hard part is not the sharing. Authorization today has one dimension: a row
 belongs to a `userId` and every service query is scoped by it. Sharing makes it
-three — user, book, and role — and every one of the fifty-two MCP tools then
+three — user, book, and role — and every one of the MCP tools then
 asks a per-book, per-role question instead of a per-user one. That multiplies
 against the three scopes already there, and the resulting matrix is the thing
 most likely to develop a hole nobody notices.
