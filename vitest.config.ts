@@ -16,8 +16,5 @@ export default defineConfig({
     // race each other for the same database and fail on schema comparisons that
     // are perfectly correct in each copy.
     exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/worktrees/**"],
-    coverage: {
-      reporter: ["text", "html"],
-    },
   },
 });
