@@ -239,6 +239,9 @@ describe("starting a transaction from a template", () => {
    * Picking a second template replaces the first rather than layering over it.
    * Merging would leave Rent's £1,450 attached to Coffee, which is a wrong
    * transaction one click from being committed.
+   *
+   * This is what the restore before applying is for: only the fields the
+   * previous template set go back, so a second choice cannot inherit them.
    */
   it("replaces the previous choice instead of merging with it", async () => {
     stubApi([coffee, rent]);
@@ -317,24 +320,6 @@ describe("starting a transaction from a template", () => {
     expect(field(/^Payee/)).toHaveValue("Cafe");
     expect(field(/^Amount/)).toHaveValue("88.00");
     expect(field(/^Notes/)).toHaveValue("keep me");
-  });
-
-  /**
-   * Restoring before applying is what keeps the two rules from fighting. Rent
-   * carries an amount and Coffee does not, so Coffee must not inherit Rent's:
-   * that would be a wrong transaction one click from being committed.
-   */
-  it("does not leave the previous template's amount on the next one", async () => {
-    stubApi([coffee, rent]);
-    renderForm();
-    const control = await screen.findByLabelText(/^Start from a template/);
-
-    fireEvent.change(control, { target: { value: rent.id } });
-    expect(field(/^Amount/)).toHaveValue("1450.00");
-
-    fireEvent.change(control, { target: { value: coffee.id } });
-    expect(field(/^Payee/)).toHaveValue("Cafe");
-    expect(field(/^Amount/)).toHaveValue("");
   });
 
   it("takes a date the template carries, and today when it carries none", async () => {

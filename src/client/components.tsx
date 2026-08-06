@@ -303,15 +303,13 @@ export function Button({
 export function Field({
   label,
   hint,
-  error,
   children,
-}: PropsWithChildren<{ label: string; hint?: string; error?: string }>) {
+}: PropsWithChildren<{ label: string; hint?: string }>) {
   return (
     <label className="field">
       <span className="field-label">{label}</span>
       {children}
       {hint ? <span className="field-hint">{hint}</span> : null}
-      {error ? <span className="field-error">{error}</span> : null}
     </label>
   );
 }
@@ -630,17 +628,11 @@ export function PageHeader({
  * so a page with plenty of data still greets you with "nothing here yet" for as
  * long as the request takes.
  */
-export function Skeleton({
-  height = 16,
-  width,
-}: {
-  height?: number;
-  width?: number | string;
-}) {
+export function Skeleton({ height = 16 }: { height?: number }) {
   return (
     <span
       className="skeleton"
-      style={{ height, width: width ?? "100%" }}
+      style={{ height, width: "100%" }}
       aria-hidden="true"
     />
   );

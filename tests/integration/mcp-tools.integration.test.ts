@@ -140,12 +140,14 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
   // The one key a template refuses rather than drops, checked through the
   // transport an agent actually uses rather than against the schema directly.
   it("refuses a template carrying an import reference", async () => {
-    for (const bad of [{ externalId: "bank-ref" }]) {
-      const out = await client.callTool({
-        name: "create_transaction_template",
-        arguments: { name: `Bad ${Object.keys(bad)[0]}`, draft: { type: "withdrawal", ...bad }, idempotencyKey: `bad-${Object.keys(bad)[0]}` },
-      });
-      expect(out.isError, `${Object.keys(bad)[0]} must be refused`).toBe(true);
-    }
+    const out = await client.callTool({
+      name: "create_transaction_template",
+      arguments: {
+        name: "Bad externalId",
+        draft: { type: "withdrawal", externalId: "bank-ref" },
+        idempotencyKey: "bad-externalId",
+      },
+    });
+    expect(out.isError).toBe(true);
   });
 });

@@ -369,19 +369,27 @@ describe("reading a CSV cell", () => {
     }
   });
 
+  // A bank really can head a column `__proto__`, and the parser hands that back
+  // as an own property. Written as an object literal it would set the prototype
+  // instead, which is why this one is built with defineProperty: the literal
+  // form silently tests the missing-column case above all over again.
   it("still reads a column that is genuinely named that", () => {
-    const rows = normalizeCsvRows(
-      [{ Date: "2026-07-30", __proto__: "Paycheck", Amount: "10.00" } as never],
-      {
-        mapping: mapping({ payee: "__proto__" }),
-        dateFormat: "YMD",
-        decimalSeparator: ".",
-        defaultAccountId: accountId,
-      },
-    );
-    // A row cannot carry an own property called __proto__ through an object
-    // literal, so this stays the missing-column case rather than becoming a
-    // way to reach the prototype.
-    expect(rows[0]!.draft).toBeNull();
+    const row: Record<string, string> = {
+      Date: "2026-07-30",
+      Amount: "10.00",
+    };
+    Object.defineProperty(row, "__proto__", {
+      value: "Paycheck",
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    const rows = normalizeCsvRows([row], {
+      mapping: mapping({ payee: "__proto__" }),
+      dateFormat: "YMD",
+      decimalSeparator: ".",
+      defaultAccountId: accountId,
+    });
+    expect(rows[0]!.draft).toMatchObject({ payee: "Paycheck" });
   });
 });

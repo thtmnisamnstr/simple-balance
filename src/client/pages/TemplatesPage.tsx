@@ -63,7 +63,7 @@ const BULK_FIELDS = [
 type BulkField = (typeof BULK_FIELDS)[number]["key"];
 type BulkAction = "leave" | "set" | "clear";
 
-const typeLabels: Record<string, string> = {
+export const transactionTypeLabels: Record<string, string> = {
   deposit: "Deposit",
   withdrawal: "Withdrawal",
   transfer: "Transfer",
@@ -564,7 +564,7 @@ export default function TemplatesPage() {
                       </td>
                       <td>
                         {template.draft.type ? (
-                          typeLabels[template.draft.type]
+                          transactionTypeLabels[template.draft.type]
                         ) : (
                           <span className="template-blank">blank</span>
                         )}

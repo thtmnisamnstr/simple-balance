@@ -67,7 +67,6 @@ table {
 
 /* Links are styled where they are used, so they carry no underline by default. */
 a {
-  color: inherit;
   text-decoration: inherit;
 }
 
@@ -96,9 +95,6 @@ a {
   --shadow: 0 1px 2px rgb(25 42 32 / 5%), 0 12px 35px rgb(32 56 42 / 5%);
 }
 
-* {
-  box-sizing: border-box;
-}
 
 html {
   min-width: 320px;
@@ -115,12 +111,6 @@ body {
     #f5f7f3;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
 
 button,
 a {
@@ -131,12 +121,6 @@ a {
   color: var(--green);
 }
 
-h1,
-h2,
-h3,
-p {
-  margin-top: 0;
-}
 
 .app-shell {
   min-height: 100vh;
@@ -596,14 +580,9 @@ a:focus-visible {
   font-weight: 650;
 }
 
-.field-hint,
-.field-error {
+.field-hint {
   color: var(--muted);
   font-size: 12px;
-}
-
-.field-error {
-  color: var(--red);
 }
 
 .form-grid {

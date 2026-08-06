@@ -28,16 +28,10 @@ import {
 import { newIdempotencyKey } from "../idempotency.js";
 
 type StageResult = {
-  fileName: string;
   rowCount: number;
   validCount: number;
   invalidCount: number;
   importBatchId?: string;
-  stagedIds?: string[];
-  sample: {
-    draft: Record<string, unknown> | null;
-    issues: { field: string; message: string }[];
-  }[];
   referenceResolution: {
     categories: {
       inputName: string;

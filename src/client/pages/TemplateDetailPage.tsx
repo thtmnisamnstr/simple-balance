@@ -4,12 +4,7 @@ import { api, type TransactionTemplate } from "../api.js";
 import { Alert, Badge, DateRangeBar, PageHeader } from "../components.js";
 import { Link, useLocation, useParams } from "../router.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
-
-const typeLabels = {
-  deposit: "Deposit",
-  withdrawal: "Withdrawal",
-  transfer: "Transfer",
-} as const;
+import { transactionTypeLabels } from "./TemplatesPage.js";
 
 export default function TemplateDetailPage() {
   const { templateId = "" } = useParams();
@@ -40,7 +35,7 @@ export default function TemplateDetailPage() {
         actions={
           draft.type ? (
             <Badge tone={draft.type === "deposit" ? "green" : "red"}>
-              <LayoutTemplate size={14} /> {typeLabels[draft.type]}
+              <LayoutTemplate size={14} /> {transactionTypeLabels[draft.type]}
             </Badge>
           ) : null
         }
