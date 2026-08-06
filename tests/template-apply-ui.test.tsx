@@ -298,6 +298,64 @@ describe("starting a transaction from a template", () => {
     expect(field(/^Amount/)).toHaveValue("");
   });
 
+  /**
+   * The rule that makes a template safe to apply to something already written:
+   * a field it does not carry is left as it was, not blanked. Coffee names a
+   * payee and an account and nothing else, so a form holding an amount and
+   * notes keeps both.
+   */
+  it("applies only the fields the template carries", async () => {
+    stubApi([coffee]);
+    renderForm();
+    fireEvent.change(field(/^Amount/), { target: { value: "88.00" } });
+    fireEvent.change(field(/^Notes/), { target: { value: "keep me" } });
+
+    fireEvent.change(await screen.findByLabelText(/^Start from a template/), {
+      target: { value: coffee.id },
+    });
+
+    expect(field(/^Payee/)).toHaveValue("Cafe");
+    expect(field(/^Amount/)).toHaveValue("88.00");
+    expect(field(/^Notes/)).toHaveValue("keep me");
+  });
+
+  /**
+   * Restoring before applying is what keeps the two rules from fighting. Rent
+   * carries an amount and Coffee does not, so Coffee must not inherit Rent's:
+   * that would be a wrong transaction one click from being committed.
+   */
+  it("does not leave the previous template's amount on the next one", async () => {
+    stubApi([coffee, rent]);
+    renderForm();
+    const control = await screen.findByLabelText(/^Start from a template/);
+
+    fireEvent.change(control, { target: { value: rent.id } });
+    expect(field(/^Amount/)).toHaveValue("1450.00");
+
+    fireEvent.change(control, { target: { value: coffee.id } });
+    expect(field(/^Payee/)).toHaveValue("Cafe");
+    expect(field(/^Amount/)).toHaveValue("");
+  });
+
+  it("takes a date the template carries, and today when it carries none", async () => {
+    const dated: TransactionTemplate = {
+      ...rent,
+      id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      name: "Rent day",
+      draft: { ...rent.draft, date: "2026-03-15" },
+    };
+    stubApi([dated, coffee]);
+    renderForm();
+    const control = await screen.findByLabelText(/^Start from a template/);
+    const today = (field("Date") as HTMLInputElement).value;
+
+    fireEvent.change(control, { target: { value: dated.id } });
+    expect(field("Date")).toHaveValue("2026-03-15");
+
+    fireEvent.change(control, { target: { value: coffee.id } });
+    expect(field("Date")).toHaveValue(today);
+  });
+
   it("offers no picker when there are no templates", async () => {
     stubApi([]);
     renderForm();

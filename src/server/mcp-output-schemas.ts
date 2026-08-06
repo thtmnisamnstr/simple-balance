@@ -327,6 +327,9 @@ export const transactionTemplateResultSchema = z
     ...versionedEntitySchema,
     name: z.string(),
     draft: transactionTemplateDraftSchema,
+    transactionCount: z.number().int().nonnegative().optional(),
+    stagedTransactionCount: z.number().int().nonnegative().optional(),
+    totalTransactionCount: z.number().int().nonnegative().optional(),
   })
   .passthrough();
 

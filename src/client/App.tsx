@@ -43,6 +43,7 @@ import PayeeDetailPage from "./pages/PayeeDetailPage.js";
 import PayeesPage from "./pages/PayeesPage.js";
 import DashboardPage from "./pages/DashboardPage.js";
 import ImportPage from "./pages/ImportPage.js";
+import TemplateDetailPage from "./pages/TemplateDetailPage.js";
 import TemplatesPage from "./pages/TemplatesPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
@@ -611,6 +612,10 @@ function Shell({ session }: { session: Session }) {
               <Route path="/payees" element={<PayeesPage />} />
               <Route path="/payees/transactions" element={<PayeeDetailPage />} />
               <Route path="/templates" element={<TemplatesPage />} />
+              <Route
+                path="/templates/:templateId"
+                element={<TemplateDetailPage />}
+              />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/settings" element={<SettingsPage session={session} />} />

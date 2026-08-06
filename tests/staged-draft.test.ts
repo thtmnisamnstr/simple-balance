@@ -30,6 +30,7 @@ describe("malformed staged draft presentation", () => {
       toAccountId: "",
       amount: "",
       externalId: "",
+      templateId: "",
       destinationAmount: "",
     });
   });

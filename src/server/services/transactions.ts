@@ -51,6 +51,7 @@ import {
   categories,
   ledgerAccounts,
   postings,
+  transactionTemplates,
   transactions,
   type TransactionRow,
 } from "../db/schema.js";
@@ -217,6 +218,7 @@ export function buildPreparedTransaction(
     payee: draft.payee,
     description: draft.description ?? null,
     categoryId: draft.categoryId ?? null,
+    templateId: draft.templateId ?? null,
     notes: draft.notes ?? null,
     externalId: draft.externalId ?? null,
   };
@@ -540,6 +542,22 @@ export async function prepareTransaction(
   for (const { kind, currency } of needed) {
     const account = await ensureSystemAccount(tx, actor, kind, currency);
     systemAccounts.set(systemAccountKey(kind, currency), account);
+  }
+
+  // A template id carries no foreign key, so ownership is checked here. Without
+  // it an entry could name somebody else's template and be counted against it.
+  if (draft.templateId) {
+    const [owned] = await tx
+      .select({ id: transactionTemplates.id })
+      .from(transactionTemplates)
+      .where(
+        and(
+          eq(transactionTemplates.id, draft.templateId),
+          eq(transactionTemplates.userId, actor.userId),
+        ),
+      )
+      .limit(1);
+    if (!owned) throw validationError("Template is unavailable");
   }
 
   if (draft.categoryId) {
@@ -918,6 +936,7 @@ function transactionFilterConditions(
   if (query.end) conditions.push(lte(transactions.date, query.end));
   if (query.type) conditions.push(eq(transactions.type, query.type));
   if (query.categoryId) conditions.push(eq(transactions.categoryId, query.categoryId));
+  if (query.templateId) conditions.push(eq(transactions.templateId, query.templateId));
   if (query.payee) {
     conditions.push(
       sql`lower(regexp_replace(trim(normalize(${transactions.payee}, NFKC)), '\\s+', ' ', 'g')) = ${normalizeTransactionText(query.payee)}`,
@@ -1910,6 +1929,7 @@ export function transactionToDraft(row: TransactionRow): TransactionDraft {
     payee: row.payee,
     description: row.description,
     categoryId: row.categoryId,
+    templateId: row.templateId,
     notes: row.notes,
     externalId: row.externalId,
   };

@@ -16,6 +16,11 @@ import {
   listTransactionTemplates,
   updateTransactionTemplate,
 } from "../../src/server/services/transaction-templates.js";
+import { createStage } from "../../src/server/services/staging.js";
+import {
+  createTransaction,
+  setTransactionDeleted,
+} from "../../src/server/services/transactions.js";
 import { getIdentity } from "../../src/server/services/identity.js";
 import {
   getPreferences,
@@ -158,38 +163,44 @@ integration("saving a transaction as a template", () => {
   });
 
   /**
-   * Three keys are refused rather than quietly dropped, each for its own
-   * reason: a stored date would post transactions months back every time; a
-   * category name would create a fresh category on every use; and a bank's
-   * import reference would be copied onto every transaction made from the
-   * template, so the next real import of that statement row would be swallowed
-   * as one already seen.
+   * One key is refused rather than quietly dropped: a bank's import reference
+   * would be copied onto every transaction made from the template, so the next
+   * real import of that statement row would be swallowed as one already seen.
+   * A date and a category name are stored, because each is visible in the form
+   * before anything is submitted.
    */
-  it("refuses the keys that would make every transaction from it wrong", async () => {
-    for (const [key, value] of [
-      ["date", "2026-01-05"],
-      ["categoryName", "Groceries"],
-      ["externalId", "bank-reference-12345"],
-    ] as const) {
-      await expect(
-        createTransactionTemplate(owner, {
-          name: `Refused ${key}`,
-          draft: withdrawal({ payee: "Somebody", [key]: value }),
-        }),
-      ).rejects.toThrow();
-    }
-    const names = (await listTransactionTemplates(owner)).map((t) => t.name);
-    expect(names).not.toContain("Refused date");
-    expect(names).not.toContain("Refused externalId");
-  });
-
-  it("insists on a type, because nothing can be shown without one", async () => {
+  it("refuses the import reference and nothing else", async () => {
     await expect(
       createTransactionTemplate(owner, {
-        name: "Typeless",
-        draft: { payee: "Somebody" },
+        name: "Refused externalId",
+        draft: withdrawal({ payee: "Somebody", externalId: "bank-reference-12345" }),
       }),
     ).rejects.toThrow();
+    expect(
+      (await listTransactionTemplates(owner)).map((t) => t.name),
+    ).not.toContain("Refused externalId");
+
+    const dated = await createTransactionTemplate(owner, {
+      name: "Keeps a date",
+      draft: withdrawal({
+        payee: "Landlord",
+        date: "2026-03-15",
+        categoryName: "Rent",
+      }),
+    });
+    expect(dated.draft).toMatchObject({
+      date: "2026-03-15",
+      categoryName: "Rent",
+    });
+  });
+
+  it("accepts a template that says nothing but its name", async () => {
+    const bare = await createTransactionTemplate(owner, {
+      name: "Nothing at all",
+      draft: {},
+    });
+    expect(bare.draft).toEqual({});
+    expect(bare.name).toBe("Nothing at all");
   });
 
   it("refuses an amount that is not money", async () => {
@@ -362,6 +373,136 @@ integration("saving a transaction as a template", () => {
       fromAccountId: checkingId,
       toAccountId: savingsId,
       amount: "200.00",
+    });
+  });
+
+  /**
+   * The link is provenance, so it has to survive everything that happens to the
+   * entry afterwards and to be scoped to its owner like every other count.
+   */
+  describe("counting what came from a template", () => {
+    it("counts committed and staged entries, and keeps them apart", async () => {
+      const template = await createTransactionTemplate(owner, {
+        name: "Counted",
+        draft: withdrawal({ payee: "Corner Shop" }),
+      });
+      const other = await createTransactionTemplate(owner, {
+        name: "Uncounted",
+        draft: withdrawal({ payee: "Nobody" }),
+      });
+
+      await createTransaction(
+        owner,
+        {
+          type: "withdrawal",
+          date: "2026-05-01",
+          payee: "Corner Shop",
+          description: null,
+          fromAccountId: checkingId,
+          amount: "10.00",
+          templateId: template.id,
+        },
+        "count-committed-1",
+      );
+      await createStage(owner, {
+        draft: {
+          type: "withdrawal",
+          date: "2026-05-02",
+          payee: "Corner Shop",
+          fromAccountId: checkingId,
+          amount: "11.00",
+          templateId: template.id,
+        },
+        idempotencyKey: "count-staged-1",
+      });
+
+      const listed = await listTransactionTemplates(owner);
+      const counted = listed.find((row) => row.id === template.id)!;
+      expect(counted).toMatchObject({
+        transactionCount: 1,
+        stagedTransactionCount: 1,
+        totalTransactionCount: 2,
+      });
+      // The one nothing came from is listed at zero rather than left out.
+      expect(listed.find((row) => row.id === other.id)).toMatchObject({
+        transactionCount: 0,
+        stagedTransactionCount: 0,
+        totalTransactionCount: 0,
+      });
+    });
+
+    it("stops counting an entry once it is deleted", async () => {
+      const template = await createTransactionTemplate(owner, {
+        name: "Counted then deleted",
+        draft: withdrawal({ payee: "Gone" }),
+      });
+      const created = await createTransaction(
+        owner,
+        {
+          type: "withdrawal",
+          date: "2026-05-03",
+          payee: "Gone",
+          description: null,
+          fromAccountId: checkingId,
+          amount: "12.00",
+          templateId: template.id,
+        },
+        "count-deleted-1",
+      );
+      const before = (await listTransactionTemplates(owner)).find(
+        (row) => row.id === template.id,
+      )!;
+      expect(before.transactionCount).toBe(1);
+
+      await setTransactionDeleted(owner, created.id, created.version, true);
+      const after = (await listTransactionTemplates(owner)).find(
+        (row) => row.id === template.id,
+      )!;
+      expect(after.transactionCount).toBe(0);
+    });
+
+    it("will not count another person's entry", async () => {
+      const mine = await createTransactionTemplate(owner, {
+        name: "Mine to count",
+        draft: withdrawal({ payee: "Mine" }),
+      });
+      await createStage(stranger, {
+        draft: {
+          type: "withdrawal",
+          date: "2026-05-04",
+          payee: "Theirs",
+          fromAccountId: strangerAccountId,
+          amount: "13.00",
+          templateId: mine.id,
+        },
+        idempotencyKey: "count-cross-tenant",
+      });
+      const counted = (await listTransactionTemplates(owner)).find(
+        (row) => row.id === mine.id,
+      )!;
+      expect(counted.stagedTransactionCount).toBe(0);
+    });
+
+    it("refuses an entry naming somebody else's template", async () => {
+      const theirs = await createTransactionTemplate(stranger, {
+        name: "Not yours",
+        draft: withdrawal({ payee: "Theirs" }),
+      });
+      await expect(
+        createTransaction(
+          owner,
+          {
+            type: "withdrawal",
+            date: "2026-05-05",
+            payee: "Trespass",
+            description: null,
+            fromAccountId: checkingId,
+            amount: "14.00",
+            templateId: theirs.id,
+          },
+          "count-foreign-template",
+        ),
+      ).rejects.toThrow(/Template is unavailable/);
     });
   });
 
@@ -539,26 +680,32 @@ integration("saving a transaction as a template", () => {
       expect("destinationAmount" in draft).toBe(false);
     });
 
-    it("refuses the fields a template never stores", async () => {
+    it("refuses the one field a template never stores", async () => {
       const template = await make("Bulk strict", {
         type: "withdrawal",
         payee: "Strict",
       });
-      for (const patch of [
-        { date: "2026-01-01" },
-        { categoryName: "Groceries" },
-        { externalId: "abc" },
-      ]) {
-        await expect(
-          bulkEditTransactionTemplates(owner, {
-            selection: {
-              items: [{ id: template.id, expectedVersion: template.version }],
-            },
-            patch,
-            idempotencyKey: nextKey(),
-          }),
-        ).rejects.toThrow();
-      }
+      await expect(
+        bulkEditTransactionTemplates(owner, {
+          selection: {
+            items: [{ id: template.id, expectedVersion: template.version }],
+          },
+          patch: { externalId: "abc" },
+          idempotencyKey: nextKey(),
+        }),
+      ).rejects.toThrow();
+
+      await bulkEditTransactionTemplates(owner, {
+        selection: {
+          items: [{ id: template.id, expectedVersion: template.version }],
+        },
+        patch: { date: "2026-01-01", categoryName: "Groceries" },
+        idempotencyKey: nextKey(),
+      });
+      expect(await storedDraft(template.id)).toMatchObject({
+        date: "2026-01-01",
+        categoryName: "Groceries",
+      });
     });
 
     /**

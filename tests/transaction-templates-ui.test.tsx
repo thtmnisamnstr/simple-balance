@@ -165,32 +165,60 @@ describe("saving a row as a template", () => {
     expect(dialog.getByLabelText(/^Notes/)).toHaveValue("weekly");
   });
 
-  // A template always means today, so a date would be a stored trap: every
-  // transaction made from it would land months back and move balances nobody
-  // was looking at.
-  it("has no date field at all", async () => {
-    stubBrowser();
+  // Saving a template from a row does not take that row's date. A date is a
+  // field of the template like any other, entered on purpose, and left out
+  // means the day the template is applied.
+  it("offers a date but does not take the row's own", async () => {
+    const posted = stubBrowser();
     renderBrowser();
     const dialog = within(await openTemplateEditor());
-    expect(dialog.queryByLabelText(/^Date/)).not.toBeInTheDocument();
+    expect(dialog.getByLabelText(/^Date/)).toHaveValue("");
+
+    fireEvent.change(dialog.getByLabelText(/^Template name/), {
+      target: { value: "Dateless" },
+    });
+    fireEvent.click(dialog.getByRole("button", { name: "Save as template" }));
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect((posted[0] as { draft: Record<string, unknown> }).draft).not.toHaveProperty(
+      "date",
+    );
   });
 
-  it("never carries the row's import reference", async () => {
+  it("saves a date when one is deliberately entered", async () => {
     const posted = stubBrowser();
     renderBrowser();
     const dialog = within(await openTemplateEditor());
 
     fireEvent.change(dialog.getByLabelText(/^Template name/), {
-      target: { value: "Weekly shop" },
+      target: { value: "Rent day" },
+    });
+    fireEvent.change(dialog.getByLabelText(/^Date/), {
+      target: { value: "2026-03-15" },
     });
     fireEvent.click(dialog.getByRole("button", { name: "Save as template" }));
 
     await waitFor(() => expect(posted).toHaveLength(1));
-    const draft = (posted[0] as { draft: Record<string, unknown> }).draft;
-    expect(draft).not.toHaveProperty("externalId");
-    expect(draft).not.toHaveProperty("date");
+    expect((posted[0] as { draft: Record<string, unknown> }).draft).toMatchObject({
+      date: "2026-03-15",
+    });
+  });
+
+  // The import reference is the one field still refused outright: copied onto
+  // every transaction made from the template, it would make the next real
+  // import of that statement row look like one already seen.
+  it("never carries the row's import reference", async () => {
+    const posted = stubBrowser();
+    renderBrowser();
+    const dialog = within(await openTemplateEditor());
+    fireEvent.change(dialog.getByLabelText(/^Template name/), {
+      target: { value: "No reference" },
+    });
+    fireEvent.click(dialog.getByRole("button", { name: "Save as template" }));
+    await waitFor(() => expect(posted).toHaveLength(1));
     expect(JSON.stringify(posted[0])).not.toContain("bank-statement-row-9912");
   });
+
+
 
   // The headline case: a recurring payee and category whose amount differs
   // every time.

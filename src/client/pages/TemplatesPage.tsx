@@ -29,6 +29,7 @@ import {
   type SortState,
 } from "../components.js";
 import { TemplateForm } from "../forms.js";
+import { Link } from "../router.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import type { TransactionTemplateBulkPatch } from "../../shared/domain.js";
 
@@ -40,7 +41,8 @@ type TemplateSortField =
   | "payee"
   | "amount"
   | "account"
-  | "category";
+  | "category"
+  | "used";
 
 /**
  * Which fields a mass edit offers.
@@ -135,13 +137,16 @@ export default function TemplatesPage() {
 
   const accountLabel = (template: TransactionTemplate) => {
     const { draft } = template;
-    if (draft.type === "transfer") {
+    if (draft.type === "transfer" || (!draft.type && draft.fromAccountId && draft.toAccountId)) {
       const from = accountName(draft.fromAccountId);
       const to = accountName(draft.toAccountId);
       if (!draft.fromAccountId && !draft.toAccountId) return null;
       return `${from ?? "Unavailable"} → ${to ?? "Unavailable"}`;
     }
-    const id = draft.type === "deposit" ? draft.toAccountId : draft.fromAccountId;
+    const id =
+      draft.type === "deposit"
+        ? draft.toAccountId
+        : (draft.fromAccountId ?? draft.toAccountId);
     if (!id) return null;
     return accountName(id) ?? "Unavailable";
   };
@@ -303,7 +308,7 @@ export default function TemplatesPage() {
     ),
   );
   const sideUnavailable = (field: "fromAccountId" | "toAccountId") =>
-    [...selectedTypes].some((type) => !accountAllowed(field, type));
+    [...selectedTypes].some((type) => type && !accountAllowed(field, type));
 
   const resetBulkForm = () => {
     setActions({
@@ -524,6 +529,14 @@ export default function TemplatesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
+                  <SortableHeader
+                    field="used"
+                    label="Used"
+                    lean="descending"
+                    className="align-right"
+                    sort={sort}
+                    onSort={setSort}
+                  />
                   <th aria-label="Actions" />
                 </tr>
               </thead>
@@ -545,7 +558,13 @@ export default function TemplatesPage() {
                       <td>
                         <strong>{template.name}</strong>
                       </td>
-                      <td>{typeLabels[template.draft.type]}</td>
+                      <td>
+                        {template.draft.type ? (
+                          typeLabels[template.draft.type]
+                        ) : (
+                          <span className="template-blank">blank</span>
+                        )}
+                      </td>
                       <td>
                         {template.draft.payee ?? (
                           <span className="template-blank">blank</span>
@@ -574,6 +593,19 @@ export default function TemplatesPage() {
                         ) : (
                           <span className="template-blank">blank</span>
                         )}
+                      </td>
+                      <td className="align-right">
+                        <Link
+                          to={{ pathname: `/templates/${template.id}` }}
+                          aria-label={`Transactions from ${template.name}`}
+                        >
+                          {template.totalTransactionCount ?? 0}
+                        </Link>
+                        {template.stagedTransactionCount ? (
+                          <span className="table-subtitle">
+                            {`${template.transactionCount ?? 0} committed · ${template.stagedTransactionCount} pending`}
+                          </span>
+                        ) : null}
                       </td>
                       <td className="row-actions">
                         <RowMenu label={`Actions for ${template.name}`}>

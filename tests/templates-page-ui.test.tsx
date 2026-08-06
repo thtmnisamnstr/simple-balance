@@ -16,6 +16,7 @@ import type {
   Category,
   TransactionTemplate,
 } from "../src/client/api.js";
+import { BrowserRouter } from "../src/client/router.js";
 import TemplatesPage from "../src/client/pages/TemplatesPage.js";
 
 const checking: Account = {
@@ -122,7 +123,9 @@ async function renderPage(templates: TransactionTemplate[]) {
   });
   render(
     <QueryClientProvider client={client}>
-      <TemplatesPage />
+      <BrowserRouter>
+        <TemplatesPage />
+      </BrowserRouter>
     </QueryClientProvider>,
   );
   await screen.findByRole("heading", { name: "Templates" });
@@ -425,7 +428,9 @@ describe("the templates screen", () => {
     });
     render(
       <QueryClientProvider client={client}>
-        <TemplatesPage />
+        <BrowserRouter>
+          <TemplatesPage />
+        </BrowserRouter>
       </QueryClientProvider>,
     );
     await screen.findByRole("heading", { name: "Templates" });
@@ -440,6 +445,30 @@ describe("the templates screen", () => {
       expect(within(rowFor("Rent")).getByText("Checking")).toBeInTheDocument(),
     );
     expect(screen.queryByText("Unavailable")).toBeNull();
+  });
+
+  it("reports what came from each template and links to it", async () => {
+    stubApi([
+      { ...rent, transactionCount: 4, stagedTransactionCount: 2, totalTransactionCount: 6 },
+      { ...coffee, transactionCount: 0, stagedTransactionCount: 0, totalTransactionCount: 0 },
+    ]);
+    await renderPage([rent, coffee]);
+
+    const used = within(rowFor("Rent")).getByRole("link", {
+      name: "Transactions from Rent",
+    });
+    expect(used).toHaveTextContent("6");
+    expect(used).toHaveAttribute("href", `/templates/${rent.id}`);
+    expect(
+      within(rowFor("Rent")).getByText("4 committed · 2 pending"),
+    ).toBeInTheDocument();
+
+    // A template nothing came from reads zero rather than being left out.
+    expect(
+      within(rowFor("Coffee")).getByRole("link", {
+        name: "Transactions from Coffee",
+      }),
+    ).toHaveTextContent("0");
   });
 
   it("offers an empty screen that points at both ways to make one", async () => {

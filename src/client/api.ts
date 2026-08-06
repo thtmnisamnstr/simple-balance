@@ -308,6 +308,9 @@ export type StagedBulkEditResult = {
  * purpose: a key that is not there is a field the person left for later.
  */
 export type TransactionTemplate = {
+  transactionCount?: number;
+  stagedTransactionCount?: number;
+  totalTransactionCount?: number;
   id: string;
   name: string;
   draft: TransactionTemplateDraft;

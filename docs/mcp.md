@@ -198,14 +198,26 @@ it does not carry is one to fill in each time. Reading them is how you record
 something the way this person usually records it rather than guessing at their
 shape.
 
-Three keys the draft refuses rather than ignores, each because storing it would
-make every transaction from the template wrong in a way nobody would notice. A
-`date`, which would post entries into a month nobody is looking at; using a
-template always means today. A `categoryName`, because naming a category creates
-it when nothing matches, so one misspelling would make a fresh category on every
-use. And an `externalId`, which is the reference a bank statement row was
-imported under: copied onto every transaction made from the template, it would
-make the next real import of that row look like one already seen.
+Every field is optional, including the type: only the name identifies a
+template. A field it does not carry is one the form leaves alone, so applying a
+template to an entry that already exists changes only what the template names.
+
+One key the draft refuses rather than ignores: `externalId`, the reference a
+bank statement row was imported under. Copied onto every transaction made from
+the template, it would make the next real import of that row look like one
+already seen. A `date` and a `categoryName` are both stored, and each behaves
+the way it does on a transaction: an absent date means the day the template is
+applied, and a category name is matched case-insensitively against the
+categories already there and created only when nothing matches.
+
+`list_transaction_templates` reports how many committed transactions and how
+many staged rows came from each template, and the two added together, the same
+three numbers `list_categories` and `list_payees` give. `list_transactions`
+takes a `templateId` filter, which is how you read back what a template was
+actually used for. A transaction records the template it was started from in
+`templateId`; it is provenance and changes nothing about the entry, and a
+template that is deleted simply stops being counted rather than taking its
+transactions with it.
 
 Updating replaces the draft whole rather than merging, so a field left out of
 the new draft is dropped. The account and category a template names carry no

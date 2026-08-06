@@ -156,6 +156,16 @@ const transactionCommon = {
     ),
   notes: freeText(z.string().trim().max(4_000)).optional().nullable(),
   externalId: oneLine(z.string().trim().max(200)).optional().nullable(),
+  // Which template this was made from, kept so a template can report what came
+  // of it. Provenance only: nothing reads it back into the entry.
+  templateId: z
+    .string()
+    .uuid()
+    .optional()
+    .nullable()
+    .describe(
+      "The template this entry was started from, if any. Recorded so a template can report the transactions made from it; it changes nothing about the entry itself.",
+    ),
 };
 
 export const depositDraftSchema = z.object({
@@ -233,29 +243,28 @@ const blankToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
  * rather than the posted draft's, because a template is a starting point for
  * that form and nothing else reads it.
  *
- * Strict rather than permissive, and three keys are refused rather than ignored:
+ * Every field is optional, including the type. Only the name identifies a
+ * template, and a field it does not carry is one the form leaves as it found
+ * it, rather than one it blanks.
  *
- * `date` - a template carrying one would post transactions dated months back
- * every time it was used, moving balances the person was not looking at. Using a
- * template always means today.
- *
- * `categoryName` - naming a category rather than picking one creates it when
- * nothing matches, so a template holding a typo would make a fresh category on
- * every use. Templates hold an id or nothing.
- *
- * `externalId` - the reference a bank statement row was imported under. Copied
- * into a template it would be copied into every transaction made from it, and
- * the next real import of that row would be swallowed as one already seen.
+ * `externalId` is refused rather than ignored, and is the only one. It is the
+ * reference a bank statement row was imported under, so copied into a template
+ * it would be copied into every transaction made from it, and the next real
+ * import of that row would be swallowed as one already seen. A date and a
+ * category name are both stored: each can surprise a person using the template,
+ * but each is visible in the form before anything is submitted.
  */
 export const transactionTemplateDraftSchema = z
   .object({
-    type: z.enum(transactionTypes),
+    type: blankToAbsent(z.enum(transactionTypes)),
+    date: blankToAbsent(isoDateSchema),
     payee: blankToAbsent(oneLine(z.string().trim().max(160))),
     fromAccountId: blankToAbsent(z.string().uuid()),
     toAccountId: blankToAbsent(z.string().uuid()),
     amount: blankToAbsent(positiveDecimalStringSchema),
     destinationAmount: blankToAbsent(positiveDecimalStringSchema),
     categoryId: blankToAbsent(z.string().uuid()),
+    categoryName: blankToAbsent(oneLine(z.string().trim().max(120))),
     description: blankToAbsent(freeText(z.string().trim().max(240))),
     notes: blankToAbsent(freeText(z.string().trim().max(4_000))),
   })
@@ -317,13 +326,15 @@ export const transactionTemplateBulkSelectionSchema = z
  */
 export const transactionTemplateBulkPatchSchema = z
   .object({
-    type: z.enum(transactionTypes).optional(),
+    type: z.enum(transactionTypes).nullable().optional(),
+    date: isoDateSchema.nullable().optional(),
     payee: oneLine(z.string().trim().min(1).max(160)).nullable().optional(),
     fromAccountId: z.string().uuid().nullable().optional(),
     toAccountId: z.string().uuid().nullable().optional(),
     amount: positiveDecimalStringSchema.nullable().optional(),
     destinationAmount: positiveDecimalStringSchema.nullable().optional(),
     categoryId: z.string().uuid().nullable().optional(),
+    categoryName: oneLine(z.string().trim().min(1).max(120)).nullable().optional(),
     description: freeText(z.string().trim().min(1).max(240))
       .nullable()
       .optional(),
@@ -558,6 +569,7 @@ export const listQuerySchema = dateRangeSchema.extend({
   limit: z.coerce.number().int().min(1).max(200).default(50),
   accountId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
+  templateId: z.string().uuid().optional(),
   payee: oneLine(z.string().trim().min(1).max(160)).optional(),
   type: z.enum(transactionTypes).optional(),
   currency: currencyCodeSchema.optional(),

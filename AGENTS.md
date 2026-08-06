@@ -93,6 +93,9 @@
   transaction into a different currency or collapse a transfer into a
   single-account transaction in bulk. A staged mass edit revalidates every row
   it writes, and refuses rather than skips a row it cannot give one account to.
+- A transaction's `templateId` is provenance and carries no foreign key, so a
+  deleted template leaves the transactions made from it untouched. Ownership is
+  checked on write, since nothing else constrains it.
 - A template mass edit names explicit rows with expected versions and has no
   filtered selection, because the list is capped and the browser holds all of
   it. A patch key left out leaves the field alone, a value sets it, and `null`

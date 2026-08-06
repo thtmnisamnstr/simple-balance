@@ -27,6 +27,9 @@ export type TransactionFormDraft = {
   // from a bank file, and it is what keeps a second import of the same
   // statement from bringing the row back in as a new transaction.
   externalId: string;
+  // Carried the same way, so editing a staged row keeps the record of which
+  // template it came from.
+  templateId: string;
 };
 
 export function stagedString(value: unknown): string {
@@ -63,6 +66,7 @@ export function draftForTransactionForm(input: unknown): TransactionFormDraft {
     destinationAmount:
       type === "transfer" ? stagedString(draft.destinationAmount) : "",
     externalId: stagedString(draft.externalId),
+    templateId: stagedString(draft.templateId),
   };
 }
 

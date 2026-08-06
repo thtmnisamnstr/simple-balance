@@ -137,10 +137,10 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     expect(await call("list_transaction_templates")).toHaveLength(0);
   });
 
-  // The three keys a template refuses rather than drops, checked through the
+  // The one key a template refuses rather than drops, checked through the
   // transport an agent actually uses rather than against the schema directly.
-  it("refuses a template carrying a date, an import reference, or a category name", async () => {
-    for (const bad of [{ date: "2026-01-05" }, { externalId: "bank-ref" }, { categoryName: "Groceries" }]) {
+  it("refuses a template carrying an import reference", async () => {
+    for (const bad of [{ externalId: "bank-ref" }]) {
       const out = await client.callTool({
         name: "create_transaction_template",
         arguments: { name: `Bad ${Object.keys(bad)[0]}`, draft: { type: "withdrawal", ...bad }, idempotencyKey: `bad-${Object.keys(bad)[0]}` },

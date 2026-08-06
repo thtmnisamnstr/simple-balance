@@ -140,6 +140,7 @@ function normalizeName(value: string) {
 export function TransactionBrowser({
   fixedAccountId,
   fixedCategoryId,
+  fixedTemplateId,
   fixedPayee,
   initialType,
   allowCreate = true,
@@ -148,6 +149,7 @@ export function TransactionBrowser({
 }: {
   fixedAccountId?: string;
   fixedCategoryId?: string;
+  fixedTemplateId?: string;
   fixedPayee?: string;
   initialType?: "deposit" | "withdrawal" | "transfer";
   allowCreate?: boolean;
@@ -188,6 +190,7 @@ export function TransactionBrowser({
     type: type || undefined,
     accountId: selectedAccountId || undefined,
     categoryId: fixedCategoryId || undefined,
+    templateId: fixedTemplateId || undefined,
     payee: fixedPayee || undefined,
     includeDeleted: showDeleted ? "true" : undefined,
   };
@@ -200,6 +203,7 @@ export function TransactionBrowser({
       : {}),
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
     ...(fixedCategoryId ? { categoryId: fixedCategoryId } : {}),
+    ...(fixedTemplateId ? { templateId: fixedTemplateId } : {}),
     ...(fixedPayee ? { payee: fixedPayee } : {}),
     includeDeleted: showDeleted,
   };

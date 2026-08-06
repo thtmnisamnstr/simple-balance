@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
 import {
   MAX_TRANSACTION_TEMPLATES,
@@ -21,7 +21,9 @@ import {
 import {
   categories,
   ledgerAccounts,
+  stagedTransactions,
   transactionTemplates,
+  transactions,
 } from "../db/schema.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import {
@@ -147,7 +149,7 @@ export function applyTemplateBulkPatch(
     if (value === null) delete next[field];
     else if (value !== undefined) next[field] = value;
   }
-  if (patch.type !== undefined) {
+  if (patch.type) {
     const { drop } = accountSides[patch.type];
     if (drop) delete next[drop];
     if (patch.type !== "transfer") delete next.destinationAmount;
@@ -168,9 +170,10 @@ function assertPatchFitsType(
     patch.type ?? row.draft.type;
   for (const side of ["fromAccountId", "toAccountId"] as const) {
     if (!patch[side]) continue;
-    const stranded = rows.filter(
-      (row) => accountSides[effectiveType(row)].drop === side,
-    );
+    const stranded = rows.filter((row) => {
+      const type = effectiveType(row);
+      return type ? accountSides[type].drop === side : false;
+    });
     if (stranded.length) {
       throw validationError(
         side === "fromAccountId"
@@ -181,7 +184,10 @@ function assertPatchFitsType(
     }
   }
   if (patch.destinationAmount) {
-    const stranded = rows.filter((row) => effectiveType(row) !== "transfer");
+    const stranded = rows.filter((row) => {
+      const type = effectiveType(row);
+      return type !== undefined && type !== "transfer";
+    });
     if (stranded.length) {
       throw validationError(
         "Only a transfer has a received amount, so it cannot be set here",
@@ -404,12 +410,73 @@ export async function bulkDeleteTransactionTemplates(
 }
 
 export async function listTransactionTemplates(actor: Actor) {
-  const rows = await getDb()
-    .select()
+  const db = getDb();
+  // Aggregated before the join rather than counted across it: `count(*)` over a
+  // left join reports 1 for a template nothing references, and the product of
+  // the two sides when both match.
+  const committedUse = db
+    .select({
+      templateId: transactions.templateId,
+      total: sql<number>`count(*)::int`.as("committed_count"),
+    })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.userId, actor.userId),
+        sql`${transactions.deletedAt} is null`,
+        sql`${transactions.templateId} is not null`,
+      ),
+    )
+    .groupBy(transactions.templateId)
+    .as("committed_use");
+  const stagedUse = db
+    .select({
+      templateId: sql<string>`${stagedTransactions.draft} ->> 'templateId'`.as(
+        "staged_template_id",
+      ),
+      total: sql<number>`count(*)::int`.as("staged_count"),
+    })
+    .from(stagedTransactions)
+    .where(
+      and(
+        // A draft names its template as free JSON that nothing constrains, so
+        // without this somebody else's staged row could be counted here.
+        eq(stagedTransactions.userId, actor.userId),
+        eq(stagedTransactions.status, "staged"),
+        sql`jsonb_typeof(${stagedTransactions.draft} -> 'templateId') = 'string'`,
+      ),
+    )
+    .groupBy(sql`${stagedTransactions.draft} ->> 'templateId'`)
+    .as("staged_use");
+
+  const rows = await db
+    .select({
+      ...getTableColumns(transactionTemplates),
+      transactionCount: sql<number>`coalesce(${committedUse.total}, 0)::int`,
+      stagedTransactionCount: sql<number>`coalesce(${stagedUse.total}, 0)::int`,
+    })
     .from(transactionTemplates)
+    .leftJoin(committedUse, eq(committedUse.templateId, transactionTemplates.id))
+    // The id is cast to text rather than the draft to uuid. Casting the other
+    // way raises on the first draft holding something that is not a uuid, and
+    // staging accepts those on purpose.
+    .leftJoin(
+      stagedUse,
+      sql`${stagedUse.templateId} = ${transactionTemplates.id}::text`,
+    )
     .where(eq(transactionTemplates.userId, actor.userId))
     .orderBy(transactionTemplates.name);
-  return rows.map(templateView);
+
+  return rows.map((row) => {
+    const transactionCount = Number(row.transactionCount);
+    const stagedTransactionCount = Number(row.stagedTransactionCount);
+    return {
+      ...templateView(row),
+      transactionCount,
+      stagedTransactionCount,
+      totalTransactionCount: transactionCount + stagedTransactionCount,
+    };
+  });
 }
 
 export async function getTransactionTemplate(actor: Actor, id: string) {

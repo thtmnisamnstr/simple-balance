@@ -295,6 +295,11 @@ export const transactions = pgTable(
     description: text("description"),
     payee: text("payee").notNull(),
     categoryId: uuid("category_id"),
+    // Which template this came from, if any. Provenance rather than current
+    // state, so it carries no foreign key: deleting a template is allowed and
+    // leaves the transactions made from it untouched, which a restricting key
+    // would forbid and a cascading one would turn into data loss.
+    templateId: uuid("template_id"),
     notes: text("notes"),
     externalId: text("external_id"),
     sourceAccountId: uuid("source_account_id"),
@@ -335,6 +340,7 @@ export const transactions = pgTable(
       table.destinationAccountId,
     ),
     index("transaction_user_category_idx").on(table.userId, table.categoryId),
+    index("transaction_user_template_idx").on(table.userId, table.templateId),
     index("transaction_external_id_idx").on(table.userId, table.externalId),
     check("ledger_transaction_version_check", sql`${table.version} >= 1`),
     check(

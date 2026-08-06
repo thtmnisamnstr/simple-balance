@@ -54,6 +54,12 @@ change many at once. A mass edit there can also clear a field rather than set
 it, which is how a template stops carrying an amount and starts asking for one
 each time you use it.
 
+Only the name is required. A template holds whatever subset of a transaction's
+fields you give it, and applying one fills in those fields and leaves the rest
+as they were, so you can apply a template to an entry that already exists as
+well as to a new one. Each template also reports how many transactions have
+come from it, and links to them.
+
 You can change or delete up to 10,000 rows in one request that either wholly
 succeeds or wholly does not, from any view, after seeing what it will touch.
 That works on the queue as well as on committed rows, which is how you fix a

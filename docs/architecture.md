@@ -121,6 +121,14 @@ it. What it holds instead is an id resolved when the template is used and
 dropped, with a note, when it no longer resolves. Ownership of those ids is
 checked when the template is written rather than when it is read.
 
+A transaction records which template it was started from. That is provenance
+rather than current state, so it carries no foreign key: deleting a template is
+allowed and leaves the transactions made from it untouched, which a restricting
+key would forbid and a cascading one would turn into data loss. The count of
+committed entries reads the column; the count of staged ones reads the draft
+JSON, the same way category counts do, so a row carries its template through
+every edit without a second write path.
+
 Templates have their own screen, and a mass edit there names every row outright
 with the version it was read at. It carries no fingerprinted filter selection,
 because a person can hold two hundred templates and the browser has all of them:

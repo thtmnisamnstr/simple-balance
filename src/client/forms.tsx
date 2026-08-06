@@ -397,7 +397,7 @@ function CategoryPicker({
   onChange,
 }: {
   categories: Category[];
-  type: TransactionType;
+  type: TransactionType | "";
   categoryId: string;
   categoryName: string;
   onChange: (categoryId: string, categoryName: string) => void;
@@ -408,6 +408,7 @@ function CategoryPicker({
       categories.filter((category) => {
         if (category.archivedAt && category.id !== categoryId) return false;
         return (
+          !type ||
           category.kind === "both" ||
           (type === "deposit" && category.kind === "income") ||
           (type === "withdrawal" && category.kind === "expense")
@@ -494,7 +495,8 @@ export function TemplateForm({
 }) {
   const source = template?.draft ?? initialDraft ?? {};
   const [name, setName] = useState(template?.name ?? "");
-  const [type, setType] = useState<TransactionType>(source.type ?? "withdrawal");
+  const [type, setType] = useState<TransactionType | "">(source.type ?? "");
+  const [date, setDate] = useState(source.date ?? "");
   const [payee, setPayee] = useState(source.payee ?? "");
   const [fromAccountId, setFromAccountId] = useState(source.fromAccountId ?? "");
   const [toAccountId, setToAccountId] = useState(source.toAccountId ?? "");
@@ -528,17 +530,18 @@ export function TemplateForm({
     mutationFn: () => {
       // Built by leaving out what is blank rather than sending empty strings,
       // so "not saved" and "saved as nothing" cannot be confused later.
-      const draft: Record<string, string> = { type };
+      const draft: Record<string, string> = {};
       const keep = (key: string, value: string) => {
         if (value.trim()) draft[key] = value.trim();
       };
+      keep("type", type);
+      keep("date", date);
       keep("payee", payee);
       if (type !== "deposit") keep("fromAccountId", fromAccountId);
       if (type !== "withdrawal") keep("toAccountId", toAccountId);
       keep("amount", amount);
-      // Only an id. A typed name would create a category every time the
-      // template was used.
       if (categoryId) draft.categoryId = categoryId;
+      else keep("categoryName", categoryName);
       keep("description", description);
       keep("notes", notes);
       const body = { name: name.trim(), draft };
@@ -587,7 +590,9 @@ export function TemplateForm({
               aria-checked={type === option.type}
               key={option.type}
               className={`transaction-type ${type === option.type ? "selected" : ""}`}
-              onClick={() => setType(option.type)}
+              // Clicking the chosen one again unsaves it, which is how a
+              // template holds no type at all.
+              onClick={() => setType(type === option.type ? "" : option.type)}
             >
               <Icon size={19} />
               <span>
@@ -598,10 +603,28 @@ export function TemplateForm({
           );
         })}
       </div>
+      {type ? (
+        <p className="settings-note">
+          Chosen again to leave the type out, so it is picked each time.
+        </p>
+      ) : (
+        <p className="settings-note">
+          No type saved, so it is picked each time you use this template.
+        </p>
+      )}
 
-      <Field label="Payee" hint="Leave blank to fill in each time.">
-        <PayeeInput value={payee} onChange={setPayee} />
-      </Field>
+      <div className="two-columns">
+        <Field label="Payee" hint="Leave blank to fill in each time.">
+          <PayeeInput value={payee} onChange={setPayee} />
+        </Field>
+        <Field label="Date" hint="Leave blank to use the day you apply it.">
+          <Input
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+          />
+        </Field>
+      </div>
 
       {type !== "deposit" ? (
         <Field label={type === "transfer" ? "From account" : "Account"}>
@@ -674,9 +697,9 @@ export function TemplateForm({
 
       {categoryName.trim() && !categoryId ? (
         <Alert kind="info">
-          A template holds a category you have already, so “{categoryName.trim()}”
-          is not saved. Pick one from the list, or leave it blank and choose when
-          you use the template.
+          “{categoryName.trim()}” is saved as a name rather than a category you
+          already have, and is matched when you use the template. If nothing
+          matches then, it is created.
         </Alert>
       ) : null}
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
@@ -777,6 +800,28 @@ export function TransactionForm({
   const payeeListId = useId();
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  // What the form held before any template was picked, so applying one can put
+  // back the fields it says nothing about.
+  // Which fields the last chosen template set, so choosing another puts those
+  // back rather than leaving the first one's values behind.
+  const templateApplied = useRef<Set<string>>(new Set());
+  const templateBaseline = useRef({
+    type: initialFormType,
+    date: initial?.date ?? calendarDateInTimezone(new Date(), timezone),
+    payee: initial?.payee ?? initialPayee ?? "",
+    description: initial?.description ?? "",
+    notes: initial?.notes ?? "",
+    categoryId: initial?.categoryId ?? initialCategoryId ?? "",
+    categoryName:
+      categories.find(
+        (category) =>
+          category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
+      )?.name ?? "",
+    fromAccountId: initial?.fromAccountId || initialAccountIds.fromAccountId,
+    toAccountId: initial?.toAccountId || initialAccountIds.toAccountId,
+    amount: initial?.amount ?? "",
+    destinationAmount: initial?.destinationAmount ?? "",
+  });
   const [templateNotice, setTemplateNotice] = useState("");
   const queryClient = useQueryClient();
   // Read only. This form has no way to write a template, which is what makes
@@ -785,7 +830,6 @@ export function TransactionForm({
   const templates = useQuery({
     queryKey: ["transaction-templates"],
     queryFn: () => api<TransactionTemplate[]>("/api/v1/transaction-templates"),
-    enabled: !transaction && !staged,
   });
   const payees = useQuery({
     queryKey: ["payees", "suggestions", payee.trim().toLowerCase()],
@@ -854,32 +898,48 @@ export function TransactionForm({
   /**
    * Fill the form in from a template.
    *
-   * Every field is reset first and only then filled from the template, rather
-   * than the template's keys being patched over whatever is there. Picking
-   * "Rent" and then "Coffee" would otherwise leave Rent's amount attached to
-   * Coffee, which is a wrong transaction one click from being committed.
+   * Only the fields the template carries are applied. A field it says nothing
+   * about keeps whatever is in the form, which on an edit is the transaction's
+   * own value and after typing is what was typed.
    *
-   * The date is always today. A template that remembered one would post
-   * transactions dated months back every time it was used.
+   * The exception is a field the previously chosen template set, which goes
+   * back to what the form held before any template. Without that, picking
+   * "Rent" and then "Coffee" would leave Rent's amount attached to Coffee,
+   * which is a wrong transaction one click from being committed.
    */
   const applyTemplate = (template: TransactionTemplate | undefined) => {
     setSelectedTemplateId(template?.id ?? "");
     setTemplateNotice("");
-    if (!template) {
-      resetCreateDraft();
-      return;
-    }
-    const draft = template.draft;
-    const accountIds = defaultAccountIds(draft.type);
+    const base = templateBaseline.current;
+    const previous = templateApplied.current;
+    const draft = template?.draft ?? {};
     const missing: string[] = [];
 
-    setType(draft.type);
-    setDate(calendarDateInTimezone(new Date(), timezone));
-    setPayee(draft.payee ?? "");
-    setDescription(draft.description ?? "");
-    setNotes(draft.notes ?? "");
-    setAmount(draft.amount ?? "");
-    setDestinationAmount(draft.destinationAmount ?? "");
+    const take = <T,>(
+      key: keyof TransactionTemplateDraft,
+      value: T | undefined,
+      restore: T,
+      set: (next: T) => void,
+    ) => {
+      if (value !== undefined) set(value);
+      else if (previous.has(key)) set(restore);
+    };
+
+    const nextType = draft.type ?? (previous.has("type") ? base.type : type);
+    const accountIds = defaultAccountIds(nextType);
+
+    setType(nextType);
+    take("date", draft.date, base.date, setDate);
+    take("payee", draft.payee, base.payee, setPayee);
+    take("description", draft.description, base.description, setDescription);
+    take("notes", draft.notes, base.notes, setNotes);
+    take("amount", draft.amount, base.amount, setAmount);
+    take(
+      "destinationAmount",
+      draft.destinationAmount,
+      base.destinationAmount,
+      setDestinationAmount,
+    );
 
     // An account is taken only if it is still one the select can show.
     // Otherwise the field holds an id with no matching option: it looks empty,
@@ -893,22 +953,38 @@ export function TransactionForm({
       missing.push("account");
       return fallback;
     };
-    setFromAccountId(resolveAccount(draft.fromAccountId, accountIds.fromAccountId));
-    setToAccountId(resolveAccount(draft.toAccountId, accountIds.toAccountId));
+    for (const side of ["fromAccountId", "toAccountId"] as const) {
+      const set = side === "fromAccountId" ? setFromAccountId : setToAccountId;
+      const current = side === "fromAccountId" ? fromAccountId : toAccountId;
+      const restore = base[side] || accountIds[side];
+      if (draft[side] !== undefined) set(resolveAccount(draft[side], restore));
+      else if (previous.has(side)) set(restore);
+      else if (!current) set(accountIds[side]);
+    }
 
-    const category = draft.categoryId
-      ? categories.find((entry) => entry.id === draft.categoryId)
-      : undefined;
-    const categoryFits =
-      category &&
-      (category.kind === "both"
-        ? draft.type !== "transfer"
-        : (draft.type === "deposit" && category.kind === "income") ||
-          (draft.type === "withdrawal" && category.kind === "expense"));
-    if (draft.categoryId && !categoryFits) missing.push("category");
-    setCategoryId(categoryFits ? category!.id : "");
-    setCategoryName(categoryFits ? category!.name : "");
+    if (draft.categoryId) {
+      const category = categories.find((entry) => entry.id === draft.categoryId);
+      const categoryFits =
+        category &&
+        (category.kind === "both"
+          ? nextType !== "transfer"
+          : (nextType === "deposit" && category.kind === "income") ||
+            (nextType === "withdrawal" && category.kind === "expense"));
+      if (!categoryFits) missing.push("category");
+      setCategoryId(categoryFits ? category!.id : "");
+      setCategoryName(categoryFits ? category!.name : "");
+    } else if (draft.categoryName) {
+      // A name rather than an id, matched or created on submit the way a typed
+      // one is. Nothing is looked up here, so a template can name a category
+      // this ledger does not have yet.
+      setCategoryId("");
+      setCategoryName(draft.categoryName);
+    } else if (previous.has("categoryId") || previous.has("categoryName")) {
+      setCategoryId(base.categoryId);
+      setCategoryName(base.categoryName);
+    }
     setCategoryPickerVersion((version) => version + 1);
+    templateApplied.current = new Set(Object.keys(draft));
 
     if (missing.length) {
       setTemplateNotice(
@@ -936,6 +1012,10 @@ export function TransactionForm({
         // statement being imported twice. Dropping it on an edit would let the
         // next import bring the row back in as a new transaction.
         externalId: initial?.externalId || null,
+        // Provenance, kept so a template can report what came of it. The
+        // template last applied wins, and an entry that never had one keeps
+        // whatever it arrived with rather than losing it on an edit.
+        templateId: selectedTemplateId || initial?.templateId || null,
       };
       const draft: TransactionDraft =
         type === "deposit"
@@ -1039,7 +1119,7 @@ export function TransactionForm({
           ) : null}
         </Alert>
       ) : null}
-      {!transaction && !staged && templates.data?.length ? (
+      {templates.data?.length ? (
         <Field
           label="Start from a template"
           hint="Optional. Anything you change here stays here; the template is not touched."

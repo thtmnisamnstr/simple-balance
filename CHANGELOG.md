@@ -6,6 +6,37 @@ Notable changes, newest first.
 
 ### Added
 
+A template holds whatever subset of a transaction you give it, and only the name
+is required now. The type is optional like everything else, and a date and a
+category name are stored where before they were refused. The import reference is
+still refused, and is the only one: copied onto every transaction made from the
+template it would make the next real import of that statement row look like one
+already seen.
+
+Applying a template fills in the fields it carries and leaves the rest as they
+were, so it works on a transaction that already exists as well as on a new one.
+The picker is on the edit form now, not only on Add transaction, which is the
+point of the change: a template is a quick way to correct a row somebody else's
+import got wrong, not only a way to start one.
+
+The exception is a field the previously chosen template set, which goes back to
+what the form held before any template. Without that, picking Rent and then
+Coffee would leave Rent's amount attached to Coffee, which is a wrong
+transaction one click from being committed. Typing a value yourself and then
+applying a template keeps what you typed, because no template put it there.
+
+Each template also reports what came of it: how many committed transactions,
+how many rows still waiting in the review queue, and the two added together, the
+same three numbers the categories and payees lists show. The count is a link to
+those transactions, on a screen of the template's own. A transaction records
+which template it was started from, and `list_transactions` takes a `templateId`
+filter so an agent can read the same thing.
+
+That record is provenance rather than current state, so it carries no foreign
+key. Deleting a template is still allowed and still leaves the transactions made
+from it untouched; they simply stop being counted. A key would have made a used
+template undeletable, or deleted real entries along with it.
+
 Templates have a screen of their own, above Import CSV in the menu, and Settings
 no longer has them. Settings was where the feature landed because it arrived as
 one small management panel; a list you sort, search, page, and change many rows
