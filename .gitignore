@@ -20,3 +20,6 @@ outputs/
 .DS_Store
 .idea/
 .vscode/
+
+# Agent worktrees, which are whole checkouts of this repo.
+.claude/worktrees/
