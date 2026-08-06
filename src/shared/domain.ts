@@ -274,6 +274,109 @@ export const transactionTemplateUpdateSchema = transactionTemplateCreateSchema
   .partial()
   .extend({ expectedVersion: z.number().int().positive() });
 
+/**
+ * Every selected template is named outright, with the version it was read at.
+ *
+ * The filtered-selection contract the ledger uses exists for rows the browser
+ * has never loaded, which `MAX_TRANSACTION_TEMPLATES` makes impossible here:
+ * the whole list is already in hand, so it can name every id and every version
+ * honestly rather than describing them and asking the server to agree.
+ */
+export const transactionTemplateBulkSelectionSchema = z
+  .object({
+    items: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            expectedVersion: z.number().int().positive(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(MAX_TRANSACTION_TEMPLATES),
+  })
+  .strict()
+  .superRefine((selection, context) => {
+    const ids = selection.items.map((item) => item.id);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["items"],
+        message: "Template IDs must be unique",
+      });
+    }
+  });
+
+/**
+ * A template field is blank on purpose, so a mass edit needs a third answer
+ * beyond set and leave alone: `null` clears the field back to one the person
+ * fills in when they use the template. An empty string is refused rather than
+ * read as a clear, because blank and absent being different is the whole of
+ * what a stored draft records.
+ */
+export const transactionTemplateBulkPatchSchema = z
+  .object({
+    type: z.enum(transactionTypes).optional(),
+    payee: oneLine(z.string().trim().min(1).max(160)).nullable().optional(),
+    fromAccountId: z.string().uuid().nullable().optional(),
+    toAccountId: z.string().uuid().nullable().optional(),
+    amount: positiveDecimalStringSchema.nullable().optional(),
+    destinationAmount: positiveDecimalStringSchema.nullable().optional(),
+    categoryId: z.string().uuid().nullable().optional(),
+    description: freeText(z.string().trim().min(1).max(240))
+      .nullable()
+      .optional(),
+    notes: freeText(z.string().trim().min(1).max(4_000)).nullable().optional(),
+  })
+  .strict()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "Choose at least one field to change",
+  });
+
+export const transactionTemplateBulkEditSchema = z
+  .object({
+    selection: transactionTemplateBulkSelectionSchema,
+    patch: transactionTemplateBulkPatchSchema,
+    idempotencyKey: idempotencyKeySchema,
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+
+export const transactionTemplateBulkDeleteSchema = z
+  .object({
+    selection: transactionTemplateBulkSelectionSchema,
+    idempotencyKey: idempotencyKeySchema,
+    dryRun: z.boolean().default(false),
+  })
+  .strict();
+
+export const transactionTemplateBulkResultSchema = z
+  .object({
+    dryRun: z.boolean(),
+    changedCount: z.number().int().nonnegative(),
+    items: z.array(
+      z
+        .object({
+          id: z.string().uuid(),
+          name: z.string(),
+          version: z.number().int().positive(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+export type TransactionTemplateBulkPatch = z.infer<
+  typeof transactionTemplateBulkPatchSchema
+>;
+export type TransactionTemplateBulkSelection = z.infer<
+  typeof transactionTemplateBulkSelectionSchema
+>;
+export type TransactionTemplateBulkResult = z.infer<
+  typeof transactionTemplateBulkResultSchema
+>;
+
 export const accountCreateSchema = z.object({
   name: oneLine(z.string().trim().min(1).max(120)).describe(
     "What you call this account. Unique among your accounts.",

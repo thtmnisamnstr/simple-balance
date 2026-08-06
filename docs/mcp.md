@@ -188,8 +188,9 @@ file, which is how a whole import gets corrected in one go.
 ## Transaction templates
 
 `list_transaction_templates`, `get_transaction_template`,
-`create_transaction_template`, `update_transaction_template`, and
-`delete_transaction_template`.
+`create_transaction_template`, `update_transaction_template`,
+`delete_transaction_template`, `bulk_edit_transaction_templates`, and
+`bulk_delete_transaction_templates`.
 
 A template is a saved starting point for a transaction, not a record of one: it
 posts nothing and moves no balance. Its draft is partial on purpose, and a field
@@ -210,6 +211,22 @@ Updating replaces the draft whole rather than merging, so a field left out of
 the new draft is dropped. The account and category a template names carry no
 foreign key, so a template outlives them and holds an id that is resolved when it
 is used and dropped when it no longer resolves.
+
+The two bulk tools change many at once, atomically. Each names every template
+outright with the version it was read at, so one template that moved underneath
+refuses the whole call rather than overwriting it; there is no filtered selection
+and no fingerprint, because a person can hold two hundred templates and naming
+them all is cheaper than describing them. The patch is three-valued: a key left
+out leaves that field alone, a value sets it, and `null` clears it back to blank
+so the person fills it in on use. An empty string is refused rather than read as
+a clear. Changing `type` drops whichever account side the new type cannot hold,
+and only then: a patch that does not mention the type leaves both sides alone,
+because it never asked about them. Setting a side the type cannot hold is refused
+instead, and names the templates that could not take it, as is a received amount
+on anything that is not a transfer. References are checked only where the patch
+introduces them, so a template naming an account since deleted can still have its
+payee changed. A row whose next draft matches what it already holds is left
+alone and not counted in `changedCount`.
 
 ## Payees
 

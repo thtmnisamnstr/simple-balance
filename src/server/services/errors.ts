@@ -13,8 +13,10 @@ export class AppError extends Error {
   }
 }
 
-export const notFound = (message = "The requested record was not found") =>
-  new AppError("NOT_FOUND", message, 404);
+export const notFound = (
+  message = "The requested record was not found",
+  details?: unknown,
+) => new AppError("NOT_FOUND", message, 404, details);
 
 export const conflict = (message: string, details?: unknown) =>
   new AppError("CONFLICT", message, 409, details);

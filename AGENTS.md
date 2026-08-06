@@ -93,6 +93,11 @@
   transaction into a different currency or collapse a transfer into a
   single-account transaction in bulk. A staged mass edit revalidates every row
   it writes, and refuses rather than skips a row it cannot give one account to.
+- A template mass edit names explicit rows with expected versions and has no
+  filtered selection, because the list is capped and the browser holds all of
+  it. A patch key left out leaves the field alone, a value sets it, and `null`
+  clears it back to blank; an empty string is refused rather than read as a
+  clear.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
 - Every migration that shipped in 0.1.0 is frozen: `0000_initial.sql`,

@@ -6,6 +6,44 @@ Notable changes, newest first.
 
 ### Added
 
+Templates have a screen of their own, above Import CSV in the menu, and Settings
+no longer has them. Settings was where the feature landed because it arrived as
+one small management panel; a list you sort, search, page, and change many rows
+of at once is not a setting.
+
+It is the transactions screen's shape. Every column it shows orders by that
+column, the search narrows on name, payee, and notes, and the row menu edits or
+deletes one. Tick some rows and the selection bar offers a mass edit and a mass
+delete, both atomic. The screen also creates a template, which Settings could not
+do: a management screen with an edit and a delete and no way to add a row sends
+you back to the transactions list to invent a transaction you did not want. Saving
+one from a transaction or a staged row is unchanged.
+
+A template mass edit has a third answer per field that a transaction mass edit
+does not need. A template's fields are blank on purpose, so besides leaving a
+field alone and setting it, you can clear it: the template stops carrying an
+amount and starts asking for one each time you use it. An empty string is refused
+rather than read as a clear, because blank and absent meaning different things is
+the whole of what a template records.
+
+Two things the screen decides rather than guesses. Changing a template's type
+drops whichever account side the new type cannot hold, because nothing asked for
+that side and a template holding an account nothing reads is worse than a blank;
+a change that does not touch the type leaves both sides alone. Setting a side the
+type cannot hold is refused and names the templates that could not take it,
+because something did ask for that one. And a template naming an
+account or category that no longer exists now says Unavailable in its row; the
+Settings list dropped those silently, which hid the one thing most worth knowing
+about an old template.
+
+`bulk_edit_transaction_templates` and `bulk_delete_transaction_templates` give an
+agent the same two operations, so the MCP surface still does everything the
+browser does. Each names every template outright with the version it was read at,
+and one that moved underneath refuses the whole call. There is no fingerprinted
+filter selection here: that contract exists for rows a browser has never loaded,
+and a person can hold two hundred templates, so naming them all is cheaper and
+more honest than describing them.
+
 Templates, for the transactions you enter again and again. Open the menu on any
 row, on the transactions list or the review queue, and save it as a template:
 what you keep is a starting point, not a copy. Anything you clear before saving
@@ -29,7 +67,7 @@ the next real import of that statement row look like one already seen.
 An account or category the template names is looked up when you use it, and
 dropped with a note if it is not there any more. Templates outlive the accounts
 they mention rather than being deleted along with them. Rename, reshape, or
-delete them under Settings.
+delete them on the Templates screen.
 
 Agents get templates too, through `list_transaction_templates` and the create,
 update, and delete tools.

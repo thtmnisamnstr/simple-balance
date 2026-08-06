@@ -49,6 +49,11 @@ from a dropdown next time. It fills the form in and then gets out of the way:
 what you change afterwards is yours alone, and the template is not touched. It
 is a starting point, not a scheduled transaction, which stays out of scope.
 
+Templates have a screen of their own, where you can make one, change one, or
+change many at once. A mass edit there can also clear a field rather than set
+it, which is how a template stops carrying an amount and starts asking for one
+each time you use it.
+
 You can change or delete up to 10,000 rows in one request that either wholly
 succeeds or wholly does not, from any view, after seeing what it will touch.
 That works on the queue as well as on committed rows, which is how you fix a

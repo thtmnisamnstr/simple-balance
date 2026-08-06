@@ -74,6 +74,8 @@ import {
   updateCategory,
 } from "./services/categories.js";
 import {
+  bulkDeleteTransactionTemplates,
+  bulkEditTransactionTemplates,
   createTransactionTemplate,
   deleteTransactionTemplate,
   getTransactionTemplate,
@@ -920,6 +922,12 @@ app.put("/api/v1/transaction-templates/:id", async (c) =>
       await body(c),
     ),
   ),
+);
+app.post("/api/v1/transaction-templates/bulk-edit", async (c) =>
+  c.json(await bulkEditTransactionTemplates(c.get("actor"), await body(c))),
+);
+app.post("/api/v1/transaction-templates/bulk-delete", async (c) =>
+  c.json(await bulkDeleteTransactionTemplates(c.get("actor"), await body(c))),
 );
 app.delete("/api/v1/transaction-templates/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));

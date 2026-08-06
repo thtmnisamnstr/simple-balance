@@ -68,6 +68,10 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/transaction-templates": "create_transaction_template",
   "PUT /api/v1/transaction-templates/:id": "update_transaction_template",
   "DELETE /api/v1/transaction-templates/:id": "delete_transaction_template",
+  "POST /api/v1/transaction-templates/bulk-edit":
+    "bulk_edit_transaction_templates",
+  "POST /api/v1/transaction-templates/bulk-delete":
+    "bulk_delete_transaction_templates",
   "POST /api/v1/csv/preview": "preview_csv",
   "POST /api/v1/csv/stage": "stage_csv",
   "GET /api/v1/import-batches": "list_import_batches",
@@ -157,6 +161,8 @@ describe("what an agent can reach compared with the browser", () => {
       "update_transaction_template",
       "delete_transaction_template",
       "merge_payees",
+      "bulk_edit_transaction_templates",
+      "bulk_delete_transaction_templates",
     ]) {
       expect(readOnly.has(write), `${write} must need more than read`).toBe(false);
     }

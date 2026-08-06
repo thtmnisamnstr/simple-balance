@@ -98,6 +98,45 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     expect(await call("list_transaction_templates")).toHaveLength(0);
   });
 
+  /**
+   * Over the real transport rather than against the service, because a result
+   * that fails its declared output schema is dropped without an error: the call
+   * looks like it did nothing rather than like it broke.
+   */
+  it("changes and deletes many templates at once", async () => {
+    const made = [];
+    for (const name of ["Bulk one", "Bulk two"]) {
+      made.push(await call("create_transaction_template", {
+        name,
+        draft: { type: "withdrawal", payee: "Before", fromAccountId: accountId, categoryId, amount: "9.00" },
+        idempotencyKey: `bulk-create-${name}`,
+      }) as { id: string; version: number });
+    }
+
+    const edited = await call("bulk_edit_transaction_templates", {
+      selection: { items: made.map((t) => ({ id: t.id, expectedVersion: t.version })) },
+      patch: { payee: "After", amount: null },
+      idempotencyKey: "bulk-edit-1",
+    }) as { dryRun: boolean; changedCount: number; items: { id: string; version: number }[] };
+    expect(edited).toMatchObject({ dryRun: false, changedCount: 2 });
+    expect(edited.items).toHaveLength(2);
+
+    const listed = await call("list_transaction_templates") as {
+      id: string; version: number; draft: Record<string, unknown>;
+    }[];
+    for (const template of listed) {
+      expect(template.draft.payee).toBe("After");
+      expect(template.draft).not.toHaveProperty("amount");
+    }
+
+    const deleted = await call("bulk_delete_transaction_templates", {
+      selection: { items: listed.map((t) => ({ id: t.id, expectedVersion: t.version })) },
+      idempotencyKey: "bulk-delete-1",
+    }) as { changedCount: number };
+    expect(deleted.changedCount).toBe(2);
+    expect(await call("list_transaction_templates")).toHaveLength(0);
+  });
+
   // The three keys a template refuses rather than drops, checked through the
   // transport an agent actually uses rather than against the schema directly.
   it("refuses a template carrying a date, an import reference, or a category name", async () => {

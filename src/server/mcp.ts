@@ -24,6 +24,8 @@ import {
   payeeMergeSchema,
   stageCreateSchema,
   stageListQuerySchema,
+  transactionTemplateBulkDeleteSchema,
+  transactionTemplateBulkEditSchema,
   transactionTemplateCreateSchema,
   transactionTemplateUpdateSchema,
   stageUpdateSchema,
@@ -60,6 +62,8 @@ import {
 } from "./services/payees.js";
 import {
   createTransactionTemplate,
+  bulkDeleteTransactionTemplates,
+  bulkEditTransactionTemplates,
   deleteTransactionTemplate,
   getTransactionTemplate,
   listTransactionTemplates,
@@ -143,6 +147,7 @@ import {
   preferencesResultSchema,
   summaryResultSchema,
   transactionResultSchema,
+  transactionTemplateBulkMcpResultSchema,
   transactionTemplateResultSchema,
 } from "./mcp-output-schemas.js";
 
@@ -1016,6 +1021,52 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             { id, expectedVersion },
             (tx) => deleteTransactionTemplate(actor, id, expectedVersion, tx),
           ),
+        ),
+    );
+    server.registerTool(
+      "bulk_edit_transaction_templates",
+      {
+        title: "Bulk edit transaction templates",
+        description:
+          "Atomically change many saved templates at once. Every template is named outright with the version it was read at, so a template that changed underneath is refused rather than overwritten. In the patch a field left out is left alone, a value sets it, and null clears it back to blank so the person fills it in when they use the template. Changing the type drops whichever account side the new type cannot hold. Nothing here posts to the ledger.",
+        inputSchema: transactionTemplateBulkEditSchema,
+        outputSchema: mcpOutputSchema(transactionTemplateBulkMcpResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      (input) =>
+        runTool(() =>
+          input.dryRun
+            ? bulkEditTransactionTemplates(actor, input)
+            : runIdempotentMcpMutation(
+                actor,
+                "transaction_template.bulk_edit",
+                input.idempotencyKey,
+                input,
+                (tx) => bulkEditTransactionTemplates(actor, input, tx),
+              ),
+        ),
+    );
+    server.registerTool(
+      "bulk_delete_transaction_templates",
+      {
+        title: "Bulk delete transaction templates",
+        description:
+          "Atomically delete many saved templates at once, each named with the version it was read at. Transactions already made from them are untouched, because a template is only a starting point and nothing points back to it.",
+        inputSchema: transactionTemplateBulkDeleteSchema,
+        outputSchema: mcpOutputSchema(transactionTemplateBulkMcpResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      (input) =>
+        runTool(() =>
+          input.dryRun
+            ? bulkDeleteTransactionTemplates(actor, input)
+            : runIdempotentMcpMutation(
+                actor,
+                "transaction_template.bulk_delete",
+                input.idempotencyKey,
+                input,
+                (tx) => bulkDeleteTransactionTemplates(actor, input, tx),
+              ),
         ),
     );
     server.registerTool(

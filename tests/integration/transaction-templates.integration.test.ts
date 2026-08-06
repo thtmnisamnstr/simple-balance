@@ -8,6 +8,8 @@ import { transactionTemplates, user } from "../../src/server/db/schema.js";
 import { createAccount, deleteAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import {
+  bulkDeleteTransactionTemplates,
+  bulkEditTransactionTemplates,
   createTransactionTemplate,
   deleteTransactionTemplate,
   getTransactionTemplate,
@@ -360,6 +362,368 @@ integration("saving a transaction as a template", () => {
       fromAccountId: checkingId,
       toAccountId: savingsId,
       amount: "200.00",
+    });
+  });
+
+  describe("changing many templates at once", () => {
+    let key = 0;
+    const nextKey = () => `bulk-${process.pid}-${(key += 1)}`;
+
+    const make = async (name: string, draft: Record<string, unknown>) =>
+      createTransactionTemplate(owner, { name, draft });
+
+    const storedDraft = async (id: string) => {
+      const [row] = await getDb()
+        .select()
+        .from(transactionTemplates)
+        .where(eq(transactionTemplates.id, id));
+      return row.draft as Record<string, unknown>;
+    };
+
+    it("sets one field and clears another across every selected row", async () => {
+      const one = await make("Bulk set A", {
+        type: "withdrawal",
+        payee: "Old",
+        fromAccountId: checkingId,
+        amount: "10.00",
+      });
+      const two = await make("Bulk set B", {
+        type: "withdrawal",
+        payee: "Older",
+        fromAccountId: checkingId,
+        amount: "20.00",
+      });
+
+      const result = await bulkEditTransactionTemplates(owner, {
+        selection: {
+          items: [
+            { id: one.id, expectedVersion: one.version },
+            { id: two.id, expectedVersion: two.version },
+          ],
+        },
+        patch: { payee: "New", amount: null },
+        idempotencyKey: nextKey(),
+      });
+
+      expect(result).toMatchObject({ dryRun: false, changedCount: 2 });
+      for (const template of [one, two]) {
+        const draft = await storedDraft(template.id);
+        expect(draft.payee).toBe("New");
+        // Cleared means the key is gone, not present and empty. That is what
+        // makes the field one the form asks for when the template is used.
+        expect("amount" in draft).toBe(false);
+        expect(
+          (await getTransactionTemplate(owner, template.id)).version,
+        ).toBe(template.version + 1);
+      }
+    });
+
+    it("refuses the whole edit when one expected version is stale", async () => {
+      const fresh = await make("Bulk stale A", {
+        type: "withdrawal",
+        payee: "Untouched",
+      });
+      const moved = await make("Bulk stale B", {
+        type: "withdrawal",
+        payee: "Moved on",
+      });
+      await updateTransactionTemplate(owner, moved.id, {
+        name: "Bulk stale B renamed",
+        expectedVersion: moved.version,
+      });
+
+      await expect(
+        bulkEditTransactionTemplates(owner, {
+          selection: {
+            items: [
+              { id: fresh.id, expectedVersion: fresh.version },
+              { id: moved.id, expectedVersion: moved.version },
+            ],
+          },
+          patch: { payee: "Should not land" },
+          idempotencyKey: nextKey(),
+        }),
+      ).rejects.toMatchObject({ code: "STALE_VERSION" });
+
+      expect((await storedDraft(fresh.id)).payee).toBe("Untouched");
+      expect((await getTransactionTemplate(owner, fresh.id)).version).toBe(
+        fresh.version,
+      );
+    });
+
+    it("will not touch a template belonging to somebody else", async () => {
+      const mine = await make("Bulk tenant mine", {
+        type: "withdrawal",
+        payee: "Mine",
+      });
+      const theirs = await createTransactionTemplate(stranger, {
+        name: "Bulk tenant theirs",
+        draft: { type: "withdrawal", payee: "Theirs" },
+      });
+
+      await expect(
+        bulkEditTransactionTemplates(owner, {
+          selection: {
+            items: [
+              { id: mine.id, expectedVersion: mine.version },
+              { id: theirs.id, expectedVersion: theirs.version },
+            ],
+          },
+          patch: { payee: "Trespass" },
+          idempotencyKey: nextKey(),
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+      expect((await storedDraft(theirs.id)).payee).toBe("Theirs");
+      expect((await storedDraft(mine.id)).payee).toBe("Mine");
+    });
+
+    it("replays one idempotency key instead of writing twice", async () => {
+      const template = await make("Bulk idempotent", {
+        type: "withdrawal",
+        payee: "First",
+      });
+      const input = {
+        selection: {
+          items: [{ id: template.id, expectedVersion: template.version }],
+        },
+        patch: { payee: "Second" },
+        idempotencyKey: nextKey(),
+      };
+      const first = await bulkEditTransactionTemplates(owner, input);
+      const replay = await bulkEditTransactionTemplates(owner, input);
+      expect(replay).toEqual(first);
+      expect((await getTransactionTemplate(owner, template.id)).version).toBe(
+        template.version + 1,
+      );
+    });
+
+    it("refuses a source account for a template that is a deposit", async () => {
+      const deposit = await make("Bulk deposit", {
+        type: "deposit",
+        toAccountId: checkingId,
+      });
+      await expect(
+        bulkEditTransactionTemplates(owner, {
+          selection: {
+            items: [{ id: deposit.id, expectedVersion: deposit.version }],
+          },
+          patch: { fromAccountId: savingsId },
+          idempotencyKey: nextKey(),
+        }),
+      ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      expect("fromAccountId" in (await storedDraft(deposit.id))).toBe(false);
+    });
+
+    it("drops the side a new type cannot hold", async () => {
+      const transfer = await make("Bulk retype", {
+        type: "transfer",
+        fromAccountId: checkingId,
+        toAccountId: savingsId,
+        amount: "5.00",
+        destinationAmount: "5.00",
+      });
+      await bulkEditTransactionTemplates(owner, {
+        selection: {
+          items: [{ id: transfer.id, expectedVersion: transfer.version }],
+        },
+        patch: { type: "withdrawal" },
+        idempotencyKey: nextKey(),
+      });
+      const draft = await storedDraft(transfer.id);
+      expect(draft).toMatchObject({
+        type: "withdrawal",
+        fromAccountId: checkingId,
+      });
+      expect("toAccountId" in draft).toBe(false);
+      expect("destinationAmount" in draft).toBe(false);
+    });
+
+    it("refuses the fields a template never stores", async () => {
+      const template = await make("Bulk strict", {
+        type: "withdrawal",
+        payee: "Strict",
+      });
+      for (const patch of [
+        { date: "2026-01-01" },
+        { categoryName: "Groceries" },
+        { externalId: "abc" },
+      ]) {
+        await expect(
+          bulkEditTransactionTemplates(owner, {
+            selection: {
+              items: [{ id: template.id, expectedVersion: template.version }],
+            },
+            patch,
+            idempotencyKey: nextKey(),
+          }),
+        ).rejects.toThrow();
+      }
+    });
+
+    /**
+     * The unchanged row carries enough fields for its stored key order to
+     * differ from the schema's: Postgres orders jsonb keys by length, so a
+     * comparison against a freshly parsed draft calls every row changed unless
+     * both sides are put in the same order first.
+     */
+    it("leaves a row alone when the patch is what it already holds", async () => {
+      const same = await make("Bulk unchanged", {
+        type: "withdrawal",
+        notes: "unchanged",
+        payee: "Same",
+        amount: "12.00",
+        categoryId: groceriesId,
+        fromAccountId: checkingId,
+      });
+      const other = await make("Bulk changed", {
+        type: "withdrawal",
+        notes: "changed",
+        payee: "Different",
+        amount: "12.00",
+        categoryId: groceriesId,
+        fromAccountId: checkingId,
+      });
+      const result = await bulkEditTransactionTemplates(owner, {
+        selection: {
+          items: [
+            { id: same.id, expectedVersion: same.version },
+            { id: other.id, expectedVersion: other.version },
+          ],
+        },
+        patch: { payee: "Same" },
+        idempotencyKey: nextKey(),
+      });
+      expect(result.changedCount).toBe(1);
+      expect(result.items.map((item) => item.id)).toEqual([other.id]);
+      expect((await getTransactionTemplate(owner, same.id)).version).toBe(
+        same.version,
+      );
+    });
+
+    it("deletes every selected template, and none when one is stale", async () => {
+      const doomed = await make("Bulk delete A", { type: "withdrawal" });
+      const alsoDoomed = await make("Bulk delete B", { type: "withdrawal" });
+      const survivor = await make("Bulk delete C", { type: "withdrawal" });
+
+      await expect(
+        bulkDeleteTransactionTemplates(owner, {
+          selection: {
+            items: [
+              { id: survivor.id, expectedVersion: survivor.version },
+              { id: doomed.id, expectedVersion: doomed.version + 5 },
+            ],
+          },
+          idempotencyKey: nextKey(),
+        }),
+      ).rejects.toMatchObject({ code: "STALE_VERSION" });
+      expect(await getTransactionTemplate(owner, survivor.id)).toBeTruthy();
+
+      const result = await bulkDeleteTransactionTemplates(owner, {
+        selection: {
+          items: [
+            { id: doomed.id, expectedVersion: doomed.version },
+            { id: alsoDoomed.id, expectedVersion: alsoDoomed.version },
+          ],
+        },
+        idempotencyKey: nextKey(),
+      });
+      expect(result.changedCount).toBe(2);
+      const names = (await listTransactionTemplates(owner)).map(
+        (template) => template.name,
+      );
+      expect(names).not.toContain("Bulk delete A");
+      expect(names).not.toContain("Bulk delete B");
+      expect(names).toContain("Bulk delete C");
+    });
+
+    /**
+     * Dropping a side belongs to a type change and nothing else. A patch that
+     * never mentions the type has not asked about the accounts, so taking one
+     * away would be a deletion nobody requested.
+     */
+    it("leaves an unrelated account side alone when the type is not changing", async () => {
+      const odd = await make("Bulk two sided", {
+        type: "withdrawal",
+        payee: "Before",
+        fromAccountId: checkingId,
+        toAccountId: savingsId,
+      });
+      await bulkEditTransactionTemplates(owner, {
+        selection: { items: [{ id: odd.id, expectedVersion: odd.version }] },
+        patch: { payee: "After" },
+        idempotencyKey: nextKey(),
+      });
+      const draft = await storedDraft(odd.id);
+      expect(draft).toMatchObject({
+        payee: "After",
+        fromAccountId: checkingId,
+        toAccountId: savingsId,
+      });
+    });
+
+    it("refuses a received amount for anything that is not a transfer", async () => {
+      const withdrawal = await make("Bulk received amount", {
+        type: "withdrawal",
+        fromAccountId: checkingId,
+      });
+      await expect(
+        bulkEditTransactionTemplates(owner, {
+          selection: {
+            items: [{ id: withdrawal.id, expectedVersion: withdrawal.version }],
+          },
+          patch: { destinationAmount: "5.00" },
+          idempotencyKey: nextKey(),
+        }),
+      ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+      expect("destinationAmount" in (await storedDraft(withdrawal.id))).toBe(false);
+    });
+
+    /**
+     * A template outlives the account it names, so one holding a deleted
+     * account has to stay editable. Checking the whole resulting draft would
+     * make its payee unchangeable over an account nobody was touching.
+     */
+    it("edits a template that still names an account since deleted", async () => {
+      const doomed = await createAccount(owner, {
+        name: "Closing soon",
+        type: "checking",
+        currency: "USD",
+        openingDate: "2026-01-01",
+        openingBalance: "0",
+      });
+      const template = await make("Bulk orphan", {
+        type: "withdrawal",
+        payee: "Before",
+        fromAccountId: doomed.id,
+      });
+      await deleteAccount(owner, doomed.id, doomed.version);
+
+      await bulkEditTransactionTemplates(owner, {
+        selection: {
+          items: [{ id: template.id, expectedVersion: template.version }],
+        },
+        patch: { payee: "After" },
+        idempotencyKey: nextKey(),
+      });
+      expect((await storedDraft(template.id)).payee).toBe("After");
+    });
+
+    it("writes nothing on a dry run", async () => {
+      const template = await make("Bulk dry run", {
+        type: "withdrawal",
+        payee: "Before",
+      });
+      const result = await bulkEditTransactionTemplates(owner, {
+        selection: {
+          items: [{ id: template.id, expectedVersion: template.version }],
+        },
+        patch: { payee: "After" },
+        idempotencyKey: nextKey(),
+        dryRun: true,
+      });
+      expect(result).toMatchObject({ dryRun: true, changedCount: 1 });
+      expect((await storedDraft(template.id)).payee).toBe("Before");
     });
   });
 });

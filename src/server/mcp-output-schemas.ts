@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   accountTypes,
+  transactionTemplateBulkResultSchema,
   transactionTemplateDraftSchema,
   bulkStageEditResultSchema,
   bulkStageSelectionSnapshotSchema,
@@ -328,6 +329,9 @@ export const transactionTemplateResultSchema = z
     draft: transactionTemplateDraftSchema,
   })
   .passthrough();
+
+export const transactionTemplateBulkMcpResultSchema =
+  transactionTemplateBulkResultSchema.passthrough();
 
 export const preferencesResultSchema = z
   .object({

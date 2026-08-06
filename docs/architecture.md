@@ -121,6 +121,17 @@ it. What it holds instead is an id resolved when the template is used and
 dropped, with a note, when it no longer resolves. Ownership of those ids is
 checked when the template is written rather than when it is read.
 
+Templates have their own screen, and a mass edit there names every row outright
+with the version it was read at. It carries no fingerprinted filter selection,
+because a person can hold two hundred templates and the browser has all of them:
+the filtered contract exists for rows the client has never loaded, which cannot
+happen here. A patch key left out leaves that field alone, a value sets it, and
+`null` clears it back to blank so the form asks for it on use; an empty string is
+refused rather than read as a clear. Changing a template's type drops whichever
+account side the new type cannot hold, and only when the patch names a type at
+all; setting a side the type cannot hold is refused outright, because nothing
+asked for the first and something did ask for the second.
+
 Every transaction has a payee. It is canonical text on the transaction rather
 than a table of its own, and the payee list is a projection of committed and
 staged text. Merging rewrites every reference at once, bumps versions, and

@@ -1573,6 +1573,17 @@ input[type="radio"] {
   line-height: 1.45;
 }
 
+.template-blank {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.bulk-edit-field > .settings-note {
+  grid-column: 2;
+  margin: 0;
+}
+
 .bulk-edit-toggle {
   display: flex;
   align-items: center;
