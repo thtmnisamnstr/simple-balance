@@ -83,8 +83,11 @@ Leaving is yours to do. Settings deletes the account and everything in it,
 after counting what that is and asking you to type your address. Nothing is
 kept, and no agent can do it for you.
 
-Out of scope for now: scheduled transactions, splits, budgets, tags,
-reconciliation, attachments, bank sync, market prices, and shared households.
+Not built yet: recurring transactions, splits, reporting beyond the dashboard,
+budgets, bank sync, account sharing, attachments, and reconciliation. What is
+planned, in what order, and the evidence behind each is in the
+[roadmap](docs/roadmap.md), which also says what is deliberately not planned and
+why, market prices among it. Tags are neither built nor planned.
 
 ## Run it locally
 

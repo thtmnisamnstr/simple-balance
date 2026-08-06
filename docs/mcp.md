@@ -118,8 +118,9 @@ Any of them covers at most 10,000 rows per request. Split larger work across
 calls; each stands or falls on its own.
 
 Pass `dryRun: true` to `bulk_edit_transactions`, `bulk_delete_transactions`,
-`bulk_edit_staged_transactions`, `stage_csv`, or `commit_staged_transactions` to
-find out what a change would do without doing it.
+`bulk_edit_staged_transactions`, `bulk_edit_transaction_templates`,
+`bulk_delete_transaction_templates`, `stage_csv`, or `commit_staged_transactions`
+to find out what a change would do without doing it.
 
 ## Paging and ordering
 
