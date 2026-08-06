@@ -334,6 +334,12 @@ describe("transaction payee and category entry", () => {
           requestUrl = url;
           requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
         }
+        if (url.pathname === "/api/v1/payees/suggestions") {
+          return new Response(JSON.stringify(["Acme Market"]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
         return new Response(JSON.stringify(groceryTransaction), {
           status: 200,
           headers: { "Content-Type": "application/json" },

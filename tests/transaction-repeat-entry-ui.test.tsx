@@ -129,8 +129,9 @@ function successfulCreateFetch(requestBodies: Record<string, unknown>[]) {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin);
       if (
-        url.pathname === "/api/v1/transactions" ||
-        url.pathname === "/api/v1/staged-transactions"
+        init?.method === "POST" &&
+        (url.pathname === "/api/v1/transactions" ||
+          url.pathname === "/api/v1/staged-transactions")
       ) {
         requestBodies.push(
           JSON.parse(String(init?.body)) as Record<string, unknown>,
@@ -329,17 +330,28 @@ describe("manual staging entry point", () => {
       pages: [emptyPage],
       pageParams: [undefined],
     });
-    client.setQueryData(
-      [
-        "staged",
-        "",
-        "",
-        "",
-        "",
-        "2026-07-01",
-        "2026-07-31",
-      ],
-      { pages: [emptyPage], pageParams: [undefined] },
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/staged-transactions") {
+          return new Response(
+            JSON.stringify({
+              items: [],
+              nextCursor: null,
+              page: 1,
+              pageSize: 100,
+              totalCount: 0,
+              totalPages: 0,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
     );
     client.setQueryData(["accounts"], [checkingAccount]);
     client.setQueryData(["categories"], []);
