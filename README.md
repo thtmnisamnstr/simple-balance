@@ -3,91 +3,33 @@
 Personal accounting you host yourself, built so an AI agent can do the tedious
 parts without being able to do the dangerous ones.
 
-Track checking, savings, credit cards, cash, loans, investments, and crypto
-wallets. Record deposits, withdrawals, and transfers, including conversions that
-keep the sent and received amounts apart. Bank CSVs land in a review queue
-first, so nothing reaches your books until you say so.
-
-The books are double-entry and append-only. Every entry balances to zero in each
-currency it touches, corrections are posted rather than typed over, and deleting
-something reverses it instead of erasing it. What you did to your ledger, and
-when, stays readable.
-
-MCP clients call the same code the browser does, and can do everything you can:
-the whole ledger, imports, templates, mass edits, and your own settings. Two
-things stay yours alone, deleting the account and setting a password, because
-they are account management rather than bookkeeping. An agent cannot get around
-your sign-in, the scopes you granted it, the duplicate checks, or the commit
-step.
+- **Double-entry and append-only.** Every entry balances to zero in each
+  currency it touches, corrections are posted rather than typed over, and
+  deleting something reverses it instead of erasing it.
+- **A review queue in front of the books.** Bank CSVs are read, mapped, and
+  checked first, and nothing counts until you commit it.
+- **Agents that cannot overreach.** MCP clients call the same code the browser
+  does, under separate read, stage, and write scopes.
+- **One container and a database.** Any number of people on a deployment, each
+  with their own separate books.
 
 ![The Simple Balance overview: balances, cash flow, and spending by category, shown per currency for a month of activity](docs/images/dashboard.png)
 
 ## What it does
 
-Accounts hold anything you file as an asset or a liability, each in its own
-currency. Crypto wallets track native quantities; nothing here quotes a market
-price. Retiring an account archives it, which posts whatever it still holds out
-to equity so the account closes at zero and stops counting toward your totals
-without the books going out of balance; restoring it puts the balance back, and
-its history stays readable throughout. Transactions are deposits, withdrawals,
-and transfers, same-currency or converted. The payee is required. Everything
-else is optional.
-
-Imports go through a review queue. Simple Balance reads the CSV, works out the
-format, maps the columns, parses whatever date and number conventions your bank
-uses, and creates categories and payees as it goes. You look at the result
-before any of it counts. Committing a batch is all or nothing.
-
-One of its own exports needs no mapping at all: pick the account and stage it.
-The account is that choice and nothing else, so a file exported from one ledger
-imports into another, or into somebody else's, or into a fresh install. A
-transfer names a second account, which is a choice the import screen cannot
-make, so those rows arrive in the queue asking for it.
-
-A transaction you enter often can be saved as a template from any row and picked
-from a dropdown next time. It fills the form in and then gets out of the way:
-what you change afterwards is yours alone, and the template is not touched. It
-is a starting point, not a scheduled transaction, which stays out of scope.
-
-Templates have a screen of their own, where you can make one, change one, or
-change many at once. A mass edit there can also clear a field rather than set
-it, which is how a template stops carrying an amount and starts asking for one
-each time you use it.
-
-Only the name is required. A template holds whatever subset of a transaction's
-fields you give it, and applying one fills in those fields and leaves the rest
-as they were, so you can apply a template to an entry that already exists as
-well as to a new one. Each template also reports how many transactions have
-come from it, and links to them.
-
-You can change or delete up to 10,000 rows in one request that either wholly
-succeeds or wholly does not, from any view, after seeing what it will touch.
-That works on the queue as well as on committed rows, which is how you fix a
-file whose account or category column meant nothing to the importer: one edit
-over the whole batch, and the rows it repairs come back ready to commit.
-Categories and payees match case-insensitively, flag their own near-duplicates,
-and merge by rewriting every reference at once.
-
-The dashboard covers balances, cash flow, and spending by category over any date
-range, and the range is in the URL, so you can link to it. It stops at today
-whatever range you pick, because money dated next month is not money you have.
-Every list sorts by any column it shows and pages by number. Everything the
-browser or an agent did is in the audit log.
-
-Sign in with an email and password, with Google, or with both on the same
-account. One deployment can hold any number of people, each with their own
-separate books, and `ALLOWED_EMAILS` decides who may join. The MCP server runs
-over OAuth with separate read, stage, and write scopes.
-
-Leaving is yours to do. Settings deletes the account and everything in it,
-after counting what that is and asking you to type your address. Nothing is
-kept, and no agent can do it for you.
-
-Not built yet: recurring transactions, splits, reporting beyond the dashboard,
-budgets, bank sync, account sharing, attachments, and reconciliation. What is
-planned, in what order, and the evidence behind each is in the
-[roadmap](docs/roadmap.md), which also says what is deliberately not planned and
-why, market prices among it. Tags are neither built nor planned.
+- Accounts for checking, savings, credit cards, cash, loans, investments, and
+  crypto wallets, each in its own currency
+- Deposits, withdrawals, and transfers, including conversions that keep the sent
+  and received amounts apart
+- CSV import through a review queue, and an export that reads back in
+- Templates for the transactions you enter over and over
+- Mass edit and mass delete, up to 10,000 rows in one request that either wholly
+  succeeds or wholly does not
+- Balances, cash flow, and spending by category over any date range
+- Categories and payees that match case-insensitively, flag near-duplicates, and
+  merge
+- An audit log of everything the browser or an agent did
+- Email and password, Google, or both, and OAuth for agents
 
 ## Run it locally
 
@@ -211,6 +153,92 @@ and it discovers the rest. Grant `ledger:read` to let an agent look, add
 if you want it to commit. Settings lists what you have approved, and revoking an
 agent there cuts it off on its next call rather than whenever its token happens
 to expire. See [MCP](docs/mcp.md).
+
+An agent can do everything you can: the whole ledger, imports, templates, mass
+edits, and your own settings. Two things stay yours alone, deleting the account
+and setting a password, because they are account management rather than
+bookkeeping. An agent cannot get around your sign-in, the scopes you granted it,
+the duplicate checks, or the commit step.
+
+## In detail
+
+### Accounts and transactions
+
+Accounts hold anything you file as an asset or a liability, each in its own
+currency. Crypto wallets track native quantities; nothing here quotes a market
+price. Retiring an account archives it, which posts whatever it still holds out
+to equity so the account closes at zero and stops counting toward your totals
+without the books going out of balance; restoring it puts the balance back, and
+its history stays readable throughout. Transactions are deposits, withdrawals,
+and transfers, same-currency or converted. The payee is required. Everything
+else is optional.
+
+### Importing and exporting
+
+Imports go through a review queue. Simple Balance reads the CSV, works out the
+format, maps the columns, parses whatever date and number conventions your bank
+uses, and creates categories and payees as it goes. You look at the result
+before any of it counts. Committing a batch is all or nothing.
+
+One of its own exports needs no mapping at all: pick the account and stage it.
+The account is that choice and nothing else, so a file exported from one ledger
+imports into another, or into somebody else's, or into a fresh install. A
+transfer names a second account, which is a choice the import screen cannot
+make, so those rows arrive in the queue asking for it.
+
+### Templates
+
+A transaction you enter often can be saved as a template from any row and picked
+from a dropdown next time. It fills the form in and then gets out of the way:
+what you change afterwards is yours alone, and the template is not touched.
+
+Only the name is required. A template holds whatever subset of a transaction's
+fields you give it, and applying one fills in those fields and leaves the rest
+as they were, so you can apply a template to an entry that already exists as
+well as to a new one. Each template also reports how many transactions have come
+from it, and links to them.
+
+Templates have a screen of their own, where you can make one, change one, or
+change many at once. A mass edit there can also clear a field rather than set
+it, which is how a template stops carrying an amount and starts asking for one
+each time you use it.
+
+### Changing many rows at once
+
+You can change or delete up to 10,000 rows in one request that either wholly
+succeeds or wholly does not, from any view, after seeing what it will touch.
+That works on the queue as well as on committed rows, which is how you fix a
+file whose account or category column meant nothing to the importer: one edit
+over the whole batch, and the rows it repairs come back ready to commit.
+Categories and payees match case-insensitively, flag their own near-duplicates,
+and merge by rewriting every reference at once.
+
+### Reading it back
+
+The dashboard covers balances, cash flow, and spending by category over any date
+range, and the range is in the URL, so you can link to it. It stops at today
+whatever range you pick, because money dated next month is not money you have.
+Every list sorts by any column it shows and pages by number. Everything the
+browser or an agent did is in the audit log.
+
+### Signing in, and leaving
+
+Sign in with an email and password, with Google, or with both on the same
+account. One deployment can hold any number of people, each with their own
+separate books, and `ALLOWED_EMAILS` decides who may join. The MCP server runs
+over OAuth with separate read, stage, and write scopes.
+
+Leaving is yours to do. Settings deletes the account and everything in it, after
+counting what that is and asking you to type your address. Nothing is kept, and
+no agent can do it for you.
+
+### Not built yet
+
+Recurring transactions, splits, reporting beyond the dashboard, budgets, bank
+sync, account sharing, attachments, and reconciliation. What is planned, in what
+order, and the evidence behind each is in the [roadmap](docs/roadmap.md), which
+also says what is deliberately not planned and why, market prices among it. Tags
+are neither built nor planned.
 
 ## More
 
