@@ -357,7 +357,12 @@ export const importBatchResultSchema = z.object({
 export const csvFilePreviewResultSchema = z.object({
   delimiter: z.string(),
   headers: z.array(z.string()),
-  rows: z.array(z.record(z.string(), z.string())),
+  // A row with more fields than headers carries the surplus as an array under
+  // `__parsed_extra`, so cells are not all strings. Insisting they were failed
+  // this tool's output on exactly the malformed file it is called to diagnose.
+  rows: z.array(
+    z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+  ),
   errors: z.array(z.string()),
 });
 

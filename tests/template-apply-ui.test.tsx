@@ -356,6 +356,28 @@ describe("starting a transaction from a template", () => {
     expect(field("Date")).toHaveValue(today);
   });
 
+  it("clears the picker when the form resets for another entry", async () => {
+    const requests = stubApi([rent]);
+    renderForm();
+    const control = await screen.findByLabelText(/^Start from a template/);
+    fireEvent.change(control, { target: { value: rent.id } });
+    expect(field(/^Amount/)).toHaveValue("1450.00");
+
+    fireEvent.click(
+      screen.getByLabelText(/return to create another/i),
+    );
+    fireEvent.click(screen.getByLabelText(/Reset after saving/i));
+    fireEvent.submit(field(/^Payee/).closest("form")!);
+    await waitFor(() =>
+      expect(requests.some((r) => r.path === "/api/v1/transactions")).toBe(true),
+    );
+
+    // Left selected, the next entry would be started under a template the
+    // person believes they have finished with.
+    await waitFor(() => expect(control).toHaveValue(""));
+    expect(field(/^Amount/)).toHaveValue("");
+  });
+
   it("offers no picker when there are no templates", async () => {
     stubApi([]);
     renderForm();

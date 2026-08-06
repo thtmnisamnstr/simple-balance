@@ -189,7 +189,9 @@ export default function TemplatesPage() {
                     ? (left.draft.payee ?? null)
                     : sort.field === "account"
                       ? accountLabel(left)
-                      : (categoryName(left.draft.categoryId) ?? null),
+                      : sort.field === "used"
+                        ? (left.totalTransactionCount ?? 0)
+                        : (categoryName(left.draft.categoryId) ?? null),
               sort.field === "name"
                 ? right.name
                 : sort.field === "type"
@@ -198,7 +200,9 @@ export default function TemplatesPage() {
                     ? (right.draft.payee ?? null)
                     : sort.field === "account"
                       ? accountLabel(right)
-                      : (categoryName(right.draft.categoryId) ?? null),
+                      : sort.field === "used"
+                        ? (right.totalTransactionCount ?? 0)
+                        : (categoryName(right.draft.categoryId) ?? null),
               sort.direction,
             );
       return order || left.name.localeCompare(right.name);

@@ -507,6 +507,68 @@ integration("changing many staged rows at once", () => {
     expect(new Set(events.map((event) => event.entityId)).size).toBe(620);
   });
 
+  /**
+   * A filter selection resolves the rows twice, once to show a count and a
+   * fingerprint and once to write. Both go through one predicate, so a filter
+   * the predicate does not implement widens the write to everything the view
+   * did not exclude, and the fingerprint agrees because it described the same
+   * wrong set.
+   */
+  it("scopes a filtered edit to the template it names", async () => {
+    const templateA = "11111111-2222-4333-8444-555555555555";
+    const templateB = "66666666-7777-4888-8999-000000000000";
+    const mine = await stage({
+      type: "withdrawal",
+      date: "2026-04-01",
+      payee: "From template A",
+      fromAccountId: accountId,
+      amount: "10.00",
+      templateId: templateA,
+    });
+    const other = await stage({
+      type: "withdrawal",
+      date: "2026-04-01",
+      payee: "From template B",
+      fromAccountId: accountId,
+      amount: "11.00",
+      templateId: templateB,
+    });
+    const none = await stage({
+      type: "withdrawal",
+      date: "2026-04-01",
+      payee: "From no template",
+      fromAccountId: accountId,
+      amount: "12.00",
+    });
+
+    const filter = { templateId: templateA };
+    const preview = await previewBulkStageSelection(actor, {
+      filter,
+      excludedIds: [],
+    });
+    expect(preview.count).toBe(1);
+
+    const result = await bulkEditStages(actor, {
+      selection: {
+        mode: "filter",
+        filter,
+        excludedIds: [],
+        expectedCount: preview.count,
+        expectedFingerprint: preview.fingerprint,
+      },
+      patch: { payee: "Rewritten" },
+      idempotencyKey: nextKey(),
+    });
+    expect(result.updatedCount).toBe(1);
+
+    const rows = await rowsById();
+    const payeeOf = (id: string) =>
+      (rows.get(id)!.draft as Record<string, unknown>).payee;
+    expect(payeeOf(mine.id)).toBe("Rewritten");
+    expect(payeeOf(other.id)).toBe("From template B");
+    expect(payeeOf(none.id)).toBe("From no template");
+  });
+
   it("leaves the queue readable afterwards", async () => {
     const page = await listStages(actor, { limit: 100 });
     expect(page.items.length).toBeGreaterThan(0);

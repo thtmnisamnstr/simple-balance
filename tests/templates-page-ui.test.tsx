@@ -471,6 +471,26 @@ describe("the templates screen", () => {
     ).toHaveTextContent("0");
   });
 
+  it("sorts by how much each template has been used", async () => {
+    stubApi([
+      { ...rent, totalTransactionCount: 1 },
+      { ...coffee, totalTransactionCount: 9 },
+      { ...salary, totalTransactionCount: 5 },
+    ]);
+    await renderPage([rent, coffee, salary]);
+    const names = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.querySelector("strong")?.textContent);
+
+    // Counts lean largest first, so one click is descending.
+    fireEvent.click(screen.getByRole("button", { name: /Used/ }));
+    expect(names()).toEqual(["Coffee", "Salary", "Rent"]);
+    fireEvent.click(screen.getByRole("button", { name: /Used/ }));
+    expect(names()).toEqual(["Rent", "Salary", "Coffee"]);
+  });
+
   it("offers an empty screen that points at both ways to make one", async () => {
     stubApi([]);
     await renderPage([]);

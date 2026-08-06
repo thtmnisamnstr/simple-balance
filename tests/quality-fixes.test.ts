@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { compareMoney, formatDate, moneyUnits } from "../src/client/components.js";
 import {
@@ -95,5 +96,37 @@ describe("what a staged bulk selection may filter on", () => {
   // it dangerous.
   it("leaves the read-only listing alone", () => {
     expect(stageListQuerySchema.safeParse({ currency: "USD" }).success).toBe(true);
+  });
+});
+
+/**
+ * A filter selection resolves twice, once for the count and fingerprint the
+ * person is shown and once for the write, and both go through one predicate.
+ * A key the schema accepts but the predicate does not implement therefore
+ * widens the write silently: the fingerprint agrees, because it described the
+ * same wrong set. This keeps the two definitions of "the rows you are looking
+ * at" from drifting apart.
+ */
+describe("every staged filter the schema accepts is one the query applies", () => {
+  it("implements each key", async () => {
+    const { bulkStageFilterSchema } = await import(
+      "../src/shared/domain.js"
+    );
+    const accepted = Object.keys(bulkStageFilterSchema.shape).sort();
+    const source = await readFile(
+      new URL("../src/server/services/staging.ts", import.meta.url),
+      "utf8",
+    );
+    const body = source.slice(
+      source.indexOf("export function stageFilterConditions"),
+      source.indexOf("export async function listStages"),
+    );
+    const applied = new Set(
+      [...body.matchAll(/query\.([A-Za-z]+)/g)].map((match) => match[1]!),
+    );
+    const ignored = accepted.filter((key) => !applied.has(key));
+    expect(ignored, `accepted but never applied: ${ignored.join(", ")}`).toEqual(
+      [],
+    );
   });
 });

@@ -878,6 +878,11 @@ export function TransactionForm({
     source.currency !== destination.currency;
 
   const resetCreateDraft = () => {
+    // The picker and the record of what it set go back with everything else, or
+    // the next entry starts under a template it is no longer showing.
+    setSelectedTemplateId("");
+    setTemplateNotice("");
+    templateApplied.current = new Set();
     const accountIds = defaultAccountIds(createType);
     setType(createType);
     setDate(calendarDateInTimezone(new Date(), timezone));

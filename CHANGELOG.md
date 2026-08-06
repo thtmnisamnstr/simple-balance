@@ -87,13 +87,10 @@ in. From there it is an ordinary form: change anything, change everything, the
 template is untouched. There is no path from that form back to the template, so
 that is a property of the code rather than a promise about it.
 
-Three things a template deliberately never keeps. The date, because a template
-means today and a stored one would post transactions into a month you were not
-looking at. A typed category name, because naming a category creates it when
-nothing matches, so a mistyped one would make a fresh category every time you
-used the template. And the reference a row came in from a bank file under,
-because copying that into every transaction made from the template would make
-the next real import of that statement row look like one already seen.
+One thing a template deliberately never keeps: the reference a row came in from
+a bank file under, because copying that into every transaction made from the
+template would make the next real import of that statement row look like one
+already seen.
 
 An account or category the template names is looked up when you use it, and
 dropped with a note if it is not there any more. Templates outlive the accounts

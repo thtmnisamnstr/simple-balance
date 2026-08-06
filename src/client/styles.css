@@ -1575,6 +1575,10 @@ input[type="radio"] {
   line-height: 1.45;
 }
 
+.bulk-edit-action {
+  min-width: 0;
+}
+
 .template-blank {
   color: var(--muted);
   font-size: 11px;
