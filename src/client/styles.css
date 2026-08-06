@@ -433,6 +433,14 @@ p {
 .table-card,
 .account-card,
 .metric-card,
+.empty-state {
+  border: 1px solid var(--line);
+  background: rgb(255 255 255 / 92%);
+  box-shadow: var(--shadow);
+}
+
+/* Only the placeholder shown while something loads. Every card sets its own
+   radius, so this one applies to nothing that is on screen for long. */
 .skeleton {
   display: block;
   border-radius: 10px;
@@ -458,12 +466,6 @@ p {
 .amount,
 .currency-heading h2 {
   font-variant-numeric: tabular-nums;
-}
-
-.empty-state {
-  border: 1px solid var(--line);
-  background: rgb(255 255 255 / 92%);
-  box-shadow: var(--shadow);
 }
 
 .panel {
