@@ -2,7 +2,7 @@
 
 Notable changes, newest first.
 
-## Unreleased
+## 0.1.3 - 2026-08-06
 
 ### Added
 
@@ -252,18 +252,6 @@ Also removed: three CSS rules no component used, two type exports nothing
 imported, and a `vitest` run that collected a second copy of every test when a
 git worktree sat inside the repo.
 
-### Changed
-
-Uncategorised spending sits at the bottom of spending by category rather than
-wherever its total ranks. It is not a category anybody chose, so putting it
-first answers "what needs filing" on a panel that was asked where the money
-went. It is still shown, and shown even when the list is cut short, because it
-is the one row that says there is filing left to do. Ordered in the summary
-itself, so an agent reading `get_financial_summary` sees the same order as the
-page.
-
-### Fixed
-
 The MCP endpoint answers on `/mcp/` as well as `/mcp`. They are different paths
 to a router and only the second was registered, so a client configured with the
 trailing slash completed OAuth correctly, had its grant recorded in Settings and
@@ -273,6 +261,16 @@ the slash for the same reason, and so does the larger request body an MCP CSV
 upload is allowed: the route was registered for both spellings but the body
 limit still recognised only one, so a client using the slash could reach the
 endpoint and then be refused a payload the other spelling was allowed.
+
+### Changed
+
+Uncategorised spending sits at the bottom of spending by category rather than
+wherever its total ranks. It is not a category anybody chose, so putting it
+first answers "what needs filing" on a panel that was asked where the money
+went. It is still shown, and shown even when the list is cut short, because it
+is the one row that says there is filing left to do. Ordered in the summary
+itself, so an agent reading `get_financial_summary` sees the same order as the
+page.
 
 ## 0.1.2 - 2026-08-03
 
