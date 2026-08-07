@@ -44,6 +44,57 @@ export const accountTypeLabels: Record<UserAccountType, string> = {
   other_liability: "Other Liability",
 };
 
+/**
+ * The order account types are shown in, which is not the order the enum
+ * declares them. The enum is stored in the database and cannot be reordered;
+ * this is how a person reads down their accounts: what they hold, then what
+ * they owe, then what is invested, then the catch-alls.
+ */
+export const accountTypeOrder: readonly UserAccountType[] = [
+  "cash",
+  "checking",
+  "savings",
+  "credit_card",
+  "loan",
+  "investment",
+  "crypto_wallet",
+  "other_asset",
+  "other_liability",
+];
+
+/**
+ * Accounts under a heading each, in `accountTypeOrder`, with empty headings
+ * left out.
+ *
+ * The type is read as a plain string because the dashboard summary sends it as
+ * one. A type this does not recognise is grouped under itself and sorted to the
+ * end rather than dropped, so a new type shows up unstyled instead of
+ * disappearing from the page.
+ */
+export function groupAccountsByType<T extends { type: string }>(
+  accounts: readonly T[],
+): { type: string; label: string; accounts: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const account of accounts) {
+    const group = groups.get(account.type);
+    if (group) group.push(account);
+    else groups.set(account.type, [account]);
+  }
+  const rank = (type: string) => {
+    const index = accountTypeOrder.indexOf(type as UserAccountType);
+    return index === -1 ? accountTypeOrder.length : index;
+  };
+  return [...groups.entries()]
+    .sort(
+      ([left], [right]) => rank(left) - rank(right) || left.localeCompare(right),
+    )
+    .map(([type, items]) => ({
+      type,
+      label: accountTypeLabels[type as UserAccountType] ?? type,
+      accounts: items,
+    }));
+}
+
 export const liabilityAccountTypes = new Set<UserAccountType>([
   "credit_card",
   "loan",

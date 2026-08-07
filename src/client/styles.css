@@ -820,15 +820,43 @@ input[type="radio"] {
   font-size: 12px;
 }
 
-.account-mini-row strong,
-.account-mini-row small {
+.account-mini-row strong {
   display: block;
 }
 
-.account-mini-row small {
-  margin-top: 3px;
+.account-mini-group + .account-mini-group {
+  margin-top: 14px;
+}
+
+.account-mini-heading,
+.account-type-heading {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.account-mini-heading {
+  margin: 0 0 2px;
+}
+
+.account-type-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.account-type-section + .account-type-section {
+  margin-top: 28px;
+}
+
+.account-type-heading .subtle {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .spending-row > div:first-child {

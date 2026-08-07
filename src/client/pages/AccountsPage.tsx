@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import { Link } from "../router.js";
 import {
   accountTypeLabels,
+  groupAccountsByType,
   liabilityAccountTypes,
   type AccountType,
 } from "../../shared/domain.js";
@@ -48,7 +49,6 @@ const iconFor = (type: AccountType) => {
 
 const accountSortFields = [
   { field: "name", label: "Name" },
-  { field: "type", label: "Type" },
   { field: "currency", label: "Currency" },
   { field: "balance", label: "Balance" },
   { field: "status", label: "Status" },
@@ -83,10 +83,11 @@ export default function AccountsPage({ session }: { session: Session }) {
       ),
   });
   // The list arrives whole, so ordering it here keeps it instant and avoids
-  // asking the server to re-sort something it already sent.
-  const sortedAccounts = useMemo(() => {
-    const rows = [...(accounts.data ?? [])];
-    return rows.sort((left, right) => {
+  // asking the server to re-sort something it already sent. The sort orders
+  // accounts inside their type rather than across the page, because the type is
+  // what the headings already answer.
+  const groupedAccounts = useMemo(() => {
+    const compare = (left: Account, right: Account) => {
       // A balance is compared as a decimal rather than through Number, because a
       // float cannot hold eighteen fractional digits and two balances that
       // differ in the last of them would otherwise sort arbitrarily.
@@ -99,8 +100,6 @@ export default function AccountsPage({ session }: { session: Session }) {
       }
       const value = (account: Account) => {
         switch (sort.field) {
-          case "type":
-            return accountTypeLabels[account.type] ?? account.type;
           case "currency":
             return account.currency;
           case "status":
@@ -113,8 +112,16 @@ export default function AccountsPage({ session }: { session: Session }) {
         compareForSort(value(left), value(right), sort.direction) ||
         left.name.localeCompare(right.name)
       );
-    });
+    };
+    return groupAccountsByType(accounts.data ?? []).map((group) => ({
+      ...group,
+      accounts: [...group.accounts].sort(compare),
+    }));
   }, [accounts.data, sort]);
+  const accountCount = groupedAccounts.reduce(
+    (total, group) => total + group.accounts.length,
+    0,
+  );
 
   const mutation = useMutation({
     mutationFn: ({
@@ -166,9 +173,17 @@ export default function AccountsPage({ session }: { session: Session }) {
       </div>
       {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
-      {sortedAccounts.length ? (
-        <div className="account-card-grid">
-          {sortedAccounts.map((account) => {
+      {accountCount ? (
+        groupedAccounts.map((group) => (
+          <section className="account-type-section" key={group.type}>
+            <h2 className="account-type-heading">
+              {group.label}
+              <span className="subtle">
+                {`${group.accounts.length} account${group.accounts.length === 1 ? "" : "s"}`}
+              </span>
+            </h2>
+            <div className="account-card-grid">
+              {group.accounts.map((account) => {
             const Icon = iconFor(account.type);
             const liability = liabilityAccountTypes.has(account.type);
             return (
@@ -245,8 +260,10 @@ export default function AccountsPage({ session }: { session: Session }) {
                 </Link>
               </article>
             );
-          })}
-        </div>
+              })}
+            </div>
+          </section>
+        ))
       ) : accounts.isPending ? (
         <p className="settings-note">Loading accounts…</p>
       ) : accounts.error ? null : (

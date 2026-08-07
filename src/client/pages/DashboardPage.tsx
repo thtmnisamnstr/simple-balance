@@ -9,7 +9,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
-import { accountTypeLabels } from "../../shared/domain.js";
+import { groupAccountsByType } from "../../shared/domain.js";
 import { api, queryString, type Account, type Category, type Summary } from "../api.js";
 import {
   Alert,
@@ -127,15 +127,17 @@ export default function DashboardPage() {
                     <span>As of {summary.data?.asOf ?? end ?? "today"}</span>
                   </header>
                   <div className="account-mini-list">
-                    {currency.accounts.map((account) => (
-                      <div key={account.id} className="account-mini-row">
-                        <div>
-                          <strong>{account.name}</strong>
-                          <small>{accountTypeLabels[account.type]}</small>
-                        </div>
-                        <span className={isNegativeMoney(account.balance) ? "money-negative" : ""}>
-                          {formatMoney(account.balance, currency.currency)}
-                        </span>
+                    {groupAccountsByType(currency.accounts).map((group) => (
+                      <div className="account-mini-group" key={group.type}>
+                        <h4 className="account-mini-heading">{group.label}</h4>
+                        {group.accounts.map((account) => (
+                          <div key={account.id} className="account-mini-row">
+                            <strong>{account.name}</strong>
+                            <span className={isNegativeMoney(account.balance) ? "money-negative" : ""}>
+                              {formatMoney(account.balance, currency.currency)}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>
