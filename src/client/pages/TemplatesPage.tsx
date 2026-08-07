@@ -10,6 +10,7 @@ import {
 } from "../api.js";
 import {
   Alert,
+  Badge,
   Button,
   ConfirmDialog,
   EmptyState,
@@ -134,6 +135,18 @@ export default function TemplatesPage() {
     id ? accounts.data?.find((account) => account.id === id)?.name : undefined;
   const categoryName = (id: string | undefined) =>
     id ? categories.data?.find((category) => category.id === id)?.name : undefined;
+  /**
+   * What a template's category column says, whether it holds one category or a
+   * split. A template's legs carry no amounts of their own, so the first is as
+   * good a name for the row as any and the badge carries the rest.
+   */
+  const categoryLabel = (template: TransactionTemplate) => {
+    const legs = template.draft.legs;
+    if (!legs?.length) return categoryName(template.draft.categoryId);
+    return (
+      categoryName(legs[0]!.categoryId) ?? legs[0]!.categoryName ?? undefined
+    );
+  };
 
   const accountLabel = (template: TransactionTemplate) => {
     const { draft } = template;
@@ -191,7 +204,7 @@ export default function TemplatesPage() {
                       ? accountLabel(left)
                       : sort.field === "used"
                         ? (left.totalTransactionCount ?? 0)
-                        : (categoryName(left.draft.categoryId) ?? null),
+                        : (categoryLabel(left) ?? null),
               sort.field === "name"
                 ? right.name
                 : sort.field === "type"
@@ -202,7 +215,7 @@ export default function TemplatesPage() {
                       ? accountLabel(right)
                       : sort.field === "used"
                         ? (right.totalTransactionCount ?? 0)
-                        : (categoryName(right.draft.categoryId) ?? null),
+                        : (categoryLabel(right) ?? null),
               sort.direction,
             );
       return order || left.name.localeCompare(right.name);
@@ -582,7 +595,14 @@ export default function TemplatesPage() {
                         )}
                       </td>
                       <td>
-                        {template.draft.categoryId ? (
+                        {template.draft.legs?.length ? (
+                          <div className="transaction-payee">
+                            <span>{categoryLabel(template) ?? "Unavailable"}</span>
+                            <Badge tone="blue">
+                              Split · {template.draft.legs.length}
+                            </Badge>
+                          </div>
+                        ) : template.draft.categoryId ? (
                           (category ?? "Unavailable")
                         ) : (
                           <span className="template-blank">blank</span>

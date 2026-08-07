@@ -52,6 +52,7 @@ import {
   ConfirmDialog,
   SortableHeader,
   type SortState,
+  sumMoney,
   Textarea,
   useConfirm,
 } from "./components.js";
@@ -61,6 +62,14 @@ import {
   templateDraftFromDraft,
 } from "./staged-draft.js";
 import type { TransactionSortField } from "../shared/domain.js";
+import { compareMoney } from "./components.js";
+
+/** The share a split is named by in a list: its biggest one. */
+function largestLeg(legs: Transaction["legs"]) {
+  return [...legs].sort((left, right) =>
+    compareMoney(right.amount, left.amount),
+  )[0];
+}
 import { useDateRange } from "./date-range.js";
 import { TemplateForm, TransactionForm, draftFromTransaction } from "./forms.js";
 import { newIdempotencyKey } from "./idempotency.js";
@@ -376,6 +385,14 @@ export function TransactionBrowser({
           ),
         ].sort();
   const selectionContainsTransfers = selectedTransferCount > 0;
+  // Counted by the server for a filter selection, which reaches rows this page
+  // has never loaded, and locally otherwise.
+  const selectedSplitCount =
+    selection.mode === "filter"
+      ? (filterSelectionPreview.data?.splitCount ?? 0)
+      : selectedLoadedItems.filter((transaction) => transaction.legs.length > 0)
+          .length;
+  const selectionContainsSplits = selectedSplitCount > 0;
   const selectionMayIncludeDeleted =
     selection.mode === "filter"
       ? bulkFilter.includeDeleted
@@ -391,8 +408,14 @@ export function TransactionBrowser({
     bulkEnabled.accountId &&
     (accountChangeUnavailable ||
       selectedBulkAccount?.currency !== selectedCurrencies[0]);
+  const categoryChangeUnavailable =
+    explicitSelectionHasMissingRows || selectionContainsSplits;
+  const categoryChangeBlocked =
+    bulkEnabled.categoryId && categoryChangeUnavailable;
   const typeChangeUnavailable =
-    explicitSelectionHasMissingRows || selectionContainsTransfers;
+    explicitSelectionHasMissingRows ||
+    selectionContainsTransfers ||
+    selectionContainsSplits;
   const typeChangeBlocked = bulkEnabled.type && typeChangeUnavailable;
   const hasEnabledBulkField = bulkEditFields.some(
     (field) => bulkEnabled[field],
@@ -414,6 +437,7 @@ export function TransactionBrowser({
     hasEnabledBulkField &&
     enabledRequiredValuesAreValid &&
     !accountChangeBlocked &&
+    !categoryChangeBlocked &&
     !typeChangeBlocked;
   const discardBulkSelectionSnapshots = () =>
     queryClient.removeQueries({
@@ -945,8 +969,17 @@ export function TransactionBrowser({
                     transaction.type === "transfer" &&
                     Boolean(fixedAccountId) &&
                     transaction.destinationAccountId === fixedAccountId;
-                  const amount =
-                    transaction.type === "deposit" || isInboundTransfer
+                  // On a category page the row has to show what that category
+                  // was given, not what the whole receipt came to, or the page
+                  // stops adding up to the figure the dashboard reports for it.
+                  const categoryShare = fixedCategoryId
+                    ? transaction.legs
+                        .filter((leg) => leg.categoryId === fixedCategoryId)
+                        .map((leg) => leg.amount)
+                    : [];
+                  const amount = categoryShare.length
+                    ? sumMoney(categoryShare)
+                    : transaction.type === "deposit" || isInboundTransfer
                       ? transaction.destinationAmount!
                       : transaction.sourceAmount!;
                   const currency =
@@ -1025,7 +1058,28 @@ export function TransactionBrowser({
                       </td>
                       <td>{accountLabel}</td>
                       <td>
-                        {transaction.category ? (
+                        {transaction.legs.length ? (
+                          // The largest share names the row, with a badge for
+                          // the rest: a stacked list has nowhere to go in a
+                          // table already inside a horizontal scroller.
+                          <div className="transaction-payee">
+                            {largestLeg(transaction.legs)?.category ? (
+                              <Link
+                                to={{
+                                  pathname: `/categories/${largestLeg(transaction.legs)!.category!.id}`,
+                                  search: location.search,
+                                }}
+                              >
+                                {largestLeg(transaction.legs)!.category!.name}
+                              </Link>
+                            ) : (
+                              <span className="subtle">Uncategorized</span>
+                            )}
+                            <Badge tone="blue">
+                              Split · {transaction.legs.length}
+                            </Badge>
+                          </div>
+                        ) : transaction.category ? (
                           <Link
                             to={{
                               pathname: `/categories/${transaction.category.id}`,
@@ -1284,6 +1338,7 @@ export function TransactionBrowser({
             <BulkEditToggle
               label="Change category"
               enabled={bulkEnabled.categoryId}
+              disabled={categoryChangeUnavailable}
               onToggle={(on) =>
                 setBulkEnabled((current) => ({ ...current, categoryId: on }))
               }
@@ -1306,6 +1361,13 @@ export function TransactionBrowser({
                   </option>
                 ))}
               </Select>
+              {categoryChangeUnavailable ? (
+                <small>
+                  {selectionContainsSplits
+                    ? "Category cannot be mass edited when a split transaction is selected, because a split already files its money by category."
+                    : "Category cannot be mass edited until every selected row is visible."}
+                </small>
+              ) : null}
             </BulkEditToggle>
 
             <BulkEditToggle
@@ -1427,7 +1489,9 @@ export function TransactionBrowser({
                 <small>
                   {selectionContainsTransfers
                     ? "Type cannot be mass edited when a transfer is selected."
-                    : "Type cannot be mass edited until every selected row is visible."}
+                    : selectionContainsSplits
+                      ? "Type cannot be mass edited when a split transaction is selected, because every leg's category was chosen for the direction this entry runs in."
+                      : "Type cannot be mass edited until every selected row is visible."}
                 </small>
               ) : null}
             </BulkEditToggle>

@@ -169,6 +169,18 @@ export type PayeeMergeResult = {
   updatedStagedTransactionCount: number;
 };
 
+/**
+ * One category's share of a split. `id` is what an edit sends back to keep
+ * meaning this leg rather than replacing it with a new one.
+ */
+export type TransactionLeg = {
+  id: string;
+  categoryId: string | null;
+  category: Category | null;
+  amount: string;
+  note: string | null;
+};
+
 export type Transaction = {
   id: string;
   type: TransactionType;
@@ -189,6 +201,8 @@ export type Transaction = {
   destinationCurrency?: string | null;
   effectiveRate?: string | null;
   deletedAt?: string | null;
+  legCount?: number;
+  legs: TransactionLeg[];
   version: number;
 };
 
@@ -223,6 +237,7 @@ export type TransactionBulkSelectionPreview = {
   activeCount: number;
   deletedCount: number;
   transferCount: number;
+  splitCount: number;
   currencies: string[];
 };
 
@@ -243,6 +258,7 @@ export type TransactionBulkEditResult = {
   activeCount: number;
   deletedCount: number;
   transferCount: number;
+  splitCount: number;
   currencies: string[];
   itemsTruncated: boolean;
   dryRun: boolean;

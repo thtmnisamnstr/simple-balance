@@ -61,6 +61,7 @@ const imported: Transaction = {
   sourceAmount: "12.34",
   sourceCurrency: "USD",
   version: 3,
+  legs: [],
 };
 
 function queryClient() {

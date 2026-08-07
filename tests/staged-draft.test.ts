@@ -21,6 +21,7 @@ describe("malformed staged draft presentation", () => {
       }),
     ).toEqual({
       type: "withdrawal",
+      legs: [],
       date: "",
       description: "",
       payee: "",

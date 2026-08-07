@@ -71,6 +71,7 @@ const groceryTransaction: Transaction = {
   sourceAmount: "12.34",
   sourceCurrency: "USD",
   version: 1,
+  legs: [],
 };
 
 afterEach(() => {

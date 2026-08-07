@@ -12,12 +12,29 @@ type StageAccount = {
   currency: string;
 };
 
+/**
+ * A leg while it is being typed. Every value is a string, including the amount,
+ * because a half-typed "12." is a real state of the form and turning it into a
+ * number would round it or throw it away.
+ *
+ * `id` is empty for a leg the person has just added, which is exactly what the
+ * wire means by a leg without one.
+ */
+export type TransactionFormLeg = {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  amount: string;
+  note: string;
+};
+
 export type TransactionFormDraft = {
   type: TransactionType;
   date: string;
   description: string;
   payee: string;
   categoryId: string;
+  legs: TransactionFormLeg[];
   notes: string;
   fromAccountId: string;
   toAccountId: string;
@@ -45,6 +62,24 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * The legs a stored draft carries, as form values.
+ *
+ * A draft that is not a split has none, and a leg the draft cannot be read as
+ * is left out rather than guessed at: a queue row with an unreadable split is
+ * repaired by typing it again, not by inventing amounts for it.
+ */
+export function stagedLegs(value: unknown): TransactionFormLeg[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isUnknownRecord).map((leg) => ({
+    id: stagedString(leg.id),
+    categoryId: stagedString(leg.categoryId),
+    categoryName: stagedString(leg.categoryName),
+    amount: stagedString(leg.amount),
+    note: stagedString(leg.note),
+  }));
+}
+
 export function draftForTransactionForm(input: unknown): TransactionFormDraft {
   const draft = isUnknownRecord(input) ? input : {};
   const type = stagedType(draft.type) ?? "withdrawal";
@@ -56,6 +91,7 @@ export function draftForTransactionForm(input: unknown): TransactionFormDraft {
     description: stagedString(draft.description),
     payee: stagedString(draft.payee),
     categoryId: stagedString(draft.categoryId),
+    legs: stagedLegs(draft.legs),
     notes: stagedString(draft.notes),
     fromAccountId: stagedString(draft.fromAccountId),
     toAccountId: stagedString(draft.toAccountId),
@@ -144,6 +180,23 @@ export function templateDraftFromDraft(
   }
   const amount = keep(draft.amount);
   if (amount) template.amount = amount;
+  // Legs are carried explicitly. `keep` only recognises strings, so a split
+  // saved as a template would quietly become a template with no category at
+  // all, on a surface nobody would think to check.
+  const legs = (draft.legs ?? []).filter(
+    (leg) => keep(leg.categoryId) ?? keep(leg.categoryName) ?? keep(leg.amount),
+  );
+  if (legs.length >= 2) {
+    template.legs = legs.map((leg) => ({
+      ...(keep(leg.categoryId) ? { categoryId: keep(leg.categoryId) } : {}),
+      ...(!keep(leg.categoryId) && keep(leg.categoryName)
+        ? { categoryName: keep(leg.categoryName) }
+        : {}),
+      ...(keep(leg.amount) ? { amount: keep(leg.amount) } : {}),
+      ...(keep(leg.note) ? { note: keep(leg.note) } : {}),
+    }));
+    return template;
+  }
   const categoryId = keep(draft.categoryId);
   if (categoryId) template.categoryId = categoryId;
   const description = keep(draft.description);

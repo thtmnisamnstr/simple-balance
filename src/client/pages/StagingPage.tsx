@@ -38,6 +38,7 @@ import {
   BulkEditToggle,
   Badge,
   Button,
+  compareMoney,
   DateRangeBar,
   EmptyState,
   formatDate,
@@ -63,9 +64,11 @@ import {
 import { useDateRange } from "../date-range.js";
 import {
   draftForTransactionForm,
+  stagedLegs,
   stagedString,
   summarizeStagedDraft,
   templateDraftFromDraft,
+  type TransactionFormLeg,
 } from "../staged-draft.js";
 import { newIdempotencyKey } from "../idempotency.js";
 
@@ -120,6 +123,11 @@ const draftType = (stage: StagedTransaction) =>
   stagedString(stage.draft.type).trim();
 const isOneSided = (stage: StagedTransaction) =>
   draftType(stage) === "deposit" || draftType(stage) === "withdrawal";
+const stageLegs = (stage: StagedTransaction) => stagedLegs(stage.draft.legs);
+
+/** The share a split is named by in a list: its biggest one. */
+const largestStagedLeg = (legs: TransactionFormLeg[]) =>
+  [...legs].sort((left, right) => compareMoney(right.amount, left.amount))[0];
 
 function retainedIdempotencyKey(
   keys: Map<string, string>,
@@ -306,6 +314,10 @@ export default function StagingPage() {
     (stage) => draftType(stage) === "transfer",
   ).length;
   const selectionContainsTransfers = selectedTransferCount > 0;
+  const selectedSplitCount = selectedRows.filter(
+    (stage) => stageLegs(stage).length > 0,
+  ).length;
+  const selectionContainsSplits = selectedSplitCount > 0;
   // Rows the parser could not type at all. An account can still be set on them,
   // but only in the same edit that says which way the money went.
   const selectedUntypedCount = selectedRows.filter(
@@ -313,12 +325,15 @@ export default function StagingPage() {
   ).length;
   const accountNeedsType = selectedUntypedCount > 0 && !bulkEnabled.type;
   const accountChangeUnavailable = selectionContainsTransfers;
+  const categoryChangeUnavailable = selectionContainsSplits;
+  const categoryChangeBlocked =
+    bulkEnabled.categoryId && categoryChangeUnavailable;
   const accountChangeBlocked =
     bulkEnabled.accountId &&
     (accountChangeUnavailable ||
       accountNeedsType ||
       !bulkValues.accountId);
-  const typeChangeUnavailable = selectionContainsTransfers;
+  const typeChangeUnavailable = selectionContainsTransfers || selectionContainsSplits;
   const typeChangeBlocked = bulkEnabled.type && typeChangeUnavailable;
   const hasEnabledBulkField = bulkEditFields.some((field) => bulkEnabled[field]);
   const canSubmitBulkEdit =
@@ -327,6 +342,7 @@ export default function StagingPage() {
     (!bulkEnabled.date || /^\d{4}-\d{2}-\d{2}$/.test(bulkValues.date)) &&
     (!bulkEnabled.payee || Boolean(bulkValues.payee.trim())) &&
     !accountChangeBlocked &&
+    !categoryChangeBlocked &&
     !typeChangeBlocked;
 
   const bulkEditMutation = useMutation<
@@ -788,8 +804,22 @@ export default function StagingPage() {
                     </td>
                     <td>{summary.account}</td>
                     <td>
-                      {categoryNames.get(stagedString(draft.categoryId)) ??
-                        "Uncategorized"}
+                      {stagedLegs(draft.legs).length ? (
+                        <div className="transaction-payee">
+                          <span>
+                            {categoryNames.get(
+                              largestStagedLeg(stagedLegs(draft.legs))
+                                ?.categoryId ?? "",
+                            ) ?? "Uncategorized"}
+                          </span>
+                          <Badge tone="blue">
+                            Split · {stagedLegs(draft.legs).length}
+                          </Badge>
+                        </div>
+                      ) : (
+                        (categoryNames.get(stagedString(draft.categoryId)) ??
+                        "Uncategorized")
+                      )}
                     </td>
                     <td>
                       {stage.validationIssues.length ? (
@@ -1013,6 +1043,7 @@ export default function StagingPage() {
             <BulkEditToggle
               label="Change category"
               enabled={bulkEnabled.categoryId}
+              disabled={categoryChangeUnavailable}
               onToggle={(on) =>
                 setBulkEnabled((current) => ({ ...current, categoryId: on }))
               }
@@ -1035,6 +1066,12 @@ export default function StagingPage() {
                   </option>
                 ))}
               </Select>
+              {categoryChangeUnavailable ? (
+                <small>
+                  Category cannot be mass edited when a split row is selected,
+                  because a split already files its money by category.
+                </small>
+              ) : null}
             </BulkEditToggle>
 
             <BulkEditToggle
@@ -1147,7 +1184,9 @@ export default function StagingPage() {
               </Select>
               {typeChangeUnavailable ? (
                 <small>
-                  Type cannot be mass edited when a transfer is selected.
+                  {selectionContainsTransfers
+                    ? "Type cannot be mass edited when a transfer is selected."
+                    : "Type cannot be mass edited when a split row is selected, because every leg's category was chosen for the direction this entry runs in."}
                 </small>
               ) : null}
             </BulkEditToggle>

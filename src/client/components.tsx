@@ -860,6 +860,48 @@ export function compareMoney(left: string, right: string) {
 }
 
 /**
+ * Scaled units back to the decimal string they came from, trailing zeroes and
+ * a bare point trimmed off.
+ */
+export function moneyFromUnits(units: bigint) {
+  const negative = units < 0n;
+  const digits = (negative ? -units : units).toString().padStart(19, "0");
+  const fraction = digits.slice(-18).replace(/0+$/, "");
+  return `${negative ? "-" : ""}${digits.slice(0, -18)}${fraction ? `.${fraction}` : ""}`;
+}
+
+/**
+ * What is left of `total` once every share is taken out of it, or null when any
+ * of the values is not money yet.
+ *
+ * Exact, through scaled integers, because this decides whether a split may be
+ * saved. A float would let 33.33 + 33.33 + 33.34 come to something that is not
+ * quite 100 and refuse a receipt that adds up perfectly well.
+ */
+export function moneyRemainder(total: string, shares: readonly string[]) {
+  const totalUnits = moneyUnits(total);
+  if (totalUnits === null) return null;
+  let remaining = totalUnits;
+  for (const share of shares) {
+    const units = moneyUnits(share);
+    if (units === null) return null;
+    remaining -= units;
+  }
+  return moneyFromUnits(remaining);
+}
+
+/** Several decimal money strings added up exactly. */
+export function sumMoney(amounts: readonly string[]) {
+  let total = 0n;
+  for (const amount of amounts) {
+    const units = moneyUnits(amount);
+    if (units === null) return amounts[0] ?? "0";
+    total += units;
+  }
+  return moneyFromUnits(total);
+}
+
+/**
  * The largest of several decimal money strings, compared exactly.
  *
  * Bar widths need the biggest row on show, and the biggest is no longer simply

@@ -12,6 +12,7 @@ import {
   accountTypeLabels,
   userAccountTypes,
   liabilityAccountTypes,
+  MAX_TRANSACTION_LEGS,
   type UserAccountType,
   type TransactionDraft,
   type TransactionTemplateDraft,
@@ -34,10 +35,14 @@ import {
   Input,
   isNegativeMoney,
   isPositiveMoney,
+  moneyRemainder,
   Select,
   Textarea,
 } from "./components.js";
-import { draftForTransactionForm } from "./staged-draft.js";
+import {
+  draftForTransactionForm,
+  type TransactionFormLeg,
+} from "./staged-draft.js";
 import { currencyOptionLabel, currencyOptions } from "./select-options.js";
 import { calendarDateInTimezone, useTimezone } from "./timezone.js";
 import { newIdempotencyKey } from "./idempotency.js";
@@ -316,6 +321,18 @@ export function draftFromTransaction(transaction: Transaction): TransactionDraft
     description: transaction.description ?? null,
     payee: transaction.payee,
     categoryId: transaction.categoryId,
+    // Each leg carries the id it has to be sent back under, or editing one
+    // would replace it with a new leg and retire the one it stood for.
+    ...(transaction.legs.length
+      ? {
+          legs: transaction.legs.map((leg) => ({
+            id: leg.id,
+            categoryId: leg.categoryId,
+            amount: leg.amount,
+            note: leg.note,
+          })),
+        }
+      : {}),
     notes: transaction.notes,
     externalId: transaction.externalId,
   };
@@ -466,6 +483,159 @@ function CategoryPicker({
   );
 }
 
+
+/**
+ * The category side of the form: one picker, or one row per share of a split.
+ *
+ * A split is only ever two legs or more. Removing the second one folds the
+ * remaining category back into the single picker, so "one leg is not a split"
+ * is as true of what is on screen as it is of what is stored.
+ *
+ * The remainder is worked out in scaled integers rather than through Number,
+ * because it decides whether the form may be submitted: with floats a receipt
+ * of 33.33 + 33.33 + 33.34 against 100 could come out a hair short and refuse
+ * a split that adds up perfectly well.
+ */
+function CategoryLegs({
+  categories,
+  type,
+  categoryId,
+  categoryName,
+  onCategoryChange,
+  legs,
+  onLegsChange,
+  total,
+}: {
+  categories: Category[];
+  type: TransactionType | "";
+  categoryId: string;
+  categoryName: string;
+  onCategoryChange: (categoryId: string, categoryName: string) => void;
+  legs: TransactionFormLeg[];
+  onLegsChange: (legs: TransactionFormLeg[]) => void;
+  total: string;
+}) {
+  const blank = (): TransactionFormLeg => ({
+    id: "",
+    categoryId: "",
+    categoryName: "",
+    amount: "",
+    note: "",
+  });
+  const replace = (index: number, changes: Partial<TransactionFormLeg>) =>
+    onLegsChange(
+      legs.map((leg, at) => (at === index ? { ...leg, ...changes } : leg)),
+    );
+
+  if (!legs.length) {
+    return (
+      <div className="category-legs">
+        <CategoryPicker
+          categories={categories}
+          type={type}
+          categoryId={categoryId}
+          categoryName={categoryName}
+          onChange={onCategoryChange}
+        />
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => {
+            // The category already chosen becomes the first leg, carrying the
+            // whole amount, so splitting starts from what is on screen rather
+            // than from nothing.
+            onCategoryChange("", "");
+            onLegsChange([
+              { id: "", categoryId, categoryName, amount: total, note: "" },
+              blank(),
+            ]);
+          }}
+        >
+          Split across categories
+        </button>
+      </div>
+    );
+  }
+
+  const remainder = moneyRemainder(
+    total,
+    legs.map((leg) => leg.amount || "0"),
+  );
+  const settled = remainder === "0";
+
+  return (
+    <div className="category-legs">
+      {legs.map((leg, index) => (
+        <div className="category-leg" key={leg.id || `new-${index}`}>
+          <CategoryPicker
+            categories={categories}
+            type={type}
+            categoryId={leg.categoryId}
+            categoryName={leg.categoryName}
+            onChange={(nextId, nextName) =>
+              replace(index, { categoryId: nextId, categoryName: nextName })
+            }
+          />
+          <Input
+            inputMode="decimal"
+            value={leg.amount}
+            onChange={(event) => replace(index, { amount: event.target.value })}
+            placeholder="0.00"
+            pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
+            aria-label={`Amount for split ${index + 1}`}
+          />
+          <Input
+            value={leg.note}
+            onChange={(event) => replace(index, { note: event.target.value })}
+            placeholder="Note"
+            aria-label={`Note for split ${index + 1}`}
+          />
+          <button
+            type="button"
+            className="link-button"
+            aria-label={`Remove split ${index + 1}`}
+            onClick={() => {
+              const rest = legs.filter((_, at) => at !== index);
+              if (rest.length >= 2) {
+                onLegsChange(rest);
+                return;
+              }
+              // Down to one share, which is not a split. The category that
+              // survives goes back into the single picker rather than being
+              // dropped along with the row.
+              const [only] = rest;
+              onCategoryChange(only?.categoryId ?? "", only?.categoryName ?? "");
+              onLegsChange([]);
+            }}
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <div className="category-legs-footer">
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => onLegsChange([...legs, blank()])}
+          disabled={legs.length >= MAX_TRANSACTION_LEGS}
+        >
+          Add a category
+        </button>
+        <small
+          className={
+            settled ? "category-legs-remainder settled" : "category-legs-remainder"
+          }
+        >
+          {remainder === null
+            ? "Enter an amount for the transaction and for each category."
+            : settled
+              ? "The split adds up."
+              : `${remainder} left to assign.`}
+        </small>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Editing what a template remembers.
@@ -780,6 +950,16 @@ export function TransactionForm({
           category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
       )?.name ?? "",
   );
+  // A stored leg carries an id, not a name, and the picker shows the name, so
+  // it is looked up here the same way the single category's is.
+  const [legs, setLegs] = useState<TransactionFormLeg[]>(() =>
+    (initial?.legs ?? []).map((leg) => ({
+      ...leg,
+      categoryName:
+        leg.categoryName ||
+        (categories.find((category) => category.id === leg.categoryId)?.name ?? ""),
+    })),
+  );
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [fromAccountId, setFromAccountId] = useState(
     initial?.fromAccountId || initialAccountIds.fromAccountId,
@@ -876,6 +1056,10 @@ export function TransactionForm({
     source &&
     destination &&
     source.currency !== destination.currency;
+  // A transfer has no counter-account side to partition, so its legs are never
+  // sent even if switching type left some behind in the form.
+  const splitting = type !== "transfer" && legs.length >= 2;
+  const splitSettled = !splitting || moneyRemainder(amount, legs.map((leg) => leg.amount || "0")) === "0";
 
   const resetCreateDraft = () => {
     // The picker and the record of what it set go back with everything else, or
@@ -892,6 +1076,7 @@ export function TransactionForm({
     setCategoryName(
       categories.find((category) => category.id === initialCategoryId)?.name ?? "",
     );
+    setLegs([]);
     setCategoryPickerVersion((version) => version + 1);
     setNotes("");
     setFromAccountId(accountIds.fromAccountId);
@@ -1006,11 +1191,24 @@ export function TransactionForm({
         date,
         payee,
         description: description || null,
-        categoryId: categoryId || null,
+        // A split says which categories the money went to, one per leg, so
+        // the single category goes out cleared rather than alongside them.
+        categoryId: splitting ? null : categoryId || null,
         // Only when the field did not settle on one this ledger already has.
         // The server matches it case-insensitively and creates it only if it
         // is genuinely new.
-        categoryName: categoryId ? null : categoryName.trim() || null,
+        categoryName: splitting || categoryId ? null : categoryName.trim() || null,
+        ...(splitting
+          ? {
+              legs: legs.map((leg) => ({
+                ...(leg.id ? { id: leg.id } : {}),
+                categoryId: leg.categoryId || null,
+                categoryName: leg.categoryId ? null : leg.categoryName.trim() || null,
+                amount: leg.amount,
+                note: leg.note.trim() || null,
+              })),
+            }
+          : {}),
         notes: notes || null,
         // Carried through rather than edited. This is the reference the row
         // arrived with from a bank file, and it is what stops the same
@@ -1286,19 +1484,6 @@ export function TransactionForm({
         ) : null}
       </div>
       <div className="two-columns">
-        <Field label="Category" hint="Optional">
-          <CategoryPicker
-            key={categoryPickerVersion}
-            categories={categories}
-            type={type}
-            categoryId={categoryId ?? ""}
-            categoryName={categoryName}
-            onChange={(nextId, nextName) => {
-              setCategoryId(nextId);
-              setCategoryName(nextName);
-            }}
-          />
-        </Field>
         <Field label="Description" hint="Optional">
           <Input
             value={description ?? ""}
@@ -1307,6 +1492,24 @@ export function TransactionForm({
           />
         </Field>
       </div>
+      {type === "transfer" ? null : (
+        <Field label="Category" hint="Optional">
+          <CategoryLegs
+            key={categoryPickerVersion}
+            categories={categories}
+            type={type}
+            categoryId={categoryId ?? ""}
+            categoryName={categoryName}
+            onCategoryChange={(nextId, nextName) => {
+              setCategoryId(nextId);
+              setCategoryName(nextName);
+            }}
+            legs={legs}
+            onLegsChange={setLegs}
+            total={amount}
+          />
+        </Field>
+      )}
       <Field label="Notes" hint="Optional">
         <Textarea rows={3} value={notes ?? ""} onChange={(event) => setNotes(event.target.value)} />
       </Field>
@@ -1374,7 +1577,11 @@ export function TransactionForm({
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" loading={mutation.isPending}>
+        <Button
+          type="submit"
+          loading={mutation.isPending}
+          disabled={!splitSettled}
+        >
           {transaction || staged ? "Save changes" : mode === "stage" ? "Stage transaction" : "Commit transaction"}
         </Button>
       </div>

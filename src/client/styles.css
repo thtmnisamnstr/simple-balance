@@ -2003,6 +2003,37 @@ input[type="radio"] {
   font-size: 12px;
 }
 
+.category-legs {
+  display: grid;
+  gap: 8px;
+}
+
+/* Category, amount, note, remove. The category takes the slack because it is
+   the field a person reads the row by. */
+.category-leg {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.5fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.category-legs-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.category-legs-remainder {
+  color: var(--red);
+  font-size: 12px;
+}
+
+.category-legs-remainder.settled {
+  color: var(--muted);
+}
+
 .category-list {
   display: grid;
 }
@@ -2590,6 +2621,13 @@ input[type="radio"] {
   .transaction-type-grid,
   .commit-choice {
     grid-template-columns: 1fr;
+  }
+  /* A four-field row does not fit a phone, so each leg stacks and the rows
+     stay told apart by the gap between them. */
+  .category-leg {
+    grid-template-columns: 1fr;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
   }
   .filter-bar > .select-wrap {
     flex: 1;

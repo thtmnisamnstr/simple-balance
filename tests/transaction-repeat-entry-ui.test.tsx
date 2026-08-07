@@ -73,6 +73,7 @@ const transaction: Transaction = {
   sourceAmount: "12.34",
   sourceCurrency: "USD",
   version: 1,
+  legs: [],
 };
 
 const staged: StagedTransaction = {

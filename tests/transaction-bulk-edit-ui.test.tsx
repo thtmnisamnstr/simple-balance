@@ -82,6 +82,7 @@ const withdrawal: Transaction = {
   sourceAmount: "12.34",
   sourceCurrency: "USD",
   version: 3,
+  legs: [],
 };
 
 const deposit: Transaction = {
@@ -99,6 +100,7 @@ const deposit: Transaction = {
   destinationAmount: "1000",
   destinationCurrency: "USD",
   version: 7,
+  legs: [],
 };
 
 const transfer: Transaction = {
@@ -124,6 +126,7 @@ const transfer: Transaction = {
   sourceCurrency: "USD",
   destinationCurrency: "USD",
   version: 2,
+  legs: [],
 };
 
 function queryClient() {
@@ -150,6 +153,7 @@ function successfulBulkResult(updatedCount = 1): TransactionBulkEditResult {
     activeCount: updatedCount,
     deletedCount: 0,
     transferCount: 0,
+    splitCount: 0,
     currencies: ["USD"],
     itemsTruncated: false,
     dryRun: false,
@@ -231,6 +235,7 @@ describe("transaction mass selection", () => {
                 activeCount: 1,
                 deletedCount: 0,
                 transferCount: 0,
+                splitCount: 0,
                 currencies: ["USD"],
               }
             : {
@@ -239,6 +244,7 @@ describe("transaction mass selection", () => {
                 activeCount: 2,
                 deletedCount: 0,
                 transferCount: 0,
+                splitCount: 0,
                 currencies: ["USD"],
               };
           return jsonResponse(preview);
@@ -611,6 +617,7 @@ describe("transaction mass selection", () => {
             activeCount: previewRequests === 1 ? 2 : 3,
             deletedCount: 0,
             transferCount: 0,
+            splitCount: 0,
             currencies: ["USD"],
           } satisfies TransactionBulkSelectionPreview);
         }
