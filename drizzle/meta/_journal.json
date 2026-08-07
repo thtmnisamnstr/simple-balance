@@ -36,6 +36,13 @@
       "when": 1786050801680,
       "tag": "0004_template_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786130720897,
+      "tag": "0005_split_transaction_legs",
+      "breakpoints": true
     }
   ]
 }

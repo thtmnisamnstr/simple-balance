@@ -31,6 +31,17 @@ describe("migration baseline", () => {
 
     // Frozen means unchanged and still first, not alone. Later work is expected
     // to sit beside it; what must never happen is the baseline itself moving.
+    //
+    // 0001 through 0004 shipped in released versions and are frozen for the
+    // same reason: a database that has already recorded running them cannot be
+    // told they say something else now.
+    expect(journal.entries.slice(0, 5).map((entry) => entry.tag)).toEqual([
+      "0000_initial",
+      "0001_verify_existing_accounts",
+      "0002_account_closing_postings",
+      "0003_transaction_templates",
+      "0004_template_provenance",
+    ]);
     expect(migrationFiles[0]).toBe("0000_initial.sql");
     expect(snapshotFiles[0]).toBe("0000_snapshot.json");
     expect(journal).toMatchObject({ version: "7", dialect: "postgresql" });
@@ -121,5 +132,37 @@ describe("migration baseline", () => {
       baselineSnapshot.tables["public.ledger_transaction"]?.indexes
         .transaction_external_id_idx,
     ).toBeDefined();
+  });
+
+  /**
+   * Splits are added by giving the counter-account side more rows, never by
+   * rewriting the rows already there. That is what makes upgrading a ledger
+   * that has years of entries in it a schema change and not a data migration,
+   * so it is asserted rather than described: every existing posting keeps a
+   * null leg, every existing transaction keeps a zero leg count, and every
+   * report reads the same numbers the moment the upgrade finishes.
+   */
+  it("adds split legs without touching a single existing row", async () => {
+    const sql = await readFile(
+      path.join(migrationDirectory, "0005_split_transaction_legs.sql"),
+      "utf8",
+    );
+
+    expect(sql).toContain('CREATE TABLE "transaction_leg"');
+    expect(sql).toContain('ALTER TABLE "posting" ADD COLUMN "leg_id" uuid;');
+    expect(sql).toContain(
+      'ALTER TABLE "ledger_transaction" ADD COLUMN "leg_count" smallint DEFAULT 0 NOT NULL;',
+    );
+    expect(sql).toContain(
+      'ADD CONSTRAINT "posting_leg_owner_fk" FOREIGN KEY ("user_id","transaction_id","leg_id","currency")',
+    );
+
+    // No backfill, no rewrite, nothing removed. A DROP or a DML statement here
+    // would mean the upgrade changes what a ledger says about the past.
+    for (const forbidden of [/\bDROP\b/i, /^\s*UPDATE\s/im, /^\s*DELETE\s/im, /^\s*INSERT\s/im]) {
+      expect(sql, forbidden.source).not.toMatch(forbidden);
+    }
+    // A NOT NULL column with no default would rewrite the whole table.
+    expect(sql).not.toMatch(/ADD COLUMN(?!.*DEFAULT).*NOT NULL/i);
   });
 });

@@ -73,6 +73,7 @@ integration("PostgreSQL migrations", () => {
       "ledger_transaction",
       "posting",
       "staged_transaction",
+      "transaction_leg",
       "transaction_template",
       "user_preferences",
     ]);

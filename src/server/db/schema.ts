@@ -10,6 +10,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -22,6 +23,7 @@ import {
   systemAccountKinds,
   actorSources,
   categoryKinds,
+  MAX_TRANSACTION_LEGS,
   transactionTypes,
 } from "../../shared/domain.js";
 
@@ -309,6 +311,11 @@ export const transactions = pgTable(
     sourceCurrency: text("source_currency"),
     destinationCurrency: text("destination_currency"),
     effectiveRate: numeric("effective_rate", { precision: 44, scale: 18 }),
+    // How many legs this is split across, read by nothing but the check below.
+    // Every "is this a split" question elsewhere counts leg rows instead, so if
+    // this ever drifted it would weaken the check rather than answer anything
+    // incorrectly.
+    legCount: smallint("leg_count").default(0).notNull(),
     version: integer("version").default(1).notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     ...timestamps,
@@ -406,6 +413,103 @@ export const transactions = pgTable(
         )
       `,
     ),
+    // A split is a cardinality inside an existing shape, not a fourth shape: a
+    // split withdrawal still names one account and one source amount, so the
+    // shape check above needs no clause about it and stays frozen.
+    //
+    // What this does enforce is that legs and a single category can never both
+    // be recorded, so no query has to decide which of two labels wins, and that
+    // a split has at least two legs, making "one leg is not a split" a fact
+    // about the row rather than a rule every screen has to remember.
+    check(
+      "ledger_transaction_split_check",
+      sql`
+        ${table.legCount} = 0
+        or (
+          ${table.legCount} between 2 and ${sql.raw(String(MAX_TRANSACTION_LEGS))}
+          and ${table.categoryId} is null
+          and ${table.type} <> 'transfer'
+        )
+      `,
+    ),
+  ],
+);
+
+/**
+ * One category's share of a split transaction.
+ *
+ * A leg is not a second record of the money. It **is** the counter-account side
+ * of the transaction, cut into pieces: each leg has its own postings, and those
+ * postings are what make the entry balance. So "the legs add up to the total"
+ * needs no rule of its own — it is the double-entry check that was already
+ * there, and there is no way to write a split that satisfies one and not the
+ * other.
+ *
+ * `amount` may be zero because a leg is never deleted. Removing a category from
+ * a split posts the leg back down to nothing and leaves the row, since the
+ * postings that reference it are append-only. A zeroed leg falls out of every
+ * report through the existing `sum(amount) <> 0` filters, and putting the
+ * category back reuses the row rather than orphaning it.
+ */
+export const transactionLegs = pgTable(
+  "transaction_leg",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    transactionId: uuid("transaction_id").notNull(),
+    // Null is a real answer here, not a missing one: it is the share of the
+    // receipt the person chose to leave unfiled.
+    categoryId: uuid("category_id"),
+    // The order the legs were entered in, which is the order they are shown in.
+    // Nothing sorts them by amount or by name, because reordering them is an
+    // edit the person made on purpose.
+    ordinal: smallint("ordinal").default(0).notNull(),
+    amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
+    currency: text("currency").notNull(),
+    note: text("note"),
+    ...timestamps,
+  },
+  (table) => [
+    // The target of posting_leg_owner_fk. Carrying the transaction and the
+    // currency into the key is what lets that constraint pin a posting's leg,
+    // transaction, tenant and currency together in one place.
+    unique("transaction_leg_posting_target_unique").on(
+      table.userId,
+      table.transactionId,
+      table.id,
+      table.currency,
+    ),
+    foreignKey({
+      columns: [table.userId, table.transactionId],
+      foreignColumns: [transactions.userId, transactions.id],
+      name: "transaction_leg_transaction_owner_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.userId, table.categoryId],
+      foreignColumns: [categories.userId, categories.id],
+      name: "transaction_leg_category_owner_fk",
+    }),
+    index("transaction_leg_transaction_idx").on(
+      table.userId,
+      table.transactionId,
+      table.ordinal,
+    ),
+    // Serves the category screens, which ask which transactions touched one
+    // category without knowing which of them are splits.
+    index("transaction_leg_user_category_idx").on(
+      table.userId,
+      table.categoryId,
+      table.transactionId,
+    ),
+    check("transaction_leg_ordinal_check", sql`${table.ordinal} >= 0`),
+    check("transaction_leg_amount_check", sql`${table.amount} >= 0`),
+    check("transaction_leg_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
+    check(
+      "transaction_leg_note_check",
+      sql`${table.note} is null or char_length(${table.note}) <= 240`,
+    ),
   ],
 );
 
@@ -427,13 +531,18 @@ export const postings = pgTable(
     closingAccountId: uuid("closing_account_id"),
     accountId: uuid("account_id")
       .notNull(),
+    // Which leg of a split this line belongs to, on the counter-account side of
+    // a split transaction and nowhere else. Null on the account side, on
+    // openings and closings, and on every transaction that is not split.
+    legId: uuid("leg_id"),
     // A journal line carries its own date. Money moved on the day it moved, so
     // balances as of a date read this table alone rather than reaching through
     // to a transaction, and changing when something happened moves the posting.
     //
-    // A category is deliberately NOT here. It is a label on the transaction, and
-    // keeping one copy of it means recategorising cannot leave the books and the
-    // reports disagreeing.
+    // A category is deliberately still NOT here. A posting names the leg it
+    // belongs to, and the leg holds the one copy of the label, so recategorising
+    // is a single update that leaves the postings alone and cannot make the
+    // books and the reports disagree.
     date: date("date").notNull(),
     amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
     currency: text("currency").notNull(),
@@ -456,6 +565,26 @@ export const postings = pgTable(
       ],
       name: "posting_account_currency_fk",
     }),
+    // Four columns, so a posting cannot name a leg of a different transaction,
+    // a different tenant, or a different currency. MATCH SIMPLE makes it
+    // vacuously true whenever any column is null, which is how account-side
+    // lines, openings and closings pass it untouched; posting_leg_origin_check
+    // closes the one hole that leaves.
+    //
+    // The cascade is required rather than preferred: deleting an account is a
+    // single delete of the user row with nothing enumerating tables, and both
+    // sides already cascade from there. "A leg is never deleted" is upheld by
+    // resyncLegs never issuing one, not by this key.
+    foreignKey({
+      columns: [table.userId, table.transactionId, table.legId, table.currency],
+      foreignColumns: [
+        transactionLegs.userId,
+        transactionLegs.transactionId,
+        transactionLegs.id,
+        transactionLegs.currency,
+      ],
+      name: "posting_leg_owner_fk",
+    }).onDelete("cascade"),
     // Both halves of an opening pair name the account they open, so moving an
     // opening date moves the equity side with it.
     foreignKey({
@@ -485,6 +614,14 @@ export const postings = pgTable(
     // Serves the dashboard, which sums a date range across counter-accounts.
     index("posting_user_date_idx").on(table.userId, table.date),
     index("posting_transaction_idx").on(table.transactionId),
+    index("posting_user_leg_idx").on(table.userId, table.legId),
+    // Only a transaction line can belong to a leg. Without this, a null
+    // transaction_id would leave posting_leg_owner_fk vacuously satisfied and
+    // an opening posting could claim a leg that does not exist.
+    check(
+      "posting_leg_origin_check",
+      sql`${table.legId} is null or ${table.transactionId} is not null`,
+    ),
     check(
       "posting_origin_check",
       sql`(case when ${table.transactionId} is null then 0 else 1 end)
