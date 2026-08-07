@@ -7,6 +7,7 @@ import { createAccount } from "../../src/server/services/accounts.js";
 import {
   createCategory,
   listCategorySummaries,
+  mergeCategories,
 } from "../../src/server/services/categories.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import {
@@ -218,6 +219,63 @@ integration("what a split looks like in the reports", () => {
         JSON.stringify(patch),
       ).rejects.toThrow(/cannot include split transactions/);
     }
+  });
+
+  /**
+   * A leg's category is a real reference with a foreign key behind it, so a
+   * merge that rewrote only the transaction's own column would leave a leg
+   * pointing at a category it was about to delete and fail outright.
+   */
+  it("carries a leg over when its category is merged into another", async () => {
+    const spare = await createCategory(actor, { name: "Pet food", kind: "expense" });
+    const current = (await listTransactions(actor, { limit: 50 })).items.find(
+      (item) => item.id === splitId,
+    )!;
+    await updateTransaction(actor, splitId, {
+      expectedVersion: current.version,
+      draft: {
+        type: "withdrawal",
+        date: current.date,
+        payee: "Costco",
+        fromAccountId: checkingId,
+        amount: "100.00",
+        legs: [
+          { id: current.legs[0]!.id, categoryId: spare.id, amount: "60.00" },
+          { id: current.legs[1]!.id, categoryId: householdId, amount: "40.00" },
+        ],
+      },
+    } as never);
+
+    const before = (await listTransactions(actor, { limit: 50 })).items.find(
+      (item) => item.id === splitId,
+    )!;
+    const pets = (await listCategorySummaries(actor)).find(
+      (one) => one.name === "Pets",
+    )!;
+    const merged = await mergeCategories(actor, {
+      targetCategoryId: pets.id,
+      targetExpectedVersion: pets.version,
+      sourceCategoryIds: [spare.id],
+      expectedVersions: { [spare.id]: spare.version },
+    });
+    expect(merged.updatedTransactionCount).toBe(1);
+
+    const after = (await listTransactions(actor, { limit: 50 })).items.find(
+      (item) => item.id === splitId,
+    )!;
+    expect(after.legs.map((leg) => leg.category?.name)).toEqual([
+      "Pets",
+      "Household",
+    ]);
+    // A relabelled leg has to move the row's version, or a mass edit's
+    // description of the set it is about to change agrees about a row that
+    // changed underneath it.
+    expect(after.version).toBeGreaterThan(before.version);
+    expect((await spending()).byCategory).toEqual({
+      Pets: "60",
+      Food: "25",
+      Household: "40",
+    });
   });
 
   it("lets a mass date change through, and reposts the split as a split", async () => {

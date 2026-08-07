@@ -1,4 +1,4 @@
-import { and, eq, getTableColumns, inArray, sql } from "drizzle-orm";
+import { and, eq, getTableColumns, inArray, or, sql } from "drizzle-orm";
 import type {
   Actor,
   CategoryKind,
@@ -17,6 +17,7 @@ import {
 import {
   categories,
   stagedTransactions,
+  transactionLegs,
   transactions,
   type CategoryRow,
 } from "../db/schema.js";
@@ -731,16 +732,49 @@ export async function mergeCategories(
       )
       .orderBy(transactions.id)
       .for("update");
+    // A split files its money by leg, so the rows answering to a merged
+    // category are found through the legs as well as through the column. A leg
+    // still pointing at a source when the delete below runs breaks its foreign
+    // key, taking the whole merge with it.
+    const sourceIdList = sql.join(
+      sourceCategoryIds.map((id) => sql`${id}`),
+      sql`, `,
+    );
+    const legTransactionRowsBefore = await tx
+      .select()
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.userId, actor.userId),
+          sql`exists (
+            select 1 from transaction_leg l
+            where l.user_id = ${transactions.userId}
+              and l.transaction_id = ${transactions.id}
+              and l.category_id in (${sourceIdList})
+          )`,
+        ),
+      )
+      .orderBy(transactions.id)
+      .for("update");
     const stagedRowsBefore = await tx
       .select()
       .from(stagedTransactions)
       .where(
         and(
           eq(stagedTransactions.userId, actor.userId),
-          inArray(
-            sql<string>`${stagedTransactions.draft} ->> 'categoryId'`,
-            sourceCategoryIds,
-          ),
+          or(
+            inArray(
+              sql<string>`${stagedTransactions.draft} ->> 'categoryId'`,
+              sourceCategoryIds,
+            ),
+            sql`exists (
+              select 1
+              from jsonb_array_elements(
+                coalesce(${stagedTransactions.draft} -> 'legs', '[]'::jsonb)
+              ) as leg
+              where leg ->> 'categoryId' in (${sourceIdList})
+            )`,
+          )!,
         ),
       )
       .orderBy(stagedTransactions.id)
@@ -779,15 +813,68 @@ export async function mergeCategories(
           )
           .returning()
       : [];
+    let updatedLegTransactions: typeof legTransactionRowsBefore = [];
+    if (legTransactionRowsBefore.length) {
+      await tx
+        .update(transactionLegs)
+        .set({ categoryId: target.id, updatedAt: new Date() })
+        .where(
+          and(
+            eq(transactionLegs.userId, actor.userId),
+            inArray(transactionLegs.categoryId, sourceCategoryIds),
+          ),
+        );
+      // The version has to move with the label. A mass edit describes the set
+      // it is about to change by id and version, so a leg relabelled underneath
+      // one would leave that description agreeing about a row that changed.
+      updatedLegTransactions = await tx
+        .update(transactions)
+        .set({
+          version: sql`${transactions.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(transactions.userId, actor.userId),
+            inArray(
+              transactions.id,
+              legTransactionRowsBefore.map((row) => row.id),
+            ),
+          ),
+        )
+        .returning();
+    }
     const updatedStages = stagedRowsBefore.length
       ? await tx
           .update(stagedTransactions)
           .set({
+            // The column when the draft has one, every matching leg when it has
+            // legs. jsonb_set with `false` leaves a draft that never had a
+            // category alone rather than inventing one for it.
             draft: sql`jsonb_set(
-              ${stagedTransactions.draft},
+              case
+                when ${stagedTransactions.draft} -> 'legs' is null then ${stagedTransactions.draft}
+                else jsonb_set(
+                  ${stagedTransactions.draft},
+                  '{legs}',
+                  (
+                    select coalesce(jsonb_agg(
+                      case
+                        when leg ->> 'categoryId' in (${sourceIdList})
+                          then jsonb_set(leg, '{categoryId}', to_jsonb(${target.id}::text), true)
+                        else leg
+                      end
+                      order by position
+                    ), '[]'::jsonb)
+                    from jsonb_array_elements(${stagedTransactions.draft} -> 'legs')
+                      with ordinality as elements(leg, position)
+                  ),
+                  true
+                )
+              end,
               '{categoryId}',
               to_jsonb(${target.id}::text),
-              true
+              false
             )`,
             version: sql`${stagedTransactions.version} + 1`,
             updatedAt: new Date(),
@@ -796,8 +883,8 @@ export async function mergeCategories(
             and(
               eq(stagedTransactions.userId, actor.userId),
               inArray(
-                sql<string>`${stagedTransactions.draft} ->> 'categoryId'`,
-                sourceCategoryIds,
+                stagedTransactions.id,
+                stagedRowsBefore.map((row) => row.id),
               ),
             ),
           )
@@ -817,10 +904,20 @@ export async function mergeCategories(
       throw staleVersion();
     }
 
+    // Transactions, not references. A row whose column named one source and
+    // whose legs named another is one transaction updated, which is what the
+    // screen reporting this number says it means.
+    const updatedTransactionCount = new Set(
+      [...updatedTransactions, ...updatedLegTransactions].map((row) => row.id),
+    ).size;
+
     const transactionBeforeById = new Map(
-      transactionRowsBefore.map((row) => [row.id, row]),
+      [...transactionRowsBefore, ...legTransactionRowsBefore].map((row) => [
+        row.id,
+        row,
+      ]),
     );
-    for (const updated of updatedTransactions) {
+    for (const updated of [...updatedTransactions, ...updatedLegTransactions]) {
       await writeAudit(tx, actor, {
         entityType: "transaction",
         entityId: updated.id,
@@ -863,7 +960,7 @@ export async function mergeCategories(
       after: {
         ...serializeRow(updatedTarget),
         mergedSourceCategoryIds: sourceCategoryIds,
-        updatedTransactionCount: updatedTransactions.length,
+        updatedTransactionCount,
         updatedStagedTransactionCount: updatedStages.length,
       },
     });
@@ -871,7 +968,7 @@ export async function mergeCategories(
     return {
       targetCategory: serializeRow(updatedTarget),
       mergedSourceCategoryIds: sourceCategoryIds,
-      updatedTransactionCount: updatedTransactions.length,
+      updatedTransactionCount,
       updatedStagedTransactionCount: updatedStages.length,
     };
   });
