@@ -6,8 +6,10 @@ import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
   createCategory,
+  deleteCategory,
   listCategorySummaries,
   mergeCategories,
+  updateCategory,
 } from "../../src/server/services/categories.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import {
@@ -276,6 +278,34 @@ integration("what a split looks like in the reports", () => {
       Food: "25",
       Household: "40",
     });
+  });
+
+  /**
+   * A category a split names is as much in use as one a transaction column
+   * names, and the foreign key behind a leg says so. Without the guard seeing
+   * legs, this would pass and then fail on the key, with a database error where
+   * the sentence offering to archive should be.
+   */
+  it("refuses to delete a category only a split leg uses, and offers archiving", async () => {
+    const pets = (await listCategorySummaries(actor)).find(
+      (one) => one.name === "Pets",
+    )!;
+    await expect(
+      deleteCategory(actor, pets.id, pets.version),
+    ).rejects.toThrow(/Archive it instead/);
+  });
+
+  /** Every leg answers to the direction of the entry it belongs to. */
+  it("refuses to narrow a category a split withdrawal leg uses to income", async () => {
+    const pets = (await listCategorySummaries(actor)).find(
+      (one) => one.name === "Pets",
+    )!;
+    await expect(
+      updateCategory(actor, pets.id, {
+        kind: "income",
+        expectedVersion: pets.version,
+      }),
+    ).rejects.toThrow();
   });
 
   it("lets a mass date change through, and reposts the split as a split", async () => {

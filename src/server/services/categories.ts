@@ -246,14 +246,26 @@ async function assertCategoryKindCompatible(
   if (kind === "both") return;
 
   const incompatibleType = kind === "income" ? "withdrawal" : "deposit";
+  // A leg names this category as squarely as the column does, and every leg
+  // answers to the direction of the entry it belongs to, so narrowing a
+  // category's kind has to see both. Otherwise the narrowing is allowed and the
+  // next edit of that transaction is refused for something nobody did.
   const [{ count: transactionCount }] = await tx
     .select({ count: sql<number>`count(*)::int` })
     .from(transactions)
     .where(
       and(
         eq(transactions.userId, actor.userId),
-        eq(transactions.categoryId, categoryId),
         eq(transactions.type, incompatibleType),
+        or(
+          eq(transactions.categoryId, categoryId),
+          sql`exists (
+            select 1 from transaction_leg l
+            where l.user_id = ${transactions.userId}
+              and l.transaction_id = ${transactions.id}
+              and l.category_id = ${categoryId}
+          )`,
+        )!,
       ),
     );
   const [{ count: stagedCount }] = await tx
@@ -263,7 +275,16 @@ async function assertCategoryKindCompatible(
       and(
         eq(stagedTransactions.userId, actor.userId),
         eq(stagedTransactions.status, "staged"),
-        sql`${stagedTransactions.draft} ->> 'categoryId' = ${categoryId}`,
+        or(
+          sql`${stagedTransactions.draft} ->> 'categoryId' = ${categoryId}`,
+          sql`exists (
+            select 1
+            from jsonb_array_elements(
+              coalesce(${stagedTransactions.draft} -> 'legs', '[]'::jsonb)
+            ) as leg
+            where leg ->> 'categoryId' = ${categoryId}
+          )`,
+        )!,
         sql`${stagedTransactions.draft} ->> 'type' = ${incompatibleType}`,
       ),
     );
@@ -606,10 +627,27 @@ export async function deleteCategory(
       .limit(1);
     if (!before) throw notFound("Category not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // Legs count whatever they are worth, including the zeroed ones. A retired
+    // leg keeps the category it was filed under, so the foreign key still holds
+    // it: without this the guard would pass and the delete below would fail
+    // with a database error instead of the sentence offering to archive.
     const [{ count: transactionCount }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(transactions)
-      .where(and(eq(transactions.userId, actor.userId), eq(transactions.categoryId, id)));
+      .where(
+        and(
+          eq(transactions.userId, actor.userId),
+          or(
+            eq(transactions.categoryId, id),
+            sql`exists (
+              select 1 from transaction_leg l
+              where l.user_id = ${transactions.userId}
+                and l.transaction_id = ${transactions.id}
+                and l.category_id = ${id}
+            )`,
+          )!,
+        ),
+      );
     // Only rows still in the queue. A row that has been committed keeps its
     // draft, and the transaction it became is already counted above, so
     // counting both left a category that nothing uses permanently undeletable
@@ -621,7 +659,16 @@ export async function deleteCategory(
         and(
           eq(stagedTransactions.userId, actor.userId),
           eq(stagedTransactions.status, "staged"),
-          sql`${stagedTransactions.draft} ->> 'categoryId' = ${id}`,
+          or(
+            sql`${stagedTransactions.draft} ->> 'categoryId' = ${id}`,
+            sql`exists (
+              select 1
+              from jsonb_array_elements(
+                coalesce(${stagedTransactions.draft} -> 'legs', '[]'::jsonb)
+              ) as leg
+              where leg ->> 'categoryId' = ${id}
+            )`,
+          )!,
         ),
       );
     if (transactionCount || stagedCount) {

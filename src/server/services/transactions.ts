@@ -615,7 +615,9 @@ async function resyncLegs(
     ids.push(created.id);
   }
 
-  const dropped = existing.filter((leg) => !named.has(leg.id));
+  const dropped = existing.filter(
+    (leg) => !named.has(leg.id) && !decimal(leg.amount).isZero(),
+  );
   if (dropped.length) {
     await tx
       .update(transactionLegs)
