@@ -1,10 +1,9 @@
-import { sql } from "drizzle-orm";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor, TransactionDraft } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
-import { runMigrations } from "../../src/server/db/migrate.js";
+import { getDb } from "../../src/server/db/client.js";
+import { scratchDatabase } from "./support/scratch-database.js";
 import { user } from "../../src/server/db/schema.js";
 import { createMcpServer } from "../../src/server/mcp.js";
 import { createAccount, listAccounts } from "../../src/server/services/accounts.js";
@@ -26,6 +25,7 @@ import { listPayeeSuggestions } from "../../src/server/services/payees.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
+const database = scratchDatabase("duplicates");
 const actor: Actor = { userId: "integration-duplicates", source: "web" };
 
 integration("transaction duplicate protection", () => {
@@ -33,9 +33,7 @@ integration("transaction duplicate protection", () => {
   let stagedAccountId: string;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = connection;
-    await runMigrations();
-    await getDb().execute(sql`delete from auth_user where id = ${actor.userId}`);
+    await database.create();
     await getDb().insert(user).values({
       id: actor.userId,
       name: "Duplicate Test Tenant",
@@ -58,10 +56,7 @@ integration("transaction duplicate protection", () => {
   });
 
   afterAll(async () => {
-    if (connection) {
-      await getDb().execute(sql`delete from auth_user where id = ${actor.userId}`);
-    }
-    await closeDb();
+    await database.drop();
   });
 
   it("rejects a direct heuristic duplicate unless explicitly overridden", async () => {

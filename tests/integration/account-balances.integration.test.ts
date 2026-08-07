@@ -1,8 +1,8 @@
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
-import { runMigrations } from "../../src/server/db/migrate.js";
+import { getDb } from "../../src/server/db/client.js";
+import { scratchDatabase } from "./support/scratch-database.js";
 import {
   auditEvents,
   ledgerAccounts,
@@ -25,16 +25,15 @@ import {
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
+const database = scratchDatabase("account_balances");
 const first: Actor = { userId: "balance-snapshot-first", source: "web" };
 const second: Actor = { userId: "balance-snapshot-second", source: "web" };
-const originalDatabaseUrl = process.env.DATABASE_URL;
 
 integration("account balance snapshots", () => {
   let accountId: string;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = connection;
-    await runMigrations();
+    await database.create();
     const db = getDb();
     await db.execute(
       sql`delete from auth_user where id in (${first.userId}, ${second.userId})`,
@@ -139,14 +138,7 @@ integration("account balance snapshots", () => {
   });
 
   afterAll(async () => {
-    if (connection) {
-      await getDb().execute(
-        sql`delete from auth_user where id in (${first.userId}, ${second.userId})`,
-      );
-    }
-    await closeDb();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await database.drop();
   });
 
   it("treats the opening date as the first inclusive ending-balance date", async () => {

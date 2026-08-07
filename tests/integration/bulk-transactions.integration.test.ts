@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
-import { runMigrations } from "../../src/server/db/migrate.js";
+import { getDb } from "../../src/server/db/client.js";
+import { scratchDatabase } from "./support/scratch-database.js";
 import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
@@ -17,6 +17,7 @@ import {
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
+const database = scratchDatabase("bulk_transactions");
 const actor: Actor = { userId: "integration-bulk-transactions", source: "web" };
 const other: Actor = { userId: "integration-bulk-transactions-other", source: "web" };
 
@@ -41,8 +42,7 @@ integration("atomic committed transaction bulk editing", () => {
   let expenseCategoryId: string;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = connection;
-    await runMigrations();
+    await database.create();
     await getDb().execute(sql`
       delete from auth_user
       where id in (${actor.userId}, ${other.userId})
@@ -104,13 +104,7 @@ integration("atomic committed transaction bulk editing", () => {
   });
 
   afterAll(async () => {
-    if (connection) {
-      await getDb().execute(sql`
-        delete from auth_user
-        where id in (${actor.userId}, ${other.userId})
-      `);
-    }
-    await closeDb();
+    await database.drop();
   });
 
   it("soft-deletes a selection atomically and idempotently", async () => {

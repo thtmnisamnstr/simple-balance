@@ -1,8 +1,8 @@
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
-import { runMigrations } from "../../src/server/db/migrate.js";
+import { getDb } from "../../src/server/db/client.js";
+import { scratchDatabase } from "./support/scratch-database.js";
 import { user } from "../../src/server/db/schema.js";
 import {
   createAccount,
@@ -19,6 +19,7 @@ import {
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
+const database = scratchDatabase("double_entry");
 const actor: Actor = { userId: "integration-double-entry", source: "web" };
 
 /** Nothing the ledger records may leave a currency out of balance. */
@@ -81,9 +82,7 @@ integration("double-entry ledger", () => {
   let euroId: string;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = connection;
-    await runMigrations();
-    await getDb().execute(sql`delete from auth_user where id = ${actor.userId}`);
+    await database.create();
     await getDb().insert(user).values({
       id: actor.userId,
       name: "Double Entry Tenant",
@@ -120,10 +119,7 @@ integration("double-entry ledger", () => {
   });
 
   afterAll(async () => {
-    if (connection) {
-      await getDb().execute(sql`delete from auth_user where id = ${actor.userId}`);
-    }
-    await closeDb();
+    await database.drop();
   });
 
   it("balances a deposit against the income account", async () => {

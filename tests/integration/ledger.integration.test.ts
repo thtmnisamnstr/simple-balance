@@ -4,8 +4,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createLocalJWKSet, jwtVerify, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor, TransactionDraft } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
-import { runMigrations } from "../../src/server/db/migrate.js";
+import { getDb } from "../../src/server/db/client.js";
+import { scratchDatabase } from "./support/scratch-database.js";
 import {
   account,
   importBatches,
@@ -35,6 +35,7 @@ import {
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
+const database = scratchDatabase("ledger");
 const first: Actor = { userId: "integration-first", source: "web" };
 const second: Actor = { userId: "integration-second", source: "mcp", clientId: "test" };
 
@@ -47,7 +48,6 @@ integration("PostgreSQL ledger integration", () => {
   let mcpAccountId: string;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = connection;
     process.env.DATABASE_POOL_SIZE = "1";
     process.env.APP_BASE_URL = "http://localhost:3000";
     process.env.AUTH_SECRET = "integration-test-secret-at-least-32-characters";
@@ -56,7 +56,7 @@ integration("PostgreSQL ledger integration", () => {
     process.env.AUTH_MODE = "both";
     process.env.ALLOWED_EMAILS =
       "first-integration@example.com,second-integration@example.com";
-    await runMigrations();
+    await database.create();
     const db = getDb();
     await db.execute(
       sql`delete from auth_user where id in (${first.userId}, ${second.userId})`,
@@ -130,12 +130,7 @@ integration("PostgreSQL ledger integration", () => {
   });
 
   afterAll(async () => {
-    if (connection) {
-      await getDb().execute(
-        sql`delete from auth_user where id in (${first.userId}, ${second.userId})`,
-      );
-    }
-    await closeDb();
+    await database.drop();
   });
 
   it("isolates account and transaction IDs by tenant", async () => {

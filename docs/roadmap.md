@@ -64,9 +64,43 @@ nowhere to put it.
 
 ---
 
-## SB-016 — Recurring transactions
+## SB-017 — Split transactions
 
 **Priority 160. Depends on SB-015.**
+
+One transaction, several category legs, still settling to zero in each currency
+it touches. The grocery receipt that is partly food, partly household, partly
+something else.
+
+The ledger is ready for this. Arbitrary balanced posting sets are already
+validated before anything is written, and cross-currency settlement already
+routes through the exchange account, so a split is cardinality inside a shape
+rather than a fourth shape. What it costs is everything around the ledger: the
+entry form, the CSV round trip, and making mass edit and the fingerprinted
+selection mean something sensible when a row has several legs.
+
+It is parity rather than differentiation. Firefly III, Actual, and every
+commercial product examined have it, and a double-entry ledger that cannot
+represent one receipt across three categories is hard to defend as one.
+
+**Acceptance criteria**
+
+- A transaction may carry several category legs whose amounts sum to its total
+- Every existing invariant holds unchanged: zero-sum per currency, append-only
+  postings, corrections as deltas, deletion as reversal
+- Spending by category attributes each leg to its own category
+- CSV export of a split reads back as the same split, with no legs lost or
+  merged
+- Mass edit either handles split rows correctly or refuses them explicitly, and
+  never silently flattens one
+- A split is editable back down to a single leg, and a single-leg transaction is
+  not shown as a split
+- Reachable over MCP, with the leg structure in the tool schema rather than
+  implied
+
+## SB-016 — Recurring transactions
+
+**Priority 170. Depends on SB-015.**
 
 A recurrence is a saved shape, a schedule, and a policy for the awkward dates.
 On its due date it puts an ordinary transaction into the review queue, where it
@@ -115,40 +149,6 @@ scheduler here at all today — no cron, no `setInterval`, no worker, nothing.
   the row anyway, flagged, rather than failing silently
 - Deleting a recurrence leaves rows already proposed or committed untouched
 - Reachable over MCP under the same scope rules as everything else
-
-## SB-017 — Split transactions
-
-**Priority 170. Depends on SB-015.**
-
-One transaction, several category legs, still settling to zero in each currency
-it touches. The grocery receipt that is partly food, partly household, partly
-something else.
-
-The ledger is ready for this. Arbitrary balanced posting sets are already
-validated before anything is written, and cross-currency settlement already
-routes through the exchange account, so a split is cardinality inside a shape
-rather than a fourth shape. What it costs is everything around the ledger: the
-entry form, the CSV round trip, and making mass edit and the fingerprinted
-selection mean something sensible when a row has several legs.
-
-It is parity rather than differentiation. Firefly III, Actual, and every
-commercial product examined have it, and a double-entry ledger that cannot
-represent one receipt across three categories is hard to defend as one.
-
-**Acceptance criteria**
-
-- A transaction may carry several category legs whose amounts sum to its total
-- Every existing invariant holds unchanged: zero-sum per currency, append-only
-  postings, corrections as deltas, deletion as reversal
-- Spending by category attributes each leg to its own category
-- CSV export of a split reads back as the same split, with no legs lost or
-  merged
-- Mass edit either handles split rows correctly or refuses them explicitly, and
-  never silently flattens one
-- A split is editable back down to a single leg, and a single-leg transaction is
-  not shown as a split
-- Reachable over MCP, with the leg structure in the tool schema rather than
-  implied
 
 ## SB-018 — Reporting
 

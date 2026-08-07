@@ -2,8 +2,8 @@ import { sql } from "drizzle-orm";
 import { ordered } from "../../src/server/services/sorting.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
-import { runMigrations } from "../../src/server/db/migrate.js";
+import { getDb } from "../../src/server/db/client.js";
+import { scratchDatabase } from "./support/scratch-database.js";
 import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
@@ -14,6 +14,7 @@ import {
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
+const database = scratchDatabase("sorting");
 const actor: Actor = { userId: "integration-sorting", source: "web" };
 
 async function payeesInOrder(sort: string, direction: string) {
@@ -26,9 +27,7 @@ integration("list ordering", () => {
   let savingsId: string;
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = connection;
-    await runMigrations();
-    await getDb().execute(sql`delete from auth_user where id = ${actor.userId}`);
+    await database.create();
     await getDb().insert(user).values({
       id: actor.userId,
       name: "Sorting Tenant",
@@ -82,10 +81,7 @@ integration("list ordering", () => {
   });
 
   afterAll(async () => {
-    if (connection) {
-      await getDb().execute(sql`delete from auth_user where id = ${actor.userId}`);
-    }
-    await closeDb();
+    await database.drop();
   });
 
   it("orders by date in both directions", async () => {
