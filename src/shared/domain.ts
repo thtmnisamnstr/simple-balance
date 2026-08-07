@@ -180,6 +180,121 @@ const freeText = <T extends z.ZodString>(schema: T) =>
     "Text cannot contain control characters",
   );
 
+/**
+ * The most category legs one entry may be split into. A split is the whole of
+ * the counter-account side of the entry rewritten as several postings, so the
+ * cost of a large one is paid on every read of that entry, not just on the
+ * write. Fifty is far past a receipt anybody itemises by hand and still small
+ * enough that a hydrated page of them is a page.
+ */
+export const MAX_TRANSACTION_LEGS = 50;
+
+/**
+ * One category's share of a split entry.
+ *
+ * The list a request carries is the list the entry should end with, so identity
+ * matters: a leg sent **without** an `id` is a new one, a leg sent **with** one
+ * is that leg changed, and a leg **left out** is removed. Matching legs by
+ * position or by value instead would make an edit that reorders two rows look
+ * like an edit that rewrote both, which is the silent destruction Firefly III's
+ * API documentation warns about.
+ *
+ * `amount` is unsigned. Direction belongs to the entry — every leg of a
+ * withdrawal is money out — so a signed leg could only ever contradict it.
+ */
+export const transactionLegSchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    categoryId: z.string().uuid().optional().nullable(),
+    categoryName: oneLine(z.string().trim().min(1).max(120))
+      .optional()
+      .nullable()
+      .describe(
+        'A category by name rather than by id for this leg, matched and created on the same terms as the entry-level categoryName. Ignored when this leg\'s categoryId is set, for example "Groceries".',
+      ),
+    amount: positiveDecimalStringSchema,
+    note: freeText(z.string().trim().max(240)).optional().nullable(),
+  })
+  .strict();
+
+export type TransactionLegInput = z.infer<typeof transactionLegSchema>;
+
+const legsField = z
+  .array(transactionLegSchema)
+  .min(2, "A split needs at least two legs")
+  .max(MAX_TRANSACTION_LEGS)
+  .optional()
+  .describe(
+    "Splits this entry across several categories. Each leg carries its own amount, and the legs must add up to the entry's amount. Omit it, or send a single categoryId, for an entry that belongs to one category.",
+  );
+
+/**
+ * Legs and a single category are two ways of saying the same thing, so a
+ * request carrying both is refused rather than merged: guessing which one the
+ * caller meant would file money under a category they did not choose. Clearing
+ * the single category alongside legs is not a conflict, because `null` says
+ * what the legs already say.
+ *
+ * A transfer is refused a split outright. Both of its sides name an account, so
+ * there is no counter-account side left over for categories to partition.
+ *
+ * Shared with templates, whose legs are a different shape, so this reads only
+ * the fields both have.
+ */
+function checkLegs(
+  draft: {
+    type?: string;
+    legs?: readonly unknown[];
+    categoryId?: string | null;
+    categoryName?: string | null;
+  },
+  context: z.RefinementCtx,
+) {
+  if (draft.legs === undefined) return;
+  if (draft.type === "transfer") {
+    context.addIssue({
+      code: "custom",
+      path: ["legs"],
+      message: "A transfer cannot be split by category",
+    });
+    return;
+  }
+  for (const field of ["categoryId", "categoryName"] as const) {
+    if (draft[field] === undefined || draft[field] === null) continue;
+    context.addIssue({
+      code: "custom",
+      path: [field],
+      message: "Send either a category or legs, not both",
+    });
+  }
+}
+
+/**
+ * Naming one existing leg twice is refused for the same reason the identity
+ * rule exists at all: the two entries disagree about what that leg should
+ * become, and either answer silently discards the other. Templates are exempt
+ * because their legs have no ids to collide.
+ */
+function checkTransactionLegs(
+  draft: {
+    type: string;
+    legs?: TransactionLegInput[];
+    categoryId?: string | null;
+    categoryName?: string | null;
+  },
+  context: z.RefinementCtx,
+) {
+  checkLegs(draft, context);
+  const named = draft.legs?.map((leg) => leg.id).filter((id) => id !== undefined);
+  if (named && new Set(named).size !== named.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["legs"],
+      message: "Leg IDs must be unique",
+    });
+  }
+}
+
 const transactionCommon = {
   date: isoDateSchema,
   payee: oneLine(z.string().trim().min(1, "Payee is required").max(160)),
@@ -200,6 +315,7 @@ const transactionCommon = {
     .describe(
       'A category by name rather than by id, matched case-insensitively against your existing categories and created only if it is genuinely new. Ignored when categoryId is set. Use this when you know what to call it but not its id, for example "Groceries".',
     ),
+  legs: legsField,
   notes: freeText(z.string().trim().max(4_000)).optional().nullable(),
   externalId: oneLine(z.string().trim().max(200)).optional().nullable(),
   // Which template this was made from, kept so a template can report what came
@@ -214,28 +330,34 @@ const transactionCommon = {
     ),
 };
 
-export const depositDraftSchema = z.object({
-  type: z.literal("deposit"),
-  ...transactionCommon,
-  toAccountId: z.string().uuid(),
-  amount: positiveDecimalStringSchema,
-});
+export const depositDraftSchema = z
+  .object({
+    type: z.literal("deposit"),
+    ...transactionCommon,
+    toAccountId: z.string().uuid(),
+    amount: positiveDecimalStringSchema,
+  })
+  .superRefine(checkTransactionLegs);
 
-export const withdrawalDraftSchema = z.object({
-  type: z.literal("withdrawal"),
-  ...transactionCommon,
-  fromAccountId: z.string().uuid(),
-  amount: positiveDecimalStringSchema,
-});
+export const withdrawalDraftSchema = z
+  .object({
+    type: z.literal("withdrawal"),
+    ...transactionCommon,
+    fromAccountId: z.string().uuid(),
+    amount: positiveDecimalStringSchema,
+  })
+  .superRefine(checkTransactionLegs);
 
-export const transferDraftSchema = z.object({
-  type: z.literal("transfer"),
-  ...transactionCommon,
-  fromAccountId: z.string().uuid(),
-  toAccountId: z.string().uuid(),
-  sourceAmount: positiveDecimalStringSchema,
-  destinationAmount: positiveDecimalStringSchema.optional(),
-});
+export const transferDraftSchema = z
+  .object({
+    type: z.literal("transfer"),
+    ...transactionCommon,
+    fromAccountId: z.string().uuid(),
+    toAccountId: z.string().uuid(),
+    sourceAmount: positiveDecimalStringSchema,
+    destinationAmount: positiveDecimalStringSchema.optional(),
+  })
+  .superRefine(checkTransactionLegs);
 
 export const transactionDraftSchema = z.discriminatedUnion("type", [
   depositDraftSchema,
@@ -261,6 +383,7 @@ export const stagedDraftSchema = z
     amount: z.unknown().optional(),
     sourceAmount: z.unknown().optional(),
     destinationAmount: z.unknown().optional(),
+    legs: z.unknown().optional(),
   })
   .catchall(z.unknown());
 
@@ -283,6 +406,43 @@ const blankToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
     (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
     schema.optional(),
   );
+
+/**
+ * The same rule for a list. `blankToAbsent` only recognises a blank string, so
+ * an empty `legs` array would survive into storage as a template that says "I
+ * was saved with no legs" rather than one that never mentioned legs at all.
+ */
+const emptyListToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (value) => (Array.isArray(value) && value.length === 0 ? undefined : value),
+    schema.optional(),
+  );
+
+/**
+ * A leg of a template's split. Amounts are optional here and everything else
+ * follows the rest of the template: a field the template does not carry is one
+ * the form leaves as it found it.
+ *
+ * The amounts are decimal strings, never shares of the total. A template's own
+ * amount is already optional, so proportions would be a second way of writing
+ * money that only one of the two forms could ever resolve.
+ *
+ * Legs carry no id, because nothing resyncs a template: the stored list is the
+ * whole of what it remembers, and the order is the order it was typed in.
+ */
+const transactionTemplateLegSchema = z
+  .object({
+    categoryId: blankToAbsent(z.string().uuid()),
+    categoryName: blankToAbsent(oneLine(z.string().trim().max(120))),
+    amount: blankToAbsent(positiveDecimalStringSchema),
+    note: blankToAbsent(freeText(z.string().trim().max(240))),
+  })
+  .strict();
+
+const templateLegsField = z
+  .array(transactionTemplateLegSchema)
+  .min(2, "A split needs at least two legs")
+  .max(MAX_TRANSACTION_LEGS);
 
 /**
  * What a template remembers. These are the transaction form's own field names
@@ -311,10 +471,12 @@ export const transactionTemplateDraftSchema = z
     destinationAmount: blankToAbsent(positiveDecimalStringSchema),
     categoryId: blankToAbsent(z.string().uuid()),
     categoryName: blankToAbsent(oneLine(z.string().trim().max(120))),
+    legs: emptyListToAbsent(templateLegsField),
     description: blankToAbsent(freeText(z.string().trim().max(240))),
     notes: blankToAbsent(freeText(z.string().trim().max(4_000))),
   })
-  .strict();
+  .strict()
+  .superRefine(checkLegs);
 
 export type TransactionTemplateDraft = z.infer<
   typeof transactionTemplateDraftSchema
@@ -381,6 +543,9 @@ export const transactionTemplateBulkPatchSchema = z
     destinationAmount: positiveDecimalStringSchema.nullable().optional(),
     categoryId: z.string().uuid().nullable().optional(),
     categoryName: oneLine(z.string().trim().min(1).max(120)).nullable().optional(),
+    // Legs move as a whole list or not at all. "Add a leg to thirty templates"
+    // has no meaning when each of the thirty splits a different total.
+    legs: templateLegsField.nullable().optional(),
     description: freeText(z.string().trim().min(1).max(240))
       .nullable()
       .optional(),
