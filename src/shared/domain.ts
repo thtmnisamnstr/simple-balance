@@ -872,6 +872,7 @@ export const bulkTransactionSelectionSnapshotSchema = z
     activeCount: z.number().int().nonnegative(),
     deletedCount: z.number().int().nonnegative(),
     transferCount: z.number().int().nonnegative(),
+    splitCount: z.number().int().nonnegative(),
     currencies: z.array(currencyCodeSchema),
   })
   .strict();
@@ -942,6 +943,7 @@ export const bulkTransactionEditResultSchema = z
     activeCount: z.number().int().nonnegative(),
     deletedCount: z.number().int().nonnegative(),
     transferCount: z.number().int().nonnegative(),
+    splitCount: z.number().int().nonnegative(),
     currencies: z.array(currencyCodeSchema),
     itemsTruncated: z.boolean(),
     items: z.array(bulkTransactionEditItemSchema),
@@ -1077,6 +1079,7 @@ export const bulkStageSelectionSnapshotSchema = z
     invalidCount: z.number().int().nonnegative(),
     duplicateCount: z.number().int().nonnegative(),
     transferCount: z.number().int().nonnegative(),
+    splitCount: z.number().int().nonnegative(),
   })
   .strict();
 

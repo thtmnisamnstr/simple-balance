@@ -103,9 +103,15 @@ export async function getSummary(
       ))
     group by p.currency
   `);
-  // The amount is the posting's; the transaction is joined only for the label
-  // it was filed under. Recategorising therefore updates past reports, and a
-  // voided entry drops out because its postings already net to nothing.
+  // The amount is the posting's; the transaction and the leg are joined only
+  // for the label it was filed under. Recategorising therefore updates past
+  // reports, and a voided entry drops out because its postings already net to
+  // nothing.
+  //
+  // A split fans out nothing, because it is not a fan-out: the split already
+  // exists in the posting rows, one per leg, so a 100 receipt cut three ways
+  // is three postings of 100 between them, not one posting counted three
+  // times. The leg join is many-to-one on a primary key.
   const categoryResult = await db.execute(sql`
     select
       p.currency,
@@ -120,9 +126,18 @@ export async function getSummary(
     left join ledger_transaction t
       on t.user_id = p.user_id
       and t.id = p.transaction_id
+    left join transaction_leg l
+      on l.user_id = p.user_id
+      and l.id = p.leg_id
     left join category c
       on c.user_id = p.user_id
-      and c.id = t.category_id
+      -- A case rather than a coalesce: a leg with no category is a share the
+      -- person left unfiled on purpose, and coalesce would quietly fall
+      -- through to the transaction's own label instead of honouring it.
+      and c.id = case
+        when p.leg_id is not null then l.category_id
+        else t.category_id
+      end
     where p.user_id = ${actor.userId}
       and p.date between ${start}::date and ${end}::date
       and (${includeArchived} or not exists (

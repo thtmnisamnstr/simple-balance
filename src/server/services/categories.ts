@@ -316,20 +316,36 @@ export async function listCategorySummaries(
   // Aggregated before the join rather than counted across it: `count(*)` over a
   // left join reports 1 for a category nothing references, and the product of
   // the two sides when both match.
+  //
+  // A union over both places a committed row can name a category: its own
+  // column, or one of its legs. `union` rather than `union all`, and then
+  // `count(distinct)`, so a receipt split twice into the same category is one
+  // transaction against that category rather than two. Without both, the badge
+  // over a category would disagree with the list of transactions underneath it.
   const committedUse = db
     .select({
-      categoryId: transactions.categoryId,
-      total: sql<number>`count(*)::int`.as("committed_count"),
+      categoryId: sql<string>`category_id`.as("category_id"),
+      total: sql<number>`count(distinct transaction_id)::int`.as("committed_count"),
     })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.userId, actor.userId),
-        sql`${transactions.deletedAt} is null`,
-        sql`${transactions.categoryId} is not null`,
-      ),
+    .from(
+      sql`(
+        select t.category_id, t.id as transaction_id
+        from ledger_transaction t
+        where t.user_id = ${actor.userId}
+          and t.deleted_at is null
+          and t.category_id is not null
+        union
+        select l.category_id, l.transaction_id
+        from transaction_leg l
+        join ledger_transaction t
+          on t.user_id = l.user_id and t.id = l.transaction_id
+        where l.user_id = ${actor.userId}
+          and t.deleted_at is null
+          and l.category_id is not null
+          and l.amount <> 0
+      ) as committed_category_use`,
     )
-    .groupBy(transactions.categoryId)
+    .groupBy(sql`category_id`)
     .as("committed_use");
   const stagedUse = db
     .select({

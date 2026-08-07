@@ -118,11 +118,30 @@ type PostingAccount = {
 
 export type TransactionView = ReturnType<typeof transactionView>;
 
+type CategoryLabel = { id: string; name: string; kind: string };
+
+/**
+ * One leg as a reader sees it: the id it has to send back to keep editing that
+ * same leg, and the category spelled out rather than referenced.
+ */
+function legView(leg: TransactionLegRow, category: CategoryLabel | null) {
+  return {
+    id: leg.id,
+    categoryId: leg.categoryId,
+    category,
+    amount: canonicalDecimal(leg.amount),
+    note: leg.note,
+  };
+}
+
+export type TransactionLegView = ReturnType<typeof legView>;
+
 function transactionView(
   row: TransactionRow,
   sourceAccount?: { id: string; name: string; currency: string } | null,
   destinationAccount?: { id: string; name: string; currency: string } | null,
-  category?: { id: string; name: string; kind: string } | null,
+  category?: CategoryLabel | null,
+  legs: TransactionLegView[] = [],
 ) {
   return {
     ...serializeRow(row),
@@ -134,7 +153,27 @@ function transactionView(
     sourceAccount: sourceAccount ?? null,
     destinationAccount: destinationAccount ?? null,
     category: category ?? null,
+    legs,
   };
+}
+
+/**
+ * The legs of each transaction, labelled, with the zeroed ones left out.
+ *
+ * A leg worth nothing is no longer part of the split; its row survives only
+ * because the postings that name it are append-only, and showing it would mean
+ * showing a share of nothing.
+ */
+function legViews(
+  legs: readonly TransactionLegRow[] | undefined,
+  categoryMap: ReadonlyMap<string, CategoryLabel>,
+): TransactionLegView[] {
+  if (!legs) return [];
+  return legs
+    .filter((leg) => !decimal(leg.amount).isZero())
+    .map((leg) =>
+      legView(leg, leg.categoryId ? (categoryMap.get(leg.categoryId) ?? null) : null),
+    );
 }
 
 async function getOwnedAccounts(
@@ -957,11 +996,20 @@ async function hydrateTransactions(
       ),
     ),
   ];
+  // One query for the legs of the whole page, folded into the same category
+  // lookup the rows already needed, so a page of splits costs no more round
+  // trips than a page without one.
+  const legs = await legsByTransaction(
+    tx,
+    actor,
+    rows.filter((row) => row.legCount > 0).map((row) => row.id),
+  );
   const categoryIds = [
     ...new Set(
-      rows
-        .map((row) => row.categoryId)
-        .filter((value): value is string => Boolean(value)),
+      [
+        ...rows.map((row) => row.categoryId),
+        ...[...legs.values()].flat().map((leg) => leg.categoryId),
+      ].filter((value): value is string => Boolean(value)),
     ),
   ];
 
@@ -1000,6 +1048,7 @@ async function hydrateTransactions(
       row.sourceAccountId ? accountMap.get(row.sourceAccountId) : null,
       row.destinationAccountId ? accountMap.get(row.destinationAccountId) : null,
       row.categoryId ? categoryMap.get(row.categoryId) : undefined,
+      legViews(legs.get(row.id), categoryMap),
     ),
   );
 }
@@ -1028,18 +1077,34 @@ async function hydrateTransaction(
         )
     : [];
   const accountMap = new Map(accountRows.map((account) => [account.id, account]));
-  const [category] = row.categoryId
+  const legs = row.legCount
+    ? ((await legsByTransaction(tx, actor, [row.id])).get(row.id) ?? [])
+    : [];
+  const categoryIds = [
+    ...new Set(
+      [row.categoryId, ...legs.map((leg) => leg.categoryId)].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
+  ];
+  const categoryRows = categoryIds.length
     ? await tx
         .select({ id: categories.id, name: categories.name, kind: categories.kind })
         .from(categories)
-        .where(and(eq(categories.id, row.categoryId), eq(categories.userId, actor.userId)))
-        .limit(1)
-    : [undefined];
+        .where(
+          and(
+            eq(categories.userId, actor.userId),
+            inArray(categories.id, categoryIds),
+          ),
+        )
+    : [];
+  const categoryMap = new Map(categoryRows.map((category) => [category.id, category]));
   return transactionView(
     row,
     row.sourceAccountId ? accountMap.get(row.sourceAccountId) : null,
     row.destinationAccountId ? accountMap.get(row.destinationAccountId) : null,
-    category,
+    row.categoryId ? categoryMap.get(row.categoryId) : undefined,
+    legViews(legs, categoryMap),
   );
 }
 
@@ -1112,10 +1177,23 @@ function transactionSortPlan(
           )
       )`);
     case "category":
+      // A split names several categories, so this sorts it under the first of
+      // them alphabetically. The min is not only about the order: a scalar
+      // subquery handed several rows is a hard runtime error, not a wrong
+      // answer, so a list sorted by category would break outright on the first
+      // split without it.
       return paged(sql`(
-        select lower(name) from category
-        where category.user_id = ${transactions.userId}
-          and category.id = ${transactions.categoryId}
+        select min(lower(c.name)) from category c
+        where c.user_id = ${transactions.userId}
+          and (
+            c.id = ${transactions.categoryId}
+            or c.id in (
+              select l.category_id from transaction_leg l
+              where l.user_id = ${transactions.userId}
+                and l.transaction_id = ${transactions.id}
+                and l.amount <> 0
+            )
+          )
       )`);
     default:
       // Compared against a date column.
@@ -1204,7 +1282,23 @@ function transactionFilterConditions(
   if (query.start) conditions.push(sql`${transactions.date} >= ${query.start}::date`);
   if (query.end) conditions.push(lte(transactions.date, query.end));
   if (query.type) conditions.push(eq(transactions.type, query.type));
-  if (query.categoryId) conditions.push(eq(transactions.categoryId, query.categoryId));
+  if (query.categoryId) {
+    // An exists rather than a join, so a receipt split two ways across the same
+    // category is still one row in the list and counts once towards a mass
+    // edit's expected count.
+    conditions.push(
+      or(
+        eq(transactions.categoryId, query.categoryId),
+        sql`exists (
+          select 1 from transaction_leg l
+          where l.user_id = ${transactions.userId}
+            and l.transaction_id = ${transactions.id}
+            and l.category_id = ${query.categoryId}
+            and l.amount <> 0
+        )`,
+      )!,
+    );
+  }
   if (query.templateId) conditions.push(eq(transactions.templateId, query.templateId));
   if (query.payee) {
     conditions.push(
@@ -1250,15 +1344,47 @@ function bulkSelectionFingerprint(
   return createHash("sha256").update(payload).digest("hex");
 }
 
-function bulkSelectionSummary(rows: readonly TransactionRow[]) {
+/**
+ * Which of these transactions are splits, asked of the leg rows themselves.
+ *
+ * `ledger_transaction.leg_count` would answer faster and is deliberately not
+ * used: it has exactly one reader, the check constraint, so if it ever drifted
+ * the constraint would go slack rather than a screen telling somebody the wrong
+ * thing about what they are about to change.
+ */
+async function splitTransactionIds(
+  executor: Database | DbTransaction,
+  actor: Actor,
+  transactionIds: readonly string[],
+): Promise<Set<string>> {
+  if (!transactionIds.length) return new Set();
+  const rows = await executor
+    .selectDistinct({ transactionId: transactionLegs.transactionId })
+    .from(transactionLegs)
+    .where(
+      and(
+        eq(transactionLegs.userId, actor.userId),
+        inArray(transactionLegs.transactionId, [...transactionIds]),
+        ne(transactionLegs.amount, "0"),
+      ),
+    );
+  return new Set(rows.map((row) => row.transactionId));
+}
+
+function bulkSelectionSummary(
+  rows: readonly TransactionRow[],
+  splitIds: ReadonlySet<string>,
+) {
   const currencies = new Set<string>();
   let activeCount = 0;
   let deletedCount = 0;
   let transferCount = 0;
+  let splitCount = 0;
   for (const row of rows) {
     if (row.deletedAt) deletedCount += 1;
     else activeCount += 1;
     if (row.type === "transfer") transferCount += 1;
+    if (splitIds.has(row.id)) splitCount += 1;
     if (row.sourceCurrency) currencies.add(row.sourceCurrency);
     if (row.destinationCurrency) currencies.add(row.destinationCurrency);
   }
@@ -1266,8 +1392,25 @@ function bulkSelectionSummary(rows: readonly TransactionRow[]) {
     activeCount,
     deletedCount,
     transferCount,
+    splitCount,
     currencies: [...currencies].sort(),
   };
+}
+
+/** The summary of a selection, with the split count looked up for it. */
+async function bulkSelectionSummaryFor(
+  executor: Database | DbTransaction,
+  actor: Actor,
+  rows: readonly TransactionRow[],
+) {
+  return bulkSelectionSummary(
+    rows,
+    await splitTransactionIds(
+      executor,
+      actor,
+      rows.map((row) => row.id),
+    ),
+  );
 }
 
 async function selectBulkFilterRows(
@@ -1298,7 +1441,7 @@ export async function getBulkTransactionSelection(
   return bulkTransactionSelectionSnapshotSchema.parse({
     count: rows.length,
     fingerprint: bulkSelectionFingerprint(rows),
-    ...bulkSelectionSummary(rows),
+    ...(await bulkSelectionSummaryFor(getDb(), actor, rows)),
   });
 }
 
@@ -1715,7 +1858,7 @@ export async function bulkEditTransactions(
       dryRun: parsed.dryRun,
       selectionCount: plans.length,
       selectionFingerprint: snapshotFingerprint,
-      ...bulkSelectionSummary(lockedRows),
+      ...(await bulkSelectionSummaryFor(tx, actor, lockedRows)),
       itemsTruncated: visibleItems.length !== plannedItems.length,
       items: visibleItems,
     };
@@ -1886,7 +2029,7 @@ export async function bulkDeleteTransactions(
       dryRun: parsed.dryRun,
       selectionCount: lockedRows.length,
       selectionFingerprint: snapshotFingerprint,
-      ...bulkSelectionSummary(lockedRows),
+      ...(await bulkSelectionSummaryFor(tx, actor, lockedRows)),
       itemsTruncated: visibleItems.length !== plannedItems.length,
       items: visibleItems,
     };

@@ -895,12 +895,15 @@ function stageSelectionSummary(
   let invalidCount = 0;
   let duplicateCount = 0;
   let transferCount = 0;
+  let splitCount = 0;
   for (const row of rows) {
     if ((row.validationIssues as unknown[]).length) invalidCount += 1;
     if (row.duplicateOfId) duplicateCount += 1;
-    if ((row.draft as { type?: unknown }).type === "transfer") transferCount += 1;
+    const draft = row.draft as { type?: unknown; legs?: unknown };
+    if (draft.type === "transfer") transferCount += 1;
+    if (Array.isArray(draft.legs) && draft.legs.length) splitCount += 1;
   }
-  return { invalidCount, duplicateCount, transferCount };
+  return { invalidCount, duplicateCount, transferCount, splitCount };
 }
 
 async function selectStageFilterRows(
@@ -937,6 +940,18 @@ export async function previewBulkStageSelection(actor: Actor, input: unknown) {
 
 /** Apply one patch to one draft, leaving anything it does not mention alone. */
 function patchedStageDraft(draft: Record<string, unknown>, patch: BulkStagePatch) {
+  // The same refusal committed rows get, for the same reason: a split already
+  // says which categories the money went to, and the direction of the entry is
+  // what every leg's category was checked against. Setting either in bulk would
+  // have to flatten the split to mean anything, which nothing here asked for.
+  const isSplit = Array.isArray(draft.legs) && draft.legs.length > 0;
+  if (isSplit && (patch.categoryId !== undefined || patch.type !== undefined)) {
+    throw validationError(
+      "Bulk category and type changes cannot include split transactions",
+      { fields: ["categoryId", "type"] },
+    );
+  }
+
   const next: Record<string, unknown> = { ...draft };
   if (patch.date !== undefined) next.date = patch.date;
   if (patch.payee !== undefined) next.payee = patch.payee;
