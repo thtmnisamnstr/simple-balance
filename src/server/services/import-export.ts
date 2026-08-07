@@ -12,8 +12,10 @@ import {
 } from "../../shared/domain.js";
 import {
   APP_CSV_FORMAT,
+  APP_CSV_LEGS_COLUMN,
   csvMappingSchema,
   isAppExportCsv,
+  parseExportedLegs,
   normalizeCsvRows,
   previewCsv,
   rowsToCsv,
@@ -195,13 +197,25 @@ function appExportDraft(
         }
       })(),
     );
+  const legs = parseExportedLegs(row[APP_CSV_LEGS_COLUMN]);
+  if (legs === null) {
+    return {
+      draft: null,
+      issues: [{
+        field: APP_CSV_LEGS_COLUMN,
+        message: "The split on this row could not be read",
+      }],
+    };
+  }
   const common = {
     date: row.date,
     payee: protectedText.success ? protectedText.data.payee : row.payee,
     description: protectedText.success
       ? protectedText.data.description
       : row.description || null,
-    categoryId: row.category_id || null,
+    // A split says which categories the money went to, one per leg, so the
+    // row's single category is left off rather than sent alongside them.
+    ...(legs ? { legs } : { categoryId: row.category_id || null }),
     notes: protectedText.success ? protectedText.data.notes : row.notes || null,
     externalId: row.transaction_id || null,
   };
@@ -394,9 +408,27 @@ async function resolveImportedCategories(
     {
       inputName: string;
       rowIndexes: number[];
+      legTargets: { rowIndex: number; legIndex: number }[];
       kind: CategoryKind;
     }
   >();
+  const group = (inputName: string, kind: CategoryKind) => {
+    const normalizedName = normalizeHumanName(inputName);
+    const existing = groups.get(normalizedName);
+    if (existing) {
+      existing.kind = combineCategoryKinds(existing.kind, kind);
+      return existing;
+    }
+    const created = {
+      inputName,
+      rowIndexes: [] as number[],
+      legTargets: [] as { rowIndex: number; legIndex: number }[],
+      kind,
+    };
+    groups.set(normalizedName, created);
+    return created;
+  };
+
   if (categoryColumn) {
     for (let index = 0; index < rows.length; index += 1) {
       const draft = rows[index]?.draft;
@@ -405,17 +437,48 @@ async function resolveImportedCategories(
       // unresolved rows are matched by name.
       if (draft?.categoryId) continue;
       if (!draft || !inputName) continue;
-      const normalizedName = normalizeHumanName(inputName);
-      const kind = categoryKindForDraft(draft);
-      const group = groups.get(normalizedName);
-      if (group) {
-        group.rowIndexes.push(index);
-        group.kind = combineCategoryKinds(group.kind, kind);
-      } else {
-        groups.set(normalizedName, { inputName, rowIndexes: [index], kind });
-      }
+      group(inputName, categoryKindForDraft(draft)).rowIndexes.push(index);
     }
   }
+
+  // A split names a category per leg rather than in a column, so its names are
+  // gathered whichever way the file was mapped. Sharing the grouping means two
+  // legs and a plain row asking for the same new category create it once, and
+  // the preview counts it once.
+  for (let index = 0; index < rows.length; index += 1) {
+    const draft = rows[index]?.draft;
+    if (!draft?.legs) continue;
+    const kind = categoryKindForDraft(draft);
+    for (const [legIndex, leg] of draft.legs.entries()) {
+      if (leg.categoryId) continue;
+      const inputName = cleanHumanName(leg.categoryName ?? "");
+      if (!inputName) continue;
+      group(inputName, kind).legTargets.push({ rowIndex: index, legIndex });
+    }
+  }
+
+  /**
+   * Point everything that named this category at the one it resolved to. A
+   * leg's name is dropped once it has an id, so nothing downstream has two ways
+   * of saying which category it means.
+   */
+  const assign = (
+    group: { rowIndexes: number[]; legTargets: { rowIndex: number; legIndex: number }[] },
+    categoryId: string,
+  ) => {
+    for (const rowIndex of group.rowIndexes) {
+      const draft = rows[rowIndex]!.draft!;
+      rows[rowIndex]!.draft = { ...draft, categoryId };
+    }
+    for (const { rowIndex, legIndex } of group.legTargets) {
+      const draft = rows[rowIndex]!.draft!;
+      if (!draft.legs) continue;
+      const legs = draft.legs.map((leg, index) =>
+        index === legIndex ? { ...leg, categoryId, categoryName: undefined } : leg,
+      );
+      rows[rowIndex]!.draft = { ...draft, legs };
+    }
+  };
 
   const categoryByName = new Map<string, CategoryRow>();
   for (const category of [...categoryRows].sort(preferredCategory)) {
@@ -462,10 +525,7 @@ async function resolveImportedCategories(
         });
         resolved = updated;
       }
-      for (const rowIndex of group.rowIndexes) {
-        const draft = rows[rowIndex]!.draft!;
-        rows[rowIndex]!.draft = { ...draft, categoryId: existing.id };
-      }
+      assign(group, existing.id);
       resolutions.push({
         inputName: group.inputName,
         resolvedName: resolved.name,
@@ -483,7 +543,10 @@ async function resolveImportedCategories(
     });
     if (!parsedCategory.success) {
       const message = parsedCategory.error.issues[0]?.message ?? "Category is invalid";
-      for (const rowIndex of group.rowIndexes) {
+      for (const rowIndex of [
+        ...group.rowIndexes,
+        ...group.legTargets.map((target) => target.rowIndex),
+      ]) {
         rows[rowIndex]!.issues.push({ field: "category", message });
       }
       continue;
@@ -502,10 +565,7 @@ async function resolveImportedCategories(
         operation: "create_from_csv",
         after: serializeRow(created),
       });
-      for (const rowIndex of group.rowIndexes) {
-        const draft = rows[rowIndex]!.draft!;
-        rows[rowIndex]!.draft = { ...draft, categoryId };
-      }
+      assign(group, categoryId);
     }
     resolutions.push({
       inputName: group.inputName,
@@ -751,6 +811,23 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
     description: transaction.description,
     category_id: transaction.categoryId,
     category_name: transaction.category?.name,
+    // A split, by category name only. Leg ids and category ids mean nothing in
+    // the ledger this file is read into, exactly as account ids do not, so the
+    // names are what travel and the import matches or creates them.
+    //
+    // The key is always present, even for rows that are not splits, because the
+    // header row is taken from the first row's keys and a file whose first
+    // transaction happens not to be split would otherwise lose the column for
+    // every row after it.
+    legs_json: transaction.legs.length
+      ? JSON.stringify(
+          transaction.legs.map((leg) => ({
+            categoryName: leg.category?.name ?? null,
+            amount: leg.amount,
+            note: leg.note,
+          })),
+        )
+      : "",
     notes: transaction.notes,
     roundtrip_text_json: JSON.stringify({
       payee: transaction.payee,

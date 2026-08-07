@@ -150,6 +150,18 @@ export const transactionResultSchema = z
     sourceAccount: accountReferenceSchema.nullable(),
     destinationAccount: accountReferenceSchema.nullable(),
     category: categoryReferenceSchema.nullable(),
+    legCount: z.number().int().nonnegative().optional(),
+    // Empty for an entry filed under one category, which is most of them. Each
+    // leg carries the id an edit has to send back to keep meaning that leg.
+    legs: z.array(
+      z.object({
+        id: uuidSchema,
+        categoryId: uuidSchema.nullable(),
+        category: categoryReferenceSchema.nullable(),
+        amount: decimalSchema,
+        note: nullableStringSchema,
+      }),
+    ),
   })
   .passthrough();
 

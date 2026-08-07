@@ -37,9 +37,50 @@ export const APP_CSV_COLUMNS = [
   "effective_rate",
 ] as const;
 
+/**
+ * `legs_json` is deliberately not one of the columns above. That list is what a
+ * file must carry to be recognised as an export at all, so adding to it would
+ * stop every file written by an earlier version from being recognised as one.
+ * A split is read back when the column is there and nothing is missed when it
+ * is not.
+ */
+export const APP_CSV_LEGS_COLUMN = "legs_json";
+
 export function isAppExportCsv(headers: readonly string[]) {
   const available = new Set(headers);
   return APP_CSV_COLUMNS.every((column) => available.has(column));
+}
+
+/**
+ * The split an exported row carries, or nothing.
+ *
+ * A leg the file cannot be read as is left out rather than guessed at; the
+ * amounts have to add up to the transaction total, and the draft schema and the
+ * ledger both refuse a split that does not.
+ */
+export function parseExportedLegs(value: string | undefined) {
+  if (!value?.trim()) return undefined;
+  const parsed = z
+    .array(
+      z
+        .object({
+          categoryName: z.string().trim().min(1).max(120).nullable().optional(),
+          amount: z.string(),
+          note: z.string().nullable().optional(),
+        })
+        .strict(),
+    )
+    .min(2)
+    .safeParse(
+      (() => {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return null;
+        }
+      })(),
+    );
+  return parsed.success ? parsed.data : null;
 }
 
 export const csvMappingSchema = z

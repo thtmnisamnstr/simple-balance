@@ -75,7 +75,7 @@ async function assertReferencesAreOwned(
   actor: Actor,
   draft: Pick<
     TransactionTemplateDraft,
-    "fromAccountId" | "toAccountId" | "categoryId"
+    "fromAccountId" | "toAccountId" | "categoryId" | "legs"
   >,
 ) {
   const accountIds = [draft.fromAccountId, draft.toAccountId].filter(
@@ -100,20 +100,31 @@ async function assertReferencesAreOwned(
       });
     }
   }
-  if (draft.categoryId) {
-    const [owned] = await tx
+  // A leg's category is as much a reference as the template's own, so it is
+  // checked the same way rather than trusted because it arrived inside a list.
+  const categoryIds = [
+    ...new Set(
+      [draft.categoryId, ...(draft.legs ?? []).map((leg) => leg.categoryId)].filter(
+        (value): value is string => Boolean(value),
+      ),
+    ),
+  ];
+  if (categoryIds.length) {
+    const owned = await tx
       .select({ id: categories.id })
       .from(categories)
       .where(
         and(
-          eq(categories.id, draft.categoryId),
+          inArray(categories.id, categoryIds),
           eq(categories.userId, actor.userId),
         ),
-      )
-      .limit(1);
-    if (!owned) {
+      );
+    const found = new Set(owned.map((row) => row.id));
+    const missing = categoryIds.filter((id) => !found.has(id));
+    if (missing.length) {
       throw validationError("That category is not one of yours", {
-        categoryId: draft.categoryId,
+        categoryId: missing[0],
+        categoryIds: missing,
       });
     }
   }
@@ -154,7 +165,36 @@ export function applyTemplateBulkPatch(
     if (drop) delete next[drop];
     if (patch.type !== "transfer") delete next.destinationAmount;
   }
+  // Legs and a single category cannot both be stored, so asking for legs is
+  // also asking for the single category to go. Nothing is lost the other way
+  // round: a split is only ever taken away by naming it, with `legs: null`.
+  if (patch.legs) {
+    delete next.categoryId;
+    delete next.categoryName;
+  }
   return transactionTemplateDraftSchema.parse(next);
+}
+
+/**
+ * The refusals a split template shares with a split transaction, raised here
+ * with the templates named rather than left to the schema, which would report
+ * a shape error about a row the person cannot see.
+ */
+function assertPatchKeepsSplits(
+  rows: { id: string; draft: TransactionTemplateDraft }[],
+  patch: TransactionTemplateBulkPatch,
+) {
+  const setsCategory =
+    (patch.categoryId ?? patch.categoryName) != null && !patch.legs;
+  if (!setsCategory && patch.type !== "transfer") return;
+  const split = rows.filter((row) => row.draft.legs?.length);
+  if (!split.length) return;
+  throw validationError(
+    setsCategory
+      ? "A split template already files its money by leg, so a single category cannot be set here"
+      : "A transfer cannot be split by category",
+    { templateIds: split.map((row) => row.id) },
+  );
 }
 
 /**
@@ -262,13 +302,12 @@ export async function bulkEditTransactionTemplates(
     }
     await lockTransactionTemplateNamespace(tx, actor);
     const rows = await lockSelectedTemplates(tx, actor, parsed.selection);
-    assertPatchFitsType(
-      rows.map((row) => ({
-        id: row.id,
-        draft: row.draft as TransactionTemplateDraft,
-      })),
-      parsed.patch,
-    );
+    const selected = rows.map((row) => ({
+      id: row.id,
+      draft: row.draft as TransactionTemplateDraft,
+    }));
+    assertPatchFitsType(selected, parsed.patch);
+    assertPatchKeepsSplits(selected, parsed.patch);
 
     // Both sides go through the schema before they are compared. Postgres
     // orders jsonb keys by length and Zod returns them in the order the schema
@@ -285,6 +324,7 @@ export async function bulkEditTransactionTemplates(
       fromAccountId: parsed.patch.fromAccountId ?? undefined,
       toAccountId: parsed.patch.toAccountId ?? undefined,
       categoryId: parsed.patch.categoryId ?? undefined,
+      legs: parsed.patch.legs ?? undefined,
     });
 
     const changed = planned.filter(
