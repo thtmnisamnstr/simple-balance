@@ -35,6 +35,7 @@ import {
 } from "../api.js";
 import {
   Alert,
+  BulkEditToggle,
   Badge,
   Button,
   DateRangeBar,
@@ -959,20 +960,13 @@ export default function StagingPage() {
           ) : null}
 
           <div className="bulk-edit-fields">
-            <div className={bulkEnabled.date ? "bulk-edit-field enabled" : "bulk-edit-field"}>
-              <label className="bulk-edit-toggle">
-                <input
-                  type="checkbox"
-                  checked={bulkEnabled.date}
-                  onChange={(event) =>
-                    setBulkEnabled((current) => ({
-                      ...current,
-                      date: event.target.checked,
-                    }))
-                  }
-                />
-                <span>Change date</span>
-              </label>
+            <BulkEditToggle
+              label="Change date"
+              enabled={bulkEnabled.date}
+              onToggle={(on) =>
+                setBulkEnabled((current) => ({ ...current, date: on }))
+              }
+            >
               <Input
                 aria-label="New date"
                 type="date"
@@ -986,22 +980,15 @@ export default function StagingPage() {
                   }))
                 }
               />
-            </div>
+            </BulkEditToggle>
 
-            <div className={bulkEnabled.payee ? "bulk-edit-field enabled" : "bulk-edit-field"}>
-              <label className="bulk-edit-toggle">
-                <input
-                  type="checkbox"
-                  checked={bulkEnabled.payee}
-                  onChange={(event) =>
-                    setBulkEnabled((current) => ({
-                      ...current,
-                      payee: event.target.checked,
-                    }))
-                  }
-                />
-                <span>Change payee</span>
-              </label>
+            <BulkEditToggle
+              label="Change payee"
+              enabled={bulkEnabled.payee}
+              onToggle={(on) =>
+                setBulkEnabled((current) => ({ ...current, payee: on }))
+              }
+            >
               <Input
                 aria-label="New payee"
                 list={payeeListId}
@@ -1021,22 +1008,15 @@ export default function StagingPage() {
                   <option key={payee} value={payee} />
                 ))}
               </datalist>
-            </div>
+            </BulkEditToggle>
 
-            <div className={bulkEnabled.categoryId ? "bulk-edit-field enabled" : "bulk-edit-field"}>
-              <label className="bulk-edit-toggle">
-                <input
-                  type="checkbox"
-                  checked={bulkEnabled.categoryId}
-                  onChange={(event) =>
-                    setBulkEnabled((current) => ({
-                      ...current,
-                      categoryId: event.target.checked,
-                    }))
-                  }
-                />
-                <span>Change category</span>
-              </label>
+            <BulkEditToggle
+              label="Change category"
+              enabled={bulkEnabled.categoryId}
+              onToggle={(on) =>
+                setBulkEnabled((current) => ({ ...current, categoryId: on }))
+              }
+            >
               <Select
                 aria-label="New category"
                 value={bulkValues.categoryId}
@@ -1055,23 +1035,16 @@ export default function StagingPage() {
                   </option>
                 ))}
               </Select>
-            </div>
+            </BulkEditToggle>
 
-            <div className={bulkEnabled.accountId ? "bulk-edit-field enabled" : "bulk-edit-field"}>
-              <label className="bulk-edit-toggle">
-                <input
-                  type="checkbox"
-                  checked={bulkEnabled.accountId}
-                  disabled={accountChangeUnavailable}
-                  onChange={(event) =>
-                    setBulkEnabled((current) => ({
-                      ...current,
-                      accountId: event.target.checked,
-                    }))
-                  }
-                />
-                <span>Change account</span>
-              </label>
+            <BulkEditToggle
+              label="Change account"
+              enabled={bulkEnabled.accountId}
+              disabled={accountChangeUnavailable}
+              onToggle={(on) =>
+                setBulkEnabled((current) => ({ ...current, accountId: on }))
+              }
+            >
               <Select
                 aria-label="New account"
                 value={bulkValues.accountId}
@@ -1103,22 +1076,15 @@ export default function StagingPage() {
                   set an account on them.
                 </small>
               ) : null}
-            </div>
+            </BulkEditToggle>
 
-            <div className={bulkEnabled.description ? "bulk-edit-field enabled" : "bulk-edit-field"}>
-              <label className="bulk-edit-toggle">
-                <input
-                  type="checkbox"
-                  checked={bulkEnabled.description}
-                  onChange={(event) =>
-                    setBulkEnabled((current) => ({
-                      ...current,
-                      description: event.target.checked,
-                    }))
-                  }
-                />
-                <span>Change description</span>
-              </label>
+            <BulkEditToggle
+              label="Change description"
+              enabled={bulkEnabled.description}
+              onToggle={(on) =>
+                setBulkEnabled((current) => ({ ...current, description: on }))
+              }
+            >
               <Input
                 aria-label="New description"
                 value={bulkValues.description}
@@ -1132,22 +1098,15 @@ export default function StagingPage() {
                 }
               />
               {bulkEnabled.description ? <small>Leave blank to clear.</small> : null}
-            </div>
+            </BulkEditToggle>
 
-            <div className={bulkEnabled.notes ? "bulk-edit-field enabled" : "bulk-edit-field"}>
-              <label className="bulk-edit-toggle">
-                <input
-                  type="checkbox"
-                  checked={bulkEnabled.notes}
-                  onChange={(event) =>
-                    setBulkEnabled((current) => ({
-                      ...current,
-                      notes: event.target.checked,
-                    }))
-                  }
-                />
-                <span>Change notes</span>
-              </label>
+            <BulkEditToggle
+              label="Change notes"
+              enabled={bulkEnabled.notes}
+              onToggle={(on) =>
+                setBulkEnabled((current) => ({ ...current, notes: on }))
+              }
+            >
               <Textarea
                 aria-label="New notes"
                 rows={3}
@@ -1162,23 +1121,16 @@ export default function StagingPage() {
                 }
               />
               {bulkEnabled.notes ? <small>Leave blank to clear.</small> : null}
-            </div>
+            </BulkEditToggle>
 
-            <div className={bulkEnabled.type ? "bulk-edit-field enabled" : "bulk-edit-field"}>
-              <label className="bulk-edit-toggle">
-                <input
-                  type="checkbox"
-                  checked={bulkEnabled.type}
-                  disabled={typeChangeUnavailable}
-                  onChange={(event) =>
-                    setBulkEnabled((current) => ({
-                      ...current,
-                      type: event.target.checked,
-                    }))
-                  }
-                />
-                <span>Change type</span>
-              </label>
+            <BulkEditToggle
+              label="Change type"
+              enabled={bulkEnabled.type}
+              disabled={typeChangeUnavailable}
+              onToggle={(on) =>
+                setBulkEnabled((current) => ({ ...current, type: on }))
+              }
+            >
               <Select
                 aria-label="New transaction type"
                 value={bulkValues.type}
@@ -1198,7 +1150,7 @@ export default function StagingPage() {
                   Type cannot be mass edited when a transfer is selected.
                 </small>
               ) : null}
-            </div>
+            </BulkEditToggle>
           </div>
         </form>
       </Modal>

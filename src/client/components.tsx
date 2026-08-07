@@ -628,6 +628,43 @@ export function PageHeader({
  * so a page with plenty of data still greets you with "nothing here yet" for as
  * long as the request takes.
  */
+/**
+ * One toggleable field in a mass edit: the checkbox that opts the field in, and
+ * whatever control sets its value.
+ *
+ * The wrapper and the toggle are identical for every field on both screens; the
+ * controls are not, because a committed row and a staged one offer different
+ * accounts and refuse for different reasons. So the shared part is here and the
+ * control stays at the call site.
+ */
+export function BulkEditToggle({
+  label,
+  enabled,
+  onToggle,
+  disabled = false,
+  children,
+}: PropsWithChildren<{
+  label: string;
+  enabled: boolean;
+  onToggle: (enabled: boolean) => void;
+  disabled?: boolean;
+}>) {
+  return (
+    <div className={enabled ? "bulk-edit-field enabled" : "bulk-edit-field"}>
+      <label className="bulk-edit-toggle">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(event) => onToggle(event.target.checked)}
+        />
+        <span>{label}</span>
+      </label>
+      {children}
+    </div>
+  );
+}
+
 export function Skeleton({ height = 16 }: { height?: number }) {
   return (
     <span
