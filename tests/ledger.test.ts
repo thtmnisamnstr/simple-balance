@@ -197,3 +197,120 @@ describe("natural liability presentation", () => {
     });
   });
 });
+
+describe("splitting an entry across categories", () => {
+  const foodId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const householdId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+  const petsId = "99999999-9999-4999-8999-999999999999";
+
+  const split = (legs: unknown) =>
+    prepare({
+      type: "withdrawal",
+      fromAccountId: checking,
+      amount: "100.00",
+      ...common,
+      legs,
+    } as TransactionDraft);
+
+  it("cuts the counter-account side into one posting per leg", () => {
+    const prepared = split([
+      { categoryId: foodId, amount: "60.00" },
+      { categoryId: householdId, amount: "30.00" },
+      { categoryId: petsId, amount: "10.00" },
+    ]);
+
+    expect(prepared.postings).toMatchObject([
+      { accountId: checking, amount: "-100", legIndex: null },
+      { accountId: expenseUsd, amount: "60", legIndex: 0 },
+      { accountId: expenseUsd, amount: "30", legIndex: 1 },
+      { accountId: expenseUsd, amount: "10", legIndex: 2 },
+    ]);
+    expect(currencyTotals(prepared.postings)).toEqual({ USD: "0" });
+    expect(prepared.transaction.legCount).toBe(3);
+    expect(prepared.transaction.sourceAmount).toBe("100");
+  });
+
+  /**
+   * The seeds name their leg by position rather than by id, because staged
+   * validation runs this for every queued row: a builder that minted
+   * identifiers could not be called without meaning to write.
+   */
+  it("stays pure, emitting positions rather than identifiers", () => {
+    const legs = [
+      { categoryId: foodId, amount: "60.00" },
+      { categoryId: householdId, amount: "40.00" },
+    ];
+    expect(split(legs)).toEqual(split(legs));
+    expect(split(legs).legs.every((leg) => !("id" in leg))).toBe(true);
+  });
+
+  it("carries an existing leg's id through untouched", () => {
+    const id = "88888888-8888-4888-8888-888888888888";
+    const prepared = split([
+      { id, categoryId: foodId, amount: "60.00" },
+      { categoryId: householdId, amount: "40.00" },
+    ]);
+    expect(prepared.legs.map((leg) => leg.id)).toEqual([id, undefined]);
+    expect(prepared.legs.map((leg) => leg.currency)).toEqual(["USD", "USD"]);
+  });
+
+  /**
+   * The refusal says something about the receipt. The zero-sum check would
+   * catch it either way, but it would report that postings for USD do not
+   * balance, which tells nobody what they typed wrong.
+   */
+  it("names both totals when the legs do not add up", () => {
+    expect(() =>
+      split([
+        { categoryId: foodId, amount: "60.00" },
+        { categoryId: householdId, amount: "35.00" },
+      ]),
+    ).toThrow("The split adds up to 95, but the transaction is 100");
+  });
+
+  it("splits a deposit against the income account the same way", () => {
+    const prepared = prepare({
+      type: "deposit",
+      toAccountId: checking,
+      amount: "80.00",
+      ...common,
+      legs: [
+        { categoryId: foodId, amount: "50.00" },
+        { categoryId: householdId, amount: "30.00" },
+      ],
+    } as TransactionDraft);
+
+    expect(prepared.postings).toMatchObject([
+      { accountId: checking, amount: "80", legIndex: null },
+      { accountId: incomeUsd, amount: "-50", legIndex: 0 },
+      { accountId: incomeUsd, amount: "-30", legIndex: 1 },
+    ]);
+    expect(currencyTotals(prepared.postings)).toEqual({ USD: "0" });
+  });
+
+  it("leaves an unsplit entry exactly as it was", () => {
+    const prepared = prepare({
+      type: "withdrawal",
+      fromAccountId: checking,
+      amount: "100.00",
+      categoryId: foodId,
+      ...common,
+    });
+    expect(prepared.postings).toHaveLength(2);
+    expect(prepared.postings.every((posting) => posting.legIndex === null)).toBe(true);
+    expect(prepared.legs).toEqual([]);
+    expect(prepared.transaction.legCount).toBe(0);
+  });
+
+  it("keeps a transfer free of legs whatever it was handed", () => {
+    const prepared = prepare({
+      type: "transfer",
+      fromAccountId: checking,
+      toAccountId: savings,
+      sourceAmount: "50.00",
+      ...common,
+    });
+    expect(prepared.legs).toEqual([]);
+    expect(prepared.transaction.legCount).toBe(0);
+  });
+});

@@ -70,6 +70,88 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       .toMatchObject({ headers: ["date", "payee", "amount"], delimiter: "," });
   });
 
+  /**
+   * The declared output schema is what makes a split visible to an agent at
+   * all: a result that does not satisfy it is dropped without a word, so the
+   * legs have to be seen arriving rather than assumed.
+   */
+  it("creates a split, hands back its legs, and refuses to flatten one in bulk", async () => {
+    const household = (await call("create_category", {
+      name: "Household",
+      kind: "expense",
+      idempotencyKey: "split-category",
+    })) as { id: string };
+
+    const created = (await call("create_transaction", {
+      draft: {
+        type: "withdrawal",
+        date: "2026-02-01",
+        payee: "Costco",
+        fromAccountId: accountId,
+        amount: "40.00",
+        legs: [
+          { categoryId, amount: "25.00", note: "Food" },
+          { categoryId: household.id, amount: "15.00" },
+        ],
+      },
+      idempotencyKey: "split-create",
+    })) as {
+      id: string;
+      version: number;
+      categoryId: string | null;
+      legs: { id: string; amount: string; category: { name: string } | null }[];
+    };
+
+    expect(created.categoryId).toBeNull();
+    expect(created.legs).toHaveLength(2);
+    expect(created.legs.map((leg) => leg.amount)).toEqual(["25", "15"]);
+    expect(created.legs.map((leg) => leg.category?.name)).toEqual([
+      "Groceries",
+      "Household",
+    ]);
+    expect(created.legs.every((leg) => typeof leg.id === "string")).toBe(true);
+
+    const preview = (await call("preview_bulk_transaction_selection", {
+      filter: {},
+      excludedIds: [],
+    })) as { count: number; splitCount: number };
+    expect(preview.splitCount).toBe(1);
+
+    await expect(
+      call("bulk_edit_transactions", {
+        selection: { mode: "ids", items: [{ id: created.id, expectedVersion: created.version }] },
+        patch: { categoryId },
+        idempotencyKey: "split-flatten",
+        dryRun: true,
+      }),
+    ).rejects.toThrow(/cannot include split transactions/);
+
+    // A leg relabelled by id, which the ledger records without writing a single
+    // posting, and the reader sees the new label straight away.
+    const relabelled = (await call("update_transaction", {
+      id: created.id,
+      idempotencyKey: "split-relabel",
+      input: {
+        expectedVersion: created.version,
+        draft: {
+          type: "withdrawal",
+          date: "2026-02-01",
+          payee: "Costco",
+          fromAccountId: accountId,
+          amount: "40.00",
+          legs: [
+            { id: created.legs[0]!.id, categoryId: household.id, amount: "25.00" },
+            { id: created.legs[1]!.id, categoryId: household.id, amount: "15.00" },
+          ],
+        },
+      },
+    })) as { legs: { category: { name: string } | null }[] };
+    expect(relabelled.legs.map((leg) => leg.category?.name)).toEqual([
+      "Household",
+      "Household",
+    ]);
+  });
+
   it("sets a preference and reads it back", async () => {
     expect(await call("set_preferences", { timezone: "Europe/Paris", idempotencyKey: "pref-key-1" }))
       .toMatchObject({ timezone: "Europe/Paris", defaultCurrency: "USD" });
