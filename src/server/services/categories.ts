@@ -231,7 +231,16 @@ async function activeStagedCategoryReferenceCount(
       and(
         eq(stagedTransactions.userId, actor.userId),
         eq(stagedTransactions.status, "staged"),
-        sql`${stagedTransactions.draft} ->> 'categoryId' = ${categoryId}`,
+        or(
+          sql`${stagedTransactions.draft} ->> 'categoryId' = ${categoryId}`,
+          sql`exists (
+            select 1
+            from jsonb_array_elements(
+              coalesce(${stagedTransactions.draft} -> 'legs', '[]'::jsonb)
+            ) as leg
+            where leg ->> 'categoryId' = ${categoryId}
+          )`,
+        )!,
       ),
     );
   return count;

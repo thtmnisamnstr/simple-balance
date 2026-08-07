@@ -114,7 +114,18 @@ export async function lockStagedDraftReferences(
     ].filter((value): value is string => Boolean(value)),
   );
   await lockAccountReferences(tx, actor, accountIds);
-  if (drafts.some((draft) => referenceValue(draft, "categoryId"))) {
+  // A split names its categories on the legs rather than in the column, so both
+  // are looked at. Without the lock, two rows staged at once naming the same new
+  // category by name would each create it.
+  const namesACategory = (draft: unknown) =>
+    Boolean(referenceValue(draft, "categoryId")) ||
+    (Array.isArray((draft as { legs?: unknown })?.legs) &&
+      (draft as { legs: unknown[] }).legs.some(
+        (leg) =>
+          referenceValue(leg, "categoryId") ??
+          (leg as { categoryName?: unknown })?.categoryName,
+      ));
+  if (drafts.some(namesACategory)) {
     await lockCategoryNamespace(tx, actor);
   }
   await lockPayeeNamespace(tx, actor);
