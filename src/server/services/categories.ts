@@ -179,11 +179,17 @@ export async function resolveCategoryByName(
 }
 
 /**
- * Settle a draft's category before anything is written.
+ * Settle a draft's categories before anything is written, the entry's own and
+ * every leg's.
  *
  * An id the caller supplied wins outright; a name is only consulted when there
  * is no id. The name is dropped on the way out so everything downstream sees a
  * draft with exactly one way of saying which category this is.
+ *
+ * Legs resolve one at a time rather than in a batch, so that two legs naming
+ * the same new category end up on one category rather than two: the second
+ * lookup sees what the first created. Every leg of an entry takes the entry's
+ * kind, since they are all shares of the same movement.
  */
 export async function resolveDraftCategory<T extends TransactionDraft>(
   tx: DbTransaction,
@@ -191,14 +197,25 @@ export async function resolveDraftCategory<T extends TransactionDraft>(
   draft: T,
 ): Promise<T> {
   const { categoryName, ...rest } = draft;
-  if (!categoryName || draft.categoryId) return { ...rest } as T;
-  const category = await resolveCategoryByName(
-    tx,
-    actor,
-    categoryName,
-    categoryKindForDraft(draft),
-  );
-  return { ...rest, categoryId: category.id } as T;
+  const kind = categoryKindForDraft(draft);
+  const resolved = { ...rest } as T;
+
+  if (draft.legs?.some((leg) => leg.categoryName && !leg.categoryId)) {
+    const legs = [];
+    for (const { categoryName: legName, ...leg } of draft.legs) {
+      if (!legName || leg.categoryId) {
+        legs.push(leg);
+        continue;
+      }
+      const category = await resolveCategoryByName(tx, actor, legName, kind);
+      legs.push({ ...leg, categoryId: category.id });
+    }
+    resolved.legs = legs;
+  }
+
+  if (!categoryName || draft.categoryId) return resolved;
+  const category = await resolveCategoryByName(tx, actor, categoryName, kind);
+  return { ...resolved, categoryId: category.id };
 }
 
 async function activeStagedCategoryReferenceCount(

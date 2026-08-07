@@ -51,8 +51,10 @@ import {
   categories,
   ledgerAccounts,
   postings,
+  transactionLegs,
   transactionTemplates,
   transactions,
+  type TransactionLegRow,
   type TransactionRow,
 } from "../db/schema.js";
 import { duplicate, notFound, staleVersion, validationError } from "./errors.js";
@@ -79,9 +81,34 @@ import { resolveDraftCategory } from "./categories.js";
 import { normalizeHumanName } from "./names.js";
 import { resolveCanonicalPayee } from "./payees.js";
 
+/**
+ * A leg as it should end up, before it has a row. `id` names an existing leg;
+ * without one this is a new leg.
+ */
+type LegSeed = {
+  id?: string;
+  categoryId: string | null;
+  amount: string;
+  currency: string;
+  note: string | null;
+};
+
+/**
+ * A posting before it is filed, naming its leg by position rather than by id.
+ *
+ * Positions rather than ids because buildPreparedTransaction is pure: staged
+ * validation runs it for every queued row, so it must not mint identifiers or
+ * touch the database. The caller turns the index into a leg id once the legs
+ * have rows.
+ */
+type PreparedPosting = Omit<typeof postings.$inferInsert, "legId"> & {
+  legIndex: number | null;
+};
+
 type PreparedTransaction = {
   transaction: typeof transactions.$inferInsert;
-  postings: (typeof postings.$inferInsert)[];
+  postings: PreparedPosting[];
+  legs: LegSeed[];
 };
 
 type PostingAccount = {
@@ -169,19 +196,21 @@ function counterAccount(
  * whole entry, because every posting a transaction makes happened on the day
  * the transaction did.
  */
-type PostingSeed = Omit<typeof postings.$inferInsert, "date" | "transactionId">;
+type PostingSeed = Omit<PreparedPosting, "date" | "transactionId">;
 
 function posting(
   actor: Actor,
   accountId: string,
   amount: string | Decimal,
   currency: string,
+  legIndex: number | null = null,
 ): PostingSeed {
   return {
     userId: actor.userId,
     accountId,
     amount: canonicalDecimal(amount),
     currency,
+    legIndex,
   };
 }
 
@@ -205,6 +234,69 @@ function assertBalanced(prepared: PreparedTransaction) {
   return prepared;
 }
 
+/**
+ * Refuse a split whose legs do not add up to the amount of the entry.
+ *
+ * This guarantees nothing that `assertBalanced` does not already guarantee: the
+ * legs *are* the counter-account postings, so legs summing to 95 against a
+ * total of 100 leave a 5 residual and are refused a few lines later either way.
+ * It exists for what it says. `assertBalanced` would report "Postings for USD
+ * do not balance to zero", which tells somebody who has just typed a receipt
+ * nothing about the receipt. It also runs during staged validation, so an
+ * import lands in the queue as a row that can be repaired rather than one that
+ * was rejected. Deleting it would cost no correctness and all of the diagnosis.
+ */
+function assertLegsCoverTotal(draft: TransactionDraft, total: string) {
+  if (!draft.legs) return;
+  const summed = draft.legs.reduce(
+    (running, leg) => running.plus(leg.amount),
+    decimal("0"),
+  );
+  if (summed.eq(total)) return;
+  throw validationError(
+    `The split adds up to ${canonicalDecimal(summed)}, but the transaction is ${canonicalDecimal(total)}`,
+    {
+      field: "legs",
+      legTotal: canonicalDecimal(summed),
+      transactionAmount: canonicalDecimal(total),
+      difference: canonicalDecimal(summed.minus(total)),
+    },
+  );
+}
+
+/**
+ * The counter-account side of an entry, as one posting or as one per leg.
+ *
+ * A split does not add a second record of the money; it cuts the side that was
+ * already there into pieces. That is why nothing has to check that the pieces
+ * add up: they are the postings the balance check already sums.
+ */
+function counterPostings(
+  actor: Actor,
+  draft: TransactionDraft,
+  accountId: string,
+  total: string,
+  currency: string,
+  sign: 1 | -1,
+): PostingSeed[] {
+  const signed = (amount: string) =>
+    sign === 1 ? decimal(amount) : decimal(amount).negated();
+  if (!draft.legs) return [posting(actor, accountId, signed(total), currency)];
+  return draft.legs.map((leg, index) =>
+    posting(actor, accountId, signed(leg.amount), currency, index),
+  );
+}
+
+function legSeeds(draft: TransactionDraft, currency: string): LegSeed[] {
+  return (draft.legs ?? []).map((leg) => ({
+    ...(leg.id ? { id: leg.id } : {}),
+    categoryId: leg.categoryId ?? null,
+    amount: canonicalDecimal(leg.amount),
+    currency,
+    note: leg.note ?? null,
+  }));
+}
+
 export function buildPreparedTransaction(
   actor: Actor,
   draft: TransactionDraft,
@@ -222,28 +314,33 @@ export function buildPreparedTransaction(
     notes: draft.notes ?? null,
     externalId: draft.externalId ?? null,
   };
-  const entries = (seeds: PostingSeed[]): (typeof postings.$inferInsert)[] =>
+  const entries = (seeds: PostingSeed[]): PreparedPosting[] =>
     seeds.map((seed) => ({ ...seed, date: common.date }));
 
   if (draft.type === "deposit") {
     const destination = accountMap.get(draft.toAccountId);
     if (!destination) throw validationError("Destination account is unavailable");
+    assertLegsCoverTotal(draft, draft.amount);
     return {
       transaction: {
         ...common,
         destinationAccountId: destination.id,
         destinationAmount: canonicalDecimal(draft.amount),
         destinationCurrency: destination.currency,
+        legCount: draft.legs?.length ?? 0,
       },
+      legs: legSeeds(draft, destination.currency),
       postings: entries([
         posting(actor, destination.id, draft.amount, destination.currency),
-        // The other half of the entry. Without it the deposit would create
-        // money out of nothing.
-        posting(
+        // The other half of the entry, as one posting or one per leg. Without
+        // it the deposit would create money out of nothing.
+        ...counterPostings(
           actor,
+          draft,
           counterAccount(systemAccounts, "income", destination.currency).id,
-          decimal(draft.amount).negated(),
+          draft.amount,
           destination.currency,
+          -1,
         ),
       ]),
     };
@@ -252,20 +349,25 @@ export function buildPreparedTransaction(
   if (draft.type === "withdrawal") {
     const source = accountMap.get(draft.fromAccountId);
     if (!source) throw validationError("Source account is unavailable");
+    assertLegsCoverTotal(draft, draft.amount);
     return {
       transaction: {
         ...common,
         sourceAccountId: source.id,
         sourceAmount: canonicalDecimal(draft.amount),
         sourceCurrency: source.currency,
+        legCount: draft.legs?.length ?? 0,
       },
+      legs: legSeeds(draft, source.currency),
       postings: entries([
         posting(actor, source.id, decimal(draft.amount).negated(), source.currency),
-        posting(
+        ...counterPostings(
           actor,
+          draft,
           counterAccount(systemAccounts, "expense", source.currency).id,
           draft.amount,
           source.currency,
+          1,
         ),
       ]),
     };
@@ -311,7 +413,9 @@ export function buildPreparedTransaction(
       sourceCurrency: source.currency,
       destinationCurrency: destination.currency,
       effectiveRate,
+      legCount: 0,
     },
+    legs: [],
     postings: entries(
       source.currency === destination.currency
         ? [
@@ -349,19 +453,6 @@ export function buildPreparedTransaction(
 }
 
 /**
- * Bring an entry's postings to a desired state without ever editing or deleting
- * one. The difference between what is posted and what should be posted is
- * worked out per account, currency, date, and category, and only that
- * difference is written.
- *
- * Correcting an amount therefore costs one adjusting posting per side rather
- * than a full reversal plus a full repost, and an edit that changes nothing
- * about the movement writes nothing at all. Passing an empty desired set voids
- * the entry, which is how deletion works; passing its postings back restores it.
- *
- * The rows still sum to the current position, and the path there stays legible.
- */
-/**
  * Every column that describes the shape of a transaction, named explicitly.
  *
  * A prepared transaction only carries the columns its own shape needs, so
@@ -386,7 +477,166 @@ function transactionShapeColumns(values: typeof transactions.$inferInsert) {
     sourceCurrency: values.sourceCurrency ?? null,
     destinationCurrency: values.destinationCurrency ?? null,
     effectiveRate: values.effectiveRate ?? null,
+    // Editing a split down to one category has to clear this, or the check
+    // constraint holds the row to a shape it no longer has.
+    legCount: values.legCount ?? 0,
   };
+}
+
+/**
+ * Bring an entry's postings to a desired state without ever editing or deleting
+ * one. The difference between what is posted and what should be posted is
+ * worked out per account, currency, date, and leg, and only that difference is
+ * written.
+ *
+ * Correcting an amount therefore costs one adjusting posting per side rather
+ * than a full reversal plus a full repost, and an edit that changes nothing
+ * about the movement writes nothing at all. Recategorising a leg is exactly
+ * that kind of edit: the label lives on the leg row and the leg's identity does
+ * not change, so the difference is empty and no posting is written. Changing
+ * what a leg is worth does write two, which is right, because the money was
+ * divided differently.
+ *
+ * Passing an empty desired set voids the entry, which is how deletion works.
+ * Each leg is negated under its own id, so a split goes to zero one leg at a
+ * time and every one of its categories drops out of the reports. Passing its
+ * postings back restores it.
+ *
+ * The rows still sum to the current position, and the path there stays legible.
+ */
+/**
+ * Bring a transaction's legs to the desired list and hand back where each
+ * prepared posting's `legIndex` now points.
+ *
+ * A leg is never deleted, only zeroed. Its postings reference it and they are
+ * append-only, so removing the row would take the history of the money with it.
+ * A zeroed leg nets to nothing through `repostTransaction`, disappears from
+ * every report through the `sum(amount) <> 0` filters they already have, and is
+ * waiting to be reused if that category comes back.
+ *
+ * Returned by index rather than mutating the seeds, because the seeds come from
+ * a pure builder that has no ids to give.
+ */
+async function resyncLegs(
+  tx: DbTransaction,
+  actor: Actor,
+  transactionId: string,
+  desired: readonly LegSeed[],
+): Promise<(string | null)[]> {
+  const existing = await tx
+    .select()
+    .from(transactionLegs)
+    .where(
+      and(
+        eq(transactionLegs.userId, actor.userId),
+        eq(transactionLegs.transactionId, transactionId),
+      ),
+    );
+  const byId = new Map(existing.map((leg) => [leg.id, leg]));
+
+  const named = new Set<string>();
+  const ids: (string | null)[] = [];
+  for (const [ordinal, leg] of desired.entries()) {
+    const current = leg.id ? byId.get(leg.id) : undefined;
+    if (leg.id && !current) throw validationError("Leg is unavailable");
+    if (current) {
+      named.add(current.id);
+      await tx
+        .update(transactionLegs)
+        .set({
+          categoryId: leg.categoryId,
+          amount: leg.amount,
+          currency: leg.currency,
+          note: leg.note,
+          ordinal,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(transactionLegs.id, current.id),
+            eq(transactionLegs.userId, actor.userId),
+          ),
+        );
+      ids.push(current.id);
+      continue;
+    }
+    const [created] = await tx
+      .insert(transactionLegs)
+      .values({
+        userId: actor.userId,
+        transactionId,
+        categoryId: leg.categoryId,
+        amount: leg.amount,
+        currency: leg.currency,
+        note: leg.note,
+        ordinal,
+      })
+      .returning({ id: transactionLegs.id });
+    named.add(created.id);
+    ids.push(created.id);
+  }
+
+  const dropped = existing.filter((leg) => !named.has(leg.id));
+  if (dropped.length) {
+    await tx
+      .update(transactionLegs)
+      .set({ amount: "0", updatedAt: new Date() })
+      .where(
+        and(
+          eq(transactionLegs.userId, actor.userId),
+          inArray(
+            transactionLegs.id,
+            dropped.map((leg) => leg.id),
+          ),
+        ),
+      );
+  }
+  return ids;
+}
+
+/**
+ * Every transaction's legs, in display order, for a batch of transactions.
+ *
+ * One query for a page of rows rather than one per row: a mass edit over a
+ * whole filter would otherwise issue a lookup per transaction to find out that
+ * almost none of them are splits.
+ */
+async function legsByTransaction(
+  db: Database | DbTransaction,
+  actor: Actor,
+  transactionIds: readonly string[],
+): Promise<Map<string, TransactionLegRow[]>> {
+  const byTransaction = new Map<string, TransactionLegRow[]>();
+  if (!transactionIds.length) return byTransaction;
+  const rows = await db
+    .select()
+    .from(transactionLegs)
+    .where(
+      and(
+        eq(transactionLegs.userId, actor.userId),
+        inArray(transactionLegs.transactionId, [...transactionIds]),
+      ),
+    )
+    .orderBy(transactionLegs.transactionId, transactionLegs.ordinal);
+  for (const row of rows) {
+    const legs = byTransaction.get(row.transactionId);
+    if (legs) legs.push(row);
+    else byTransaction.set(row.transactionId, [row]);
+  }
+  return byTransaction;
+}
+
+/** Stamp each prepared posting with the leg its index resolved to. */
+function withLegIds(
+  prepared: readonly PreparedPosting[],
+  legIds: readonly (string | null)[],
+  transactionId: string,
+): (typeof postings.$inferInsert)[] {
+  return prepared.map(({ legIndex, ...posting }) => ({
+    ...posting,
+    transactionId,
+    legId: legIndex === null ? null : (legIds[legIndex] ?? null),
+  }));
 }
 
 export async function repostTransaction(
@@ -409,14 +659,25 @@ export async function repostTransaction(
     accountId: string;
     currency: string;
     date: string;
+    legId: string | null;
     amount: Decimal;
   };
   const net = new Map<string, Slot>();
   const add = (
-    row: { accountId: string; currency: string; date: string },
+    row: {
+      accountId: string;
+      currency: string;
+      date: string;
+      legId?: string | null;
+    },
     amount: Decimal,
   ) => {
-    const key = `${row.accountId}|${row.currency}|${row.date}`;
+    // The leg belongs in the key. Every leg of a split posts to the same
+    // counter-account, in the same currency, on the same date, so without it
+    // the legs of a receipt collapse into one slot on the first edit, delete or
+    // restore and the split is gone. Postings are append-only, so there would
+    // be nothing left to repair it from.
+    const key = `${row.accountId}|${row.currency}|${row.date}|${row.legId ?? ""}`;
     const slot = net.get(key);
     if (slot) {
       slot.amount = slot.amount.plus(amount);
@@ -426,6 +687,7 @@ export async function repostTransaction(
       accountId: row.accountId,
       currency: row.currency,
       date: row.date,
+      legId: row.legId ?? null,
       amount,
     });
   };
@@ -439,6 +701,7 @@ export async function repostTransaction(
       transactionId,
       accountId: slot.accountId,
       date: slot.date,
+      legId: slot.legId,
       amount: canonicalDecimal(slot.amount),
       currency: slot.currency,
     }));
@@ -503,7 +766,7 @@ export async function prepareTransaction(
         ? [draft.fromAccountId]
         : [draft.fromAccountId, draft.toAccountId];
   await lockAccountReferences(tx, actor, accountIds);
-  if (draft.categoryId) {
+  if (draft.categoryId || draft.legs?.some((leg) => leg.categoryId)) {
     await lockCategoryNamespace(tx, actor);
   }
   await lockPayeeNamespace(tx, actor);
@@ -561,13 +824,20 @@ export async function prepareTransaction(
     if (!owned) throw validationError("Template is unavailable");
   }
 
-  if (draft.categoryId) {
+  // Every category the entry names, whether it names one or one per leg. The
+  // legs of an entry are all shares of the same movement, so they answer to the
+  // same rule about which kind of category may carry it.
+  const namedCategoryIds = new Set(
+    [
+      draft.categoryId,
+      ...(draft.legs ?? []).map((leg) => leg.categoryId),
+    ].filter((id) => id != null),
+  );
+  for (const categoryId of namedCategoryIds) {
     const [category] = await tx
       .select()
       .from(categories)
-      .where(
-        and(eq(categories.id, draft.categoryId), eq(categories.userId, actor.userId)),
-      )
+      .where(and(eq(categories.id, categoryId), eq(categories.userId, actor.userId)))
       .limit(1);
     if (
       !category ||
@@ -603,12 +873,10 @@ export async function createTransactionWithinTx(
   const prepared = await prepareTransaction(tx, actor, draft);
   await assertDuplicateAllowed(tx, actor, draft, allowDuplicate);
   const [created] = await tx.insert(transactions).values(prepared.transaction).returning();
-  await tx.insert(postings).values(
-    prepared.postings.map((posting) => ({
-      ...posting,
-      transactionId: created.id,
-    })),
-  );
+  const legIds = await resyncLegs(tx, actor, created.id, prepared.legs);
+  await tx
+    .insert(postings)
+    .values(withLegIds(prepared.postings, legIds, created.id));
   await writeAudit(tx, actor, {
     entityType: "transaction",
     entityId: created.id,
@@ -1037,6 +1305,7 @@ export async function getBulkTransactionSelection(
 function applyBulkPatch(
   row: TransactionRow,
   patch: BulkTransactionPatch,
+  legs: readonly TransactionLegRow[] = [],
 ): TransactionDraft {
   if (row.type === "transfer" && (patch.accountId || patch.type)) {
     throw validationError(
@@ -1045,7 +1314,19 @@ function applyBulkPatch(
     );
   }
 
-  const current = transactionToDraft(row);
+  const current = transactionToDraft(row, legs);
+  // A split already says which categories the money went to, one per leg, so
+  // there is no single category to set it to and no honest way to guess which
+  // leg was meant. Changing the type is refused for the same reason from the
+  // other end: every leg's category was checked against the direction of the
+  // entry, and flipping it invalidates all of them at once. Both are refused
+  // outright rather than quietly flattening the split, which cannot be undone.
+  if (current.legs && (patch.categoryId !== undefined || patch.type)) {
+    throw validationError(
+      "Bulk category and type changes cannot include split transactions",
+      { transactionId: row.id, fields: ["categoryId", "type"] },
+    );
+  }
   const common = {
     date: patch.date ?? current.date,
     payee: patch.payee ?? current.payee,
@@ -1059,6 +1340,7 @@ function applyBulkPatch(
         : current.categoryId,
     notes: patch.notes !== undefined ? patch.notes : current.notes,
     externalId: current.externalId,
+    legs: current.legs,
   };
 
   if (!patch.type) {
@@ -1283,9 +1565,14 @@ export async function bulkEditTransactions(
       throw validationError("Select at least one transaction");
     }
     const snapshotFingerprint = bulkSelectionFingerprint(snapshotRows);
+    const snapshotLegs = await legsByTransaction(
+      tx,
+      actor,
+      snapshotRows.map((row) => row.id),
+    );
     const snapshotDrafts = snapshotRows.map((row) => ({
       row,
-      draft: applyBulkPatch(row, parsed.patch),
+      draft: applyBulkPatch(row, parsed.patch, snapshotLegs.get(row.id)),
     }));
 
     await lockAccountReferences(
@@ -1349,8 +1636,14 @@ export async function bulkEditTransactions(
     }
 
     const plans: BulkEditPlan[] = [];
+    const lockedLegs = await legsByTransaction(
+      tx,
+      actor,
+      lockedRows.map((row) => row.id),
+    );
     for (const before of lockedRows) {
-      const draft = applyBulkPatch(before, parsed.patch);
+      const legs = lockedLegs.get(before.id) ?? [];
+      const draft = applyBulkPatch(before, parsed.patch, legs);
       const existingAccountIds = new Set(
         [before.sourceAccountId, before.destinationAccountId].filter(
           (id): id is string => Boolean(id),
@@ -1358,8 +1651,13 @@ export async function bulkEditTransactions(
       );
       const prepared = await prepareTransaction(tx, actor, draft, {
         allowedArchivedAccountIds: existingAccountIds,
+        // A category archived since the entry was written still has to be
+        // allowed through, or a mass date change fails on a split whose
+        // categories were tidied away months ago.
         allowedArchivedCategoryIds: new Set(
-          before.categoryId ? [before.categoryId] : [],
+          [before.categoryId, ...legs.map((leg) => leg.categoryId)].filter(
+            (id): id is string => id !== null,
+          ),
         ),
       });
       const canonicalPayee = prepared.transaction.payee;
@@ -1450,12 +1748,15 @@ export async function bulkEditTransactions(
     }
 
     for (const { before, prepared } of plans) {
+      const legIds = await resyncLegs(tx, actor, before.id, prepared.legs);
       // A deleted row keeps its labels editable and its ledger void.
       await repostTransaction(
         tx,
         actor,
         before.id,
-        before.deletedAt ? [] : prepared.postings,
+        before.deletedAt
+          ? []
+          : withLegIds(prepared.postings, legIds, before.id),
       );
     }
     for (let index = 0; index < plans.length; index += 1) {
@@ -1658,8 +1959,13 @@ export async function updateTransaction(
         (accountId): accountId is string => accountId !== null,
       ),
     );
+    const beforeLegs = (await legsByTransaction(tx, actor, [before.id])).get(
+      before.id,
+    );
     const allowedArchivedCategoryIds = new Set(
-      before.categoryId ? [before.categoryId] : [],
+      [before.categoryId, ...(beforeLegs ?? []).map((leg) => leg.categoryId)].filter(
+        (id): id is string => id !== null,
+      ),
     );
     const resolvedDraft = await resolveDraftCategory(tx, actor, draft);
     const prepared = await prepareTransaction(tx, actor, resolvedDraft, {
@@ -1684,13 +1990,14 @@ export async function updateTransaction(
       )
       .returning();
     if (!updated) throw staleVersion();
+    const legIds = await resyncLegs(tx, actor, id, prepared.legs);
     // Editing a deleted entry keeps it deleted: the labels change, the ledger
     // stays void until it is restored.
     await repostTransaction(
       tx,
       actor,
       id,
-      updated.deletedAt ? [] : prepared.postings,
+      updated.deletedAt ? [] : withLegIds(prepared.postings, legIds, id),
     );
     await writeAudit(tx, actor, {
       entityType: "transaction",
@@ -1746,21 +2053,31 @@ export async function setTransactionDeleted(
     if (!updated) throw staleVersion();
     // A deleted entry is voided in the ledger rather than hidden from it, so
     // no balance or report has to remember to filter it out. Restoring posts
-    // the movement back.
-    const restored = deleted
-      ? []
-      : (
-          await prepareTransaction(tx, actor, transactionToDraft(updated), {
-            allowedArchivedAccountIds: new Set(
-              [updated.sourceAccountId, updated.destinationAccountId].filter(
-                (accountId): accountId is string => accountId !== null,
-              ),
+    // the movement back, split and all: deleting negates the postings and
+    // leaves the legs alone, so they are still there to be restored onto.
+    const legs = (await legsByTransaction(tx, actor, [id])).get(id) ?? [];
+    let restored: (typeof postings.$inferInsert)[] = [];
+    if (!deleted) {
+      const prepared = await prepareTransaction(
+        tx,
+        actor,
+        transactionToDraft(updated, legs),
+        {
+          allowedArchivedAccountIds: new Set(
+            [updated.sourceAccountId, updated.destinationAccountId].filter(
+              (accountId): accountId is string => accountId !== null,
             ),
-            allowedArchivedCategoryIds: new Set(
-              updated.categoryId ? [updated.categoryId] : [],
+          ),
+          allowedArchivedCategoryIds: new Set(
+            [updated.categoryId, ...legs.map((leg) => leg.categoryId)].filter(
+              (categoryId): categoryId is string => categoryId !== null,
             ),
-          })
-        ).postings;
+          ),
+        },
+      );
+      const legIds = await resyncLegs(tx, actor, id, prepared.legs);
+      restored = withLegIds(prepared.postings, legIds, id);
+    }
     await repostTransaction(tx, actor, id, restored);
     await writeAudit(tx, actor, {
       entityType: "transaction",
@@ -1847,6 +2164,15 @@ function normalizeTransactionText(value: string) {
   return normalizeHumanName(value);
 }
 
+/**
+ * Legs are deliberately not part of this, and neither is the category.
+ *
+ * The question this answers is whether the same money moved twice, and how
+ * somebody carved up the receipt afterwards does not change the answer.
+ * Including the split would mean re-importing a statement stopped catching the
+ * rows that were split last month, which is exactly when the duplicate check
+ * matters most.
+ */
 function transactionHeuristicDuplicateKey(draft: TransactionDraft) {
   const common = [
     draft.type,
@@ -1924,7 +2250,24 @@ async function assertDuplicateAllowed(
   }
 }
 
-export function transactionToDraft(row: TransactionRow): TransactionDraft {
+/**
+ * The draft that would produce this row again, legs and all.
+ *
+ * Legs are passed in rather than fetched, so this stays a pure function of a
+ * row; every caller that reposts is already inside a transaction and can read
+ * them once for a whole batch. A caller that only wants the duplicate
+ * fingerprint passes none, which is right: how a receipt was carved up is not
+ * part of whether it is the same money.
+ *
+ * Passing legs is not optional for anything that reposts. A bulk date change
+ * that dropped them would rewrite a split as a flat transaction, and the
+ * postings it replaced are append-only.
+ */
+export function transactionToDraft(
+  row: TransactionRow,
+  legs: readonly TransactionLegRow[] = [],
+): TransactionDraft {
+  const live = legs.filter((leg) => !decimal(leg.amount).isZero());
   const common = {
     date: row.date,
     payee: row.payee,
@@ -1933,6 +2276,16 @@ export function transactionToDraft(row: TransactionRow): TransactionDraft {
     templateId: row.templateId,
     notes: row.notes,
     externalId: row.externalId,
+    ...(live.length
+      ? {
+          legs: live.map((leg) => ({
+            id: leg.id,
+            categoryId: leg.categoryId,
+            amount: canonicalDecimal(leg.amount),
+            note: leg.note,
+          })),
+        }
+      : {}),
   };
   if (row.type === "deposit") {
     return {
