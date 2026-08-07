@@ -64,9 +64,9 @@ nowhere to put it.
 
 ---
 
-## SB-017 — Split transactions
+## SB-017 — Split transactions — **done**
 
-**Priority 160. Depends on SB-015.**
+**Priority 160. Depends on SB-015. Shipped as migration 0005.**
 
 One transaction, several category legs, still settling to zero in each currency
 it touches. The grocery receipt that is partly food, partly household, partly
@@ -97,6 +97,36 @@ represent one receipt across three categories is hard to defend as one.
   not shown as a split
 - Reachable over MCP, with the leg structure in the tool schema rather than
   implied
+
+**How it was met**
+
+A split is the counter-account side of one entry cut into legs, each leg a row
+in `transaction_leg` carrying one category and one amount, and each leg's share
+posted under its own `posting.leg_id`. Because the legs *are* those postings,
+the sum rule is the zero-sum check the ledger already ran, and every balance
+query is unchanged. `assertLegsCoverTotal` adds no guarantee, only a sentence
+about the receipt instead of one about postings.
+
+Migration 0005 is additive only, so a ledger upgrading from 0.1.3 reads
+identically the moment it finishes: every existing posting keeps a null leg and
+goes on taking the transaction's own category.
+
+Two decisions worth writing down rather than leaving implied:
+
+- **A transfer carries no legs.** Both of its sides name an account, so there is
+  no counter-account side left over for categories to partition. The draft
+  schema, the check constraint and the form all refuse it rather than any one of
+  them being the only guard.
+- **Legs are deliberately out of the duplicate fingerprint.** That fingerprint
+  answers whether the same money moved twice, and how somebody carved up the
+  receipt afterwards does not change the answer. Re-importing a statement has to
+  keep catching rows that were split last month.
+
+Mass editing category or type is refused on a split rather than flattening it,
+on committed and staged rows alike, and both selection summaries report how many
+splits are in the set. A split is editable back to one category, and a
+single-leg transaction cannot be represented at all: the wire schema, the check
+constraint and the form each fold it back to a plain category.
 
 ## SB-016 — Recurring transactions
 

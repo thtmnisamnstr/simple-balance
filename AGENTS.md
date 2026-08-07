@@ -45,8 +45,19 @@
   in account lists or pickers, and no transaction may name one as a side.
 - A posting carries its own date and stands on its own. Balances, cash flow, and
   spending by category all read the posting table; only a label such as a
-  category is looked up elsewhere. Never compute a monetary figure from
-  `ledger_transaction` columns.
+  category is looked up elsewhere. A posting names the leg it belongs to, and
+  the leg holds the label, so recategorising is one update and writes no
+  postings at all. Never compute a monetary figure from `ledger_transaction`
+  columns.
+- A split is the counter-account side of one entry cut into legs, not a second
+  record of the money. Each leg has its own postings, so "the legs add up to the
+  total" is the zero-sum check that was already there and needs no rule of its
+  own. A transfer has no counter-account side and so is never split. A leg is
+  zeroed, never deleted, because the postings that name it are append-only.
+- Any write that changes a leg must bump the parent transaction's `version` in
+  the same transaction. A mass edit describes the set it is about to change by
+  `id:version`, so a leg relabelled underneath one would leave that description
+  agreeing about a row that changed.
 - Postings are append-only. To correct one, work out the difference per account,
   currency, and date, and append only that. Never update or delete a posting.
   An edit that changes nothing about the movement writes nothing at all.
@@ -90,8 +101,8 @@
 - Transaction and staged mass edits are atomic and share one selection contract.
   Explicit rows carry expected versions; all-filtered selections carry a
   server-issued count and `id:version` fingerprint. Never silently move a
-  transaction into a different currency or collapse a transfer into a
-  single-account transaction in bulk. A staged mass edit revalidates every row
+  transaction into a different currency, collapse a transfer into a
+  single-account transaction, or flatten a split into one category in bulk. A staged mass edit revalidates every row
   it writes, and refuses rather than skips a row it cannot give one account to.
 - A transaction's `templateId` is provenance and carries no foreign key, so a
   deleted template leaves the transactions made from it untouched. Ownership is
@@ -103,8 +114,10 @@
   clear.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
-- Every migration that shipped in 0.1.0 is frozen: `0000_initial.sql`,
-  `0001_verify_existing_accounts.sql`, and `0002_account_closing_postings.sql`.
+- Every migration that has shipped is frozen: `0000_initial.sql`,
+  `0001_verify_existing_accounts.sql`, and `0002_account_closing_postings.sql`
+  in 0.1.0, `0003_transaction_templates.sql` and
+  `0004_template_provenance.sql` in 0.1.3.
   Never edit or regenerate one: someone's database has already run it, and
   changing it would leave their schema and its recorded history disagreeing.
   Every schema

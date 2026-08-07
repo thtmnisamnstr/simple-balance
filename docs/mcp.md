@@ -70,6 +70,23 @@ cover the side being posted is widened rather than duplicated, and an archived
 one named again comes back. This is the same rule a CSV import follows, so an
 agent writing "groceries" cannot start a second spelling of "Groceries".
 
+One transaction can be split across several categories. Send `legs`, a list of
+at least two, each with its own `amount` and its own `categoryId` or
+`categoryName`, and leave the entry-level category off: sending both is refused
+rather than merged, because guessing which you meant would file money under a
+category you did not choose. The amounts must add up to the transaction's own,
+and a transfer cannot be split, having no counter-account side to partition.
+
+Every transaction comes back with a `legs` list, empty for the ordinary
+single-category case. Each leg carries an `id`, and that id is how an edit says
+which leg it means: send it back to change that leg, leave it off for a new one,
+and leave a leg out to remove it. Matching legs by position instead would make
+reordering two rows look like rewriting both.
+
+Mass edits refuse to set a category or a type on a split rather than flattening
+it, and `preview_bulk_transaction_selection` reports `splitCount` so an agent
+knows before it asks.
+
 Money is always a decimal string, never a JSON number, because binary floating
 point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
 idempotency key you choose: send the same key again and you get the original

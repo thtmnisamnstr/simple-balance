@@ -2,6 +2,36 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+### Added
+
+One transaction can now be split across several categories. The grocery receipt
+that is partly food, partly household and partly something for the dog is one
+entry with three legs, and each leg is attributed to its own category in
+spending reports, on category pages, and over the MCP.
+
+A split is the counter-account side of the entry cut into pieces rather than a
+second record of the money, so nothing is counted twice: the categories add up
+to exactly the cash that left the account. Every existing rule holds unchanged.
+The entry still settles to zero in each currency it touches, postings are still
+append-only, a correction still costs the difference and nothing more, and
+deleting still voids the entry a leg at a time.
+
+Relabelling a leg writes no postings at all, because the label lives on the leg
+and the leg's identity does not change when you rename what it is for. Changing
+what a leg is worth writes two, which is right: the money was divided
+differently.
+
+Splits work on committed transactions, on rows waiting in the staging queue, and
+on templates, where the categories are stored and the amounts left for you to
+fill in. A CSV export carries a split by category name and reads back as the
+same split in a different ledger or a fresh install. Mass editing category or
+type is refused on a split rather than flattening it, and the panel says why.
+
+Upgrading is a schema change and not a data migration: nothing existing is
+rewritten, and every figure reads the same the moment it finishes.
+
 ## 0.1.3 - 2026-08-06
 
 ### Added

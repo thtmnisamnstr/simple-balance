@@ -25,6 +25,7 @@ parts without being able to do the dangerous ones.
 - Templates for the transactions you enter over and over
 - Mass edit and mass delete, up to 10,000 rows in one request that either wholly
   succeeds or wholly does not
+- One transaction split across several categories, each attributed on its own
 - Balances, cash flow, and spending by category over any date range
 - Categories and payees that match case-insensitively, flag near-duplicates, and
   merge
@@ -186,6 +187,21 @@ imports into another, or into somebody else's, or into a fresh install. A
 transfer names a second account, which is a choice the import screen cannot
 make, so those rows arrive in the queue asking for it.
 
+### Splitting one receipt across categories
+
+A grocery run that is partly food, partly household and partly something for the
+dog is one transaction with three category legs. Press Split on the category
+field, give each row its own amount, and the form tells you what is left to
+assign until it comes to nothing.
+
+Each leg is attributed to its own category everywhere the money is reported: the
+dashboard, the category pages, and over the MCP. Nothing is counted twice — the
+categories add up to exactly what left the account, because a split cuts the
+entry's existing counter-side into pieces rather than recording the money again.
+Splits work on staged rows and on templates too, where the categories are stored
+and the amounts left for you. An export carries a split by category name and
+reads back as the same split in another ledger.
+
 ### Templates
 
 A transaction you enter often can be saved as a template from any row and picked
@@ -234,8 +250,8 @@ no agent can do it for you.
 
 ### Not built yet
 
-Recurring transactions, splits, reporting beyond the dashboard, budgets, bank
-sync, account sharing, attachments, and reconciliation. What is planned, in what
+Recurring transactions, reporting beyond the dashboard, budgets, bank sync,
+account sharing, attachments, and reconciliation. What is planned, in what
 order, and the evidence behind each is in the [roadmap](docs/roadmap.md), which
 also says what is deliberately not planned and why, market prices among it. Tags
 are neither built nor planned.

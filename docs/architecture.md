@@ -74,8 +74,23 @@ voided entry already nets to zero.
 Each posting carries its own date. Balances, cash flow, and spending by category
 therefore read one table, and a balance as of a date is an indexed range rather
 than a scan of the ledger. Labels are the exception. Which category an entry was
-filed under is read from the transaction, which is why recategorising updates
-past reports rather than only future ones.
+filed under is read from the transaction, or from the leg the posting belongs
+to, which is why recategorising updates past reports rather than only future
+ones.
+
+A split transaction is that counter-account side cut into legs. Each leg is a
+row holding one category and one amount, and each leg's share is posted under
+its own leg id, so a hundred-pound receipt split three ways is three postings
+adding to a hundred rather than one posting counted three times. Because the
+legs are those postings, "the legs add up to the total" is the zero-sum check
+that was already running: there is no way to write a split that satisfies one
+and not the other, and no balance query changes a line. Relabelling a leg is a
+single update that writes no postings at all, since the leg's identity does not
+change when its label does. A leg is zeroed rather than deleted, because the
+postings naming it are append-only; it falls out of every report through the
+same "sums to nothing" filters that void a deleted entry. A transfer names an
+account on both sides, so it has no counter-account side to partition and is
+never split.
 
 Balances come from postings and nothing else. No query reads a running total off
 an account row.
