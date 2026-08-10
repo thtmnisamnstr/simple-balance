@@ -943,7 +943,11 @@ export const bulkTransactionEditResultSchema = z
     activeCount: z.number().int().nonnegative(),
     deletedCount: z.number().int().nonnegative(),
     transferCount: z.number().int().nonnegative(),
-    splitCount: z.number().int().nonnegative(),
+    // Defaulted because this result is replayed out of an idempotency
+    // record, and one written before splits existed carries no count. A
+    // retry spanning the upgrade has to return the original answer, which
+    // is the whole point of the key.
+    splitCount: z.number().int().nonnegative().default(0),
     currencies: z.array(currencyCodeSchema),
     itemsTruncated: z.boolean(),
     items: z.array(bulkTransactionEditItemSchema),
