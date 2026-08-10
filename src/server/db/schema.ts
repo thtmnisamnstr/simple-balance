@@ -467,19 +467,22 @@ export const transactionLegs = pgTable(
     // edit the person made on purpose.
     ordinal: smallint("ordinal").default(0).notNull(),
     amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
-    currency: text("currency").notNull(),
     note: text("note"),
     ...timestamps,
   },
   (table) => [
-    // The target of posting_leg_owner_fk. Carrying the transaction and the
-    // currency into the key is what lets that constraint pin a posting's leg,
-    // transaction, tenant and currency together in one place.
+    // The target of posting_leg_owner_fk, carrying the transaction so that key
+    // can pin a posting's leg, transaction and tenant together in one place.
+    //
+    // Currency is deliberately not a column here. A leg's postings already have
+    // theirs pinned to their account by posting_account_currency_fk, and an
+    // entry can be moved to an account in another currency, so a currency on
+    // the leg would be a mutable copy that append-only postings could never
+    // follow.
     unique("transaction_leg_posting_target_unique").on(
       table.userId,
       table.transactionId,
       table.id,
-      table.currency,
     ),
     foreignKey({
       columns: [table.userId, table.transactionId],
@@ -505,7 +508,6 @@ export const transactionLegs = pgTable(
     ),
     check("transaction_leg_ordinal_check", sql`${table.ordinal} >= 0`),
     check("transaction_leg_amount_check", sql`${table.amount} >= 0`),
-    check("transaction_leg_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
     check(
       "transaction_leg_note_check",
       sql`${table.note} is null or char_length(${table.note}) <= 240`,
@@ -565,23 +567,27 @@ export const postings = pgTable(
       ],
       name: "posting_account_currency_fk",
     }),
-    // Four columns, so a posting cannot name a leg of a different transaction,
-    // a different tenant, or a different currency. MATCH SIMPLE makes it
-    // vacuously true whenever any column is null, which is how account-side
-    // lines, openings and closings pass it untouched; posting_leg_origin_check
-    // closes the one hole that leaves.
+    // Three columns, so a posting cannot name a leg of a different transaction
+    // or a different tenant. MATCH SIMPLE makes it vacuously true whenever any
+    // column is null, which is how account-side lines, openings and closings
+    // pass it untouched; posting_leg_origin_check closes the one hole that
+    // leaves.
+    //
+    // Every column here is immutable. A key over anything an edit can change
+    // could not hold, because these rows are append-only and cannot be brought
+    // along: moving an entry to an account in another currency would fail on
+    // the key rather than on anything a person could act on.
     //
     // The cascade is required rather than preferred: deleting an account is a
     // single delete of the user row with nothing enumerating tables, and both
     // sides already cascade from there. "A leg is never deleted" is upheld by
     // resyncLegs never issuing one, not by this key.
     foreignKey({
-      columns: [table.userId, table.transactionId, table.legId, table.currency],
+      columns: [table.userId, table.transactionId, table.legId],
       foreignColumns: [
         transactionLegs.userId,
         transactionLegs.transactionId,
         transactionLegs.id,
-        transactionLegs.currency,
       ],
       name: "posting_leg_owner_fk",
     }).onDelete("cascade"),

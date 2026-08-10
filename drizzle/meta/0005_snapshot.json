@@ -1,5 +1,5 @@
 {
-  "id": "2206eb23-7004-4320-8d43-a618e1bb75e0",
+  "id": "0a9f2d9a-62e1-4fb3-9327-9ee4859e89fc",
   "prevId": "6fc224db-a7a7-47cb-8a63-78cda0c342a4",
   "version": "7",
   "dialect": "postgresql",
@@ -1523,14 +1523,12 @@
           "columnsFrom": [
             "user_id",
             "transaction_id",
-            "leg_id",
-            "currency"
+            "leg_id"
           ],
           "columnsTo": [
             "user_id",
             "transaction_id",
-            "id",
-            "currency"
+            "id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -1980,12 +1978,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "currency": {
-          "name": "currency",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "note": {
           "name": "note",
           "type": "text",
@@ -2116,8 +2108,7 @@
           "columns": [
             "user_id",
             "transaction_id",
-            "id",
-            "currency"
+            "id"
           ]
         }
       },
@@ -2130,10 +2121,6 @@
         "transaction_leg_amount_check": {
           "name": "transaction_leg_amount_check",
           "value": "\"transaction_leg\".\"amount\" >= 0"
-        },
-        "transaction_leg_currency_check": {
-          "name": "transaction_leg_currency_check",
-          "value": "\"transaction_leg\".\"currency\" ~ '^[A-Z]{2,12}$'"
         },
         "transaction_leg_note_check": {
           "name": "transaction_leg_note_check",

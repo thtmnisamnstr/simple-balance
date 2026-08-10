@@ -3,6 +3,7 @@ import {
   draftForTransactionForm,
   stagedString,
   summarizeStagedDraft,
+  templateDraftFromDraft,
 } from "../src/client/staged-draft.js";
 
 describe("malformed staged draft presentation", () => {
@@ -51,5 +52,47 @@ describe("malformed staged draft presentation", () => {
       currency: "",
     });
     expect(stagedString({ unsafe: "React child" })).toBe("");
+  });
+});
+
+describe("saving a split as a template", () => {
+  const leg = (categoryId: string, amount: string) => ({
+    id: "",
+    categoryId,
+    categoryName: "",
+    amount,
+    note: "",
+  });
+
+  /**
+   * The split branch used to return early, so a template made from a split
+   * arrived with no description and no notes and nothing said so.
+   */
+  it("keeps everything a single-category template keeps", () => {
+    const template = templateDraftFromDraft({
+      type: "withdrawal",
+      payee: "Costco",
+      description: "Weekly shop",
+      notes: "Split three ways",
+      categoryId: "",
+      legs: [leg("11111111-1111-4111-8111-111111111111", "60"), leg("22222222-2222-4222-8222-222222222222", "40")],
+    });
+    expect(template.legs).toHaveLength(2);
+    expect(template.description).toBe("Weekly shop");
+    expect(template.notes).toBe("Split three ways");
+    expect(template.categoryId).toBeUndefined();
+  });
+
+  it("keeps the single category when there is no split", () => {
+    const template = templateDraftFromDraft({
+      type: "withdrawal",
+      payee: "Corner shop",
+      description: "Milk",
+      categoryId: "11111111-1111-4111-8111-111111111111",
+      legs: [],
+    });
+    expect(template.legs).toBeUndefined();
+    expect(template.categoryId).toBe("11111111-1111-4111-8111-111111111111");
+    expect(template.description).toBe("Milk");
   });
 });

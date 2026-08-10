@@ -236,7 +236,11 @@ async function activeStagedCategoryReferenceCount(
           sql`exists (
             select 1
             from jsonb_array_elements(
-              coalesce(${stagedTransactions.draft} -> 'legs', '[]'::jsonb)
+              case
+                when jsonb_typeof(${stagedTransactions.draft} -> 'legs') = 'array'
+                  then ${stagedTransactions.draft} -> 'legs'
+                else '[]'::jsonb
+              end
             ) as leg
             where leg ->> 'categoryId' = ${categoryId}
           )`,
@@ -289,7 +293,11 @@ async function assertCategoryKindCompatible(
           sql`exists (
             select 1
             from jsonb_array_elements(
-              coalesce(${stagedTransactions.draft} -> 'legs', '[]'::jsonb)
+              case
+                when jsonb_typeof(${stagedTransactions.draft} -> 'legs') = 'array'
+                  then ${stagedTransactions.draft} -> 'legs'
+                else '[]'::jsonb
+              end
             ) as leg
             where leg ->> 'categoryId' = ${categoryId}
           )`,
@@ -378,33 +386,46 @@ export async function listCategorySummaries(
     )
     .groupBy(sql`category_id`)
     .as("committed_use");
+  //
+  // Both places a queued draft can name a category, unioned and counted
+  // distinct for the same reason the committed side is: a split names one per
+  // leg, and the number over a category has to agree with the guard that
+  // refuses to archive or delete it.
+  //
+  // The user filter is load-bearing in a way its twin on the committed side is
+  // not. A transaction's category is held to the same owner by a foreign key; a
+  // draft names its category as free JSON text that nothing constrains, so
+  // somebody else's staged row can carry this person's category id and only
+  // that line keeps it out of their count. The jsonb_typeof guards are there
+  // because a staged draft is unvalidated and these slots can hold anything at
+  // all, including a scalar that would make jsonb_array_elements raise.
   const stagedUse = db
     .select({
-      // Named apart from the committed side's column: the join below has to
-      // spell this one out in SQL, and two derived tables offering the same
-      // bare name is ambiguous.
-      categoryId: sql<string>`${stagedTransactions.draft} ->> 'categoryId'`.as(
-        "staged_category_id",
-      ),
-      total: sql<number>`count(*)::int`.as("staged_count"),
+      categoryId: sql<string>`staged_category_id`.as("staged_category_id"),
+      total: sql<number>`count(distinct staged_id)::int`.as("staged_count"),
     })
-    .from(stagedTransactions)
-    .where(
-      and(
-        // Load-bearing in a way its twin on the committed side is not. A
-        // transaction's category is held to the same owner by a foreign key; a
-        // draft names its category as free JSON text that nothing constrains,
-        // so somebody else's staged row can carry this person's category id and
-        // only this line keeps it out of their count.
-        eq(stagedTransactions.userId, actor.userId),
-        eq(stagedTransactions.status, "staged"),
-        // A staged draft is unvalidated, so this slot can hold anything at all.
-        // Nothing but a string could match an id anyway; this keeps the rest out
-        // of the grouping rather than leaning on that.
-        sql`jsonb_typeof(${stagedTransactions.draft} -> 'categoryId') = 'string'`,
-      ),
+    .from(
+      sql`(
+        select s.draft ->> 'categoryId' as staged_category_id, s.id as staged_id
+        from staged_transaction s
+        where s.user_id = ${actor.userId}
+          and s.status = 'staged'
+          and jsonb_typeof(s.draft -> 'categoryId') = 'string'
+        union
+        select leg ->> 'categoryId' as staged_category_id, s.id as staged_id
+        from staged_transaction s
+        cross join lateral jsonb_array_elements(
+          case
+            when jsonb_typeof(s.draft -> 'legs') = 'array' then s.draft -> 'legs'
+            else '[]'::jsonb
+          end
+        ) as leg
+        where s.user_id = ${actor.userId}
+          and s.status = 'staged'
+          and jsonb_typeof(leg -> 'categoryId') = 'string'
+      ) as staged_category_use`,
     )
-    .groupBy(sql`${stagedTransactions.draft} ->> 'categoryId'`)
+    .groupBy(sql`staged_category_id`)
     .as("staged_use");
 
   const rows = await db
@@ -673,7 +694,11 @@ export async function deleteCategory(
             sql`exists (
               select 1
               from jsonb_array_elements(
-                coalesce(${stagedTransactions.draft} -> 'legs', '[]'::jsonb)
+                case
+                  when jsonb_typeof(${stagedTransactions.draft} -> 'legs') = 'array'
+                    then ${stagedTransactions.draft} -> 'legs'
+                  else '[]'::jsonb
+                end
               ) as leg
               where leg ->> 'categoryId' = ${id}
             )`,
@@ -826,7 +851,11 @@ export async function mergeCategories(
             sql`exists (
               select 1
               from jsonb_array_elements(
-                coalesce(${stagedTransactions.draft} -> 'legs', '[]'::jsonb)
+                case
+                  when jsonb_typeof(${stagedTransactions.draft} -> 'legs') = 'array'
+                    then ${stagedTransactions.draft} -> 'legs'
+                  else '[]'::jsonb
+                end
               ) as leg
               where leg ->> 'categoryId' in (${sourceIdList})
             )`,
@@ -904,34 +933,41 @@ export async function mergeCategories(
       ? await tx
           .update(stagedTransactions)
           .set({
-            // The column when the draft has one, every matching leg when it has
-            // legs. jsonb_set with `false` leaves a draft that never had a
-            // category alone rather than inventing one for it.
-            draft: sql`jsonb_set(
+            // The column is rewritten only when it actually names a source.
+            // Keying that off key-presence instead would rewrite a split, whose
+            // categoryId the form posts as an explicit null: jsonb_set's
+            // create_missing only skips a key that is ABSENT, not one that is
+            // null, and a draft carrying both a category and legs can never be
+            // committed.
+            draft: sql`
               case
-                when ${stagedTransactions.draft} -> 'legs' is null then ${stagedTransactions.draft}
-                else jsonb_set(
-                  ${stagedTransactions.draft},
-                  '{legs}',
-                  (
-                    select coalesce(jsonb_agg(
-                      case
-                        when leg ->> 'categoryId' in (${sourceIdList})
-                          then jsonb_set(leg, '{categoryId}', to_jsonb(${target.id}::text), true)
-                        else leg
-                      end
-                      order by position
-                    ), '[]'::jsonb)
-                    from jsonb_array_elements(${stagedTransactions.draft} -> 'legs')
-                      with ordinality as elements(leg, position)
-                  ),
-                  true
-                )
-              end,
-              '{categoryId}',
-              to_jsonb(${target.id}::text),
-              false
-            )`,
+                when ${stagedTransactions.draft} ->> 'categoryId' in (${sourceIdList})
+                  then jsonb_set(
+                    ${stagedTransactions.draft},
+                    '{categoryId}',
+                    to_jsonb(${target.id}::text),
+                    true
+                  )
+                when jsonb_typeof(${stagedTransactions.draft} -> 'legs') = 'array'
+                  then jsonb_set(
+                    ${stagedTransactions.draft},
+                    '{legs}',
+                    (
+                      select coalesce(jsonb_agg(
+                        case
+                          when leg ->> 'categoryId' in (${sourceIdList})
+                            then jsonb_set(leg, '{categoryId}', to_jsonb(${target.id}::text), true)
+                          else leg
+                        end
+                        order by position
+                      ), '[]'::jsonb)
+                      from jsonb_array_elements(${stagedTransactions.draft} -> 'legs')
+                        with ordinality as elements(leg, position)
+                    ),
+                    true
+                  )
+                else ${stagedTransactions.draft}
+              end`,
             version: sql`${stagedTransactions.version} + 1`,
             updatedAt: new Date(),
           })

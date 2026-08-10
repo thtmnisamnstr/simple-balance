@@ -154,7 +154,7 @@ describe("migration baseline", () => {
       'ALTER TABLE "ledger_transaction" ADD COLUMN "leg_count" smallint DEFAULT 0 NOT NULL;',
     );
     expect(sql).toContain(
-      'ADD CONSTRAINT "posting_leg_owner_fk" FOREIGN KEY ("user_id","transaction_id","leg_id","currency")',
+      'ADD CONSTRAINT "posting_leg_owner_fk" FOREIGN KEY ("user_id","transaction_id","leg_id")',
     );
 
     // No backfill, no rewrite, nothing removed. A DROP or a DML statement here

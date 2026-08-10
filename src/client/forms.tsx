@@ -505,6 +505,7 @@ function CategoryLegs({
   legs,
   onLegsChange,
   total,
+  requireBalance = true,
 }: {
   categories: Category[];
   type: TransactionType | "";
@@ -514,6 +515,9 @@ function CategoryLegs({
   legs: TransactionFormLeg[];
   onLegsChange: (legs: TransactionFormLeg[]) => void;
   total: string;
+  // A template's amounts are optional by design, so its split is not asked to
+  // add up to anything until it is used.
+  requireBalance?: boolean;
 }) {
   const blank = (): TransactionFormLeg => ({
     id: "",
@@ -623,14 +627,18 @@ function CategoryLegs({
         </button>
         <small
           className={
-            settled ? "category-legs-remainder settled" : "category-legs-remainder"
+            settled || !requireBalance
+              ? "category-legs-remainder settled"
+              : "category-legs-remainder"
           }
         >
-          {remainder === null
-            ? "Enter an amount for the transaction and for each category."
-            : settled
-              ? "The split adds up."
-              : `${remainder} left to assign.`}
+          {!requireBalance
+            ? "Amounts are optional. Leave one blank to fill it in each time."
+            : remainder === null
+              ? "Enter an amount for the transaction and for each category."
+              : settled
+                ? "The split adds up."
+                : `${remainder} left to assign.`}
         </small>
       </div>
     </div>
@@ -675,6 +683,18 @@ export function TemplateForm({
   const [categoryName, setCategoryName] = useState(
     categories.find((category) => category.id === source.categoryId)?.name ?? "",
   );
+  const [legs, setLegs] = useState<TransactionFormLeg[]>(() =>
+    (source.legs ?? []).map((leg) => ({
+      id: "",
+      categoryId: leg.categoryId ?? "",
+      categoryName:
+        categories.find((category) => category.id === leg.categoryId)?.name ??
+        leg.categoryName ??
+        "",
+      amount: leg.amount ?? "",
+      note: leg.note ?? "",
+    })),
+  );
   const [description, setDescription] = useState(source.description ?? "");
   const [notes, setNotes] = useState(source.notes ?? "");
   const queryClient = useQueryClient();
@@ -700,17 +720,34 @@ export function TemplateForm({
     mutationFn: () => {
       // Built by leaving out what is blank rather than sending empty strings,
       // so "not saved" and "saved as nothing" cannot be confused later.
-      const draft: Record<string, string> = {};
+      const draft: Record<string, unknown> = {};
       const keep = (key: string, value: string) => {
         if (value.trim()) draft[key] = value.trim();
       };
+      const trimmed = (value: string) => (value.trim() ? value.trim() : undefined);
       keep("type", type);
       keep("date", date);
       keep("payee", payee);
       if (type !== "deposit") keep("fromAccountId", fromAccountId);
       if (type !== "withdrawal") keep("toAccountId", toAccountId);
       keep("amount", amount);
-      if (categoryId) draft.categoryId = categoryId;
+      // Legs and a single category cannot both be stored, so whichever side the
+      // form is showing is the one that is saved. A template leg may name only
+      // a category: its amount is filled in when the template is used.
+      const kept = legs.filter(
+        (leg) => leg.categoryId || leg.categoryName.trim() || leg.amount.trim(),
+      );
+      if (kept.length >= 2) {
+        draft.legs = kept.map((leg) => ({
+          ...(leg.categoryId
+            ? { categoryId: leg.categoryId }
+            : trimmed(leg.categoryName)
+              ? { categoryName: trimmed(leg.categoryName) }
+              : {}),
+          ...(trimmed(leg.amount) ? { amount: trimmed(leg.amount) } : {}),
+          ...(trimmed(leg.note) ? { note: trimmed(leg.note) } : {}),
+        }));
+      } else if (categoryId) draft.categoryId = categoryId;
       else keep("categoryName", categoryName);
       keep("description", description);
       keep("notes", notes);
@@ -840,19 +877,25 @@ export function TemplateForm({
         />
       </Field>
 
-      <div className="two-columns">
+      {type === "transfer" ? null : (
         <Field label="Category" hint="Optional">
-          <CategoryPicker
+          <CategoryLegs
             categories={categories}
             type={type}
             categoryId={categoryId}
             categoryName={categoryName}
-            onChange={(nextId, nextName) => {
+            onCategoryChange={(nextId, nextName) => {
               setCategoryId(nextId);
               setCategoryName(nextName);
             }}
+            legs={legs}
+            onLegsChange={setLegs}
+            total={amount}
+            requireBalance={false}
           />
         </Field>
+      )}
+      <div className="two-columns">
         <Field label="Description" hint="Optional">
           <Input
             value={description}
@@ -1152,7 +1195,26 @@ export function TransactionForm({
       else if (!current) set(accountIds[side]);
     }
 
-    if (draft.categoryId) {
+    // A split template replaces the whole category side, because legs and a
+    // single category cannot both be sent. Amounts are optional on a template
+    // leg, so a blank one stays blank and the remainder line asks for it.
+    if (draft.legs?.length) {
+      setCategoryId("");
+      setCategoryName("");
+      setLegs(
+        draft.legs.map((leg) => ({
+          id: "",
+          categoryId: leg.categoryId ?? "",
+          categoryName:
+            categories.find((entry) => entry.id === leg.categoryId)?.name ??
+            leg.categoryName ??
+            "",
+          amount: leg.amount ?? "",
+          note: leg.note ?? "",
+        })),
+      );
+    } else if (draft.categoryId) {
+      setLegs([]);
       const category = categories.find((entry) => entry.id === draft.categoryId);
       const categoryFits =
         category &&
@@ -1167,9 +1229,15 @@ export function TransactionForm({
       // A name rather than an id, matched or created on submit the way a typed
       // one is. Nothing is looked up here, so a template can name a category
       // this ledger does not have yet.
+      setLegs([]);
       setCategoryId("");
       setCategoryName(draft.categoryName);
-    } else if (previous.has("categoryId") || previous.has("categoryName")) {
+    } else if (
+      previous.has("categoryId") ||
+      previous.has("categoryName") ||
+      previous.has("legs")
+    ) {
+      setLegs([]);
       setCategoryId(base.categoryId);
       setCategoryName(base.categoryName);
     }

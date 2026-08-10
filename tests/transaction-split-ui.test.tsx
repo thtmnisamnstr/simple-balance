@@ -53,7 +53,10 @@ const split: Transaction = {
   version: 3,
 };
 
-function renderForm(props: Partial<Parameters<typeof TransactionForm>[0]> = {}) {
+function renderForm(
+  props: Partial<Parameters<typeof TransactionForm>[0]> = {},
+  templates: unknown[] = [],
+) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
@@ -61,6 +64,7 @@ function renderForm(props: Partial<Parameters<typeof TransactionForm>[0]> = {}) 
     },
   });
   client.setQueryData(["payees", "suggestions", ""], []);
+  client.setQueryData(["transaction-templates"], templates);
   return render(
     <QueryClientProvider client={client}>
       <TimezoneProvider timezone="UTC">
@@ -243,5 +247,43 @@ describe("splitting a transaction in the form", () => {
     renderForm();
     fireEvent.click(screen.getByRole("radio", { name: /Transfer/i }));
     expect(screen.queryByText("Split across categories")).not.toBeInTheDocument();
+  });
+});
+
+describe("splits and templates in the browser", () => {
+  const splitTemplate = {
+    id: "77777777-7777-4777-8777-777777777777",
+    name: "Costco run",
+    version: 1,
+    draft: {
+      type: "withdrawal" as const,
+      payee: "Costco",
+      legs: [
+        { categoryId: food.id, amount: "60.00" },
+        { categoryId: household.id },
+      ],
+    },
+  };
+
+  /**
+   * The server, the MCP and a CSV round trip all carry a split template. If the
+   * form ignores its legs the entry commits under no category at all, which is
+   * worse than refusing it.
+   */
+  it("fills the split editor in from a template rather than ignoring its legs", async () => {
+    captureRequests([]);
+    renderForm({}, [splitTemplate]);
+
+    const option = await screen.findByRole("option", { name: "Costco run" });
+    fireEvent.change(option.closest("select")!, {
+      target: { value: splitTemplate.id },
+    });
+
+    await waitFor(() => expect(legAmount(1)).toBeInTheDocument());
+    expect(legAmount(1).value).toBe("60.00");
+    expect(legAmount(2).value).toBe("");
+    const pickers = screen.getAllByPlaceholderText("Type to search or add");
+    expect((pickers[0] as HTMLInputElement).value).toBe("Food");
+    expect((pickers[1] as HTMLInputElement).value).toBe("Household");
   });
 });

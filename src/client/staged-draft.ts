@@ -195,10 +195,10 @@ export function templateDraftFromDraft(
       ...(keep(leg.amount) ? { amount: keep(leg.amount) } : {}),
       ...(keep(leg.note) ? { note: keep(leg.note) } : {}),
     }));
-    return template;
+  } else {
+    const categoryId = keep(draft.categoryId);
+    if (categoryId) template.categoryId = categoryId;
   }
-  const categoryId = keep(draft.categoryId);
-  if (categoryId) template.categoryId = categoryId;
   const description = keep(draft.description);
   if (description) template.description = description;
   const notes = keep(draft.notes);

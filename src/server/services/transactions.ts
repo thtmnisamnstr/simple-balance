@@ -89,7 +89,6 @@ type LegSeed = {
   id?: string;
   categoryId: string | null;
   amount: string;
-  currency: string;
   note: string | null;
 };
 
@@ -326,12 +325,11 @@ function counterPostings(
   );
 }
 
-function legSeeds(draft: TransactionDraft, currency: string): LegSeed[] {
+function legSeeds(draft: TransactionDraft): LegSeed[] {
   return (draft.legs ?? []).map((leg) => ({
     ...(leg.id ? { id: leg.id } : {}),
     categoryId: leg.categoryId ?? null,
     amount: canonicalDecimal(leg.amount),
-    currency,
     note: leg.note ?? null,
   }));
 }
@@ -368,7 +366,7 @@ export function buildPreparedTransaction(
         destinationCurrency: destination.currency,
         legCount: draft.legs?.length ?? 0,
       },
-      legs: legSeeds(draft, destination.currency),
+      legs: legSeeds(draft),
       postings: entries([
         posting(actor, destination.id, draft.amount, destination.currency),
         // The other half of the entry, as one posting or one per leg. Without
@@ -397,7 +395,7 @@ export function buildPreparedTransaction(
         sourceCurrency: source.currency,
         legCount: draft.legs?.length ?? 0,
       },
-      legs: legSeeds(draft, source.currency),
+      legs: legSeeds(draft),
       postings: entries([
         posting(actor, source.id, decimal(draft.amount).negated(), source.currency),
         ...counterPostings(
@@ -585,7 +583,6 @@ async function resyncLegs(
         .set({
           categoryId: leg.categoryId,
           amount: leg.amount,
-          currency: leg.currency,
           note: leg.note,
           ordinal,
           updatedAt: new Date(),
@@ -606,7 +603,6 @@ async function resyncLegs(
         transactionId,
         categoryId: leg.categoryId,
         amount: leg.amount,
-        currency: leg.currency,
         note: leg.note,
         ordinal,
       })
@@ -619,9 +615,13 @@ async function resyncLegs(
     (leg) => !named.has(leg.id) && !decimal(leg.amount).isZero(),
   );
   if (dropped.length) {
+    // The category goes with the amount. A leg worth nothing belongs to no
+    // category, and leaving the label behind would keep a foreign key on a
+    // category every screen already reports as unused, so it could never be
+    // deleted and nothing on screen would say why.
     await tx
       .update(transactionLegs)
-      .set({ amount: "0", updatedAt: new Date() })
+      .set({ amount: "0", categoryId: null, updatedAt: new Date() })
       .where(
         and(
           eq(transactionLegs.userId, actor.userId),

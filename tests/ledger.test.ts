@@ -251,7 +251,9 @@ describe("splitting an entry across categories", () => {
       { categoryId: householdId, amount: "40.00" },
     ]);
     expect(prepared.legs.map((leg) => leg.id)).toEqual([id, undefined]);
-    expect(prepared.legs.map((leg) => leg.currency)).toEqual(["USD", "USD"]);
+    // A leg carries no currency of its own: its postings take theirs from the
+    // account, so a copy here could not follow an entry moved to another one.
+    expect(prepared.legs.every((leg) => !("currency" in leg))).toBe(true);
   });
 
   /**
