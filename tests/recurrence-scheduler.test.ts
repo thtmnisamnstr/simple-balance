@@ -8,7 +8,7 @@ import {
 } from "../src/server/recurrence-scheduler.js";
 import type { TickSummary } from "../src/server/services/recurrences.js";
 
-const nothing: TickSummary = { examined: 0, proposed: 0, capped: false };
+const nothing: TickSummary = { examined: 0, proposed: 0, failed: 0, capped: false };
 
 function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
   const armed: { delay: number; fire: () => void; timer: ReturnType<typeof timerFor> }[] =
@@ -90,7 +90,7 @@ describe("the recurrence scheduler loop", () => {
 
   it("comes straight back when a tick stopped at its catch-up cap", async () => {
     const harness = schedulerHarness({
-      runTick: vi.fn(async () => ({ examined: 1, proposed: 1, capped: true })),
+      runTick: vi.fn(async () => ({ examined: 1, proposed: 1, failed: 0, capped: true })),
     });
 
     await harness.fireLast();

@@ -271,6 +271,7 @@ export async function proposeDueOccurrences(
 export type TickSummary = {
   examined: number;
   proposed: number;
+  failed: number;
   capped: boolean;
 };
 
@@ -315,6 +316,7 @@ export async function runDueRecurrences(
   const catchUpLimit = configuredRecurrenceCatchUpLimit();
   let examined = 0;
   let proposed = 0;
+  let failed = 0;
   let capped = false;
   for (const row of due.rows) {
     if (stopped()) break;
@@ -323,16 +325,30 @@ export async function runDueRecurrences(
     // getPreferences warns about on a one-connection pool cannot happen.
     const today = todayIn(String(row.timezone));
     if (String(row.next_occurrence_date) > today) continue;
-    const outcome = await proposeDueOccurrences(
-      { userId: String(row.user_id), source: "schedule" },
-      String(row.id),
-      today,
-      catchUpLimit,
-    );
-    if (outcome === "proposed" || outcome === "capped") proposed += 1;
-    if (outcome === "capped") capped = true;
+    try {
+      const outcome = await proposeDueOccurrences(
+        { userId: String(row.user_id), source: "schedule" },
+        String(row.id),
+        today,
+        catchUpLimit,
+      );
+      if (outcome === "proposed" || outcome === "capped") proposed += 1;
+      if (outcome === "capped") capped = true;
+    } catch (error) {
+      // One recurrence must never be able to end the sweep. This is the only
+      // loop in the product that serves every tenant at once, and it runs most
+      // overdue first, so a row that throws every time is first every time:
+      // unguarded, one person's unparseable shape stops everybody else's
+      // schedule on the whole deployment, silently and permanently.
+      //
+      // Its own transaction has already rolled back, watermark included, so
+      // skipping it loses nothing. The recurrence stays past due with nothing
+      // proposed, which is exactly what the Recurring page reports.
+      failed += 1;
+      console.error(`Recurrence ${row.id} could not be proposed`, error);
+    }
   }
-  return { examined, proposed, capped };
+  return { examined, proposed, failed, capped };
 }
 
 async function assertNameAvailable(

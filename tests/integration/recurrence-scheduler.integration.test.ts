@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
@@ -115,7 +116,38 @@ integration("the scheduler sweep", () => {
 
     const summary = await runDueRecurrences(() => true);
 
-    expect(summary).toEqual({ examined: 0, proposed: 0, capped: false });
+    expect(summary).toEqual({ examined: 0, proposed: 0, failed: 0, capped: false });
+  });
+
+  /**
+   * The sweep is the one loop in the product that serves every tenant at once,
+   * and it is ordered most-overdue first. One recurrence that throws every time
+   * is therefore first every time, so without a guard here it would stop
+   * everybody else's recurrences on the whole deployment, silently and for
+   * good.
+   */
+  it("carries on past a recurrence that throws, and keeps saying it is there", async () => {
+    // Ordered by (next_occurrence_date, user_id, id), and "sweep-fresh" sorts
+    // before "sweep-settled", so the broken one is examined first. That is the
+    // case that matters: one tenant's bad row must not be able to stop another
+    // tenant's schedule.
+    const broken = await make(fresh, freshAccountId, "Broken shape", today);
+    const healthy = await make(settled, settledAccountId, "Still fine", today);
+    // A shape no longer parseable: what a hand-edited row, or one written by a
+    // future version of the contract, looks like from here.
+    await getDb().execute(sql`
+      update recurrence set shape = '{"type":"withdrawal"}'::jsonb
+       where id = ${broken.id}::uuid
+    `);
+
+    const summary = await runDueRecurrences();
+
+    expect(summary.failed).toBe(1);
+    expect(await staged(settled, healthy.id)).toHaveLength(1);
+    expect(await staged(fresh, broken.id)).toHaveLength(0);
+
+    // Still first in line on the next tick, still counted, still not fatal.
+    expect((await runDueRecurrences()).failed).toBe(1);
   });
 
   it("does nothing while another session holds the tick lock", async () => {
@@ -132,6 +164,7 @@ integration("the scheduler sweep", () => {
       expect(await tickUnderLock()).toEqual({
         examined: 0,
         proposed: 0,
+        failed: 0,
         capped: false,
       });
       expect(await staged(settled, due.id)).toHaveLength(0);

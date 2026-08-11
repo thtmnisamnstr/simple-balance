@@ -250,6 +250,14 @@ finds what is due, because the scheduler has to find the work before it can know
 whose it is. It reads two columns and a timezone; everything below it runs
 through an `Actor` built from the user id the row carried.
 
+Being the one loop that serves everybody makes a failure there everybody's
+failure, so a recurrence that throws is counted, logged, and stepped over. It
+has to be: the sweep runs most overdue first, so a row that fails every time is
+first every time, and stopping on it would take every other account's schedule
+down with it for good. Its own transaction has already rolled back, watermark
+included, so nothing is half done. What is left is a recurrence sitting past due
+with nothing proposed, which is what the Recurring page reports.
+
 ## MCP tokens
 
 Access tokens are audience-bound RS256 JWTs. The signing key pair lives in

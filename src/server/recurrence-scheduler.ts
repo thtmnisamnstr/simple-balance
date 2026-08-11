@@ -72,7 +72,7 @@ export async function tickUnderLock(
       [RECURRENCE_SCHEDULER_LOCK],
     );
     held = rows[0]?.locked === true;
-    if (!held) return { examined: 0, proposed: 0, capped: false };
+    if (!held) return { examined: 0, proposed: 0, failed: 0, capped: false };
     return await runDueRecurrences(stopped);
   } finally {
     try {
