@@ -10,6 +10,7 @@ import { runMigrations } from "./db/migrate.js";
 import { checkMailTransport, closeMail } from "./mail.js";
 import { isLocalBootstrapOpen } from "./auth-policy.js";
 import { getOwnerSetupToken } from "./setup-token.js";
+import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 
 async function main() {
@@ -65,9 +66,26 @@ async function main() {
     `Simple Balance API listening on port ${config.port} (public origin ${config.baseUrl})`,
   );
 
+  // Started after serve() returns, so the tables exist and health checks are
+  // already answering before the first tick can take any time.
+  const scheduler = createRecurrenceScheduler();
+  if (!scheduler.enabled) {
+    // Said out loud because the alternative failure is silent: a deployment
+    // where every replica has it off proposes nothing, looks completely
+    // healthy, and is noticed only when somebody misses months of rent.
+    console.info(
+      "RECURRENCE_SCHEDULER is off, so nothing in this process proposes " +
+        "recurring transactions. Another container has to run with it on, or " +
+        "every recurrence quietly falls past due.",
+    );
+  }
+
   const shutdown = createGracefulShutdown({
     server,
     closeResources: async () => {
+      // First, because the loop holds a connection from a pool closeDb() is
+      // about to end.
+      await scheduler.stop();
       await closeMail();
       await closeDb();
     },

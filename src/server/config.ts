@@ -83,6 +83,15 @@ export type AppConfig = {
   port: number;
   logLevel: "debug" | "info" | "warn" | "error";
   trustProxy: boolean;
+  /**
+   * Whether this process proposes recurring transactions.
+   *
+   * On by default, so the documented single container keeps working with no
+   * extra configuration. Turn it off on web replicas when a separate scheduler
+   * container owns the job; leaving it on everywhere is also safe, because one
+   * advisory lock lets a single replica tick at a time.
+   */
+  recurrenceSchedulerEnabled: boolean;
   isProduction: boolean;
 };
 
@@ -104,6 +113,13 @@ export function getConfig(): AppConfig {
     .enum(["true", "false"])
     .transform((value) => value === "true")
     .parse((process.env.TRUST_PROXY ?? "false").toLowerCase());
+  // Parsed strictly rather than treating anything unrecognised as off. A
+  // misspelling here has no symptom: the process starts, serves, and quietly
+  // proposes nothing until somebody notices a year of missing rent.
+  const recurrenceSchedulerEnabled = z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .parse((process.env.RECURRENCE_SCHEDULER ?? "true").toLowerCase());
   const values = {
     DATABASE_URL: process.env.DATABASE_URL,
     APP_BASE_URL: process.env.APP_BASE_URL,
@@ -153,6 +169,7 @@ export function getConfig(): AppConfig {
     port,
     logLevel,
     trustProxy,
+    recurrenceSchedulerEnabled,
     isProduction,
   };
   process.env.DATABASE_URL ??= cached.databaseUrl;

@@ -4,6 +4,12 @@ export const DEFAULT_CSV_MAX_ROWS = 25_000;
 export const MAX_CSV_CONFIGURATION_ROWS = 1_000_000;
 export const DEFAULT_DATABASE_POOL_SIZE = 10;
 export const MAX_DATABASE_POOL_SIZE = 100;
+export const DEFAULT_RECURRENCE_TICK_SECONDS = 300;
+export const MAX_RECURRENCE_TICK_SECONDS = 3_600;
+export const DEFAULT_RECURRENCE_CATCH_UP_LIMIT = 50;
+export const MAX_RECURRENCE_CATCH_UP_LIMIT = 500;
+export const DEFAULT_RECURRENCE_CLAIM_LIMIT = 500;
+export const MAX_RECURRENCE_CLAIM_LIMIT = 5_000;
 
 function boundedEnvironmentInteger(
   name: string,
@@ -48,4 +54,36 @@ export function configuredDatabasePoolSize() {
     );
   }
   return configured;
+}
+
+export function configuredRecurrenceTickSeconds() {
+  return boundedEnvironmentInteger(
+    "RECURRENCE_TICK_SECONDS",
+    DEFAULT_RECURRENCE_TICK_SECONDS,
+    MAX_RECURRENCE_TICK_SECONDS,
+  );
+}
+
+/**
+ * Most occurrences one recurrence catches up in one tick.
+ *
+ * Nothing is dropped by the cap. A tick that hits it has moved the watermark by
+ * exactly what it proposed, and the scheduler comes straight back rather than
+ * waiting out the interval, so a long backlog drains in bounded transactions
+ * instead of one enormous one.
+ */
+export function configuredRecurrenceCatchUpLimit() {
+  return boundedEnvironmentInteger(
+    "RECURRENCE_CATCH_UP_LIMIT",
+    DEFAULT_RECURRENCE_CATCH_UP_LIMIT,
+    MAX_RECURRENCE_CATCH_UP_LIMIT,
+  );
+}
+
+export function configuredRecurrenceClaimLimit() {
+  return boundedEnvironmentInteger(
+    "RECURRENCE_CLAIM_LIMIT",
+    DEFAULT_RECURRENCE_CLAIM_LIMIT,
+    MAX_RECURRENCE_CLAIM_LIMIT,
+  );
 }

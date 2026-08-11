@@ -15,6 +15,10 @@ import {
   todayIn,
   type RecurrenceRule,
 } from "../../shared/recurrence-dates.js";
+import {
+  configuredRecurrenceCatchUpLimit,
+  configuredRecurrenceClaimLimit,
+} from "../config-limits.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
   categories,
@@ -262,6 +266,73 @@ export async function proposeDueOccurrences(
 
     return occurrences.length >= limit ? "capped" : "proposed";
   });
+}
+
+export type TickSummary = {
+  examined: number;
+  proposed: number;
+  capped: boolean;
+};
+
+/**
+ * One pass over every recurrence that has come due, for everybody.
+ *
+ * This is the only query in the product that cannot lead with a tenant: the
+ * scheduler has to find the work before it can know whose it is. It reads two
+ * columns and a timezone, and every write below it goes through an Actor built
+ * from the user id the row carried.
+ */
+export async function runDueRecurrences(
+  stopped: () => boolean = () => false,
+): Promise<TickSummary> {
+  // The prefilter over-selects by a day, because a calendar date is "today"
+  // somewhere on earth from UTC-12 to UTC+14. Whether a row is really due is
+  // decided below against that person's own date, which costs a row in a result
+  // set rather than a transaction and a row lock.
+  const due = await getDb().execute<{
+    id: string;
+    user_id: string;
+    next_occurrence_date: string;
+    timezone: string;
+  }>(sql`
+    select r.id,
+           r.user_id,
+           r.next_occurrence_date,
+           -- Left joined and defaulted, never an inner join: getPreferences
+           -- synthesises UTC for somebody with no row, so an inner join would
+           -- silently skip everybody who has never opened settings and would
+           -- look exactly like a scheduler that works.
+           coalesce(p.timezone, 'UTC') as timezone
+      from ${recurrences} r
+      left join user_preferences p on p.user_id = r.user_id
+     where r.next_occurrence_date <= ((now() at time zone 'UTC')::date + 1)
+     -- Most overdue first, so a page full of rows that are a day early can
+     -- never starve one that is a month late.
+     order by r.next_occurrence_date, r.user_id, r.id
+     limit ${configuredRecurrenceClaimLimit()}
+  `);
+
+  const catchUpLimit = configuredRecurrenceCatchUpLimit();
+  let examined = 0;
+  let proposed = 0;
+  let capped = false;
+  for (const row of due.rows) {
+    if (stopped()) break;
+    examined += 1;
+    // Read out here, never inside the transaction below, so the deadlock
+    // getPreferences warns about on a one-connection pool cannot happen.
+    const today = todayIn(String(row.timezone));
+    if (String(row.next_occurrence_date) > today) continue;
+    const outcome = await proposeDueOccurrences(
+      { userId: String(row.user_id), source: "schedule" },
+      String(row.id),
+      today,
+      catchUpLimit,
+    );
+    if (outcome === "proposed" || outcome === "capped") proposed += 1;
+    if (outcome === "capped") capped = true;
+  }
+  return { examined, proposed, capped };
 }
 
 async function assertNameAvailable(
