@@ -1,7 +1,16 @@
 version: 2
 updates:
+  # Both npm manifests in one entry, because they are not independent: the
+  # runtime manifest mirrors the application one, and `tests/dockerfile.test.ts`
+  # fails when they disagree. Watched as two entries, every bump arrived as a
+  # pull request touching one of them, which could not go green on its own and
+  # never would however many times it was retried. `directories` with a group
+  # produces one pull request spanning both, which is the only shape that can
+  # pass.
   - package-ecosystem: npm
-    directory: "/"
+    directories:
+      - "/"
+      - "/runtime"
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
@@ -9,13 +18,20 @@ updates:
       # One pull request a week for the routine bumps rather than one per
       # package. Patches and minors get reviewed together or not at all, so
       # splitting them across a dozen pull requests spends attention without
-      # buying anything. Majors still arrive on their own, which is where the
-      # attention is worth spending.
+      # buying anything.
       routine:
         applies-to: version-updates
         update-types:
           - minor
           - patch
+      # Majors are batched separately rather than individually, for the same
+      # reason as above: one alone would touch one manifest and stay red. They
+      # still arrive apart from the routine bumps, which is where the attention
+      # was meant to go.
+      majors:
+        applies-to: version-updates
+        update-types:
+          - major
     ignore:
       # These describe the Node the image actually runs, which is the current
       # LTS. Taking a major here lets code typecheck against APIs that are not
@@ -23,20 +39,6 @@ updates:
       # when the base image does.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-
-  # The manifest that ships inside the image. It was not watched before, so its
-  # dependencies drifted behind the ones they are meant to mirror.
-  - package-ecosystem: npm
-    directory: "/runtime"
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
-    groups:
-      routine:
-        applies-to: version-updates
-        update-types:
-          - minor
-          - patch
 
   - package-ecosystem: github-actions
     directory: "/"
