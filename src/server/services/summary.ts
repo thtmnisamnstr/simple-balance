@@ -4,18 +4,7 @@ import { dateRangeSchema } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
-
-/** The calendar date it is where this person lives, not where the server runs. */
-function todayIn(timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${value.year}-${value.month}-${value.day}`;
-}
+import { todayIn } from "../../shared/recurrence-dates.js";
 
 type CurrencySummary = {
   currency: string;
