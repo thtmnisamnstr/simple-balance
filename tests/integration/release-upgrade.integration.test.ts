@@ -8,6 +8,8 @@ import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
+import { createCategory } from "../../src/server/services/categories.js";
+import { updateTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -42,7 +44,7 @@ async function rowsOf(table: string, columns: string) {
   return JSON.stringify(result.rows);
 }
 
-integration("upgrading a 0.1.3 ledger to split transactions", () => {
+integration("upgrading a 0.1.3 ledger to 0.1.4", () => {
   let admin: PgClient;
   let preFolder: string;
   const previousDatabaseUrl = process.env.DATABASE_URL;
@@ -78,12 +80,12 @@ integration("upgrading a 0.1.3 ledger to split transactions", () => {
   });
 
   /**
-   * The acceptance test for migration 0005, and the only one that proves the
-   * claim the whole feature rests on: a ledger with years of entries in it is
-   * upgraded by a schema change, not by a data migration. Nothing existing is
-   * rewritten, so nothing existing can be rewritten wrongly.
+   * The acceptance test for both migrations this release ships, and the only
+   * one that proves the claim they rest on: a ledger with years of entries in
+   * it is upgraded by a schema change, not by a data migration. Nothing
+   * existing is rewritten, so nothing existing can be rewritten wrongly.
    */
-  it("leaves every transaction and posting exactly as it found them", async () => {
+  it("leaves every transaction, posting and queued row exactly as it found them", async () => {
     const userId = "upgrade-tenant";
     await getDb().execute(sql`
       insert into auth_user (id, name, email, email_verified)
@@ -120,6 +122,20 @@ integration("upgrading a 0.1.3 ledger to split transactions", () => {
          'a2222222-2222-4222-8222-222222222222', '2026-03-01', '25.00', 'USD')
     `);
 
+    // A queued row and an audit event, because 0006 adds columns to one and a
+    // value to the enum the other stores. Without them this proved 0005 alone
+    // while running both.
+    await getDb().execute(sql`
+      insert into staged_transaction (id, user_id, draft, status)
+      values ('f1111111-1111-4111-8111-111111111111', ${userId},
+              '{"type":"withdrawal","payee":"Queued","amount":"9.00"}'::jsonb, 'staged')
+    `);
+    await getDb().execute(sql`
+      insert into audit_event (id, user_id, actor_source, entity_type, entity_id, operation)
+      values ('11111111-aaaa-4aaa-8aaa-111111111111', ${userId}, 'web',
+              'ledger_transaction', 'd1111111-1111-4111-8111-111111111111', 'create')
+    `);
+
     const transactionColumns =
       "id, type, date, payee, category_id, source_account_id, source_amount, source_currency, version, deleted_at, updated_at";
     const postingColumns =
@@ -143,14 +159,85 @@ integration("upgrading a 0.1.3 ledger to split transactions", () => {
         (select count(*)::int from ledger_transaction where leg_count <> 0) as counted
     `);
     expect(added.rows[0]).toEqual({ legs: 0, claimed: 0, counted: 0 });
+
+    // 0006's half of the same promise. The queued row keeps its draft and gains
+    // two nulls, the audit event is untouched, and the enum has grown a value
+    // without disturbing the rows already stored under the old ones.
+    const queued = await getDb().execute(sql`
+      select draft ->> 'payee' as payee, status::text as status,
+             recurrence_id, occurrence_date
+        from staged_transaction
+       where id = 'f1111111-1111-4111-8111-111111111111'
+    `);
+    expect(queued.rows[0]).toEqual({
+      payee: "Queued",
+      status: "staged",
+      recurrence_id: null,
+      occurrence_date: null,
+    });
+
+    const audited = await getDb().execute(sql`
+      select actor_source::text as actor_source from audit_event
+       where id = '11111111-aaaa-4aaa-8aaa-111111111111'
+    `);
+    expect(audited.rows[0]).toEqual({ actor_source: "web" });
+
+    const sources = await getDb().execute(sql`
+      select enumlabel from pg_enum
+       where enumtypid = 'public.actor_source'::regtype
+       order by enumsortorder
+    `);
+    expect(sources.rows.map((row) => (row as { enumlabel: string }).enumlabel)).toEqual([
+      "web",
+      "mcp",
+      "schedule",
+    ]);
+
+    // And the recurrence table arrives empty, so nothing was invented for a
+    // ledger that never had one.
+    const recurrences = await getDb().execute(
+      sql`select count(*)::int as count from recurrence`,
+    );
+    expect(recurrences.rows[0]).toEqual({ count: 0 });
   });
 
   /**
    * Nothing declarative keeps `leg_count` honest — it has one reader, the check
-   * constraint — so it is reconciled against the leg rows here rather than
-   * trusted.
+   * constraint — so it is reconciled against the leg rows rather than trusted.
+   *
+   * Splitting a transaction first is what gives that anything to say. Reconciled
+   * over the upgraded fixture alone it compared zero legs against zero counters
+   * and passed on an empty set, which is the same answer a migration that
+   * created no leg table at all would have given.
    */
   it("keeps the leg counter agreeing with the legs themselves", async () => {
+    const userId = "upgrade-tenant";
+    const household = (
+      await createCategory(
+        { userId, source: "web" },
+        { name: "Household", kind: "expense" },
+      )
+    ).id;
+    const split = await updateTransaction(
+      { userId, source: "web" },
+      "d1111111-1111-4111-8111-111111111111",
+      {
+        expectedVersion: 1,
+        draft: {
+          type: "withdrawal",
+          date: "2026-03-01",
+          payee: "Corner shop",
+          fromAccountId: "a1111111-1111-4111-8111-111111111111",
+          amount: "25.00",
+          legs: [
+            { categoryId: "c1111111-1111-4111-8111-111111111111", amount: "15.00" },
+            { categoryId: household, amount: "10.00" },
+          ],
+        },
+      },
+    );
+    expect(split.legs).toHaveLength(2);
+
     const drift = await getDb().execute(sql`
       select t.id
       from ledger_transaction t
@@ -160,5 +247,17 @@ integration("upgrading a 0.1.3 ledger to split transactions", () => {
       )
     `);
     expect(drift.rows).toEqual([]);
+
+    // The migrated schema carries a split the way a fresh one does: two legs,
+    // each with its own postings, and the entry still settling to zero.
+    const shape = await getDb().execute(sql`
+      select
+        (select count(*)::int from transaction_leg) as legs,
+        (select count(*)::int from posting where leg_id is not null) as legged,
+        (select coalesce(sum(amount), 0)::text from posting
+          where transaction_id = 'd1111111-1111-4111-8111-111111111111') as total
+    `);
+    expect(shape.rows[0]).toMatchObject({ legs: 2, legged: 2 });
+    expect(Number((shape.rows[0] as { total: string }).total)).toBe(0);
   });
 });

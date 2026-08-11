@@ -165,4 +165,49 @@ describe("migration baseline", () => {
     // A NOT NULL column with no default would rewrite the whole table.
     expect(sql).not.toMatch(/ADD COLUMN(?!.*DEFAULT).*NOT NULL/i);
   });
+
+  /**
+   * The same promise for recurrences, and one more besides. Adding a value to
+   * an existing enum is the only statement in either migration that touches a
+   * type the running application already reads, and PostgreSQL will not let it
+   * share a transaction with anything that then uses the new value. Nothing
+   * here does, but nothing declared that either, so it is asserted.
+   */
+  it("adds recurrences without touching a single existing row", async () => {
+    const sql = await readFile(
+      path.join(migrationDirectory, "0006_recurring_transactions.sql"),
+      "utf8",
+    );
+
+    expect(sql).toContain('CREATE TABLE "recurrence"');
+    expect(sql).toContain(
+      `ALTER TYPE "public"."actor_source" ADD VALUE 'schedule';`,
+    );
+    expect(sql).toContain(
+      'ALTER TABLE "staged_transaction" ADD COLUMN "recurrence_id" uuid;',
+    );
+    expect(sql).toContain(
+      'ALTER TABLE "staged_transaction" ADD COLUMN "occurrence_date" date;',
+    );
+
+    // The index that makes proposing an occurrence twice impossible. Partial on
+    // recurrence_id and deliberately NOT qualified by status, so a row somebody
+    // discarded still holds its place.
+    expect(sql).toContain(
+      'CREATE UNIQUE INDEX "staged_recurrence_occurrence_unique" ON "staged_transaction" USING btree ("user_id","recurrence_id","occurrence_date") WHERE "staged_transaction"."recurrence_id" is not null',
+    );
+    expect(sql).not.toMatch(
+      /staged_recurrence_occurrence_unique[\s\S]*?WHERE[^;]*status/i,
+    );
+
+    for (const forbidden of [/\bDROP\b/i, /^\s*UPDATE\s/im, /^\s*DELETE\s/im, /^\s*INSERT\s/im]) {
+      expect(sql, forbidden.source).not.toMatch(forbidden);
+    }
+    // Both new columns are nullable, so every staged row that already exists
+    // keeps meaning what it meant.
+    expect(sql).not.toMatch(/ADD COLUMN(?!.*DEFAULT).*NOT NULL/i);
+    // The new enum value must not be used in the same migration that adds it.
+    const afterEnum = sql.slice(sql.indexOf("ADD VALUE 'schedule'"));
+    expect(afterEnum).not.toMatch(/'schedule'::/);
+  });
 });
