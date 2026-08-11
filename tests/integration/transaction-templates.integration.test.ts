@@ -1,10 +1,10 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
-import { transactionTemplates, user } from "../../src/server/db/schema.js";
+import { auditEvents, transactionTemplates, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import {
@@ -25,6 +25,7 @@ import {
 import { getIdentity } from "../../src/server/services/identity.js";
 import {
   getPreferences,
+  preferencePatchSchema,
   setPreferences,
 } from "../../src/server/services/preferences.js";
 
@@ -1134,5 +1135,124 @@ integration("what an agent reads about the person and their settings", () => {
     await expect(setPreferences(solo, {})).rejects.toThrow(
       /at least one preference/i,
     );
+  });
+
+  /**
+   * The browser offers what it can detect, and that offer is conditional: only
+   * while nobody has chosen. Deciding that on the client decides it against the
+   * session the page loaded with, so a choice made in Settings on another tab
+   * or another device while that page is open used to be overwritten by a guess.
+   */
+  describe("the timezone the browser guesses", () => {
+    const fresh = (suffix: string): Actor => ({
+      userId: `preference-adopt-${suffix}`,
+      source: "web",
+    });
+    const register = async (who: Actor) => {
+      await getDb().insert(user).values({
+        id: who.userId,
+        name: "Adopter",
+        email: `${who.userId}@example.com`,
+        emailVerified: true,
+      });
+      return who;
+    };
+
+    it("is taken when nobody has chosen", async () => {
+      const who = await register(fresh("empty"));
+      expect(await getPreferences(who)).toMatchObject({ chosen: false });
+      await setPreferences(who, {
+        timezone: "Europe/Berlin",
+        defaultCurrency: "EUR",
+        ifUnchosen: true,
+      });
+      expect(await getPreferences(who)).toMatchObject({
+        timezone: "Europe/Berlin",
+        defaultCurrency: "EUR",
+        chosen: true,
+      });
+    });
+
+    it("never replaces one somebody chose", async () => {
+      const who = await register(fresh("chosen"));
+      await setPreferences(who, { timezone: "UTC", defaultCurrency: "GBP" });
+      const chosen = await getPreferences(who);
+
+      const answer = await setPreferences(who, {
+        timezone: "America/Los_Angeles",
+        defaultCurrency: "USD",
+        ifUnchosen: true,
+      });
+
+      expect(answer).toMatchObject({ timezone: "UTC", defaultCurrency: "GBP" });
+      expect(await getPreferences(who)).toMatchObject({
+        timezone: "UTC",
+        defaultCurrency: "GBP",
+      });
+      // Nothing happened, so nothing is recorded and the row is untouched:
+      // an updatedAt that moved would say a decision had been revisited.
+      expect((await getPreferences(who)).updatedAt).toEqual(chosen.updatedAt);
+      const events = await getDb()
+        .select()
+        .from(auditEvents)
+        .where(
+          and(
+            eq(auditEvents.userId, who.userId),
+            eq(auditEvents.entityType, "user_preferences"),
+          ),
+        );
+      expect(events).toHaveLength(1);
+    });
+
+    it("does not even validate what it was never going to store", async () => {
+      const who = await register(fresh("unknown-zone"));
+      await setPreferences(who, { timezone: "America/New_York" });
+      // A browser can report a zone this server's ICU does not know. The write
+      // is a no-op, so it must not become a 422 on every page load.
+      await expect(
+        setPreferences(who, {
+          timezone: "Middle/Earth",
+          defaultCurrency: "USD",
+          ifUnchosen: true,
+        }),
+      ).resolves.toMatchObject({ timezone: "America/New_York" });
+    });
+
+    it("still refuses a deliberate write of a timezone no calendar knows", async () => {
+      const who = await register(fresh("deliberate"));
+      await expect(
+        setPreferences(who, { timezone: "Middle/Earth" }),
+      ).rejects.toThrow();
+    });
+
+    it("lets the first of two guesses win rather than either failing", async () => {
+      const who = await register(fresh("race"));
+      await Promise.all([getPreferences(who), getPreferences(who)]);
+      await Promise.all([
+        setPreferences(who, { timezone: "Europe/Berlin", ifUnchosen: true }),
+        setPreferences(who, { timezone: "Asia/Tokyo", ifUnchosen: true }),
+      ]);
+      const settled = await getPreferences(who);
+      expect(["Europe/Berlin", "Asia/Tokyo"]).toContain(settled.timezone);
+      const events = await getDb()
+        .select()
+        .from(auditEvents)
+        .where(
+          and(
+            eq(auditEvents.userId, who.userId),
+            eq(auditEvents.entityType, "user_preferences"),
+          ),
+        );
+      expect(events).toHaveLength(1);
+    });
+
+    // An agent has no browser locale and nothing to be tentative about, so the
+    // flag is not part of the tool's contract and a tool call carrying one
+    // writes unconditionally rather than quietly doing nothing.
+    it("is not something an agent can ask for", () => {
+      expect(
+        preferencePatchSchema.parse({ timezone: "UTC", ifUnchosen: true }),
+      ).toEqual({ timezone: "UTC" });
+    });
   });
 });

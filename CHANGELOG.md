@@ -220,6 +220,12 @@ review it, instead of committing uncategorised.
 
 Two settings changes made at the same time no longer overwrite one another.
 
+The timezone and currency the browser detects are offered only while nobody has
+chosen, and that is now decided by the server at the moment of writing rather
+than by the page against the session it loaded with. Choosing a timezone in
+Settings on one tab, or on another device, while a Simple Balance page is open
+elsewhere could previously have that choice replaced by the other page's guess.
+
 ## 0.1.3 - 2026-08-06
 
 ### Added

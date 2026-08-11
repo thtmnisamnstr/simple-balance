@@ -110,6 +110,12 @@
   from, including a CSV import.
 - An audit entry records what changed, and for a split that includes the legs:
   relabelling one writes no posting and touches no column on the transaction.
+- A guess never overwrites a decision. The browser's detected timezone and
+  currency are offered only while `chosen` is false, and that condition travels
+  with the write as `ifUnchosen` so it is checked in the transaction that would
+  do the writing. A page decides it against the session it loaded with, which
+  another tab may already have made stale. It is not part of the MCP contract:
+  an agent has no browser locale and nothing to be tentative about.
 - Transaction and staged mass edits are atomic and share one selection contract.
   Explicit rows carry expected versions; all-filtered selections carry a
   server-issued count and `id:version` fingerprint. Never silently move a

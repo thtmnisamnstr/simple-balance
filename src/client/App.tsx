@@ -582,6 +582,11 @@ export function OAuthConsent() {
  * setting somebody picked on purpose, including a deliberate UTC. That is what
  * `chosen` is for. It covers whichever way the account was created, because it
  * keys off the preferences rather than off a sign-up route.
+ *
+ * The `chosen` check here only saves a pointless request. `ifUnchosen` is what
+ * makes the rule true: this page holds the session it loaded with, and somebody
+ * choosing a timezone in Settings on another tab or another device while it is
+ * open would otherwise have that choice overwritten by this guess.
  */
 function useAdoptBrowserRegion(session: Session) {
   const queryClient = useQueryClient();
@@ -596,7 +601,7 @@ function useAdoptBrowserRegion(session: Session) {
       return;
     }
     void api("/api/v1/preferences", {
-      ...json({ timezone, defaultCurrency }),
+      ...json({ timezone, defaultCurrency, ifUnchosen: true }),
       method: "PUT",
     })
       .then(() => queryClient.invalidateQueries({ queryKey: ["session"] }))
