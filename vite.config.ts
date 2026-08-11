@@ -14,7 +14,6 @@ export default defineConfig({
       "/api": "http://localhost:3000",
       "/health": "http://localhost:3000",
       "/mcp": "http://localhost:3000",
-      "/oauth2": "http://localhost:3000",
     },
   },
 });

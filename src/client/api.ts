@@ -425,12 +425,10 @@ export type AuditEvent = {
   createdAt: string;
 };
 
-export type CsvPreview = {
-  delimiter: string;
-  headers: string[];
-  rows: Record<string, string>[];
-  errors: string[];
-};
+// The preview the server returns is exactly what the shared parser produces, so
+// the browser reads that type rather than keeping a second copy of it that can
+// drift.
+export type { CsvPreview } from "../shared/csv.js";
 
 export type { PaginatedPage, Page };
 

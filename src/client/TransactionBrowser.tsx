@@ -55,6 +55,7 @@ import {
   sumMoney,
   Textarea,
   useConfirm,
+  compareMoney,
 } from "./components.js";
 import {
   draftForTransactionForm,
@@ -62,7 +63,6 @@ import {
   templateDraftFromDraft,
 } from "./staged-draft.js";
 import type { TransactionSortField } from "../shared/domain.js";
-import { compareMoney } from "./components.js";
 
 /** The share a split is named by in a list: its biggest one. */
 function largestLeg(legs: Transaction["legs"]) {

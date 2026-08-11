@@ -12,8 +12,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM dependencies AS build
-COPY tsconfig.json tsconfig.server.json vite.config.ts index.html ./
-COPY public ./public
+COPY tsconfig.json tsconfig.server.json ./
 COPY src ./src
 RUN npm run build:server
 
