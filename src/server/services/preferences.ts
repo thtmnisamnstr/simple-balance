@@ -4,6 +4,7 @@ import type { Actor } from "../../shared/domain.js";
 import { currencyCodeSchema } from "../../shared/domain.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import { userPreferences } from "../db/schema.js";
+import { validationError } from "./errors.js";
 import { serializeRow, writeAudit, type Executor } from "./helpers.js";
 
 export const preferenceSchema = z.object({
@@ -28,6 +29,13 @@ export const preferenceSchema = z.object({
  * connection its own open transaction is holding, which is a deadlock that only
  * appears under a small pool and then never resolves.
  */
+/**
+ * What a person gets before they have chosen anything. One copy, because the
+ * read synthesises them for a missing row and a partial write has to insert
+ * the same ones for the field it was not given.
+ */
+const unchosenPreferences = { timezone: "UTC", defaultCurrency: "USD" } as const;
+
 export async function getPreferences(actor: Actor, executor: Executor = getDb()) {
   const [preferences] = await executor
     .select()
@@ -40,8 +48,7 @@ export async function getPreferences(actor: Actor, executor: Executor = getDb())
   if (preferences) return { ...preferences, chosen: true };
   return {
     userId: actor.userId,
-    timezone: "UTC",
-    defaultCurrency: "USD",
+    ...unchosenPreferences,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     chosen: false,
@@ -61,10 +68,24 @@ export async function setPreferences(
   transaction?: DbTransaction,
 ) {
   const patch = preferencePatchSchema.parse(input);
-  const current = await getPreferences(actor, transaction ?? getDb());
-  const parsed = preferenceSchema.parse({
-    timezone: patch.timezone ?? current.timezone,
-    defaultCurrency: patch.defaultCurrency ?? current.defaultCurrency,
+  // Merged by PostgreSQL, not here. Reading the row first and writing back both
+  // fields made every partial change a read-modify-write: two callers each
+  // setting a different field both read the same row and the second one to
+  // commit wrote the first one's field back to what it had been.
+  //
+  // The conflict clause names only the fields this call was given, so a field
+  // it was not given is never part of the statement and cannot be overwritten.
+  // The insert still needs both, because a row that does not exist yet has no
+  // other side to take them from.
+  // An empty patch asks for nothing and its only effect would be to record a
+  // decision nobody made: it writes a defaults row and flips `chosen` to true,
+  // which permanently stops the browser offering the timezone it detected.
+  if (!Object.keys(patch).length) {
+    throw validationError("Choose at least one preference to change");
+  }
+  const inserted = preferenceSchema.parse({
+    timezone: patch.timezone ?? unchosenPreferences.timezone,
+    defaultCurrency: patch.defaultCurrency ?? unchosenPreferences.defaultCurrency,
   });
   // Takes a transaction rather than always opening one, like every other write
   // here. Opening its own inside a caller's would take a second connection out
@@ -74,13 +95,14 @@ export async function setPreferences(
       .select()
       .from(userPreferences)
       .where(eq(userPreferences.userId, actor.userId))
-      .limit(1);
+      .limit(1)
+      .for("update");
     const [preferences] = await tx
       .insert(userPreferences)
-      .values({ userId: actor.userId, ...parsed })
+      .values({ userId: actor.userId, ...inserted })
       .onConflictDoUpdate({
         target: userPreferences.userId,
-        set: { ...parsed, updatedAt: new Date() },
+        set: { ...patch, updatedAt: new Date() },
       })
       .returning();
     await writeAudit(tx, actor, {

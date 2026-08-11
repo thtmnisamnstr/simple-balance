@@ -58,7 +58,10 @@ const aliases: Record<keyof CsvMapping, string[]> = {
   payee: ["payee", "merchant", "description", "memo", "details", "name"],
   category: ["category"],
   notes: ["notes", "note"],
-  externalId: ["transaction_id", "id", "external id"],
+  // The file's own column first. `transaction_id` is the primary key of the
+  // ledger the export came from and means nothing here, so guessing it as a
+  // bank reference fabricates one and keys the duplicate check on it.
+  externalId: ["external_id", "external id", "reference", "fitid"],
 };
 
 function inferMapping(headers: string[]): Partial<CsvMapping> {

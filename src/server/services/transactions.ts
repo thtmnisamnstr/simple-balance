@@ -865,6 +865,7 @@ async function reconcileClosedAccounts(
     .select({
       id: ledgerAccounts.id,
       currency: ledgerAccounts.currency,
+      archivedAt: ledgerAccounts.archivedAt,
     })
     .from(ledgerAccounts)
     .where(

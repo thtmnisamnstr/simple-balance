@@ -8,10 +8,9 @@ import {
   recurrenceUpdateSchema,
 } from "../../shared/domain.js";
 import {
-  addDays,
-  laterOf,
   nextOccurrenceAfter,
   occurrencesBetween,
+  scheduleCursor as sharedScheduleCursor,
   todayIn,
   type RecurrenceRule,
 } from "../../shared/recurrence-dates.js";
@@ -58,12 +57,7 @@ export function ruleOf(row: RecurrenceRow): RecurrenceRule {
  * Keeping them in separate columns is what lets "has never run" stay a null
  * check while a backfill stays impossible.
  */
-export function scheduleCursor(
-  row: Pick<RecurrenceRow, "proposesFrom" | "lastOccurrenceDate">,
-) {
-  const floor = addDays(row.proposesFrom, -1);
-  return row.lastOccurrenceDate ? laterOf(row.lastOccurrenceDate, floor) : floor;
-}
+export const scheduleCursor = sharedScheduleCursor;
 
 /** The only expression that ever writes `next_occurrence_date`. */
 export function nextOccurrenceDateFor(row: RecurrenceRow) {

@@ -46,6 +46,14 @@ export const APP_CSV_COLUMNS = [
  */
 export const APP_CSV_LEGS_COLUMN = "legs_json";
 
+/**
+ * The bank's own reference for the row, out of the same list and for the same
+ * reason. It is written for a person to read; the value the importer trusts
+ * travels in `roundtrip_text_json`, where the spreadsheet-formula neutraliser
+ * cannot reach it.
+ */
+export const APP_CSV_EXTERNAL_ID_COLUMN = "external_id";
+
 export function isAppExportCsv(headers: readonly string[]) {
   const available = new Set(headers);
   return APP_CSV_COLUMNS.every((column) => available.has(column));
@@ -224,6 +232,8 @@ export function csvCell(row: Record<string, string>, column: string | undefined)
   return typeof value === "string" ? value : "";
 }
 
+const zeroAmountPattern = /^-?0(?:\.0+)?$/;
+
 export function normalizeCsvRows(
   rows: Record<string, string>[],
   options: CsvNormalizeOptions,
@@ -272,38 +282,52 @@ export function normalizeCsvRows(
       });
     }
 
+    // Direction is stated twice on a debit/credit row: once by which column
+    // holds the value, once by that value's sign. A negative in one of those
+    // columns is the two disagreeing, and the file cannot say which it meant —
+    // some banks write every debit as a negative in the Debit column, others
+    // use the columns as magnitudes so a negative is a reversal going the other
+    // way. Refused for the same reason both columns holding a value is refused
+    // just above: reading it either way silently reverses half of real files.
+    const debitPresent =
+      !mapping.amount && Boolean(debit) && !zeroAmountPattern.test(debit!);
+    const creditPresent =
+      !mapping.amount && Boolean(credit) && !zeroAmountPattern.test(credit!);
+    if (debitPresent && creditPresent) {
+      issues.push({
+        field: "amount",
+        message: "Only one of debit and credit may contain a non-zero amount",
+      });
+    }
+    for (const [field, value, present] of [
+      ["debit", debit, debitPresent],
+      ["credit", credit, creditPresent],
+    ] as const) {
+      if (present && value!.startsWith("-")) {
+        issues.push({
+          field,
+          message:
+            "A negative value in a debit or credit column is ambiguous. Map that column as the signed amount instead, or put the amount in the other column.",
+        });
+      }
+    }
+
+    const signedDebit = debitPresent && !debit!.startsWith("-");
+    const signedCredit = creditPresent && !credit!.startsWith("-");
     let type: "deposit" | "withdrawal";
     let amount: string | null;
     if (mapping.amount && signedAmount) {
       type = signedAmount.startsWith("-") ? "withdrawal" : "deposit";
       amount = signedAmount.replace(/^-/, "");
-    } else if (
-      !mapping.amount &&
-      debit &&
-      !/^[-]?0(?:\.0+)?$/.test(debit) &&
-      credit &&
-      !/^[-]?0(?:\.0+)?$/.test(credit)
-    ) {
+    } else if (debitPresent && creditPresent) {
       type = "withdrawal";
       amount = null;
-      issues.push({
-        field: "amount",
-        message: "Only one of debit and credit may contain a non-zero amount",
-      });
-    } else if (
-      !mapping.amount &&
-      debit &&
-      !/^[-]?0(?:\.0+)?$/.test(debit)
-    ) {
+    } else if (signedDebit) {
       type = "withdrawal";
-      amount = debit.replace(/^-/, "");
-    } else if (
-      !mapping.amount &&
-      credit &&
-      !/^[-]?0(?:\.0+)?$/.test(credit)
-    ) {
+      amount = debit;
+    } else if (signedCredit) {
       type = "deposit";
-      amount = credit.replace(/^-/, "");
+      amount = credit;
     } else {
       type = "withdrawal";
       amount = null;
@@ -339,6 +363,22 @@ const spreadsheetFormulaPattern = /^(?:[\u0000-\u0020]*[=+\-@]|[\t\r\n])/;
 export function neutralizeSpreadsheetFormula(value: unknown): string {
   const stringValue = value == null ? "" : String(value);
   return spreadsheetFormulaPattern.test(stringValue) ? `'${stringValue}` : stringValue;
+}
+
+/**
+ * Take back the apostrophe the neutraliser adds, for a file written before the
+ * value also travelled in `roundtrip_text_json`.
+ *
+ * Not injective, and cannot be: a category genuinely named `'-Reimbursements`
+ * and one named `-Reimbursements` export identically. The JSON channel is what
+ * makes new files exact; this is the best answer available for an old one, and
+ * it is better than importing every such name with a leading apostrophe glued
+ * on and creating a second category on every round trip.
+ */
+export function restoreNeutralizedCell(value: string) {
+  return value.startsWith("'") && spreadsheetFormulaPattern.test(value.slice(1))
+    ? value.slice(1)
+    : value;
 }
 
 const escapeCsv = (value: unknown, protectFromFormulas: boolean) => {

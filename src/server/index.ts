@@ -6,6 +6,7 @@ import {
   isRegistrationOpenToAnyone,
 } from "./config.js";
 import { closeDb } from "./db/client.js";
+import { reconcileArchivedAccountClosings } from "./services/accounts.js";
 import { runMigrations } from "./db/migrate.js";
 import { checkMailTransport, closeMail } from "./mail.js";
 import { isLocalBootstrapOpen } from "./auth-policy.js";
@@ -27,6 +28,13 @@ async function main() {
     );
   }
   await runMigrations();
+  const reclosed = await reconcileArchivedAccountClosings();
+  if (reclosed) {
+    console.info(
+      `Re-closed ${reclosed} archived account(s) that were holding a balance ` +
+        "on a date the dashboard had already stopped counting.",
+    );
+  }
   await checkMailTransport();
   if (config.isProduction && !config.trustProxy) {
     // Sign-in attempts are counted per client address, and with no trusted

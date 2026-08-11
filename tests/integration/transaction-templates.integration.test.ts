@@ -1098,4 +1098,41 @@ integration("what an agent reads about the person and their settings", () => {
       timezone: "America/New_York",
     });
   });
+
+  // Reading the row and writing both fields back made every partial change a
+  // read-modify-write. Two callers each setting a different field both read the
+  // same row, and the second to commit put the first one's field back.
+  //
+  // Last, and on its own actor, because it leaves both fields changed.
+  it("keeps both fields when two partial patches land together", async () => {
+    const racer: Actor = { userId: "preference-race-user", source: "web" };
+    await getDb().insert(user).values({
+      id: racer.userId,
+      name: "Racer",
+      email: "preference-race@example.com",
+      emailVerified: true,
+    });
+    await setPreferences(racer, { timezone: "UTC", defaultCurrency: "USD" });
+    // Both connections already open, so the two reads genuinely overlap rather
+    // than the second waiting out a handshake while the first commits.
+    await Promise.all([getPreferences(racer), getPreferences(racer)]);
+
+    await Promise.all([
+      setPreferences(racer, { timezone: "Europe/London" }),
+      setPreferences(racer, { defaultCurrency: "EUR" }),
+    ]);
+
+    expect(await getPreferences(racer)).toMatchObject({
+      timezone: "Europe/London",
+      defaultCurrency: "EUR",
+    });
+  });
+
+  // An empty patch asks for nothing, and its only effect would be to write a
+  // defaults row and record that the person had chosen them.
+  it("refuses a patch that names no preference", async () => {
+    await expect(setPreferences(solo, {})).rejects.toThrow(
+      /at least one preference/i,
+    );
+  });
 });

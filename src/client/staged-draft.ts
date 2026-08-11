@@ -34,6 +34,10 @@ export type TransactionFormDraft = {
   description: string;
   payee: string;
   categoryId: string;
+  // A staged draft may name its category by name and no id: an agent staged it
+  // that way, or a CSV import deferred the category to commit. Read here so
+  // opening the row in the form does not write null over the only answer it has.
+  categoryName: string;
   legs: TransactionFormLeg[];
   notes: string;
   fromAccountId: string;
@@ -91,6 +95,7 @@ export function draftForTransactionForm(input: unknown): TransactionFormDraft {
     description: stagedString(draft.description),
     payee: stagedString(draft.payee),
     categoryId: stagedString(draft.categoryId),
+    categoryName: stagedString(draft.categoryName),
     legs: stagedLegs(draft.legs),
     notes: stagedString(draft.notes),
     fromAccountId: stagedString(draft.fromAccountId),

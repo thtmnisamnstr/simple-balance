@@ -228,6 +228,52 @@ export async function postOpeningBalance(
 }
 
 /**
+ * Re-close every account that was archived under the old single-entry rule.
+ *
+ * The date-bucketed close is not self-healing: an account archived before it
+ * shipped keeps its one mis-dated pair until something happens to repost into
+ * it, and nothing in the archived-account screen does. A person upgrading would
+ * go on seeing the same short headline total with nothing saying why.
+ *
+ * Idempotent, because `postClosingBalance` only ever appends the difference per
+ * account and date: over an account that is already right it writes nothing.
+ * That is what makes running it on every startup safe rather than a one-shot
+ * that has to be remembered.
+ */
+export async function reconcileArchivedAccountClosings() {
+  const archived = await getDb()
+    .select({
+      id: ledgerAccounts.id,
+      userId: ledgerAccounts.userId,
+      currency: ledgerAccounts.currency,
+      archivedAt: ledgerAccounts.archivedAt,
+    })
+    .from(ledgerAccounts)
+    .where(
+      and(
+        isNotNull(ledgerAccounts.archivedAt),
+        isNull(ledgerAccounts.systemKind),
+      ),
+    );
+  let repaired = 0;
+  for (const account of archived) {
+    // One transaction each. A single one across every tenant would hold every
+    // account's locks at once, and one unreadable timezone would roll back the
+    // repair for everybody else.
+    const written = await withTransaction(undefined, (tx) =>
+      postClosingBalance(
+        tx,
+        { userId: account.userId, source: "web" },
+        account,
+        true,
+      ),
+    );
+    if (written) repaired += 1;
+  }
+  return repaired;
+}
+
+/**
  * Close an account out to equity so it ends at zero, and put it back when the
  * account is reopened.
  *
@@ -243,18 +289,30 @@ export async function postOpeningBalance(
  * Balances equity account it came from. The money leaves the books the way it
  * entered them, and the ledger still sums to zero.
  *
- * The entry is dated the later of today and the account's last posting, so an
- * account holding a future-dated transaction still ends at zero rather than
- * coming back to life on that date. A balance as of an earlier day is
- * unaffected, because the money really was there then.
+ * One entry cannot say this. A single pair dated the last posting leaves the
+ * account holding money on every day between the archive and that date, while
+ * the dashboard has already stopped counting it: the headline total silently
+ * drops by whatever was in there. So the close is bucketed by date. Everything
+ * dated on or before the archive day collapses onto the archive day, and each
+ * later posting gets a mirroring pair on its own day. The account then reads
+ * zero as of every date from the archive onward, and the equity side receives
+ * the money on the same days.
  *
- * Reopening appends the reversal rather than deleting the pair, which is the
+ * The archive day is the anchor rather than today, because this function re-runs
+ * whenever a transaction touching an archived account is reposted. With today as
+ * the anchor each re-run would move the collapsed entry onto a new day and
+ * reopen the same hole for every date in between.
+ *
+ * A balance as of a day before the archive is unaffected, because the money
+ * really was there then.
+ *
+ * Reopening appends the reversal rather than deleting the pairs, which is the
  * same rule every other correction in this ledger follows.
  */
 export async function postClosingBalance(
   tx: DbTransaction,
   actor: Actor,
-  account: { id: string; currency: string },
+  account: { id: string; currency: string; archivedAt: Date | null },
   archived: boolean,
 ) {
   const existing = await tx
@@ -267,42 +325,44 @@ export async function postClosingBalance(
       ),
     );
 
-  // The balance to clear is the one the account holds on its own terms, so a
-  // closing pair already posted is left out of the sum rather than making the
-  // account look like it needs closing twice.
-  // Today where this person lives. current_date is the database session's day,
-  // which for anyone west of it is tomorrow for part of every evening, and
-  // every other "as of today" figure uses the preference timezone.
-  const { timezone } = await getPreferences(actor, tx);
-  const measured = await tx.execute(sql`
-    select
-      coalesce(sum(p.amount) filter (where p.closing_account_id is null), 0)::text
-        as open_balance,
-      greatest(
-        (current_timestamp at time zone ${timezone})::date,
-        coalesce(max(p.date), (current_timestamp at time zone ${timezone})::date)
-      )::text as closing_date
-    from posting p
-    where p.user_id = ${actor.userId}
-      and p.account_id = ${account.id}::uuid
-  `);
-  const { open_balance: openBalance, closing_date: closingDate } = measured
-    .rows[0] as { open_balance: string; closing_date: string };
-  const remaining = decimal(openBalance);
-
-  const desired =
-    archived && !remaining.isZero()
-      ? [
-          { accountId: account.id, date: closingDate, amount: remaining.negated() },
-          {
-            accountId: (
-              await ensureSystemAccount(tx, actor, "equity", account.currency)
-            ).id,
-            date: closingDate,
-            amount: remaining,
-          },
-        ]
-      : [];
+  // What the account holds, by the date it holds it on, so the close can mirror
+  // it day for day. A closing pair already posted is left out of the sum rather
+  // than making the account look like it needs closing twice.
+  //
+  // The anchor is the archive day where this person lives. current_date is the
+  // database session's day, which for anyone west of it is tomorrow for part of
+  // every evening, and every other "as of today" figure uses the preference
+  // timezone.
+  const desired: { accountId: string; date: string; amount: Decimal }[] = [];
+  if (archived) {
+    const { timezone } = await getPreferences(actor, tx);
+    const anchoredAt = account.archivedAt?.toISOString() ?? null;
+    const measured = await tx.execute(sql`
+      select
+        greatest(
+          p.date,
+          (coalesce(${anchoredAt}::timestamptz, current_timestamp)
+            at time zone ${timezone})::date
+        )::text as date,
+        sum(p.amount)::text as amount
+      from posting p
+      where p.user_id = ${actor.userId}
+        and p.account_id = ${account.id}::uuid
+        and p.closing_account_id is null
+      group by 1
+      having sum(p.amount) <> 0
+    `);
+    if (measured.rows.length) {
+      const equityId = (
+        await ensureSystemAccount(tx, actor, "equity", account.currency)
+      ).id;
+      for (const row of measured.rows as { date: string; amount: string }[]) {
+        const amount = decimal(row.amount);
+        desired.push({ accountId: account.id, date: row.date, amount: amount.negated() });
+        desired.push({ accountId: equityId, date: row.date, amount });
+      }
+    }
+  }
 
   const net = new Map<string, { accountId: string; date: string; amount: Decimal }>();
   const add = (accountId: string, date: string, amount: Decimal) => {
@@ -327,6 +387,7 @@ export async function postClosingBalance(
       currency: account.currency,
     }));
   if (rows.length) await tx.insert(postings).values(rows);
+  return rows.length > 0;
 }
 
 export function presentAccountBalance(type: AccountType, balance: string) {

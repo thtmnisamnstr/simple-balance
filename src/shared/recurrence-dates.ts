@@ -230,7 +230,13 @@ export function occurrenceAt(rule: RecurrenceRule, n: number): Occurrence {
  * which is the ordinary state right after somebody edits the rule.
  */
 function firstIndexAfter(rule: RecurrenceRule, after: string) {
-  if (after < rule.anchorDate) return 0;
+  // A non-positive interval makes the sequence stand still or run backwards,
+  // and the loop below advances until it passes the watermark, so it would
+  // never return. The schema refuses one; this is the shared function refusing
+  // it too, because a form that has not validated yet calls straight in.
+  if (rule.interval < 1) {
+    throw new RangeError("A recurrence interval must be at least 1");
+  }
   const anchor = parts(rule.anchorDate);
   const target = parts(after);
   const guess =
@@ -251,6 +257,21 @@ function firstIndexAfter(rule: RecurrenceRule, after: string) {
   let n = Math.max(0, guess - 2);
   while (sequenceDate(rule, n).date <= after) n += 1;
   return n;
+}
+
+/**
+ * The watermark a schedule seeks from: everything on or before it is settled.
+ *
+ * Shared because the browser's preview and the scheduler have to seek from the
+ * same day. Deriving it from the anchor instead, as a form with no row in hand
+ * is tempted to, shows a first date the scheduler will not propose.
+ */
+export function scheduleCursor(row: {
+  proposesFrom: string;
+  lastOccurrenceDate: string | null;
+}) {
+  const floor = addDays(row.proposesFrom, -1);
+  return row.lastOccurrenceDate ? laterOf(row.lastOccurrenceDate, floor) : floor;
 }
 
 /** The first occurrence strictly after `after`. A schedule has no end, so never null. */

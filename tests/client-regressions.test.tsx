@@ -227,6 +227,95 @@ describe("import references survive an edit", () => {
   });
 });
 
+describe("editing a transfer between two accounts in one currency", () => {
+  const savingsAccount = {
+    ...checkingAccount,
+    id: "44444444-4444-4444-8444-444444444444",
+    name: "Savings",
+  };
+  const eurAccount = {
+    ...checkingAccount,
+    id: "55555555-5555-4555-8555-555555555555",
+    name: "Euro Savings",
+    currency: "EUR",
+  };
+  const sameCurrencyTransfer = {
+    ...groceryTransaction,
+    type: "transfer" as const,
+    payee: "Move",
+    categoryId: null,
+    category: null,
+    sourceAccountId: checkingAccount.id,
+    destinationAccountId: savingsAccount.id,
+    sourceAmount: "100.00",
+    destinationAmount: "100.00",
+    sourceCurrency: "USD",
+    destinationCurrency: "USD",
+  };
+
+  const renderTransfer = (
+    onBody: (body: { draft?: Record<string, unknown> }) => void,
+    accounts = [checkingAccount, savingsAccount, eurAccount],
+  ) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname.startsWith("/api/v1/transactions/")) {
+          onBody(JSON.parse(String(init?.body)));
+          return new Response(JSON.stringify(sameCurrencyTransfer), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    const client = queryClient();
+    client.setQueryData(["payees", "suggestions", ""], []);
+    return render(
+      <QueryClientProvider client={client}>
+        <TransactionForm
+          accounts={accounts}
+          categories={[groceriesCategory]}
+          transaction={sameCurrencyTransfer as never}
+          onDone={() => undefined}
+        />
+      </QueryClientProvider>,
+    );
+  };
+
+  // With both sides in one currency there is no "Amount received" field, so the
+  // stored value sat in state where nothing could reach it and went out with
+  // every save. The server's zero-sum check then refused every edit of the
+  // amount, and the number could never be changed at all.
+  it("does not send a received amount the form never showed", async () => {
+    let body: { draft?: Record<string, unknown> } | undefined;
+    renderTransfer((next) => (body = next));
+
+    fireEvent.change(screen.getByLabelText(/Amount sent|^Amount/), {
+      target: { value: "120.00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body?.draft).toMatchObject({ sourceAmount: "120.00" });
+    expect(body?.draft).not.toHaveProperty("destinationAmount");
+  });
+
+  it("forgets it when the pair is changed to one currency", async () => {
+    renderTransfer(() => undefined);
+    fireEvent.change(screen.getByLabelText("To account"), {
+      target: { value: eurAccount.id },
+    });
+    const received = screen.getByLabelText(/Amount received/);
+    expect((received as HTMLInputElement).value).toBe("");
+  });
+});
+
 describe("configured timezone defaults", () => {
   it("uses the ledger timezone for a new transaction date", () => {
     vi.useFakeTimers();

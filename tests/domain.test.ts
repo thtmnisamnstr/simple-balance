@@ -267,6 +267,88 @@ describe("CSV normalization", () => {
     });
   });
 
+  /**
+   * A negative in a debit or credit column is direction stated twice and
+   * disagreeing. Reading it either way silently reverses half of real bank
+   * files, so the row is refused with the sign still legible rather than
+   * staged in whichever direction the column implied.
+   */
+  describe("a signed value in a debit or credit column", () => {
+    const rowWith = (cells: Record<string, string>) =>
+      normalizeCsvRows([{ Date: "07/30/2026", Memo: "Reversal", ...cells }], {
+        mapping: {
+          date: "Date",
+          payee: "Memo",
+          debit: "Debit",
+          credit: "Credit",
+        },
+        defaultAccountId: accountId,
+        dateFormat: "MDY",
+        decimalSeparator: ".",
+      })[0];
+
+    it.each([
+      ["Credit", "-250.00"],
+      ["Debit", "-250.00"],
+      ["Credit", "(250.00)"],
+      ["Debit", "(250.00)"],
+    ])("refuses %s %s rather than stripping the sign", (column, value) => {
+      const row = rowWith({ [column]: value });
+      expect(row.draft).toBeNull();
+      expect(row.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            field: column.toLowerCase(),
+            message: expect.stringMatching(/negative value in a debit or credit/i),
+          }),
+        ]),
+      );
+    });
+
+    it("still reads an unsigned value in either column", () => {
+      expect(rowWith({ Debit: "250.00" }).draft).toMatchObject({
+        type: "withdrawal",
+        amount: "250.00",
+      });
+      expect(rowWith({ Credit: "250.00" }).draft).toMatchObject({
+        type: "deposit",
+        amount: "250.00",
+      });
+    });
+
+    it("still honours the sign on a mapped signed-amount column", () => {
+      const [row] = normalizeCsvRows(
+        [{ Date: "07/30/2026", Memo: "Reversal", Amount: "-250.00" }],
+        {
+          mapping: { date: "Date", payee: "Memo", amount: "Amount" },
+          defaultAccountId: accountId,
+          dateFormat: "MDY",
+          decimalSeparator: ".",
+        },
+      );
+      expect(row.draft).toMatchObject({ type: "withdrawal", amount: "250.00" });
+    });
+
+    it("says both things when a signed column also collides with the other", () => {
+      const row = rowWith({ Debit: "-250.00", Credit: "100.00" });
+      expect(row.draft).toBeNull();
+      expect(row.issues.map((issue) => issue.message).join(" ")).toMatch(
+        /only one of debit and credit/i,
+      );
+      expect(row.issues.map((issue) => issue.message).join(" ")).toMatch(
+        /negative value in a debit or credit/i,
+      );
+    });
+
+    it("leaves a signed zero alone", () => {
+      const row = rowWith({ Debit: "-0.00" });
+      expect(row.draft).toBeNull();
+      expect(row.issues.map((issue) => issue.message).join(" ")).not.toMatch(
+        /negative value in a debit or credit/i,
+      );
+    });
+  });
+
   it("stages ambiguous debit and credit rows as validation errors", () => {
     const [row] = normalizeCsvRows(
       [

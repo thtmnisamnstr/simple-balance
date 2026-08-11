@@ -121,6 +121,9 @@ export async function lockStagedDraftReferences(
   // category by name would each create it.
   const namesACategory = (draft: unknown) =>
     Boolean(referenceValue(draft, "categoryId")) ||
+    // A name and no id is a category this commit may create, which takes the
+    // same namespace lock. `referenceValue` parses uuids, so it cannot see one.
+    typeof (draft as { categoryName?: unknown })?.categoryName === "string" ||
     (Array.isArray((draft as { legs?: unknown })?.legs) &&
       (draft as { legs: unknown[] }).legs.some(
         (leg) =>

@@ -4,6 +4,7 @@ import {
   daysInMonth,
   laterOf,
   nextOccurrenceAfter,
+  scheduleCursor,
   occurrenceAt,
   occurrencesBetween,
   todayIn,
@@ -396,5 +397,96 @@ describe("properties that must hold for every rule", () => {
         }
       }
     }
+  });
+});
+
+/**
+ * A positioned rule's occurrence 0 can fall earlier in the anchor's month than
+ * the anchor itself — "the first Monday" of a month anchored on the 31st. The
+ * seek used to short-circuit to index 0 whenever the watermark preceded the
+ * anchor, which returned a date the caller had already passed.
+ */
+describe("seeking past a watermark on a positioned schedule", () => {
+  const positioned = (anchorDate: string, ordinal: 1 | 2 | 3 | 4 | -1, weekday: number) => ({
+    frequency: "monthly" as const,
+    interval: 1,
+    anchorDate,
+    monthPolicy: "last_day" as const,
+    weekendPolicy: "allow" as const,
+    position: { ordinal, weekday },
+  });
+
+  it("never returns an occurrence on or before the watermark", () => {
+    for (const day of ["01", "05", "11", "17", "28", "31"]) {
+      for (const ordinal of [1, 2, 3, 4, -1] as const) {
+        for (let weekday = 0; weekday < 7; weekday += 1) {
+          const rule = positioned(`2026-08-${day}`, ordinal, weekday);
+          for (const after of ["2026-07-31", "2026-08-01", "2026-08-10", "2026-08-30"]) {
+            const next = nextOccurrenceAfter(rule, after);
+            expect(
+              next.occurrenceDate > after,
+              `${rule.anchorDate} ordinal=${ordinal} weekday=${weekday} after=${after} gave ${next.occurrenceDate}`,
+            ).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it("proposes the occurrence in the anchor's own month when it is still ahead", () => {
+    // Anchored 2026-08-31, "third Monday" is 2026-08-17. Seeking from the day
+    // before the schedule may reach back to must find it, not next month's.
+    const rule = positioned("2026-08-31", 3, 1);
+    expect(nextOccurrenceAfter(rule, "2026-08-10").occurrenceDate).toBe("2026-08-17");
+  });
+
+  it("still starts at the anchor for a rule with no position", () => {
+    const rule = {
+      frequency: "monthly" as const,
+      interval: 1,
+      anchorDate: "2026-09-15",
+      monthPolicy: "last_day" as const,
+      weekendPolicy: "allow" as const,
+      position: null,
+    };
+    expect(nextOccurrenceAfter(rule, "2026-08-09").occurrenceDate).toBe("2026-09-15");
+  });
+
+  it("refuses an interval that would make the sequence stand still", () => {
+    for (const interval of [0, -1, -12]) {
+      expect(() =>
+        nextOccurrenceAfter(
+          {
+            frequency: "daily",
+            interval,
+            anchorDate: "2026-08-01",
+            monthPolicy: "last_day",
+            weekendPolicy: "allow",
+            position: null,
+          },
+          "2026-08-10",
+        ),
+      ).toThrow(RangeError);
+    }
+  });
+});
+
+describe("the watermark a schedule seeks from", () => {
+  it("is the day before it may reach back to, until it has run", () => {
+    expect(
+      scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: null }),
+    ).toBe("2026-08-10");
+  });
+
+  it("is the last occurrence once it is later than that", () => {
+    expect(
+      scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: "2026-09-01" }),
+    ).toBe("2026-09-01");
+  });
+
+  it("never moves backwards past the floor", () => {
+    expect(
+      scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: "2026-01-01" }),
+    ).toBe("2026-08-10");
   });
 });

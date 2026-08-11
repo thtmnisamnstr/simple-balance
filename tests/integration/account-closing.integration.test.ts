@@ -9,6 +9,7 @@ import {
   createAccount,
   deleteAccount,
   getAccount,
+  reconcileArchivedAccountClosings,
   setAccountArchived,
 } from "../../src/server/services/accounts.js";
 import { getSummary } from "../../src/server/services/summary.js";
@@ -448,5 +449,194 @@ integration("an account that was archived can still be tidied away", () => {
       .from(postings)
       .where(eq(postings.userId, tidyActor.userId));
     expect(left).toHaveLength(0);
+  });
+});
+
+/**
+ * The account has to read zero as of *every* date from the archive onward, not
+ * merely ever-after. A single closing pair dated the last posting leaves the
+ * money in an account the dashboard has already stopped counting, so the
+ * headline total silently drops by whatever was in there.
+ */
+integration("archiving an account holding future-dated money", () => {
+  const futureActor: Actor = { userId: "closing-future-user", source: "web" };
+  const futureDatabase = `simple_balance_future_${process.pid}_${Date.now()}`;
+  let futureAdmin: PgClient;
+
+  const balanceAsOf = async (accountId: string, asOf: string) => {
+    const result = await getDb().execute(sql`
+      select coalesce(sum(p.amount), 0)::text as total
+      from posting p
+      where p.user_id = ${futureActor.userId}
+        and p.account_id = ${accountId}::uuid
+        and p.date <= ${asOf}::date
+    `);
+    return Number((result.rows[0] as { total: string }).total);
+  };
+
+  beforeAll(async () => {
+    futureAdmin = new PgClient({ connectionString: connection });
+    await futureAdmin.connect();
+    await futureAdmin.query(`create database "${futureDatabase}"`);
+    const databaseUrl = new URL(connection!);
+    databaseUrl.pathname = `/${futureDatabase}`;
+    process.env.DATABASE_URL = databaseUrl.toString();
+    await runMigrations();
+    await getDb().insert(user).values({
+      id: futureActor.userId,
+      name: "Future",
+      email: "closing-future@example.com",
+      emailVerified: true,
+    });
+  });
+
+  afterAll(async () => {
+    await closeDb();
+    await futureAdmin.query(`drop database if exists "${futureDatabase}"`);
+    await futureAdmin.end();
+    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = originalDatabaseUrl;
+  });
+
+  it("reads zero on every day from the archive to past the last posting", async () => {
+    const account = await createAccount(futureActor, {
+      name: "Holds Something Later",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "100",
+    });
+    await createTransaction(
+      futureActor,
+      {
+        type: "deposit",
+        date: daysFromNow(45),
+        payee: "Later",
+        description: null,
+        toAccountId: account.id,
+        amount: "500",
+      },
+      "closing-future-deposit",
+    );
+
+    const before = await getSummary(futureActor, {});
+    const beforeTotal = Number(
+      before.currencies.find((entry) => entry.currency === "USD")?.balance ?? "0",
+    );
+
+    const loaded = await getAccount(futureActor, account.id);
+    await setAccountArchived(futureActor, account.id, loaded.version, true);
+
+    // The day the money leaves, the days in between, and past the deposit.
+    for (const asOf of [today(), daysFromNow(1), daysFromNow(44), daysFromNow(45), daysFromNow(60)]) {
+      expect(await balanceAsOf(account.id, asOf), asOf).toBe(0);
+    }
+
+    const after = await getSummary(futureActor, {});
+    const afterTotal = Number(
+      after.currencies.find((entry) => entry.currency === "USD")?.balance ?? "0",
+    );
+    expect(afterTotal).toBe(beforeTotal - 100);
+
+    const totals = await getDb().execute(sql`
+      select p.currency, sum(p.amount)::text as total
+      from posting p where p.user_id = ${futureActor.userId} group by p.currency
+    `);
+    expect(totals.rows.map((row) => Number((row as { total: string }).total))).toEqual([0]);
+  });
+
+  it("puts every date back when the account is reopened", async () => {
+    const account = await createAccount(futureActor, {
+      name: "Reopened Later",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "70",
+    });
+    await createTransaction(
+      futureActor,
+      {
+        type: "deposit",
+        date: daysFromNow(30),
+        payee: "Later",
+        description: null,
+        toAccountId: account.id,
+        amount: "30",
+      },
+      "closing-future-reopen",
+    );
+    const opened = await getAccount(futureActor, account.id);
+    await setAccountArchived(futureActor, account.id, opened.version, true);
+    const archived = await getAccount(futureActor, account.id);
+    await setAccountArchived(futureActor, account.id, archived.version, false);
+
+    expect(await balanceAsOf(account.id, today())).toBe(70);
+    expect(await balanceAsOf(account.id, daysFromNow(30))).toBe(100);
+  });
+
+  // An account archived under the single-entry rule keeps its one mis-dated
+  // pair until something reposts into it, and nothing on the archived-account
+  // screen does. The startup reconcile is what repairs an upgraded database.
+  it("repairs an account archived the old way", async () => {
+    const account = await createAccount(futureActor, {
+      name: "Archived Before The Fix",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "200",
+    });
+    await createTransaction(
+      futureActor,
+      {
+        type: "deposit",
+        date: daysFromNow(20),
+        payee: "Later",
+        description: null,
+        toAccountId: account.id,
+        amount: "40",
+      },
+      "closing-legacy-deposit",
+    );
+    const opened = await getAccount(futureActor, account.id);
+    await setAccountArchived(futureActor, account.id, opened.version, true);
+
+    // Rewrite the close the way the old rule wrote it: one pair, dated the last
+    // posting, for the whole ever-after balance.
+    await getDb().execute(sql`
+      delete from posting
+      where user_id = ${futureActor.userId}
+        and closing_account_id = ${account.id}::uuid
+    `);
+    const equity = await getDb().execute(sql`
+      select id from ledger_account
+      where user_id = ${futureActor.userId} and system_kind = 'equity'
+      limit 1
+    `);
+    const equityId = (equity.rows[0] as { id: string }).id;
+    const lastDate = daysFromNow(20);
+    await getDb().execute(sql`
+      insert into posting (user_id, account_id, closing_account_id, date, amount, currency)
+      values
+        (${futureActor.userId}, ${account.id}::uuid, ${account.id}::uuid, ${lastDate}::date, -240, 'USD'),
+        (${futureActor.userId}, ${equityId}::uuid, ${account.id}::uuid, ${lastDate}::date, 240, 'USD')
+    `);
+    expect(await balanceAsOf(account.id, today())).toBe(200);
+
+    expect(await reconcileArchivedAccountClosings()).toBeGreaterThan(0);
+
+    for (const asOf of [today(), daysFromNow(19), daysFromNow(20), daysFromNow(40)]) {
+      expect(await balanceAsOf(account.id, asOf), asOf).toBe(0);
+    }
+    // Running it again writes nothing, so it is safe on every startup.
+    const totalsBefore = await getDb().execute(sql`
+      select count(*)::int as rows from posting where user_id = ${futureActor.userId}
+    `);
+    await reconcileArchivedAccountClosings();
+    const totalsAfter = await getDb().execute(sql`
+      select count(*)::int as rows from posting where user_id = ${futureActor.userId}
+    `);
+    expect((totalsAfter.rows[0] as { rows: number }).rows).toBe(
+      (totalsBefore.rows[0] as { rows: number }).rows,
+    );
   });
 });

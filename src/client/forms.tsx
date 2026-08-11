@@ -14,6 +14,7 @@ import {
   liabilityAccountTypes,
   MAX_TRANSACTION_LEGS,
   recurrenceOrdinals,
+  recurrenceScheduleSchema,
   type RecurrenceFrequencyName,
   type RecurrenceOrdinal,
   type UserAccountType,
@@ -22,9 +23,8 @@ import {
   type TransactionType,
 } from "../shared/domain.js";
 import {
-  addDays,
-  laterOf,
   nextOccurrenceAfter,
+  scheduleCursor,
   weekdayOf,
   type RecurrencePosition,
 } from "../shared/recurrence-dates.js";
@@ -687,7 +687,9 @@ export function TemplateForm({
   const [amount, setAmount] = useState(source.amount ?? "");
   const [categoryId, setCategoryId] = useState(source.categoryId ?? "");
   const [categoryName, setCategoryName] = useState(
-    categories.find((category) => category.id === source.categoryId)?.name ?? "",
+    categories.find((category) => category.id === source.categoryId)?.name ??
+      source.categoryName ??
+      "",
   );
   const [legs, setLegs] = useState<TransactionFormLeg[]>(() =>
     (source.legs ?? []).map((leg) => ({
@@ -997,7 +999,12 @@ export function TransactionForm({
       categories.find(
         (category) =>
           category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
-      )?.name ?? "",
+      )?.name ??
+      // The name the draft carried, for a row filed by name and no id. Falling
+      // through to "" wrote null over it on the next save, and the row then
+      // committed uncategorised.
+      initial?.categoryName ??
+      "",
   );
   // A stored leg carries an id, not a name, and the picker shows the name, so
   // it is looked up here the same way the single category's is.
@@ -1045,7 +1052,9 @@ export function TransactionForm({
       categories.find(
         (category) =>
           category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
-      )?.name ?? "",
+      )?.name ??
+      initial?.categoryName ??
+      "",
     fromAccountId: initial?.fromAccountId || initialAccountIds.fromAccountId,
     toAccountId: initial?.toAccountId || initialAccountIds.toAccountId,
     amount: initial?.amount ?? "",
@@ -1108,7 +1117,32 @@ export function TransactionForm({
   // A transfer has no counter-account side to partition, so its legs are never
   // sent even if switching type left some behind in the form.
   const splitting = type !== "transfer" && legs.length >= 2;
+  const carriesCategory = !splitting && type !== "transfer";
   const splitSettled = !splitting || moneyRemainder(amount, legs.map((leg) => leg.amount || "0")) === "0";
+
+  /**
+   * Forget a received amount that no longer belongs to anything.
+   *
+   * It is a rate against one specific pair of currencies, so changing either
+   * side makes it meaningless: left in place it either sits invisible on a
+   * same-currency pair and fails the zero-sum check on every save, or reappears
+   * on a new cross-currency pair as a rate nobody typed.
+   *
+   * Cleared on the account change rather than in an effect on `crossCurrency`,
+   * because that flag is also false while the account list is still loading and
+   * an effect would wipe a stored amount on a transient render. Here the list is
+   * known to be populated: somebody just chose from it.
+   */
+  const currencyPair = (from: string, to: string) => {
+    const left = accounts.find((account) => account.id === from);
+    const right = accounts.find((account) => account.id === to);
+    return left && right ? `${left.currency}->${right.currency}` : null;
+  };
+  const forgetReceivedIfPairChanged = (from: string, to: string) => {
+    const before = currencyPair(fromAccountId, toAccountId);
+    const after = currencyPair(from, to);
+    if (before !== after) setDestinationAmount("");
+  };
 
   const resetCreateDraft = () => {
     // The picker and the record of what it set go back with everything else, or
@@ -1276,13 +1310,17 @@ export function TransactionForm({
         date,
         payee,
         description: description || null,
-        // A split says which categories the money went to, one per leg, so
-        // the single category goes out cleared rather than alongside them.
-        categoryId: splitting ? null : categoryId || null,
+        // One predicate for both fields, and the same one the picker is
+        // rendered on. A split says which categories the money went to, one per
+        // leg, and a transfer has no counter-account side to file at all, so
+        // either sends a category that is on screen nowhere: a name typed
+        // before switching to Transfer used to create a category on save.
+        categoryId: carriesCategory ? categoryId || null : null,
         // Only when the field did not settle on one this ledger already has.
         // The server matches it case-insensitively and creates it only if it
         // is genuinely new.
-        categoryName: splitting || categoryId ? null : categoryName.trim() || null,
+        categoryName:
+          carriesCategory && !categoryId ? categoryName.trim() || null : null,
         ...(splitting
           ? {
               legs: legs.map((leg) => ({
@@ -1315,8 +1353,13 @@ export function TransactionForm({
                 fromAccountId,
                 toAccountId,
                 sourceAmount: amount,
-                ...(crossCurrency || destinationAmount
-                  ? { destinationAmount: destinationAmount || amount }
+                // Only when the field that sets it is on screen. Between two
+                // accounts in one currency there is no received amount to
+                // state, and sending the one left in state made every edit of
+                // the sent amount fail the zero-sum check against a number
+                // nothing could reach.
+                ...(crossCurrency && destinationAmount
+                  ? { destinationAmount }
                   : {}),
                 ...common,
               };
@@ -1509,7 +1552,14 @@ export function TransactionForm({
       </div>
       {type !== "deposit" ? (
         <Field label={type === "transfer" ? "From account" : "Account"}>
-          <Select required value={fromAccountId} onChange={(event) => setFromAccountId(event.target.value)}>
+          <Select
+            required
+            value={fromAccountId}
+            onChange={(event) => {
+              setFromAccountId(event.target.value);
+              forgetReceivedIfPairChanged(event.target.value, toAccountId);
+            }}
+          >
             <option value="">Choose an account</option>
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
@@ -1521,7 +1571,14 @@ export function TransactionForm({
       ) : null}
       {type !== "withdrawal" ? (
         <Field label={type === "transfer" ? "To account" : "Account"}>
-          <Select required value={toAccountId} onChange={(event) => setToAccountId(event.target.value)}>
+          <Select
+            required
+            value={toAccountId}
+            onChange={(event) => {
+              setToAccountId(event.target.value);
+              forgetReceivedIfPairChanged(fromAccountId, event.target.value);
+            }}
+          >
             <option value="">Choose an account</option>
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
@@ -1808,12 +1865,27 @@ export function RecurrenceForm({
 
   const positional = frequency === "monthly" || frequency === "yearly";
   const usesPosition = positional && byPosition;
-  const intervalNumber = Number(interval) || 1;
+  // The whole schedule through the contract the server parses, rather than one
+  // field at a time. A form that checks its own fields is a second, weaker copy
+  // of that contract: `Number(interval) || 1` admitted -1, which is a schedule
+  // whose occurrences never advance and a preview that never returns.
+  const parsedSchedule = recurrenceScheduleSchema.safeParse({
+    frequency,
+    interval: interval.trim() === "" ? 1 : Number(interval),
+    anchorDate,
+    monthPolicy,
+    weekendPolicy,
+    position: usesPosition ? { ordinal, weekday } : null,
+  });
+  const intervalNumber = Number.isInteger(Number(interval)) && Number(interval) >= 1
+    ? Number(interval)
+    : null;
   // A weekend policy moves a date up to two days, so a daily schedule of one
   // or two days can put two occurrences on one date. The queue refuses to
   // commit rows that alike, so the server refuses the combination outright.
   // Disabling it here says so before the refusal does.
-  const businessDayBlocked = frequency === "daily" && intervalNumber <= 2;
+  const businessDayBlocked =
+    frequency === "daily" && intervalNumber !== null && intervalNumber <= 2;
 
   useEffect(() => {
     if (businessDayBlocked && weekendPolicy.endsWith("business_day")) {
@@ -1822,17 +1894,21 @@ export function RecurrenceForm({
   }, [businessDayBlocked, weekendPolicy]);
 
   const preview = useMemo(() => {
-    if (!anchorDate) return [];
-    const rule = {
-      frequency,
-      interval: intervalNumber,
-      anchorDate,
-      monthPolicy,
-      weekendPolicy,
-      position: usesPosition ? { ordinal, weekday } : null,
-    };
+    if (!parsedSchedule.success) return [];
+    const rule = parsedSchedule.data;
     const dates = [];
-    let cursor = addDays(laterOf(anchorDate, today), -1);
+    // The watermark the scheduler will seek from, not one derived from the
+    // anchor. A positioned rule's first occurrence can fall earlier in the
+    // anchor's month, so seeding from the anchor previewed a first date the
+    // scheduler would skip straight past.
+    let cursor = scheduleCursor(
+      recurrence
+        ? {
+            proposesFrom: recurrence.proposesFrom,
+            lastOccurrenceDate: recurrence.lastOccurrenceDate,
+          }
+        : { proposesFrom: today, lastOccurrenceDate: null },
+    );
     try {
       for (let index = 0; index < 5; index += 1) {
         const next = nextOccurrenceAfter(rule, cursor);
@@ -1888,14 +1964,7 @@ export function RecurrenceForm({
           ...(trimmed(description) ? { description: trimmed(description) } : {}),
           ...(trimmed(notes) ? { notes: trimmed(notes) } : {}),
         },
-        schedule: {
-          frequency,
-          interval: intervalNumber,
-          anchorDate,
-          monthPolicy,
-          weekendPolicy,
-          position: usesPosition ? { ordinal, weekday } : null,
-        },
+        schedule: parsedSchedule.data,
       };
       return recurrence
         ? api<Recurrence>(`/api/v1/recurrences/${recurrence.id}`, {
@@ -1932,7 +2001,8 @@ export function RecurrenceForm({
       accountReady &&
       transferReady &&
       splitSettled &&
-      legsComplete,
+      legsComplete &&
+      parsedSchedule.success,
   );
 
   return (

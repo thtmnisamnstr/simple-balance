@@ -12,6 +12,7 @@ import {
   type PayeeSummary,
 } from "../../shared/domain.js";
 import {
+  APP_CSV_EXTERNAL_ID_COLUMN,
   APP_CSV_FORMAT,
   APP_CSV_LEGS_COLUMN,
   csvCell,
@@ -20,6 +21,7 @@ import {
   parseExportedLegs,
   normalizeCsvRows,
   previewCsv,
+  restoreNeutralizedCell,
   rowsToCsv,
   type NormalizedCsvRow,
 } from "../../shared/csv.js";
@@ -58,7 +60,6 @@ import {
   seedCanonicalPayeeCache,
 } from "./payees.js";
 import {
-  categoryKindForDraft,
   combineCategoryKinds,
   preferredCategory,
 } from "./categories.js";
@@ -221,6 +222,23 @@ function appExportDraft(
         }
       })(),
     );
+  // Read on its own rather than widened into the object above, so a reference
+  // that is too long or the wrong shape costs the reference and not the row's
+  // payee, description and notes. Same rule as the split below.
+  const roundtripExtras = z
+    .object({
+      externalId: z.string().max(200).nullable().optional(),
+      categoryName: z.string().trim().min(1).max(120).nullable().optional(),
+    })
+    .safeParse(
+      (() => {
+        try {
+          return JSON.parse(row.roundtrip_text_json);
+        } catch {
+          return null;
+        }
+      })(),
+    );
   const legs = parseExportedLegs(row[APP_CSV_LEGS_COLUMN]);
   // An unreadable split costs the split, not the row. Returning here threw away
   // the date, payee, amount and account the file stated perfectly clearly, and
@@ -244,9 +262,29 @@ function appExportDraft(
       : row.description || null,
     // A split says which categories the money went to, one per leg, so the
     // row's single category is left off rather than sent alongside them.
-    ...(legs ? { legs } : { categoryId: row.category_id || null }),
+    ...(legs
+      ? { legs }
+      : {
+          categoryId: row.category_id || null,
+          // By name, because the id names a category in the ledger the file
+          // came from. The name travels in the JSON where the spreadsheet
+          // formula neutraliser cannot reach it; the visible column is the
+          // fallback for a file written before that, and the apostrophe the
+          // neutraliser may have added is taken back off.
+          categoryName:
+            (roundtripExtras.success
+              ? roundtripExtras.data.categoryName
+              : undefined) ??
+            (cleanHumanName(restoreNeutralizedCell(row.category_name || "")) ||
+              null),
+        }),
     notes: protectedText.success ? protectedText.data.notes : row.notes || null,
-    externalId: row.transaction_id || null,
+    // Never the source ledger's own primary key, which means nothing here and
+    // made the duplicate check key on a foreign identity.
+    externalId:
+      (roundtripExtras.success ? roundtripExtras.data.externalId : undefined) ||
+      row[APP_CSV_EXTERNAL_ID_COLUMN] ||
+      null,
   };
 
   if (row.transaction_type === "transfer") {
@@ -415,14 +453,21 @@ async function resolveImportedCategories(
       inputName: string;
       rowIndexes: number[];
       legTargets: { rowIndex: number; legIndex: number }[];
-      kind: CategoryKind;
+      // Undefined until some row in the group states a type. A group that ends
+      // with none is filed under "both" only if it has to create a category.
+      kind: CategoryKind | undefined;
     }
   >();
-  const group = (inputName: string, kind: CategoryKind) => {
+  const group = (inputName: string, kind: CategoryKind | undefined) => {
     const normalizedName = normalizeHumanName(inputName);
     const existing = groups.get(normalizedName);
     if (existing) {
-      existing.kind = combineCategoryKinds(existing.kind, kind);
+      existing.kind =
+        existing.kind === undefined
+          ? kind
+          : kind === undefined
+            ? existing.kind
+            : combineCategoryKinds(existing.kind, kind);
       return existing;
     }
     const created = {
@@ -435,19 +480,42 @@ async function resolveImportedCategories(
     return created;
   };
 
-  if (categoryColumn) {
-    for (let index = 0; index < rows.length; index += 1) {
-      const draft = rows[index]?.draft;
-      const rawRow = rawRows[index];
-      const inputName = cleanHumanName(
-        rawRow ? csvCell(rawRow, categoryColumn) : "",
-      );
-      // A row that already carries a category this ledger owns keeps it; only
-      // unresolved rows are matched by name.
-      if (draft?.categoryId) continue;
-      if (!draft || !inputName) continue;
-      group(inputName, categoryKindForDraft(draft)).rowIndexes.push(index);
-    }
+  // A transfer stages as a `partial` rather than a draft, because an import
+  // names one account and a transfer needs two. Its category is on that partial
+  // and reading only `draft` dropped it, silently, on a cross-ledger restore.
+  const stageTarget = (row: CsvStageRow | undefined) => row?.draft ?? row?.partial;
+
+  // A row that states no type says nothing about which kind of category may
+  // carry it, so it is filed under one and can create one, but never widens an
+  // existing narrow category to "both" on the strength of saying nothing.
+  const targetKind = (target: { type?: unknown }): CategoryKind | undefined =>
+    target.type === "deposit"
+      ? "income"
+      : target.type === "withdrawal"
+        ? "expense"
+        : target.type === "transfer"
+          ? "both"
+          : undefined;
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const target = stageTarget(rows[index]);
+    if (!target) continue;
+    // A split says which categories the money went to, one per leg, and a row
+    // carrying both would be refused at commit as a contradiction.
+    if (Array.isArray(target.legs)) continue;
+    if (target.categoryId) continue;
+    const inputName = cleanHumanName(
+      // An app export carries the name on the target, restored from the JSON
+      // the neutraliser never touched. A mapped file carries it in the column
+      // whoever set up the mapping named.
+      typeof target.categoryName === "string" && target.categoryName
+        ? target.categoryName
+        : categoryColumn && rawRows[index]
+          ? csvCell(rawRows[index]!, categoryColumn)
+          : "",
+    );
+    if (!inputName) continue;
+    group(inputName, targetKind(target)).rowIndexes.push(index);
   }
 
   // A split names a category per leg rather than in a column, so its names are
@@ -455,10 +523,13 @@ async function resolveImportedCategories(
   // legs and a plain row asking for the same new category create it once, and
   // the preview counts it once.
   for (let index = 0; index < rows.length; index += 1) {
-    const draft = rows[index]?.draft;
-    if (!draft?.legs) continue;
-    const kind = categoryKindForDraft(draft);
-    for (const [legIndex, leg] of draft.legs.entries()) {
+    const target = stageTarget(rows[index]);
+    if (!Array.isArray(target?.legs)) continue;
+    const kind = targetKind(target);
+    for (const [legIndex, leg] of (target.legs as {
+      categoryId?: string | null;
+      categoryName?: string | null;
+    }[]).entries()) {
       if (leg.categoryId) continue;
       const inputName = cleanHumanName(leg.categoryName ?? "");
       if (!inputName) continue;
@@ -471,21 +542,49 @@ async function resolveImportedCategories(
    * leg's name is dropped once it has an id, so nothing downstream has two ways
    * of saying which category it means.
    */
+  const writeTarget = (
+    rowIndex: number,
+    patch: Record<string, unknown>,
+  ) => {
+    const row = rows[rowIndex]!;
+    if (row.draft) row.draft = { ...row.draft, ...patch } as typeof row.draft;
+    else if (row.partial) row.partial = { ...row.partial, ...patch };
+  };
+
   const assign = (
     group: { rowIndexes: number[]; legTargets: { rowIndex: number; legIndex: number }[] },
     categoryId: string,
   ) => {
     for (const rowIndex of group.rowIndexes) {
-      const draft = rows[rowIndex]!.draft!;
-      rows[rowIndex]!.draft = { ...draft, categoryId };
+      // The name goes with the id, so nothing downstream carries two answers.
+      // A staged row keeping both would have the name re-applied at commit and
+      // undo a mass edit that cleared the category.
+      writeTarget(rowIndex, { categoryId, categoryName: undefined });
     }
     for (const { rowIndex, legIndex } of group.legTargets) {
-      const draft = rows[rowIndex]!.draft!;
-      if (!draft.legs) continue;
-      const legs = draft.legs.map((leg, index) =>
+      const target = stageTarget(rows[rowIndex]);
+      if (!Array.isArray(target?.legs)) continue;
+      const legs = (target.legs as Record<string, unknown>[]).map((leg, index) =>
         index === legIndex ? { ...leg, categoryId, categoryName: undefined } : leg,
       );
-      rows[rowIndex]!.draft = { ...draft, legs };
+      writeTarget(rowIndex, { legs });
+    }
+  };
+
+  /**
+   * Leave the name where a category cannot be made yet.
+   *
+   * A `ledger:stage` caller may not create or reopen one, so the row is staged
+   * saying which category it wants and the commit, which needs `ledger:write`,
+   * makes it. Without this the name is dropped here and the row commits
+   * uncategorised.
+   */
+  const defer = (group: {
+    inputName: string;
+    rowIndexes: number[];
+  }) => {
+    for (const rowIndex of group.rowIndexes) {
+      writeTarget(rowIndex, { categoryName: group.inputName });
     }
   };
 
@@ -501,7 +600,10 @@ async function resolveImportedCategories(
   for (const [normalizedName, group] of groups) {
     const existing = categoryByName.get(normalizedName);
     if (existing) {
-      const resolvedKind = combineCategoryKinds(existing.kind, group.kind);
+      const resolvedKind =
+        group.kind === undefined
+          ? existing.kind
+          : combineCategoryKinds(existing.kind, group.kind);
       const unarchived = existing.archivedAt !== null;
       const needsUpdate = unarchived || resolvedKind !== existing.kind;
       // Bringing an archived category back, or widening what it may carry, is
@@ -509,6 +611,7 @@ async function resolveImportedCategories(
       // A caller that may only stage leaves the row naming the category and
       // lets the commit, which needs ledger:write, decide.
       if (needsUpdate && !mayMutateCategories) {
+        defer(group);
         resolutions.push({
           inputName: group.inputName,
           resolvedName: existing.name,
@@ -563,7 +666,7 @@ async function resolveImportedCategories(
 
     const parsedCategory = categoryCreateSchema.safeParse({
       name: group.inputName,
-      kind: group.kind,
+      kind: group.kind ?? "both",
     });
     if (!parsedCategory.success) {
       const message = parsedCategory.error.issues[0]?.message ?? "Category is invalid";
@@ -577,6 +680,7 @@ async function resolveImportedCategories(
     }
 
     let categoryId: string | null = null;
+    if (!mayMutateCategories) defer(group);
     if (mutate && mayMutateCategories) {
       const [created] = await tx
         .insert(categories)
@@ -827,6 +931,7 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
     description: transaction.description,
     category_id: transaction.categoryId,
     category_name: transaction.category?.name,
+    [APP_CSV_EXTERNAL_ID_COLUMN]: transaction.externalId,
     // A split, by category name only. Leg ids and category ids mean nothing in
     // the ledger this file is read into, exactly as account ids do not, so the
     // names are what travel and the import matches or creates them.
@@ -845,10 +950,17 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
         )
       : "",
     notes: transaction.notes,
+    // Everything the visible columns cannot carry exactly. The spreadsheet
+    // formula neutraliser rewrites a cell beginning with =, +, - or @, which is
+    // right for a person opening the file and wrong for a value read back
+    // mechanically: a category named "-Reimbursements" grew an apostrophe on
+    // every round trip and became a second category each time.
     roundtrip_text_json: JSON.stringify({
       payee: transaction.payee,
       description: transaction.description,
       notes: transaction.notes,
+      categoryName: transaction.category?.name ?? null,
+      externalId: transaction.externalId ?? null,
     }),
     source_account_id: transaction.sourceAccountId,
     source_account_name: transaction.sourceAccount?.name,

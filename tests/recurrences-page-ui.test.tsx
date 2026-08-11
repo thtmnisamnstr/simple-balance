@@ -241,6 +241,54 @@ describe("the recurrence form", () => {
   });
 
   /**
+   * The preview has to seek from the watermark the scheduler will seek from.
+   * Derived from the anchor instead, a positioned rule's first occurrence in
+   * the anchor's own month is skipped: the screen promises September while the
+   * next tick proposes August.
+   */
+  it("previews the occurrence the scheduler will actually propose first", async () => {
+    await renderPage([]);
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText(/^Starting/), {
+      target: { value: "2026-08-31" },
+    });
+    fireEvent.click(screen.getByLabelText(/relative day/i));
+    fireEvent.change(screen.getByLabelText(/^Which one/), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText(/^Day$/), { target: { value: "1" } });
+
+    const preview = screen.getByText("Next five").parentElement!;
+    // The third Monday of August 2026, which is before the anchor's own day.
+    expect(within(preview).getByText("Aug 17, 2026")).toBeInTheDocument();
+  });
+
+  it("previews nothing and refuses to save an interval the schedule rule rejects", async () => {
+    const writes = await renderPage([]);
+    await openForm();
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Gym" } });
+    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: "Gym Ltd" } });
+    fireEvent.change(screen.getByLabelText(/^Account$/), {
+      target: { value: checking.id },
+    });
+    fireEvent.change(screen.getByLabelText(/^Repeats/), { target: { value: "daily" } });
+
+    const save = screen.getByRole("button", { name: "Create recurrence" });
+    // The button is otherwise enabled here, which is what makes the assertion
+    // below mean something rather than being true of any half-filled form.
+    expect(save).not.toBeDisabled();
+    expect(screen.getByText("Next five")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/^Every/), { target: { value: "-1" } });
+    expect(screen.queryByText("Next five")).not.toBeInTheDocument();
+    expect(save).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/^Every/), { target: { value: "3" } });
+    expect(screen.getByText("Next five")).toBeInTheDocument();
+    expect(save).not.toBeDisabled();
+    expect(writes).toHaveLength(0);
+  });
+
+  /**
    * Saturday and Sunday both land on the Friday beside them, and the queue
    * refuses to commit rows that alike, so the server refuses the combination.
    * Disabling it says so before the refusal has to.
