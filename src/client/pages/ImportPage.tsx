@@ -38,7 +38,7 @@ type StageResult = {
       resolvedName: string;
       categoryId: string | null;
       kind: "income" | "expense" | "both";
-      resolution: "existing" | "new" | "updated";
+      resolution: "existing" | "new" | "updated" | "deferred";
       unarchived: boolean;
     }[];
     payees: {

@@ -322,7 +322,7 @@ const csvReferenceResolutionSchema = z.object({
       resolvedName: z.string(),
       categoryId: uuidSchema.nullable(),
       kind: z.enum(categoryKinds),
-      resolution: z.enum(["existing", "new", "updated"]),
+      resolution: z.enum(["existing", "new", "updated", "deferred"]),
       unarchived: z.boolean(),
     }),
   ),

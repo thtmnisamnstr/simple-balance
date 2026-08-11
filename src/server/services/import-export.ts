@@ -330,7 +330,7 @@ export type CsvReferenceResolution = {
     resolvedName: string;
     categoryId: string | null;
     kind: CategoryKind;
-    resolution: "existing" | "new" | "updated";
+    resolution: "existing" | "new" | "updated" | "deferred";
     unarchived: boolean;
   }[];
   payees: {
@@ -437,6 +437,7 @@ async function resolveImportedCategories(
   categoryColumn: string | undefined,
   categoryRows: CategoryRow[],
   mutate: boolean,
+  mayMutateCategories: boolean,
 ) {
   const groups = new Map<
     string,
@@ -530,6 +531,21 @@ async function resolveImportedCategories(
       const resolvedKind = combineCategoryKinds(existing.kind, group.kind);
       const unarchived = existing.archivedAt !== null;
       const needsUpdate = unarchived || resolvedKind !== existing.kind;
+      // Bringing an archived category back, or widening what it may carry, is
+      // a change to the ledger's own records rather than to the review queue.
+      // A caller that may only stage leaves the row naming the category and
+      // lets the commit, which needs ledger:write, decide.
+      if (needsUpdate && !mayMutateCategories) {
+        resolutions.push({
+          inputName: group.inputName,
+          resolvedName: existing.name,
+          categoryId: null,
+          kind: resolvedKind,
+          resolution: "deferred",
+          unarchived: false,
+        });
+        continue;
+      }
       let resolved = existing;
       if (mutate && needsUpdate) {
         const [updated] = await tx
@@ -588,7 +604,7 @@ async function resolveImportedCategories(
     }
 
     let categoryId: string | null = null;
-    if (mutate) {
+    if (mutate && mayMutateCategories) {
       const [created] = await tx
         .insert(categories)
         .values({ userId: actor.userId, ...parsedCategory.data })
@@ -607,7 +623,7 @@ async function resolveImportedCategories(
       resolvedName: parsedCategory.data.name,
       categoryId,
       kind: parsedCategory.data.kind,
-      resolution: "new",
+      resolution: mayMutateCategories ? "new" : "deferred",
       unarchived: false,
     });
   }
@@ -619,7 +635,9 @@ export async function stageCsv(
   actor: Actor,
   input: unknown,
   transaction?: DbTransaction,
+  options: { mayMutateCategories?: boolean } = {},
 ) {
+  const mayMutateCategories = options.mayMutateCategories ?? true;
   const parsed = csvStageInputSchema.parse(input);
   const maxRows = configuredCsvMaxRows();
   assertCsvWithinSizeLimit(parsed.csv);
@@ -748,6 +766,7 @@ export async function stageCsv(
       appExport ? "category_name" : parsed.mapping?.category,
       categoryRows,
       !parsed.dryRun,
+      mayMutateCategories,
     );
     const referenceResolution: CsvReferenceResolution = {
       categories: categoryResolution,

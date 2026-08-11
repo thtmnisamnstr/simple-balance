@@ -429,6 +429,13 @@ integration("PostgreSQL ledger integration", () => {
       client_id: "integration-oauth-client",
       scope: "openid ledger:read",
     });
+    // A JWT is signed, not encrypted. Anything that handles one reads every
+    // claim in it, so the payload must not carry a credential that works on its
+    // own — only the row id the server exchanges for one.
+    expect(JSON.stringify(verified.payload)).not.toContain(
+      "integration-opaque-access-token",
+    );
+    expect(verified.payload.grant_id).toBe("integration-oauth-token");
     expect(await unwrapMcpAccessToken(token)).toBe("integration-opaque-access-token");
     const { default: app } = await import("../../src/server/api.js");
     const initializeBody = JSON.stringify({

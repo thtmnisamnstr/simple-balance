@@ -392,10 +392,18 @@ file, including out of one of our own exports, whose account columns name the
 ledger it came from. A transfer needs two accounts and an import names one, so
 those rows stage with everything else they carry and an issue asking for both.
 
-Staging a CSV creates the categories its rows name, the same way the browser
-import does, so a `ledger:stage` token can add categories even though it cannot
-touch a transaction. Each one is written to the audit log as `create_from_csv`,
-so they are visible in Activity and can be merged or deleted afterwards.
+A CSV names its categories by name, and matching them to the ones this ledger
+already has needs no permission. Making one does. Creating a category, bringing
+an archived one back, or widening what kind of entry it may carry are changes to
+the ledger's own records, so they need `ledger:write`; with only `ledger:stage`
+the row is staged under the name it came with and the entry in
+`referenceResolution.categories` comes back as `deferred` with a null
+`categoryId`. Committing the row, which needs `ledger:write` anyway, is what
+makes the category.
+
+With `ledger:write` each one is written to the audit log as `create_from_csv` or
+`update_from_csv`, so they are visible in Activity and can be merged or deleted
+afterwards.
 
 ## Audit history
 
@@ -456,6 +464,14 @@ Revoking is per person. Another account that approved the same client keeps
 working, and the client's registration itself is left alone, because it is not
 yours to delete.
 
-Changing `AUTH_SECRET` invalidates every web session at once but leaves MCP
-tokens alone, so it is not a way to do this. Access tokens expire an hour after
-they are issued if you do nothing.
+Changing or resetting your password revokes every agent's access at once, along
+with the approvals behind it, because recovering an account has to mean
+recovering all of it. Changing `AUTH_SECRET` invalidates every web session but
+leaves MCP tokens alone, so it is not a way to do this. Access tokens expire an
+hour after they are issued if you do nothing.
+
+The access token an agent holds is a JWT bound to this deployment and to `/mcp`,
+and the grant it stands for is named inside it by row id rather than carried as
+a credential. A JWT is signed and not encrypted, so anything that handles one
+reads every claim in it; there is nothing in these that works on its own, and a
+revoked grant stops one working immediately rather than at expiry.

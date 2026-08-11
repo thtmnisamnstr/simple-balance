@@ -748,25 +748,29 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Stage CSV transactions",
         description:
-          "Parse CSV text, preview it with dryRun, or place all rows in the staging queue.",
+          "Parse CSV text, preview it with dryRun, or place all rows in the staging queue. Categories named in the file are matched to ones that already exist. Creating a category, bringing an archived one back, or widening what it may carry are ledger:write changes, so with only ledger:stage the row is staged under the category's name and the resolution is reported as deferred; committing it, which needs ledger:write, is what makes the category.",
         inputSchema: csvStageInputSchema.extend({
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(csvStageResultSchema),
         annotations: additiveAnnotations,
       },
-      (input) =>
-        runTool(() =>
+      (input) => {
+        const options = {
+          mayMutateCategories: scopes.has("ledger:write"),
+        };
+        return runTool(() =>
           input.dryRun
-            ? stageCsv(actor, input)
+            ? stageCsv(actor, input, undefined, options)
             : runIdempotentMcpMutation(
                 actor,
                 "csv.stage",
                 input.idempotencyKey,
                 input,
-                (tx) => stageCsv(actor, input, tx),
+                (tx) => stageCsv(actor, input, tx, options),
               ),
-        ),
+        );
+      },
     );
   }
 

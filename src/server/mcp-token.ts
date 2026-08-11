@@ -113,10 +113,15 @@ export async function issueMcpAccessToken(opaqueToken: string) {
   const config = getConfig();
   const key = await getSigningKey();
   const privateKey = await importJWK(key.privateJwk, key.algorithm);
+  // The row's primary key, not the opaque token it holds. A JWT is signed, not
+  // encrypted, so any claim in it is readable by whatever handles the token: a
+  // proxy, a log, an error report. Carrying the opaque token there meant every
+  // one of those saw a credential good for seven days at every endpoint that
+  // accepts the bare token. A row id opens nothing on its own.
   return new SignJWT({
     scope: record.scopes,
     client_id: record.clientId,
-    opaque_token: opaqueToken,
+    grant_id: record.id,
   })
     .setProtectedHeader({ alg: key.algorithm, kid: key.id, typ: "JWT" })
     .setIssuer(config.baseUrl)
@@ -176,9 +181,27 @@ export async function unwrapMcpAccessToken(jwt: string) {
       issuer: config.baseUrl,
       audience: `${config.baseUrl}/mcp`,
     });
-    return typeof result.payload.opaque_token === "string"
-      ? result.payload.opaque_token
-      : null;
+    const grantId = result.payload.grant_id;
+    if (typeof grantId !== "string" || !grantId) return null;
+    const [record] = await getDb()
+      .select()
+      .from(oauthAccessToken)
+      .where(eq(oauthAccessToken.id, grantId))
+      .limit(1);
+    // A grant that has been revoked is gone from this table, so a JWT naming it
+    // stops working the moment somebody takes the access back rather than when
+    // it would have expired. The three checks below are the claims agreeing
+    // with the row: a signature proves this deployment issued the token, not
+    // that the grant it names is still the one it was issued for.
+    if (
+      !record ||
+      record.userId !== result.payload.sub ||
+      record.clientId !== result.payload.client_id ||
+      record.accessTokenExpiresAt.getTime() <= Date.now()
+    ) {
+      return null;
+    }
+    return record.accessToken;
   } catch {
     return null;
   }
