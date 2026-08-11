@@ -728,7 +728,7 @@ integration("CSV import and export identification", () => {
       payee: "Corrupt split",
       fromAccountId: checkingId,
     });
-    expect(Number(row!.draft.amount)).toBe(30);
+    expect(Number((row!.draft as { amount?: string }).amount)).toBe(30);
     expect(row!.draft.legs).toBeUndefined();
     expect(row!.validationIssues.map((issue) => issue.field)).toContain(
       "legs_json",

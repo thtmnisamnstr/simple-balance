@@ -26,7 +26,7 @@ RUN apk upgrade --no-cache
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
-ARG APP_VERSION=0.1.3
+ARG APP_VERSION=0.1.4
 LABEL org.opencontainers.image.title="Simple Balance API" \
   org.opencontainers.image.description="Simple Balance API and MCP server, without the browser bundle" \
   org.opencontainers.image.version="${APP_VERSION}" \

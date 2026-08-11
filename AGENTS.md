@@ -123,7 +123,8 @@
 - Every migration that has shipped is frozen: `0000_initial.sql`,
   `0001_verify_existing_accounts.sql`, and `0002_account_closing_postings.sql`
   in 0.1.0, `0003_transaction_templates.sql` and
-  `0004_template_provenance.sql` in 0.1.3.
+  `0004_template_provenance.sql` in 0.1.3, `0005_split_transaction_legs.sql`
+  and `0006_recurring_transactions.sql` in 0.1.4.
   Never edit or regenerate one: someone's database has already run it, and
   changing it would leave their schema and its recorded history disagreeing.
   Every schema

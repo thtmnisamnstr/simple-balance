@@ -40,10 +40,13 @@ This is the reason step 2 is not optional.
 
 ## Cutting a release
 
-1. `npm run set-version 0.2.0`, which sets the version in the seven places that
-   have to agree.
-2. Commit and push that on the default branch.
-3. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
+1. `npm run set-version 0.2.0`, which sets the version everywhere it has to
+   agree: both manifests, both lockfiles, all four Dockerfiles, the constant the
+   MCP server reports, and the backlog.
+2. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
+   for you and the upgrade notes above send people there to read it.
+3. Commit and push that on the default branch.
+4. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
    `gh release create v0.2.0`.
 
 Publishing keys off the release itself, not off the tag push, so it runs once

@@ -17,13 +17,17 @@ const name = `simple_balance_split_upgrade_${process.pid}_${Date.now()}`;
 const drizzleFolder = path.resolve(import.meta.dirname, "../../drizzle");
 
 /**
- * A copy of the migration folder with 0005 taken out, so a database can be
- * brought to exactly the state 0.1.3 shipped and no further.
+ * A copy of the migration folder brought to exactly the state 0.1.3 shipped and
+ * no further.
+ *
+ * Only the journal is trimmed. Drizzle's migrator reads the files the journal
+ * names rather than listing the directory, so what is left on disk beside it
+ * changes nothing; deleting 0005's SQL and not 0006's looked like it defined
+ * the cut-off and defined nothing.
  */
 async function folderThrough0004() {
   const folder = path.join(tmpdir(), `sb-pre-0005-${process.pid}-${Date.now()}`);
   await cp(drizzleFolder, folder, { recursive: true });
-  await rm(path.join(folder, "0005_split_transaction_legs.sql"));
   const journalPath = path.join(folder, "meta", "_journal.json");
   const journal = JSON.parse(await readFile(journalPath, "utf8")) as {
     entries: { idx: number }[];

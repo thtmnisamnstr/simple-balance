@@ -2,7 +2,7 @@
 
 Notable changes, newest first.
 
-## Unreleased
+## 0.1.4 - 2026-08-11
 
 ### Added
 
@@ -38,10 +38,6 @@ There is no published image for any of them and no CI that builds them; the
 single container remains the supported way to run this. See
 [deployment](docs/deployment.md).
 
-Upgrading runs two new migrations, 0005 for splits and 0006 for recurrences.
-Both are schema changes with no backfill: nothing existing is rewritten and
-every figure reads the same the moment they finish.
-
 One transaction can now be split across several categories. The grocery receipt
 that is partly food, partly household and partly something for the dog is one
 entry with three legs, and each leg is attributed to its own category in
@@ -65,8 +61,10 @@ fill in. A CSV export carries a split by category name and reads back as the
 same split in a different ledger or a fresh install. Mass editing category or
 type is refused on a split rather than flattening it, and the panel says why.
 
-Upgrading is a schema change and not a data migration: nothing existing is
-rewritten, and every figure reads the same the moment it finishes.
+Upgrading runs two new migrations, 0005 for splits and 0006 for recurrences.
+Both are schema changes rather than data migrations: nothing existing is
+rewritten, no row is backfilled, and every figure reads the same the moment they
+finish.
 
 ### Fixed
 

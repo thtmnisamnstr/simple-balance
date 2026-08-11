@@ -16,7 +16,7 @@ COPY src ./src
 RUN npm run build:client
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine AS runtime
-ARG APP_VERSION=0.1.3
+ARG APP_VERSION=0.1.4
 LABEL org.opencontainers.image.title="Simple Balance frontend" \
   org.opencontainers.image.description="Simple Balance browser bundle, served by nginx" \
   org.opencontainers.image.version="${APP_VERSION}" \

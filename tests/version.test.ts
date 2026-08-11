@@ -10,10 +10,14 @@ const manifestVersion = (relative: string) =>
   (JSON.parse(read(relative)) as { version: string }).version;
 
 /**
- * The version is written in seven places, and `npm run set-version` is what keeps
- * them together. Any one of them left behind is only noticed later: a stale
+ * The version is written in several places and `npm run set-version` is what
+ * keeps them together. Any one left behind is only noticed later: a stale
  * manifest stops the release workflow, and a stale constant quietly tells every
  * MCP client the wrong thing for as long as nobody looks.
+ *
+ * The count is deliberately not written down here. It has already been wrong
+ * once, when three Dockerfiles were added and the prose still said seven, and a
+ * number in a comment is not something anything checks.
  */
 describe("the release version", () => {
   const version = manifestVersion("package.json");
