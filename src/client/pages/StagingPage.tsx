@@ -81,6 +81,7 @@ import {
   type BulkEditField,
   type BulkEditValues,
 } from "../bulk-edit.js";
+import { useDebounced } from "../debounce.js";
 
 function stageSummary(stage: StagedTransaction, accounts: Account[]) {
   return summarizeStagedDraft(stage.draft, accounts);
@@ -135,6 +136,7 @@ export default function StagingPage() {
     null,
   );
   const [search, setSearch] = useState("");
+  const settledSearch = useDebounced(search);
   const [validity, setValidity] = useState("");
   const [accountId, setAccountId] = useState("");
   // Seeded from the link the import hands over, so arriving from an import
@@ -185,7 +187,7 @@ export default function StagingPage() {
     setPage(1);
   };
   const stageQuery = {
-    search: search || undefined,
+    search: settledSearch || undefined,
     validity: validity || undefined,
     accountId: accountId || undefined,
     importBatchId: importBatchId || undefined,
@@ -253,7 +255,7 @@ export default function StagingPage() {
     setBulkEditKey(null);
     setBulkEditNotice(null);
     setPage(1);
-  }, [search, validity, accountId, importBatchId, recurrenceId, start, end]);
+  }, [settledSearch, validity, accountId, importBatchId, recurrenceId, start, end]);
 
   const bulkMutation = useMutation({
     mutationFn: (action: "commit" | "delete") => {

@@ -34,6 +34,7 @@ import {
   lockCategoryNamespace,
   serializeRow,
   writeAudit,
+  writeAuditMany,
 } from "./helpers.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
 
@@ -1125,31 +1126,29 @@ export async function mergeCategories(
         row,
       ]),
     );
-    for (const updated of [...updatedTransactions, ...updatedLegTransactions]) {
-      await writeAudit(tx, actor, {
+    const stagedBeforeById = new Map(
+      stagedRowsBefore.map((row) => [row.id, row]),
+    );
+    // The merge itself is set-based: every update above is one statement. The
+    // audit trail it leaves has one row per affected transaction, and writing
+    // those one insert at a time made a merge of a well-used category cost
+    // tens of thousands of sequential round trips more than the merge did.
+    await writeAuditMany(tx, actor, [
+      ...[...updatedTransactions, ...updatedLegTransactions].map((updated) => ({
         entityType: "transaction",
         entityId: updated.id,
         operation: "category_merge",
         before: serializeRow(transactionBeforeById.get(updated.id)),
         after: serializeRow(updated),
-      });
-    }
-
-    const stagedBeforeById = new Map(
-      stagedRowsBefore.map((row) => [row.id, row]),
-    );
-    for (const updated of updatedStages) {
-      await writeAudit(tx, actor, {
+      })),
+      ...updatedStages.map((updated) => ({
         entityType: "staged_transaction",
         entityId: updated.id,
         operation: "category_merge",
         before: serializeRow(stagedBeforeById.get(updated.id)),
         after: serializeRow(updated),
-      });
-    }
-
-    for (const source of sources) {
-      await writeAudit(tx, actor, {
+      })),
+      ...sources.map((source) => ({
         entityType: "category",
         entityId: source.id,
         operation: "merge_into",
@@ -1158,8 +1157,8 @@ export async function mergeCategories(
           mergedIntoCategoryId: updatedTarget.id,
           mergedIntoCategoryName: updatedTarget.name,
         },
-      });
-    }
+      })),
+    ]);
     await writeAudit(tx, actor, {
       entityType: "category",
       entityId: updatedTarget.id,

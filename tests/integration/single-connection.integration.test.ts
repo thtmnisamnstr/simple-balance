@@ -9,6 +9,7 @@ import {
   setAccountArchived,
 } from "../../src/server/services/accounts.js";
 import { createRecurrence } from "../../src/server/services/recurrences.js";
+import { getSummary } from "../../src/server/services/summary.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -102,6 +103,41 @@ integration("running on a single database connection", () => {
    * together, then hands it in; anything inside that reaches back into the pool
    * waits on the connection its own caller is holding.
    */
+  /**
+   * The dashboard runs its three aggregates together rather than in turn. They
+   * go to the pool rather than to one transaction, so on a pool of one they
+   * queue; a version that held a connection while asking for another would
+   * never answer and never error either.
+   */
+  it("answers the dashboard with its aggregates in flight together", async () => {
+    const account = await createAccount(actor, {
+      name: "Summary Checking",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "500",
+    });
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-01-05",
+        payee: "Shop",
+        description: null,
+        fromAccountId: account.id,
+        amount: "25.00",
+      },
+      "one-connection-summary",
+    );
+    const summary = await Promise.race([
+      getSummary(actor, { start: "2026-01-01", end: "2026-12-31" }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("the summary never answered")), 5_000),
+      ),
+    ]);
+    expect(summary).toMatchObject({ currencies: expect.any(Array) });
+  });
+
   it("creates a recurrence inside a caller's transaction without waiting on itself", async () => {
     const account = await createAccount(actor, {
       name: "Standing",

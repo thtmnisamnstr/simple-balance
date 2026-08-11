@@ -137,6 +137,7 @@ async function validateDraft(
   tx: DbTransaction,
   actor: Actor,
   input: unknown,
+  options: { withDuplicate?: boolean } = {},
 ): Promise<{
   draft: TransactionDraft | null;
   issues: ValidationIssue[];
@@ -191,7 +192,14 @@ async function validateDraft(
     stagedKeys.find((key) => key.startsWith("external:")) ?? stagedKeys[0] ?? null;
   try {
     await prepareTransaction(tx, actor, parsed.data);
-    const duplicateOfId = await findDuplicate(tx, actor, parsed.data);
+    // Skipped where the caller is about to take the duplicate-key locks and ask
+    // again under them. The unlocked answer is a badge for the queue, not a
+    // decision, so computing it for a commit is a lookup per row whose result
+    // is thrown away a few lines later.
+    const duplicateOfId =
+      options.withDuplicate === false
+        ? null
+        : await findDuplicate(tx, actor, parsed.data);
     return { draft: parsed.data, issues: [], duplicateOfId, duplicateKey };
   } catch (error) {
     if (error instanceof ZodError) {
@@ -773,28 +781,49 @@ export async function deleteStages(
         throw staleVersion({ id: row.id, currentVersion: row.version });
       }
     }
+    // A chunk at a time, the way the staged mass edit above does it and for the
+    // same reason: ten thousand rows is the documented ceiling, and a statement
+    // and an audit insert each would be twenty thousand sequential round trips
+    // holding every one of those row locks.
+    const CHUNK = 500;
     const now = new Date();
-    for (const row of rows) {
-      const [updated] = await tx
+    for (let start = 0; start < rows.length; start += CHUNK) {
+      const batch = rows.slice(start, start + CHUNK);
+      const written = await tx
         .update(stagedTransactions)
-        .set({ status: "deleted", deletedAt: now, version: row.version + 1, updatedAt: now })
+        .set({
+          status: "deleted",
+          deletedAt: now,
+          version: sql`${stagedTransactions.version} + 1`,
+          updatedAt: now,
+        })
         .where(
           and(
-            eq(stagedTransactions.id, row.id),
             eq(stagedTransactions.userId, actor.userId),
-            eq(stagedTransactions.version, row.version),
+            inArray(
+              stagedTransactions.id,
+              batch.map((row) => row.id),
+            ),
             eq(stagedTransactions.status, "staged"),
           ),
-        )
-        .returning({ id: stagedTransactions.id });
-      if (!updated) throw staleVersion({ id: row.id });
-      await writeAudit(tx, actor, {
+        );
+      if (written.rowCount !== batch.length) {
+        throw staleVersion({
+          expectedCount: batch.length,
+          currentCount: written.rowCount,
+        });
+      }
+    }
+    await writeAuditMany(
+      tx,
+      actor,
+      rows.map((row) => ({
         entityType: "staged_transaction",
         entityId: row.id,
         operation: "delete",
         before: stageView(row),
-      });
-    }
+      })),
+    );
     return { deletedIds: rows.map((row) => row.id) };
   });
 }
@@ -863,17 +892,16 @@ export async function commitStages(
         actor,
         row.draft,
       );
-      const result = await validateDraft(tx, actor, canonicalStagedDraft);
+      // Validity only. Whether this row duplicates a committed one is asked
+      // below, once the duplicate-key locks are held and the answer can be
+      // acted on.
+      const result = await validateDraft(tx, actor, canonicalStagedDraft, {
+        withDuplicate: false,
+      });
       if (!result.draft || result.issues.length) {
         throw validationError("All selected staged transactions must be valid", {
           id: row.id,
           issues: result.issues,
-        });
-      }
-      if (result.duplicateOfId && !parsed.allowDuplicates) {
-        throw duplicate("A selected staged transaction matches a committed transaction", {
-          id: row.id,
-          duplicateOfId: result.duplicateOfId,
         });
       }
       validated.push({ row, draft: result.draft, canonicalStagedDraft });

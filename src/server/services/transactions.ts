@@ -54,6 +54,7 @@ import {
   transactionLegs,
   transactionTemplates,
   transactions,
+  type CategoryRow,
   type TransactionLegRow,
   type TransactionRow,
 } from "../db/schema.js";
@@ -183,21 +184,26 @@ async function getOwnedAccounts(
   actor: Actor,
   ids: string[],
   allowedArchivedIds: ReadonlySet<string> = new Set(),
+  preloaded?: ReadonlyMap<string, typeof ledgerAccounts.$inferSelect>,
 ) {
-  const rows = await tx
-    .select()
-    .from(ledgerAccounts)
-    .where(
-      and(
-        eq(ledgerAccounts.userId, actor.userId),
-        inArray(ledgerAccounts.id, [...new Set(ids)]),
-        // The counter-accounts are the ledger's own, and they never appear in a
-        // picker. Naming one directly would post both halves of an entry to the
-        // same account, which nets to nothing while the transaction still reads
-        // as real money moving.
-        isNull(ledgerAccounts.systemKind),
-      ),
-    );
+  const rows = preloaded
+    ? [...new Set(ids)]
+        .map((id) => preloaded.get(id))
+        .filter((row): row is typeof ledgerAccounts.$inferSelect => Boolean(row))
+    : await tx
+        .select()
+        .from(ledgerAccounts)
+        .where(
+          and(
+            eq(ledgerAccounts.userId, actor.userId),
+            inArray(ledgerAccounts.id, [...new Set(ids)]),
+            // The counter-accounts are the ledger's own, and they never appear
+            // in a picker. Naming one directly would post both halves of an
+            // entry to the same account, which nets to nothing while the
+            // transaction still reads as real money moving.
+            isNull(ledgerAccounts.systemKind),
+          ),
+        );
   if (
     rows.length !== new Set(ids).size ||
     rows.some(
@@ -212,7 +218,54 @@ async function getOwnedAccounts(
 type PrepareTransactionOptions = {
   allowedArchivedAccountIds?: ReadonlySet<string>;
   allowedArchivedCategoryIds?: ReadonlySet<string>;
+  /**
+   * The tenant's accounts, categories and template ids, read once by a caller
+   * about to prepare thousands of drafts.
+   *
+   * Passed rather than memoised behind the transaction, so nothing has to
+   * reason about when a cache goes stale: a caller that reads these and then
+   * writes to those tables simply does not pass them. All three are bounded per
+   * person, so reading them whole costs three queries instead of three per row.
+   */
+  references?: LedgerReferences;
 };
+
+export type LedgerReferences = {
+  accounts: Map<string, typeof ledgerAccounts.$inferSelect>;
+  categories: Map<string, CategoryRow>;
+  templateIds: ReadonlySet<string>;
+};
+
+/** Everything prepareTransaction would otherwise look up per draft. */
+export async function loadLedgerReferences(
+  tx: DbTransaction,
+  actor: Actor,
+): Promise<LedgerReferences> {
+  // One after another, not Promise.all: a transaction is a single connection,
+  // and pipelining queries down it is what pg deprecated.
+  const accountRows = await tx
+    .select()
+    .from(ledgerAccounts)
+    .where(
+      and(
+        eq(ledgerAccounts.userId, actor.userId),
+        isNull(ledgerAccounts.systemKind),
+      ),
+    );
+  const categoryRows = await tx
+    .select()
+    .from(categories)
+    .where(eq(categories.userId, actor.userId));
+  const templateRows = await tx
+    .select({ id: transactionTemplates.id })
+    .from(transactionTemplates)
+    .where(eq(transactionTemplates.userId, actor.userId));
+  return {
+    accounts: new Map(accountRows.map((row) => [row.id, row])),
+    categories: new Map(categoryRows.map((row) => [row.id, row])),
+    templateIds: new Set(templateRows.map((row) => row.id)),
+  };
+}
 
 /** Counter-accounts keyed by kind and currency. */
 export type SystemAccountMap = Map<string, PostingAccount>;
@@ -853,6 +906,7 @@ export async function prepareTransaction(
     actor,
     accountIds,
     options.allowedArchivedAccountIds,
+    options.references?.accounts,
   );
 
   // Resolve the counter-accounts this entry needs before building it, so the
@@ -885,16 +939,20 @@ export async function prepareTransaction(
   // A template id carries no foreign key, so ownership is checked here. Without
   // it an entry could name somebody else's template and be counted against it.
   if (draft.templateId) {
-    const [owned] = await tx
-      .select({ id: transactionTemplates.id })
-      .from(transactionTemplates)
-      .where(
-        and(
-          eq(transactionTemplates.id, draft.templateId),
-          eq(transactionTemplates.userId, actor.userId),
-        ),
-      )
-      .limit(1);
+    const owned = options.references
+      ? options.references.templateIds.has(draft.templateId)
+      : (
+          await tx
+            .select({ id: transactionTemplates.id })
+            .from(transactionTemplates)
+            .where(
+              and(
+                eq(transactionTemplates.id, draft.templateId),
+                eq(transactionTemplates.userId, actor.userId),
+              ),
+            )
+            .limit(1)
+        ).length > 0;
     if (!owned) throw validationError("Template is unavailable");
   }
 
@@ -908,11 +966,20 @@ export async function prepareTransaction(
     ].filter((id) => id != null),
   );
   for (const categoryId of namedCategoryIds) {
-    const [category] = await tx
-      .select()
-      .from(categories)
-      .where(and(eq(categories.id, categoryId), eq(categories.userId, actor.userId)))
-      .limit(1);
+    const category = options.references
+      ? options.references.categories.get(categoryId)
+      : (
+          await tx
+            .select()
+            .from(categories)
+            .where(
+              and(
+                eq(categories.id, categoryId),
+                eq(categories.userId, actor.userId),
+              ),
+            )
+            .limit(1)
+        )[0];
     if (
       !category ||
       (category.archivedAt !== null &&
@@ -1246,6 +1313,56 @@ function transactionSortPlan(
         isoDateSchema.parse(value);
       });
   }
+}
+
+/**
+ * Every transaction a filter matches, in one walk.
+ *
+ * Separate from `listTransactions` because that one counts the whole filtered
+ * set on every call, which is what the browser needs for a page count and what
+ * an export asks five hundred times for the same answer. Nothing here needs a
+ * total, so nothing here counts one, and every batch's hydration shares a
+ * single database transaction rather than opening its own.
+ */
+export async function listAllTransactions(
+  actor: Actor,
+  queryInput: unknown,
+  maxRows: number,
+): Promise<TransactionView[]> {
+  const query = listQuerySchema.parse(queryInput);
+  const filters = transactionFilterConditions(actor, query);
+  const plan = transactionSortPlan(query.sort, query.direction);
+  if (!plan.keyset || !plan.cursorValue) {
+    throw validationError("This sort order cannot be exported.", {
+      sort: query.sort,
+    });
+  }
+  const batchSize = Math.min(Math.max(query.limit, 200), 500);
+  return getDb().transaction(async (tx) => {
+    const all: TransactionView[] = [];
+    let after: { sort: string; id: string } | undefined;
+    for (;;) {
+      const conditions = after
+        ? [...filters, plan.keyset!(after.sort, after.id)]
+        : filters;
+      const rows = await tx
+        .select()
+        .from(transactions)
+        .where(and(...conditions))
+        .orderBy(...plan.orderBy)
+        .limit(batchSize);
+      if (!rows.length) return all;
+      all.push(...(await hydrateTransactions(tx, actor, rows)));
+      if (all.length > maxRows) {
+        throw validationError(
+          `Export exceeds ${maxRows.toLocaleString("en-US")} rows`,
+        );
+      }
+      if (rows.length < batchSize) return all;
+      const last = rows.at(-1)!;
+      after = { sort: plan.cursorValue!(last), id: last.id };
+    }
+  });
 }
 
 export async function listTransactions(
@@ -1848,6 +1965,11 @@ export async function bulkEditTransactions(
       actor,
       lockedRows.map((row) => row.id),
     );
+    // Read once for the whole selection. A mass edit changes no account, no
+    // category and no template, so what prepareTransaction would look up per
+    // row cannot change underneath the loop, and looking it up per row was
+    // three round trips each for an answer already in hand.
+    const references = await loadLedgerReferences(tx, actor);
     for (const before of lockedRows) {
       const legs = lockedLegs.get(before.id) ?? [];
       const draft = applyBulkPatch(before, parsed.patch, legs);
@@ -1857,6 +1979,7 @@ export async function bulkEditTransactions(
         ),
       );
       const prepared = await prepareTransaction(tx, actor, draft, {
+        references,
         allowedArchivedAccountIds: existingAccountIds,
         // A category archived since the entry was written still has to be
         // allowed through, or a mass date change fails on a split whose

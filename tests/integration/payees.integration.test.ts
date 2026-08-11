@@ -19,7 +19,10 @@ import {
   listPayees,
   listPayeeSuggestions,
   mergePayees,
+  payeeSummaries,
+  payeeSummariesMatching,
 } from "../../src/server/services/payees.js";
+import { cleanHumanName, normalizeHumanName } from "../../src/shared/names.js";
 import {
   createStage,
   getStage,
@@ -463,4 +466,57 @@ integration("derived payee management", () => {
       await server.close();
     }
   });
+
+
+  /**
+   * `payeeSummariesMatching` narrows in SQL what `payeeSummaries` groups in
+   * JavaScript, so the two normalisations have to agree exactly. Divergence would
+   * not fail visibly: a write would simply stop reusing the spelling already in
+   * the ledger and quietly start a second one.
+   */
+  describe("the two spellings of one normalisation", () => {
+    it.each([
+      ["Trader Joe's", "  trader   JOE'S  "],
+      ["Cafe\u0301 Rio", "CAFE\u0301 RIO"],
+      ["O\uFB03ce Depot", "o\uFB03ce  depot"],
+      ["Ünïcode Store", "ÜNÏCODE   store"],
+    ])("groups %s and %s together either way", async (stored, variant) => {
+      const account = await createAccount(primary, {
+        name: `Normalisation ${stored}`,
+        type: "checking",
+        currency: "USD",
+        openingDate: "2029-01-01",
+        openingBalance: "0",
+      });
+      await createTransaction(
+        primary,
+        {
+          type: "withdrawal",
+          date: "2029-01-02",
+          payee: stored,
+          description: null,
+          fromAccountId: account.id,
+          amount: "1.00",
+        },
+        `normalisation-${normalizeHumanName(stored)}`,
+      );
+
+      const db = getDb();
+      const normalized = normalizeHumanName(variant);
+      const [inSql] = await payeeSummariesMatching(db, primary, normalized);
+      const inJs = (await payeeSummaries(db, primary)).filter(
+        (summary) => summary.normalizedName === normalized,
+      );
+      // The write canonicalises the payee on the way in, so what is stored is
+      // the NFKC form of what was typed, not the keystrokes.
+      const canonical = cleanHumanName(stored);
+      expect(inJs.map((summary) => summary.name)).toContain(canonical);
+      expect(inSql, `SQL found nothing for ${normalized}`).toBeTruthy();
+      expect(inSql!.name).toBe(canonical);
+      expect(inSql!.totalCount).toBe(
+        inJs.reduce((total, summary) => total + summary.totalCount, 0),
+      );
+    });
+  });
 });
+

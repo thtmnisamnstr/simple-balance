@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type {
   Actor,
   PayeeMergeResult,
@@ -39,14 +39,20 @@ type PayeeCountRow = {
   staged_transaction_count: unknown;
 };
 
-const canonicalPayeeCache = new WeakMap<object, Map<string, string>>();
+const canonicalPayeeCache = new WeakMap<
+  object,
+  { names: Map<string, string>; complete: boolean }
+>();
 
 /** Preload canonical names for a bulk operation sharing one transaction. */
 export function seedCanonicalPayeeCache(
   tx: DbTransaction,
   canonicalByNormalized: ReadonlyMap<string, string>,
 ) {
-  canonicalPayeeCache.set(tx, new Map(canonicalByNormalized));
+  canonicalPayeeCache.set(tx, {
+    names: new Map(canonicalByNormalized),
+    complete: true,
+  });
 }
 
 function count(value: unknown) {
@@ -63,6 +69,38 @@ function count(value: unknown) {
  * canonicalization rather than dependent on database collation behavior.
  */
 export async function payeeSummaries(executor: Executor, actor: Actor) {
+  return summariesWhere(executor, actor, sql`true`, sql`true`);
+}
+
+/**
+ * The one logical payee a name belongs to, rather than all of them.
+ *
+ * The normalisation is spelled out in SQL here and in JavaScript everywhere
+ * else. It has to be the same rule, and it is the same rule findDuplicate
+ * already uses on the same column, so the two spellings are checked against
+ * each other in tests rather than trusted.
+ */
+export async function payeeSummariesMatching(
+  executor: Executor,
+  actor: Actor,
+  normalizedName: string,
+) {
+  const normalize = (column: SQL) =>
+    sql`lower(regexp_replace(trim(normalize(${column}, NFKC)), '\\s+', ' ', 'g')) = ${normalizedName}`;
+  return summariesWhere(
+    executor,
+    actor,
+    normalize(sql`payee`),
+    normalize(sql`draft ->> 'payee'`),
+  );
+}
+
+async function summariesWhere(
+  executor: Executor,
+  actor: Actor,
+  transactionCondition: SQL,
+  stagedCondition: SQL,
+) {
   const result = await executor.execute(sql`
     select
       payee_name as name,
@@ -77,6 +115,7 @@ export async function payeeSummaries(executor: Executor, actor: Actor) {
       where user_id = ${actor.userId}
         and deleted_at is null
         and char_length(trim(payee)) between 1 and 160
+        and ${transactionCondition}
       group by payee
 
       union all
@@ -90,6 +129,7 @@ export async function payeeSummaries(executor: Executor, actor: Actor) {
         and status = 'staged'
         and jsonb_typeof(draft -> 'payee') = 'string'
         and char_length(trim(draft ->> 'payee')) between 1 and 160
+        and ${stagedCondition}
       group by draft ->> 'payee'
     ) as payee_references
     group by payee_name
@@ -208,22 +248,24 @@ export async function resolveCanonicalPayee(
   const normalizedName = normalizeHumanName(cleaned);
   let cache = canonicalPayeeCache.get(tx);
   if (!cache) {
-    cache = new Map<string, string>();
-    const grouped = new Map<string, PayeeSummary[]>();
-    for (const summary of await payeeSummaries(tx, actor)) {
-      const group = grouped.get(summary.normalizedName);
-      if (group) group.push(summary);
-      else grouped.set(summary.normalizedName, [summary]);
-    }
-    for (const [normalized, payees] of grouped) {
-      cache.set(normalized, cleanHumanName(preferredPayee(payees)!.name));
-    }
+    cache = { names: new Map<string, string>(), complete: false };
     canonicalPayeeCache.set(tx, cache);
   }
-  const cached = cache.get(normalizedName);
+  const cached = cache.names.get(normalizedName);
   if (cached) return cached;
-  cache.set(normalizedName, cleaned);
-  return cleaned;
+  // A seeded cache already holds every payee this tenant has, so a miss in one
+  // is a new payee and asking again would answer nothing. Without a seed the
+  // one name in hand is asked about directly: this runs on every single
+  // transaction write, and grouping the tenant's whole ledger to answer for one
+  // payee is a scan per saved entry.
+  const matches = cache.complete
+    ? []
+    : await payeeSummariesMatching(tx, actor, normalizedName);
+  const resolved = matches.length
+    ? cleanHumanName(preferredPayee(matches)!.name)
+    : cleaned;
+  cache.names.set(normalizedName, resolved);
+  return resolved;
 }
 
 export async function canonicalizeStagedDraftPayee(

@@ -63,7 +63,7 @@ import {
   preferredCategory,
 } from "./categories.js";
 import { insertImportedStages } from "./staging.js";
-import { listTransactions } from "./transactions.js";
+import { listAllTransactions } from "./transactions.js";
 
 export const csvStageInputSchema = z.object({
   csv: z.string().min(1),
@@ -816,15 +816,7 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
     // reading the file back would raise the voided amount from the dead.
     includeDeleted: false,
   };
-  const page = await listTransactions(actor, window);
-  const all = [...page.items];
-  let cursor = page.nextCursor;
-  while (cursor) {
-    const next = await listTransactions(actor, { ...window, cursor });
-    all.push(...next.items);
-    cursor = next.nextCursor;
-    if (all.length > 100_000) throw validationError("Export exceeds 100,000 rows");
-  }
+  const all = await listAllTransactions(actor, window, 100_000);
 
   const rows = all.map((transaction) => ({
     simple_balance_format: APP_CSV_FORMAT,

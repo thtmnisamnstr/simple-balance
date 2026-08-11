@@ -39,7 +39,7 @@ export async function getSummary(
   // actually used is returned, so nothing has to guess what it is showing.
   const requestedEnd = range.end ?? "9999-12-31";
   const end = requestedEnd < today ? requestedEnd : today;
-  const accountResult = await db.execute(sql`
+  const accountQuery = db.execute(sql`
     select
       a.id,
       a.name,
@@ -61,7 +61,7 @@ export async function getSummary(
   // The income and expense accounts are the income statement. Reading the flow
   // off them rather than off the transaction rows means a corrected entry is
   // reflected here for the same reason it is reflected in a balance.
-  const flowResult = await db.execute(sql`
+  const flowQuery = db.execute(sql`
     select
       p.currency,
       coalesce(-sum(p.amount) filter (where a.system_kind = 'income'), 0)::text as deposits,
@@ -101,7 +101,7 @@ export async function getSummary(
   // exists in the posting rows, one per leg, so a 100 receipt cut three ways
   // is three postings of 100 between them, not one posting counted three
   // times. The leg join is many-to-one on a primary key.
-  const categoryResult = await db.execute(sql`
+  const categoryQuery = db.execute(sql`
     select
       p.currency,
       c.id as category_id,
@@ -155,6 +155,15 @@ export async function getSummary(
     -- order.
     order by p.currency, (c.id is null), sum(p.amount) desc
   `);
+
+  // Three aggregates over the same postings, sharing only the dates computed
+  // above. Awaited together because awaiting them in turn made the dashboard's
+  // main request cost the sum of the three rather than the slowest.
+  const [accountResult, flowResult, categoryResult] = await Promise.all([
+    accountQuery,
+    flowQuery,
+    categoryQuery,
+  ]);
 
   const currencies = new Map<string, CurrencySummary>();
   const ensure = (currency: string) => {

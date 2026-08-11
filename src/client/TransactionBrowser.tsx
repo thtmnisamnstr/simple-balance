@@ -69,6 +69,7 @@ function largestLeg(legs: Transaction["legs"]) {
     compareMoney(right.amount, left.amount),
   )[0];
 }
+import { useDebounced } from "./debounce.js";
 import { normalizeHumanName } from "../shared/names.js";
 import {
   BulkEditDateField,
@@ -155,10 +156,11 @@ export function TransactionBrowser({
   const payeeListId = useId();
   const queryClient = useQueryClient();
   const selectedAccountId = fixedAccountId ?? accountId;
+  const settledSearch = useDebounced(search);
   const params = {
     start,
     end,
-    search: search || undefined,
+    search: settledSearch || undefined,
     type: type || undefined,
     accountId: selectedAccountId || undefined,
     categoryId: fixedCategoryId || undefined,
@@ -169,7 +171,7 @@ export function TransactionBrowser({
   const bulkFilter: TransactionBulkEditFilter = {
     ...(start ? { start } : {}),
     ...(end ? { end } : {}),
-    ...(search ? { search } : {}),
+    ...(settledSearch ? { search: settledSearch } : {}),
     ...(type
       ? { type: type as "deposit" | "withdrawal" | "transfer" }
       : {}),
