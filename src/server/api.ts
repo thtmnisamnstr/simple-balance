@@ -82,6 +82,13 @@ import {
   listTransactionTemplates,
   updateTransactionTemplate,
 } from "./services/transaction-templates.js";
+import {
+  createRecurrence,
+  deleteRecurrence,
+  getRecurrence,
+  listRecurrences,
+  updateRecurrence,
+} from "./services/recurrences.js";
 import { AppError } from "./services/errors.js";
 import {
   exportTransactionsCsv,
@@ -905,6 +912,24 @@ app.get("/api/v1/categories/summaries", async (c) =>
 app.get("/api/v1/categories/:id", async (c) =>
   c.json(await getCategory(c.get("actor"), pathId(c))),
 );
+app.get("/api/v1/recurrences", async (c) =>
+  c.json(await listRecurrences(c.get("actor"))),
+);
+app.get("/api/v1/recurrences/:id", async (c) =>
+  c.json(await getRecurrence(c.get("actor"), pathId(c))),
+);
+app.post("/api/v1/recurrences", async (c) =>
+  c.json(await createRecurrence(c.get("actor"), await body(c)), 201),
+);
+app.put("/api/v1/recurrences/:id", async (c) =>
+  c.json(await updateRecurrence(c.get("actor"), pathId(c), await body(c))),
+);
+app.delete("/api/v1/recurrences/:id", async (c) => {
+  const parsed = versionedMutationSchema.parse(await body(c));
+  return c.json(
+    await deleteRecurrence(c.get("actor"), pathId(c), parsed.expectedVersion),
+  );
+});
 app.get("/api/v1/transaction-templates", async (c) =>
   c.json(await listTransactionTemplates(c.get("actor"))),
 );

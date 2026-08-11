@@ -9,6 +9,9 @@ import {
   bulkTransactionEditResultSchema,
   bulkTransactionSelectionSnapshotSchema,
   categoryKinds,
+  recurrenceFrequencies,
+  recurrenceMonthPolicies,
+  recurrenceWeekendPolicies,
   transactionTypes,
 } from "../shared/domain.js";
 
@@ -463,4 +466,42 @@ export const revokedConnectedAppSchema = z.object({
   clientId: z.string(),
   name: z.string(),
   revokedTokenCount: z.number().int().nonnegative(),
+});
+
+const recurrenceOccurrenceSchema = z.object({
+  occurrenceDate: z.string(),
+  postedDate: nullableStringSchema,
+});
+
+export const recurrenceResultSchema = z
+  .object({
+    ...versionedEntitySchema,
+    name: z.string(),
+    shape: z.unknown(),
+    frequency: z.enum(recurrenceFrequencies),
+    interval: z.number().int().positive(),
+    anchorDate: z.string(),
+    monthPolicy: z.enum(recurrenceMonthPolicies),
+    weekendPolicy: z.enum(recurrenceWeekendPolicies),
+    positionOrdinal: z.number().int().nullable(),
+    positionWeekday: z.number().int().nullable(),
+    proposesFrom: z.string(),
+    // Null is "has never run", which is what tells a scheduler that is silent
+    // from one that has nothing to say.
+    lastOccurrenceDate: nullableStringSchema,
+    nextOccurrenceDate: z.string(),
+  })
+  .passthrough();
+
+export const recurrenceViewResultSchema = recurrenceResultSchema.extend({
+  nextOccurrence: recurrenceOccurrenceSchema,
+  overdue: z.boolean(),
+  proposedCount: z.number().int().nonnegative(),
+  committedCount: z.number().int().nonnegative(),
+  discardedCount: z.number().int().nonnegative(),
+});
+
+export const recurrenceListResultSchema = z.object({
+  today: z.string(),
+  items: z.array(recurrenceViewResultSchema),
 });

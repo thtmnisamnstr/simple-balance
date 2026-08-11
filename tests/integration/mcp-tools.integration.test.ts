@@ -152,6 +152,69 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     ]);
   });
 
+  /**
+   * A result failing its declared output schema is dropped without a word, so
+   * every field the recurrence tools promise has to be seen arriving.
+   */
+  it("runs the whole recurrence lifecycle over the wire", async () => {
+    const created = (await call("create_recurrence", {
+      name: "Rent",
+      shape: {
+        type: "withdrawal",
+        payee: "Landlord",
+        fromAccountId: accountId,
+        categoryId,
+        amount: "1200.00",
+      },
+      schedule: {
+        frequency: "monthly",
+        anchorDate: "2030-01-31",
+        monthPolicy: "last_day",
+        weekendPolicy: "previous_business_day",
+      },
+      idempotencyKey: "recurrence-create-1",
+    })) as { id: string; version: number; lastOccurrenceDate: string | null };
+    expect(created.lastOccurrenceDate).toBeNull();
+
+    const listed = (await call("list_recurrences")) as {
+      today: string;
+      items: { id: string; overdue: boolean; proposedCount: number }[];
+    };
+    expect(listed.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]).toMatchObject({ overdue: false, proposedCount: 0 });
+
+    const fetched = (await call("get_recurrence", { id: created.id })) as {
+      nextOccurrence: { occurrenceDate: string; postedDate: string | null };
+    };
+    expect(fetched.nextOccurrence.occurrenceDate).toBe("2030-01-31");
+    // 2030-01-31 is a Thursday, so the policy leaves it alone.
+    expect(fetched.nextOccurrence.postedDate).toBe("2030-01-31");
+
+    // Changing only the frequency must not reset the weekend policy.
+    const updated = (await call("update_recurrence", {
+      id: created.id,
+      idempotencyKey: "recurrence-update-1",
+      input: {
+        expectedVersion: created.version,
+        schedule: { frequency: "yearly" },
+      },
+    })) as { weekendPolicy: string; frequency: string; version: number };
+    expect(updated.frequency).toBe("yearly");
+    expect(updated.weekendPolicy).toBe("previous_business_day");
+
+    expect(
+      await call("delete_recurrence", {
+        id: created.id,
+        expectedVersion: updated.version,
+        idempotencyKey: "recurrence-delete-1",
+      }),
+    ).toMatchObject({ id: created.id });
+    expect((await call("list_recurrences")) as { items: unknown[] }).toMatchObject({
+      items: [],
+    });
+  });
+
   it("sets a preference and reads it back", async () => {
     expect(await call("set_preferences", { timezone: "Europe/Paris", idempotencyKey: "pref-key-1" }))
       .toMatchObject({ timezone: "Europe/Paris", defaultCurrency: "USD" });
