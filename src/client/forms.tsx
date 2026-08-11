@@ -58,6 +58,7 @@ import {
 import { currencyOptionLabel, currencyOptions } from "./select-options.js";
 import { calendarDateInTimezone, useTimezone } from "./timezone.js";
 import { newIdempotencyKey } from "./idempotency.js";
+import { cleanHumanName, normalizeHumanName } from "../shared/names.js";
 
 export function AccountForm({
   account,
@@ -299,8 +300,8 @@ function PayeeInput({
   const matching = (candidate: string) =>
     payees.data?.find(
       (suggestion) =>
-        normalizeAutocompleteValue(suggestion) ===
-        normalizeAutocompleteValue(candidate),
+        normalizeHumanName(suggestion) ===
+        normalizeHumanName(candidate),
     );
   return (
     <>
@@ -400,14 +401,6 @@ const transactionTypeOptions: {
   },
 ];
 
-function normalizeCategoryName(value: string) {
-  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
-}
-
-function normalizeAutocompleteValue(value: string) {
-  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
-}
-
 /**
  * Naming a category rather than creating one first.
  *
@@ -446,17 +439,18 @@ function CategoryPicker({
     [categories, categoryId, type],
   );
 
-  const normalized = normalizeCategoryName(categoryName);
-  // What the server will actually store: trimmed, with runs of space collapsed.
-  // The hint below is a preview of the result, so it has to show that rather
-  // than the raw keystrokes.
-  const cleaned = categoryName.trim().replace(/\s+/g, " ");
+  const normalized = normalizeHumanName(categoryName);
+  // What the server will actually store. The hint below is a preview of the
+  // result, so it has to be the server's own function rather than a
+  // hand-rolled near-match: without the NFKC step this previewed a ligature
+  // the server would not store.
+  const cleaned = cleanHumanName(categoryName);
   // Deliberately every category, not just the compatible ones. A name that
   // belongs to a category filed under the other side still names something
   // that exists, and the server widens that category rather than refusing the
   // entry or starting a second spelling of it.
   const existing = categories.find(
-    (category) => normalizeCategoryName(category.name) === normalized,
+    (category) => normalizeHumanName(category.name) === normalized,
   );
 
   return (
@@ -471,8 +465,8 @@ function CategoryPicker({
           const next = event.target.value;
           const match = categories.find(
             (category) =>
-              normalizeCategoryName(category.name) ===
-              normalizeCategoryName(next),
+              normalizeHumanName(category.name) ===
+              normalizeHumanName(next),
           );
           // Matching by name keeps the spelling already in the ledger, so the
           // field shows what the entry will actually be filed under.
@@ -1493,16 +1487,16 @@ export function TransactionForm({
               const next = event.target.value;
               const match = payees.data?.find(
                 (candidate) =>
-                  normalizeAutocompleteValue(candidate) ===
-                  normalizeAutocompleteValue(next),
+                  normalizeHumanName(candidate) ===
+                  normalizeHumanName(next),
               );
               setPayee(match ?? next);
             }}
             onBlur={() => {
               const match = payees.data?.find(
                 (candidate) =>
-                  normalizeAutocompleteValue(candidate) ===
-                  normalizeAutocompleteValue(payee),
+                  normalizeHumanName(candidate) ===
+                  normalizeHumanName(payee),
               );
               setPayee(match ?? payee.trim().replace(/\s+/gu, " "));
             }}

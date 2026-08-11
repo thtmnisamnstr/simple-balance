@@ -31,7 +31,7 @@ import {
   writeAudit,
   type Executor,
 } from "./helpers.js";
-import { cleanHumanName, normalizeHumanName } from "./names.js";
+import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
 
 type PayeeCountRow = {
   name: unknown;
@@ -62,7 +62,7 @@ function count(value: unknown) {
  * in JavaScript so Unicode NFKC normalization is identical to browser/import
  * canonicalization rather than dependent on database collation behavior.
  */
-async function payeeSummaries(executor: Executor, actor: Actor) {
+export async function payeeSummaries(executor: Executor, actor: Actor) {
   const result = await executor.execute(sql`
     select
       payee_name as name,
@@ -152,7 +152,7 @@ export async function listDuplicatePayees(actor: Actor) {
   );
 }
 
-function preferredPayee(payees: readonly PayeeSummary[]) {
+export function preferredPayee(payees: readonly PayeeSummary[]) {
   return [...payees].sort((left, right) => {
     const leftClean = left.name === cleanHumanName(left.name) ? 1 : 0;
     const rightClean = right.name === cleanHumanName(right.name) ? 1 : 0;

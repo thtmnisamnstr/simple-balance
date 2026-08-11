@@ -34,7 +34,7 @@ import {
   setIdempotent,
   writeAudit,
 } from "./helpers.js";
-import { normalizeHumanName } from "./names.js";
+import { normalizeHumanName } from "../../shared/names.js";
 
 /**
  * A template is a saved starting point for the transaction form. Nothing here

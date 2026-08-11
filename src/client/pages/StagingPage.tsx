@@ -52,7 +52,6 @@ import {
   SelectionCheckbox,
   ConfirmDialog,
   SortableHeader,
-  Textarea,
   type SortState,
   useConfirm,
 } from "../components.js";
@@ -71,6 +70,17 @@ import {
   type TransactionFormLeg,
 } from "../staged-draft.js";
 import { newIdempotencyKey } from "../idempotency.js";
+import {
+  BulkEditDateField,
+  BulkEditDescriptionField,
+  BulkEditNotesField,
+  BulkEditPayeeField,
+  bulkEditFields,
+  emptyBulkEditEnabled,
+  emptyBulkEditValues,
+  type BulkEditField,
+  type BulkEditValues,
+} from "../bulk-edit.js";
 
 function stageSummary(stage: StagedTransaction, accounts: Account[]) {
   return summarizeStagedDraft(stage.draft, accounts);
@@ -81,37 +91,6 @@ const MAX_BULK_STAGES = MAX_BULK_SELECTION_ENTRIES;
 const STAGE_PAGE_SIZE = 100;
 const SELECT_ALL_FETCH_SIZE = 200;
 
-type BulkEditField = keyof StagedBulkEditPatch;
-
-const bulkEditFields: BulkEditField[] = [
-  "date",
-  "payee",
-  "categoryId",
-  "accountId",
-  "description",
-  "notes",
-  "type",
-];
-
-const emptyBulkEditEnabled = (): Record<BulkEditField, boolean> => ({
-  date: false,
-  payee: false,
-  categoryId: false,
-  accountId: false,
-  description: false,
-  notes: false,
-  type: false,
-});
-
-const emptyBulkEditValues = () => ({
-  date: "",
-  payee: "",
-  categoryId: "",
-  accountId: "",
-  description: "",
-  notes: "",
-  type: "withdrawal" as "deposit" | "withdrawal",
-});
 
 /**
  * Which account field a draft carries follows from its type, so a row that is
@@ -172,6 +151,10 @@ export default function StagingPage() {
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkEnabled, setBulkEnabled] = useState(emptyBulkEditEnabled);
   const [bulkValues, setBulkValues] = useState(emptyBulkEditValues);
+  const setBulkFieldEnabled = (field: BulkEditField, on: boolean) =>
+    setBulkEnabled((current) => ({ ...current, [field]: on }));
+  const setBulkFieldValues = (patch: Partial<BulkEditValues>) =>
+    setBulkValues((current) => ({ ...current, ...patch }));
   const [bulkEditKey, setBulkEditKey] = useState<string | null>(null);
   const [bulkEditNotice, setBulkEditNotice] = useState<string | null>(null);
   const payeeListId = useId();
@@ -1014,55 +997,21 @@ export default function StagingPage() {
           ) : null}
 
           <div className="bulk-edit-fields">
-            <BulkEditToggle
-              label="Change date"
-              enabled={bulkEnabled.date}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, date: on }))
-              }
-            >
-              <Input
-                aria-label="New date"
-                type="date"
-                value={bulkValues.date}
-                disabled={!bulkEnabled.date}
-                required={bulkEnabled.date}
-                onChange={(event) =>
-                  setBulkValues((current) => ({
-                    ...current,
-                    date: event.target.value,
-                  }))
-                }
-              />
-            </BulkEditToggle>
+            <BulkEditDateField
+              values={bulkValues}
+              enabled={bulkEnabled}
+              onEnabled={setBulkFieldEnabled}
+              onValue={setBulkFieldValues}
+            />
 
-            <BulkEditToggle
-              label="Change payee"
-              enabled={bulkEnabled.payee}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, payee: on }))
-              }
-            >
-              <Input
-                aria-label="New payee"
-                list={payeeListId}
-                value={bulkValues.payee}
-                disabled={!bulkEnabled.payee}
-                required={bulkEnabled.payee}
-                placeholder="Start typing a payee"
-                onChange={(event) =>
-                  setBulkValues((current) => ({
-                    ...current,
-                    payee: event.target.value,
-                  }))
-                }
-              />
-              <datalist id={payeeListId}>
-                {payeeSuggestions.data?.map((payee) => (
-                  <option key={payee} value={payee} />
-                ))}
-              </datalist>
-            </BulkEditToggle>
+            <BulkEditPayeeField
+              values={bulkValues}
+              enabled={bulkEnabled}
+              onEnabled={setBulkFieldEnabled}
+              onValue={setBulkFieldValues}
+              listId={payeeListId}
+              suggestions={payeeSuggestions.data ?? []}
+            />
 
             <BulkEditToggle
               label="Change category"
@@ -1139,50 +1088,19 @@ export default function StagingPage() {
               ) : null}
             </BulkEditToggle>
 
-            <BulkEditToggle
-              label="Change description"
-              enabled={bulkEnabled.description}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, description: on }))
-              }
-            >
-              <Input
-                aria-label="New description"
-                value={bulkValues.description}
-                disabled={!bulkEnabled.description}
-                placeholder="Leave blank to clear"
-                onChange={(event) =>
-                  setBulkValues((current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-              />
-              {bulkEnabled.description ? <small>Leave blank to clear.</small> : null}
-            </BulkEditToggle>
+            <BulkEditDescriptionField
+              values={bulkValues}
+              enabled={bulkEnabled}
+              onEnabled={setBulkFieldEnabled}
+              onValue={setBulkFieldValues}
+            />
 
-            <BulkEditToggle
-              label="Change notes"
-              enabled={bulkEnabled.notes}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, notes: on }))
-              }
-            >
-              <Textarea
-                aria-label="New notes"
-                rows={3}
-                value={bulkValues.notes}
-                disabled={!bulkEnabled.notes}
-                placeholder="Leave blank to clear"
-                onChange={(event) =>
-                  setBulkValues((current) => ({
-                    ...current,
-                    notes: event.target.value,
-                  }))
-                }
-              />
-              {bulkEnabled.notes ? <small>Leave blank to clear.</small> : null}
-            </BulkEditToggle>
+            <BulkEditNotesField
+              values={bulkValues}
+              enabled={bulkEnabled}
+              onEnabled={setBulkFieldEnabled}
+              onValue={setBulkFieldValues}
+            />
 
             <BulkEditToggle
               label="Change type"

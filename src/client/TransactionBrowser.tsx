@@ -53,7 +53,6 @@ import {
   SortableHeader,
   type SortState,
   sumMoney,
-  Textarea,
   useConfirm,
   compareMoney,
 } from "./components.js";
@@ -70,6 +69,18 @@ function largestLeg(legs: Transaction["legs"]) {
     compareMoney(right.amount, left.amount),
   )[0];
 }
+import { normalizeHumanName } from "../shared/names.js";
+import {
+  BulkEditDateField,
+  BulkEditDescriptionField,
+  BulkEditNotesField,
+  BulkEditPayeeField,
+  bulkEditFields,
+  emptyBulkEditEnabled,
+  emptyBulkEditValues,
+  type BulkEditField,
+  type BulkEditValues,
+} from "./bulk-edit.js";
 import { useDateRange } from "./date-range.js";
 import { TemplateForm, TransactionForm, draftFromTransaction } from "./forms.js";
 import { newIdempotencyKey } from "./idempotency.js";
@@ -84,25 +95,6 @@ type SelectionState =
   | { mode: "ids"; versions: Record<string, number> }
   | { mode: "filter"; excludedIds: Set<string> };
 
-type BulkEditField =
-  | "date"
-  | "payee"
-  | "categoryId"
-  | "accountId"
-  | "description"
-  | "notes"
-  | "type";
-
-type BulkEditValues = {
-  date: string;
-  payee: string;
-  categoryId: string;
-  accountId: string;
-  description: string;
-  notes: string;
-  type: "deposit" | "withdrawal";
-};
-
 type BulkEditRequest = {
   selection: TransactionBulkEditSelection;
   patch: TransactionBulkEditPatch;
@@ -111,41 +103,7 @@ type BulkEditRequest = {
   dryRun: false;
 };
 
-const bulkEditFields: BulkEditField[] = [
-  "date",
-  "payee",
-  "categoryId",
-  "accountId",
-  "description",
-  "notes",
-  "type",
-];
-
 const emptySelection = (): SelectionState => ({ mode: "ids", versions: {} });
-
-const emptyBulkEditEnabled = (): Record<BulkEditField, boolean> => ({
-  date: false,
-  payee: false,
-  categoryId: false,
-  accountId: false,
-  description: false,
-  notes: false,
-  type: false,
-});
-
-const emptyBulkEditValues = (accountId = ""): BulkEditValues => ({
-  date: "",
-  payee: "",
-  categoryId: "",
-  accountId,
-  description: "",
-  notes: "",
-  type: "withdrawal",
-});
-
-function normalizeName(value: string) {
-  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
-}
 
 export function TransactionBrowser({
   fixedAccountId,
@@ -183,6 +141,10 @@ export function TransactionBrowser({
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkEnabled, setBulkEnabled] = useState(emptyBulkEditEnabled);
   const [bulkValues, setBulkValues] = useState(emptyBulkEditValues);
+  const setBulkFieldEnabled = (field: BulkEditField, on: boolean) =>
+    setBulkEnabled((current) => ({ ...current, [field]: on }));
+  const setBulkFieldValues = (patch: Partial<BulkEditValues>) =>
+    setBulkValues((current) => ({ ...current, ...patch }));
   const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState<string | null>(
     null,
   );
@@ -551,7 +513,7 @@ export function TransactionBrowser({
   useEffect(() => {
     if (!bulkEnabled.payee || !bulkValues.payee.trim()) return;
     const exact = payeeSuggestions.data?.find(
-      (candidate) => normalizeName(candidate) === normalizeName(bulkValues.payee),
+      (candidate) => normalizeHumanName(candidate) === normalizeHumanName(bulkValues.payee),
     );
     if (exact && exact !== bulkValues.payee) {
       setBulkValues((current) => ({ ...current, payee: exact }));
@@ -1285,55 +1247,21 @@ export function TransactionBrowser({
           ) : null}
 
           <div className="bulk-edit-fields">
-            <BulkEditToggle
-              label="Change date"
-              enabled={bulkEnabled.date}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, date: on }))
-              }
-            >
-              <Input
-                aria-label="New date"
-                type="date"
-                value={bulkValues.date}
-                disabled={!bulkEnabled.date}
-                required={bulkEnabled.date}
-                onChange={(event) =>
-                  setBulkValues((current) => ({
-                    ...current,
-                    date: event.target.value,
-                  }))
-                }
-              />
-            </BulkEditToggle>
+            <BulkEditDateField
+              values={bulkValues}
+              enabled={bulkEnabled}
+              onEnabled={setBulkFieldEnabled}
+              onValue={setBulkFieldValues}
+            />
 
-            <BulkEditToggle
-              label="Change payee"
-              enabled={bulkEnabled.payee}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, payee: on }))
-              }
-            >
-              <Input
-                aria-label="New payee"
-                list={payeeListId}
-                value={bulkValues.payee}
-                disabled={!bulkEnabled.payee}
-                required={bulkEnabled.payee}
-                placeholder="Start typing a payee"
-                onChange={(event) =>
-                  setBulkValues((current) => ({
-                    ...current,
-                    payee: event.target.value,
-                  }))
-                }
-              />
-              <datalist id={payeeListId}>
-                {payeeSuggestions.data?.map((payee) => (
-                  <option key={payee} value={payee} />
-                ))}
-              </datalist>
-            </BulkEditToggle>
+            <BulkEditPayeeField
+              values={bulkValues}
+              enabled={bulkEnabled}
+              onEnabled={setBulkFieldEnabled}
+              onValue={setBulkFieldValues}
+              listId={payeeListId}
+              suggestions={payeeSuggestions.data ?? []}
+            />
 
             <BulkEditToggle
               label="Change category"
@@ -1418,50 +1346,19 @@ export function TransactionBrowser({
               ) : null}
             </BulkEditToggle>
 
-            <BulkEditToggle
-              label="Change description"
-              enabled={bulkEnabled.description}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, description: on }))
-              }
-            >
-              <Input
-                aria-label="New description"
-                value={bulkValues.description}
-                disabled={!bulkEnabled.description}
-                placeholder="Leave blank to clear"
-                onChange={(event) =>
-                  setBulkValues((current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-              />
-              {bulkEnabled.description ? <small>Leave blank to clear.</small> : null}
-            </BulkEditToggle>
+            <BulkEditDescriptionField
+              values={bulkValues}
+              enabled={bulkEnabled}
+              onEnabled={setBulkFieldEnabled}
+              onValue={setBulkFieldValues}
+            />
 
-            <BulkEditToggle
-              label="Change notes"
-              enabled={bulkEnabled.notes}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, notes: on }))
-              }
-            >
-              <Textarea
-                aria-label="New notes"
-                rows={3}
-                value={bulkValues.notes}
-                disabled={!bulkEnabled.notes}
-                placeholder="Leave blank to clear"
-                onChange={(event) =>
-                  setBulkValues((current) => ({
-                    ...current,
-                    notes: event.target.value,
-                  }))
-                }
-              />
-              {bulkEnabled.notes ? <small>Leave blank to clear.</small> : null}
-            </BulkEditToggle>
+            <BulkEditNotesField
+              values={bulkValues}
+              enabled={bulkEnabled}
+              onEnabled={setBulkFieldEnabled}
+              onValue={setBulkFieldValues}
+            />
 
             <BulkEditToggle
               label="Change type"

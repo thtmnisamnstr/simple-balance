@@ -60,7 +60,7 @@ import {
   keysetAfter,
   ordered,
 } from "./sorting.js";
-import { normalizeHumanName } from "./names.js";
+import { normalizeHumanName } from "../../shared/names.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
 import {
   createTransactionWithinTx,

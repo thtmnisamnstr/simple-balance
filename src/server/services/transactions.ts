@@ -81,7 +81,7 @@ import {
 } from "./sorting.js";
 import { ensureSystemAccount, postClosingBalance } from "./accounts.js";
 import { resolveDraftCategory } from "./categories.js";
-import { normalizeHumanName } from "./names.js";
+import { normalizeHumanName } from "../../shared/names.js";
 import { resolveCanonicalPayee } from "./payees.js";
 
 /**

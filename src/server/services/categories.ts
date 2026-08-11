@@ -35,7 +35,7 @@ import {
   serializeRow,
   writeAudit,
 } from "./helpers.js";
-import { cleanHumanName, normalizeHumanName } from "./names.js";
+import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
 
 async function findNormalizedNameConflict(
   tx: DbTransaction,

@@ -911,18 +911,15 @@ export function sumMoney(amounts: readonly string[]) {
  * can hold.
  */
 export function largestMoney(amounts: readonly string[]) {
-  const parse = (value: string) => {
-    const match = /^(\d+)(?:\.(\d{1,18}))?$/.exec(value);
-    return match ? { integer: match[1], fraction: match[2] ?? "" } : null;
-  };
   let best: string | undefined;
-  let bestUnits = -1n;
+  let bestUnits: bigint | undefined;
   for (const amount of amounts) {
-    const parsed = parse(amount);
-    if (!parsed) continue;
-    // A common scale for every comparison, so 1.5 and 1.45 order correctly.
-    const units = BigInt(`${parsed.integer}${parsed.fraction.padEnd(18, "0")}`);
-    if (units > bestUnits) {
+    // moneyUnits rather than a private parse: the one written here rejected a
+    // leading minus, so a category whose total is negative was dropped from the
+    // comparison and the bars were scaled against the wrong maximum.
+    const units = moneyUnits(amount);
+    if (units === null) continue;
+    if (bestUnits === undefined || units > bestUnits) {
       bestUnits = units;
       best = amount;
     }
@@ -931,21 +928,16 @@ export function largestMoney(amounts: readonly string[]) {
 }
 
 export function moneyRatioPercent(amount: string, maximum: string) {
-  const parse = (value: string) => {
-    const match = /^(\d+)(?:\.(\d{1,18}))?$/.exec(value);
-    return match ? { integer: match[1], fraction: match[2] ?? "" } : null;
-  };
-  const numerator = parse(amount);
-  const denominator = parse(maximum);
-  if (!numerator || !denominator) return "4";
+  // Both through moneyUnits, which scales everything to eighteen fractional
+  // digits, so the ratio is taken between two numbers on one scale and a sign
+  // is read rather than refused.
+  const numerator = moneyUnits(amount);
+  const denominatorUnits = moneyUnits(maximum);
+  if (numerator === null || denominatorUnits === null) return "4";
+  if (denominatorUnits <= 0n) return "4";
+  if (numerator <= 0n) return "4";
 
-  const scale = Math.max(numerator.fraction.length, denominator.fraction.length);
-  const units = (value: { integer: string; fraction: string }) =>
-    BigInt(`${value.integer}${value.fraction.padEnd(scale, "0")}`);
-  const denominatorUnits = units(denominator);
-  if (denominatorUnits === 0n) return "4";
-
-  const hundredthsOfPercent = (units(numerator) * 10_000n) / denominatorUnits;
+  const hundredthsOfPercent = (numerator * 10_000n) / denominatorUnits;
   const bounded = hundredthsOfPercent > 10_000n ? 10_000n : hundredthsOfPercent;
   const visible = bounded < 400n ? 400n : bounded;
   const whole = visible / 100n;

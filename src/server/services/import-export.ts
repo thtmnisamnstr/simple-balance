@@ -9,6 +9,7 @@ import {
   type Actor,
   type CategoryKind,
   type Page,
+  type PayeeSummary,
 } from "../../shared/domain.js";
 import {
   APP_CSV_FORMAT,
@@ -50,8 +51,12 @@ import {
   writeAudit,
 } from "./helpers.js";
 import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
-import { cleanHumanName, normalizeHumanName } from "./names.js";
-import { seedCanonicalPayeeCache } from "./payees.js";
+import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
+import {
+  payeeSummaries,
+  preferredPayee,
+  seedCanonicalPayeeCache,
+} from "./payees.js";
 import {
   categoryKindForDraft,
   combineCategoryKinds,
@@ -346,58 +351,22 @@ async function canonicalizeImportedPayees(
   actor: Actor,
   rows: CsvStageRow[],
 ) {
-  const result = await tx.execute(sql`
-    select
-      payee_name as name,
-      sum(reference_count)::int as reference_count
-    from (
-      select payee as payee_name, count(*)::int as reference_count
-      from ledger_transaction
-      where user_id = ${actor.userId}
-        and deleted_at is null
-        and char_length(trim(payee)) between 1 and 160
-      group by payee
-
-      union all
-
-      select draft ->> 'payee' as payee_name, count(*)::int as reference_count
-      from staged_transaction
-      where user_id = ${actor.userId}
-        and status = 'staged'
-        and jsonb_typeof(draft -> 'payee') = 'string'
-        and char_length(trim(draft ->> 'payee')) between 1 and 160
-      group by draft ->> 'payee'
-    ) as payee_references
-    group by payee_name
-  `);
-  const groupedExisting = new Map<
-    string,
-    { name: string; referenceCount: number }[]
-  >();
-  for (const row of result.rows) {
-    const name = String(row.name);
-    const referenceCount = Number(row.reference_count);
-    if (!Number.isSafeInteger(referenceCount) || referenceCount < 1) {
-      throw new Error("Database returned an invalid payee reference count");
-    }
-    const normalizedName = normalizeHumanName(name);
-    const group = groupedExisting.get(normalizedName);
-    const summary = { name, referenceCount };
+  // The same query and the same comparator the payee list uses, called rather
+  // than written again. Two copies of "which spelling wins" is two places for
+  // the answer to drift, and an import filing entries under a spelling the
+  // payee screen does not consider canonical is exactly the drift that costs.
+  const groupedExisting = new Map<string, PayeeSummary[]>();
+  for (const summary of await payeeSummaries(tx, actor)) {
+    const group = groupedExisting.get(summary.normalizedName);
     if (group) group.push(summary);
-    else groupedExisting.set(normalizedName, [summary]);
+    else groupedExisting.set(summary.normalizedName, [summary]);
   }
   const canonicalByName = new Map<string, string>();
   for (const [normalizedName, payees] of groupedExisting) {
-    const preferred = [...payees].sort((left, right) => {
-      const leftClean = left.name === cleanHumanName(left.name) ? 1 : 0;
-      const rightClean = right.name === cleanHumanName(right.name) ? 1 : 0;
-      return (
-        right.referenceCount - left.referenceCount ||
-        rightClean - leftClean ||
-        left.name.localeCompare(right.name)
-      );
-    })[0]!;
-    canonicalByName.set(normalizedName, cleanHumanName(preferred.name));
+    canonicalByName.set(
+      normalizedName,
+      cleanHumanName(preferredPayee(payees)!.name),
+    );
   }
   const existingNames = new Set(canonicalByName.keys());
   const resolutionByName = new Map<

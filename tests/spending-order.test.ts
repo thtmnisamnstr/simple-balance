@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { largestMoney } from "../src/client/components.js";
+import { largestMoney, moneyRatioPercent } from "../src/client/components.js";
 
 /**
  * Uncategorised spending is pinned to the bottom of the list, so the first row
@@ -94,5 +94,28 @@ describe("how the page arranges what the server sent", () => {
   it("changes nothing when there is no uncategorised spending", () => {
     const rows = [row("a", "Rent", "900.00"), row("b", "Food", "300.00")];
     expect(arrange(rows)).toEqual(rows);
+  });
+});
+
+/**
+ * A category total can be negative: repostTransaction writes each delta at its
+ * own date, so moving a January expense to February leaves the expense account
+ * with a negative posting in January. A parser that refuses a leading minus
+ * dropped those rows from the comparison and scaled every bar against the wrong
+ * maximum.
+ */
+describe("bar scaling when a total is negative", () => {
+  it("still finds the largest when a negative is in the list", () => {
+    expect(largestMoney(["-100.00", "30.00", "12.50"])).toBe("30.00");
+    expect(largestMoney(["-100.00", "-30.00"])).toBe("-30.00");
+  });
+
+  it("gives a negative share the minimum width rather than a wrong one", () => {
+    expect(moneyRatioPercent("-50.00", "100.00")).toBe("4");
+  });
+
+  it("scales an ordinary share against the maximum", () => {
+    expect(moneyRatioPercent("50.00", "100.00")).toBe("50");
+    expect(moneyRatioPercent("100.00", "100.00")).toBe("100");
   });
 });
