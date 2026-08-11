@@ -198,15 +198,20 @@ function appExportDraft(
       })(),
     );
   const legs = parseExportedLegs(row[APP_CSV_LEGS_COLUMN]);
-  if (legs === null) {
-    return {
-      draft: null,
-      issues: [{
-        field: APP_CSV_LEGS_COLUMN,
-        message: "The split on this row could not be read",
-      }],
-    };
-  }
+  // An unreadable split costs the split, not the row. Returning here threw away
+  // the date, payee, amount and account the file stated perfectly clearly, and
+  // left somebody an empty row and one complaint; every other unreadable field
+  // in this reader keeps what it could read and says what it could not.
+  const legIssues =
+    legs === null
+      ? [
+          {
+            field: APP_CSV_LEGS_COLUMN,
+            message:
+              "The split on this row could not be read, so it is staged without one. Divide it again here, or commit it against a single category.",
+          },
+        ]
+      : [];
   const common = {
     date: row.date,
     payee: protectedText.success ? protectedText.data.payee : row.payee,
@@ -229,11 +234,14 @@ function appExportDraft(
         destinationAmount: row.destination_amount,
         ...common,
       },
-      issues: [{
-        field: "account",
-        message:
-          "A transfer moves between two accounts and an import chooses one, so pick both here",
-      }],
+      issues: [
+        ...legIssues,
+        {
+          field: "account",
+          message:
+            "A transfer moves between two accounts and an import chooses one, so pick both here",
+        },
+      ],
     };
   }
 
@@ -256,7 +264,10 @@ function appExportDraft(
     return {
       draft: null,
       partial: { ...common },
-      issues: [{ field: "type", message: "Transaction type is not recognized" }],
+      issues: [
+        ...legIssues,
+        { field: "type", message: "Transaction type is not recognized" },
+      ],
     };
   }
 
@@ -264,10 +275,13 @@ function appExportDraft(
     return {
       draft: null,
       partial: candidate,
-      issues: [{
-        field: "roundtrip_text_json",
-        message: "The Simple Balance round-trip text payload is invalid",
-      }],
+      issues: [
+        ...legIssues,
+        {
+          field: "roundtrip_text_json",
+          message: "The Simple Balance round-trip text payload is invalid",
+        },
+      ],
     };
   }
   const parsed = transactionDraftSchema.safeParse(candidate);
@@ -275,13 +289,16 @@ function appExportDraft(
     return {
       draft: null,
       partial: candidate,
-      issues: parsed.error.issues.map((issue) => ({
-        field: issue.path.join("."),
-        message: issue.message,
-      })),
+      issues: [
+        ...legIssues,
+        ...parsed.error.issues.map((issue) => ({
+          field: issue.path.join("."),
+          message: issue.message,
+        })),
+      ],
     };
   }
-  return { draft: parsed.data, issues: [] };
+  return { draft: parsed.data, issues: legIssues };
 }
 
 type CsvStageRow = Pick<NormalizedCsvRow, "draft" | "issues"> & {

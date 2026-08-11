@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import Papa from "papaparse";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
@@ -19,7 +20,11 @@ import {
   listActiveImportBatches,
   stageCsv,
 } from "../../src/server/services/import-export.js";
-import { createStage, getStage } from "../../src/server/services/staging.js";
+import {
+  createStage,
+  getStage,
+  listStages,
+} from "../../src/server/services/staging.js";
 import {
   createTransaction,
   setTransactionDeleted,
@@ -667,6 +672,67 @@ integration("CSV import and export identification", () => {
         dryRun: true,
       }),
     ).rejects.toThrow(/Map the columns/);
+  });
+
+  /**
+   * An unreadable split costs the split, not the row. Discarding the whole
+   * draft left somebody an empty row and one complaint, having thrown away the
+   * date, payee, amount and account the file stated perfectly clearly.
+   */
+  it("stages a row whose split cannot be read, without the split", async () => {
+    // Dated well clear of every other fixture, because the exports in this file
+    // are taken by date range and an extra row changes what they count.
+    const day = "2029-11-07";
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: day,
+        payee: "Corrupt split",
+        description: null,
+        fromAccountId: checkingId,
+        amount: "30.00",
+        legs: [
+          { categoryName: "Damaged Food", amount: "20.00" },
+          { categoryName: "Damaged Home", amount: "10.00" },
+        ],
+      },
+      "csv-corrupt-split",
+    );
+    const exported = await exportTransactionsCsv(actor, { start: day, end: day });
+
+    // Parsed and rewritten rather than edited as text: the export quotes fields
+    // that contain commas, and splitting on them shifts every later column.
+    const parsed = Papa.parse<Record<string, string>>(exported.csv.trim(), {
+      header: true,
+    });
+    expect(parsed.data).toHaveLength(1);
+    expect(parsed.data[0]!.legs_json).toContain("Damaged Food");
+    parsed.data[0]!.legs_json = "{not json";
+    const csv = Papa.unparse(parsed.data, { columns: parsed.meta.fields });
+
+    await stageCsv(actor, {
+      csv,
+      fileName: "damaged.csv",
+      idempotencyKey: "csv-corrupt-split-stage",
+      defaultAccountId: checkingId,
+    });
+
+    const [row] = (await listStages(actor, { limit: 10, search: "Corrupt split" }))
+      .items;
+    expect(row).toBeDefined();
+    // Everything the file did state survived.
+    expect(row!.draft).toMatchObject({
+      type: "withdrawal",
+      date: day,
+      payee: "Corrupt split",
+      fromAccountId: checkingId,
+    });
+    expect(Number(row!.draft.amount)).toBe(30);
+    expect(row!.draft.legs).toBeUndefined();
+    expect(row!.validationIssues.map((issue) => issue.field)).toContain(
+      "legs_json",
+    );
   });
 
   it("lets a different person import an export of someone else's ledger", async () => {
