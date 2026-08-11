@@ -391,7 +391,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Get account",
         description:
-          "Get one account by ID, with its balance as of today in this person's timezone. An archived account comes back too, so read archivedAt rather than assuming a result means it is in use.",
+          "Get one account by ID, with the balance the account page shows: every posting it holds, including any dated in the future. Use get_account_balances to separate what has already moved from what has not. An archived account comes back too, so read archivedAt rather than assuming a result means it is in use.",
         inputSchema: z.object({ id: z.string().uuid() }),
         outputSchema: mcpOutputSchema(accountResultSchema),
         annotations: readAnnotations,
@@ -602,14 +602,18 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "export_transactions_csv",
       {
         title: "Export transactions as CSV",
-        description: "Export filtered committed transactions in the round-trip CSV format.",
-        // An export is the whole filtered set, so it advertises no window.
+        description:
+          "Export filtered committed transactions in the round-trip CSV format. A deleted entry is never exported, whatever filter is sent: it is void, its postings net to zero, and the file has no column to say so, so reading it back would raise the voided amount from the dead.",
+        // An export is the whole filtered set, so it advertises no window, and
+        // no includeDeleted either: the service fixes that to false and an
+        // advertised filter that changes nothing is worse than an absent one.
         inputSchema: listQuerySchema.omit({
           cursor: true,
           limit: true,
           page: true,
           sort: true,
           direction: true,
+          includeDeleted: true,
         }),
         outputSchema: mcpOutputSchema(csvExportResultSchema),
         annotations: readAnnotations,
@@ -1064,7 +1068,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Create transaction template",
         description:
-          "Save a starting point for the transaction form. Leave a field out to make it one the person fills in each time; an amount is the usual one to omit. The date, a category named rather than chosen, and a bank import reference are refused: a stored date would post entries into a past month, a named category would be created afresh on every use, and an import reference copied onto every transaction would make the next real import of that row look like one already seen.",
+          "Save a starting point for the transaction form. Every field is optional, including the type: leave one out to make it one the person fills in each time, and an amount is the usual one to omit. A stored date is used when the template is applied and an absent one means the day it is applied. A categoryName is matched against the categories already here, ignoring case, and creates one only if nothing matches. One key is refused rather than ignored: externalId, the reference a bank statement row was imported under, because copied onto every transaction made from this it would make the next real import of that row look like one already seen.",
         inputSchema: transactionTemplateCreateSchema.extend({
           idempotencyKey: idempotencyKeySchema,
         }),

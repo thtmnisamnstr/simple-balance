@@ -189,6 +189,11 @@ export const stagedTransactionResultSchema = z
     rawData: z.unknown().nullable(),
     validationIssues: z.array(validationIssueSchema),
     duplicateOfId: uuidSchema.nullable(),
+    // Nullable because null means "not worked out", not "no": only the list
+    // query compares a row against the rest of the queue, so every other tool
+    // returns null here. Declaring it as a plain boolean would make those
+    // results fail this schema and be dropped without a word.
+    repeatsStagedRow: z.boolean().nullable(),
     importBatchId: uuidSchema.nullable(),
     // Where a proposed row came from, and which instance of the schedule it is.
     // Declared rather than left to passthrough, because a caller reading the

@@ -58,6 +58,17 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     return result;
   };
 
+  /**
+   * A result that fails its declared output schema is dropped by the SDK
+   * without an error, so a tool nobody calls over a real connection is a tool
+   * nobody knows works. This calls every read there is and checks the
+   * structured result actually arrived, which is the only way that failure
+   * shows up.
+   *
+   * The map is exhaustive by construction: a read tool missing from it fails
+   * the test rather than being skipped, so adding one to mcp.ts means adding it
+   * here too.
+   */
   it("answers each of the reads added for parity with the browser", async () => {
     expect(await call("whoami")).toMatchObject({ email: "live@example.com", clientId: "live" });
     expect(await call("get_preferences")).toMatchObject({ chosen: false, timezone: "UTC" });
@@ -295,4 +306,82 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     });
     expect(out.isError).toBe(true);
   });
+  it("returns a structured result from every read tool", async () => {
+    // Its own fixtures, made through the tools, so the sweep does not depend on
+    // which other test ran first.
+    const transaction = (await call("create_transaction", {
+      draft: {
+        type: "withdrawal",
+        date: "2026-02-02",
+        payee: "Sweep",
+        fromAccountId: accountId,
+        amount: "5.00",
+      },
+      idempotencyKey: "sweep-transaction",
+    })) as { id: string };
+    const staged = (await call("create_staged_transaction", {
+      draft: {
+        type: "withdrawal",
+        date: "2026-02-03",
+        payee: "Sweep staged",
+        fromAccountId: accountId,
+        amount: "6.00",
+      },
+      idempotencyKey: "sweep-staged",
+    })) as { id: string };
+    const recurrence = (await call("create_recurrence", {
+      name: "Sweep recurrence",
+      shape: {
+        type: "withdrawal",
+        payee: "Sweep",
+        fromAccountId: accountId,
+        amount: "7.00",
+      },
+      schedule: { frequency: "monthly", anchorDate: "2030-02-04" },
+      idempotencyKey: "sweep-recurrence",
+    })) as { id: string };
+    const template = (await call("create_transaction_template", {
+      name: "Sweep template",
+      draft: { type: "withdrawal", payee: "Sweep" },
+      idempotencyKey: "sweep-template",
+    })) as { id: string };
+
+    const { tools } = await client.listTools();
+    const reads = tools.filter((tool) => tool.annotations?.readOnlyHint === true);
+    expect(reads.length).toBeGreaterThan(25);
+
+    const args: Record<string, Record<string, unknown>> = {
+      get_account: { id: accountId },
+      get_account_balances: { id: accountId },
+      get_category: { id: categoryId },
+      get_transaction: { id: transaction.id },
+      get_staged_transaction: { id: staged.id },
+      get_recurrence: { id: recurrence.id },
+      get_transaction_template: { id: template.id },
+      preview_csv: { csv: "date,payee,amount\n2026-01-01,Shop,5.00" },
+      preview_bulk_transaction_selection: { filter: { includeDeleted: false } },
+      preview_bulk_staged_selection: { filter: {} },
+    };
+
+    const dropped: string[] = [];
+    for (const tool of reads) {
+      const out = await client.callTool({
+        name: tool.name,
+        arguments: args[tool.name] ?? {},
+      });
+      const result = (out.structuredContent as { result?: unknown } | undefined)
+        ?.result;
+      if (result === undefined) {
+        dropped.push(`${tool.name} returned no structured result`);
+        continue;
+      }
+      if (result && typeof result === "object" && "error" in result) {
+        dropped.push(
+          `${tool.name}: ${JSON.stringify((result as { error: unknown }).error)}`,
+        );
+      }
+    }
+    expect(dropped).toEqual([]);
+  });
+
 });
