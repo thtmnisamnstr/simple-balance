@@ -102,6 +102,74 @@ async function registeredRoutes() {
   return routes;
 }
 
+/**
+ * Which service functions a route handler and a tool handler each call.
+ *
+ * Both transports are adapters over one service layer, so the check that
+ * matters is not that a tool with the right name exists but that it reaches the
+ * same code. A tool that quietly moved to a narrower service would still answer
+ * plausibly, so this compares what is written rather than what is returned.
+ *
+ * Routes are cut at the next route rather than matched as a balanced call: some
+ * are one-liners and some span lines, and a regex trying to find the closing
+ * bracket swallows every route after a one-liner. That is not hypothetical — it
+ * is how the first version of this silently compared half of them.
+ */
+async function servicesByRoute() {
+  const source = await readFile(
+    new URL("../src/server/api.ts", import.meta.url),
+    "utf8",
+  );
+  const starts = [
+    ...source.matchAll(/^app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/gm),
+  ];
+  const byRoute = new Map<string, Set<string>>();
+  starts.forEach((start, index) => {
+    const next = starts[index + 1];
+    const body = source.slice(start.index!, next ? next.index! : source.length);
+    byRoute.set(
+      `${start[1]!.toUpperCase()} ${start[2]}`,
+      new Set(
+        [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map(
+          (call) => call[1]!,
+        ),
+      ),
+    );
+  });
+  return byRoute;
+}
+
+async function servicesByTool() {
+  const source = await readFile(
+    new URL("../src/server/mcp.ts", import.meta.url),
+    "utf8",
+  );
+  const byTool = new Map<string, Set<string>>();
+  for (const match of source.matchAll(
+    /registerTool\(\s*"([a-z_]+)",\s*\{.*?\n      \},\s*(.*?)\n    \);/gs,
+  )) {
+    byTool.set(
+      match[1]!,
+      new Set(
+        [...match[2]!.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*actor\b/g)].map(
+          (call) => call[1]!,
+        ),
+      ),
+    );
+  }
+  return byTool;
+}
+
+/**
+ * The one pair that deliberately differs, and in the agent's favour: the page
+ * lists categories and asks for the usage counts separately, while the tool
+ * always returns them, so an agent can tell an existing category from a second
+ * spelling of one without a second call.
+ */
+const RICHER_ON_PURPOSE: Record<string, string> = {
+  "GET /api/v1/categories": "list_categories",
+};
+
 async function toolNames(scopes: string[]) {
   const server = createMcpServer(
     { userId: "parity-user", source: "mcp", clientId: "parity-test" },
@@ -158,6 +226,43 @@ describe("what an agent can reach compared with the browser", () => {
     const routes = await registeredRoutes();
     const claimed = [...Object.keys(COVERED_BY), ...Object.keys(BROWSER_ONLY)];
     expect(claimed.filter((route) => !routes.has(route))).toEqual([]);
+  });
+
+  /**
+   * The name map proves a tool exists for each route. This proves it is the
+   * same tool: a route and its tool reaching different services is a parity gap
+   * the map cannot see, and the shape it takes is a tool that accepts fewer
+   * filters or writes fewer fields than the page beside it.
+   */
+  it("reaches the same service from both transports", async () => {
+    const byRoute = await servicesByRoute();
+    const byTool = await servicesByTool();
+
+    const divergent: string[] = [];
+    let compared = 0;
+    for (const [route, tool] of Object.entries(COVERED_BY)) {
+      if (RICHER_ON_PURPOSE[route] === tool) continue;
+      const routeServices = byRoute.get(route);
+      const toolServices = byTool.get(tool);
+      // Two handlers name no service this can read: one delegates to Better
+      // Auth and one takes a file rather than an actor. Skipped rather than
+      // failed, and the count below is what stops that skip growing quietly.
+      if (!routeServices?.size || !toolServices?.size) continue;
+      compared += 1;
+      if (![...routeServices].some((service) => toolServices.has(service))) {
+        divergent.push(
+          `${route} calls ${[...routeServices].join(", ")} but ${tool} calls ${[...toolServices].join(", ")}`,
+        );
+      }
+    }
+
+    expect(divergent).toEqual([]);
+    // Guards the parsing. A regex that stopped matching would otherwise make
+    // this pass by comparing nothing at all, which is exactly what an earlier
+    // version of it did.
+    expect(compared).toBeGreaterThanOrEqual(
+      Object.keys(COVERED_BY).length - Object.keys(RICHER_ON_PURPOSE).length - 2,
+    );
   });
 
   it("keeps the two exceptions out of the tool list entirely", async () => {
