@@ -38,6 +38,8 @@ import { getAuthBootstrapLockPool, getDb } from "./db/client.js";
 import { oauthApplication, verification } from "./db/schema.js";
 import {
   boundRequestBody,
+  countableClientAddress,
+  createAttemptLimiter,
   hardenAuthCookies,
   protectAuthMutation,
   protectBrowserMutation,
@@ -104,6 +106,7 @@ import {
 import {
   listConnectedApps,
   pruneAbandonedClients,
+  revokeAllConnectedApps,
   revokeConnectedApp,
 } from "./services/connected-apps.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
@@ -143,6 +146,7 @@ const uuidPathSchema = z
 type Variables = {
   actor: Actor;
   authUser: { id: string; name: string; email: string; image?: string | null };
+  sessionCreatedAt: Date;
 };
 
 const app = new Hono<{ Variables: Variables }>();
@@ -268,6 +272,13 @@ app.get("/api/auth/methods", async (c) =>
   c.json(await getPublicAuthOptions()),
 );
 
+const FRESH_SESSION_MS = 15 * 60 * 1000;
+
+const setupCodeAttempts = createAttemptLimiter({
+  max: 5,
+  windowMs: 15 * 60 * 1000,
+});
+
 let localBootstrapBusy = false;
 app.post("/api/auth/sign-up/email", async (c) => {
   if (!getConfig().localAuthEnabled) {
@@ -308,6 +319,24 @@ app.post("/api/auth/sign-up/email", async (c) => {
     );
   }
 
+  // Every path that reaches here has already been turned away by the
+  // registration rule, so the code is the only thing standing between a caller
+  // and the deployment. Better Auth's limiter never sees these attempts, since
+  // a wrong code is refused above without its handler being called.
+  const setupCaller = countableClientAddress(
+    c.req.raw,
+    c,
+    getConfig().trustProxy,
+  );
+  if (!setupCodeAttempts.take(setupCaller)) {
+    return c.json(
+      {
+        code: "TOO_MANY_SETUP_ATTEMPTS",
+        message: "Too many setup attempts. Wait a few minutes and try again.",
+      },
+      429,
+    );
+  }
   if (!isOwnerSetupTokenValid(field("setupToken"))) {
     return c.json(
       {
@@ -317,6 +346,7 @@ app.post("/api/auth/sign-up/email", async (c) => {
       403,
     );
   }
+  setupCodeAttempts.clear(setupCaller);
   // Only the claim races, and it happens once in a deployment's life. Sign-ups
   // that the rule already admits returned above without coming near this lock.
   if (localBootstrapBusy) {
@@ -371,6 +401,19 @@ app.post("/api/auth/sign-up/email", async (c) => {
       localBootstrapBusy = false;
     }
   }
+});
+
+// Changing a password from Settings is the same recovery as resetting one, and
+// Better Auth's onPasswordReset hook does not fire for it. An agent's grant
+// outliving the credential it was authorized under is the thing being fixed,
+// so both doors close the same way.
+app.post("/api/auth/change-password", async (c) => {
+  const identity = await getWebIdentity(c.req.raw.headers);
+  const response = await getAuth().handler(authRequest(c));
+  if (identity && response.ok) {
+    await revokeAllConnectedApps(identity.user.id);
+  }
+  return response;
 });
 
 app.on(["GET", "POST"], "/api/auth/callback/google", async (c) => {
@@ -823,6 +866,7 @@ app.use("/api/v1/*", async (c, next) => {
     return c.json({ error: { code: "UNAUTHORIZED", message: "Sign in is required" } }, 401);
   }
   c.set("authUser", identity.user);
+  c.set("sessionCreatedAt", new Date(identity.session.createdAt));
   c.set("actor", { userId: identity.user.id, source: "web" });
   await next();
 });
@@ -866,6 +910,19 @@ app.post("/api/v1/auth/local-password", async (c) => {
       "CONFLICT",
       "A local password is already configured. Use the password change action.",
       409,
+    );
+  }
+  // A password added here is a second, permanent way into the account, and an
+  // account that has only ever signed in with Google has no existing password
+  // to confirm against. A recently created session is the re-authentication
+  // that is available to every account: whoever is asking has just proved they
+  // hold the credential the account already has, rather than only a cookie
+  // that has been sitting in a browser since last month.
+  if (Date.now() - c.get("sessionCreatedAt").getTime() > FRESH_SESSION_MS) {
+    throw new AppError(
+      "REAUTHENTICATION_REQUIRED",
+      "Sign in again before adding a password, so that a session on its own cannot add one.",
+      403,
     );
   }
   try {

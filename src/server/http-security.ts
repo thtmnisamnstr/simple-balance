@@ -23,15 +23,25 @@ export const BULK_REQUEST_BODY_LIMIT_BYTES =
   MAX_BULK_SELECTION_ENTRIES * BULK_SELECTION_ENTRY_BYTES +
   BULK_REQUEST_ENVELOPE_BYTES;
 
-const bulkRequestPaths = new Set([
-  "/api/v1/transactions/bulk-edit",
-  "/api/v1/transactions/bulk-delete",
-  "/api/v1/transactions/bulk-selection",
-  "/api/v1/staged-transactions/commit",
-  "/api/v1/staged-transactions/delete",
-  "/api/v1/staged-transactions/bulk-edit",
-  "/api/v1/staged-transactions/bulk-selection",
+/**
+ * Recognised by shape rather than listed, because a list has to be revisited
+ * every time a route is added and is silently wrong until somebody notices.
+ * The template mass edit and mass delete were sized as ordinary requests for
+ * exactly that reason, so a selection their schemas accept came back 413.
+ */
+const BULK_REQUEST_ACTIONS = new Set([
+  "bulk-edit",
+  "bulk-delete",
+  "bulk-selection",
+  "commit",
+  "delete",
 ]);
+
+function isBulkRequestPath(path: string) {
+  if (!path.startsWith("/api/v1/")) return false;
+  const segments = path.split("/");
+  return segments.length === 5 && BULK_REQUEST_ACTIONS.has(segments[4]!);
+}
 const REJECTED_BODY_DRAIN_LIMIT_BYTES = 128 * 1024;
 const REJECTED_BODY_DRAIN_TIMEOUT_MS = 250;
 
@@ -242,6 +252,61 @@ export function withCountableClientAddress(
   if (peer) headers.set("x-forwarded-for", peer);
   else headers.delete("x-forwarded-for");
   return new Request(request, { headers });
+}
+
+/**
+ * The address `withCountableClientAddress` would count this request against.
+ *
+ * The same rule, so a limiter built on it cannot be talked out of counting by
+ * a header the caller wrote. An address that cannot be established at all
+ * shares one bucket, which is the strict reading rather than a free pass.
+ */
+export function countableClientAddress(
+  request: Request,
+  context: Context,
+  trustProxy: boolean,
+) {
+  if (trustProxy) {
+    const forwarded = request.headers.get("x-forwarded-for");
+    return forwarded?.split(",", 1)[0]?.trim() || "unknown";
+  }
+  const bindings = context.env as NodeTransportBindings | undefined;
+  return bindings?.incoming?.socket?.remoteAddress ?? "unknown";
+}
+
+/**
+ * A fixed-window attempt counter held in this process.
+ *
+ * In memory rather than in PostgreSQL because a refused guess should cost the
+ * database nothing, and because the alternative is a write path whose whole
+ * job is to be hammered. Replicas therefore each keep their own count, which
+ * multiplies the allowance by the replica count and is still a bound where
+ * there was none.
+ */
+export function createAttemptLimiter(options: {
+  max: number;
+  windowMs: number;
+}) {
+  const windows = new Map<string, { count: number; resetAt: number }>();
+  return {
+    /** True when this attempt is within the allowance, counting it. */
+    take(key: string, now = Date.now()) {
+      for (const [held, window] of windows) {
+        if (window.resetAt <= now) windows.delete(held);
+      }
+      const window = windows.get(key);
+      if (!window || window.resetAt <= now) {
+        windows.set(key, { count: 1, resetAt: now + options.windowMs });
+        return true;
+      }
+      window.count += 1;
+      return window.count <= options.max;
+    },
+    /** Forget a key, so a success does not spend the next caller's allowance. */
+    clear(key: string) {
+      windows.delete(key);
+    },
+  };
 }
 
 /**
@@ -470,6 +535,10 @@ export function apiRequestBodyLimit(path: string) {
   // slash - the very configuration that spelling exists to support - capped at
   // the generic limit, so a CSV upload or a large bulk selection came back 413
   // while the identical call without the slash was allowed sixty times as much.
+  // One endpoint carries every tool, so it is sized for the largest of them
+  // rather than per tool: stage_csv sends a whole CSV as a JSON string, and a
+  // limit that fits it is the limit a read tool gets too. The tool's own
+  // schema is what refuses an oversized argument to anything else.
   const mcp = path === "/mcp" || path === "/mcp/";
   if (
     path === "/api/v1/csv/preview" ||
@@ -481,7 +550,7 @@ export function apiRequestBodyLimit(path: string) {
       CSV_REQUEST_ENVELOPE_BYTES
     );
   }
-  if (bulkRequestPaths.has(path)) return BULK_REQUEST_BODY_LIMIT_BYTES;
+  if (isBulkRequestPath(path)) return BULK_REQUEST_BODY_LIMIT_BYTES;
   return API_REQUEST_BODY_LIMIT_BYTES;
 }
 

@@ -1174,6 +1174,7 @@ export type ApiErrorCode =
   | "NOT_FOUND"
   | "STALE_VERSION"
   | "UNAUTHORIZED"
+  | "REAUTHENTICATION_REQUIRED"
   | "INTERNAL_ERROR";
 
 export type Actor = {

@@ -17,6 +17,7 @@ import {
   verificationMessage,
 } from "./mail.js";
 import { isBootstrapClaim } from "./registration-context.js";
+import { revokeAllConnectedApps } from "./services/connected-apps.js";
 import { getDb } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { user } from "./db/schema.js";
@@ -79,6 +80,9 @@ function createAuthInstance() {
       // has it. Leaving that person's session open would defeat the point, so
       // a reset signs everybody out and the new password is what gets back in.
       revokeSessionsOnPasswordReset: true,
+      onPasswordReset: async ({ user: resetUser }) => {
+        await revokeAllConnectedApps(resetUser.id);
+      },
       ...(canSendMail
         ? {
             sendResetPassword: async ({ user, url }) => {

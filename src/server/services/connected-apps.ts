@@ -214,6 +214,58 @@ export async function revokeConnectedApp(
 }
 
 /**
+ * Take every agent's access back, for a person who may not be reading a screen.
+ *
+ * Changing a password because somebody else has it signs every session out.
+ * An MCP grant is not a session, so without this a token an agent already held
+ * would keep full access to the ledger, and its refresh token would keep
+ * minting replacements for seven days. Recovering an account has to mean
+ * recovering all of it.
+ *
+ * Takes a user id rather than an Actor because the reset path runs from an
+ * emailed link with no session behind it.
+ */
+export async function revokeAllConnectedApps(
+  userId: string,
+  transaction?: DbTransaction,
+) {
+  return withTransaction(transaction, async (tx) => {
+    const revokedTokens = await tx
+      .delete(oauthAccessToken)
+      .where(eq(oauthAccessToken.userId, userId))
+      .returning({ clientId: oauthAccessToken.clientId });
+    const revokedConsents = await tx
+      .delete(oauthConsent)
+      .where(eq(oauthConsent.userId, userId))
+      .returning({ clientId: oauthConsent.clientId });
+    if (!revokedTokens.length && !revokedConsents.length) {
+      return { revokedTokenCount: 0, revokedConsentCount: 0 };
+    }
+    const clientIds = [
+      ...new Set([
+        ...revokedTokens.map((row) => row.clientId),
+        ...revokedConsents.map((row) => row.clientId),
+      ]),
+    ];
+    await writeAudit(tx, { userId, source: "web" }, {
+      entityType: "connected_app",
+      entityId: userId,
+      operation: "revoke",
+      before: {
+        reason: "password_changed",
+        clientIds,
+        revokedTokenCount: revokedTokens.length,
+        revokedConsentCount: revokedConsents.length,
+      },
+    });
+    return {
+      revokedTokenCount: revokedTokens.length,
+      revokedConsentCount: revokedConsents.length,
+    };
+  });
+}
+
+/**
  * How long an unclaimed dynamic registration is kept.
  *
  * Registration is open and unauthenticated, which RFC 7591 intends, but the

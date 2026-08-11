@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import {
   API_REQUEST_BODY_LIMIT_BYTES,
   AUTH_REQUEST_BODY_LIMIT_BYTES,
   BULK_REQUEST_BODY_LIMIT_BYTES,
   apiRequestBodyLimit,
   boundRequestBody,
+  countableClientAddress,
+  createAttemptLimiter,
   protectAuthMutation,
   protectBrowserMutation,
   requestBodyLimit,
@@ -453,5 +456,98 @@ describe("the address a rate limit is counted against", () => {
     const counted = withCountableClientAddress(request, withPeer("10.0.0.1"), true);
     expect(counted.headers.get("x-forwarded-for")).toBe("198.51.100.7");
     expect(counted).toBe(request);
+  });
+});
+
+describe("counting attempts against a caller", () => {
+  const withPeer = (peer: string | undefined) =>
+    ({ env: { incoming: { socket: { remoteAddress: peer } } } }) as never;
+  const request = (forwarded?: string) =>
+    new Request("https://balance.example.com/api/auth/sign-up/email", {
+      method: "POST",
+      headers: forwarded ? { "x-forwarded-for": forwarded } : {},
+      body: "{}",
+    });
+
+  it("reads the address the same way withCountableClientAddress does", () => {
+    expect(countableClientAddress(request("198.51.100.7"), withPeer("203.0.113.4"), false))
+      .toBe("203.0.113.4");
+    expect(countableClientAddress(request("198.51.100.7, 10.0.0.1"), withPeer("10.0.0.1"), true))
+      .toBe("198.51.100.7");
+    expect(countableClientAddress(request(), withPeer(undefined), false)).toBe("unknown");
+  });
+
+  it("allows the allowance and then refuses", () => {
+    const limiter = createAttemptLimiter({ max: 3, windowMs: 60_000 });
+    expect([1, 2, 3].map(() => limiter.take("a", 1_000))).toEqual([true, true, true]);
+    expect(limiter.take("a", 1_000)).toBe(false);
+  });
+
+  it("counts each caller on its own", () => {
+    const limiter = createAttemptLimiter({ max: 1, windowMs: 60_000 });
+    expect(limiter.take("a", 1_000)).toBe(true);
+    expect(limiter.take("b", 1_000)).toBe(true);
+    expect(limiter.take("a", 1_000)).toBe(false);
+  });
+
+  it("starts over once the window has passed", () => {
+    const limiter = createAttemptLimiter({ max: 1, windowMs: 60_000 });
+    expect(limiter.take("a", 1_000)).toBe(true);
+    expect(limiter.take("a", 30_000)).toBe(false);
+    expect(limiter.take("a", 61_001)).toBe(true);
+  });
+
+  it("forgets a caller that succeeded", () => {
+    const limiter = createAttemptLimiter({ max: 1, windowMs: 60_000 });
+    expect(limiter.take("a", 1_000)).toBe(true);
+    limiter.clear("a");
+    expect(limiter.take("a", 1_000)).toBe(true);
+  });
+});
+
+/**
+ * The list this replaced had drifted: the template mass edit and mass delete
+ * accept a full bulk selection and were sized as ordinary requests.
+ */
+describe("which routes are sized for a bulk selection", () => {
+  it.each([
+    "/api/v1/transactions/bulk-edit",
+    "/api/v1/transactions/bulk-delete",
+    "/api/v1/transactions/bulk-selection",
+    "/api/v1/staged-transactions/commit",
+    "/api/v1/staged-transactions/delete",
+    "/api/v1/staged-transactions/bulk-edit",
+    "/api/v1/staged-transactions/bulk-selection",
+    "/api/v1/transaction-templates/bulk-edit",
+    "/api/v1/transaction-templates/bulk-delete",
+  ])("gives %s the bulk allowance", (path) => {
+    expect(apiRequestBodyLimit(path)).toBe(BULK_REQUEST_BODY_LIMIT_BYTES);
+  });
+
+  it.each([
+    "/api/v1/transactions",
+    `/api/v1/transactions/${randomUUID()}`,
+    `/api/v1/transaction-templates/${randomUUID()}`,
+    "/api/v1/preferences",
+    "/api/v1/me",
+  ])("leaves %s on the ordinary allowance", (path) => {
+    expect(apiRequestBodyLimit(path)).toBe(API_REQUEST_BODY_LIMIT_BYTES);
+  });
+
+  it("covers every bulk-shaped route the API actually registers", async () => {
+    const source = await readFile(
+      new URL("../src/server/api.ts", import.meta.url),
+      "utf8",
+    );
+    const routes = [
+      ...source.matchAll(/app\.(?:post|put|delete)\("(\/api\/v1\/[^"]+)"/g),
+    ].map((match) => match[1]!);
+    const bulkShaped = routes.filter((path) =>
+      /\/(bulk-edit|bulk-delete|bulk-selection|commit|delete)$/.test(path),
+    );
+    expect(bulkShaped.length).toBeGreaterThanOrEqual(9);
+    for (const path of bulkShaped) {
+      expect(apiRequestBodyLimit(path), path).toBe(BULK_REQUEST_BODY_LIMIT_BYTES);
+    }
   });
 });

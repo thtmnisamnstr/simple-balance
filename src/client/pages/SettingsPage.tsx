@@ -252,11 +252,19 @@ export default function SettingsPage({ session }: { session: Session }) {
                     onChange={(event) => setPasswordConfirmation(event.target.value)}
                   />
                 </Field>
+                <small>
+                  Changing your password signs out every other session and
+                  disconnects every MCP client, so an agent authorized before
+                  the change has to be authorized again.
+                </small>
                 {passwordMutation.error ? (
                   <Alert>{passwordMutation.error.message}</Alert>
                 ) : null}
                 {passwordMutation.isSuccess ? (
-                  <Alert kind="success">Password updated.</Alert>
+                  <Alert kind="success">
+                    Password updated. Any connected agents have been
+                    disconnected.
+                  </Alert>
                 ) : null}
                 <div className="form-actions">
                   <Button type="submit" loading={passwordMutation.isPending}>
