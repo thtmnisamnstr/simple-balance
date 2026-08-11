@@ -13,17 +13,26 @@ import {
   userAccountTypes,
   liabilityAccountTypes,
   MAX_TRANSACTION_LEGS,
+  type RecurrenceFrequencyName,
   type UserAccountType,
   type TransactionDraft,
   type TransactionTemplateDraft,
   type TransactionType,
 } from "../shared/domain.js";
 import {
+  addDays,
+  laterOf,
+  nextOccurrenceAfter,
+  weekdayOf,
+  type RecurrencePosition,
+} from "../shared/recurrence-dates.js";
+import {
   api,
   ApiClientError,
   json,
   type Account,
   type Category,
+  type Recurrence,
   type StagedTransaction,
   type Transaction,
   type TransactionTemplate,
@@ -32,6 +41,7 @@ import {
   Alert,
   Button,
   Field,
+  formatDate,
   Input,
   isNegativeMoney,
   isPositiveMoney,
@@ -1651,6 +1661,531 @@ export function TransactionForm({
           disabled={!splitSettled}
         >
           {transaction || staged ? "Save changes" : mode === "stage" ? "Stage transaction" : "Commit transaction"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+const WEEKDAY_NAMES = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+const ORDINAL_NAMES: { value: RecurrencePosition["ordinal"]; label: string }[] = [
+  { value: 1, label: "First" },
+  { value: 2, label: "Second" },
+  { value: 3, label: "Third" },
+  { value: 4, label: "Fourth" },
+  { value: -1, label: "Last" },
+];
+
+const FREQUENCY_UNITS: Record<RecurrenceFrequencyName, string> = {
+  daily: "day",
+  weekly: "week",
+  monthly: "month",
+  yearly: "year",
+};
+
+/** How a schedule reads in a sentence, for the list and the form's summary. */
+export function scheduleSentence(schedule: {
+  frequency: RecurrenceFrequencyName;
+  interval: number;
+  anchorDate: string;
+  positionOrdinal?: number | null;
+  positionWeekday?: number | null;
+}) {
+  const unit = FREQUENCY_UNITS[schedule.frequency];
+  const every =
+    schedule.interval === 1 ? `Every ${unit}` : `Every ${schedule.interval} ${unit}s`;
+  if (schedule.positionOrdinal != null && schedule.positionWeekday != null) {
+    const ordinal = ORDINAL_NAMES.find(
+      (one) => one.value === schedule.positionOrdinal,
+    )?.label.toLowerCase();
+    return `${every}, on the ${ordinal} ${WEEKDAY_NAMES[schedule.positionWeekday]}`;
+  }
+  if (schedule.frequency === "weekly") {
+    return `${every}, on ${WEEKDAY_NAMES[weekdayOf(schedule.anchorDate)]}`;
+  }
+  if (schedule.frequency === "monthly" || schedule.frequency === "yearly") {
+    return `${every}, on day ${Number(schedule.anchorDate.slice(8, 10))}`;
+  }
+  return every;
+}
+
+/**
+ * A standing instruction, and its own form for the reason a template has one.
+ *
+ * It collects a shape with no date, because the schedule supplies that, and a
+ * schedule whose awkward-date policies only make sense for some frequencies.
+ * The preview is computed with the same arithmetic the scheduler runs, so what
+ * it shows is what will actually be proposed rather than a second opinion.
+ */
+export function RecurrenceForm({
+  accounts,
+  categories,
+  recurrence,
+  onDone,
+}: {
+  accounts: Account[];
+  categories: Category[];
+  recurrence?: Recurrence;
+  onDone: () => void;
+}) {
+  const timezone = useTimezone();
+  const today = calendarDateInTimezone(new Date(), timezone);
+  const shape = recurrence?.shape;
+  const [name, setName] = useState(recurrence?.name ?? "");
+  const [type, setType] = useState<TransactionType>(shape?.type ?? "withdrawal");
+  const [payee, setPayee] = useState(shape?.payee ?? "");
+  const [fromAccountId, setFromAccountId] = useState(
+    (shape && "fromAccountId" in shape ? shape.fromAccountId : "") || "",
+  );
+  const [toAccountId, setToAccountId] = useState(
+    (shape && "toAccountId" in shape ? shape.toAccountId : "") || "",
+  );
+  const [amount, setAmount] = useState(shape?.amount ?? "");
+  const [categoryId, setCategoryId] = useState(shape?.categoryId ?? "");
+  const [categoryName, setCategoryName] = useState(
+    categories.find((category) => category.id === shape?.categoryId)?.name ?? "",
+  );
+  const [legs, setLegs] = useState<TransactionFormLeg[]>(() =>
+    (shape?.legs ?? []).map((leg) => ({
+      id: "",
+      categoryId: leg.categoryId ?? "",
+      categoryName:
+        categories.find((category) => category.id === leg.categoryId)?.name ??
+        leg.categoryName ??
+        "",
+      amount: leg.amount ?? "",
+      note: leg.note ?? "",
+    })),
+  );
+  const [description, setDescription] = useState(shape?.description ?? "");
+  const [notes, setNotes] = useState(shape?.notes ?? "");
+  const [frequency, setFrequency] = useState<RecurrenceFrequencyName>(
+    recurrence?.frequency ?? "monthly",
+  );
+  const [interval, setInterval] = useState(String(recurrence?.interval ?? 1));
+  const [anchorDate, setAnchorDate] = useState(recurrence?.anchorDate ?? today);
+  const [monthPolicy, setMonthPolicy] = useState(
+    recurrence?.monthPolicy ?? "last_day",
+  );
+  const [weekendPolicy, setWeekendPolicy] = useState(
+    recurrence?.weekendPolicy ?? "allow",
+  );
+  const [byPosition, setByPosition] = useState(
+    recurrence?.positionOrdinal != null,
+  );
+  const [ordinal, setOrdinal] = useState<RecurrencePosition["ordinal"]>(
+    (recurrence?.positionOrdinal as RecurrencePosition["ordinal"]) ?? 1,
+  );
+  const [weekday, setWeekday] = useState(recurrence?.positionWeekday ?? 1);
+  const queryClient = useQueryClient();
+
+  const positional = frequency === "monthly" || frequency === "yearly";
+  const usesPosition = positional && byPosition;
+  const intervalNumber = Number(interval) || 1;
+  // Two nominal occurrences share a posted date only when they are one day
+  // apart, and the queue refuses to commit rows that alike, so the server
+  // refuses the combination outright. Disabling it here says so before the
+  // refusal does.
+  const businessDayBlocked = frequency === "daily" && intervalNumber === 1;
+
+  useEffect(() => {
+    if (businessDayBlocked && weekendPolicy.endsWith("business_day")) {
+      setWeekendPolicy("allow");
+    }
+  }, [businessDayBlocked, weekendPolicy]);
+
+  const preview = useMemo(() => {
+    if (!anchorDate) return [];
+    const rule = {
+      frequency,
+      interval: intervalNumber,
+      anchorDate,
+      monthPolicy,
+      weekendPolicy,
+      position: usesPosition ? { ordinal, weekday } : null,
+    };
+    const dates = [];
+    let cursor = addDays(laterOf(anchorDate, today), -1);
+    try {
+      for (let index = 0; index < 5; index += 1) {
+        const next = nextOccurrenceAfter(rule, cursor);
+        dates.push(next);
+        cursor = next.occurrenceDate;
+      }
+    } catch {
+      return [];
+    }
+    return dates;
+  }, [
+    anchorDate,
+    frequency,
+    intervalNumber,
+    monthPolicy,
+    ordinal,
+    today,
+    usesPosition,
+    weekday,
+    weekendPolicy,
+  ]);
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const trimmed = (value: string) => (value.trim() ? value.trim() : undefined);
+      const kept = legs.filter(
+        (leg) => leg.categoryId || leg.categoryName.trim() || leg.amount.trim(),
+      );
+      const body = {
+        name: name.trim(),
+        shape: {
+          type,
+          payee: payee.trim(),
+          ...(type !== "deposit" ? { fromAccountId } : {}),
+          ...(type !== "withdrawal" ? { toAccountId } : {}),
+          ...(trimmed(amount) ? { amount: trimmed(amount) } : {}),
+          ...(kept.length >= 2
+            ? {
+                legs: kept.map((leg) => ({
+                  ...(leg.categoryId
+                    ? { categoryId: leg.categoryId }
+                    : { categoryName: trimmed(leg.categoryName) }),
+                  amount: trimmed(leg.amount),
+                  ...(trimmed(leg.note) ? { note: trimmed(leg.note) } : {}),
+                })),
+              }
+            : categoryId
+              ? { categoryId }
+              : trimmed(categoryName)
+                ? { categoryName: trimmed(categoryName) }
+                : {}),
+          ...(trimmed(description) ? { description: trimmed(description) } : {}),
+          ...(trimmed(notes) ? { notes: trimmed(notes) } : {}),
+        },
+        schedule: {
+          frequency,
+          interval: intervalNumber,
+          anchorDate,
+          monthPolicy,
+          weekendPolicy,
+          position: usesPosition ? { ordinal, weekday } : null,
+        },
+      };
+      return recurrence
+        ? api<Recurrence>(`/api/v1/recurrences/${recurrence.id}`, {
+            ...json({ ...body, expectedVersion: recurrence.version }),
+            method: "PUT",
+          })
+        : api<Recurrence>("/api/v1/recurrences", json(body));
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["recurrences"] });
+      onDone();
+    },
+  });
+
+  const accountOptions = accounts.filter((account) => !account.archivedAt);
+  const accountReady = type === "deposit" ? toAccountId : fromAccountId;
+  const transferReady = type !== "transfer" || (fromAccountId && toAccountId);
+  const ready = Boolean(name.trim() && payee.trim() && accountReady && transferReady);
+
+  return (
+    <form
+      className="form-grid"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (ready) mutation.mutate();
+      }}
+    >
+      <Field label="Name" hint="What you will pick it out by later.">
+        <Input
+          autoFocus
+          required
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Rent"
+        />
+      </Field>
+
+      <div className="transaction-type-grid" role="radiogroup" aria-label="Transaction type">
+        {transactionTypeOptions.map((option) => {
+          const Icon = option.icon;
+          return (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={type === option.type}
+              key={option.type}
+              className={`transaction-type ${type === option.type ? "selected" : ""}`}
+              onClick={() => setType(option.type)}
+            >
+              <Icon size={19} />
+              <span>
+                <strong>{option.label}</strong>
+                <small>{option.description}</small>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <Field label="Payee">
+        <PayeeInput value={payee} onChange={setPayee} />
+      </Field>
+
+      {type !== "deposit" ? (
+        <Field label={type === "transfer" ? "From account" : "Account"}>
+          <Select
+            required
+            value={fromAccountId}
+            onChange={(event) => setFromAccountId(event.target.value)}
+          >
+            <option value="">Choose an account</option>
+            {accountOptions.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name} · {account.currency}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+      {type !== "withdrawal" ? (
+        <Field label={type === "transfer" ? "To account" : "Account"}>
+          <Select
+            required
+            value={toAccountId}
+            onChange={(event) => setToAccountId(event.target.value)}
+          >
+            <option value="">Choose an account</option>
+            {accountOptions.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name} · {account.currency}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+
+      <Field
+        label="Amount"
+        hint="Leave blank when it differs every time. Each proposal then waits in the review queue for a number."
+      >
+        <Input
+          inputMode="decimal"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          placeholder="0.00"
+          pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
+        />
+      </Field>
+
+      {type === "transfer" ? null : (
+        <Field label="Category" hint="Optional">
+          <CategoryLegs
+            categories={categories}
+            type={type}
+            categoryId={categoryId}
+            categoryName={categoryName}
+            onCategoryChange={(nextId, nextName) => {
+              setCategoryId(nextId);
+              setCategoryName(nextName);
+            }}
+            legs={legs}
+            onLegsChange={setLegs}
+            total={amount}
+            requireBalance={false}
+          />
+        </Field>
+      )}
+
+      <fieldset className="form-fieldset">
+        <legend>Schedule</legend>
+        <div className="two-columns">
+          <Field label="Repeats">
+            <Select
+              value={frequency}
+              onChange={(event) =>
+                setFrequency(event.target.value as RecurrenceFrequencyName)
+              }
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </Select>
+          </Field>
+          <Field label={`Every N ${FREQUENCY_UNITS[frequency]}s`} hint="1 means every one.">
+            <Input
+              type="number"
+              min={1}
+              max={366}
+              value={interval}
+              onChange={(event) => setInterval(event.target.value)}
+            />
+          </Field>
+        </div>
+
+        <Field
+          label="Starting"
+          hint="The first candidate date, and the one every later date is counted from. Nothing dated before today is ever proposed."
+        >
+          <Input
+            type="date"
+            required
+            value={anchorDate}
+            onChange={(event) => setAnchorDate(event.target.value)}
+          />
+        </Field>
+
+        {positional ? (
+          <>
+            <div className="radio-row" role="radiogroup" aria-label="Day of the month">
+              <label className="check-label">
+                <input
+                  type="radio"
+                  checked={!byPosition}
+                  onChange={() => setByPosition(false)}
+                />
+                On day {Number(anchorDate.slice(8, 10)) || 1} of the month
+              </label>
+              <label className="check-label">
+                <input
+                  type="radio"
+                  checked={byPosition}
+                  onChange={() => setByPosition(true)}
+                />
+                On a relative day
+              </label>
+            </div>
+            {byPosition ? (
+              <div className="two-columns">
+                <Field label="Which one">
+                  <Select
+                    value={String(ordinal)}
+                    onChange={(event) =>
+                      setOrdinal(
+                        Number(event.target.value) as RecurrencePosition["ordinal"],
+                      )
+                    }
+                  >
+                    {ORDINAL_NAMES.map((one) => (
+                      <option key={one.value} value={one.value}>
+                        {one.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Day">
+                  <Select
+                    value={String(weekday)}
+                    onChange={(event) => setWeekday(Number(event.target.value))}
+                  >
+                    {WEEKDAY_NAMES.map((day, index) => (
+                      <option key={day} value={index}>
+                        {day}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            ) : (
+              <Field label="When the month is too short">
+                <Select
+                  value={monthPolicy}
+                  onChange={(event) =>
+                    setMonthPolicy(event.target.value as Recurrence["monthPolicy"])
+                  }
+                >
+                  <option value="last_day">Use the last day of that month</option>
+                  <option value="skip">Skip that month</option>
+                </Select>
+              </Field>
+            )}
+          </>
+        ) : null}
+
+        <Field
+          label="When it lands on a weekend"
+          hint="A business day here means Monday to Friday. Public holidays are not modelled."
+        >
+          <Select
+            value={weekendPolicy}
+            onChange={(event) =>
+              setWeekendPolicy(event.target.value as Recurrence["weekendPolicy"])
+            }
+          >
+            <option value="allow">Propose it on the weekend</option>
+            <option value="skip">Skip it</option>
+            <option value="previous_business_day" disabled={businessDayBlocked}>
+              Move it back to the Friday
+            </option>
+            <option value="next_business_day" disabled={businessDayBlocked}>
+              Move it on to the Monday
+            </option>
+          </Select>
+        </Field>
+        {businessDayBlocked ? (
+          <p className="settings-note">
+            A daily schedule moved onto a business day puts Saturday and Sunday
+            on the same date as the weekday beside them, and the review queue
+            refuses to commit rows that alike. Lengthen the interval to use
+            those two.
+          </p>
+        ) : null}
+
+        {preview.length ? (
+          <div className="recurrence-preview">
+            <span className="recurrence-preview-label">Next five</span>
+            <ul>
+              {preview.map((one) => (
+                <li key={one.occurrenceDate}>
+                  {one.postedDate ? (
+                    <>
+                      {formatDate(one.postedDate)}
+                      {one.postedDate === one.occurrenceDate ? null : (
+                        <small> moved from {formatDate(one.occurrenceDate)}</small>
+                      )}
+                    </>
+                  ) : (
+                    <small>{formatDate(one.occurrenceDate)} skipped</small>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </fieldset>
+
+      <Field label="Description" hint="Optional">
+        <Input
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          placeholder="Additional details"
+        />
+      </Field>
+      <Field label="Notes" hint="Optional">
+        <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
+      </Field>
+
+      <Alert kind="info">
+        A recurrence proposes into the review queue and posts nothing. Each
+        proposal is an ordinary staged row you check and commit.
+      </Alert>
+      {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
+
+      <div className="form-actions">
+        <Button type="button" variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button type="submit" loading={mutation.isPending} disabled={!ready}>
+          {recurrence ? "Save recurrence" : "Create recurrence"}
         </Button>
       </div>
     </form>

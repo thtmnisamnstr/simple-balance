@@ -4,6 +4,9 @@ import type {
   CategoryKind,
   PaginatedPage,
   Page,
+  RecurrenceFrequencyName,
+  RecurrenceSchedule,
+  RecurrenceShape,
   StagedDraft,
   TransactionTemplateDraft,
   TransactionType,
@@ -281,6 +284,15 @@ export type StagedTransaction = {
   /** Another row still waiting in the queue carries the same fingerprint. */
   repeatsStagedRow?: boolean;
   importBatchId?: string | null;
+  recurrenceId?: string | null;
+  occurrenceDate?: string | null;
+  rawData?: {
+    recurrence?: {
+      recurrenceId: string;
+      recurrenceName: string;
+      occurrenceDate: string;
+    };
+  } | null;
   version: number;
   status: "staged" | "committed" | "deleted";
   createdAt: string;
@@ -335,6 +347,39 @@ export type TransactionTemplate = {
   createdAt: string;
   updatedAt: string;
 };
+
+/**
+ * A standing instruction to propose a transaction on a schedule.
+ *
+ * `nextOccurrence` is recomputed by the server from the rule rather than read
+ * from the cached column, so a stale cache shows as an overdue recurrence with
+ * nothing proposed rather than as a wrong date on this page.
+ */
+export type Recurrence = {
+  id: string;
+  name: string;
+  shape: RecurrenceShape;
+  frequency: RecurrenceFrequencyName;
+  interval: number;
+  anchorDate: string;
+  monthPolicy: RecurrenceSchedule["monthPolicy"];
+  weekendPolicy: RecurrenceSchedule["weekendPolicy"];
+  positionOrdinal: number | null;
+  positionWeekday: number | null;
+  proposesFrom: string;
+  lastOccurrenceDate: string | null;
+  nextOccurrenceDate: string;
+  nextOccurrence: { occurrenceDate: string; postedDate: string | null };
+  overdue: boolean;
+  proposedCount: number;
+  committedCount: number;
+  discardedCount: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RecurrenceList = { today: string; items: Recurrence[] };
 
 export type ImportBatchSummary = {
   id: string;

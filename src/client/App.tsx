@@ -10,6 +10,7 @@ import {
   LogOut,
   Menu,
   ReceiptText,
+  Repeat,
   Settings,
   Sparkles,
   Tags,
@@ -44,6 +45,7 @@ import PayeesPage from "./pages/PayeesPage.js";
 import DashboardPage from "./pages/DashboardPage.js";
 import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
+import RecurrencesPage from "./pages/RecurrencesPage.js";
 import TemplatesPage from "./pages/TemplatesPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
@@ -59,6 +61,7 @@ const nav = [
   { to: "/categories", label: "Categories", icon: Tags },
   { to: "/payees", label: "Payees", icon: UserRound },
   { to: "/templates", label: "Templates", icon: LayoutTemplate },
+  { to: "/recurrences", label: "Recurring", icon: Repeat },
   { to: "/import", label: "Import CSV", icon: FileUp },
   { to: "/activity", label: "Activity", icon: History },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -616,6 +619,7 @@ function Shell({ session }: { session: Session }) {
                 path="/templates/:templateId"
                 element={<TemplateDetailPage />}
               />
+              <Route path="/recurrences" element={<RecurrencesPage />} />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/settings" element={<SettingsPage session={session} />} />

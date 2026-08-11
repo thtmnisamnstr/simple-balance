@@ -165,6 +165,9 @@ export default function StagingPage() {
   const [importBatchId, setImportBatchId] = useState(
     () => searchParams.get("importBatchId") ?? "",
   );
+  const [recurrenceId, setRecurrenceId] = useState(
+    () => searchParams.get("recurrenceId") ?? "",
+  );
   const [allowDuplicates, setAllowDuplicates] = useState(false);
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkEnabled, setBulkEnabled] = useState(emptyBulkEditEnabled);
@@ -203,6 +206,7 @@ export default function StagingPage() {
     validity: validity || undefined,
     accountId: accountId || undefined,
     importBatchId: importBatchId || undefined,
+    recurrenceId: recurrenceId || undefined,
     start,
     end,
     limit: String(STAGE_PAGE_SIZE),
@@ -266,7 +270,7 @@ export default function StagingPage() {
     setBulkEditKey(null);
     setBulkEditNotice(null);
     setPage(1);
-  }, [search, validity, accountId, importBatchId, start, end]);
+  }, [search, validity, accountId, importBatchId, recurrenceId, start, end]);
 
   const bulkMutation = useMutation({
     mutationFn: (action: "commit" | "delete") => {
@@ -611,6 +615,11 @@ export default function StagingPage() {
             </option>
           ))}
         </Select>
+        {recurrenceId ? (
+          <Button variant="ghost" onClick={() => setRecurrenceId("")}>
+            Showing one recurrence · show everything
+          </Button>
+        ) : null}
         {batchPages.hasNextPage ? (
           <Button
             variant="ghost"
@@ -801,6 +810,21 @@ export default function StagingPage() {
                     <td>
                       <strong>{payee}</strong>
                       <small className="table-subtitle">{description || type}</small>
+                      {stage.recurrenceId ? (
+                        <small className="table-subtitle">
+                          {`Proposed by ${
+                            // The name is kept on the row rather than joined,
+                            // because a proposal outlives the recurrence that
+                            // made it and still has to say where it came from.
+                            stage.rawData?.recurrence?.recurrenceName ??
+                            "a recurrence"
+                          }${
+                            stage.occurrenceDate
+                              ? ` for ${formatDate(stage.occurrenceDate)}`
+                              : ""
+                          }`}
+                        </small>
+                      ) : null}
                     </td>
                     <td>{summary.account}</td>
                     <td>
