@@ -991,6 +991,7 @@ export const stageListQuerySchema = listQuerySchema
   .extend({
     sort: z.enum(stageSortFields).default("date"),
     importBatchId: z.string().uuid().optional(),
+    recurrenceId: z.string().uuid().optional(),
     validity: z.enum(["valid", "invalid", "duplicate"]).optional(),
   });
 

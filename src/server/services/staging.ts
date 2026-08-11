@@ -257,18 +257,20 @@ export async function createStage(
   });
 }
 
-type ImportedStageInput = {
+type GeneratedStageInput = {
   draft: unknown;
   rawData: unknown;
-  importBatchId: string;
+  importBatchId: string | null;
+  recurrenceId: string | null;
+  occurrenceDate: string | null;
   initialIssues?: ValidationIssue[];
 };
 
 /** Everything a staged row needs decided, with nothing written yet. */
-async function prepareImportedStage(
+async function prepareGeneratedStage(
   tx: DbTransaction,
   actor: Actor,
-  input: ImportedStageInput,
+  input: GeneratedStageInput,
 ) {
   await lockStagedDraftReferences(tx, actor, [input.draft]);
   const canonicalDraft = await canonicalizeStagedDraftPayee(
@@ -282,6 +284,8 @@ async function prepareImportedStage(
     draft: canonicalDraft ?? {},
     rawData: input.rawData,
     importBatchId: input.importBatchId,
+    recurrenceId: input.recurrenceId,
+    occurrenceDate: input.occurrenceDate,
     validationIssues: [
       ...(input.initialIssues ?? []),
       ...draftValidation.issues,
@@ -289,6 +293,45 @@ async function prepareImportedStage(
     duplicateOfId: draftValidation.duplicateOfId,
     duplicateKey: draftValidation.duplicateKey,
   };
+}
+
+/**
+ * Stage what a recurrence has decided is due.
+ *
+ * There is no idempotency key because there is a better one: the occurrence a
+ * row belongs to is unique at the schema level, so a second tick, a second
+ * replica and a half-restored backup all arrive at that constraint and the
+ * second one writes nothing.
+ *
+ * Provenance is an argument rather than a field on the draft, and
+ * stageCreateSchema stays strict. A caller able to name a recurrence could
+ * forge "the scheduler proposed this" in the audit trail, and could take the
+ * occurrence key so the real proposal could never be written at all.
+ */
+export async function insertRecurringStages(
+  tx: DbTransaction,
+  actor: Actor,
+  inputs: readonly Omit<GeneratedStageInput, "importBatchId">[],
+) {
+  if (!inputs.length) return [];
+  const values = [];
+  for (const input of inputs) {
+    values.push(
+      await prepareGeneratedStage(tx, actor, { ...input, importBatchId: null }),
+    );
+  }
+  const created = await tx.insert(stagedTransactions).values(values).returning();
+  await writeAuditMany(
+    tx,
+    actor,
+    created.map((row) => ({
+      entityType: "staged_transaction",
+      entityId: row.id,
+      operation: "create_from_recurrence",
+      after: stageView(row),
+    })),
+  );
+  return created;
 }
 
 /**
@@ -303,12 +346,18 @@ async function prepareImportedStage(
 export async function insertImportedStages(
   tx: DbTransaction,
   actor: Actor,
-  inputs: readonly ImportedStageInput[],
+  inputs: readonly Omit<GeneratedStageInput, "recurrenceId" | "occurrenceDate">[],
 ) {
   if (!inputs.length) return [];
   const values = [];
   for (const input of inputs) {
-    values.push(await prepareImportedStage(tx, actor, input));
+    values.push(
+      await prepareGeneratedStage(tx, actor, {
+        ...input,
+        recurrenceId: null,
+        occurrenceDate: null,
+      }),
+    );
   }
 
   // Bounded so one enormous file cannot build a statement PostgreSQL refuses
@@ -436,6 +485,7 @@ const possiblyDuplicate = sql`(
 export type StageFilterQuery = Pick<
   z.infer<typeof stageListQuerySchema>,
   | "importBatchId"
+  | "recurrenceId"
   | "search"
   | "accountId"
   | "type"
@@ -463,6 +513,9 @@ export function stageFilterConditions(
     eq(stagedTransactions.userId, actor.userId),
     eq(stagedTransactions.status, "staged"),
   ];
+  if (query.recurrenceId) {
+    conditions.push(eq(stagedTransactions.recurrenceId, query.recurrenceId));
+  }
   if (query.importBatchId) {
     conditions.push(eq(stagedTransactions.importBatchId, query.importBatchId));
   }

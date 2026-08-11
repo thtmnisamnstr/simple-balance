@@ -238,6 +238,11 @@ export async function lockTransactionTemplateNamespace(
   await takeTransactionLock(tx, `transaction-templates:${actor.userId}`);
 }
 
+/** Serialize changes to the tenant's recurrence names, which are unique. */
+export async function lockRecurrenceNamespace(tx: DbTransaction, actor: Actor) {
+  await takeTransactionLock(tx, `recurrences:${actor.userId}`);
+}
+
 /**
  * Serialize changes to the tenant's derived payee namespace. This lock is
  * distinct from category and account locks because payees have no backing
