@@ -141,3 +141,76 @@ describe("Docker runtime", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * The decomposed images are not built by CI, by request, so nothing else would
+ * notice them going stale. These assertions are the substitute: they catch a
+ * renamed build script, a moved file, or a proxy that stops covering a route
+ * prefix, which are the ways a Dockerfile nobody builds quietly stops working.
+ */
+describe("the decomposed images", () => {
+  const read = (name: string) =>
+    readFileSync(new URL(`../deploy/docker/${name}`, import.meta.url), "utf8");
+  const scripts = (
+    JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { scripts: Record<string, string>; version: string }
+  );
+
+  it("runs build scripts and entrypoints that exist", () => {
+    for (const [name, script] of [
+      ["server.Dockerfile", "build:server"],
+      ["scheduler.Dockerfile", "build:server"],
+      ["frontend.Dockerfile", "build:client"],
+    ] as const) {
+      const dockerfile = read(name);
+      expect(dockerfile, name).toContain(`RUN npm run ${script}`);
+      expect(scripts.scripts, name).toHaveProperty(script);
+      expect(dockerfile, name).not.toMatch(/\bnpm install\b/);
+      expect(dockerfile, name).toContain(`ARG APP_VERSION=${scripts.version}`);
+    }
+    // tsconfig.server.json emits to dist/server, and both node images run a
+    // file from it. A path that stops matching produces an image that builds
+    // and then exits immediately.
+    expect(read("server.Dockerfile")).toContain(
+      'CMD ["node", "dist/server/server/index.js"]',
+    );
+    expect(read("scheduler.Dockerfile")).toContain(
+      'CMD ["node", "dist/server/server/scheduler.js"]',
+    );
+  });
+
+  it("keeps the API image free of the bundle nginx serves", () => {
+    const server = read("server.Dockerfile");
+    expect(server).toContain("COPY --from=build --chown=node:node /app/dist/server ./dist/server");
+    expect(server).not.toContain("dist/client");
+  });
+
+  it("proxies every route prefix the API actually answers on", () => {
+    const api = readFileSync(
+      new URL("../src/server/api.ts", import.meta.url),
+      "utf8",
+    );
+    const proxied = new Set(["api", "mcp", "health", ".well-known"]);
+    // Anything the client bundle is expected to own rather than the API.
+    const servedByNginx = new Set(["assets"]);
+    const prefixes = new Set(
+      [...api.matchAll(/app\.(?:get|post|put|delete|use|all|on)\(\s*"\/([^/"*]+)/g)].map(
+        (match) => match[1],
+      ),
+    );
+    const template = readFileSync(
+      new URL("../deploy/docker/nginx.conf.template", import.meta.url),
+      "utf8",
+    );
+    for (const prefix of prefixes) {
+      if (servedByNginx.has(prefix)) continue;
+      expect(proxied, `/${prefix} is answered by the API but not proxied`).toContain(
+        prefix,
+      );
+    }
+    for (const prefix of proxied) {
+      expect(template).toContain(prefix.replace(".", "\\."));
+    }
+  });
+});
