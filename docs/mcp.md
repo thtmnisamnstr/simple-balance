@@ -212,8 +212,10 @@ template plus a standing instruction to keep proposing after the conversation
 has ended, so nothing short of full write access can leave one behind.
 
 A recurrence proposes and never posts. On each due date it writes an ordinary
-staged row dated that occurrence, and somebody commits it from the queue like
-anything else. The shape refuses a `date`, a `templateId` and an `externalId`:
+staged row and somebody commits it from the queue like anything else. The row
+carries two dates: `occurrenceDate` is where it sits in the schedule and never
+moves, and the draft's `date` is where the weekend and month-length policies put
+it. With the default `allow` policy they are the same day. The shape refuses a `date`, a `templateId` and an `externalId`:
 the schedule supplies the date, and a bank reference copied onto every proposal
 would make the next real import of that row look like one already seen.
 

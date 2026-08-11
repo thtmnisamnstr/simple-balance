@@ -533,8 +533,26 @@ export function stageFilterConditions(
     conditions.push(sql`${stagedTransactions.draft}->>'type' = ${query.type}`);
   }
   if (query.categoryId) {
+    // Legs as well as the entry's own category, because everything else that
+    // counts a category counts them: the archive guard, the delete guard and
+    // the category page's own badge. Reading only the top-level key made a
+    // staged split show in the count and then be missing from the list the
+    // count links to.
     conditions.push(
-      sql`${stagedTransactions.draft}->>'categoryId' = ${query.categoryId}`,
+      sql`(
+        ${stagedTransactions.draft}->>'categoryId' = ${query.categoryId}
+        or exists (
+          select 1
+          from jsonb_array_elements(
+            case
+              when jsonb_typeof(${stagedTransactions.draft} -> 'legs') = 'array'
+                then ${stagedTransactions.draft} -> 'legs'
+              else '[]'::jsonb
+            end
+          ) as leg
+          where leg ->> 'categoryId' = ${query.categoryId}
+        )
+      )`,
     );
   }
   if (query.templateId) {

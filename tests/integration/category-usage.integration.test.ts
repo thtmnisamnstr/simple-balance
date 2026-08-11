@@ -14,6 +14,7 @@ import {
   commitStages,
   createStage,
   deleteStages,
+  listStages,
 } from "../../src/server/services/staging.js";
 import {
   createTransaction,
@@ -425,6 +426,49 @@ integration("how much each category is used", () => {
       stagedTransactionCount: 0,
       totalCount: 1,
     });
+  });
+
+  /**
+   * The count and the list have to agree. Everything that counts a category
+   * counts legs, so a staged split shows in the badge; the queue's own filter
+   * read only the entry's top-level category, so following that badge produced
+   * an empty list.
+   */
+  it("finds a staged split under the category one of its legs names", async () => {
+    const household = await createCategory(owner, {
+      name: "Split Filter Household",
+      kind: "expense",
+    });
+    const groceries = await createCategory(owner, {
+      name: "Split Filter Groceries",
+      kind: "expense",
+    });
+    await createStage(owner, {
+      draft: {
+        type: "withdrawal",
+        date: "2026-05-04",
+        payee: "Supermarket",
+        fromAccountId: checkingId,
+        amount: "100.00",
+        legs: [
+          { categoryId: groceries.id, amount: "60.00" },
+          { categoryId: household.id, amount: "40.00" },
+        ],
+      },
+      idempotencyKey: nextKey(),
+    });
+
+    for (const category of [groceries, household]) {
+      expect(
+        (await summaryFor(category.name))?.stagedTransactionCount,
+        category.name,
+      ).toBe(1);
+      const listed = await listStages(owner, {
+        limit: 50,
+        categoryId: category.id,
+      });
+      expect(listed.items, category.name).toHaveLength(1);
+    }
   });
 
   it("still reports the columns the page already relied on", async () => {

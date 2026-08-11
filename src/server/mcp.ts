@@ -772,7 +772,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Create recurring transaction",
         description:
-          "Save a transaction shape and a schedule. On each due date it proposes an ordinary staged row dated that occurrence, and never a posting. The amount may be left out for a bill whose amount varies; the row is proposed flagged for somebody to complete. A date, a template and a bank import reference are all refused. Monthly and yearly schedules may name a relative day instead of a day of the month, such as the second Tuesday or the last Friday. Nothing is ever proposed dated before the day the recurrence was created.",
+          "Save a transaction shape and a schedule. On each due date it proposes an ordinary staged row and never a posting. The row keeps its place in the schedule in occurrenceDate, which never moves, while the draft's own date is that occurrence as the weekend and month-length policies leave it; with the default allow policy they are the same day. The amount may be left out for a bill whose amount varies; the row is proposed flagged for somebody to complete. A date, a template and a bank import reference are all refused. Monthly and yearly schedules may name a relative day instead of a day of the month, such as the second Tuesday or the last Friday. Nothing is ever proposed dated before the day the recurrence was created.",
         inputSchema: recurrenceCreateSchema.extend({
           idempotencyKey: idempotencyKeySchema,
         }),

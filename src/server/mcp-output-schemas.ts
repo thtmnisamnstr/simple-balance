@@ -9,6 +9,7 @@ import {
   bulkTransactionEditResultSchema,
   bulkTransactionSelectionSnapshotSchema,
   categoryKinds,
+  isoDateSchema,
   recurrenceFrequencies,
   recurrenceMonthPolicies,
   recurrenceWeekendPolicies,
@@ -189,6 +190,13 @@ export const stagedTransactionResultSchema = z
     validationIssues: z.array(validationIssueSchema),
     duplicateOfId: uuidSchema.nullable(),
     importBatchId: uuidSchema.nullable(),
+    // Where a proposed row came from, and which instance of the schedule it is.
+    // Declared rather than left to passthrough, because a caller reading the
+    // schema to find out what a staged row carries would otherwise never learn
+    // these exist. occurrenceDate is the schedule's own date, which never
+    // moves; the draft's date is that occurrence as the policies leave it.
+    recurrenceId: uuidSchema.nullable(),
+    occurrenceDate: isoDateSchema.nullable(),
     committedTransactionId: uuidSchema.nullable(),
     deletedAt: timestampSchema.nullable(),
   })
