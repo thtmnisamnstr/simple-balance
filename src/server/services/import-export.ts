@@ -283,7 +283,7 @@ function appExportDraft(
     // made the duplicate check key on a foreign identity.
     externalId:
       (roundtripExtras.success ? roundtripExtras.data.externalId : undefined) ||
-      row[APP_CSV_EXTERNAL_ID_COLUMN] ||
+      restoreNeutralizedCell(row[APP_CSV_EXTERNAL_ID_COLUMN] || "") ||
       null,
   };
 
@@ -485,6 +485,16 @@ async function resolveImportedCategories(
   // and reading only `draft` dropped it, silently, on a cross-ledger restore.
   const stageTarget = (row: CsvStageRow | undefined) => row?.draft ?? row?.partial;
 
+  const writeTarget = (
+    rowIndex: number,
+    patch: Record<string, unknown>,
+  ) => {
+    const row = rows[rowIndex]!;
+    if (row.draft) row.draft = { ...row.draft, ...patch } as typeof row.draft;
+    else if (row.partial) row.partial = { ...row.partial, ...patch };
+  };
+
+
   // A row that states no type says nothing about which kind of category may
   // carry it, so it is filed under one and can create one, but never widens an
   // existing narrow category to "both" on the strength of saying nothing.
@@ -503,7 +513,13 @@ async function resolveImportedCategories(
     // A split says which categories the money went to, one per leg, and a row
     // carrying both would be refused at commit as a contradiction.
     if (Array.isArray(target.legs)) continue;
-    if (target.categoryId) continue;
+    // A row that already resolved to a category this ledger owns keeps it, and
+    // the name goes: a draft holding both answers has the name re-applied at
+    // commit, which silently undoes a mass edit that cleared the category.
+    if (target.categoryId) {
+      if (target.categoryName) writeTarget(index, { categoryName: undefined });
+      continue;
+    }
     const inputName = cleanHumanName(
       // An app export carries the name on the target, restored from the JSON
       // the neutraliser never touched. A mapped file carries it in the column
@@ -542,15 +558,6 @@ async function resolveImportedCategories(
    * leg's name is dropped once it has an id, so nothing downstream has two ways
    * of saying which category it means.
    */
-  const writeTarget = (
-    rowIndex: number,
-    patch: Record<string, unknown>,
-  ) => {
-    const row = rows[rowIndex]!;
-    if (row.draft) row.draft = { ...row.draft, ...patch } as typeof row.draft;
-    else if (row.partial) row.partial = { ...row.partial, ...patch };
-  };
-
   const assign = (
     group: { rowIndexes: number[]; legTargets: { rowIndex: number; legIndex: number }[] },
     categoryId: string,
@@ -977,6 +984,7 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
       "payee",
       "description",
       "category_name",
+      APP_CSV_EXTERNAL_ID_COLUMN,
       "notes",
       "source_account_name",
       "destination_account_name",

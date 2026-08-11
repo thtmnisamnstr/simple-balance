@@ -287,22 +287,50 @@ describe("CSV normalization", () => {
         decimalSeparator: ".",
       })[0];
 
+    const oneColumn = (column: "Debit" | "Credit", value: string) =>
+      normalizeCsvRows([{ Date: "07/30/2026", Memo: "Reversal", [column]: value }], {
+        mapping: {
+          date: "Date",
+          payee: "Memo",
+          ...(column === "Debit" ? { debit: "Debit" } : { credit: "Credit" }),
+        },
+        defaultAccountId: accountId,
+        dateFormat: "MDY",
+        decimalSeparator: ".",
+      })[0];
+
+    // With only one of the two columns mapped, the sign is the one other thing
+    // in the file that could state direction, and nothing says which was meant.
     it.each([
       ["Credit", "-250.00"],
       ["Debit", "-250.00"],
       ["Credit", "(250.00)"],
       ["Debit", "(250.00)"],
-    ])("refuses %s %s rather than stripping the sign", (column, value) => {
-      const row = rowWith({ [column]: value });
+    ] as const)("refuses %s %s when it is the only column", (column, value) => {
+      const row = oneColumn(column, value);
       expect(row.draft).toBeNull();
       expect(row.issues).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             field: column.toLowerCase(),
-            message: expect.stringMatching(/negative value in a debit or credit/i),
+            message: expect.stringMatching(/states a direction the column already states/i),
           }),
         ]),
       );
+    });
+
+    // With both columns mapped the other one is what a reversal goes in, so a
+    // sign is redundant rather than contradictory and the column decides. This
+    // is how nearly every two-column bank export is written, and refusing it
+    // left files with no mapping that would import them at all.
+    it.each([
+      ["Debit", "-50.00", "withdrawal"],
+      ["Credit", "-50.00", "deposit"],
+      ["Debit", "(50.00)", "withdrawal"],
+    ] as const)("reads %s %s as a %s when both columns are mapped", (column, value, type) => {
+      const row = rowWith({ [column]: value });
+      expect(row.draft).toMatchObject({ type, amount: "50.00" });
+      expect(row.issues).toEqual([]);
     });
 
     it("still reads an unsigned value in either column", () => {
@@ -329,22 +357,19 @@ describe("CSV normalization", () => {
       expect(row.draft).toMatchObject({ type: "withdrawal", amount: "250.00" });
     });
 
-    it("says both things when a signed column also collides with the other", () => {
+    it("still refuses two columns each holding an amount", () => {
       const row = rowWith({ Debit: "-250.00", Credit: "100.00" });
       expect(row.draft).toBeNull();
       expect(row.issues.map((issue) => issue.message).join(" ")).toMatch(
         /only one of debit and credit/i,
       );
-      expect(row.issues.map((issue) => issue.message).join(" ")).toMatch(
-        /negative value in a debit or credit/i,
-      );
     });
 
     it("leaves a signed zero alone", () => {
-      const row = rowWith({ Debit: "-0.00" });
+      const row = oneColumn("Debit", "-0.00");
       expect(row.draft).toBeNull();
       expect(row.issues.map((issue) => issue.message).join(" ")).not.toMatch(
-        /negative value in a debit or credit/i,
+        /states a direction the column already states/i,
       );
     });
   });

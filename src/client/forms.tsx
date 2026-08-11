@@ -42,6 +42,7 @@ import {
 import {
   Alert,
   Button,
+  compareMoney,
   Field,
   formatDate,
   Input,
@@ -1117,31 +1118,32 @@ export function TransactionForm({
   // A transfer has no counter-account side to partition, so its legs are never
   // sent even if switching type left some behind in the form.
   const splitting = type !== "transfer" && legs.length >= 2;
-  const carriesCategory = !splitting && type !== "transfer";
+  // Whether the picker is on screen, which is not the same question as whether
+  // the entry may carry a category. A transfer may carry one — it has no
+  // counter-account side to file, so nothing shows it — and clearing what is
+  // stored just because the form does not render it destroys a category on an
+  // edit that never touched it.
+  const showsCategoryPicker = !splitting && type !== "transfer";
   const splitSettled = !splitting || moneyRemainder(amount, legs.map((leg) => leg.amount || "0")) === "0";
 
   /**
-   * Forget a received amount that no longer belongs to anything.
+   * Forget a received amount that says nothing, and only that one.
    *
-   * It is a rate against one specific pair of currencies, so changing either
-   * side makes it meaningless: left in place it either sits invisible on a
-   * same-currency pair and fails the zero-sum check on every save, or reappears
-   * on a new cross-currency pair as a rate nobody typed.
+   * A same-currency transfer must balance, so its received amount is always a
+   * copy of the sent amount: it carries no rate, and revealing it on a new
+   * cross-currency pair would submit a rate nobody typed. One that differs from
+   * the sent amount is a real rate — a staged row restored from a CSV carries
+   * 100.00 out and 92.00 in before either account has been picked — and
+   * clearing that would destroy the only copy of it in the app.
    *
    * Cleared on the account change rather than in an effect on `crossCurrency`,
    * because that flag is also false while the account list is still loading and
    * an effect would wipe a stored amount on a transient render. Here the list is
    * known to be populated: somebody just chose from it.
    */
-  const currencyPair = (from: string, to: string) => {
-    const left = accounts.find((account) => account.id === from);
-    const right = accounts.find((account) => account.id === to);
-    return left && right ? `${left.currency}->${right.currency}` : null;
-  };
-  const forgetReceivedIfPairChanged = (from: string, to: string) => {
-    const before = currencyPair(fromAccountId, toAccountId);
-    const after = currencyPair(from, to);
-    if (before !== after) setDestinationAmount("");
+  const forgetEchoedReceivedAmount = () => {
+    if (!destinationAmount) return;
+    if (compareMoney(destinationAmount, amount) === 0) setDestinationAmount("");
   };
 
   const resetCreateDraft = () => {
@@ -1310,17 +1312,29 @@ export function TransactionForm({
         date,
         payee,
         description: description || null,
-        // One predicate for both fields, and the same one the picker is
-        // rendered on. A split says which categories the money went to, one per
-        // leg, and a transfer has no counter-account side to file at all, so
-        // either sends a category that is on screen nowhere: a name typed
-        // before switching to Transfer used to create a category on save.
-        categoryId: carriesCategory ? categoryId || null : null,
+        // A split says which categories the money went to, one per leg, so the
+        // single category goes out cleared rather than alongside them. A
+        // transfer keeps whatever it arrived with, carried through the way
+        // externalId and templateId are: the picker is not rendered for one, and
+        // "not shown" is not a reason to erase it.
+        //
+        // Switching the type to Transfer therefore also stops a name typed into
+        // a picker that is now gone from creating a category on save.
+        categoryId: splitting
+          ? null
+          : showsCategoryPicker
+            ? categoryId || null
+            : initial?.categoryId || null,
         // Only when the field did not settle on one this ledger already has.
         // The server matches it case-insensitively and creates it only if it
         // is genuinely new.
-        categoryName:
-          carriesCategory && !categoryId ? categoryName.trim() || null : null,
+        categoryName: splitting
+          ? null
+          : showsCategoryPicker
+            ? (categoryId ? null : categoryName.trim() || null)
+            : initial?.categoryId
+              ? null
+              : initial?.categoryName || null,
         ...(splitting
           ? {
               legs: legs.map((leg) => ({
@@ -1557,7 +1571,7 @@ export function TransactionForm({
             value={fromAccountId}
             onChange={(event) => {
               setFromAccountId(event.target.value);
-              forgetReceivedIfPairChanged(event.target.value, toAccountId);
+              forgetEchoedReceivedAmount();
             }}
           >
             <option value="">Choose an account</option>
@@ -1576,7 +1590,7 @@ export function TransactionForm({
             value={toAccountId}
             onChange={(event) => {
               setToAccountId(event.target.value);
-              forgetReceivedIfPairChanged(fromAccountId, event.target.value);
+              forgetEchoedReceivedAmount();
             }}
           >
             <option value="">Choose an account</option>
@@ -1884,8 +1898,13 @@ export function RecurrenceForm({
   // or two days can put two occurrences on one date. The queue refuses to
   // commit rows that alike, so the server refuses the combination outright.
   // Disabling it here says so before the refusal does.
+  //
+  // An interval that cannot be read yet counts as blocked rather than allowed:
+  // clearing the field to retype it would otherwise unlock the two options and
+  // take away the note explaining them, and typing 1 back would silently reset
+  // whichever one had been picked.
   const businessDayBlocked =
-    frequency === "daily" && intervalNumber !== null && intervalNumber <= 2;
+    frequency === "daily" && (intervalNumber === null || intervalNumber <= 2);
 
   useEffect(() => {
     if (businessDayBlocked && weekendPolicy.endsWith("business_day")) {
@@ -1910,10 +1929,18 @@ export function RecurrenceForm({
         : { proposesFrom: today, lastOccurrenceDate: null },
     );
     try {
-      for (let index = 0; index < 5; index += 1) {
+      // The floor the scheduler applies too: it proposes nothing dated before
+      // the day the recurrence may first reach back to, so a policy that moves
+      // an occurrence backwards over that line produces no row. Showing it here
+      // promises a date no tick will ever write.
+      const floor = recurrence?.proposesFrom ?? today;
+      for (let attempts = 0; dates.length < 5 && attempts < 60; attempts += 1) {
         const next = nextOccurrenceAfter(rule, cursor);
-        dates.push(next);
         cursor = next.occurrenceDate;
+        // A skipped occurrence stays: the list says so, and "your 31st schedule
+        // skips February" is worth seeing. Only a date the floor will swallow
+        // is dropped, because that one is a promise no tick will keep.
+        if (next.postedDate === null || next.postedDate >= floor) dates.push(next);
       }
     } catch {
       return [];

@@ -66,11 +66,13 @@ account still holds is posted out to the same equity account and the account
 ends at zero. It stays at zero: correcting or deleting a transaction that ran
 through a closed account re-closes it, so an ordinary correction cannot leave
 money stranded somewhere no total counts. That is what lets a total leave archived accounts out without
-going wrong, and restoring the account posts the balance back. A closing pair
-is dated the later of today and the account's last posting, so an account
-holding something dated later still ends at zero rather than reviving on that
-day; a balance as of an earlier date is untouched, because the money was
-genuinely there then.
+going wrong, and restoring the account posts the balance back. The close is bucketed
+by date: everything dated on or before the archive day collapses onto that day,
+and each later posting gets its own mirroring pair, so the account reads zero as
+of every date from the archive onward rather than only ever-after. One entry
+cannot say that, and an account holding a future-dated transaction would sit
+there holding money no total counted. A balance as of a day before the archive is
+untouched, because the money was genuinely there then.
 
 Those counter-accounts belong to the server, one per kind and currency. They
 never appear in a list or a picker, and no transaction can name one as a side.

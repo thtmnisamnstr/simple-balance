@@ -125,13 +125,34 @@ describe("a staged row filed by category name", () => {
     expect(body?.draft).toMatchObject({ categoryName: "Groceries" });
   });
 
-  // A transfer has no counter-account side to file, so the picker is not
-  // rendered at all and nothing may go out under it.
-  it("sends no category at all once the row is made a transfer", async () => {
+  // A transfer may carry a category — it has no counter-account side, so the
+  // picker is not rendered — and what the row arrived saying is kept. "Not
+  // shown" is not a reason to erase it, which is what a CSV round trip of a
+  // categorised transfer depends on.
+  it("keeps the category the row arrived with when it is made a transfer", async () => {
     let body: { draft?: Record<string, unknown> } | undefined;
     renderStaged(namedStage, (next) => (body = next));
     fireEvent.click(screen.getByRole("radio", { name: /Transfer/ }));
     expect(screen.queryByPlaceholderText("Type to search or add")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body?.draft).toMatchObject({ categoryName: "Groceries" });
+  });
+
+  // A name typed into the picker and then hidden by a type change is the other
+  // case, and it must not create a category on save: nothing on screen says it
+  // is still there.
+  it("drops a name typed into a picker the type change then hid", async () => {
+    let body: { draft?: Record<string, unknown> } | undefined;
+    const uncategorised = {
+      ...namedStage,
+      draft: { ...(namedStage.draft as object), categoryName: undefined },
+    } as StagedTransaction;
+    renderStaged(uncategorised, (next) => (body = next));
+    fireEvent.change(screen.getByPlaceholderText("Type to search or add"), {
+      target: { value: "Typed By Hand" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: /Transfer/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(body).toBeDefined());
     expect(body?.draft).toMatchObject({ categoryId: null, categoryName: null });

@@ -257,18 +257,44 @@ export async function reconcileArchivedAccountClosings() {
     );
   let repaired = 0;
   for (const account of archived) {
-    // One transaction each. A single one across every tenant would hold every
-    // account's locks at once, and one unreadable timezone would roll back the
-    // repair for everybody else.
-    const written = await withTransaction(undefined, (tx) =>
-      postClosingBalance(
-        tx,
-        { userId: account.userId, source: "web" },
-        account,
-        true,
-      ),
-    );
-    if (written) repaired += 1;
+    const actor: Actor = { userId: account.userId, source: "web" };
+    try {
+      // One transaction each. A single one across every tenant would hold every
+      // account's lock at once, and one unreadable row would roll the repair
+      // back for everybody else.
+      const written = await withTransaction(undefined, async (tx) => {
+        // The same lock every other write to this account takes. Without it a
+        // second replica booting, or somebody pressing Restore while this runs,
+        // reads the same state and posts the close twice.
+        await lockAccountReferences(tx, actor, [account.id]);
+        // Re-read under the lock: the row may have been restored since the list
+        // was taken, and closing a live account would take its balance away.
+        const [current] = await tx
+          .select()
+          .from(ledgerAccounts)
+          .where(
+            and(
+              eq(ledgerAccounts.id, account.id),
+              eq(ledgerAccounts.userId, account.userId),
+              isNotNull(ledgerAccounts.archivedAt),
+            ),
+          )
+          .limit(1);
+        if (!current) return false;
+        return postClosingBalance(tx, actor, current, true);
+      });
+      if (written) repaired += 1;
+    } catch (error) {
+      // One tenant's stored timezone can be a string PostgreSQL will not accept
+      // even though Intl did, and this runs before the server starts serving.
+      // Letting that reach the caller takes the whole deployment down, for
+      // everybody, on every boot.
+      console.error(
+        `Could not re-close archived account ${account.id}. Its balance may be ` +
+          "missing from that person's totals until it is archived again.",
+        error,
+      );
+    }
   }
   return repaired;
 }

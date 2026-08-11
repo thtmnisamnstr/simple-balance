@@ -306,6 +306,79 @@ describe("editing a transfer between two accounts in one currency", () => {
     expect(body?.draft).not.toHaveProperty("destinationAmount");
   });
 
+  // A transfer may carry a category and the picker is never rendered for one,
+  // so an edit that never touched it must not clear it. Nothing on screen would
+  // say it had gone.
+  it("keeps a category the form does not render", async () => {
+    let body: { draft?: Record<string, unknown> } | undefined;
+    const categorised = {
+      ...sameCurrencyTransfer,
+      categoryId: groceriesCategory.id,
+      category: groceriesCategory,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname.startsWith("/api/v1/transactions/")) {
+          body = JSON.parse(String(init?.body));
+          return new Response(JSON.stringify(categorised), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+    const client = queryClient();
+    client.setQueryData(["payees", "suggestions", ""], []);
+    render(
+      <QueryClientProvider client={client}>
+        <TransactionForm
+          accounts={[checkingAccount, savingsAccount, eurAccount]}
+          categories={[groceriesCategory]}
+          transaction={categorised as never}
+          onDone={() => undefined}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByPlaceholderText("Type to search or add")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Payee"), {
+      target: { value: "Move again" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body?.draft).toMatchObject({ categoryId: groceriesCategory.id });
+  });
+
+  // A received amount that differs from the sent amount is a real rate, and for
+  // a row restored from a CSV it is the only copy of it in the app. Only an
+  // echo of the sent amount, which a same-currency transfer always carries, is
+  // safe to forget.
+  it("keeps a received amount that is a real rate", async () => {
+    renderTransfer(() => undefined, [checkingAccount, savingsAccount, eurAccount]);
+    fireEvent.change(screen.getByLabelText(/Amount sent|^Amount/), {
+      target: { value: "100.00" },
+    });
+    fireEvent.change(screen.getByLabelText("To account"), {
+      target: { value: eurAccount.id },
+    });
+    fireEvent.change(screen.getByLabelText(/Amount received/), {
+      target: { value: "92.00" },
+    });
+    fireEvent.change(screen.getByLabelText("From account"), {
+      target: { value: savingsAccount.id },
+    });
+    expect((screen.getByLabelText(/Amount received/) as HTMLInputElement).value).toBe(
+      "92.00",
+    );
+  });
+
   it("forgets it when the pair is changed to one currency", async () => {
     renderTransfer(() => undefined);
     fireEvent.change(screen.getByLabelText("To account"), {

@@ -574,6 +574,30 @@ integration("archiving an account holding future-dated money", () => {
     expect(await balanceAsOf(account.id, daysFromNow(30))).toBe(100);
   });
 
+  // The list of archived accounts is read outside the per-account transaction,
+  // so a row can be restored between the read and the repair. Re-closing it
+  // then would take a live account's balance away with nothing to undo it.
+  it("leaves an account alone that was restored since the list was read", async () => {
+    const account = await createAccount(futureActor, {
+      name: "Restored Mid Repair",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "300",
+    });
+    const opened = await getAccount(futureActor, account.id);
+    await setAccountArchived(futureActor, account.id, opened.version, true);
+    const archived = await getAccount(futureActor, account.id);
+    await setAccountArchived(futureActor, account.id, archived.version, false);
+
+    await reconcileArchivedAccountClosings();
+
+    expect(await balanceAsOf(account.id, today())).toBe(300);
+    expect(await getAccount(futureActor, account.id)).toMatchObject({
+      archivedAt: null,
+    });
+  });
+
   // An account archived under the single-entry rule keeps its one mis-dated
   // pair until something reposts into it, and nothing on the archived-account
   // screen does. The startup reconcile is what repairs an upgraded database.

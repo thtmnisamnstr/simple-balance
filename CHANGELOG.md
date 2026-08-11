@@ -175,6 +175,51 @@ the CSV export walks the ledger once instead of re-counting it for every page,
 and a transaction write asks about the one payee it names rather than grouping
 every payee in the ledger.
 
+A CSV export now carries the bank's own reference for each row, and an import
+no longer invents one. The file had no column for it, and restoring one wrote
+the source ledger's internal id into that field instead, so the check that stops
+a statement being imported twice was keying on an identity that means nothing in
+the ledger it was read into. Files written by 0.1.3 and 0.1.4 still import; their
+rows simply carry no reference, which is the honest answer for a file that has
+none. One consequence worth knowing: a row with no bank reference, re-imported a
+second time under a different account, is no longer refused as a duplicate,
+because the invented id that used to catch it is gone.
+
+A transfer keeps its category when an export is restored into another ledger,
+and a category whose name begins with `=`, `+`, `-` or `@` no longer gains an
+apostrophe on every round trip and becomes a second category each time. The
+visible column stays safe to open in a spreadsheet; the value the import trusts
+travels beside it where nothing rewrites it.
+
+Archiving an account that holds a future-dated transaction no longer loses money
+from the total. A single closing entry dated the last posting left the account
+holding a balance on every day between the archive and that date, while the
+dashboard had already stopped counting it. Accounts archived before this are
+re-closed once, the first time the server starts.
+
+A negative number in a mapped Debit or Credit column no longer has its sign
+quietly removed. Where the file has both columns the other one is what a
+reversal goes in, so the column decides and a sign changes nothing, which is how
+nearly every two-column bank export is written. Where it has only one, the sign
+is the only way that file could say the other direction and nothing says which
+was meant, so the row is refused with the reason rather than staged in whichever
+direction the column implied.
+
+A recurring transaction set to a relative day, such as the second Tuesday, no
+longer proposes a date that has already passed, and the form's preview shows the
+date the scheduler will actually propose first. Typing a negative interval no
+longer freezes the tab.
+
+Editing the amount of a transfer between two accounts in the same currency now
+works. The form was sending a received amount from a field it never showed, and
+the ledger refused every save. A transfer also keeps its category when you edit
+it, rather than losing it to a form that has nowhere to display one.
+
+A staged row filed under a category by name keeps that name when you open it to
+review it, instead of committing uncategorised.
+
+Two settings changes made at the same time no longer overwrite one another.
+
 ## 0.1.3 - 2026-08-06
 
 ### Added

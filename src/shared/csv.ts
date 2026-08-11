@@ -282,13 +282,6 @@ export function normalizeCsvRows(
       });
     }
 
-    // Direction is stated twice on a debit/credit row: once by which column
-    // holds the value, once by that value's sign. A negative in one of those
-    // columns is the two disagreeing, and the file cannot say which it meant —
-    // some banks write every debit as a negative in the Debit column, others
-    // use the columns as magnitudes so a negative is a reversal going the other
-    // way. Refused for the same reason both columns holding a value is refused
-    // just above: reading it either way silently reverses half of real files.
     const debitPresent =
       !mapping.amount && Boolean(debit) && !zeroAmountPattern.test(debit!);
     const creditPresent =
@@ -299,21 +292,32 @@ export function normalizeCsvRows(
         message: "Only one of debit and credit may contain a non-zero amount",
       });
     }
-    for (const [field, value, present] of [
-      ["debit", debit, debitPresent],
-      ["credit", credit, creditPresent],
-    ] as const) {
-      if (present && value!.startsWith("-")) {
-        issues.push({
-          field,
-          message:
-            "A negative value in a debit or credit column is ambiguous. Map that column as the signed amount instead, or put the amount in the other column.",
-        });
-      }
+
+    // A sign is only ambiguous where it is the one other thing that could state
+    // direction. Where the file has both columns, the other one is what carries
+    // a reversal, so a sign is redundant and the column decides — which is how
+    // nearly every two-column bank export is written. Where it has one, a sign
+    // is the only way that file can express the other direction, and reading it
+    // either way silently reverses half of real files, so the row is refused
+    // the way both columns holding a value is refused just above.
+    const bothColumnsMapped = Boolean(mapping.debit && mapping.credit);
+    const signedColumn =
+      !bothColumnsMapped &&
+      ((debitPresent && debit!.startsWith("-") && "debit") ||
+        (creditPresent && credit!.startsWith("-") && "credit"));
+    if (signedColumn) {
+      issues.push({
+        field: signedColumn,
+        message:
+          "A negative value states a direction the column already states, and this file has no other column to say which was meant. Map a debit and a credit column, or a signed amount column, so the direction is stated once.",
+      });
     }
 
-    const signedDebit = debitPresent && !debit!.startsWith("-");
-    const signedCredit = creditPresent && !credit!.startsWith("-");
+    const debitReadable = debitPresent && (bothColumnsMapped || !debit!.startsWith("-"));
+    const creditReadable =
+      creditPresent && (bothColumnsMapped || !credit!.startsWith("-"));
+    const signedDebit = debitReadable;
+    const signedCredit = creditReadable;
     let type: "deposit" | "withdrawal";
     let amount: string | null;
     if (mapping.amount && signedAmount) {
@@ -324,10 +328,10 @@ export function normalizeCsvRows(
       amount = null;
     } else if (signedDebit) {
       type = "withdrawal";
-      amount = debit;
+      amount = debit!.replace(/^-/, "");
     } else if (signedCredit) {
       type = "deposit";
-      amount = credit;
+      amount = credit!.replace(/^-/, "");
     } else {
       type = "withdrawal";
       amount = null;
