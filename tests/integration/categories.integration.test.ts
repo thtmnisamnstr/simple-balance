@@ -7,10 +7,12 @@ import { runMigrations } from "../../src/server/db/migrate.js";
 import {
   auditEvents,
   categories,
+  recurrences,
   stagedTransactions,
   transactions,
   user,
 } from "../../src/server/db/schema.js";
+import { createRecurrence } from "../../src/server/services/recurrences.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
   createCategory,
@@ -513,6 +515,76 @@ integration("category duplicate detection and merge", () => {
       draft: { categoryId: target.id },
       version: staged.version + 1,
     });
+  });
+
+  /**
+   * A merge says these two are the same category, and the README promises every
+   * reference is rewritten at once. A recurrence is a reference that outlives
+   * the conversation: left pointing at an id the merge hard-deleted, it goes on
+   * proposing a flagged row on every occurrence, for good.
+   */
+  it("carries a recurrence's category and legs through a merge", async () => {
+    const db = getDb();
+    const [target, source] = await db
+      .insert(categories)
+      .values([
+        { userId: primary.userId, name: "Standing Energy", kind: "expense" },
+        { userId: primary.userId, name: " standing   energy ", kind: "expense" },
+      ])
+      .returning();
+
+    const plain = await createRecurrence(primary, {
+      name: "Merge plain",
+      shape: {
+        type: "withdrawal",
+        payee: "Energy",
+        fromAccountId: accountId,
+        amount: "80.00",
+        categoryId: source.id,
+      },
+      schedule: { frequency: "monthly", anchorDate: "2030-01-05" },
+    });
+    const split = await createRecurrence(primary, {
+      name: "Merge split",
+      shape: {
+        type: "withdrawal",
+        payee: "Energy",
+        fromAccountId: accountId,
+        amount: "100.00",
+        legs: [
+          { categoryId: source.id, amount: "60.00" },
+          { categoryId: target.id, amount: "40.00" },
+        ],
+      },
+      schedule: { frequency: "monthly", anchorDate: "2030-01-06" },
+    });
+
+    // In use by a standing instruction is in use.
+    await expect(
+      deleteCategory(primary, source.id, source.version),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    await mergeCategories(primary, {
+      sourceCategoryIds: [source.id],
+      targetCategoryId: target.id,
+      expectedVersions: { [source.id]: source.version },
+      targetExpectedVersion: target.version,
+    });
+
+    const after = await db
+      .select()
+      .from(recurrences)
+      .where(inArray(recurrences.id, [plain.id, split.id]));
+    for (const row of after) {
+      const shape = row.shape as {
+        categoryId?: string | null;
+        legs?: { categoryId?: string }[];
+      };
+      expect(shape.categoryId ?? target.id).toBe(target.id);
+      for (const leg of shape.legs ?? []) {
+        expect(leg.categoryId).toBe(target.id);
+      }
+    }
   });
 
   it("rolls back stale merges and cannot cross tenant boundaries", async () => {

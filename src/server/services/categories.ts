@@ -16,6 +16,7 @@ import {
 } from "../db/client.js";
 import {
   categories,
+  recurrences,
   stagedTransactions,
   transactionLegs,
   transactions,
@@ -705,10 +706,37 @@ export async function deleteCategory(
           )!,
         ),
       );
-    if (transactionCount || stagedCount) {
+    // A standing instruction is a use like any other, and the one nothing else
+    // would catch: it holds no row today and writes one on every occurrence
+    // from here on. Deleting underneath it turns every future proposal into a
+    // flagged row naming a category that no longer exists.
+    const [{ count: recurrenceCount }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(recurrences)
+      .where(
+        and(
+          eq(recurrences.userId, actor.userId),
+          or(
+            sql`${recurrences.shape} ->> 'categoryId' = ${id}`,
+            sql`exists (
+              select 1
+              from jsonb_array_elements(
+                case
+                  when jsonb_typeof(${recurrences.shape} -> 'legs') = 'array'
+                    then ${recurrences.shape} -> 'legs'
+                  else '[]'::jsonb
+                end
+              ) as leg
+              where leg ->> 'categoryId' = ${id}
+            )`,
+          )!,
+        ),
+      );
+    if (transactionCount || stagedCount || recurrenceCount) {
       throw conflict("This category is in use. Archive it instead of deleting it.", {
         transactionCount,
         stagedTransactionCount: stagedCount,
+        recurrenceCount,
       });
     }
     const deleted = await tx
@@ -982,6 +1010,66 @@ export async function mergeCategories(
           )
           .returning()
       : [];
+
+    // A standing instruction is a reference too, and the only one that keeps
+    // producing rows after the merge. Left naming a hard-deleted id it would
+    // propose a flagged row on every occurrence from here on. The version is
+    // deliberately not bumped: a merge relabels what a recurrence points at
+    // without changing what somebody configured, and bumping it would make
+    // every open form stale for a reason nobody can see.
+    await tx
+      .update(recurrences)
+      .set({
+        shape: sql`
+          case
+            when ${recurrences.shape} ->> 'categoryId' in (${sourceIdList})
+              then jsonb_set(
+                ${recurrences.shape},
+                '{categoryId}',
+                to_jsonb(${target.id}::text),
+                true
+              )
+            when jsonb_typeof(${recurrences.shape} -> 'legs') = 'array'
+              then jsonb_set(
+                ${recurrences.shape},
+                '{legs}',
+                (
+                  select coalesce(jsonb_agg(
+                    case
+                      when leg ->> 'categoryId' in (${sourceIdList})
+                        then jsonb_set(leg, '{categoryId}', to_jsonb(${target.id}::text), true)
+                      else leg
+                    end
+                    order by position
+                  ), '[]'::jsonb)
+                  from jsonb_array_elements(${recurrences.shape} -> 'legs')
+                    with ordinality as elements(leg, position)
+                ),
+                true
+              )
+            else ${recurrences.shape}
+          end`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(recurrences.userId, actor.userId),
+          or(
+            sql`${recurrences.shape} ->> 'categoryId' in (${sourceIdList})`,
+            sql`exists (
+              select 1
+              from jsonb_array_elements(
+                case
+                  when jsonb_typeof(${recurrences.shape} -> 'legs') = 'array'
+                    then ${recurrences.shape} -> 'legs'
+                  else '[]'::jsonb
+                end
+              ) as leg
+              where leg ->> 'categoryId' in (${sourceIdList})
+            )`,
+          )!,
+        ),
+      );
 
     const deletedSources = await tx
       .delete(categories)
