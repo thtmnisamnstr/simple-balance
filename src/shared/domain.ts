@@ -1210,8 +1210,17 @@ export const recurrenceWeekendPolicies = [
   "previous_business_day",
   "next_business_day",
 ] as const;
-/** -1 is the last one in the month. There is no fifth; see recurrence-dates.ts. */
+/**
+ * Which relative days of the month a schedule may name. -1 is the last one, and
+ * there is deliberately no fifth: a month has four of some weekdays and five of
+ * others, so an ordinal of 5 would silently mean different things in different
+ * months. Anybody who wants the fifth means the last.
+ *
+ * The position schema below and the picker in the browser both derive from
+ * this, so the list exists once rather than in three places that can drift.
+ */
 export const recurrenceOrdinals = [1, 2, 3, 4, -1] as const;
+export type RecurrenceOrdinal = (typeof recurrenceOrdinals)[number];
 
 /**
  * The most recurrences one person may keep. Unlike a template, each of these is
@@ -1363,13 +1372,7 @@ const recurrenceAnchorDateSchema = isoDateSchema.refine(
 /** "The second Tuesday", "the last Friday". */
 const recurrencePositionSchema = z
   .object({
-    ordinal: z.union([
-      z.literal(1),
-      z.literal(2),
-      z.literal(3),
-      z.literal(4),
-      z.literal(-1),
-    ]),
+    ordinal: z.literal(recurrenceOrdinals),
     weekday: z.number().int().min(0).max(6),
   })
   .strict()

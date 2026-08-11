@@ -13,7 +13,9 @@ import {
   userAccountTypes,
   liabilityAccountTypes,
   MAX_TRANSACTION_LEGS,
+  recurrenceOrdinals,
   type RecurrenceFrequencyName,
+  type RecurrenceOrdinal,
   type UserAccountType,
   type TransactionDraft,
   type TransactionTemplateDraft,
@@ -1688,13 +1690,19 @@ const WEEKDAY_NAMES = [
   "Saturday",
 ];
 
-const ORDINAL_NAMES: { value: RecurrencePosition["ordinal"]; label: string }[] = [
-  { value: 1, label: "First" },
-  { value: 2, label: "Second" },
-  { value: 3, label: "Third" },
-  { value: 4, label: "Fourth" },
-  { value: -1, label: "Last" },
-];
+// Ordered by the shared list, so the picker cannot offer an ordinal the schema
+// refuses or miss one it accepts.
+const ORDINAL_LABELS: Record<RecurrenceOrdinal, string> = {
+  1: "First",
+  2: "Second",
+  3: "Third",
+  4: "Fourth",
+  [-1]: "Last",
+};
+const ORDINAL_NAMES = recurrenceOrdinals.map((value) => ({
+  value,
+  label: ORDINAL_LABELS[value],
+}));
 
 const FREQUENCY_UNITS: Record<RecurrenceFrequencyName, string> = {
   daily: "day",

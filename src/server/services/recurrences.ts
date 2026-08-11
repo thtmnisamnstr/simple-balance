@@ -683,4 +683,3 @@ export async function getRecurrence(actor: Actor, id: string) {
   return recurrenceView(row, counts.get(row.id) ?? NO_COUNTS, today);
 }
 
-export type RecurrenceView = Awaited<ReturnType<typeof getRecurrence>>;

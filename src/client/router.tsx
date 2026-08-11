@@ -6,20 +6,17 @@ import {
   type MouseEvent,
   type ReactElement,
   type ReactNode,
-  type SetStateAction,
   useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
 } from "react";
-
 export type Location = {
   pathname: string;
   search: string;
   hash: string;
 };
-
 export type To =
   | string
   | {
@@ -27,19 +24,15 @@ export type To =
       search?: string;
       hash?: string;
     };
-
 type NavigateOptions = {
   replace?: boolean;
 };
-
 type RouterContextValue = {
   location: Location;
   navigate: (to: To, options?: NavigateOptions) => void;
 };
-
 const RouterContext = createContext<RouterContextValue | null>(null);
 const ParamsContext = createContext<Record<string, string>>({});
-
 function browserLocation(): Location {
   return {
     pathname: window.location.pathname,
@@ -47,12 +40,10 @@ function browserLocation(): Location {
     hash: window.location.hash,
   };
 }
-
 function normalizedPart(value: string | undefined, prefix: "?" | "#") {
   if (!value) return "";
   return value.startsWith(prefix) ? value : `${prefix}${value}`;
 }
-
 function toUrl(to: To, current: Location) {
   if (typeof to === "string") return new URL(to, window.location.href);
   return new URL(
@@ -63,22 +54,18 @@ function toUrl(to: To, current: Location) {
     window.location.origin,
   );
 }
-
 function useRouter() {
   const router = useContext(RouterContext);
   if (!router) throw new Error("Router hooks must be used inside BrowserRouter");
   return router;
 }
-
 export function BrowserRouter({ children }: { children: ReactNode }) {
   const [location, setLocation] = useState(browserLocation);
-
   useEffect(() => {
     const onPopState = () => setLocation(browserLocation());
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-
   const navigate = useCallback(
     (to: To, options: NavigateOptions = {}) => {
       const url = toUrl(to, browserLocation());
@@ -95,26 +82,18 @@ export function BrowserRouter({ children }: { children: ReactNode }) {
     },
     [],
   );
-
   const value = useMemo(() => ({ location, navigate }), [location, navigate]);
   return (
     <RouterContext.Provider value={value}>{children}</RouterContext.Provider>
   );
 }
-
 export function useLocation() {
   return useRouter().location;
 }
-
 type SearchParamsSetter = (
-  next:
-    | URLSearchParams
-    | string
-    | Record<string, string>
-    | SetStateAction<URLSearchParams>,
+  next: URLSearchParams,
   options?: NavigateOptions,
 ) => void;
-
 export function useSearchParams(): [URLSearchParams, SearchParamsSetter] {
   const { location, navigate } = useRouter();
   const params = useMemo(
@@ -123,34 +102,22 @@ export function useSearchParams(): [URLSearchParams, SearchParamsSetter] {
   );
   const setParams = useCallback<SearchParamsSetter>(
     (next, options) => {
-      const resolved =
-        typeof next === "function"
-          ? next(new URLSearchParams(location.search))
-          : next;
-      const updated =
-        resolved instanceof URLSearchParams
-          ? resolved
-          : typeof resolved === "string"
-            ? new URLSearchParams(resolved)
-            : new URLSearchParams(resolved);
       navigate(
         {
           pathname: location.pathname,
-          search: updated.toString(),
+          search: next.toString(),
           hash: location.hash,
         },
         options,
       );
     },
-    [location.hash, location.pathname, location.search, navigate],
+    [location.hash, location.pathname, navigate],
   );
   return [params, setParams];
 }
-
 type LinkProps = Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
   to: To;
 };
-
 function shouldHandleNavigation(event: MouseEvent<HTMLAnchorElement>) {
   return (
     !event.defaultPrevented &&
@@ -163,7 +130,6 @@ function shouldHandleNavigation(event: MouseEvent<HTMLAnchorElement>) {
       event.currentTarget.target.toLowerCase() === "_self")
   );
 }
-
 export function Link({ to, onClick, ...props }: LinkProps) {
   const { location, navigate } = useRouter();
   const url = toUrl(to, location);
@@ -188,11 +154,9 @@ export function Link({ to, onClick, ...props }: LinkProps) {
     />
   );
 }
-
 type NavLinkProps = LinkProps & {
   end?: boolean;
 };
-
 export function NavLink({
   to,
   end = false,
@@ -214,20 +178,16 @@ export function NavLink({
     />
   );
 }
-
 export function useParams<T extends Record<string, string | undefined>>() {
   return useContext(ParamsContext) as T;
 }
-
 type RouteProps = {
   path: string;
   element: ReactElement;
 };
-
 export function Route(_props: RouteProps) {
   return null;
 }
-
 function matchPath(pattern: string, pathname: string) {
   if (pattern === "*") return {};
   const patternParts = pattern.split("/").filter(Boolean);
@@ -249,7 +209,6 @@ function matchPath(pattern: string, pathname: string) {
   }
   return params;
 }
-
 export function Routes({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   for (const child of Children.toArray(children)) {
@@ -265,7 +224,6 @@ export function Routes({ children }: { children: ReactNode }) {
   }
   return null;
 }
-
 export function Navigate({
   to,
   replace = false,
@@ -277,7 +235,6 @@ export function Navigate({
   useEffect(() => navigate(to, { replace }), [navigate, replace, to]);
   return null;
 }
-
 /** The payee detail view is the transaction list filtered to one name. */
 export function payeeDetailSearch(search: string, payee: string) {
   const params = new URLSearchParams(search);
