@@ -364,6 +364,75 @@ integration("recurring transactions", () => {
     expect(survivors.some((row) => row.status === "committed")).toBe(true);
   });
 
+  /**
+   * The two features that shipped together, meeting. A recurrence holding legs
+   * proposes a split, and the split has to survive the round trip through the
+   * queue and settle to zero like any other, or the categories on the entry are
+   * a story about money that was never divided that way.
+   */
+  it("proposes a split and commits it as one, still settling to zero", async () => {
+    const householdId = (
+      await createCategory(actor, { name: "Household", kind: "expense" })
+    ).id;
+    const created = await createRecurrence(actor, {
+      name: "Split shop",
+      shape: {
+        type: "withdrawal",
+        payee: "Supermarket",
+        fromAccountId: checkingId,
+        amount: "100.00",
+        legs: [
+          { categoryId: rentCategoryId, amount: "60.00" },
+          { categoryId: householdId, amount: "40.00" },
+        ],
+      },
+      schedule: { frequency: "monthly", anchorDate: inDays(1) },
+    });
+
+    await proposeDueOccurrences(actor, created.id, inDays(2), 50);
+    const [proposed] = await stagedFor(created.id);
+    expect(proposed).toBeDefined();
+    expect(proposed!.validationIssues).toEqual([]);
+    expect(proposed!.draft.legs).toHaveLength(2);
+
+    await commitStages(actor, {
+      stagedIds: [proposed!.id],
+      expectedVersions: { [proposed!.id]: proposed!.version },
+      idempotencyKey: "split-recurrence-commit",
+      allowDuplicates: true,
+    });
+
+    const committed = await getDb().execute(sql`
+      select st.committed_transaction_id as id
+        from staged_transaction st
+       where st.id = ${proposed!.id}::uuid
+    `);
+    const transactionId = (committed.rows[0] as { id: string | null }).id;
+    expect(transactionId).not.toBeNull();
+
+    const legs = await getDb().execute(sql`
+      select tl.id, tl.amount::text as amount, tl.category_id
+        from transaction_leg tl
+       where tl.transaction_id = ${transactionId}::uuid
+       order by tl.ordinal
+    `);
+    expect(legs.rows).toHaveLength(2);
+    expect(
+      (legs.rows as { amount: string }[]).map((row) => Number(row.amount)),
+    ).toEqual([60, 40]);
+
+    // Every leg posts under its own leg id, and the whole entry still settles.
+    const postings = await getDb().execute(sql`
+      select sum(amount)::text as total,
+             count(*) filter (where leg_id is not null)::int as legged
+        from posting
+       where transaction_id = ${transactionId}::uuid
+    `);
+    const summary = postings.rows[0] as { total: string; legged: number };
+    expect(Number(summary.total)).toBe(0);
+    expect(summary.legged).toBe(2);
+  });
+
   it("refuses to reach back before the day it was made", async () => {
     const created = await make("Backfill", {
       schedule: { frequency: "monthly", anchorDate: addDays(today, -2200) },
