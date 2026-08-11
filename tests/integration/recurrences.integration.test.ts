@@ -453,6 +453,51 @@ integration("recurring transactions", () => {
     expect(summary.legged).toBe(2);
   });
 
+  /**
+   * The floor is on the occurrence, but the row carries the posted date, and
+   * previous_business_day moves that backwards by up to two days. A recurrence
+   * made on a Saturday or Sunday could therefore propose a row dated before it
+   * existed, which is the one thing proposes_from is there to prevent.
+   */
+  it("proposes nothing dated before it existed, whatever a weekend policy does", async () => {
+    const sunday = (() => {
+      let date = inDays(1);
+      while (weekdayOf(date) !== 0) date = addDays(date, 1);
+      return date;
+    })();
+    const created = await make("Weekend floor", {
+      schedule: {
+        frequency: "monthly",
+        anchorDate: sunday,
+        weekendPolicy: "previous_business_day",
+      },
+    });
+    // Made ON that Sunday. proposes_from is fixed to the day of creation, and
+    // the suite cannot choose which weekday it runs on, so it is set here
+    // rather than waited for.
+    await getDb().execute(sql`
+      update recurrence
+         set proposes_from = ${sunday}, next_occurrence_date = ${sunday}
+       where id = ${created.id}::uuid
+    `);
+
+    await proposeDueOccurrences(actor, created.id, addDays(sunday, 1), 50);
+
+    const rows = await stagedFor(created.id);
+    for (const row of rows) {
+      expect(
+        String(row.draft.date) >= sunday,
+        `${row.draft.date} precedes ${sunday}`,
+      ).toBe(true);
+    }
+    // The occurrence is still consumed rather than reconsidered forever.
+    const [after] = await getDb()
+      .select()
+      .from(recurrences)
+      .where(eq(recurrences.id, created.id));
+    expect(after!.lastOccurrenceDate).toBe(sunday);
+  });
+
   it("refuses to reach back before the day it was made", async () => {
     const created = await make("Backfill", {
       schedule: { frequency: "monthly", anchorDate: addDays(today, -2200) },

@@ -222,7 +222,17 @@ export async function proposeDueOccurrences(
     if (!occurrences.length) return "nothing_due";
 
     const shape = recurrenceShapeSchema.parse(row.shape);
-    const proposable = occurrences.filter((one) => one.postedDate !== null);
+    // The posted date is floored too, not just the occurrence. proposesFrom
+    // exists so nothing is proposed dated before the recurrence was made, and
+    // previous_business_day moves a posted date backwards by up to two days:
+    // one made on a Sunday would otherwise write its first row dated the Friday
+    // before it existed. Only the first occurrence can reach back this way,
+    // since every later one is a whole interval further on, and it is skipped
+    // rather than clamped for the same reason a month-length skip is: a moved
+    // date would be a date the schedule never named.
+    const proposable = occurrences.filter(
+      (one) => one.postedDate !== null && one.postedDate >= row.proposesFrom,
+    );
     if (proposable.length) {
       const referenceIssues = await recurrenceReferenceIssues(tx, actor, shape);
       const initialIssues =
