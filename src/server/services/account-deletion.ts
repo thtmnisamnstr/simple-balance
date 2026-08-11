@@ -7,6 +7,7 @@ import {
   importBatches,
   ledgerAccounts,
   oauthConsent,
+  recurrences,
   stagedTransactions,
   transactions,
   user,
@@ -48,6 +49,7 @@ export type OwnDataSummary = {
   transactions: number;
   categories: number;
   stagedTransactions: number;
+  recurrences: number;
   importBatches: number;
   payees: number;
   connectedAgents: number;
@@ -65,7 +67,7 @@ const countOf = async (query: Promise<{ count: number }[]>) =>
  */
 export async function summarizeOwnData(actor: Actor): Promise<OwnDataSummary> {
   const db = getDb();
-  const [accounts, transactionCount, categoryCount, staged, batches] =
+  const [accounts, transactionCount, categoryCount, staged, recurring, batches] =
     await Promise.all([
       countOf(
         db
@@ -102,6 +104,12 @@ export async function summarizeOwnData(actor: Actor): Promise<OwnDataSummary> {
       countOf(
         db
           .select({ count: sql<number>`count(*)::int` })
+          .from(recurrences)
+          .where(eq(recurrences.userId, actor.userId)),
+      ),
+      countOf(
+        db
+          .select({ count: sql<number>`count(*)::int` })
           .from(importBatches)
           .where(eq(importBatches.userId, actor.userId)),
       ),
@@ -132,6 +140,7 @@ export async function summarizeOwnData(actor: Actor): Promise<OwnDataSummary> {
     transactions: transactionCount,
     categories: categoryCount,
     stagedTransactions: staged,
+    recurrences: recurring,
     importBatches: batches,
     payees,
     connectedAgents,

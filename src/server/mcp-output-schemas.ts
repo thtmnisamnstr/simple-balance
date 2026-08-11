@@ -403,6 +403,7 @@ export const ownDataSummaryResultSchema = z.object({
   transactions: z.number().int().nonnegative(),
   categories: z.number().int().nonnegative(),
   stagedTransactions: z.number().int().nonnegative(),
+  recurrences: z.number().int().nonnegative(),
   importBatches: z.number().int().nonnegative(),
   payees: z.number().int().nonnegative(),
   connectedAgents: z.number().int().nonnegative(),

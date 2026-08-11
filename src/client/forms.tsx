@@ -1762,8 +1762,13 @@ export function RecurrenceForm({
   );
   const [amount, setAmount] = useState(shape?.amount ?? "");
   const [categoryId, setCategoryId] = useState(shape?.categoryId ?? "");
+  // A stored shape may name its category rather than cite one, the way a CSV
+  // import or an agent leaves it. Seeding from the id alone dropped the name on
+  // the floor, and saving then wrote the recurrence back with no category.
   const [categoryName, setCategoryName] = useState(
-    categories.find((category) => category.id === shape?.categoryId)?.name ?? "",
+    categories.find((category) => category.id === shape?.categoryId)?.name ??
+      shape?.categoryName ??
+      "",
   );
   const [legs, setLegs] = useState<TransactionFormLeg[]>(() =>
     (shape?.legs ?? []).map((leg) => ({
@@ -1851,9 +1856,10 @@ export function RecurrenceForm({
   const mutation = useMutation({
     mutationFn: () => {
       const trimmed = (value: string) => (value.trim() ? value.trim() : undefined);
-      const kept = legs.filter(
-        (leg) => leg.categoryId || leg.categoryName.trim() || leg.amount.trim(),
-      );
+      // Whatever is on screen, not a filtered subset of it: `ready` above has
+      // already refused a split with a blank row, so anything less than the
+      // whole list here would be silently posting a different division.
+      const kept = splitting ? legs : [];
       const body = {
         name: name.trim(),
         shape: {
@@ -1912,8 +1918,19 @@ export function RecurrenceForm({
   const splitSettled =
     !splitting ||
     moneyRemainder(amount, legs.map((leg) => leg.amount || "0")) === "0";
+  // Every leg of a split has to name a category and an amount, or the save
+  // silently posts fewer legs than are on screen. A row left blank used to be
+  // dropped, which took the split below two and sent no category at all.
+  const legsComplete =
+    !splitting ||
+    legs.every((leg) => (leg.categoryId || leg.categoryName.trim()) && leg.amount.trim());
   const ready = Boolean(
-    name.trim() && payee.trim() && accountReady && transferReady && splitSettled,
+    name.trim() &&
+      payee.trim() &&
+      accountReady &&
+      transferReady &&
+      splitSettled &&
+      legsComplete,
   );
 
   return (

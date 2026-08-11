@@ -97,6 +97,22 @@ const payroll: Recurrence = {
   committedCount: 0,
 };
 
+const namedCategory: Recurrence = {
+  ...rent,
+  id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  name: "Named category",
+  shape: {
+    type: "withdrawal",
+    payee: "Landlord",
+    fromAccountId: checking.id,
+    amount: "1450.00",
+    description: null,
+    categoryId: null,
+    categoryName: "Utilities",
+    notes: null,
+  },
+};
+
 function stubApi(items: Recurrence[]) {
   const writes: { path: string; method: string; body: unknown }[] = [];
   vi.stubGlobal(
@@ -262,6 +278,30 @@ describe("the recurrence form", () => {
     expect(
       within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
     ).not.toBeDisabled();
+  });
+
+  /**
+   * A shape may name its category rather than cite one, which is what a CSV
+   * import or an agent leaves behind. Seeded from the id alone the field came
+   * up blank, and saving wrote the recurrence back with no category at all.
+   */
+  it("keeps a category the shape names rather than cites", async () => {
+    const writes = await renderPage([namedCategory]);
+    fireEvent.click(
+      within(rowFor("Named category")).getByRole("button", {
+        name: /Actions for Named category/,
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Edit$/ }));
+    await screen.findByRole("heading", { name: "Edit recurrence" });
+
+    expect(screen.getByDisplayValue("Utilities")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save recurrence" }));
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).toMatchObject({
+      shape: { categoryName: "Utilities" },
+    });
   });
 
   it("sends a relative day of the month when one is chosen", async () => {

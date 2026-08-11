@@ -304,6 +304,7 @@ type OwnDataSummary = {
   transactions: number;
   categories: number;
   stagedTransactions: number;
+  recurrences: number;
   importBatches: number;
   payees: number;
   connectedAgents: number;
@@ -359,7 +360,8 @@ function DeleteAccount({ session }: { session: Session }) {
           <h2>Delete this account</h2>
           <p>
             Everything in it goes: accounts, transactions, categories, payees,
-            staged rows, import history, and every agent you have connected.
+            staged rows, recurring transactions, import history, and every agent
+            you have connected.
             This cannot be undone and there is no copy kept.
           </p>
         </div>
@@ -379,6 +381,9 @@ function DeleteAccount({ session }: { session: Session }) {
                 plural(summary.data.payees, "payee"),
                 summary.data.stagedTransactions > 0
                   ? plural(summary.data.stagedTransactions, "staged row")
+                  : null,
+                summary.data.recurrences > 0
+                  ? plural(summary.data.recurrences, "recurring transaction")
                   : null,
                 summary.data.importBatches > 0
                   ? plural(summary.data.importBatches, "import")
