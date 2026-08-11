@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   accountTypes,
+  actorSources,
   transactionTemplateBulkResultSchema,
   transactionTemplateDraftSchema,
   bulkStageEditResultSchema,
@@ -280,7 +281,7 @@ export const auditEventResultSchema = z
   .object({
     id: uuidSchema,
     userId: z.string(),
-    actorSource: z.enum(["web", "mcp"]),
+    actorSource: z.enum(actorSources),
     clientId: nullableStringSchema,
     entityType: z.string(),
     entityId: z.string(),

@@ -1,4 +1,5 @@
 import type {
+  ActorSource,
   UserAccountType,
   CategoryKind,
   PaginatedPage,
@@ -371,7 +372,7 @@ export type Summary = {
 
 export type AuditEvent = {
   id: string;
-  actorSource: "web" | "mcp";
+  actorSource: ActorSource;
   clientId?: string | null;
   entityType: string;
   entityId: string;

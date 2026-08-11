@@ -1,7 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
-import { Bot, History, Monitor } from "lucide-react";
+import { Bot, CalendarClock, History, Monitor } from "lucide-react";
+import type { ActorSource } from "../../shared/domain.js";
 import { api, type AuditEvent, type Page } from "../api.js";
 import { Alert, Badge, EmptyState, PageHeader } from "../components.js";
+
+/**
+ * Switched on the value rather than tested against one, so a source this build
+ * does not know about is not silently drawn as a person at a screen. The log is
+ * the record of who did what, and a wrong attribution in it is worse than an
+ * unstyled one.
+ */
+function actorPresentation(source: ActorSource | string) {
+  if (source === "mcp") return { Icon: Bot, tone: "blue" as const, label: "Agent" };
+  if (source === "schedule") {
+    return { Icon: CalendarClock, tone: "amber" as const, label: "Scheduled" };
+  }
+  if (source === "web") {
+    return { Icon: Monitor, tone: "neutral" as const, label: "Web" };
+  }
+  return { Icon: History, tone: "neutral" as const, label: source };
+}
 
 function sentence(event: AuditEvent) {
   const entity = event.entityType.replaceAll("_", " ");
@@ -24,7 +42,7 @@ export default function ActivityPage() {
       {events.data?.items.length ? (
         <section className="panel activity-list">
           {events.data.items.map((event) => {
-            const Icon = event.actorSource === "mcp" ? Bot : Monitor;
+            const { Icon, tone, label } = actorPresentation(event.actorSource);
             return (
               <div className="activity-row" key={event.id}>
                 <span className={`activity-icon ${event.actorSource}`}>
@@ -39,8 +57,8 @@ export default function ActivityPage() {
                     }).format(new Date(event.createdAt))}
                   </small>
                 </div>
-                <Badge tone={event.actorSource === "mcp" ? "blue" : "neutral"}>
-                  {event.actorSource === "mcp" ? "Agent" : "Web"}
+                <Badge tone={tone}>
+                  {label}
                 </Badge>
               </div>
             );

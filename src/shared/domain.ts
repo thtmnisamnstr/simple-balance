@@ -107,7 +107,11 @@ export type CategoryKind = (typeof categoryKinds)[number];
 export const transactionTypes = ["deposit", "withdrawal", "transfer"] as const;
 export type TransactionType = (typeof transactionTypes)[number];
 
-export const actorSources = ["web", "mcp"] as const;
+/**
+ * Who did it. A scheduler write is not a person at a screen, and saying it was
+ * would be a false statement in an audit trail.
+ */
+export const actorSources = ["web", "mcp", "schedule"] as const;
 export type ActorSource = (typeof actorSources)[number];
 
 export const isoDateSchema = z

@@ -2,6 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMcpServer } from "../src/server/mcp.js";
+import { actorSources } from "../src/shared/domain.js";
+import { auditEventResultSchema } from "../src/server/mcp-output-schemas.js";
 
 describe("MCP output contracts", () => {
   const resources: {
@@ -160,5 +162,31 @@ describe("revoking an agent over MCP", () => {
     const names = await toolsFor(["ledger:stage"]);
     expect(names).toContain("list_connected_agents");
     expect(names).not.toContain("revoke_connected_agent");
+  });
+});
+
+describe("every actor source an audit row can carry", () => {
+  /**
+   * A result that fails its declared output schema is dropped without an error,
+   * so an enum pinned to a subset of the sources does not fail loudly: it makes
+   * every page of the audit log containing a new source come back empty. This
+   * is what stops the two lists drifting apart again.
+   */
+  it("parses through the declared audit schema", () => {
+    for (const source of actorSources) {
+      const event = {
+        id: "11111111-1111-4111-8111-111111111111",
+        userId: "u1",
+        actorSource: source,
+        clientId: null,
+        entityType: "transaction",
+        entityId: "22222222-2222-4222-8222-222222222222",
+        operation: "create",
+        before: null,
+        after: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      };
+      expect(auditEventResultSchema.safeParse(event).success, source).toBe(true);
+    }
   });
 });
