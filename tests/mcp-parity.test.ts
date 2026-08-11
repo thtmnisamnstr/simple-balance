@@ -117,6 +117,21 @@ async function toolNames(scopes: string[]) {
   return new Set(tools.map((tool) => tool.name));
 }
 
+async function toolsWithAnnotations(scopes: string[]) {
+  const server = createMcpServer(
+    { userId: "parity-user", source: "mcp", clientId: "parity-test" },
+    new Set(scopes),
+  );
+  const client = new Client({ name: "parity", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  const { tools } = await client.listTools();
+  await client.close();
+  await server.close();
+  return tools;
+}
+
 const everyScope = ["ledger:read", "ledger:stage", "ledger:write"];
 
 describe("what an agent can reach compared with the browser", () => {
@@ -157,6 +172,23 @@ describe("what an agent can reach compared with the browser", () => {
     }
   });
 
+  /**
+   * Derived rather than listed, because the list below it is what failed: three
+   * recurrence write tools were added to the file in the read block and nobody
+   * had to remember to name them here. A tool declares itself with
+   * `readOnlyHint`, so what a read-only token may see is answerable without a
+   * roster anybody has to keep.
+   */
+  it("offers a read-only token nothing that declares itself a write", async () => {
+    const tools = await toolsWithAnnotations(["ledger:read"]);
+
+    expect(tools.length).toBeGreaterThan(0);
+    const writes = tools
+      .filter((tool) => tool.annotations?.readOnlyHint !== true)
+      .map((tool) => tool.name);
+    expect(writes).toEqual([]);
+  });
+
   it("hides every write from a token that may only read", async () => {
     const readOnly = await toolNames(["ledger:read"]);
     for (const write of [
@@ -168,6 +200,9 @@ describe("what an agent can reach compared with the browser", () => {
       "merge_payees",
       "bulk_edit_transaction_templates",
       "bulk_delete_transaction_templates",
+      "create_recurrence",
+      "update_recurrence",
+      "delete_recurrence",
     ]) {
       expect(readOnly.has(write), `${write} must need more than read`).toBe(false);
     }

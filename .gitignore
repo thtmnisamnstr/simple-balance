@@ -23,3 +23,8 @@ outputs/
 
 # Agent worktrees, which are whole checkouts of this repo.
 .claude/worktrees/
+
+# Scratch trees a verification agent may leave behind. They are diagnostics,
+# never deliverables, and one committed by accident runs in every CI leg.
+tests/tmp*/
+tests/zz-*

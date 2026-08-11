@@ -209,7 +209,7 @@ file, which is how a whole import gets corrected in one go.
 and `delete_recurrence`. The two reads take `ledger:read`; the three writes take
 `ledger:write`, which is where template editing already sits. A recurrence is a
 template plus a standing instruction to keep proposing after the conversation
-has ended.
+has ended, so nothing short of full write access can leave one behind.
 
 A recurrence proposes and never posts. On each due date it writes an ordinary
 staged row dated that occurrence, and somebody commits it from the queue like

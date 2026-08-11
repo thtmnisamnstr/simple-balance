@@ -516,79 +516,6 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ({ id }) => runTool(() => getRecurrence(actor, id)),
     );
     server.registerTool(
-      "create_recurrence",
-      {
-        title: "Create recurring transaction",
-        description:
-          "Save a transaction shape and a schedule. On each due date it proposes an ordinary staged row dated that occurrence, and never a posting. The amount may be left out for a bill whose amount varies; the row is proposed flagged for somebody to complete. A date, a template and a bank import reference are all refused. Monthly and yearly schedules may name a relative day instead of a day of the month, such as the second Tuesday or the last Friday. Nothing is ever proposed dated before the day the recurrence was created.",
-        inputSchema: recurrenceCreateSchema.extend({
-          idempotencyKey: idempotencyKeySchema,
-        }),
-        outputSchema: mcpOutputSchema(recurrenceResultSchema),
-        annotations: additiveAnnotations,
-      },
-      ({ idempotencyKey, ...input }) =>
-        runTool(() =>
-          runIdempotentMcpMutation(
-            actor,
-            "recurrence.create",
-            idempotencyKey,
-            input,
-            (tx) => createRecurrence(actor, input, tx),
-          ),
-        ),
-    );
-    server.registerTool(
-      "update_recurrence",
-      {
-        title: "Update recurring transaction",
-        description:
-          "Change a recurring transaction's name, shape or schedule. A schedule field left out keeps what is stored, so changing the frequency does not reset the month-length or weekend policy. The day it may propose from is never moved: an edit cannot conjure rows for months already dealt with.",
-        inputSchema: z.object({
-          id: z.string().uuid(),
-          input: recurrenceUpdateSchema,
-          idempotencyKey: idempotencyKeySchema,
-        }),
-        outputSchema: mcpOutputSchema(recurrenceResultSchema),
-        annotations: destructiveAnnotations,
-      },
-      ({ id, input, idempotencyKey }) =>
-        runTool(() =>
-          runIdempotentMcpMutation(
-            actor,
-            "recurrence.update",
-            idempotencyKey,
-            { id, input },
-            (tx) => updateRecurrence(actor, id, input, tx),
-          ),
-        ),
-    );
-    server.registerTool(
-      "delete_recurrence",
-      {
-        title: "Delete recurring transaction",
-        description:
-          "Stop a recurring transaction. Rows it has already proposed are left exactly as they are, whether they are still in the queue or already committed, and they go on reporting which recurrence made them.",
-        inputSchema: z.object({
-          id: z.string().uuid(),
-          expectedVersion: z.number().int().positive(),
-          idempotencyKey: idempotencyKeySchema,
-        }),
-        outputSchema: mcpOutputSchema(z.object({ id: z.string().uuid() })),
-        annotations: destructiveAnnotations,
-      },
-      ({ id, expectedVersion, idempotencyKey }) =>
-        runTool(() =>
-          runIdempotentMcpMutation(
-            actor,
-            "recurrence.delete",
-            idempotencyKey,
-            { id, expectedVersion },
-            (tx) => deleteRecurrence(actor, id, expectedVersion, tx),
-          ),
-        ),
-    );
-    server.registerTool(
       "list_transaction_templates",
       {
         title: "List transaction templates",
@@ -840,6 +767,79 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
   }
 
   if (scopes.has("ledger:write")) {
+    server.registerTool(
+      "create_recurrence",
+      {
+        title: "Create recurring transaction",
+        description:
+          "Save a transaction shape and a schedule. On each due date it proposes an ordinary staged row dated that occurrence, and never a posting. The amount may be left out for a bill whose amount varies; the row is proposed flagged for somebody to complete. A date, a template and a bank import reference are all refused. Monthly and yearly schedules may name a relative day instead of a day of the month, such as the second Tuesday or the last Friday. Nothing is ever proposed dated before the day the recurrence was created.",
+        inputSchema: recurrenceCreateSchema.extend({
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(recurrenceResultSchema),
+        annotations: additiveAnnotations,
+      },
+      ({ idempotencyKey, ...input }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "recurrence.create",
+            idempotencyKey,
+            input,
+            (tx) => createRecurrence(actor, input, tx),
+          ),
+        ),
+    );
+    server.registerTool(
+      "update_recurrence",
+      {
+        title: "Update recurring transaction",
+        description:
+          "Change a recurring transaction's name, shape or schedule. A schedule field left out keeps what is stored, so changing the frequency does not reset the month-length or weekend policy. The day it may propose from is never moved: an edit cannot conjure rows for months already dealt with.",
+        inputSchema: z.object({
+          id: z.string().uuid(),
+          input: recurrenceUpdateSchema,
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(recurrenceResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      ({ id, input, idempotencyKey }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "recurrence.update",
+            idempotencyKey,
+            { id, input },
+            (tx) => updateRecurrence(actor, id, input, tx),
+          ),
+        ),
+    );
+    server.registerTool(
+      "delete_recurrence",
+      {
+        title: "Delete recurring transaction",
+        description:
+          "Stop a recurring transaction. Rows it has already proposed are left exactly as they are, whether they are still in the queue or already committed, and they go on reporting which recurrence made them.",
+        inputSchema: z.object({
+          id: z.string().uuid(),
+          expectedVersion: z.number().int().positive(),
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(z.object({ id: z.string().uuid() })),
+        annotations: destructiveAnnotations,
+      },
+      ({ id, expectedVersion, idempotencyKey }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "recurrence.delete",
+            idempotencyKey,
+            { id, expectedVersion },
+            (tx) => deleteRecurrence(actor, id, expectedVersion, tx),
+          ),
+        ),
+    );
     server.registerTool(
       "revoke_connected_agent",
       {
