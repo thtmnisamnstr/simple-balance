@@ -1,7 +1,16 @@
+import { MAX_BULK_SELECTION_ENTRIES } from "../shared/domain.js";
+
 export const DEFAULT_CSV_MAX_BYTES = 10 * 1024 * 1024;
 export const MAX_CSV_CONFIGURATION_BYTES = 100 * 1024 * 1024;
-export const DEFAULT_CSV_MAX_ROWS = 25_000;
-export const MAX_CSV_CONFIGURATION_ROWS = 1_000_000;
+/**
+ * One import stages at most what one mass action can then commit, edit or
+ * delete. A larger import produced a queue that could only be cleared a
+ * selection at a time, which is a cap doing damage rather than protecting
+ * anything. Lowering it with CSV_MAX_ROWS is a deployment's business; raising
+ * it past the bulk cap only moves the refusal further along.
+ */
+export const DEFAULT_CSV_MAX_ROWS = MAX_BULK_SELECTION_ENTRIES;
+export const MAX_CSV_CONFIGURATION_ROWS = MAX_BULK_SELECTION_ENTRIES;
 export const DEFAULT_DATABASE_POOL_SIZE = 10;
 export const MAX_DATABASE_POOL_SIZE = 100;
 export const DEFAULT_RECURRENCE_TICK_SECONDS = 300;

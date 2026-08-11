@@ -79,7 +79,25 @@ export const csvStageInputSchema = z.object({
   dryRun: z.boolean().default(false),
 });
 
+/**
+ * The size limit, applied wherever a CSV arrives rather than only where one is
+ * stored.
+ *
+ * The preview reads the same body the stage call does, off the same route
+ * sizing, and papaparse stopping after twenty-five rows does not stop the whole
+ * string being decoded and held first. Refusing here is also the earlier
+ * answer: a file too large to import should say so before somebody maps its
+ * columns.
+ */
+function assertCsvWithinSizeLimit(csv: string) {
+  const maxBytes = configuredCsvMaxBytes();
+  if (Buffer.byteLength(csv, "utf8") > maxBytes) {
+    throw validationError(`CSV exceeds the ${maxBytes}-byte limit`);
+  }
+}
+
 export function getCsvPreview(csv: string) {
+  assertCsvWithinSizeLimit(csv);
   return previewCsv(csv);
 }
 
@@ -603,11 +621,8 @@ export async function stageCsv(
   transaction?: DbTransaction,
 ) {
   const parsed = csvStageInputSchema.parse(input);
-  const maxBytes = configuredCsvMaxBytes();
   const maxRows = configuredCsvMaxRows();
-  if (Buffer.byteLength(parsed.csv, "utf8") > maxBytes) {
-    throw validationError(`CSV exceeds the ${maxBytes}-byte limit`);
-  }
+  assertCsvWithinSizeLimit(parsed.csv);
   const parsedCsv = Papa.parse<Record<string, string>>(parsed.csv, {
     header: true,
     skipEmptyLines: "greedy",

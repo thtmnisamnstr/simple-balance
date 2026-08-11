@@ -843,7 +843,7 @@ const bulkTransactionFilterSelectionSchema = z
     mode: z.literal("filter"),
     filter: bulkTransactionFilterSchema,
     excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
-    expectedCount: z.number().int().nonnegative(),
+    expectedCount: z.number().int().nonnegative().max(MAX_BULK_SELECTION_ENTRIES),
     expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   })
   .strict()
@@ -1055,7 +1055,7 @@ const bulkStageFilterSelectionSchema = z
     mode: z.literal("filter"),
     filter: bulkStageFilterSchema,
     excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
-    expectedCount: z.number().int().nonnegative(),
+    expectedCount: z.number().int().nonnegative().max(MAX_BULK_SELECTION_ENTRIES),
     expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   })
   .strict()

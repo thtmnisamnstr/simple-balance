@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Decimal } from "decimal.js";
 import {
   and,
@@ -37,6 +36,7 @@ import {
   decimalStringSchema,
   isoDateSchema,
   listQuerySchema,
+  MAX_BULK_SELECTION_ENTRIES,
   positiveDecimalStringSchema,
   transactionDraftSchema,
   transactionUpdateSchema,
@@ -62,11 +62,13 @@ import { decodeCursor, encodeCursor } from "./cursor.js";
 import {
   canonicalDecimal,
   decimal,
+  exceedsBulkSelectionCap,
   getIdempotent,
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockPayeeNamespace,
+  selectionFingerprint,
   serializeRow,
   setIdempotent,
   writeAudit,
@@ -1336,16 +1338,6 @@ function transactionFilterConditions(
   return conditions;
 }
 
-function bulkSelectionFingerprint(
-  rows: readonly Pick<TransactionRow, "id" | "version">[],
-) {
-  const payload = [...rows]
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map((row) => `${row.id}:${row.version}`)
-    .join("\n");
-  return createHash("sha256").update(payload).digest("hex");
-}
-
 /**
  * Which of these transactions are splits, asked of the leg rows themselves.
  *
@@ -1427,11 +1419,23 @@ async function selectBulkFilterRows(
   if (selection.excludedIds.length) {
     conditions.push(notInArray(transactions.id, [...selection.excludedIds]));
   }
-  return executor
+  const rows = await executor
     .select()
     .from(transactions)
     .where(and(...conditions))
-    .orderBy(transactions.id);
+    .orderBy(transactions.id)
+    // One past the cap, so the refusal happens in PostgreSQL rather than after
+    // a whole ledger has been fetched, fingerprinted and held in memory. An
+    // explicit-id selection is bounded by its own schema; a filter is not
+    // bounded by anything the caller sends, so it is bounded here.
+    .limit(MAX_BULK_SELECTION_ENTRIES + 1);
+  if (rows.length > MAX_BULK_SELECTION_ENTRIES) {
+    throw validationError(exceedsBulkSelectionCap("transactions"), {
+      field: "filter",
+      limit: MAX_BULK_SELECTION_ENTRIES,
+    });
+  }
+  return rows;
 }
 
 export async function getBulkTransactionSelection(
@@ -1442,7 +1446,7 @@ export async function getBulkTransactionSelection(
   const rows = await selectBulkFilterRows(getDb(), actor, parsed);
   return bulkTransactionSelectionSnapshotSchema.parse({
     count: rows.length,
-    fingerprint: bulkSelectionFingerprint(rows),
+    fingerprint: selectionFingerprint(rows),
     ...(await bulkSelectionSummaryFor(getDb(), actor, rows)),
   });
 }
@@ -1556,7 +1560,7 @@ function assertExpectedFilterSnapshot(
   selection: Extract<BulkTransactionEditInput["selection"], { mode: "filter" }>,
   rows: readonly TransactionRow[],
 ) {
-  const fingerprint = bulkSelectionFingerprint(rows);
+  const fingerprint = selectionFingerprint(rows);
   if (
     rows.length !== selection.expectedCount ||
     fingerprint !== selection.expectedFingerprint
@@ -1651,6 +1655,17 @@ async function assertBulkDuplicatesAllowed(
   }
   if (allowDuplicates || !selectedByKey.size) return;
 
+  // Every duplicate key begins with the draft's own date, so a row on any other
+  // date cannot collide with any of these plans. Narrowing to the dates being
+  // written is therefore exact rather than a heuristic, and it turns a read of
+  // the whole ledger into an indexed read of the days it touches.
+  const writtenDates = [
+    ...new Set(
+      plans
+        .filter((plan) => plan.before.deletedAt === null)
+        .map((plan) => plan.draft.date),
+    ),
+  ];
   const activeRows = await tx
     .select()
     .from(transactions)
@@ -1658,6 +1673,7 @@ async function assertBulkDuplicatesAllowed(
       and(
         eq(transactions.userId, actor.userId),
         isNull(transactions.deletedAt),
+        inArray(transactions.date, writtenDates),
       ),
     )
     .orderBy(transactions.id);
@@ -1709,7 +1725,7 @@ export async function bulkEditTransactions(
     if (!snapshotRows.length) {
       throw validationError("Select at least one transaction");
     }
-    const snapshotFingerprint = bulkSelectionFingerprint(snapshotRows);
+    const snapshotFingerprint = selectionFingerprint(snapshotRows);
     const snapshotLegs = await legsByTransaction(
       tx,
       actor,
@@ -1758,7 +1774,7 @@ export async function bulkEditTransactions(
       )
       .orderBy(transactions.id)
       .for("update");
-    const lockedFingerprint = bulkSelectionFingerprint(lockedRows);
+    const lockedFingerprint = selectionFingerprint(lockedRows);
     if (
       lockedRows.length !== snapshotRows.length ||
       lockedFingerprint !== snapshotFingerprint
@@ -1970,7 +1986,7 @@ export async function bulkDeleteTransactions(
     if (!snapshotRows.length) {
       throw validationError("Select at least one transaction");
     }
-    const snapshotFingerprint = bulkSelectionFingerprint(snapshotRows);
+    const snapshotFingerprint = selectionFingerprint(snapshotRows);
     await lockAccountReferences(
       tx,
       actor,
@@ -1993,7 +2009,7 @@ export async function bulkDeleteTransactions(
       )
       .orderBy(transactions.id)
       .for("update");
-    const lockedFingerprint = bulkSelectionFingerprint(lockedRows);
+    const lockedFingerprint = selectionFingerprint(lockedRows);
     if (
       lockedRows.length !== snapshotRows.length ||
       lockedFingerprint !== snapshotFingerprint

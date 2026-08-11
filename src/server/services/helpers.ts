@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Decimal } from "decimal.js";
-import type { Actor } from "../../shared/domain.js";
+import { MAX_BULK_SELECTION_ENTRIES, type Actor } from "../../shared/domain.js";
 import type { Database, DbTransaction } from "../db/client.js";
 import { auditEvents, idempotencyRecords } from "../db/schema.js";
 import { and, eq, sql } from "drizzle-orm";
@@ -199,6 +199,39 @@ async function takeTransactionLock(tx: DbTransaction, lockKey: string) {
     sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
   );
   held.add(lockKey);
+}
+
+/**
+ * The one sentence every path that refuses an oversized set says.
+ *
+ * The cap is the same everywhere on purpose. A person who has met it on a mass
+ * edit should not have to discover a different number on an import or a mass
+ * delete, and a caller that has to split its work should be able to split it
+ * the same way each time.
+ */
+export function exceedsBulkSelectionCap(noun: string) {
+  return (
+    `That covers more than ${MAX_BULK_SELECTION_ENTRIES.toLocaleString("en-US")} ${noun}, ` +
+    "which is the most one request may change at a time. Narrow it and repeat."
+  );
+}
+
+/**
+ * One `id:version` fingerprint for a selected set, whatever kind of row it is.
+ *
+ * The fingerprint is what a mass change describes its set with, and the
+ * transaction and staged paths have to agree on it byte for byte: two spellings
+ * of the same hash is a way for one of them to drift and start accepting a set
+ * the other would refuse.
+ */
+export function selectionFingerprint(
+  rows: readonly { id: string; version: number }[],
+) {
+  const payload = [...rows]
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((row) => `${row.id}:${row.version}`)
+    .join("\n");
+  return createHash("sha256").update(payload).digest("hex");
 }
 
 /**

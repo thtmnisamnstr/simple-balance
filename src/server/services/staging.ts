@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   and,
   count,
@@ -43,11 +42,13 @@ import {
 import { duplicate, notFound, staleVersion, validationError, zodIssues, AppError } from "./errors.js";
 import { decodeCursor, encodeCursor } from "./cursor.js";
 import {
+  exceedsBulkSelectionCap,
   getIdempotent,
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
   lockPayeeNamespace,
+  selectionFingerprint,
   serializeRow,
   setIdempotent,
   writeAudit,
@@ -981,16 +982,6 @@ export async function commitStages(
  * again so the queue's own verdict on it is current. A patch that turns an
  * invalid row valid is the ordinary reason to do this at all.
  */
-function stageSelectionFingerprint(
-  rows: readonly Pick<typeof stagedTransactions.$inferSelect, "id" | "version">[],
-) {
-  const payload = [...rows]
-    .sort((left, right) => left.id.localeCompare(right.id))
-    .map((row) => `${row.id}:${row.version}`)
-    .join("\n");
-  return createHash("sha256").update(payload).digest("hex");
-}
-
 function stageSelectionSummary(
   rows: readonly (typeof stagedTransactions.$inferSelect)[],
 ) {
@@ -1022,8 +1013,19 @@ async function selectStageFilterRows(
     .select()
     .from(stagedTransactions)
     .where(and(...conditions))
-    .orderBy(stagedTransactions.id);
-  return lockRows ? query.for("update") : query;
+    .orderBy(stagedTransactions.id)
+    // One past the cap, so an oversized queue is refused by PostgreSQL rather
+    // than after every row has been read, and — on the write path — rather
+    // than after every row has been locked `for update`.
+    .limit(MAX_BULK_SELECTION_ENTRIES + 1);
+  const rows = await (lockRows ? query.for("update") : query);
+  if (rows.length > MAX_BULK_SELECTION_ENTRIES) {
+    throw validationError(exceedsBulkSelectionCap("staged rows"), {
+      field: "filter",
+      limit: MAX_BULK_SELECTION_ENTRIES,
+    });
+  }
+  return rows;
 }
 
 /**
@@ -1035,7 +1037,7 @@ export async function previewBulkStageSelection(actor: Actor, input: unknown) {
   const rows = await selectStageFilterRows(getDb(), actor, parsed);
   return bulkStageSelectionSnapshotSchema.parse({
     count: rows.length,
-    fingerprint: stageSelectionFingerprint(rows),
+    fingerprint: selectionFingerprint(rows),
     ...stageSelectionSummary(rows),
   });
 }
@@ -1140,7 +1142,7 @@ export async function bulkEditStages(
       }
     } else {
       rows = await selectStageFilterRows(tx, actor, selection, true);
-      const fingerprint = stageSelectionFingerprint(rows);
+      const fingerprint = selectionFingerprint(rows);
       if (
         rows.length !== selection.expectedCount ||
         fingerprint !== selection.expectedFingerprint
@@ -1155,9 +1157,9 @@ export async function bulkEditStages(
     }
 
     if (rows.length > MAX_BULK_SELECTION_ENTRIES) {
-      throw validationError(
-        `A bulk edit covers at most ${MAX_BULK_SELECTION_ENTRIES} staged transactions`,
-      );
+      throw validationError(exceedsBulkSelectionCap("staged rows"), {
+        limit: MAX_BULK_SELECTION_ENTRIES,
+      });
     }
 
     // Which account field a draft carries is decided by its type, so a row whose
