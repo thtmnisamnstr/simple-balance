@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/client/App.js";
 import { BrowserRouter } from "../src/client/router.js";
@@ -27,8 +27,47 @@ const session = (chosen: boolean) => ({
 
 let bodies: { url: string; body: unknown }[] = [];
 
+const realDateTimeFormat = Intl.DateTimeFormat;
+
+/**
+ * Pin what the browser implies, so both cases turn on the stored `chosen` flag
+ * and not on the timezone of whichever machine runs the suite. A host already
+ * on UTC would otherwise make the guess equal to what is stored, and the write
+ * would be skipped for a reason that has nothing to do with the rule here.
+ */
+function stubBrowserRegion() {
+  const pinned = new Proxy(realDateTimeFormat, {
+    construct(target, args) {
+      const formatter = Reflect.construct(target, args) as Intl.DateTimeFormat;
+      // An explicit request keeps its answer; only the ambient guess is pinned.
+      if ((args[1] as Intl.DateTimeFormatOptions | undefined)?.timeZone) {
+        return formatter;
+      }
+      const resolved = formatter.resolvedOptions.bind(formatter);
+      formatter.resolvedOptions = () => ({
+        ...resolved(),
+        timeZone: "Europe/Berlin",
+      });
+      return formatter;
+    },
+    apply: (target, _thisArg, args) => Reflect.construct(target, args),
+  });
+  Object.defineProperty(Intl, "DateTimeFormat", {
+    value: pinned,
+    configurable: true,
+    writable: true,
+  });
+  for (const [key, value] of [
+    ["languages", ["de-DE"]],
+    ["language", "de-DE"],
+  ] as const) {
+    Object.defineProperty(window.navigator, key, { value, configurable: true });
+  }
+}
+
 function stubApi(chosen: boolean) {
   bodies = [];
+  stubBrowserRegion();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -53,6 +92,11 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  Object.defineProperty(Intl, "DateTimeFormat", {
+    value: realDateTimeFormat,
+    configurable: true,
+    writable: true,
+  });
   vi.unstubAllGlobals();
 });
 
@@ -91,9 +135,10 @@ describe("adopting the region the browser implies", () => {
   it("does not write at all once somebody has chosen", async () => {
     stubApi(true);
     renderApp();
-    await waitFor(() =>
-      expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(0),
-    );
+    // The write is fired from an effect in the shell, so waiting on any request
+    // at all would settle on the session load, before the shell has mounted and
+    // before there is anything for this to be true about.
+    await screen.findByRole("navigation", { name: "Main navigation" });
     expect(bodies.filter((one) => one.url === "/api/v1/preferences")).toEqual([]);
   });
 });

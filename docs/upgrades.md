@@ -3,6 +3,38 @@
 Everything persistent is in PostgreSQL. The container holds nothing you need to
 keep, so upgrading is swapping it for a newer one.
 
+## Before you upgrade to 0.1.4
+
+0.1.4 refuses to start on three configurations 0.1.3 accepted. Each refusal is
+deliberate: all three were ways a deployment could look fine while running with
+protections silently off. Check these before you swap the image, because the
+container will not start and will not tell you until it has.
+
+| If your configuration has | 0.1.4 does | What to do |
+| --- | --- | --- |
+| `AUTH_SECRET` still set to the placeholder `.env.example` shipped | Refuses to start, naming the variable | Generate one: `openssl rand -base64 32` |
+| `NODE_ENV` set to anything but `production`, `development` or `test`, including unset or empty | Refuses to start | Set `NODE_ENV=production`. The images already do. |
+| `NODE_ENV` not `production` while `APP_BASE_URL` names anything but localhost | Refuses to start | Set `NODE_ENV=production`, and give `APP_BASE_URL` the HTTPS origin your proxy terminates |
+
+**Replacing `AUTH_SECRET` signs everybody out** and disconnects every MCP
+client, because sessions are signed with it. Everyone signs in again with the
+password they already have, and each connected agent has to be authorized once
+more from Settings. Plan the upgrade for a moment when that is acceptable.
+
+Two other things change without stopping the server:
+
+- `CSV_MAX_ROWS` above 10,000 is silently reduced to 10,000, which is now also
+  the most rows one mass edit, commit or delete covers. If you had it higher,
+  large imports now arrive in more than one file.
+- MCP access tokens issued by 0.1.3 stop working. Clients holding a refresh
+  token get a new one on their next call without anybody doing anything; a
+  client that cannot refresh has to be authorized again.
+
+The first start after the upgrade re-closes any account you archived while it
+held a transaction dated in the future, and says so in the log. It writes
+nothing for an account that is already correct, and running it again writes
+nothing at all.
+
 ## How to upgrade
 
 1. Read the [changelog](../CHANGELOG.md) for the version you are moving to, and
@@ -20,7 +52,8 @@ keep, so upgrading is swapping it for a newer one.
 3. Pull the image by its version tag, not `latest`, so you know what you are
    getting.
 4. Stop and remove the application container. Leave PostgreSQL running.
-5. Start the new image with the same settings you had before.
+5. Start the new image with the same settings you had before, after checking
+   the section above for anything that release refuses.
 6. Watch the log, and wait for `curl -f http://127.0.0.1:3000/health/ready`.
 7. Keep the backup until you have used the app enough to trust it.
 

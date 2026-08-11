@@ -179,7 +179,7 @@ A CSV export now carries the bank's own reference for each row, and an import
 no longer invents one. The file had no column for it, and restoring one wrote
 the source ledger's internal id into that field instead, so the check that stops
 a statement being imported twice was keying on an identity that means nothing in
-the ledger it was read into. Files written by 0.1.3 and 0.1.4 still import; their
+the ledger it was read into. Files written by 0.1.3 and earlier still import; their
 rows simply carry no reference, which is the honest answer for a file that has
 none. One consequence worth knowing: a row with no bank reference, re-imported a
 second time under a different account, is no longer refused as a duplicate,
@@ -191,11 +191,15 @@ apostrophe on every round trip and becomes a second category each time. The
 visible column stays safe to open in a spreadsheet; the value the import trusts
 travels beside it where nothing rewrites it.
 
-Archiving an account that holds a future-dated transaction no longer loses money
-from the total. A single closing entry dated the last posting left the account
-holding a balance on every day between the archive and that date, while the
-dashboard had already stopped counting it. Accounts archived before this are
-re-closed once, the first time the server starts.
+Archiving an account now closes it at zero on the day you archive it, not on the
+date of the last transaction it happens to hold. A single closing entry dated
+that last transaction left the account holding a balance on every day in
+between, while every total had already stopped counting it: a report for a date
+in that window showed money in an account you had retired, and restoring it in
+that window put the balance back on top of one that had never left. Accounts
+archived before this are re-closed once, the first time the server starts, which
+is logged. Nothing is deleted and no total changes for an account whose
+transactions are all in the past.
 
 A negative number in a mapped Debit or Credit column no longer has its sign
 quietly removed. Where the file has both columns the other one is what a

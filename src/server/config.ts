@@ -101,7 +101,9 @@ function assertNotADeployment(baseUrl: string | undefined) {
   throw new Error(
     `NODE_ENV is not production but APP_BASE_URL names ${hostname}. ` +
       "The first-run setup code, sign-in rate limiting and secure cookies are " +
-      "all off outside production. Set NODE_ENV=production.",
+      "all off outside production. Either set NODE_ENV=production and give " +
+      "APP_BASE_URL the HTTPS origin a proxy in front terminates, or point " +
+      "APP_BASE_URL at localhost if this really is a development machine.",
   );
 }
 

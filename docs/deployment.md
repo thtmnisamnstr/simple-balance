@@ -399,6 +399,17 @@ Four things have to line up:
   wasted wakeups on every replica.
 - **One scheduler replica.** More is harmless for the same reason, and buys
   nothing.
+- **Nothing trusted in front of nginx, or `set_real_ip_from` if there is.** The
+  template replaces `X-Forwarded-For` with `$remote_addr`, which is right when
+  nginx is the first hop and wrong when an ingress terminating TLS sits in front
+  of it: `$remote_addr` is then that ingress, and with `TRUST_PROXY=true` every
+  visitor in the cluster shares one sign-in allowance. Since this container
+  listens on plain HTTP and production requires an HTTPS `APP_BASE_URL`,
+  something is terminating TLS in front of it, so this is the ordinary case
+  rather than the exotic one. Add
+  `set_real_ip_from <your ingress CIDR>; real_ip_header X-Forwarded-For;
+  real_ip_recursive on;` to the proxy location so `$remote_addr` resolves back
+  to the visitor.
 
 Each of these processes now opens up to three pooled connections: the
 application pool, the auth bootstrap lock, and the scheduler lock. Worth knowing

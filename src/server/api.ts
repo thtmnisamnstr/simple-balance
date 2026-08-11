@@ -1270,7 +1270,7 @@ app.get("/api/v1/audit-events", async (c) =>
 // API image with no client in it and puts nginx in front, and serveStatic warns
 // on every request about a root it cannot find - which is right when the bundle
 // should be there and pure noise when it deliberately is not.
-if (process.env.NODE_ENV === "production" && existsSync("./dist/client")) {
+if (getConfig().isProduction && existsSync("./dist/client")) {
   // Set after the file is served: the static handler answers with a response of
   // its own, so a header put on the context beforehand does not survive.
   //

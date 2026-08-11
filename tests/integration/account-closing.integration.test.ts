@@ -574,10 +574,17 @@ integration("archiving an account holding future-dated money", () => {
     expect(await balanceAsOf(account.id, daysFromNow(30))).toBe(100);
   });
 
-  // The list of archived accounts is read outside the per-account transaction,
-  // so a row can be restored between the read and the repair. Re-closing it
-  // then would take a live account's balance away with nothing to undo it.
-  it("leaves an account alone that was restored since the list was read", async () => {
+  /**
+   * The list of archived accounts is read outside the per-account transaction,
+   * so a row can be restored between the read and the repair. Re-closing it
+   * then would take a live account's balance away with nothing to undo it.
+   *
+   * The restore has to land inside that window for this to test anything, so it
+   * is held under the account's own advisory lock until the repair is already
+   * running and blocked on it. Restoring before the run instead leaves the row
+   * out of the list entirely and the branch under test unreached.
+   */
+  it("skips an account restored while the repair was already running", async () => {
     const account = await createAccount(futureActor, {
       name: "Restored Mid Repair",
       type: "checking",
@@ -585,17 +592,54 @@ integration("archiving an account holding future-dated money", () => {
       openingDate: "2026-01-01",
       openingBalance: "300",
     });
+    await createTransaction(
+      futureActor,
+      {
+        type: "deposit",
+        date: daysFromNow(25),
+        payee: "Later",
+        description: null,
+        toAccountId: account.id,
+        amount: "60",
+      },
+      "closing-restore-race",
+    );
     const opened = await getAccount(futureActor, account.id);
     await setAccountArchived(futureActor, account.id, opened.version, true);
-    const archived = await getAccount(futureActor, account.id);
-    await setAccountArchived(futureActor, account.id, archived.version, false);
+    // Leave it needing repair, so a run that does not skip would write.
+    await getDb().execute(sql`
+      delete from posting
+      where user_id = ${futureActor.userId}
+        and closing_account_id = ${account.id}::uuid
+    `);
 
-    await reconcileArchivedAccountClosings();
+    const blocker = new PgClient({ connectionString: process.env.DATABASE_URL });
+    await blocker.connect();
+    await blocker.query("begin");
+    await blocker.query(
+      "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+      [`account-reference:${futureActor.userId}:${account.id}`],
+    );
+    await blocker.query("update ledger_account set archived_at = null where id = $1", [
+      account.id,
+    ]);
+
+    // Reads the list, which still shows the row archived because the restore is
+    // uncommitted, then blocks taking the lock this transaction holds.
+    const repair = reconcileArchivedAccountClosings();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await blocker.query("commit");
+    await blocker.end();
+    await repair;
 
     expect(await balanceAsOf(account.id, today())).toBe(300);
-    expect(await getAccount(futureActor, account.id)).toMatchObject({
-      archivedAt: null,
-    });
+    expect(await balanceAsOf(account.id, daysFromNow(25))).toBe(360);
+    const closings = await getDb().execute(sql`
+      select count(*)::int as rows from posting
+      where user_id = ${futureActor.userId}
+        and closing_account_id = ${account.id}::uuid
+    `);
+    expect((closings.rows[0] as { rows: number }).rows).toBe(0);
   });
 
   // An account archived under the single-entry rule keeps its one mis-dated

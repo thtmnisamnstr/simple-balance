@@ -577,27 +577,6 @@ function transactionShapeColumns(values: typeof transactions.$inferInsert) {
 }
 
 /**
- * Bring an entry's postings to a desired state without ever editing or deleting
- * one. The difference between what is posted and what should be posted is
- * worked out per account, currency, date, and leg, and only that difference is
- * written.
- *
- * Correcting an amount therefore costs one adjusting posting per side rather
- * than a full reversal plus a full repost, and an edit that changes nothing
- * about the movement writes nothing at all. Recategorising a leg is exactly
- * that kind of edit: the label lives on the leg row and the leg's identity does
- * not change, so the difference is empty and no posting is written. Changing
- * what a leg is worth does write two, which is right, because the money was
- * divided differently.
- *
- * Passing an empty desired set voids the entry, which is how deletion works.
- * Each leg is negated under its own id, so a split goes to zero one leg at a
- * time and every one of its categories drops out of the reports. Passing its
- * postings back restores it.
- *
- * The rows still sum to the current position, and the path there stays legible.
- */
-/**
  * Bring a transaction's legs to the desired list and hand back where each
  * prepared posting's `legIndex` now points.
  *
@@ -766,6 +745,27 @@ function withLegIds(
   }));
 }
 
+/**
+ * Bring an entry's postings to a desired state without ever editing or deleting
+ * one. The difference between what is posted and what should be posted is
+ * worked out per account, currency, date, and leg, and only that difference is
+ * written.
+ *
+ * Correcting an amount therefore costs one adjusting posting per side rather
+ * than a full reversal plus a full repost, and an edit that changes nothing
+ * about the movement writes nothing at all. Recategorising a leg is exactly
+ * that kind of edit: the label lives on the leg row and the leg's identity does
+ * not change, so the difference is empty and no posting is written. Changing
+ * what a leg is worth does write two, which is right, because the money was
+ * divided differently.
+ *
+ * Passing an empty desired set voids the entry, which is how deletion works.
+ * Each leg is negated under its own id, so a split goes to zero one leg at a
+ * time and every one of its categories drops out of the reports. Passing its
+ * postings back restores it.
+ *
+ * The rows still sum to the current position, and the path there stays legible.
+ */
 export async function repostTransaction(
   tx: DbTransaction,
   actor: Actor,

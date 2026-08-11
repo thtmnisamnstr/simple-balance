@@ -88,9 +88,6 @@ export async function runMigrations() {
 }
 
 /**
- * A pool client, creating the database first if the server has never seen it.
- */
-/**
  * Certificate failures node-postgres reports when TLS is on but the chain does
  * not check out. A self-hosted PostgreSQL almost always presents a certificate
  * it signed itself, and Node's own advice for this is to install the root CA,
@@ -106,6 +103,9 @@ const TLS_TRUST_FAILURES = new Set([
   "ERR_TLS_CERT_ALTNAME_INVALID",
 ]);
 
+/**
+ * A pool client, creating the database first if the server has never seen it.
+ */
 async function connectForMigration() {
   try {
     return await getPool().connect();

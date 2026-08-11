@@ -24,18 +24,18 @@ export const preferenceSchema = z.object({
 });
 
 /**
- * Takes an executor because a caller inside a transaction must not reach into
- * the pool for a second connection. On a one-connection pool that waits for a
- * connection its own open transaction is holding, which is a deadlock that only
- * appears under a small pool and then never resolves.
- */
-/**
  * What a person gets before they have chosen anything. One copy, because the
  * read synthesises them for a missing row and a partial write has to insert
  * the same ones for the field it was not given.
  */
 const unchosenPreferences = { timezone: "UTC", defaultCurrency: "USD" } as const;
 
+/**
+ * Takes an executor because a caller inside a transaction must not reach into
+ * the pool for a second connection. On a one-connection pool that waits for a
+ * connection its own open transaction is holding, which is a deadlock that only
+ * appears under a small pool and then never resolves.
+ */
 export async function getPreferences(actor: Actor, executor: Executor = getDb()) {
   const [preferences] = await executor
     .select()

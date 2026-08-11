@@ -999,16 +999,6 @@ export const stageListQuerySchema = listQuerySchema
   });
 
 /**
- * Changing many staged rows at once, on the same terms as committed ones.
- *
- * The selection is the same shape and carries the same guarantees: a list of
- * ids each with the version it was read at, or "everything matching this view"
- * with a count and a fingerprint of the exact set. What differs is what is being
- * changed. A staged row is a draft rather than an entry in the books, so nothing
- * here moves money; it rewrites the draft and revalidates it, and the queue
- * shows what would happen at commit.
- */
-/**
  * Only the fields `stageFilterConditions` actually applies, with the paging and
  * ordering that describe a view rather than scope it taken out.
  *
@@ -1136,6 +1126,16 @@ export const bulkStagePatchSchema = z
     message: "Choose at least one field to update",
   });
 
+/**
+ * Changing many staged rows at once, on the same terms as committed ones.
+ *
+ * The selection is the same shape and carries the same guarantees: a list of
+ * ids each with the version it was read at, or "everything matching this view"
+ * with a count and a fingerprint of the exact set. What differs is what is being
+ * changed. A staged row is a draft rather than an entry in the books, so nothing
+ * here moves money; it rewrites the draft and revalidates it, and the queue
+ * shows what would happen at commit.
+ */
 export const bulkStageEditSchema = z
   .object({
     selection: bulkStageSelectionSchema,

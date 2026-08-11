@@ -997,23 +997,6 @@ export async function commitStages(
   });
 }
 
-/**
- * Changing many staged rows at once.
- *
- * The safety model is the committed one, because a person selecting rows should
- * not have to learn two of them: a list of ids each carrying the version it was
- * read at, or "everything matching this view" carrying a count and a
- * fingerprint of the exact id:version set. Either way a row that moved
- * underneath makes the whole request stale rather than quietly taking a value
- * somebody never saw.
- *
- * What differs from the committed version is what happens after the selection
- * is settled, and it is simpler: a staged row is a draft, so nothing here posts,
- * reverses, or touches a balance. The patch is written into the draft, the payee
- * is canonicalised the way a single edit does it, and the row is validated
- * again so the queue's own verdict on it is current. A patch that turns an
- * invalid row valid is the ordinary reason to do this at all.
- */
 function stageSelectionSummary(
   rows: readonly (typeof stagedTransactions.$inferSelect)[],
 ) {
@@ -1123,6 +1106,23 @@ function patchedStageDraft(draft: Record<string, unknown>, patch: BulkStagePatch
   return next;
 }
 
+/**
+ * Changing many staged rows at once.
+ *
+ * The safety model is the committed one, because a person selecting rows should
+ * not have to learn two of them: a list of ids each carrying the version it was
+ * read at, or "everything matching this view" carrying a count and a
+ * fingerprint of the exact id:version set. Either way a row that moved
+ * underneath makes the whole request stale rather than quietly taking a value
+ * somebody never saw.
+ *
+ * What differs from the committed version is what happens after the selection
+ * is settled, and it is simpler: a staged row is a draft, so nothing here posts,
+ * reverses, or touches a balance. The patch is written into the draft, the payee
+ * is canonicalised the way a single edit does it, and the row is validated
+ * again so the queue's own verdict on it is current. A patch that turns an
+ * invalid row valid is the ordinary reason to do this at all.
+ */
 export async function bulkEditStages(
   actor: Actor,
   input: unknown,

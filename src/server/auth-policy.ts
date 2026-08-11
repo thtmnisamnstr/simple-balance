@@ -106,13 +106,6 @@ export async function isLedgerUserAuthorized(userId: string) {
 }
 
 /**
- * The one place a new tenant is admitted, whichever door they came through.
- *
- * This runs inside Better Auth's sign-up transaction, so it answers from the
- * configuration and the request rather than from a query. See
- * registration-context.ts for why that matters.
- */
-/**
  * Whether a hook's path is the social sign-in callback.
  *
  * Better Auth declares that route as the pattern `/callback/:id`, and
@@ -131,6 +124,13 @@ function isSocialCallbackPath(path?: string | null) {
   return typeof path === "string" && path.startsWith("/callback/");
 }
 
+/**
+ * The one place a new tenant is admitted, whichever door they came through.
+ *
+ * This runs inside Better Auth's sign-up transaction, so it answers from the
+ * configuration and the request rather than from a query. See
+ * registration-context.ts for why that matters.
+ */
 export function mayCreateAuthUser(
   email: string,
   path?: string | null,
