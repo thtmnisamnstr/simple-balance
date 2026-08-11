@@ -64,12 +64,23 @@ function rewriteLine(relative, pattern, replacement, describe) {
   console.log(`  ${relative} -> ${version}`);
 }
 
-rewriteLine(
+// Every image that stamps a version label, not just the one at the root. The
+// decomposed images are built by hand rather than by CI, so nothing else would
+// catch one left a release behind, and tests/dockerfile.test.ts fails the whole
+// suite when they disagree with package.json.
+for (const dockerfile of [
   "Dockerfile",
-  /^ARG APP_VERSION=.*$/m,
-  `ARG APP_VERSION=${version}`,
-  "ARG APP_VERSION",
-);
+  "deploy/docker/server.Dockerfile",
+  "deploy/docker/frontend.Dockerfile",
+  "deploy/docker/scheduler.Dockerfile",
+]) {
+  rewriteLine(
+    dockerfile,
+    /^ARG APP_VERSION=.*$/m,
+    `ARG APP_VERSION=${version}`,
+    "ARG APP_VERSION",
+  );
+}
 
 // The MCP server announces this to every client that connects.
 rewriteLine(

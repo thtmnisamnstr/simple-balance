@@ -1,8 +1,9 @@
 # Architecture
 
-One Node process, one image, one PostgreSQL database. The browser and any MCP
-client call the same ledger code, so an agent's action goes through the same
-scoping, validation, and audit trail as a click.
+One Node process, one image, one PostgreSQL database. The browser, any MCP
+client, and the scheduler inside the process all call the same ledger code, so
+an agent's action and a scheduled one go through the same scoping, validation,
+and audit trail as a click.
 
 ```mermaid
 flowchart LR
@@ -11,10 +12,16 @@ flowchart LR
   OAuth --> MCP["Streamable HTTP /mcp"]
   API --> Services["Ledger services"]
   MCP --> Services
+  Scheduler["Recurrence scheduler"] --> Services
   Services --> DB[("PostgreSQL 15+")]
   Auth["Local or Google sign-in"] --> OAuth
   OAuth --> DB
 ```
+
+Three writers, then, and the third is the one worth knowing about: it writes
+without anybody asking, and what it writes is a proposal into the review queue
+rather than a posting. The [scheduler](#the-scheduler) section says how that
+stays true.
 
 `/api/v1` versions the HTTP contract, not the product. It changes when the
 contract breaks, which is not the same as when the app does.
@@ -34,8 +41,11 @@ contract breaks, which is not the same as when the app does.
 | `tests` | Unit tests; `tests/integration` needs a real PostgreSQL. |
 | `scripts` | Release helper, development database bootstrap, the Ralph loop. |
 
-Both transports are adapters. Anything that decides something belongs in a
-service, so the browser and an agent cannot drift apart.
+Both transports are adapters, and the scheduler is a third caller of the same
+services. Anything that decides something belongs in a service, so the browser,
+an agent and a scheduled write cannot drift apart. `tests/mcp-parity.test.ts`
+holds the two transports to it route by route, and checks they reach the same
+service rather than merely having a tool of the right name.
 
 ## What the ledger guarantees
 

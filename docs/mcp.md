@@ -62,6 +62,37 @@ Tools an agent has no scope for are left out of discovery entirely, so it never
 sees a tool it cannot call. Every tool returns both `structuredContent.result`
 and the same thing as JSON text.
 
+Money is always a decimal string, never a JSON number, because binary floating
+point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
+idempotency key you choose: send the same key again and you get the original
+result back rather than a second transaction. Fields carry descriptions, so an
+agent reading the schema learns the conventions that matter, including the one
+that catches people out: a credit card or loan opens at a negative balance,
+because that is money owed.
+
+## Accounts
+
+`list_accounts`, `get_account`, `get_account_balances`, `create_account`,
+`update_account`, `archive_account`, and `delete_account`.
+
+An account's `balance` is every posting it holds, future-dated ones included,
+which is what the accounts page shows. `get_account_balances` is what separates
+them: it reports the beginning and ending balance of a range, what has actually
+moved by today, and what is still to come. Reach for it before telling somebody
+what they have.
+
+An archived account still comes back from `get_account`, so read `archivedAt`
+rather than treating a result as proof the account is in use. Archiving posts
+whatever the account still holds out to equity, so it closes at zero and
+restoring posts the balance back; that is what lets a total leave archived
+accounts out and still be right. Deleting is only possible while nothing
+references it.
+
+## Transactions
+
+`list_transactions`, `get_transaction`, `create_transaction`,
+`update_transaction`, `set_transaction_deleted`, and the two bulk tools below.
+
 A transaction can name its category instead of citing an id. Send
 `categoryName` and the server matches it against the categories you already
 have, ignoring case and surrounding space, and creates one only when nothing
@@ -69,6 +100,12 @@ matches; `categoryId` wins if you send both. An existing category that does not
 cover the side being posted is widened rather than duplicated, and an archived
 one named again comes back. This is the same rule a CSV import follows, so an
 agent writing "groceries" cannot start a second spelling of "Groceries".
+
+Deleting posts the reversal rather than erasing anything, which is why the tool
+is `set_transaction_deleted` and takes a boolean: the same call restores it. A
+deleted entry nets to zero, so nothing filters it out of a balance.
+
+## Splitting one entry across categories
 
 One transaction can be split across several categories. Send `legs`, a list of
 at least two, each with its own `amount` and its own `categoryId` or
@@ -81,19 +118,14 @@ Every transaction comes back with a `legs` list, empty for the ordinary
 single-category case. Each leg carries an `id`, and that id is how an edit says
 which leg it means: send it back to change that leg, leave it off for a new one,
 and leave a leg out to remove it. Matching legs by position instead would make
-reordering two rows look like rewriting both.
+reordering two rows look like rewriting both. Sending an `id` that is not
+already a leg of that transaction is refused rather than treated as a new leg,
+so a copied identifier fails loudly instead of quietly rewriting the entry.
 
 Mass edits refuse to set a category or a type on a split rather than flattening
-it, and `preview_bulk_transaction_selection` reports `splitCount` so an agent
-knows before it asks.
-
-Money is always a decimal string, never a JSON number, because binary floating
-point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
-idempotency key you choose: send the same key again and you get the original
-result back rather than a second transaction. Fields carry descriptions, so an
-agent reading the schema learns the conventions that matter, including the one
-that catches people out: a credit card or loan opens at a negative balance,
-because that is money owed.
+it, and the refusal fails the whole call rather than skipping the row.
+`preview_bulk_transaction_selection` reports `splitCount`, so an agent can know
+before it asks.
 
 ## Changing many rows at once
 
@@ -154,12 +186,15 @@ return no cursor and you page them by number.
 
 ## Categories
 
-`list_categories`, `list_duplicate_categories`, and `merge_categories`, plus the
-create, update, and archive tools.
+`list_categories`, `get_category`, `list_duplicate_categories`,
+`merge_categories`, `create_category`, `update_category`, `archive_category`,
+and `delete_category`.
 
 Listing reports how many committed transactions and how many staged rows use
 each category, and the two added together, the same three numbers `list_payees`
-gives. Read them before creating one: the most common way a ledger ends up with
+gives. `list_payee_suggestions` completes a partial name against the payees
+already there, which is how an entry gets filed under the spelling in use rather
+than a new one. Read them before creating one: the most common way a ledger ends up with
 three spellings of the same category is an agent adding one it could have
 reused, and a usage count is what tells you which spelling is the established
 one and which is the stray to merge away. A category nothing uses comes back at
@@ -189,6 +224,33 @@ value. There is no version to check on this record and no undo beyond setting it
 back, so confirm it with the person first.
 
 `summarize_own_data` counts everything in the ledger.
+
+## The review queue
+
+`list_staged_transactions`, `get_staged_transaction`,
+`create_staged_transaction`, `update_staged_transaction`,
+`delete_staged_transactions`, `commit_staged_transactions`, and
+`bulk_edit_staged_transactions`. All of them except the commit take
+`ledger:stage`, which is the scope to grant an agent you want proposing work
+rather than posting it.
+
+A staged row is a draft. Nothing about it affects a balance or a report until it
+is committed, so an agent holding only `ledger:stage` can propose anything and
+change nothing. Each row carries `validationIssues` saying what still stops it
+being committed, `duplicateOfId` when it matches a transaction already recorded,
+and `repeatsStagedRow` when it matches another row still waiting. That last one
+is only worked out by the list, so every other tool returns `null` for it,
+meaning "not compared" rather than "no".
+
+`validity` filters the list to `valid`, `invalid` or `duplicate`, which is how
+you find the rows that need attention without reading the whole queue.
+`importBatchId` scopes it to one imported file and `recurrenceId` to one
+recurring transaction.
+
+Committing is explicit: name the ids and the version you last saw for each.
+A row that fails validation, or that repeats another row in the same selection,
+refuses the whole batch rather than committing part of it. `dryRun: true` tells
+you what would happen without doing it.
 
 ## Imports
 
@@ -311,6 +373,14 @@ transactions, so MCP and the browser share one spelling and one audit trail.
 
 ## CSV
 
+`export_transactions_csv` writes the round-trip format: a file it produces reads
+back into another ledger, or a fresh install, as the same transactions,
+including their splits, which travel by category name. It takes the same filters
+`list_transactions` does and exports the whole matching set rather than a page.
+A deleted entry is never exported whatever is asked for, because the format has
+no column to say an entry is void and reading it back would raise the amount
+from the dead.
+
 `stage_csv` accepts the same payload the browser import does, bounded by
 `CSV_MAX_BYTES` and `CSV_MAX_ROWS`. The MCP request envelope allows extra room
 for JSON string escaping, while the decoded CSV is still measured against the
@@ -326,6 +396,17 @@ Staging a CSV creates the categories its rows name, the same way the browser
 import does, so a `ledger:stage` token can add categories even though it cannot
 touch a transaction. Each one is written to the audit log as `create_from_csv`,
 so they are visible in Activity and can be merged or deleted afterwards.
+
+## Audit history
+
+`list_audit_events` reports what was done to this ledger, by whom, and through
+what: `actorSource` is `web`, `mcp`, or `schedule`, and `clientId` names the
+agent when it was one. It pages like any other list.
+
+This is how an agent checks its own work, and how a person sees an agent's.
+Every write goes in, including the ones a scheduler makes on its own, so a row
+that appeared without anybody asking can always be traced to the recurrence that
+proposed it.
 
 ## What an agent cannot do
 

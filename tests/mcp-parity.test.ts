@@ -265,6 +265,21 @@ describe("what an agent can reach compared with the browser", () => {
     );
   });
 
+  /**
+   * A tool nobody wrote down is one an agent's operator cannot discover from
+   * the guide, and the guide fell seventeen tools behind before anything
+   * noticed. Checked by name rather than by count so the failure says which.
+   */
+  it("names every tool in the MCP guide", async () => {
+    const guide = await readFile(
+      new URL("../docs/mcp.md", import.meta.url),
+      "utf8",
+    );
+    const tools = await toolNames(everyScope);
+    const undocumented = [...tools].filter((tool) => !guide.includes(tool)).sort();
+    expect(undocumented).toEqual([]);
+  });
+
   it("keeps the two exceptions out of the tool list entirely", async () => {
     const tools = await toolNames(everyScope);
     for (const forbidden of [

@@ -23,6 +23,13 @@ ones that matter.
 issuer metadata, redirect validation, and the audience on MCP tokens are all
 derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 
+So is `NODE_ENV`, which the images set to `production` for you and which you
+have to set yourself if you run the built server directly with `npm start`.
+Anything other than `production` means the first-run setup code is not demanded,
+sign-in attempts are not rate limited, and cookies are not marked secure. The
+server says so loudly at startup, because those three together are the
+difference between a deployment and a development machine.
+
 ### Optional
 
 | Variable | Default | What it does |
@@ -40,6 +47,18 @@ derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 | `RECURRENCE_TICK_SECONDS` | `300` | How often it looks for a recurrence that has come due. Latency only: whatever a missed tick leaves behind, the next one catches up. |
 | `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. |
 | `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. |
+
+### Limits you cannot change
+
+These are compiled in rather than configured, because each one bounds something
+a person or an agent could otherwise use to fill the database. They are here so
+a refusal is explainable rather than surprising.
+
+| Limit | Value | What hits it |
+| --- | --- | --- |
+| Rows in one mass edit or mass delete | 10,000 | A selection larger than this is refused rather than truncated. Split the work across calls; each one stands or falls on its own. |
+| Category legs on one transaction | 50 | Far past a receipt anybody itemises by hand. A split is the whole counter-side of the entry rewritten, so the cost is paid on every read of it. |
+| Recurring transactions per person | 200 | Each one is a standing instruction that proposes rows on every tick, so an uncapped list is a way to flood the review queue with nothing but `ledger:write`. |
 
 ### Only for Google sign-in
 
@@ -315,10 +334,25 @@ docker build -f deploy/docker/scheduler.Dockerfile -t simple-balance-scheduler .
 ```
 
 The server image is the API and the MCP endpoint with no browser bundle in it.
-The frontend image is nginx serving the bundle, proxying `/api`, `/mcp`,
-`/health` and `/.well-known` through to the server; point `SB_API_ORIGIN` at
-your API Service. The scheduler image proposes recurring transactions and serves
-nothing but its own health checks.
+A request for a page gets a 404 rather than an application shell it is not the
+authority on. It reads the same settings as the single container.
+
+The frontend image is nginx serving the bundle and proxying `/api`, `/mcp`,
+`/health` and `/.well-known` through to the server. It listens on **8080**, not
+80, because the base image runs as a non-root user that cannot bind a privileged
+port. Three settings, all with working defaults:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SB_API_ORIGIN` | `http://simple-balance-server:3000` | Where to proxy everything the API owns. Point it at your API Service. |
+| `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
+| `SB_MAX_UPLOAD_SIZE` | `12m` | The largest request body nginx will pass. It has to stay above `CSV_MAX_BYTES` with room for the multipart wrapper, or a CSV the API would accept is refused before it gets there. |
+
+The scheduler image proposes recurring transactions and serves nothing but its
+own health checks, so a Service pointed at it by mistake cannot answer an API
+request. It runs one entrypoint of its own and always ticks: the
+`RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
+whose only job is this one would be pointless with it off.
 
 Four things have to line up:
 
