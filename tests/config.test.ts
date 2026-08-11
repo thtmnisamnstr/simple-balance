@@ -134,6 +134,53 @@ describe("authentication configuration", () => {
     expect(getConfig().baseUrl).toBe(baseUrl);
   });
 
+  it.each(["Production", "prod", "produciton", ""])(
+    "refuses NODE_ENV=%s rather than reading it as development",
+    async (nodeEnv) => {
+      setEnvironment({ NODE_ENV: nodeEnv });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      expect(() => getConfig()).toThrow();
+    },
+  );
+
+  it("refuses to run outside production once APP_BASE_URL names a real host", async () => {
+    setEnvironment({
+      APP_BASE_URL: "https://simple-balance.example.com",
+      AUTH_SECRET: "a-production-secret-that-is-at-least-32-characters",
+    });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+    expect(() => getConfig()).toThrow(/NODE_ENV is not production/);
+  });
+
+  it.each([
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://[::1]:3000",
+  ])("still starts outside production on the loopback URL %s", async (baseUrl) => {
+    setEnvironment({ APP_BASE_URL: baseUrl });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+    expect(getConfig().isProduction).toBe(false);
+  });
+
+  it.each([
+    "development-only-secret-change-me-1234567890",
+    "replace-with-at-least-32-random-characters",
+  ])("refuses the published placeholder secret %s in production", async (secret) => {
+    setEnvironment({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://simple_balance:secret@database.example/simple_balance",
+      APP_BASE_URL: "https://simple-balance.example.com",
+      AUTH_SECRET: secret,
+      AUTH_MODE: "local",
+    });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+    expect(() => getConfig()).toThrow(/published placeholder/);
+  });
+
   it("fails closed when Google mode is missing provider settings", async () => {
     setEnvironment({
       NODE_ENV: "production",

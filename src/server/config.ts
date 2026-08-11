@@ -43,10 +43,31 @@ const productionBaseUrlSchema = z.string().url().superRefine((value, context) =>
   }
 });
 
+/**
+ * Values that look like a secret, pass the length check, and are printed in
+ * public: the string this file falls back to outside production, and whatever
+ * `.env.example` last carried. Length alone cannot tell them apart from a real
+ * one, and a deployment signing sessions with a documented string is signing
+ * them with a key everybody already has.
+ */
+const publicAuthSecrets = new Set([
+  "development-only-secret-change-me-1234567890",
+  "replace-with-at-least-32-random-characters",
+  "change-me",
+]);
+
+const productionAuthSecretSchema = z
+  .string()
+  .min(32)
+  .refine((value) => !publicAuthSecrets.has(value.trim()), {
+    message:
+      "AUTH_SECRET is a published placeholder. Generate one, for example with `openssl rand -base64 32`.",
+  });
+
 const productionSchema = z.object({
   DATABASE_URL: z.string().url(),
   APP_BASE_URL: productionBaseUrlSchema,
-  AUTH_SECRET: z.string().min(32),
+  AUTH_SECRET: productionAuthSecretSchema,
 });
 
 // ALLOWED_EMAILS is not checked for length here. A minimum of three characters
@@ -57,6 +78,32 @@ const googleAuthSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
 });
+
+/**
+ * Refuses to start a development-mode process that has been told where it
+ * lives on the internet.
+ *
+ * Forgetting NODE_ENV is the one misconfiguration with no symptom: the server
+ * comes up, serves, and signs in, with the setup code, the rate limiter and
+ * secure cookies all quietly off. An APP_BASE_URL that is not loopback is the
+ * one piece of configuration only a real deployment has, so it is the signal
+ * worth failing on rather than warning about.
+ */
+function assertNotADeployment(baseUrl: string | undefined) {
+  if (!baseUrl) return;
+  let hostname: string;
+  try {
+    hostname = new URL(baseUrl).hostname;
+  } catch {
+    return;
+  }
+  if (isLoopbackHostname(hostname)) return;
+  throw new Error(
+    `NODE_ENV is not production but APP_BASE_URL names ${hostname}. ` +
+      "The first-run setup code, sign-in rate limiting and secure cookies are " +
+      "all off outside production. Set NODE_ENV=production.",
+  );
+}
 
 export const authModes = ["local", "google", "both"] as const;
 export type AuthMode = (typeof authModes)[number];
@@ -99,7 +146,14 @@ let cached: AppConfig | undefined;
 
 export function getConfig(): AppConfig {
   if (cached) return cached;
-  const isProduction = process.env.NODE_ENV === "production";
+  // Parsed strictly, and against a closed set, because comparing to the string
+  // "production" turns every other spelling into development silently: the
+  // setup code is not demanded, sign-in attempts are not rate limited, and
+  // cookies are not marked secure. `NODE_ENV=Production` had no symptom.
+  const nodeEnv = z
+    .enum(["production", "development", "test"])
+    .parse((process.env.NODE_ENV ?? "development").toLowerCase());
+  const isProduction = nodeEnv === "production";
   const authMode = z
     .enum(authModes)
     .parse((process.env.AUTH_MODE ?? "local").toLowerCase());
@@ -137,6 +191,8 @@ export function getConfig(): AppConfig {
   };
   if (isProduction) {
     productionSchema.parse(values);
+  } else {
+    assertNotADeployment(values.APP_BASE_URL);
   }
   if (googleAuthEnabled) {
     googleAuthSchema.parse(values);

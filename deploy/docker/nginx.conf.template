@@ -30,7 +30,10 @@ server {
     proxy_http_version 1.1;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # Replaced, not appended. `$proxy_add_x_forwarded_for` keeps whatever the
+    # caller sent and adds to it, so with TRUST_PROXY=true the server would
+    # count sign-in attempts against an address the caller chose.
+    proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     # The API compares Origin against APP_BASE_URL on every state-changing
     # request, so the browser's own value has to survive the hop.
@@ -45,6 +48,7 @@ server {
   # Vite puts a content hash in every asset filename, so a name never changes
   # meaning and can be kept indefinitely.
   location /assets/ {
+    include /etc/nginx/snippets/security-headers.conf;
     add_header Cache-Control "public, max-age=31536000, immutable";
     try_files $uri =404;
   }
@@ -53,6 +57,7 @@ server {
   # it is what names the hashed assets. Revalidated every time, so an upgrade
   # cannot leave somebody holding a page asking for assets that are gone.
   location / {
+    include /etc/nginx/snippets/security-headers.conf;
     add_header Cache-Control "no-cache";
     try_files $uri $uri/ /index.html;
   }

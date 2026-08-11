@@ -20,7 +20,10 @@ export function getOwnerSetupToken() {
 
 export function isOwnerSetupTokenValid(candidate: unknown) {
   const expected = getOwnerSetupToken();
-  if (!expected) return true;
+  // Never read "there is no token" as "anybody may claim this". Outside
+  // production there is deliberately no token; inside it, a missing one is a
+  // bug, and returning true would hand the first account to whoever asked.
+  if (!expected) return !getConfig().isProduction;
   if (typeof candidate !== "string") return false;
   const candidateBytes = Buffer.from(candidate);
   const expectedBytes = Buffer.from(expected);

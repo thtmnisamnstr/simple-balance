@@ -14,7 +14,7 @@ beforeEach(() => {
   process.env.AUTH_MODE = "both";
   process.env.GOOGLE_CLIENT_ID = "policy-test-client-id";
   process.env.GOOGLE_CLIENT_SECRET = "policy-test-client-secret";
-  process.env.APP_BASE_URL = "https://policy.example.com";
+  process.env.APP_BASE_URL = "http://localhost:3000";
   process.env.AUTH_SECRET = "policy-test-secret-at-least-32-characters";
   vi.resetModules();
 });

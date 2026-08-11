@@ -34,6 +34,10 @@ ENV NGINX_ENVSUBST_FILTER=^SB_
 # sitting beside it. Two servers listening on one port with server_name _ is a
 # conflict nginx resolves by picking whichever the include glob reached first.
 COPY deploy/docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+# Outside /etc/nginx/templates on purpose: the entrypoint runs envsubst over
+# everything in there, and outside /etc/nginx/conf.d, which the main config
+# includes into http{} where a location-scoped directive is a syntax error.
+COPY deploy/docker/nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/dist/client /usr/share/nginx/html
 COPY LICENSE COPYING /usr/share/licenses/simple-balance/
 EXPOSE 8080

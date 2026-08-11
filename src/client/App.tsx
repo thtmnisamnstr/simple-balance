@@ -67,6 +67,19 @@ const nav = [
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 
+/**
+ * A path the browser will read as a path on this site.
+ *
+ * `location.pathname` is whatever was typed, and `//elsewhere.example` is a
+ * legal path that `window.location.assign` treats as a protocol-relative URL
+ * to another origin. A backslash in that position is folded to a slash too.
+ * Signing in must land back on this site, so anything else goes to the
+ * overview instead.
+ */
+export function samePagePath(path: string) {
+  return /^\/[^/\\]/.test(path) ? path : "/";
+}
+
 function SignIn({ error }: { error?: Error }) {
   const location = useLocation();
   const [name, setName] = useState("");
@@ -95,7 +108,7 @@ function SignIn({ error }: { error?: Error }) {
   const pageReturnTo =
     location.pathname === "/sign-in"
       ? "/"
-      : `${location.pathname}${location.search}${location.hash}`;
+      : samePagePath(`${location.pathname}${location.search}${location.hash}`);
   const returnTo =
     isMcpAuthorization
       ? `/api/auth/mcp/authorize${location.search}`
@@ -461,13 +474,42 @@ function SignIn({ error }: { error?: Error }) {
   );
 }
 
-function OAuthConsent() {
+const scopeDescriptions: Record<string, string> = {
+  "ledger:read": "Read your accounts, transactions, and reports",
+  "ledger:stage": "Propose transactions into your review queue",
+  "ledger:write": "Create, edit, and delete transactions and accounts",
+  offline_access: "Keep working without asking you again",
+  openid: "Confirm who you are",
+  profile: "See your name",
+  email: "See your email address",
+};
+
+type ConsentRequest = {
+  clientId: string | null;
+  clientName: string;
+  scopes: string[];
+};
+
+/**
+ * Nothing on this screen is read from the URL except the consent code, which
+ * only names a record. What the client is called and what it is asking for
+ * come back from the server, so a crafted link cannot show one grant while
+ * approving another.
+ */
+export function OAuthConsent() {
   const [params] = useSearchParams();
   const consentCode = params.get("consent_code") ?? "";
-  const clientId = params.get("client_id") ?? "an MCP client";
-  const scopes = (params.get("scope") ?? "").split(" ").filter(Boolean);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const request = useQuery<ConsentRequest>({
+    queryKey: ["consent-request", consentCode],
+    enabled: Boolean(consentCode),
+    retry: false,
+    queryFn: () =>
+      api<ConsentRequest>(
+        `/api/auth/oauth2/consent-request?consent_code=${encodeURIComponent(consentCode)}`,
+      ),
+  });
   const decide = async (accept: boolean) => {
     setPending(true);
     try {
@@ -485,23 +527,45 @@ function OAuthConsent() {
       setPending(false);
     }
   };
+  const unavailable =
+    !consentCode || request.isError
+      ? request.error instanceof Error && consentCode
+        ? request.error.message
+        : "This authorization link is not one this server issued."
+      : "";
   return (
     <main className="auth-shell consent-shell">
       <section className="auth-card">
         <div className="brand-mark large"><Bot size={29} /></div>
         <span className="eyebrow">Agent authorization</span>
         <h1>Allow this MCP client?</h1>
-        <p><strong>{clientId}</strong> is requesting access to your private ledger.</p>
-        <ul className="scope-list">
-          {scopes.map((scope) => <li key={scope}>{scope}</li>)}
-        </ul>
-        {error ? <Alert>{error}</Alert> : null}
-        <div className="form-actions">
-          <Button disabled={pending} variant="secondary" onClick={() => decide(false)}>
-            Deny
-          </Button>
-          <Button loading={pending} onClick={() => decide(true)}>Allow access</Button>
-        </div>
+        {unavailable ? (
+          <Alert>{unavailable}</Alert>
+        ) : !request.data ? (
+          <p>Checking what this client is asking for…</p>
+        ) : (
+          <>
+            <p>
+              <strong>{request.data.clientName}</strong> is requesting access to
+              your private ledger.
+            </p>
+            <ul className="scope-list">
+              {request.data.scopes.map((scope) => (
+                <li key={scope}>
+                  <strong>{scope}</strong>
+                  {scopeDescriptions[scope] ? ` — ${scopeDescriptions[scope]}` : null}
+                </li>
+              ))}
+            </ul>
+            {error ? <Alert>{error}</Alert> : null}
+            <div className="form-actions">
+              <Button disabled={pending} variant="secondary" onClick={() => decide(false)}>
+                Deny
+              </Button>
+              <Button loading={pending} onClick={() => decide(true)}>Allow access</Button>
+            </div>
+          </>
+        )}
       </section>
     </main>
   );

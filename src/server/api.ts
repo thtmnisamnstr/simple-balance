@@ -35,7 +35,7 @@ import {
 import { getConfig, isEmailAllowed, isRegistrationClosed } from "./config.js";
 import { LOCAL_BOOTSTRAP_LOCK } from "./db/advisory-locks.js";
 import { getAuthBootstrapLockPool, getDb } from "./db/client.js";
-import { verification } from "./db/schema.js";
+import { oauthApplication, verification } from "./db/schema.js";
 import {
   boundRequestBody,
   hardenAuthCookies,
@@ -529,6 +529,12 @@ app.on(["GET", "POST"], "/api/auth/mcp/get-session", (c) =>
   c.json({ code: "NOT_FOUND", message: "No such endpoint" }, 404),
 );
 
+function consentCodeFromCookie(c: Context) {
+  const cookie = getCookie(c, "oidc_consent_prompt");
+  // The cookie is signed as `value.signature`; only the value names the record.
+  return cookie ? decodeURIComponent(cookie.split(".", 1)[0]!) : null;
+}
+
 /**
  * The consent code this request is answering, from the body or the cookie
  * Better Auth falls back to, in that order, exactly as the handler does.
@@ -543,26 +549,86 @@ async function pendingConsentCode(c: Context) {
       ? (body as { consent_code?: unknown }).consent_code
       : undefined;
   if (typeof fromBody === "string" && fromBody) return fromBody;
-  const cookie = getCookie(c, "oidc_consent_prompt");
-  // The cookie is signed as `value.signature`; only the value names the record.
-  return cookie ? decodeURIComponent(cookie.split(".", 1)[0]!) : null;
+  return consentCodeFromCookie(c);
 }
 
-/** Who started the authorization this consent code belongs to. */
-async function pendingConsentUserId(consentCode: string) {
+/** The authorize request a consent code stands for, as Better Auth stored it. */
+async function pendingConsent(consentCode: string) {
   const [pending] = await getDb()
-    .select({ value: verification.value })
+    .select({ value: verification.value, expiresAt: verification.expiresAt })
     .from(verification)
     .where(eq(verification.identifier, consentCode))
     .limit(1);
   if (!pending) return null;
+  let parsed: {
+    userId?: unknown;
+    clientId?: unknown;
+    scope?: unknown;
+    requireConsent?: unknown;
+  };
   try {
-    const parsed = JSON.parse(pending.value) as { userId?: unknown };
-    return typeof parsed.userId === "string" ? parsed.userId : null;
+    parsed = JSON.parse(pending.value);
   } catch {
     return null;
   }
+  return {
+    userId: typeof parsed.userId === "string" ? parsed.userId : null,
+    clientId: typeof parsed.clientId === "string" ? parsed.clientId : null,
+    scopes: Array.isArray(parsed.scope)
+      ? parsed.scope.filter((scope): scope is string => typeof scope === "string")
+      : [],
+    requireConsent: parsed.requireConsent === true,
+    expiresAt: pending.expiresAt,
+  };
 }
+
+/**
+ * What the consent screen is being asked to approve.
+ *
+ * The client name and scopes come from the stored authorize request rather
+ * than from the query string, because the query string is whatever the link
+ * said: one naming a familiar client and `ledger:read` would display exactly
+ * that while the record it approves grants something else. Only the record the
+ * consent code names says what is really being granted.
+ */
+app.get("/api/auth/oauth2/consent-request", async (c) => {
+  const identity = await getWebIdentity(c.req.raw.headers);
+  if (!identity) {
+    return c.json({ code: "UNAUTHORIZED", message: "Sign in is required" }, 401);
+  }
+  const consentCode = c.req.query("consent_code") || consentCodeFromCookie(c);
+  const pending = consentCode ? await pendingConsent(consentCode) : null;
+  if (!pending || !pending.requireConsent || pending.expiresAt < new Date()) {
+    return c.json(
+      {
+        code: "CONSENT_NOT_PENDING",
+        message: "That authorization request has expired or was already answered.",
+      },
+      404,
+    );
+  }
+  if (pending.userId && pending.userId !== identity.user.id) {
+    return c.json(
+      {
+        code: "CONSENT_NOT_YOURS",
+        message: "That authorization request was started by a different account.",
+      },
+      403,
+    );
+  }
+  const [application] = pending.clientId
+    ? await getDb()
+        .select({ name: oauthApplication.name })
+        .from(oauthApplication)
+        .where(eq(oauthApplication.clientId, pending.clientId))
+        .limit(1)
+    : [];
+  return c.json({
+    clientId: pending.clientId,
+    clientName: application?.name ?? "An unnamed MCP client",
+    scopes: pending.scopes,
+  });
+});
 
 // Approving an authorization has to be done by the person it belongs to.
 //
@@ -581,7 +647,7 @@ app.post("/api/auth/oauth2/consent", async (c) => {
   }
   const consentCode = await pendingConsentCode(c);
   if (consentCode) {
-    const owner = await pendingConsentUserId(consentCode);
+    const owner = (await pendingConsent(consentCode))?.userId;
     if (owner && owner !== identity.user.id) {
       return c.json(
         {
