@@ -299,8 +299,12 @@ function checkTransactionLegs(
   }
 }
 
-const transactionCommon = {
-  date: isoDateSchema,
+/**
+ * What a transaction says about itself apart from when it happened and where it
+ * came from. Split out so a recurrence can hold the same shape without a date,
+ * which its occurrence supplies, and without the provenance fields it refuses.
+ */
+const transactionShapeCommon = {
   payee: oneLine(z.string().trim().min(1, "Payee is required").max(160)),
   description: freeText(z.string().trim().max(240))
     .optional()
@@ -321,6 +325,10 @@ const transactionCommon = {
     ),
   legs: legsField,
   notes: freeText(z.string().trim().max(4_000)).optional().nullable(),
+};
+
+const transactionCommon = {
+  date: isoDateSchema,
   externalId: oneLine(z.string().trim().max(200)).optional().nullable(),
   // Which template this was made from, kept so a template can report what came
   // of it. Provenance only: nothing reads it back into the entry.
@@ -332,6 +340,7 @@ const transactionCommon = {
     .describe(
       "The template this entry was started from, if any. Recorded so a template can report the transactions made from it; it changes nothing about the entry itself.",
     ),
+  ...transactionShapeCommon,
 };
 
 export const depositDraftSchema = z
@@ -1190,3 +1199,224 @@ export type PaginatedPage<T> = Page<T> & {
   totalCount: number;
   totalPages: number;
 };
+
+export const recurrenceFrequencies = ["daily", "weekly", "monthly", "yearly"] as const;
+export type RecurrenceFrequencyName = (typeof recurrenceFrequencies)[number];
+export const recurrenceMonthPolicies = ["last_day", "skip"] as const;
+export const recurrenceWeekendPolicies = [
+  "allow",
+  "skip",
+  "previous_business_day",
+  "next_business_day",
+] as const;
+/** -1 is the last one in the month. There is no fifth; see recurrence-dates.ts. */
+export const recurrenceOrdinals = [1, 2, 3, 4, -1] as const;
+
+/**
+ * The most recurrences one person may keep. Unlike a template, each of these is
+ * a standing instruction: one anchored years ago proposes rows every tick until
+ * it catches up, so an uncapped list is a queue-flooding amplifier reachable by
+ * anything holding ledger:write.
+ */
+export const MAX_RECURRENCES = 200;
+export const MAX_RECURRENCE_INTERVAL = 366;
+
+/**
+ * One category's share of a recurring split. Unlike a template's leg the amount
+ * is required: legs are how the total is divided, and a division with a part
+ * missing is not something a person can complete from the queue.
+ */
+const recurrenceLegSchema = z
+  .object({
+    categoryId: z.string().uuid().optional(),
+    categoryName: oneLine(z.string().trim().min(1).max(120)).optional(),
+    amount: positiveDecimalStringSchema,
+    note: freeText(z.string().trim().max(240)).optional(),
+  })
+  .strict();
+
+function checkRecurrenceShape(
+  shape: {
+    type?: string;
+    legs?: readonly unknown[];
+    amount?: string;
+    categoryId?: string | null;
+    categoryName?: string | null;
+  },
+  context: z.RefinementCtx,
+) {
+  checkLegs(shape, context);
+  if (shape.legs?.length && shape.amount === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["amount"],
+      message: "A split recurrence needs an amount for its legs to divide",
+    });
+  }
+}
+
+const recurrenceShapeFields = {
+  ...transactionShapeCommon,
+  legs: z
+    .array(recurrenceLegSchema)
+    .min(2, "A split needs at least two legs")
+    .max(MAX_TRANSACTION_LEGS)
+    .optional(),
+};
+
+/**
+ * What a recurrence remembers about the transaction it proposes.
+ *
+ * The amount is optional because the electricity bill recurs and its amount does
+ * not. A proposal missing one lands in the queue flagged, which is the point:
+ * somebody types the number and commits it.
+ *
+ * There is no date, because the occurrence supplies it. `externalId` is refused
+ * rather than ignored, for the reason a template refuses it: copied onto every
+ * proposal, the next real import of that bank row would be swallowed as one
+ * already seen.
+ */
+export const recurrenceShapeSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("deposit"),
+      ...recurrenceShapeFields,
+      toAccountId: z.string().uuid(),
+      amount: positiveDecimalStringSchema.optional(),
+    })
+    .strict()
+    .superRefine(checkRecurrenceShape),
+  z
+    .object({
+      type: z.literal("withdrawal"),
+      ...recurrenceShapeFields,
+      fromAccountId: z.string().uuid(),
+      amount: positiveDecimalStringSchema.optional(),
+    })
+    .strict()
+    .superRefine(checkRecurrenceShape),
+  z
+    .object({
+      type: z.literal("transfer"),
+      ...recurrenceShapeFields,
+      fromAccountId: z.string().uuid(),
+      toAccountId: z.string().uuid(),
+      amount: positiveDecimalStringSchema.optional(),
+      destinationAmount: positiveDecimalStringSchema.optional(),
+    })
+    .strict()
+    .superRefine(checkRecurrenceShape),
+]);
+
+export type RecurrenceShape = z.infer<typeof recurrenceShapeSchema>;
+
+const recurrenceAnchorDateSchema = isoDateSchema.refine(
+  (value) => value >= "1900-01-01" && value <= "2999-12-31",
+  "Anchor the schedule to a date between 1900 and 2999",
+);
+
+/** "The second Tuesday", "the last Friday". */
+const recurrencePositionSchema = z
+  .object({
+    ordinal: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(-1),
+    ]),
+    weekday: z.number().int().min(0).max(6),
+  })
+  .strict()
+  .describe(
+    "A relative day of the month, such as the second Tuesday or the last Friday. Ordinal -1 is the last one; weekday 0 is Sunday. Monthly and yearly only.",
+  );
+
+function checkSchedule(
+  schedule: {
+    frequency: string;
+    interval: number;
+    weekendPolicy: string;
+    position?: unknown;
+  },
+  context: z.RefinementCtx,
+) {
+  // Two nominal occurrences share a posted date only when they are one day
+  // apart, which only a daily schedule of interval one produces. The queue
+  // refuses to commit a selection holding rows that alike, so that combination
+  // makes a queue nobody can clear in one go.
+  const movesToABusinessDay =
+    schedule.weekendPolicy === "previous_business_day" ||
+    schedule.weekendPolicy === "next_business_day";
+  if (schedule.frequency === "daily" && schedule.interval === 1 && movesToABusinessDay) {
+    context.addIssue({
+      code: "custom",
+      path: ["weekendPolicy"],
+      message:
+        "A daily schedule moved onto a business day puts Saturday and Sunday on the same date as the Friday or Monday beside them, and the review queue refuses to commit rows that alike. Use allow or skip, or lengthen the interval.",
+    });
+  }
+  // A weekly rule's relative day is already the weekday of its anchor, and a
+  // daily one has no month to count within.
+  if (
+    schedule.position &&
+    (schedule.frequency === "daily" || schedule.frequency === "weekly")
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["position"],
+      message:
+        schedule.frequency === "weekly"
+          ? "A weekly schedule already repeats on the weekday of its anchor date, so it needs no relative day"
+          : "A daily schedule has no month to count a relative day within",
+    });
+  }
+}
+
+export const recurrenceScheduleSchema = z
+  .object({
+    frequency: z.enum(recurrenceFrequencies),
+    interval: z.number().int().min(1).max(MAX_RECURRENCE_INTERVAL).default(1),
+    anchorDate: recurrenceAnchorDateSchema,
+    monthPolicy: z.enum(recurrenceMonthPolicies).default("last_day"),
+    weekendPolicy: z.enum(recurrenceWeekendPolicies).default("allow"),
+    position: recurrencePositionSchema.nullable().optional(),
+  })
+  .strict()
+  .superRefine(checkSchedule);
+
+export type RecurrenceSchedule = z.infer<typeof recurrenceScheduleSchema>;
+
+/**
+ * The stored schedule needs every field, but a caller changing only the
+ * frequency must not have to send the policies back or risk overwriting them
+ * with a default. What is left out keeps whatever is stored, and the merged
+ * result goes back through the full schema, so every refusal still applies.
+ */
+export const recurrenceSchedulePatchSchema = z
+  .object({
+    frequency: z.enum(recurrenceFrequencies).optional(),
+    interval: z.number().int().min(1).max(MAX_RECURRENCE_INTERVAL).optional(),
+    anchorDate: recurrenceAnchorDateSchema.optional(),
+    monthPolicy: z.enum(recurrenceMonthPolicies).optional(),
+    weekendPolicy: z.enum(recurrenceWeekendPolicies).optional(),
+    position: recurrencePositionSchema.nullable().optional(),
+  })
+  .strict();
+
+export const recurrenceCreateSchema = z
+  .object({
+    name: oneLine(z.string().trim().min(1).max(120)),
+    shape: recurrenceShapeSchema,
+    schedule: recurrenceScheduleSchema,
+  })
+  .strict();
+
+export const recurrenceUpdateSchema = z
+  .object({
+    name: oneLine(z.string().trim().min(1).max(120)).optional(),
+    shape: recurrenceShapeSchema.optional(),
+    schedule: recurrenceSchedulePatchSchema.optional(),
+    expectedVersion: z.number().int().positive(),
+  })
+  .strict();
