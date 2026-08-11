@@ -110,6 +110,70 @@ describe("the sequence is anchored, not stepped", () => {
   });
 });
 
+describe("a relative day of the month", () => {
+  const positioned = (ordinal: 1 | 2 | 3 | 4 | -1, weekday: number, over = {}) =>
+    rule({ anchorDate: "2026-06-01", position: { ordinal, weekday }, ...over });
+
+  it("counts from the start of the month", () => {
+    expect(dates(positioned(2, 2), 0, 3)).toEqual([
+      "2026-06-09",
+      "2026-07-14",
+      "2026-08-11",
+      "2026-09-08",
+    ]);
+    expect(dates(positioned(1, 1), 0, 1)).toEqual(["2026-06-01", "2026-07-06"]);
+  });
+
+  it("counts the last one backwards from the end", () => {
+    expect(dates(positioned(-1, 5), 0, 3)).toEqual([
+      "2026-06-26",
+      "2026-07-31",
+      "2026-08-28",
+      "2026-09-25",
+    ]);
+  });
+
+  it("finds the last Tuesday of a leap February", () => {
+    const leap = rule({
+      anchorDate: "2028-02-01",
+      position: { ordinal: -1, weekday: 2 },
+    });
+    expect(occurrenceAt(leap, 0).occurrenceDate).toBe("2028-02-29");
+  });
+
+  it("works on a quarterly interval and on a yearly rule", () => {
+    expect(dates(positioned(3, 4, { interval: 3 }), 0, 2)).toEqual([
+      "2026-06-18",
+      "2026-09-17",
+      "2026-12-17",
+    ]);
+    const yearly = rule({
+      frequency: "yearly",
+      anchorDate: "2026-11-01",
+      position: { ordinal: 3, weekday: 4 },
+    });
+    expect(dates(yearly, 0, 2)).toEqual(["2026-11-19", "2027-11-18", "2028-11-16"]);
+  });
+
+  /**
+   * Every month has at least 28 days and so at least four of every weekday, so
+   * an ordinal of 1 to 4 or -1 always lands on a real date and nothing about the
+   * month's length can shorten it.
+   */
+  it("never clamps, so the month-length policy has nothing to do", () => {
+    const skipShort = positioned(4, 0, { monthPolicy: "skip" as const });
+    for (let n = 0; n < 60; n += 1) {
+      expect(occurrenceAt(skipShort, n).postedDate).not.toBeNull();
+    }
+  });
+
+  it("ignores the anchor's day of the month", () => {
+    const first = rule({ anchorDate: "2026-06-01", position: { ordinal: 2, weekday: 2 } });
+    const last = rule({ anchorDate: "2026-06-30", position: { ordinal: 2, weekday: 2 } });
+    expect(dates(first, 0, 2)).toEqual(dates(last, 0, 2));
+  });
+});
+
 describe("policies decide the posted date, never the sequence", () => {
   it("moves a weekend occurrence back to the Friday before it", () => {
     const previous = rule({ weekendPolicy: "previous_business_day" });
@@ -242,6 +306,52 @@ describe("properties that must hold for every rule", () => {
             ).toBe(true);
             previous = current;
           }
+        }
+      }
+    }
+  });
+
+  it("increases strictly in n for every relative day of the month too", () => {
+    for (const frequency of ["monthly", "yearly"] as const) {
+      for (const interval of [1, 3, 12]) {
+        for (const ordinal of [1, 2, 3, 4, -1] as const) {
+          for (let weekday = 0; weekday < 7; weekday += 1) {
+            const one = rule({
+              frequency,
+              interval,
+              anchorDate: "2026-01-01",
+              position: { ordinal, weekday },
+            });
+            let previous = occurrenceAt(one, 0).occurrenceDate;
+            for (let n = 1; n < 200; n += 1) {
+              const current = occurrenceAt(one, n).occurrenceDate;
+              expect(
+                current > previous,
+                `${frequency} x${interval} ordinal ${ordinal} weekday ${weekday}: ${previous} -> ${current}`,
+              ).toBe(true);
+              previous = current;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("seeks exactly for a relative day of the month as well", () => {
+    for (const ordinal of [1, 2, 3, 4, -1] as const) {
+      for (let weekday = 0; weekday < 7; weekday += 1) {
+        const one = rule({
+          anchorDate: "2026-01-01",
+          position: { ordinal, weekday },
+        });
+        for (let offset = -20; offset < 200; offset += 1) {
+          const after = addDays("2026-01-15", offset * 5);
+          let scanned = 0;
+          while (occurrenceAt(one, scanned).occurrenceDate <= after) scanned += 1;
+          expect(
+            nextOccurrenceAfter(one, after).occurrenceDate,
+            `ordinal ${ordinal} weekday ${weekday} after ${after}`,
+          ).toBe(occurrenceAt(one, scanned).occurrenceDate);
         }
       }
     }

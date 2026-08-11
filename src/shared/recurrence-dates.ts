@@ -19,6 +19,20 @@ export type RecurrenceWeekendPolicy =
   | "previous_business_day"
   | "next_business_day";
 
+/**
+ * "The second Tuesday", "the last Friday". `ordinal` -1 is the last one in the
+ * month; 1 through 4 are counted from the start.
+ *
+ * There is no fifth: a month has four of some weekdays and five of others, so
+ * an ordinal of 5 would silently mean different things in different months.
+ * Anybody who wants the fifth means the last one, which -1 says exactly.
+ */
+export type RecurrencePosition = {
+  ordinal: 1 | 2 | 3 | 4 | -1;
+  /** 0 is Sunday, 6 is Saturday. */
+  weekday: number;
+};
+
 export type RecurrenceRule = {
   frequency: RecurrenceFrequency;
   interval: number;
@@ -26,7 +40,36 @@ export type RecurrenceRule = {
   anchorDate: string;
   monthPolicy: RecurrenceMonthPolicy;
   weekendPolicy: RecurrenceWeekendPolicy;
+  /**
+   * Monthly and yearly only, and when it is set the day of the anchor is not
+   * read: the month decides the date, not the anchor's day number. A weekly
+   * rule needs none of this, because its relative day is the anchor's weekday.
+   */
+  position?: RecurrencePosition | null;
 };
+
+/**
+ * The date the ordinal names inside one month.
+ *
+ * Ordinals 1 to 4 always exist, because every month has at least 28 days and so
+ * at least four of every weekday, and -1 always exists for the same reason.
+ * Nothing here can be clamped, which is why a positioned rule ignores the
+ * month-length policy entirely.
+ */
+export function weekdayOfMonth(
+  year: number,
+  month: number,
+  position: RecurrencePosition,
+) {
+  if (position.ordinal === -1) {
+    const last = daysInMonth(year, month);
+    const lastWeekday = weekdayOf(iso(year, month, last));
+    return iso(year, month, last - ((lastWeekday - position.weekday + 7) % 7));
+  }
+  const firstWeekday = weekdayOf(iso(year, month, 1));
+  const first = 1 + ((position.weekday - firstWeekday + 7) % 7);
+  return iso(year, month, first + (position.ordinal - 1) * 7);
+}
 
 export type Occurrence = {
   /**
@@ -122,6 +165,12 @@ function sequenceDate(rule: RecurrenceRule, n: number) {
       const total = year * 12 + (month - 1) + n * rule.interval;
       const targetYear = Math.floor(total / 12);
       const targetMonth = (total % 12) + 1;
+      if (rule.position) {
+        return {
+          date: weekdayOfMonth(targetYear, targetMonth, rule.position),
+          clamped: false,
+        };
+      }
       const last = daysInMonth(targetYear, targetMonth);
       return {
         date: iso(targetYear, targetMonth, Math.min(day, last)),
@@ -130,6 +179,9 @@ function sequenceDate(rule: RecurrenceRule, n: number) {
     }
     default: {
       const targetYear = year + n * rule.interval;
+      if (rule.position) {
+        return { date: weekdayOfMonth(targetYear, month, rule.position), clamped: false };
+      }
       const last = daysInMonth(targetYear, month);
       return { date: iso(targetYear, month, Math.min(day, last)), clamped: day > last };
     }
