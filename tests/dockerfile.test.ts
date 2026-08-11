@@ -209,8 +209,25 @@ describe("the decomposed images", () => {
         prefix,
       );
     }
-    for (const prefix of proxied) {
-      expect(template).toContain(prefix.replace(".", "\\."));
+
+    // The regex itself, run against real paths rather than searched for as a
+    // substring. /mcp is registered with and without its slash and discovery
+    // advertises the bare form, so a pattern that only matches the slashed one
+    // hands every correctly-configured client the application shell instead.
+    const location = /location\s+~\s+(\S+)\s*\{/.exec(template);
+    expect(location).not.toBeNull();
+    const matcher = new RegExp(location![1]!);
+    for (const path of [
+      "/mcp",
+      "/mcp/",
+      "/api/v1/recurrences",
+      "/health/ready",
+      "/.well-known/oauth-authorization-server",
+    ]) {
+      expect(matcher.test(path), `${path} must reach the API`).toBe(true);
+    }
+    for (const path of ["/", "/recurrences", "/assets/index-abc.js", "/mcpanel"]) {
+      expect(matcher.test(path), `${path} must stay with the bundle`).toBe(false);
     }
   });
 });

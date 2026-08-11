@@ -20,7 +20,12 @@ server {
 
   # Everything the API owns. /health is proxied too, so a probe against this
   # container reports whether the pair works rather than whether nginx started.
-  location ~ ^/(api|mcp|health|\.well-known)/ {
+  #
+  # `(/|$)` and not a bare `/`: /mcp is registered both with and without its
+  # slash and discovery advertises the bare form, so requiring the slash hands
+  # every correctly configured MCP client the application shell instead. It also
+  # keeps /mcpanel and anything else merely starting with these letters out.
+  location ~ ^/(api|mcp|health|\.well-known)(/|$) {
     proxy_pass ${SB_API_ORIGIN};
     proxy_http_version 1.1;
     proxy_set_header Host $host;
