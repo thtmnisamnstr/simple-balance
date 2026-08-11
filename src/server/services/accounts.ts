@@ -1,4 +1,5 @@
-import { and, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import type { Decimal } from "decimal.js";
 import type { Actor } from "../../shared/domain.js";
 import {
@@ -19,7 +20,9 @@ import {
 import {
   ledgerAccounts,
   postings,
+  recurrences,
   stagedTransactions,
+  transactionTemplates,
   transactions,
 } from "../db/schema.js";
 import { conflict, notFound, staleVersion, validationError, duplicate } from "./errors.js";
@@ -737,8 +740,47 @@ export async function deleteAccount(
           isNotNull(postings.transactionId),
         ),
       );
-    if (transactionCount || stageCount || postingCount) {
-      throw conflict("This account is in use. Archive it instead of deleting it.");
+    // A recurrence's shape and a template's draft both name accounts in jsonb
+    // with no foreign key, so neither count above sees them. A recurrence that
+    // outlives its account proposes a flagged row on every occurrence from here
+    // on, for as long as nobody notices; a template becomes unusable.
+    const jsonNamesAccount = (column: PgColumn) =>
+      or(
+        sql`${column} ->> 'fromAccountId' = ${id}`,
+        sql`${column} ->> 'toAccountId' = ${id}`,
+      )!;
+    const [{ count: recurrenceCount }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(recurrences)
+      .where(
+        and(
+          eq(recurrences.userId, actor.userId),
+          jsonNamesAccount(recurrences.shape),
+        ),
+      );
+    const [{ count: templateCount }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(transactionTemplates)
+      .where(
+        and(
+          eq(transactionTemplates.userId, actor.userId),
+          jsonNamesAccount(transactionTemplates.draft),
+        ),
+      );
+    if (
+      transactionCount ||
+      stageCount ||
+      postingCount ||
+      recurrenceCount ||
+      templateCount
+    ) {
+      throw conflict("This account is in use. Archive it instead of deleting it.", {
+        transactionCount,
+        stagedTransactionCount: stageCount,
+        postingCount,
+        recurrenceCount,
+        templateCount,
+      });
     }
     // Deleting is only allowed while an account has no transactions, so the
     // opening pair and any closing pair are all it holds. An account that was

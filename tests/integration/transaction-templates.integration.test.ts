@@ -1,11 +1,11 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { transactionTemplates, user } from "../../src/server/db/schema.js";
-import { createAccount, deleteAccount } from "../../src/server/services/accounts.js";
+import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import {
   bulkDeleteTransactionTemplates,
@@ -27,6 +27,22 @@ import {
   getPreferences,
   setPreferences,
 } from "../../src/server/services/preferences.js";
+
+/**
+ * Removes an account the way a restored backup or a hand-run tidy-up leaves
+ * one: gone from the table with a template's jsonb draft still naming it.
+ * deleteAccount refuses this on purpose, and the point of these two cases is
+ * what the template does when the reference no longer resolves anyway.
+ */
+async function orphanAccount(id: string) {
+  const db = getDb();
+  await db.execute(
+    sql`delete from posting where account_id = ${id}::uuid
+      or opening_account_id = ${id}::uuid
+      or closing_account_id = ${id}::uuid`,
+  );
+  await db.execute(sql`delete from ledger_account where id = ${id}::uuid`);
+}
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -296,7 +312,7 @@ integration("saving a transaction as a template", () => {
       draft: withdrawal({ payee: "Somebody", fromAccountId: spare.id }),
     });
 
-    await deleteAccount(owner, spare.id, spare.version);
+    await orphanAccount(spare.id);
 
     const survivor = await getTransactionTemplate(owner, created.id);
     expect(survivor.draft.fromAccountId).toBe(spare.id);
@@ -929,7 +945,7 @@ integration("saving a transaction as a template", () => {
         payee: "Before",
         fromAccountId: doomed.id,
       });
-      await deleteAccount(owner, doomed.id, doomed.version);
+      await orphanAccount(doomed.id);
 
       await bulkEditTransactionTemplates(owner, {
         selection: {

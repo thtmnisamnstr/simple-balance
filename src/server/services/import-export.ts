@@ -13,6 +13,7 @@ import {
 import {
   APP_CSV_FORMAT,
   APP_CSV_LEGS_COLUMN,
+  csvCell,
   csvMappingSchema,
   isAppExportCsv,
   parseExportedLegs,
@@ -468,7 +469,10 @@ async function resolveImportedCategories(
   if (categoryColumn) {
     for (let index = 0; index < rows.length; index += 1) {
       const draft = rows[index]?.draft;
-      const inputName = cleanHumanName(rawRows[index]?.[categoryColumn] ?? "");
+      const rawRow = rawRows[index];
+      const inputName = cleanHumanName(
+        rawRow ? csvCell(rawRow, categoryColumn) : "",
+      );
       // A row that already carries a category this ledger owns keeps it; only
       // unresolved rows are matched by name.
       if (draft?.categoryId) continue;

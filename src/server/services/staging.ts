@@ -44,6 +44,7 @@ import { decodeCursor, encodeCursor } from "./cursor.js";
 import {
   exceedsBulkSelectionCap,
   getIdempotent,
+  likePattern,
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
@@ -542,12 +543,12 @@ export function stageFilterConditions(
   }
   if (query.search) {
     conditions.push(
-      sql`${stagedTransactions.draft}::text ilike ${`%${query.search}%`}`,
+      sql`${stagedTransactions.draft}::text ilike ${likePattern(query.search)}`,
     );
   }
   if (query.accountId) {
     conditions.push(
-      sql`${stagedTransactions.draft}::text like ${`%${query.accountId}%`}`,
+      sql`${stagedTransactions.draft}::text like ${likePattern(query.accountId)}`,
     );
   }
   if (query.type) {

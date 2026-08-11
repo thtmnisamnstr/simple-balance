@@ -19,6 +19,7 @@ import {
   recurrences,
   stagedTransactions,
   transactionLegs,
+  transactionTemplates,
   transactions,
   type CategoryRow,
 } from "../db/schema.js";
@@ -732,11 +733,38 @@ export async function deleteCategory(
           )!,
         ),
       );
-    if (transactionCount || stagedCount || recurrenceCount) {
+    // A template's draft names a category in jsonb with no foreign key, so
+    // nothing above sees it and nothing stops the delete. What is left is a
+    // template that cannot be saved and cannot be used, and no sentence
+    // anywhere saying which category went missing.
+    const [{ count: templateCount }] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(transactionTemplates)
+      .where(
+        and(
+          eq(transactionTemplates.userId, actor.userId),
+          or(
+            sql`${transactionTemplates.draft} ->> 'categoryId' = ${id}`,
+            sql`exists (
+              select 1
+              from jsonb_array_elements(
+                case
+                  when jsonb_typeof(${transactionTemplates.draft} -> 'legs') = 'array'
+                    then ${transactionTemplates.draft} -> 'legs'
+                  else '[]'::jsonb
+                end
+              ) as leg
+              where leg ->> 'categoryId' = ${id}
+            )`,
+          )!,
+        ),
+      );
+    if (transactionCount || stagedCount || recurrenceCount || templateCount) {
       throw conflict("This category is in use. Archive it instead of deleting it.", {
         transactionCount,
         stagedTransactionCount: stagedCount,
         recurrenceCount,
+        templateCount,
       });
     }
     const deleted = await tx

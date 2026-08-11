@@ -202,6 +202,19 @@ async function takeTransactionLock(tx: DbTransaction, lockKey: string) {
 }
 
 /**
+ * A search box's text as a LIKE pattern that means what was typed.
+ *
+ * `%` and `_` are wildcards to PostgreSQL and ordinary characters to whoever
+ * typed them. Interpolating raw text turns a search for "50% off" into one that
+ * matches every row with "50" then anything then " off", and a search for a
+ * single `%` into a full scan that matches the whole table. Backslash is
+ * escaped first because it is the escape character itself.
+ */
+export function likePattern(search: string) {
+  return `%${search.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+}
+
+/**
  * The one sentence every path that refuses an oversized set says.
  *
  * The cap is the same everywhere on purpose. A person who has met it on a mass

@@ -217,7 +217,7 @@ export type NormalizedCsvRow = {
  * cell, and `?? ""` does not catch it because it is not missing, just not a
  * string. What arrives downstream is then an object where text was expected.
  */
-function cell(row: Record<string, string>, column: string | undefined) {
+export function csvCell(row: Record<string, string>, column: string | undefined) {
   if (!column) return "";
   if (!Object.hasOwn(row, column)) return "";
   const value = row[column];
@@ -231,18 +231,18 @@ export function normalizeCsvRows(
   const { mapping } = options;
   return rows.map((row) => {
     const issues: { field: string; message: string }[] = [];
-    const date = parseCsvDate(cell(row, mapping.date), options.dateFormat);
+    const date = parseCsvDate(csvCell(row, mapping.date), options.dateFormat);
     if (!date) issues.push({ field: "date", message: "Date could not be parsed" });
 
-    const payee = cell(row, mapping.payee).trim();
+    const payee = csvCell(row, mapping.payee).trim();
     if (!payee) issues.push({ field: "payee", message: "Payee is required" });
     const description = mapping.description
-      ? cell(row, mapping.description).trim() || null
+      ? csvCell(row, mapping.description).trim() || null
       : null;
 
-    const signedRaw = cell(row, mapping.amount);
-    const debitRaw = cell(row, mapping.debit);
-    const creditRaw = cell(row, mapping.credit);
+    const signedRaw = csvCell(row, mapping.amount);
+    const debitRaw = csvCell(row, mapping.debit);
+    const creditRaw = csvCell(row, mapping.credit);
     const signedAmount = mapping.amount
       ? parseLocalizedAmount(signedRaw, options.decimalSeparator)
       : null;
@@ -321,8 +321,8 @@ export function normalizeCsvRows(
       date,
       payee,
       description,
-      notes: cell(row, mapping.notes) || null,
-      externalId: cell(row, mapping.externalId) || null,
+      notes: csvCell(row, mapping.notes) || null,
+      externalId: csvCell(row, mapping.externalId) || null,
     };
 
     const draft: TransactionDraft =

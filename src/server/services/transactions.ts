@@ -64,6 +64,7 @@ import {
   decimal,
   exceedsBulkSelectionCap,
   getIdempotent,
+  likePattern,
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
@@ -638,6 +639,36 @@ async function resyncLegs(
 }
 
 /**
+ * A transaction as the audit log should record it: the row and its legs.
+ *
+ * The legs carry the categories a split went to, and relabelling one writes no
+ * posting and touches no column on the transaction. An audit entry built from
+ * the row alone therefore has an identical before and after for exactly the
+ * change somebody is most likely to want to look up later.
+ *
+ * A zeroed leg is left out for the same reason it is left out everywhere else:
+ * it is how a leg is removed, and a list of them is what the entry now says.
+ */
+function auditedTransaction(
+  row: TransactionRow,
+  legs: readonly TransactionLegRow[],
+) {
+  const live = legs.filter((leg) => !decimal(leg.amount).isZero());
+  const serialized = serializeRow(row);
+  if (!live.length) return serialized;
+  return {
+    ...serialized,
+    legs: live.map((leg) => ({
+      id: leg.id,
+      categoryId: leg.categoryId,
+      amount: canonicalDecimal(leg.amount),
+      note: leg.note,
+      ordinal: leg.ordinal,
+    })),
+  };
+}
+
+/**
  * Every transaction's legs, in display order, for a batch of transactions.
  *
  * One query for a page of rows rather than one per row: a mass edit over a
@@ -912,6 +943,13 @@ export async function createTransactionWithinTx(
   // A named category becomes a real one here rather than inside
   // prepareTransaction, which is also how a staged row is checked and must
   // stay free of side effects.
+  //
+  // The account locks come first even though nothing here reads an account
+  // yet. Resolving a name takes the category namespace lock, and the order in
+  // helpers.ts is accounts, then categories, then payees; taking the category
+  // lock ahead of them is the one path that could deadlock against every other
+  // write.
+  await lockAccountReferences(tx, actor, draftAccountIds(input));
   const draft = await resolveDraftCategory(tx, actor, input);
   const prepared = await prepareTransaction(tx, actor, draft);
   await assertDuplicateAllowed(tx, actor, draft, allowDuplicate);
@@ -924,7 +962,10 @@ export async function createTransactionWithinTx(
     entityType: "transaction",
     entityId: created.id,
     operation: auditOperation,
-    after: serializeRow(created),
+    after: auditedTransaction(
+      created,
+      (await legsByTransaction(tx, actor, [created.id])).get(created.id) ?? [],
+    ),
   });
   return created;
 }
@@ -1326,7 +1367,7 @@ function transactionFilterConditions(
     );
   }
   if (query.search) {
-    const pattern = `%${query.search}%`;
+    const pattern = likePattern(query.search);
     conditions.push(
       or(
         ilike(transactions.payee, pattern),
@@ -1489,6 +1530,11 @@ function applyBulkPatch(
         : current.categoryId,
     notes: patch.notes !== undefined ? patch.notes : current.notes,
     externalId: current.externalId,
+    // Provenance, and a mass edit is not a reason to lose it. Carried here
+    // rather than left to the spread: this object is spread last over the
+    // deposit and withdrawal shapes, so a field it does not name is a field
+    // those two branches drop.
+    templateId: current.templateId,
     legs: current.legs,
   };
 
@@ -1920,13 +1966,22 @@ export async function bulkEditTransactions(
           : withLegIds(prepared.postings, legIds, before.id),
       );
     }
+    const editedLegs = await legsByTransaction(
+      tx,
+      actor,
+      plans.map((plan) => plan.before.id),
+    );
     for (let index = 0; index < plans.length; index += 1) {
+      const before = plans[index]!.before;
       await writeAudit(tx, actor, {
         entityType: "transaction",
-        entityId: plans[index]!.before.id,
+        entityId: before.id,
         operation: "bulk_update",
-        before: serializeRow(plans[index]!.before),
-        after: serializeRow(updatedRows[index]!),
+        before: auditedTransaction(before, lockedLegs.get(before.id) ?? []),
+        after: auditedTransaction(
+          updatedRows[index]!,
+          editedLegs.get(before.id) ?? [],
+        ),
       });
     }
 
@@ -2128,6 +2183,12 @@ export async function updateTransaction(
         (id): id is string => id !== null,
       ),
     );
+    // Accounts before the category namespace, as in helpers.ts. The entry may
+    // be moving between accounts, so both sides of the move are locked.
+    await lockAccountReferences(tx, actor, [
+      ...draftAccountIds(draft),
+      ...allowedArchivedAccountIds,
+    ]);
     const resolvedDraft = await resolveDraftCategory(tx, actor, draft);
     const prepared = await prepareTransaction(tx, actor, resolvedDraft, {
       allowedArchivedAccountIds,
@@ -2164,8 +2225,11 @@ export async function updateTransaction(
       entityType: "transaction",
       entityId: id,
       operation: "update",
-      before: serializeRow(before),
-      after: serializeRow(updated),
+      before: auditedTransaction(before, beforeLegs ?? []),
+      after: auditedTransaction(
+        updated,
+        (await legsByTransaction(tx, actor, [id])).get(id) ?? [],
+      ),
     });
     return hydrateTransaction(tx, actor, updated);
   });
@@ -2244,8 +2308,8 @@ export async function setTransactionDeleted(
       entityType: "transaction",
       entityId: id,
       operation: deleted ? "delete" : "restore",
-      before: serializeRow(before),
-      after: serializeRow(updated),
+      before: auditedTransaction(before, legs),
+      after: auditedTransaction(updated, legs),
     });
     return hydrateTransaction(tx, actor, updated);
   });

@@ -86,7 +86,9 @@ rather than treating a result as proof the account is in use. Archiving posts
 whatever the account still holds out to equity, so it closes at zero and
 restoring posts the balance back; that is what lets a total leave archived
 accounts out and still be right. Deleting is only possible while nothing
-references it.
+references it: no transaction, no staged row, no posting, and no recurrence or
+template naming it in its schedule or draft. A category is the same, and its
+list of holdouts includes templates too.
 
 ## Transactions
 

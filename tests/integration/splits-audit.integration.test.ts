@@ -10,6 +10,7 @@ import {
   listCategorySummaries,
   mergeCategories,
 } from "../../src/server/services/categories.js";
+import { listAuditEvents } from "../../src/server/services/audit.js";
 import { createStage, listStages } from "../../src/server/services/staging.js";
 import {
   createTransaction,
@@ -171,6 +172,69 @@ integration("defects the audit claimed", () => {
     await expect(
       deleteCategory(actor, unused.id, unused.version),
     ).resolves.toBeDefined();
+  });
+
+  /**
+   * Recategorising a leg is one update to the leg table: it writes no posting
+   * and changes no column on the transaction. An audit entry built from the
+   * transaction row alone therefore said nothing about the one change somebody
+   * is most likely to come looking for.
+   */
+  it("records which categories a split's legs held, before and after", async () => {
+    // Fresh categories: earlier cases in this file merge the shared ones away.
+    const first = await createCategory(actor, { name: "Ledger A", kind: "expense" });
+    const second = await createCategory(actor, { name: "Ledger B", kind: "expense" });
+    const third = await createCategory(actor, { name: "Ledger C", kind: "expense" });
+    const created = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-03-01",
+        payee: "Costco audit-leg-history",
+        fromAccountId: usdId,
+        amount: "100.00",
+        legs: [
+          { categoryId: first.id, amount: "60.00" },
+          { categoryId: second.id, amount: "40.00" },
+        ],
+      } as never,
+      "audit-leg-history",
+    );
+    const before = await listAuditEvents(actor, { limit: 5 });
+    const creation = before.items.find(
+      (event) => event.entityId === created.id && event.operation === "create",
+    )!;
+    expect((creation.after as { legs?: { categoryId: string }[] }).legs).toEqual([
+      expect.objectContaining({ categoryId: first.id }),
+      expect.objectContaining({ categoryId: second.id }),
+    ]);
+
+    const updated = await updateTransaction(actor, created.id, {
+      expectedVersion: created.version,
+      draft: {
+        type: "withdrawal",
+        date: "2026-03-01",
+        payee: "Costco audit-leg-history",
+        fromAccountId: usdId,
+        amount: "100.00",
+        legs: [
+          { categoryId: first.id, amount: "60.00" },
+          { categoryId: third.id, amount: "40.00" },
+        ],
+      },
+    });
+    expect(updated.version).toBe(created.version + 1);
+
+    const after = await listAuditEvents(actor, { limit: 5 });
+    const edit = after.items.find(
+      (event) => event.entityId === created.id && event.operation === "update",
+    )!;
+    const legCategories = (payload: unknown) =>
+      ((payload as { legs?: { categoryId: string }[] }).legs ?? []).map(
+        (leg) => leg.categoryId,
+      );
+    expect(legCategories(edit.before)).toEqual([first.id, second.id]);
+    expect(legCategories(edit.after)).toEqual([first.id, third.id]);
   });
 
   it("counts a staged split's legs against its categories", async () => {

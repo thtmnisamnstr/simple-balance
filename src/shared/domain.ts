@@ -116,7 +116,10 @@ export type ActorSource = (typeof actorSources)[number];
 
 export const isoDateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+  // Year 0000 round-trips through JavaScript's Date and is out of range for
+  // PostgreSQL, so the check below passes it and the cast at the far end fails,
+  // which the caller sees as an unexplained 500 for a four-digit typo.
+  .regex(/^(?!0000)\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
   .refine((value) => {
     const parsed = new Date(`${value}T00:00:00.000Z`);
     return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().startsWith(value);
