@@ -141,7 +141,27 @@ async function validateDraft(
   duplicateOfId: string | null;
   duplicateKey: string | null;
 }> {
-  const parsed = transactionDraftSchema.safeParse(input);
+  // A staged row always becomes a NEW transaction, so a leg identity carried in
+  // its draft names nothing. Left in, the ledger refuses it with "Leg is
+  // unavailable" at commit rather than at stage, and because a commit is atomic
+  // one such row fails the whole batch somebody selected. Dropped here, where
+  // every staged path already passes through, rather than in each of them.
+  const withoutLegIds =
+    input && typeof input === "object" && Array.isArray((input as { legs?: unknown }).legs)
+      ? {
+          ...(input as Record<string, unknown>),
+          legs: ((input as { legs: unknown[] }).legs).map((leg) =>
+            leg && typeof leg === "object" && "id" in leg
+              ? Object.fromEntries(
+                  Object.entries(leg as Record<string, unknown>).filter(
+                    ([key]) => key !== "id",
+                  ),
+                )
+              : leg,
+          ),
+        }
+      : input;
+  const parsed = transactionDraftSchema.safeParse(withoutLegIds);
   if (!parsed.success) {
     return {
       draft: null,

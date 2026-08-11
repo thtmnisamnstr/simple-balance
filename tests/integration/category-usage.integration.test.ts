@@ -471,6 +471,62 @@ integration("how much each category is used", () => {
     }
   });
 
+  /**
+   * A staged draft describes a transaction to create, so a leg identity in it
+   * names nothing. Carried through, the ledger refused it at commit rather than
+   * at stage, and because a commit is atomic one such row failed the whole
+   * batch somebody had selected.
+   */
+  it("commits a staged split whose legs arrived carrying ids", async () => {
+    const one = await createCategory(owner, {
+      name: "Leg Id Food",
+      kind: "expense",
+    });
+    const two = await createCategory(owner, {
+      name: "Leg Id Home",
+      kind: "expense",
+    });
+    const staged = await createStage(owner, {
+      draft: {
+        type: "withdrawal",
+        date: "2026-05-05",
+        payee: "Carries leg ids",
+        fromAccountId: checkingId,
+        amount: "50.00",
+        legs: [
+          {
+            id: "99999999-9999-4999-8999-999999999999",
+            categoryId: one.id,
+            amount: "30.00",
+          },
+          {
+            id: "88888888-8888-4888-8888-888888888888",
+            categoryId: two.id,
+            amount: "20.00",
+          },
+        ],
+      },
+      idempotencyKey: nextKey(),
+    });
+    expect(staged.validationIssues).toEqual([]);
+
+    const committed = await commitStages(owner, {
+      stagedIds: [staged.id],
+      expectedVersions: { [staged.id]: staged.version },
+      idempotencyKey: nextKey(),
+      allowDuplicates: true,
+    });
+    expect(committed).toBeDefined();
+
+    // Both categories were credited, so no leg was lost on the way through.
+    for (const category of [one, two]) {
+      expect(
+        (await summaryFor(category.name))?.transactionCount,
+        category.name,
+      ).toBe(1);
+    }
+  });
+
   it("still reports the columns the page already relied on", async () => {
     const summary = (await summaryFor("Groceries"))!;
     expect(summary).toMatchObject({
