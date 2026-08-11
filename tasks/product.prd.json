@@ -294,6 +294,62 @@
         "npm test",
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
       ]
+    },
+    {
+      "id": "SB-017",
+      "priority": 160,
+      "title": "Split transactions",
+      "dependsOn": [
+        "SB-015"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "One transaction divides across several category legs and still settles to zero in each currency it touches",
+        "A split cuts the entry's counter-account side into pieces rather than recording the money again, so category totals add up to exactly what left the account",
+        "Each leg posts under its own leg id, so a leg's share is attributable wherever spending is reported",
+        "Relabelling a leg writes no postings, and changing what a leg is worth writes only the difference",
+        "Deleting a split voids the entry a leg at a time",
+        "Splits work on committed transactions, on staged rows, and on templates, where the categories are stored and the amounts left blank",
+        "A CSV export carries a split by category name and reads back as the same split in another ledger",
+        "Mass edit refuses to set a category or a type on a split rather than flattening it, and says why",
+        "A transfer cannot be split, having no counter-account side to partition",
+        "Reachable over MCP under the same scope rules as everything else"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
+      ]
+    },
+    {
+      "id": "SB-016",
+      "priority": 170,
+      "title": "Recurring transactions",
+      "dependsOn": [
+        "SB-015"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A recurrence names a shape, its accounts, an optional amount, a schedule, and policies for month length and weekends",
+        "Daily, weekly, monthly and yearly schedules, every N of those, on a day of the month or on a relative day such as the second Tuesday or the last Friday",
+        "On its due date it writes an ordinary staged row, and never a posting",
+        "A recurrence that has never run and one that ran and was discarded are distinguishable, so a silent scheduler is visible rather than inferred",
+        "Catch-up after downtime proposes each missed occurrence once, and running the scheduler twice for the same occurrence proposes it once",
+        "Generated rows carry no bank import reference, and are dated their occurrence rather than the day the scheduler happened to run",
+        "A recurrence naming an account or category that no longer resolves proposes the row anyway, flagged, rather than failing silently",
+        "Deleting a recurrence leaves rows already proposed or committed untouched",
+        "Nothing is ever proposed dated before the day the recurrence was created",
+        "The scheduler runs inside the server process and is on by default, so the single container deployment needs nothing added, and an environment flag hands the job to a separate container",
+        "One replica proposes at a time under a session advisory lock, and a per-occurrence unique key refuses a duplicate even if the lock is bypassed",
+        "Reachable over MCP under the same scope rules as everything else"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
+      ]
     }
   ]
 }
