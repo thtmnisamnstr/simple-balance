@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   addDays,
   daysInMonth,
@@ -55,8 +55,21 @@ describe("calendar helpers", () => {
    * able to stop the scheduler.
    */
   it("falls back to UTC rather than throwing on a timezone it cannot read", () => {
-    expect(todayIn("Not/AZone")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    expect(todayIn("UTC")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // The clock is pinned to an hour where UTC and UTC+14 are on different
+    // days. Comparing against todayIn("UTC") at whatever time the suite happens
+    // to run proves nothing for most of the day, because a wrong fallback zone
+    // usually shares today's date with UTC; matching a date-shaped regex, which
+    // is what this did before, proved only that nothing threw.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-08-11T23:30:00.000Z"));
+      expect(todayIn("Pacific/Kiritimati")).toBe("2026-08-12");
+      expect(todayIn("UTC")).toBe("2026-08-11");
+      expect(todayIn("Not/AZone")).toBe("2026-08-11");
+      expect(todayIn("")).toBe("2026-08-11");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

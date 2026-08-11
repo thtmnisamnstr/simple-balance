@@ -407,11 +407,13 @@ describe("the templates screen", () => {
 
   it("waits for accounts before naming any of them unavailable", async () => {
     let releaseAccounts: (value: Response) => void = () => {};
+    let templatesServed = false;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const url = new URL(String(input), window.location.origin);
         if (url.pathname === "/api/v1/transaction-templates") {
+          templatesServed = true;
           return Response.json([rent]);
         }
         if (url.pathname === "/api/v1/accounts") {
@@ -434,9 +436,11 @@ describe("the templates screen", () => {
       </QueryClientProvider>,
     );
     await screen.findByRole("heading", { name: "Templates" });
-    // Long enough for the templates query to have resolved and re-rendered,
-    // so this catches a table drawn on templates alone.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Waits for the templates request to have been answered, rather than for a
+    // duration chosen to be long enough. That is what makes this catch a table
+    // drawn on templates alone: the page has everything it needs to draw one
+    // wrongly, and must still be waiting.
+    await waitFor(() => expect(templatesServed).toBe(true));
     expect(screen.getByText("Loading templates…")).toBeInTheDocument();
     expect(screen.queryByText("Unavailable")).toBeNull();
 

@@ -136,9 +136,11 @@ describe("revoking an agent over MCP", () => {
     const names = await toolsFor(["openid", "profile", "email"]).catch(
       (error: Error) => error,
     );
+    // Empty, not merely missing the two this was written for. Naming them left
+    // the branch accepting any other tool reaching a token with no ledger scope
+    // at all, which is the failure the assertion exists to catch.
     if (Array.isArray(names)) {
-      expect(names).not.toContain("list_connected_agents");
-      expect(names).not.toContain("revoke_connected_agent");
+      expect(names).toEqual([]);
       return;
     }
     expect(String(names)).toMatch(/Method not found/);

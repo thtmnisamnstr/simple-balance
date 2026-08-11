@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { MAX_RECURRENCES } from "../../src/shared/domain.js";
@@ -17,6 +17,7 @@ import {
   listRecurrences,
   nextOccurrenceDateFor,
   proposeDueOccurrences,
+  ruleOf,
   updateRecurrence,
 } from "../../src/server/services/recurrences.js";
 import {
@@ -26,6 +27,7 @@ import {
 } from "../../src/server/services/staging.js";
 import {
   addDays,
+  occurrencesBetween,
   todayIn,
   weekdayOf,
 } from "../../src/shared/recurrence-dates.js";
@@ -239,10 +241,28 @@ integration("recurring transactions", () => {
     // One writes and the other finds nothing left, or one loses on the unique
     // key. What must never happen is the same occurrence proposed twice.
     expect(settled.map((one) => one.status)).toContain("fulfilled");
-    const occurrences = (await stagedFor(created.id)).map(
-      (row) => row.occurrenceDate,
-    );
-    expect(new Set(occurrences).size).toBe(occurrences.length);
+
+    const occurrences = (await stagedFor(created.id))
+      .map((row) => row.occurrenceDate)
+      .sort();
+    // Against the arithmetic, not merely against itself. Uniqueness alone is
+    // guaranteed by staged_recurrence_occurrence_unique, so asserting it proved
+    // the index exists rather than that the race is safe; what a lost race
+    // actually costs is an occurrence nobody proposed at all.
+    const [row] = await getDb()
+      .select()
+      .from(recurrences)
+      .where(eq(recurrences.id, created.id));
+    const expected = occurrencesBetween(
+      ruleOf(row!),
+      addDays(today, -1),
+      inDays(29),
+      50,
+    ).map((one) => one.occurrenceDate);
+    expect(occurrences).toEqual(expected.sort());
+    // And the watermark agrees with what was written, so neither run left it
+    // ahead of the rows it stands for.
+    expect(row!.nextOccurrenceDate).toBe(nextOccurrenceDateFor(row!));
   });
 
   it("resumes after a capped run and reaches the same total", async () => {
