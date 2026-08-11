@@ -66,6 +66,38 @@ describe("what a recurrence remembers", () => {
     ).toBe(true);
   });
 
+  /**
+   * A recurrence replays the same division on every occurrence, so one that
+   * does not balance is not one bad row, it is a queue that fills with rows
+   * carrying the same complaint and no way to commit any of them.
+   */
+  it("refuses a split whose legs do not add up to the amount", () => {
+    const split = (amount: string, parts: [string, string]) =>
+      recurrenceShapeSchema.safeParse(
+        shape({
+          amount,
+          legs: [
+            { categoryId, amount: parts[0] },
+            { categoryName: "Household", amount: parts[1] },
+          ],
+        }),
+      );
+
+    expect(split("100.00", ["60.00", "40.00"]).success).toBe(true);
+    expect(messages(split("100.00", ["60.00", "39.99"]))).toContain("must add up");
+    expect(messages(split("100.00", ["60.00", "40.01"]))).toContain("must add up");
+    // Compared exactly, not as floating point: 0.1 + 0.2 is 0.3 here.
+    expect(split("0.30", ["0.10", "0.20"]).success).toBe(true);
+    // Trailing zeros are the same number, and different scales still line up.
+    expect(split("100", ["60.000", "40"]).success).toBe(true);
+    expect(
+      split("1000000000000000000000000.000000000000000001", [
+        "1000000000000000000000000",
+        "0.000000000000000001",
+      ]).success,
+    ).toBe(true);
+  });
+
   it("keeps the split refusals the ledger already applies", () => {
     const legs = [
       { categoryId, amount: "60.00" },
@@ -105,12 +137,18 @@ describe("the schedule", () => {
    * fails rather than one row being flagged.
    */
   it("refuses a daily schedule pushed onto a business day", () => {
-    for (const weekendPolicy of ["previous_business_day", "next_business_day"]) {
-      const result = recurrenceScheduleSchema.safeParse(
-        schedule({ frequency: "daily", interval: 1, weekendPolicy }),
-      );
-      expect(result.success, weekendPolicy).toBe(false);
-      expect(messages(result)).toContain("review queue refuses");
+    // Interval two collides as well: Saturday moves forward two days onto the
+    // Monday that is the next occurrence, and Sunday back two onto the Friday
+    // that was the last one. Three days apart is the first gap a two-day move
+    // cannot close.
+    for (const interval of [1, 2]) {
+      for (const weekendPolicy of ["previous_business_day", "next_business_day"]) {
+        const result = recurrenceScheduleSchema.safeParse(
+          schedule({ frequency: "daily", interval, weekendPolicy }),
+        );
+        expect(result.success, `${interval} ${weekendPolicy}`).toBe(false);
+        expect(messages(result)).toContain("review queue refuses");
+      }
     }
   });
 
@@ -127,7 +165,7 @@ describe("the schedule", () => {
       recurrenceScheduleSchema.safeParse(
         schedule({
           frequency: "daily",
-          interval: 2,
+          interval: 3,
           weekendPolicy: "previous_business_day",
         }),
       ).success,

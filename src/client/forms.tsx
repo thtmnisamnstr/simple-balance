@@ -1802,11 +1802,11 @@ export function RecurrenceForm({
   const positional = frequency === "monthly" || frequency === "yearly";
   const usesPosition = positional && byPosition;
   const intervalNumber = Number(interval) || 1;
-  // Two nominal occurrences share a posted date only when they are one day
-  // apart, and the queue refuses to commit rows that alike, so the server
-  // refuses the combination outright. Disabling it here says so before the
-  // refusal does.
-  const businessDayBlocked = frequency === "daily" && intervalNumber === 1;
+  // A weekend policy moves a date up to two days, so a daily schedule of one
+  // or two days can put two occurrences on one date. The queue refuses to
+  // commit rows that alike, so the server refuses the combination outright.
+  // Disabling it here says so before the refusal does.
+  const businessDayBlocked = frequency === "daily" && intervalNumber <= 2;
 
   useEffect(() => {
     if (businessDayBlocked && weekendPolicy.endsWith("business_day")) {
@@ -1905,7 +1905,16 @@ export function RecurrenceForm({
   const accountOptions = accounts.filter((account) => !account.archivedAt);
   const accountReady = type === "deposit" ? toAccountId : fromAccountId;
   const transferReady = type !== "transfer" || (fromAccountId && toAccountId);
-  const ready = Boolean(name.trim() && payee.trim() && accountReady && transferReady);
+  // A recurrence's legs are required and must add up, unlike a template's,
+  // because the same division is replayed on every occurrence: one that does
+  // not balance proposes a row nobody can commit, over and over.
+  const splitting = type !== "transfer" && legs.length >= 2;
+  const splitSettled =
+    !splitting ||
+    moneyRemainder(amount, legs.map((leg) => leg.amount || "0")) === "0";
+  const ready = Boolean(
+    name.trim() && payee.trim() && accountReady && transferReady && splitSettled,
+  );
 
   return (
     <form
@@ -2011,7 +2020,6 @@ export function RecurrenceForm({
             legs={legs}
             onLegsChange={setLegs}
             total={amount}
-            requireBalance={false}
           />
         </Field>
       )}
@@ -2144,9 +2152,9 @@ export function RecurrenceForm({
         </Field>
         {businessDayBlocked ? (
           <p className="settings-note">
-            A daily schedule moved onto a business day puts Saturday and Sunday
-            on the same date as the weekday beside them, and the review queue
-            refuses to commit rows that alike. Lengthen the interval to use
+            A daily schedule of one or two days moved onto a business day puts
+            two occurrences on the same date, and the review queue refuses to
+            commit rows that alike. Make the interval three days or more to use
             those two.
           </p>
         ) : null}

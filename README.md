@@ -242,6 +242,9 @@ due rather than the ledger quietly missing months of rent.
 
 Public holidays are not modelled. A business day here means Monday to Friday.
 
+A split recurrence divides the same way every time, so its legs have to add up
+to the amount before it is saved rather than each proposal being refused later.
+
 ### Changing many rows at once
 
 You can change or delete up to 10,000 rows in one request that either wholly

@@ -1247,13 +1247,57 @@ function checkRecurrenceShape(
   context: z.RefinementCtx,
 ) {
   checkLegs(shape, context);
-  if (shape.legs?.length && shape.amount === undefined) {
+  if (!shape.legs?.length) return;
+  if (shape.amount === undefined) {
     context.addIssue({
       code: "custom",
       path: ["amount"],
       message: "A split recurrence needs an amount for its legs to divide",
     });
+    return;
   }
+  // Checked here and not left to the ledger, because a recurrence is replayed.
+  // A template's legs may be blank and a transaction's split is refused once,
+  // at the point somebody is looking; a recurrence whose legs do not add up
+  // proposes a row nobody can commit on every occurrence it ever reaches, and
+  // the only symptom is a queue that fills with rows carrying the same
+  // complaint.
+  const legs = shape.legs as readonly { amount?: string }[];
+  const amounts = legs.map((leg) => leg.amount);
+  if (amounts.every((amount): amount is string => typeof amount === "string")) {
+    if (!sumsExactly(amounts, shape.amount)) {
+      context.addIssue({
+        code: "custom",
+        path: ["legs"],
+        message:
+          "A split's legs must add up to the recurrence's amount. Every occurrence it proposes carries the same division, so one that does not balance can never be committed.",
+      });
+    }
+  }
+}
+
+/**
+ * Whether the parts add up to the whole, exactly.
+ *
+ * Compared as integers scaled to the longest fraction, because binary floating
+ * point cannot hold these values and a split a hundredth of a penny out is
+ * still one that will not commit. The schema bounds every value to a leading
+ * integer part and at most 18 decimal places, so there is always something to
+ * the left of the point and BigInt cannot overflow.
+ */
+function sumsExactly(parts: readonly string[], whole: string) {
+  const places = (value: string) => {
+    const point = value.indexOf(".");
+    return point < 0 ? 0 : value.length - point - 1;
+  };
+  const scale = Math.max(places(whole), ...parts.map(places));
+  const asInteger = (value: string) => {
+    const [integer = "0", fraction = ""] = value.split(".");
+    return BigInt(integer + fraction.padEnd(scale, "0"));
+  };
+  return (
+    parts.reduce((total, part) => total + asInteger(part), 0n) === asInteger(whole)
+  );
 }
 
 const recurrenceShapeFields = {
@@ -1342,19 +1386,22 @@ function checkSchedule(
   },
   context: z.RefinementCtx,
 ) {
-  // Two nominal occurrences share a posted date only when they are one day
-  // apart, which only a daily schedule of interval one produces. The queue
-  // refuses to commit a selection holding rows that alike, so that combination
+  // Two nominal occurrences collide when a policy can move them onto one date,
+  // and the moves are up to two days: Saturday goes forward two to Monday and
+  // Sunday back two to Friday. So a daily schedule of interval one OR two
+  // collides, and nothing else does; an exhaustive sweep of every frequency,
+  // interval and anchor weekday finds collisions in exactly those two. The
+  // queue refuses to commit a selection holding rows that alike, so either
   // makes a queue nobody can clear in one go.
   const movesToABusinessDay =
     schedule.weekendPolicy === "previous_business_day" ||
     schedule.weekendPolicy === "next_business_day";
-  if (schedule.frequency === "daily" && schedule.interval === 1 && movesToABusinessDay) {
+  if (schedule.frequency === "daily" && schedule.interval <= 2 && movesToABusinessDay) {
     context.addIssue({
       code: "custom",
       path: ["weekendPolicy"],
       message:
-        "A daily schedule moved onto a business day puts Saturday and Sunday on the same date as the Friday or Monday beside them, and the review queue refuses to commit rows that alike. Use allow or skip, or lengthen the interval.",
+        "A daily schedule of one or two days moved onto a business day puts two occurrences on the same date, and the review queue refuses to commit rows that alike. Use allow or skip, or make the interval three days or more.",
     });
   }
   // A weekly rule's relative day is already the weekday of its anchor, and a

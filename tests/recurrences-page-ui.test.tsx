@@ -244,10 +244,20 @@ describe("the recurrence form", () => {
     expect(
       within(policy).getByRole("option", { name: /Move it on to the Monday/ }),
     ).toBeDisabled();
-    expect(screen.getByText(/Lengthen the interval to use those two/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Make the interval three days or more to use those two/),
+    ).toBeInTheDocument();
 
+    // Two days apart still collides, three does not.
     fireEvent.change(screen.getByLabelText(/^Every N days/), {
       target: { value: "2" },
+    });
+    expect(
+      within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
+    ).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/^Every N days/), {
+      target: { value: "3" },
     });
     expect(
       within(policy).getByRole("option", { name: /Move it back to the Friday/ }),

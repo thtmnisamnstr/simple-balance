@@ -227,11 +227,12 @@ February, and `weekendPolicy` decides what happens when a date lands on a
 Saturday or Sunday. **A business day means Monday to Friday. Public holidays are
 not modelled**, so a proposal can land on one.
 
-Two refusals worth knowing before you hit them. A daily schedule of interval one
-cannot use either business-day policy: Saturday and Sunday would both collapse
-onto the weekday beside them, and the queue refuses to commit rows that alike. A
-split needs an amount on the recurrence for its legs to divide, unlike a
-template, where the amounts are filled in on use.
+Two refusals worth knowing before you hit them. A daily schedule of one or two
+days cannot use either business-day policy: a policy moves a date up to two
+days, so two occurrences would land on one, and the queue refuses to commit rows
+that alike. Three days apart is the first gap that survives. And a split needs
+an amount on the recurrence, with legs that add up to it exactly, unlike a
+template, where the amounts are left blank and filled in on use.
 
 Updating merges the schedule rather than replacing it, so changing the frequency
 does not silently reset the policies, and the merged result goes back through
