@@ -8,6 +8,7 @@ import {
   createAccount,
   setAccountArchived,
 } from "../../src/server/services/accounts.js";
+import { createRecurrence } from "../../src/server/services/recurrences.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -93,5 +94,44 @@ integration("running on a single database connection", () => {
       `select coalesce(sum(amount), 0)::text as balance from posting where account_id = '${account.id}'`,
     );
     expect((closed.rows[0] as { balance: string }).balance).toMatch(/^0\.?0*$/);
+  });
+
+  /**
+   * The same shape again, one service along. An MCP write opens the transaction
+   * itself so the idempotency record, the mutation and the audit events land
+   * together, then hands it in; anything inside that reaches back into the pool
+   * waits on the connection its own caller is holding.
+   */
+  it("creates a recurrence inside a caller's transaction without waiting on itself", async () => {
+    const account = await createAccount(actor, {
+      name: "Standing",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "500",
+    });
+
+    const created = await Promise.race([
+      getDb().transaction((tx) =>
+        createRecurrence(
+          actor,
+          {
+            name: "Inside a transaction",
+            shape: {
+              type: "withdrawal",
+              payee: "Landlord",
+              fromAccountId: account.id,
+              amount: "1200.00",
+            },
+            schedule: { frequency: "monthly", anchorDate: "2030-03-01" },
+          },
+          tx,
+        ),
+      ),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("create never answered")), 20_000),
+      ),
+    ]);
+    expect((created as { name: string }).name).toBe("Inside a transaction");
   });
 });

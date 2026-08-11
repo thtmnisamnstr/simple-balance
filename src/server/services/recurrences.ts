@@ -446,9 +446,14 @@ export async function createRecurrence(
   transaction?: DbTransaction,
 ) {
   const parsed = recurrenceCreateSchema.parse(input);
-  const { timezone } = await getPreferences(actor);
-  const proposesFrom = todayIn(timezone);
   return withTransaction(transaction, async (tx) => {
+    // Read through the transaction, never off the pool. An MCP write hands its
+    // own transaction in so the idempotency record, the mutation and the audit
+    // events land together; reaching for a second connection from inside it
+    // waits on the one the caller is holding, and on DATABASE_POOL_SIZE=1 that
+    // wait never ends and never errors either.
+    const { timezone } = await getPreferences(actor, tx);
+    const proposesFrom = todayIn(timezone);
     await lockRecurrenceNamespace(tx, actor);
     await assertNameAvailable(tx, actor, parsed.name);
     await assertReferencesAreOwned(tx, actor, parsed.shape);
