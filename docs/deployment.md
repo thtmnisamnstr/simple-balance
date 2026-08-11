@@ -36,6 +36,10 @@ derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 | `DATABASE_POOL_SIZE` | `10` | Connections held open. Raise it only if you have measured contention. |
 | `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. |
 | `CSV_MAX_ROWS` | `25000` | Most rows accepted from one CSV. |
+| `RECURRENCE_SCHEDULER` | `true` | Whether this process proposes recurring transactions. Turn it off on replicas that serve the API when a separate scheduler container owns the job. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
+| `RECURRENCE_TICK_SECONDS` | `300` | How often it looks for a recurrence that has come due. Latency only: whatever a missed tick leaves behind, the next one catches up. |
+| `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. |
+| `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. |
 
 ### Only for Google sign-in
 
@@ -297,11 +301,57 @@ default `postgres` superuser has. Without it you get a message naming the
 database and the statement to run, rather than a driver error. Nothing else
 about the server is assumed or altered.
 
+## Splitting it into separate containers
+
+One container is the supported way to run this, and the rest of this document
+assumes it. If you are running under Kubernetes and want to scale the web tier,
+`deploy/docker/` holds three Dockerfiles that split it up. Build them from the
+repository root:
+
+```sh
+docker build -f deploy/docker/server.Dockerfile -t simple-balance-server .
+docker build -f deploy/docker/frontend.Dockerfile -t simple-balance-frontend .
+docker build -f deploy/docker/scheduler.Dockerfile -t simple-balance-scheduler .
+```
+
+The server image is the API and the MCP endpoint with no browser bundle in it.
+The frontend image is nginx serving the bundle, proxying `/api`, `/mcp`,
+`/health` and `/.well-known` through to the server; point `SB_API_ORIGIN` at
+your API Service. The scheduler image proposes recurring transactions and serves
+nothing but its own health checks.
+
+Four things have to line up:
+
+- **`APP_BASE_URL` on the server names the frontend's public origin**, not the
+  server's own address. Cookies are set by the API and read by the browser, so
+  both have to be reached on one origin, and that origin is nginx.
+- **`TRUST_PROXY=true` on the server**, because nginx is now the address every
+  connection comes from. Without it every visitor shares one sign-in allowance.
+- **`RECURRENCE_SCHEDULER=false` on the server Deployment.** The scheduler
+  entrypoint ignores the flag and always ticks, so the only thing left to decide
+  is whether the API replicas tick too. Leaving them on is safe rather than
+  wrong: one advisory lock lets a single replica tick at a time. It is still
+  wasted wakeups on every replica.
+- **One scheduler replica.** More is harmless for the same reason, and buys
+  nothing.
+
+Each of these processes now opens up to three pooled connections: the
+application pool, the auth bootstrap lock, and the scheduler lock. Worth knowing
+if you have set `DATABASE_POOL_SIZE=1`.
+
+There is no published image for any of these and no CI that builds them. They
+are here for you to build and push into your own registry.
+
 ## Health and shutdown
 
 `/health/live` says the process is up. `/health/ready` says configuration, the
 database, and the migrations have all succeeded, and stays closed until they
 have. Point your orchestrator at readiness.
+
+A process with the scheduler switched off is not an unhealthy one, so readiness
+says nothing about it. What tells you the scheduler has stopped is the Recurring
+page: a recurrence past its due date with nothing proposed means whatever runs
+the schedule is not running.
 
 On `SIGTERM` the process stops accepting connections, closes the HTTP server,
 and drains the database pool before exiting.

@@ -27,6 +27,7 @@ contract breaks, which is not the same as when the app does.
 | `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
 | `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
 | `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |
+| `src/server/recurrence-scheduler.ts` | The loop that proposes recurring transactions, and the lock that keeps one replica doing it. |
 | `src/server/db` | Drizzle schema, migration runner, connection pool. |
 | `src/client` | The browser app. Renders what the server computed. |
 | `drizzle` | Generated SQL migrations and their snapshots. |
@@ -216,6 +217,38 @@ Migrations are forward-only, and a migration is frozen once it ships in a
 release: by then it has run against somebody's data, and rewriting it would put
 their schema and its recorded history out of step. Every schema change after
 that is a new migration. See [upgrades](upgrades.md).
+
+## The scheduler
+
+One thing in this system writes without anybody asking it to, and what it writes
+is a proposal. On a recurrence's due date it puts an ordinary staged row in the
+review queue and posts nothing, which is what keeps "every posting was made by
+somebody who was there" true with a scheduler in the picture.
+
+It lives inside the server process and is on by default, so the single container
+this is documented as needs nothing extra. `RECURRENCE_SCHEDULER=false` switches
+it off, which is how a Kubernetes deployment hands the job to a container of its
+own.
+
+Two independent things stop the same occurrence being proposed twice.
+`pg_try_advisory_lock(724202610)`, session-level and on a connection of its own,
+lets one replica tick at a time; a replica that loses returns immediately rather
+than queueing behind work the winner is already doing. It is session-level
+because a tick commits once per recurrence, so a transaction-scoped lock would
+release at every one of those commits. Underneath it, a partial unique index on
+`(user_id, recurrence_id, occurrence_date)` means a second insert of the same
+occurrence raises rather than lands, taking the watermark advance down with it,
+since both are in one transaction.
+
+Catch-up is a watermark comparison rather than a query: every occurrence strictly
+after `max(last_occurrence_date, proposes_from - 1 day)` and no later than today
+where that person lives, in bounded batches. `proposes_from` is fixed at creation
+and never rewritten, so catch-up can only ever mean downtime and never history.
+
+The one query in the product that does not lead with a tenant is the sweep that
+finds what is due, because the scheduler has to find the work before it can know
+whose it is. It reads two columns and a timezone; everything below it runs
+through an `Actor` built from the user id the row carried.
 
 ## MCP tokens
 

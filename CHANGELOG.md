@@ -6,6 +6,34 @@ Notable changes, newest first.
 
 ### Added
 
+Recurring transactions. Rent, a salary, a subscription: anything that arrives on
+a schedule can be set up once and left. Daily, weekly, monthly or yearly, every
+N of those, on a day of the month or on a relative day such as the second
+Tuesday or the last Friday. You choose what a schedule anchored to the 31st does
+in February, and what happens when a date lands on a weekend.
+
+On each due date it puts an ordinary row in the review queue, dated its own
+occurrence rather than the day the scheduler ran, and posts nothing. Leave the
+amount out and each proposal waits in the queue for a number, which is what the
+electricity bill wants. A recurrence naming an account that has since been
+deleted still proposes its row, flagged and saying which field, rather than
+failing where nobody would see it. Deleting a recurrence leaves every row it
+proposed alone.
+
+The scheduler runs inside the server process and is on by default, so the
+documented single container keeps working with nothing added to it. Set
+`RECURRENCE_SCHEDULER=false` to switch it off on replicas that serve the API.
+Running several with it on is safe: one advisory lock lets a single replica tick
+at a time, and a per-occurrence unique key refuses a duplicate proposal even if
+the lock were bypassed. Public holidays are not modelled; a business day means
+Monday to Friday.
+
+Three Dockerfiles under `deploy/docker/` split the single container into a
+server, an nginx frontend, and a scheduler, for running this under Kubernetes.
+There is no published image for any of them and no CI that builds them; the
+single container remains the supported way to run this. See
+[deployment](docs/deployment.md).
+
 One transaction can now be split across several categories. The grocery receipt
 that is partly food, partly household and partly something for the dog is one
 entry with three legs, and each leg is attributed to its own category in
@@ -31,6 +59,14 @@ type is refused on a split rather than flattening it, and the panel says why.
 
 Upgrading is a schema change and not a data migration: nothing existing is
 rewritten, and every figure reads the same the moment it finishes.
+
+### Fixed
+
+A stored timezone that has stopped being recognisable, after an ICU update or a
+hand-edited row, no longer throws when the dashboard works out what day it is.
+It falls back to UTC. The value is free text checked only when it was written,
+and the scheduler now reads it in a loop that serves everybody, where one bad
+row must not be able to stop the rest.
 
 ## 0.1.3 - 2026-08-06
 

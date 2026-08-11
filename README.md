@@ -23,6 +23,8 @@ parts without being able to do the dangerous ones.
   and received amounts apart
 - CSV import through a review queue, and an export that reads back in
 - Templates for the transactions you enter over and over
+- Recurring transactions that propose into the review queue on a schedule, and
+  post nothing until you commit them
 - Mass edit and mass delete, up to 10,000 rows in one request that either wholly
   succeeds or wholly does not
 - One transaction split across several categories, each attributed on its own
@@ -155,11 +157,11 @@ if you want it to commit. Settings lists what you have approved, and revoking an
 agent there cuts it off on its next call rather than whenever its token happens
 to expire. See [MCP](docs/mcp.md).
 
-An agent can do everything you can: the whole ledger, imports, templates, mass
-edits, and your own settings. Two things stay yours alone, deleting the account
-and setting a password, because they are account management rather than
-bookkeeping. An agent cannot get around your sign-in, the scopes you granted it,
-the duplicate checks, or the commit step.
+An agent can do everything you can: the whole ledger, imports, templates,
+recurrences, mass edits, and your own settings. Two things stay yours alone,
+deleting the account and setting a password, because they are account management
+rather than bookkeeping. An agent cannot get around your sign-in, the scopes you
+granted it, the duplicate checks, or the commit step.
 
 ## In detail
 
@@ -219,6 +221,27 @@ change many at once. A mass edit there can also clear a field rather than set
 it, which is how a template stops carrying an amount and starts asking for one
 each time you use it.
 
+### Recurring transactions
+
+Rent, a salary, a subscription: anything that arrives on a schedule can be set
+up once and left. Daily, weekly, monthly or yearly, every N of those, on a day
+of the month or on a relative day such as the second Tuesday or the last Friday.
+You choose what happens when the month is too short for the day you picked, and
+what happens when a date lands on a weekend.
+
+On its due date it puts an ordinary row in the review queue, dated its own
+occurrence, and posts nothing. You check it and commit it like anything else.
+Leave the amount out and each proposal waits for a number, which is what the
+electricity bill wants.
+
+That it proposes rather than posts is the whole design. A scheduler writing to
+the ledger unattended is a writer nobody watched; a scheduler filling a queue is
+just another thing suggesting work. It also turns the usual failure inside out:
+when the schedule stops running, the Recurring page says a recurrence is past
+due rather than the ledger quietly missing months of rent.
+
+Public holidays are not modelled. A business day here means Monday to Friday.
+
 ### Changing many rows at once
 
 You can change or delete up to 10,000 rows in one request that either wholly
@@ -250,8 +273,8 @@ no agent can do it for you.
 
 ### Not built yet
 
-Recurring transactions, reporting beyond the dashboard, budgets, bank sync,
-account sharing, attachments, and reconciliation. What is planned, in what
+Reporting beyond the dashboard, budgets, bank sync, account sharing,
+attachments, and reconciliation. What is planned, in what
 order, and the evidence behind each is in the [roadmap](docs/roadmap.md), which
 also says what is deliberately not planned and why, market prices among it. Tags
 are neither built nor planned.

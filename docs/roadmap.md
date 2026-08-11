@@ -128,9 +128,9 @@ splits are in the set. A split is editable back to one category, and a
 single-leg transaction cannot be represented at all: the wire schema, the check
 constraint and the form each fold it back to a plain category.
 
-## SB-016 — Recurring transactions
+## SB-016 — Recurring transactions — **done**
 
-**Priority 170. Depends on SB-015.**
+**Priority 170. Depends on SB-015. Shipped as migration 0006.**
 
 A recurrence is a saved shape, a schedule, and a policy for the awkward dates.
 On its due date it puts an ordinary transaction into the review queue, where it
@@ -163,6 +163,18 @@ defer this.
 
 The cost is the execution path rather than the schedule arithmetic. There is no
 scheduler here at all today — no cron, no `setInterval`, no worker, nothing.
+
+**Shipped as.** The scheduler runs inside the server process and is on by
+default, so the documented single container keeps working with nothing added to
+it. `RECURRENCE_SCHEDULER=false` turns it off on replicas that serve the API,
+which is what a Kubernetes deployment does when it runs the scheduler container
+from `deploy/docker/scheduler.Dockerfile`. One replica ticks at a time under a
+session advisory lock, and a per-occurrence unique key refuses a second proposal
+of the same date even if the lock were bypassed entirely.
+
+No holiday calendar. A business day means Monday to Friday, said in the tool
+description and beside the weekend-policy picker, because per-country holiday
+data ageing inside a container nobody updates is worse than not having it.
 
 **Acceptance criteria**
 

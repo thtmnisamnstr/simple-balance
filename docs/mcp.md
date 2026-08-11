@@ -203,6 +203,48 @@ discarded, so an empty result means the queue is clear rather than that the
 import failed. The id is what scopes a staged listing or a bulk edit to one
 file, which is how a whole import gets corrected in one go.
 
+## Recurring transactions
+
+`list_recurrences`, `get_recurrence`, `create_recurrence`, `update_recurrence`,
+and `delete_recurrence`. The two reads take `ledger:read`; the three writes take
+`ledger:write`, which is where template editing already sits. A recurrence is a
+template plus a standing instruction to keep proposing after the conversation
+has ended.
+
+A recurrence proposes and never posts. On each due date it writes an ordinary
+staged row dated that occurrence, and somebody commits it from the queue like
+anything else. The shape refuses a `date`, a `templateId` and an `externalId`:
+the schedule supplies the date, and a bank reference copied onto every proposal
+would make the next real import of that row look like one already seen.
+
+The schedule is a frequency, an interval, an anchor date, and a policy for each
+kind of awkward date. Monthly and yearly may name a relative day instead of a
+day of the month. `position: { ordinal: 2, weekday: 2 }` is the second Tuesday,
+and ordinal `-1` is the last one. There is no fifth ordinal, because a month has
+four of some weekdays and five of others; anybody who means the fifth means the
+last. `monthPolicy` decides what a schedule anchored to the 31st does in
+February, and `weekendPolicy` decides what happens when a date lands on a
+Saturday or Sunday. **A business day means Monday to Friday. Public holidays are
+not modelled**, so a proposal can land on one.
+
+Two refusals worth knowing before you hit them. A daily schedule of interval one
+cannot use either business-day policy: Saturday and Sunday would both collapse
+onto the weekday beside them, and the queue refuses to commit rows that alike. A
+split needs an amount on the recurrence for its legs to divide, unlike a
+template, where the amounts are filled in on use.
+
+Updating merges the schedule rather than replacing it, so changing the frequency
+does not silently reset the policies, and the merged result goes back through
+every refusal above. `list_recurrences` reports what each one has proposed,
+committed and discarded, and an `overdue` flag: overdue with nothing proposed
+means whatever runs the schedule has stopped.
+
+Nothing is ever proposed dated before the day the recurrence was created, so an
+anchor set years back fills in no history, and moving it back later does not
+either. Deleting a recurrence leaves every row it proposed alone; those rows
+keep its name, so a queue entry can still say where it came from. To find them,
+`list_staged_transactions` takes a `recurrenceId` filter.
+
 ## Transaction templates
 
 `list_transaction_templates`, `get_transaction_template`,

@@ -112,6 +112,11 @@
   it. A patch key left out leaves the field alone, a value sets it, and `null`
   clears it back to blank; an empty string is refused rather than read as a
   clear.
+- A recurrence proposes and never posts. On its due date it writes an ordinary
+  staged row dated its occurrence, with no import batch and no external id, and
+  a reference that no longer resolves becomes an issue on that row rather than a
+  reason to write nothing. Its provenance columns carry no foreign key, so
+  deleting a recurrence leaves every row it proposed alone.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
 - Every migration that has shipped is frozen: `0000_initial.sql`,
