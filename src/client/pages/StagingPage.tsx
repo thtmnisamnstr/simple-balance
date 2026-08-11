@@ -223,8 +223,13 @@ export default function StagingPage() {
     queryFn: () => api<Account[]>("/api/v1/accounts"),
   });
   const categories = useQuery({
-    queryKey: ["categories"],
-    queryFn: () => api<Category[]>("/api/v1/categories"),
+    // Archived ones included, as the transaction browser does. A recurrence can
+    // propose a row filed under a category retired since, and leaving it out of
+    // this list rendered that row as Uncategorized with a blank category field
+    // in its editor: the one row somebody opened this queue to repair, showing
+    // the wrong thing about itself.
+    queryKey: ["categories", true],
+    queryFn: () => api<Category[]>("/api/v1/categories?includeArchived=true"),
   });
   // A staged draft names its category by id, so the queue needs the list to
   // show a name instead of a UUID.

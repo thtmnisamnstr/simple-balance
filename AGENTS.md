@@ -2,7 +2,9 @@
 
 ## Architecture boundaries
 
-- Keep shared Zod contracts and CSV primitives in `src/shared`.
+- Keep shared Zod contracts, CSV primitives and name normalization in
+  `src/shared`. A rule the browser previews and the server enforces has to be
+  one function, or the preview eventually shows something the server refuses.
 - Keep ledger behavior in `src/server/services`; both Hono routes and MCP tools
   must call the same services.
 - Treat `src/server/api.ts` and `src/server/mcp.ts` as transport adapters.
@@ -98,6 +100,16 @@
 - Staged transactions never affect balances or reports.
 - Updates/deletes require an expected version. Creates and commits require
   idempotency. Bulk commits are explicit-ID, validate-first, and atomic.
+- Ten thousand rows is the cap, and it is the same number everywhere: a mass
+  edit, a mass delete, a commit, and a CSV import. An import that stages more
+  than one action can clear is a cap doing damage. A filtered selection is
+  bounded in SQL, not after the rows have been read.
+- `ledger:stage` proposes and never decides. Creating a category, bringing an
+  archived one back, or widening what kind of entry it may carry are changes to
+  the ledger's own records and need `ledger:write`, wherever they are reached
+  from, including a CSV import.
+- An audit entry records what changed, and for a split that includes the legs:
+  relabelling one writes no posting and touches no column on the transaction.
 - Transaction and staged mass edits are atomic and share one selection contract.
   Explicit rows carry expected versions; all-filtered selections carry a
   server-issued count and `id:version` fingerprint. Never silently move a

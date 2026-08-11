@@ -66,6 +66,60 @@ Both are schema changes rather than data migrations: nothing existing is
 rewritten, no row is backfilled, and every figure reads the same the moment they
 finish.
 
+### Security
+
+`NODE_ENV` was compared against one string, so any other spelling, and leaving
+it unset, read as development: no first-run setup code, no sign-in rate
+limiting, no secure cookies, and nothing to say it had happened. It is parsed
+against a closed set now, and a process outside production that has been given a
+real `APP_BASE_URL` refuses to start rather than warning about it.
+
+`AUTH_SECRET` clearing 32 characters said nothing about whether it was secret.
+The value this project falls back to outside production and the one
+`.env.example` carried both cleared it, so a deployment could sign every session
+with a published string. Production names and refuses them, and the example file
+now ships no placeholder to leave in place. If you copied that line, generate a
+real one: `openssl rand -base64 32`.
+
+The agent consent screen read the client name and the scopes it displayed out of
+the query string, which is written by whoever wants the grant. A link could show
+a familiar client and read-only access while approving a stored request for
+something else. Both now come from the record the consent code names.
+
+Guessing the first-run setup code cost nothing: a wrong one was refused before
+the rate limiter ever saw the attempt. Attempts are counted per caller now, five
+to a fifteen-minute window.
+
+Adding a sign-in password to an account that has only ever used Google took a
+session and nothing else, so a borrowed cookie could mint a second permanent
+credential in silence. It now needs a session created in the last fifteen
+minutes.
+
+Changing or resetting your password revokes every agent's access along with the
+approvals behind it. Before, an MCP token an agent already held kept working for
+its hour and its refresh token kept minting replacements for a week.
+
+`stage_csv` created categories, brought archived ones back, and widened what
+kind of entry a category may carry, all under `ledger:stage` — the scope for an
+agent that may propose and never decide. Those three need `ledger:write` now;
+with only staging authority the row is staged under the category's name and
+committing it is what makes the category.
+
+The MCP access token carried the opaque grant token as a readable claim. A JWT
+is signed and not encrypted, so a proxy or a log holding one held a credential
+good for seven days. It names the grant by row id now, which opens nothing on
+its own, and a revoked grant stops working immediately rather than at expiry.
+
+The frontend container served the application shell with no content security
+policy, no `nosniff` and no framing policy, because those headers are set by the
+API process the static files never reach. It also appended to `X-Forwarded-For`
+rather than replacing it, against the trust model its own deployment guide
+documents, so with `TRUST_PROXY=true` sign-in attempts counted against an
+address the caller chose.
+
+Signing in returned to the path in the address bar unfiltered, and
+`//elsewhere.example` is a legal path that a browser sends to another origin.
+
 ### Fixed
 
 A staged split can now be found under a category one of its legs names. The
@@ -83,6 +137,43 @@ hand-edited row, no longer throws when the dashboard works out what day it is.
 It falls back to UTC. The value is free text checked only when it was written,
 and the scheduler now reads it in a loop that serves everybody, where one bad
 row must not be able to stop the rest.
+
+Deleting a category a template refers to, or an account a recurring transaction
+names, is refused rather than leaving a template that cannot be saved or a
+schedule that proposes a flagged row every month with nothing saying why.
+Neither reference has a foreign key, because both live inside JSON.
+
+The audit trail records a split's legs. Relabelling one is a single update to
+the leg: it writes no posting and changes no column on the transaction, so
+Activity showed a before and after that were identical for the change most worth
+looking up later.
+
+A mass edit no longer drops the record of which template a transaction was
+started from.
+
+A search containing `%` or `_` searches for those characters instead of treating
+them as wildcards, and the search box waits for you to stop typing rather than
+querying the ledger on every keystroke.
+
+The review queue shows a staged row's category even when that category has since
+been archived, instead of rendering it as Uncategorized with a blank field in
+its editor.
+
+One import stages at most what one action can then commit, edit or delete. The
+CSV row limit was 25,000 by default and up to a million, while every mass action
+caps at 10,000, so a large import produced a queue nothing could clear in one
+go. `CSV_MAX_ROWS` now defaults to 10,000 and cannot be set above it. Lowering
+it still works.
+
+"Select all filtered" on a mass edit or delete is refused past 10,000 rows in
+the database rather than after every matching row has been read and
+fingerprinted in memory, and the CSV preview enforces the same size limit the
+import does.
+
+The dashboard runs its three aggregates together instead of one after another,
+the CSV export walks the ledger once instead of re-counting it for every page,
+and a transaction write asks about the one payee it names rather than grouping
+every payee in the ledger.
 
 ## 0.1.3 - 2026-08-06
 

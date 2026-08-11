@@ -16,7 +16,7 @@ ones that matter.
 | Variable | What it is |
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL 15+ connection string. Encrypt it when the database is not on the same host; see TLS below for which `sslmode` to use. The database it names is created if the server does not have it yet. |
-| `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. |
+| `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. A value published in this project's own files, including whatever `.env.example` carried, is refused by name. |
 | `APP_BASE_URL` | Your canonical public origin, exactly as the browser sees it. HTTPS anywhere but localhost. |
 
 `APP_BASE_URL` is load-bearing beyond cosmetics: secure cookies, the OAuth
@@ -25,10 +25,16 @@ derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 
 So is `NODE_ENV`, which the images set to `production` for you and which you
 have to set yourself if you run the built server directly with `npm start`.
-Anything other than `production` means the first-run setup code is not demanded,
-sign-in attempts are not rate limited, and cookies are not marked secure. The
-server says so loudly at startup, because those three together are the
-difference between a deployment and a development machine.
+Outside production the first-run setup code is not demanded, sign-in attempts
+are not rate limited, and cookies are not marked secure: those three together
+are the difference between a deployment and a development machine.
+
+It is parsed against `production`, `development` and `test` and refuses anything
+else, because comparing to one string turned every other spelling into
+development with no symptom at all. A process outside production that has been
+given an `APP_BASE_URL` naming anything but localhost refuses to start: that
+setting is the one only a real deployment has, so it is worth failing on rather
+than warning about.
 
 ### Optional
 
@@ -170,8 +176,18 @@ yourself if you would rather choose the code than read it from a log. When
 `ALLOWED_EMAILS` already admits the first person, no code is asked for, because
 it would guard a door anyone could walk around.
 
-Passwords can be changed from Settings by whoever is signed in. What happens
-when one is *lost* depends on whether this deployment can send mail; see below.
+Guessing the code is bounded: five attempts per client address every fifteen
+minutes, counted in this process's memory and reset by a restart. A correct code
+clears the count.
+
+Passwords can be changed from Settings by whoever is signed in, and changing one
+signs every other session out and disconnects every MCP client, so an agent
+authorized before the change has to be authorized again. Adding a password to an
+account that has only ever signed in with Google needs a session created in the
+last fifteen minutes: there is no existing password to confirm against, so a
+recent sign-in is the re-authentication available to every account. What happens
+when a password is *lost* depends on whether this deployment can send mail; see
+below.
 
 Sign-up and sign-in are rate limited to a few attempts per client address every
 ten seconds. The count lives in the process's memory, so it resets on restart
@@ -354,6 +370,14 @@ port. Three settings, all with working defaults:
 | `SB_API_ORIGIN` | `http://simple-balance-server:3000` | Where to proxy everything the API owns. Point it at your API Service. |
 | `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
 | `SB_MAX_UPLOAD_SIZE` | `12m` | The largest request body nginx will pass. It has to stay above `CSV_MAX_BYTES` with room for the multipart wrapper, or a CSV the API would accept is refused before it gets there. |
+
+nginx sets the content security policy, `X-Frame-Options`, `nosniff`,
+`Referrer-Policy` and HSTS on the files it serves itself, matching what the API
+sets on its own responses. The application shell never reaches the API process,
+so without this the one document that actually runs the app would ship with no
+policy at all. It replaces `X-Forwarded-For` with `$remote_addr` rather than
+appending to it, which is what `TRUST_PROXY=true` on the server is safe to
+believe.
 
 The scheduler image proposes recurring transactions and serves nothing but its
 own health checks, so a Service pointed at it by mistake cannot answer an API
