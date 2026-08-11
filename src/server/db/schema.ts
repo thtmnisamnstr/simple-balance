@@ -23,7 +23,11 @@ import {
   systemAccountKinds,
   actorSources,
   categoryKinds,
+  MAX_RECURRENCE_INTERVAL,
   MAX_TRANSACTION_LEGS,
+  recurrenceFrequencies,
+  recurrenceMonthPolicies,
+  recurrenceWeekendPolicies,
   transactionTypes,
 } from "../../shared/domain.js";
 
@@ -175,6 +179,18 @@ export const categoryKindEnum = pgEnum("category_kind", categoryKinds);
 export const transactionTypeEnum = pgEnum("transaction_type", transactionTypes);
 export const stagedStatusEnum = pgEnum("staged_status", ["staged", "committed", "deleted"]);
 export const actorSourceEnum = pgEnum("actor_source", actorSources);
+export const recurrenceFrequencyEnum = pgEnum(
+  "recurrence_frequency",
+  recurrenceFrequencies,
+);
+export const recurrenceMonthPolicyEnum = pgEnum(
+  "recurrence_month_policy",
+  recurrenceMonthPolicies,
+);
+export const recurrenceWeekendPolicyEnum = pgEnum(
+  "recurrence_weekend_policy",
+  recurrenceWeekendPolicies,
+);
 
 export const userPreferences = pgTable("user_preferences", {
   userId: text("user_id")
@@ -659,6 +675,15 @@ export const stagedTransactions = pgTable(
     duplicateKey: text("duplicate_key"),
     importBatchId: uuid("import_batch_id"),
     committedTransactionId: uuid("committed_transaction_id"),
+    // Which recurrence proposed this row, and which occurrence of it.
+    // Provenance rather than ownership, so no foreign key: deleting a
+    // recurrence must leave what it already proposed alone, which a cascade
+    // would destroy and a restricting key would forbid.
+    recurrenceId: uuid("recurrence_id"),
+    // The instance in the schedule's own sequence, which is not always the date
+    // the row carries: a weekend policy moves the date and leaves this alone.
+    // This is the identity an occurrence is proposed exactly once under.
+    occurrenceDate: date("occurrence_date"),
     version: integer("version").default(1).notNull(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     ...timestamps,
@@ -691,6 +716,22 @@ export const stagedTransactions = pgTable(
     ),
     // Finding the rows that share a fingerprint is a grouped lookup.
     index("staged_user_duplicate_key_idx").on(table.userId, table.duplicateKey),
+    // Deliberately not qualified by status. A row somebody threw out keeps its
+    // place here, which is what stops the next tick proposing that occurrence
+    // again as though it had never happened.
+    uniqueIndex("staged_recurrence_occurrence_unique")
+      .on(table.userId, table.recurrenceId, table.occurrenceDate)
+      .where(sql`${table.recurrenceId} is not null`),
+    check(
+      "staged_transaction_recurrence_check",
+      sql`(${table.recurrenceId} is null) = (${table.occurrenceDate} is null)`,
+    ),
+    // A proposed row has no bank behind it, said in the schema rather than in a
+    // comment somebody has to go and find.
+    check(
+      "staged_transaction_recurrence_import_check",
+      sql`${table.recurrenceId} is null or ${table.importBatchId} is null`,
+    ),
     check("staged_transaction_version_check", sql`${table.version} >= 1`),
     check(
       "staged_transaction_status_check",
@@ -804,7 +845,120 @@ export const transactionTemplates = pgTable(
   ],
 );
 
+/**
+ * A saved shape, a schedule, and what to do about the dates a calendar does not
+ * have. It posts nothing and commits nothing: on its due date it puts an
+ * ordinary row in the review queue and waits for somebody.
+ *
+ * The accounts and category it names live inside the JSON with no foreign key,
+ * for the reason a template's do: a key would cascade, so tidying away an old
+ * account would take the recurrence with it. What differs is what happens when
+ * an id stops resolving. A template quietly drops it, because a person is
+ * looking at the form. Nobody is looking when this fires, so the row is proposed
+ * carrying the reason instead.
+ */
+export const recurrences = pgTable(
+  "recurrence",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    shape: jsonb("shape").notNull(),
+
+    frequency: recurrenceFrequencyEnum("frequency").notNull(),
+    // How many periods between occurrences: 1 is every month, 3 is every
+    // quarter, and a weekly 2 is what other products call skipping every other
+    // one. `interval` is a PostgreSQL type name, so hand-written SQL must quote
+    // it; everything here goes through Drizzle, which always does.
+    interval: smallint("interval").default(1).notNull(),
+    // The first candidate occurrence, and the phase of every later one. Monthly
+    // on the 31st is an anchor on the 31st; weekly on Tuesdays is an anchor that
+    // is a Tuesday. A separate day-of-month and day-of-week beside this would be
+    // two more ways to say what the anchor already says, and two more things
+    // that can disagree with it.
+    anchorDate: date("anchor_date").notNull(),
+    monthPolicy: recurrenceMonthPolicyEnum("month_policy").default("last_day").notNull(),
+    weekendPolicy: recurrenceWeekendPolicyEnum("weekend_policy").default("allow").notNull(),
+    // "The second Tuesday", "the last Friday", for the monthly and yearly rules
+    // that are about a weekday rather than a date. Set together or not at all,
+    // and when they are set the anchor's day of the month is not read.
+    positionOrdinal: smallint("position_ordinal"),
+    positionWeekday: smallint("position_weekday"),
+
+    // Nothing dated before this is ever proposed. Set to the day this was made,
+    // in the person's own timezone, and never rewritten. Without it a recurrence
+    // anchored in 2019 and created today would open by proposing six years of
+    // back-dated rent, and moving the anchor backwards later would do it again.
+    proposesFrom: date("proposes_from").notNull(),
+    // The last nominal occurrence this has decided: proposed, or passed over by
+    // a policy. Null is "has never run", which is the difference between a
+    // scheduler that is silent and one with nothing to say. It advances past a
+    // skipped occurrence too, or the month a policy passed over is reconsidered
+    // on every tick, and turning that policy off a year later would propose a
+    // year of back-dated rows at once.
+    lastOccurrenceDate: date("last_occurrence_date"),
+    // Where the scheduler's due query looks, and nowhere else. A pure function
+    // of the rule, proposes_from and last_occurrence_date, written in the same
+    // statement as the watermark it follows. Whether to propose is decided from
+    // the rule and the person's own calendar date, never from this column, and
+    // the read view recomputes it rather than reporting it, so a value that
+    // drifted shows up as a recurrence overdue with nothing proposed rather than
+    // as a wrong date on a row.
+    nextOccurrenceDate: date("next_occurrence_date").notNull(),
+
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("recurrence_user_idx").on(table.userId),
+    unique("recurrence_user_name_unique").on(table.userId, table.name),
+    // The one index here that does not lead with the tenant, for the one query
+    // that cannot: the scheduler has to find work across every ledger before it
+    // can know whose it is. It reads the id and the user id and nothing else,
+    // and everything after it runs through an Actor built from that user id.
+    index("recurrence_due_idx").on(
+      table.nextOccurrenceDate,
+      table.userId,
+      table.id,
+    ),
+    check(
+      "recurrence_name_check",
+      sql`char_length(btrim(${table.name})) between 1 and 120`,
+    ),
+    check(
+      "recurrence_interval_check",
+      sql`${table.interval} between 1 and ${sql.raw(String(MAX_RECURRENCE_INTERVAL))}`,
+    ),
+    check("recurrence_version_check", sql`${table.version} >= 1`),
+    // A relative day is both halves or neither, and only the ordinals that
+    // exist in every month. There is no fifth Tuesday in half the year.
+    check(
+      "recurrence_position_check",
+      sql`(${table.positionOrdinal} is null) = (${table.positionWeekday} is null)
+          and (${table.positionOrdinal} is null
+               or (${table.positionOrdinal} in (1, 2, 3, 4, -1)
+                   and ${table.positionWeekday} between 0 and 6))`,
+    ),
+    // Both hold by construction, and both are here because the column they
+    // guard is derived: a writer that advances the watermark and forgets the
+    // cursor is a recurrence that silently stops, which is the failure this
+    // whole feature exists to prevent.
+    check(
+      "recurrence_cursor_floor_check",
+      sql`${table.nextOccurrenceDate} >= ${table.proposesFrom}`,
+    ),
+    check(
+      "recurrence_cursor_watermark_check",
+      sql`${table.lastOccurrenceDate} is null
+          or ${table.nextOccurrenceDate} > ${table.lastOccurrenceDate}`,
+    ),
+  ],
+);
+
 export type CategoryRow = typeof categories.$inferSelect;
 export type TransactionRow = typeof transactions.$inferSelect;
 export type TransactionLegRow = typeof transactionLegs.$inferSelect;
 export type StagedTransactionRow = typeof stagedTransactions.$inferSelect;
+export type RecurrenceRow = typeof recurrences.$inferSelect;

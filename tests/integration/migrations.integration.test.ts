@@ -72,6 +72,7 @@ integration("PostgreSQL migrations", () => {
       "ledger_account",
       "ledger_transaction",
       "posting",
+      "recurrence",
       "staged_transaction",
       "transaction_leg",
       "transaction_template",

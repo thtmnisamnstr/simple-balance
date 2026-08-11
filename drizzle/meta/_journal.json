@@ -43,6 +43,13 @@
       "when": 1786403464066,
       "tag": "0005_split_transaction_legs",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786418007842,
+      "tag": "0006_recurring_transactions",
+      "breakpoints": true
     }
   ]
 }
