@@ -62,6 +62,16 @@ rewritten, and every figure reads the same the moment it finishes.
 
 ### Fixed
 
+A staged split can now be found under a category one of its legs names. The
+queue's filter read only the entry's own category, so a split showed in the
+count on the category page and then was missing from the list that count links
+to.
+
+Merging a category carries recurring transactions through with everything else,
+and deleting one now counts them as a use rather than destroying the category
+underneath them. Deleting your whole account also names the recurring
+transactions it is about to take.
+
 A stored timezone that has stopped being recognisable, after an ICU update or a
 hand-edited row, no longer throws when the dashboard works out what day it is.
 It falls back to UTC. The value is free text checked only when it was written,
