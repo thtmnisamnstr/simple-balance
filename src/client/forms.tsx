@@ -1208,33 +1208,44 @@ export function TransactionForm({
     // A split template replaces the whole category side, because legs and a
     // single category cannot both be sent. Amounts are optional on a template
     // leg, so a blank one stays blank and the remainder line asks for it.
+    // The same rule both branches need: a category the picker cannot show must
+    // not be carried in behind an empty-looking field.
+    const usable = (id: string | undefined) => {
+      const category = categories.find((entry) => entry.id === id);
+      if (!category) return undefined;
+      const fits =
+        category.kind === "both"
+          ? nextType !== "transfer"
+          : (nextType === "deposit" && category.kind === "income") ||
+            (nextType === "withdrawal" && category.kind === "expense");
+      return fits ? category : undefined;
+    };
+
     if (draft.legs?.length) {
       setCategoryId("");
       setCategoryName("");
       setLegs(
-        draft.legs.map((leg) => ({
-          id: "",
-          categoryId: leg.categoryId ?? "",
-          categoryName:
-            categories.find((entry) => entry.id === leg.categoryId)?.name ??
-            leg.categoryName ??
-            "",
-          amount: leg.amount ?? "",
-          note: leg.note ?? "",
-        })),
+        draft.legs.map((leg) => {
+          // A leg holding a dead id shows a blank picker, so the split reads as
+          // merely unfinished rather than wrong. Cleared and named instead,
+          // which is what the single-category branch below already does.
+          const category = leg.categoryId ? usable(leg.categoryId) : undefined;
+          if (leg.categoryId && !category) missing.push("category");
+          return {
+            id: "",
+            categoryId: category?.id ?? "",
+            categoryName: category?.name ?? (leg.categoryId ? "" : leg.categoryName ?? ""),
+            amount: leg.amount ?? "",
+            note: leg.note ?? "",
+          };
+        }),
       );
     } else if (draft.categoryId) {
       setLegs([]);
-      const category = categories.find((entry) => entry.id === draft.categoryId);
-      const categoryFits =
-        category &&
-        (category.kind === "both"
-          ? nextType !== "transfer"
-          : (nextType === "deposit" && category.kind === "income") ||
-            (nextType === "withdrawal" && category.kind === "expense"));
-      if (!categoryFits) missing.push("category");
-      setCategoryId(categoryFits ? category!.id : "");
-      setCategoryName(categoryFits ? category!.name : "");
+      const category = usable(draft.categoryId);
+      if (!category) missing.push("category");
+      setCategoryId(category?.id ?? "");
+      setCategoryName(category?.name ?? "");
     } else if (draft.categoryName) {
       // A name rather than an id, matched or created on submit the way a typed
       // one is. Nothing is looked up here, so a template can name a category

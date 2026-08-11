@@ -105,6 +105,25 @@ const mismatched: TransactionTemplate = {
   },
 };
 
+// A split whose second leg names a category that has since been deleted. The
+// single-category path already refuses one of these; a split is the same
+// mistake with more legs.
+const splitWithDeadLeg: TransactionTemplate = {
+  ...rent,
+  id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  name: "Weekly shop",
+  draft: {
+    type: "withdrawal",
+    payee: "Market",
+    fromAccountId: checking.id,
+    amount: "100.00",
+    legs: [
+      { categoryId: groceries.id, amount: "60.00" },
+      { categoryId: "99999999-9999-4999-8999-999999999999", amount: "40.00" },
+    ],
+  },
+};
+
 function queryClient() {
   return new QueryClient({
     defaultOptions: {
@@ -287,6 +306,28 @@ describe("starting a transaction from a template", () => {
 
     expect(field(/^Category/)).toHaveValue("");
     expect(screen.getByText(/category is no longer available/i)).toBeInTheDocument();
+  });
+
+  /**
+   * Same failure as the account and the single category, one branch down: a leg
+   * left holding an id with no matching option shows an empty picker, so the
+   * split looks merely unfinished rather than wrong, and nothing says which leg
+   * to look at.
+   */
+  it("says so when a split leg's category is no longer available", async () => {
+    stubApi([splitWithDeadLeg]);
+    renderForm();
+    fireEvent.change(await screen.findByLabelText(/^Start from a template/), {
+      target: { value: splitWithDeadLeg.id },
+    });
+
+    expect(
+      screen.getByText(/category is no longer available/i),
+    ).toBeInTheDocument();
+    const legAmounts = screen
+      .getAllByRole("textbox")
+      .filter((one) => (one as HTMLInputElement).value === "40.00");
+    expect(legAmounts.length).toBeGreaterThan(0);
   });
 
   it("goes back to a blank form when the choice is cleared", async () => {
