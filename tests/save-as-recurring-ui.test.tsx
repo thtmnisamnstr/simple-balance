@@ -337,6 +337,53 @@ describe("saving a transaction as a recurring transaction", () => {
     expect(writes[0]!.body.shape).not.toHaveProperty("destinationAmount");
   });
 
+  /**
+   * A transfer's category is carried on purpose, and the form hides the picker
+   * rather than emptying it. A kind-reset that fired for transfers deleted a
+   * category nobody could see it delete, including one already saved.
+   */
+  it("keeps a transfer's category rather than clearing it", async () => {
+    const writes = stubLedger([{ ...crossCurrency, categoryId: groceries.id, category: groceries }]);
+    renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
+    const dialog = await openRecurrenceEditor("Monthly sweep");
+    fireEvent.change(dialog.getByLabelText(/^Name/), {
+      target: { value: "Euro sweep" },
+    });
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).toMatchObject({
+      shape: { type: "transfer", categoryId: groceries.id },
+    });
+  });
+
+  /**
+   * An archived account is absent from the list the form offers, so both
+   * lookups can miss. Comparing what two misses returned made a genuinely mixed
+   * pair read as matched, and one miss made a matched pair read as mixed.
+   */
+  it("says nothing about a rate when it cannot see both accounts", async () => {
+    const toArchived: Transaction = {
+      ...crossCurrency,
+      id: "77777777-7777-4777-8777-777777777777",
+      payee: "Archived sweep",
+      destinationAccountId: "88888888-8888-4888-8888-888888888888",
+      destinationAccount: {
+        id: "88888888-8888-4888-8888-888888888888",
+        name: "Retired Savings",
+        currency: "USD",
+      },
+      destinationAmount: "500.00",
+      destinationCurrency: "USD",
+    };
+    stubLedger([toArchived]);
+    renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
+    const dialog = await openRecurrenceEditor("Archived sweep");
+    expect(
+      dialog.queryByText(/waits in the queue for the amount received/),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not put the row into the template dialog by mistake", async () => {
     stubLedger();
     renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");

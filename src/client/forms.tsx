@@ -1928,18 +1928,31 @@ export function RecurrenceForm({
   // here, so carrying one over would produce a queue of rows nobody can commit
   // and no explanation of why.
   useEffect(() => {
+    // Only the two types that file an entry under a category. A transfer keeps
+    // whatever it arrived with, the way the transaction form and a CSV round
+    // trip do: the picker is hidden for a transfer rather than emptied, so
+    // clearing here would delete a category somebody chose on purpose, and on
+    // the edit path it would delete one already saved.
+    const covers = (kind: string) =>
+      kind === "both" ||
+      (type === "deposit" && kind === "income") ||
+      (type === "withdrawal" && kind === "expense");
+    if (type === "transfer") return;
     const selected = categories.find((category) => category.id === categoryId);
-    if (
-      selected &&
-      selected.kind !== "both" &&
-      ((type === "deposit" && selected.kind !== "income") ||
-        (type === "withdrawal" && selected.kind !== "expense") ||
-        type === "transfer")
-    ) {
+    if (selected && !covers(selected.kind)) {
       setCategoryId("");
       setCategoryName("");
     }
-  }, [categories, categoryId, type]);
+    // A split's legs each carry their own category, and a leg the type cannot
+    // cover is refused at commit exactly as the single one is.
+    const keptLegs = legs.map((leg) => {
+      const legCategory = categories.find((one) => one.id === leg.categoryId);
+      return legCategory && !covers(legCategory.kind)
+        ? { ...leg, categoryId: "", categoryName: "" }
+        : leg;
+    });
+    if (keptLegs.some((leg, index) => leg !== legs[index])) setLegs(keptLegs);
+  }, [categories, categoryId, legs, type]);
 
   const preview = useMemo(() => {
     if (!parsedSchedule.success) return [];
@@ -2041,12 +2054,16 @@ export function RecurrenceForm({
   // A rate belongs to the day it was got, so a recurrence does not keep one.
   // The received amount is the one field a proposal cannot carry, and saying so
   // here beats a queue of rows refused for a reason stated once per row.
+  const sendingAccount = accounts.find((account) => account.id === fromAccountId);
+  const receivingAccount = accounts.find((account) => account.id === toAccountId);
+  // Both have to be found. An archived account is not in this list, and
+  // comparing what two misses returned made a genuinely mixed pair look like a
+  // matched one, while one miss made a matched pair look mixed.
   const crossCurrency =
     type === "transfer" &&
-    Boolean(fromAccountId) &&
-    Boolean(toAccountId) &&
-    accounts.find((account) => account.id === fromAccountId)?.currency !==
-      accounts.find((account) => account.id === toAccountId)?.currency;
+    Boolean(sendingAccount) &&
+    Boolean(receivingAccount) &&
+    sendingAccount!.currency !== receivingAccount!.currency;
   // A recurrence's legs are required and must add up, unlike a template's,
   // because the same division is replayed on every occurrence: one that does
   // not balance proposes a row nobody can commit, over and over.
