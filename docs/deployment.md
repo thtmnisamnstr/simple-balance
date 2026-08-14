@@ -42,11 +42,11 @@ than warning about.
 | --- | --- | --- |
 | `AUTH_MODE` | `local` | Which sign-in methods are offered. See below. |
 | `ALLOWED_EMAILS` | unset | Who may register. Unset admits nobody but the first account. See below. |
-| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. Left unset, one is generated and printed to the startup log. |
+| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. At least 16 characters if you set it; a shorter one refuses to start. Left unset, one is generated and printed to the startup log. |
 | `PORT` | `3000` | The port inside the container. Change it and your published port mapping has to follow. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
 | `TRUST_PROXY` | `false` | Turn it on when a reverse proxy sits in front and replaces `X-Forwarded-For`. See the reverse proxy section; getting it wrong costs per-visitor rate limiting. |
-| `DATABASE_POOL_SIZE` | `10` | Connections held open. Raise it only if you have measured contention. |
+| `DATABASE_POOL_SIZE` | `10` | Connections held open, per process. Ceiling 100. Raise it only if you have measured contention, and see the split-container section for what it means once there is more than one replica. |
 | `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. Ceiling 104857600. |
 | `CSV_MAX_ROWS` | `10000` | Most rows accepted from one CSV. Ceiling 10000, which is also the most rows one mass edit, commit, or delete covers, so an import always fits in a single review-queue action. |
 | `RECURRENCE_SCHEDULER` | `true` | Whether this process proposes recurring transactions. Turn it off on replicas that serve the API when a separate scheduler container owns the job. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
@@ -72,6 +72,7 @@ a refusal is explainable rather than surprising.
 | Rows in one mass edit or mass delete | 10,000 | A selection larger than this is refused rather than truncated. Split the work across calls; each one stands or falls on its own. |
 | Category legs on one transaction | 50 | Far past a receipt anybody itemises by hand. A split is the whole counter-side of the entry rewritten, so the cost is paid on every read of it. |
 | Recurring transactions per person | 200 | Each one is a standing instruction that proposes rows on every tick, so an uncapped list is a way to flood the review queue with nothing but `ledger:write`. |
+| Transaction templates per person | 200 | A template is read into the form's dropdown on every visit, so the list is loaded whole rather than paged. |
 
 ### Only for Google sign-in
 
@@ -297,6 +298,9 @@ simple-balance.example.com {
 
 ```nginx
 location / {
+    # nginx defaults to 1 MiB, which refuses CSV imports this document
+    # advertises at up to 10 MB. See SB_MAX_UPLOAD_SIZE below for the sizing.
+    client_max_body_size 61m;
     proxy_pass http://127.0.0.1:3000;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -312,8 +316,9 @@ location / {
 Then set `TRUST_PROXY=true`. Sign-in attempts are counted per client address,
 and with this off that address is the far end of the connection, which behind a
 proxy is the proxy itself for every visitor. Everybody would share one
-allowance, and one stranger could spend it for the rest. The server says which
-of the two it is doing when it starts.
+allowance, and one stranger could spend it for the rest. The server warns at
+startup when it is counting against the connection address, and says nothing
+when it is not, so silence there means the setting took.
 
 Only leave `TRUST_PROXY` off when the application is reached directly, or when
 the proxy in front passes through `X-Forwarded-For` rather than replacing it.
@@ -369,7 +374,7 @@ port. Three settings, all with working defaults:
 | --- | --- | --- |
 | `SB_API_ORIGIN` | `http://simple-balance-server:3000` | Where to proxy everything the API owns. Point it at your API Service. |
 | `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
-| `SB_MAX_UPLOAD_SIZE` | `12m` | The largest request body nginx will pass. It has to stay above `CSV_MAX_BYTES` with room for the multipart wrapper, or a CSV the API would accept is refused before it gets there. |
+| `SB_MAX_UPLOAD_SIZE` | `12m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
 
 nginx sets the content security policy, `X-Frame-Options`, `nosniff`,
 `Referrer-Policy` and HSTS on the files it serves itself, matching what the API
@@ -385,7 +390,7 @@ request. It runs one entrypoint of its own and always ticks: the
 `RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
 whose only job is this one would be pointless with it off.
 
-Four things have to line up:
+Five things have to line up:
 
 - **`APP_BASE_URL` on the server names the frontend's public origin**, not the
   server's own address. Cookies are set by the API and read by the browser, so
@@ -395,10 +400,12 @@ Four things have to line up:
 - **`RECURRENCE_SCHEDULER=false` on the server Deployment.** The scheduler
   entrypoint ignores the flag and always ticks, so the only thing left to decide
   is whether the API replicas tick too. Leaving them on is safe rather than
-  wrong: one advisory lock lets a single replica tick at a time. It is still
-  wasted wakeups on every replica.
-- **One scheduler replica.** More is harmless for the same reason, and buys
-  nothing.
+  wrong: a recurrence is claimed with `for update skip locked`, so whoever gets
+  to a row first works it and everybody else moves on. It is still a sweep of
+  the due list on every replica, for work the schedulers are already doing.
+- **As many scheduler replicas as you like.** They divide the due rows between
+  them rather than one holding a lock the others wait on, so more of them is
+  more throughput on a large backlog and costs nothing on a small one.
 - **Nothing trusted in front of nginx, or `set_real_ip_from` if there is.** The
   template replaces `X-Forwarded-For` with `$remote_addr`, which is right when
   nginx is the first hop and wrong when an ingress terminating TLS sits in front
@@ -411,9 +418,12 @@ Four things have to line up:
   real_ip_recursive on;` to the proxy location so `$remote_addr` resolves back
   to the visitor.
 
-Each of these processes now opens up to three pooled connections: the
-application pool, the auth bootstrap lock, and the scheduler lock. Worth knowing
-if you have set `DATABASE_POOL_SIZE=1`.
+Each of these processes opens `DATABASE_POOL_SIZE` connections plus one for the
+auth bootstrap lock. That total is per replica, so the arithmetic that decides
+how far the API tier can scale is `replicas x (DATABASE_POOL_SIZE + 1)` against
+your server's `max_connections`, which is 100 by default. At the default pool of
+10 that is nine replicas, not nine hundred. Lower `DATABASE_POOL_SIZE` before
+raising the replica count, or put a connection pooler in front of PostgreSQL.
 
 There is no published image for any of these and no CI that builds them. They
 are here for you to build and push into your own registry.

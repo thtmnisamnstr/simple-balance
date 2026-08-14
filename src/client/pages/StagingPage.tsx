@@ -14,6 +14,7 @@ import {
   Search,
   Trash2,
   LayoutTemplate,
+  Repeat,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -55,7 +56,7 @@ import {
   type SortState,
   useConfirm,
 } from "../components.js";
-import { TemplateForm, TransactionForm } from "../forms.js";
+import { RecurrenceForm, TemplateForm, TransactionForm } from "../forms.js";
 import {
   MAX_BULK_SELECTION_ENTRIES,
   type StageSortField,
@@ -63,6 +64,7 @@ import {
 import { useDateRange } from "../date-range.js";
 import {
   draftForTransactionForm,
+  recurrenceShapeFromDraft,
   stagedLegs,
   stagedString,
   summarizeStagedDraft,
@@ -135,6 +137,11 @@ export default function StagingPage() {
   const [savingTemplate, setSavingTemplate] = useState<StagedTransaction | null>(
     null,
   );
+  const [savingRecurrence, setSavingRecurrence] =
+    useState<StagedTransaction | null>(null);
+  const recurrenceSeed = savingRecurrence
+    ? draftForTransactionForm(savingRecurrence.draft)
+    : null;
   const [search, setSearch] = useState("");
   const settledSearch = useDebounced(search);
   const [validity, setValidity] = useState("");
@@ -891,6 +898,9 @@ export default function StagingPage() {
                         <button onClick={() => setSavingTemplate(stage)}>
                           <LayoutTemplate size={15} /> Save as template
                         </button>
+                        <button onClick={() => setSavingRecurrence(stage)}>
+                          <Repeat size={15} /> Save as recurring transaction
+                        </button>
                       </RowMenu>
                     </td>
                   </tr>
@@ -944,6 +954,22 @@ export default function StagingPage() {
               draftForTransactionForm(savingTemplate.draft),
             )}
             onDone={() => setSavingTemplate(null)}
+          />
+        ) : null}
+      </Modal>
+      <Modal
+        open={Boolean(savingRecurrence)}
+        onClose={() => setSavingRecurrence(null)}
+        title="Save as recurring transaction"
+        description="The same entry on a schedule. It proposes into the review queue on each due date and posts nothing until you commit it."
+      >
+        {recurrenceSeed ? (
+          <RecurrenceForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            initialShape={recurrenceShapeFromDraft(recurrenceSeed)}
+            initialAnchorDate={recurrenceSeed.date}
+            onDone={() => setSavingRecurrence(null)}
           />
         ) : null}
       </Modal>

@@ -15,6 +15,7 @@ import {
   Search,
   Trash2,
   LayoutTemplate,
+  Repeat,
 } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { Link, payeeDetailSearch, useLocation } from "./router.js";
@@ -58,6 +59,7 @@ import {
 } from "./components.js";
 import {
   draftForTransactionForm,
+  recurrenceShapeFromDraft,
   summarizeStagedDraft,
   templateDraftFromDraft,
 } from "./staged-draft.js";
@@ -83,7 +85,12 @@ import {
   type BulkEditValues,
 } from "./bulk-edit.js";
 import { useDateRange } from "./date-range.js";
-import { TemplateForm, TransactionForm, draftFromTransaction } from "./forms.js";
+import {
+  RecurrenceForm,
+  TemplateForm,
+  TransactionForm,
+  draftFromTransaction,
+} from "./forms.js";
 import { newIdempotencyKey } from "./idempotency.js";
 
 const typeMeta = {
@@ -134,6 +141,9 @@ export function TransactionBrowser({
   const location = useLocation();
   const [editing, setEditing] = useState<Transaction | "new" | null>(null);
   const [savingTemplate, setSavingTemplate] = useState<Transaction | null>(null);
+  const [savingRecurrence, setSavingRecurrence] = useState<Transaction | null>(
+    null,
+  );
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
   const [accountId, setAccountId] = useState(fixedAccountId ?? "");
@@ -1116,6 +1126,11 @@ export function TransactionBrowser({
                               >
                                 <LayoutTemplate size={15} /> Save as template
                               </button>
+                              <button
+                                onClick={() => setSavingRecurrence(transaction)}
+                              >
+                                <Repeat size={15} /> Save as recurring transaction
+                              </button>
                             </RowMenu>
                           </>
                         )}
@@ -1180,6 +1195,24 @@ export function TransactionBrowser({
             categories={categories.data ?? []}
             initialDraft={templateDraftFromDraft(draftForTransactionForm(draftFromTransaction(savingTemplate)))}
             onDone={() => setSavingTemplate(null)}
+          />
+        ) : null}
+      </Modal>
+      <Modal
+        open={Boolean(savingRecurrence)}
+        onClose={() => setSavingRecurrence(null)}
+        title="Save as recurring transaction"
+        description="The same entry on a schedule. It proposes into the review queue on each due date and posts nothing until you commit it."
+      >
+        {savingRecurrence ? (
+          <RecurrenceForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            initialShape={recurrenceShapeFromDraft(
+              draftForTransactionForm(draftFromTransaction(savingRecurrence)),
+            )}
+            initialAnchorDate={savingRecurrence.date}
+            onDone={() => setSavingRecurrence(null)}
           />
         ) : null}
       </Modal>

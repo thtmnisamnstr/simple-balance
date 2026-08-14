@@ -2,10 +2,9 @@ import { sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { RECURRENCE_SCHEDULER_LOCK } from "../../src/server/db/advisory-locks.js";
 import { getDb } from "../../src/server/db/client.js";
 import { user } from "../../src/server/db/schema.js";
-import { tickUnderLock } from "../../src/server/recurrence-scheduler.js";
+import { runTickSweep } from "../../src/server/recurrence-scheduler.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { setPreferences } from "../../src/server/services/preferences.js";
 import {
@@ -150,30 +149,63 @@ integration("the scheduler sweep", () => {
     expect((await runDueRecurrences()).failed).toBe(1);
   });
 
-  it("does nothing while another session holds the tick lock", async () => {
-    const due = await make(settled, settledAccountId, "Contended", today);
+  /**
+   * The property that lets schedulers scale out: two replicas ticking at once
+   * divide the work instead of one waiting on the other, and a row is proposed
+   * exactly once no matter how many are running.
+   */
+  it("divides the due rows between concurrent ticks rather than queueing", async () => {
+    const rows = [];
+    for (const name of ["Parallel A", "Parallel B", "Parallel C", "Parallel D"]) {
+      rows.push(await make(settled, settledAccountId, name, today));
+    }
+
+    await Promise.all([runTickSweep(), runTickSweep()]);
+
+    // Exactly one, from two sweeps that ran at the same time. Two is what a
+    // pair of replicas without the row claim would leave behind, and none is
+    // what a global lock would leave if the loser gave up on the whole tick.
+    for (const row of rows) {
+      expect(await staged(settled, row.id)).toHaveLength(1);
+    }
+  });
+
+  /**
+   * A row another replica is inside is skipped, not waited for. Holding the row
+   * lock from a second session is what a slower replica mid-transaction looks
+   * like from here.
+   */
+  it("skips a recurrence another replica is already inside", async () => {
+    const held = await make(settled, settledAccountId, "Held", today);
+    const other = await make(settled, settledAccountId, "Free", today);
     const holder = new PgClient({ connectionString: process.env.DATABASE_URL });
     await holder.connect();
     try {
-      const taken = await holder.query<{ locked: boolean }>(
-        "select pg_try_advisory_lock($1) as locked",
-        [RECURRENCE_SCHEDULER_LOCK],
+      await holder.query("begin");
+      await holder.query(
+        "select id from recurrence where id = $1 for update",
+        [held.id],
       );
-      expect(taken.rows[0]?.locked).toBe(true);
 
-      expect(await tickUnderLock()).toEqual({
-        examined: 0,
-        proposed: 0,
-        failed: 0,
-        capped: false,
-      });
-      expect(await staged(settled, due.id)).toHaveLength(0);
+      // Raced against a deadline rather than simply awaited: a claim that
+      // queues instead of skipping does not fail here, it waits for a lock this
+      // test is holding on purpose, and the suite hangs until something else
+      // kills it.
+      const summary = await Promise.race([
+        runTickSweep(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("the sweep waited for a held row")), 3_000),
+        ),
+      ]);
+      expect(summary.examined).toBeGreaterThan(0);
+      expect(await staged(settled, held.id)).toHaveLength(0);
+      expect(await staged(settled, other.id)).toHaveLength(1);
+      await holder.query("rollback");
     } finally {
       await holder.end();
     }
 
-    const afterRelease = await tickUnderLock();
-    expect(afterRelease.proposed).toBeGreaterThanOrEqual(1);
-    expect(await staged(settled, due.id)).toHaveLength(1);
+    expect((await runTickSweep()).proposed).toBeGreaterThanOrEqual(1);
+    expect(await staged(settled, held.id)).toHaveLength(1);
   });
 });

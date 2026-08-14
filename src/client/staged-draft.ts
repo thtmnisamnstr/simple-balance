@@ -53,6 +53,31 @@ export type TransactionFormDraft = {
   templateId: string;
 };
 
+/**
+ * What a row offers a new recurrence, before the person edits it.
+ *
+ * Loose where `RecurrenceShape` is strict: a row can be missing an account or a
+ * payee the shape requires, and the form is where that is filled in. Sending it
+ * as it stands is what the contract refuses.
+ */
+export type RecurrenceShapeSeed = {
+  type: TransactionType;
+  payee?: string;
+  fromAccountId?: string;
+  toAccountId?: string;
+  amount?: string;
+  categoryId?: string;
+  categoryName?: string;
+  legs?: {
+    categoryId?: string;
+    categoryName?: string;
+    amount?: string;
+    note?: string;
+  }[];
+  description?: string;
+  notes?: string;
+};
+
 export function stagedString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -209,4 +234,72 @@ export function templateDraftFromDraft(
   const notes = keep(draft.notes);
   if (notes) template.notes = notes;
   return template;
+}
+
+/**
+ * What a row offers a new recurrence, before the person edits it.
+ *
+ * The same three things a template drops are dropped here, and the contract
+ * refuses two of them outright rather than ignoring them: the date, because the
+ * occurrence supplies it; the bank's own reference, because copying it onto
+ * every proposal would make the next real import of that statement row look
+ * like one already seen; and a leg's id, which belongs to the transaction the
+ * leg is part of.
+ *
+ * A category named rather than cited is kept, which is where this parts company
+ * with the template converter: a recurrence shape can hold a name and match it
+ * on each occurrence, so dropping it would lose the only answer a staged row
+ * filed by name has.
+ *
+ * The received amount of a cross-currency transfer is dropped as well, since a
+ * rate fixed once is wrong by the second occurrence. Each proposal waits in the
+ * queue for that number instead.
+ */
+export function recurrenceShapeFromDraft(
+  draft: Partial<TransactionFormDraft>,
+): RecurrenceShapeSeed {
+  const keep = (value: unknown) =>
+    typeof value === "string" && value.trim() ? value.trim() : undefined;
+  const type =
+    draft.type === "deposit" || draft.type === "withdrawal" || draft.type === "transfer"
+      ? draft.type
+      : "withdrawal";
+  const shape: RecurrenceShapeSeed = { type };
+  const payee = keep(draft.payee);
+  if (payee) shape.payee = payee;
+  if (type !== "deposit") {
+    const from = keep(draft.fromAccountId);
+    if (from) shape.fromAccountId = from;
+  }
+  if (type !== "withdrawal") {
+    const to = keep(draft.toAccountId);
+    if (to) shape.toAccountId = to;
+  }
+  const amount = keep(draft.amount);
+  if (amount) shape.amount = amount;
+  const legs = (draft.legs ?? []).filter(
+    (leg) => keep(leg.categoryId) ?? keep(leg.categoryName) ?? keep(leg.amount),
+  );
+  if (type !== "transfer" && legs.length >= 2) {
+    shape.legs = legs.map((leg) => ({
+      ...(keep(leg.categoryId) ? { categoryId: keep(leg.categoryId) } : {}),
+      ...(!keep(leg.categoryId) && keep(leg.categoryName)
+        ? { categoryName: keep(leg.categoryName) }
+        : {}),
+      ...(keep(leg.amount) ? { amount: keep(leg.amount) } : {}),
+      ...(keep(leg.note) ? { note: keep(leg.note) } : {}),
+    }));
+  } else {
+    const categoryId = keep(draft.categoryId);
+    if (categoryId) shape.categoryId = categoryId;
+    else {
+      const categoryName = keep(draft.categoryName);
+      if (categoryName) shape.categoryName = categoryName;
+    }
+  }
+  const description = keep(draft.description);
+  if (description) shape.description = description;
+  const notes = keep(draft.notes);
+  if (notes) shape.notes = notes;
+  return shape;
 }

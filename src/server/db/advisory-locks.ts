@@ -14,10 +14,3 @@
 export const MIGRATION_LOCK = 724_202_607;
 export const LOCAL_BOOTSTRAP_LOCK = 724_202_608;
 export const MCP_SIGNING_KEY_LOCK = 724_202_609;
-/**
- * Held for a whole scheduler tick, on a connection of its own, so one replica
- * walks the due recurrences while the others wait. Per-transaction locks cannot
- * do this: they release at every commit, and the tick commits once per
- * recurrence.
- */
-export const RECURRENCE_SCHEDULER_LOCK = 724_202_610;

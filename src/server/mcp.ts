@@ -440,12 +440,13 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "Suggest payee spellings",
         description:
           "Canonical payee spellings matching what you have so far, drawn from committed and staged entries. Use it before naming a payee: a payee is text on the transaction rather than a record, so a second spelling is a second payee in every list and report.",
+        // The service's own schema rather than a second spelling of it. A bare
+        // string admits a line break the service then refuses, so the tool
+        // advertised calls the server would not take.
         inputSchema: z.object({
-          search: z
-            .string()
-            .max(160)
-            .optional()
-            .describe("What has been typed so far. Left out, the most common spellings come back."),
+          search: payeeListQuerySchema.shape.search.describe(
+            "What has been typed so far. Left out, the most common spellings come back.",
+          ),
         }),
         outputSchema: mcpOutputSchema(z.array(z.string())),
         annotations: readAnnotations,

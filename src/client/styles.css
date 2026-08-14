@@ -1166,7 +1166,9 @@ input[type="radio"] {
   top: 36px;
   right: 0;
   display: grid;
-  width: 175px;
+  /* Grows for an item whose label does not fit rather than wrapping it, since
+     the popover is anchored to the trigger's right edge and has room to. */
+  min-width: 175px;
   padding: 5px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -1194,6 +1196,7 @@ input[type="radio"] {
   background: transparent;
   font-size: 11px;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 

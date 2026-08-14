@@ -26,7 +26,10 @@ LABEL org.opencontainers.image.title="Simple Balance frontend" \
 # cannot bind a privileged port.
 ENV SB_FRONTEND_PORT=8080
 ENV SB_API_ORIGIN=http://simple-balance-server:3000
-ENV SB_MAX_UPLOAD_SIZE=12m
+# A CSV arrives as a JSON string, and the API sizes its own limit for those
+# routes at CSV_MAX_BYTES x 6 plus 64 KiB for worst-case escaping. 12m was under
+# that, so nginx refused bodies the server behind it would have taken.
+ENV SB_MAX_UPLOAD_SIZE=61m
 # Only SB_ names are substituted, so nginx's own $host and $remote_addr are not
 # blanked out by an envsubst pass that does not know the difference.
 ENV NGINX_ENVSUBST_FILTER=^SB_

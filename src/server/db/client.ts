@@ -5,7 +5,6 @@ import * as schema from "./schema.js";
 
 let pool: Pool | undefined;
 let authBootstrapLockPool: Pool | undefined;
-let schedulerLockPool: Pool | undefined;
 let database: ReturnType<typeof drizzle<typeof schema>> | undefined;
 
 export function getPool() {
@@ -57,35 +56,13 @@ export function getAuthBootstrapLockPool() {
   return authBootstrapLockPool;
 }
 
-/**
- * A connection of its own for the scheduler's session lock, which is held for a
- * whole tick while that tick opens its own transactions on the main pool. One
- * connection cannot do both, and on a DATABASE_POOL_SIZE=1 deployment sharing
- * would deadlock immediately. This one never does any work, so it never blocks
- * anything else either.
- */
-export function getSchedulerLockPool() {
-  if (!schedulerLockPool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) throw new Error("DATABASE_URL is required");
-    schedulerLockPool = new Pool({
-      connectionString,
-      max: 1,
-      connectionTimeoutMillis: 10_000,
-    });
-  }
-  return schedulerLockPool;
-}
-
 export async function closeDb() {
   await Promise.all([
     pool?.end(),
     authBootstrapLockPool?.end(),
-    schedulerLockPool?.end(),
   ]);
   pool = undefined;
   authBootstrapLockPool = undefined;
-  schedulerLockPool = undefined;
   database = undefined;
 }
 

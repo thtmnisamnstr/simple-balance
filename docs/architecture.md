@@ -242,12 +242,14 @@ this is documented as needs nothing extra. `RECURRENCE_SCHEDULER=false` switches
 it off, which is how a Kubernetes deployment hands the job to a container of its
 own.
 
-Two independent things stop the same occurrence being proposed twice.
-`pg_try_advisory_lock(724202610)`, session-level and on a connection of its own,
-lets one replica tick at a time; a replica that loses returns immediately rather
-than queueing behind work the winner is already doing. It is session-level
-because a tick commits once per recurrence, so a transaction-scoped lock would
-release at every one of those commits. Underneath it, a partial unique index on
+Two independent things stop the same occurrence being proposed twice. Every
+replica sweeps the same due list and claims each recurrence with `for update
+skip locked`, so they divide the work by racing for rows rather than by electing
+one of themselves to do all of it: a row another replica holds is skipped, not
+queued behind, because the holder is doing exactly the work the skipper would
+have. There is no leader and no lease. A replica killed mid-row ends its
+transaction, PostgreSQL drops the row lock with it, and the next sweep finds the
+row unclaimed. Underneath that, a partial unique index on
 `(user_id, recurrence_id, occurrence_date)` means a second insert of the same
 occurrence raises rather than lands, taking the watermark advance down with it,
 since both are in one transaction.

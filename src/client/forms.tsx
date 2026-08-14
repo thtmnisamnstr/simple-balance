@@ -54,6 +54,7 @@ import {
 } from "./components.js";
 import {
   draftForTransactionForm,
+  type RecurrenceShapeSeed,
   type TransactionFormLeg,
 } from "./staged-draft.js";
 import { currencyOptionLabel, currencyOptions } from "./select-options.js";
@@ -1814,16 +1815,20 @@ export function RecurrenceForm({
   accounts,
   categories,
   recurrence,
+  initialShape,
+  initialAnchorDate,
   onDone,
 }: {
   accounts: Account[];
   categories: Category[];
   recurrence?: Recurrence;
+  initialShape?: RecurrenceShapeSeed;
+  initialAnchorDate?: string;
   onDone: () => void;
 }) {
   const timezone = useTimezone();
   const today = calendarDateInTimezone(new Date(), timezone);
-  const shape = recurrence?.shape;
+  const shape = recurrence?.shape ?? initialShape;
   const [name, setName] = useState(recurrence?.name ?? "");
   const [type, setType] = useState<TransactionType>(shape?.type ?? "withdrawal");
   const [payee, setPayee] = useState(shape?.payee ?? "");
@@ -1861,7 +1866,13 @@ export function RecurrenceForm({
     recurrence?.frequency ?? "monthly",
   );
   const [interval, setInterval] = useState(String(recurrence?.interval ?? 1));
-  const [anchorDate, setAnchorDate] = useState(recurrence?.anchorDate ?? today);
+  // A row's own date, when it seeds one. The anchor is what fixes the day of
+  // the month and the weekday a schedule repeats on, so rent paid on the 1st
+  // anchored to whatever today happens to be would quietly become a schedule
+  // for a different day, agreeing with itself in the preview.
+  const [anchorDate, setAnchorDate] = useState(
+    recurrence?.anchorDate ?? (initialAnchorDate || today),
+  );
   const [monthPolicy, setMonthPolicy] = useState(
     recurrence?.monthPolicy ?? "last_day",
   );
@@ -1911,6 +1922,24 @@ export function RecurrenceForm({
       setWeekendPolicy("allow");
     }
   }, [businessDayBlocked, weekendPolicy]);
+
+  // The same rule the transaction form applies. A category that cannot cover
+  // this kind of entry is refused once per occurrence, at commit, rather than
+  // here, so carrying one over would produce a queue of rows nobody can commit
+  // and no explanation of why.
+  useEffect(() => {
+    const selected = categories.find((category) => category.id === categoryId);
+    if (
+      selected &&
+      selected.kind !== "both" &&
+      ((type === "deposit" && selected.kind !== "income") ||
+        (type === "withdrawal" && selected.kind !== "expense") ||
+        type === "transfer")
+    ) {
+      setCategoryId("");
+      setCategoryName("");
+    }
+  }, [categories, categoryId, type]);
 
   const preview = useMemo(() => {
     if (!parsedSchedule.success) return [];
@@ -2009,6 +2038,15 @@ export function RecurrenceForm({
   const accountOptions = accounts.filter((account) => !account.archivedAt);
   const accountReady = type === "deposit" ? toAccountId : fromAccountId;
   const transferReady = type !== "transfer" || (fromAccountId && toAccountId);
+  // A rate belongs to the day it was got, so a recurrence does not keep one.
+  // The received amount is the one field a proposal cannot carry, and saying so
+  // here beats a queue of rows refused for a reason stated once per row.
+  const crossCurrency =
+    type === "transfer" &&
+    Boolean(fromAccountId) &&
+    Boolean(toAccountId) &&
+    accounts.find((account) => account.id === fromAccountId)?.currency !==
+      accounts.find((account) => account.id === toAccountId)?.currency;
   // A recurrence's legs are required and must add up, unlike a template's,
   // because the same division is replayed on every occurrence: one that does
   // not balance proposes a row nobody can commit, over and over.
@@ -2309,6 +2347,13 @@ export function RecurrenceForm({
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
 
+      {crossCurrency ? (
+        <Alert kind="info">
+          These two accounts hold different currencies, and the rate is not
+          something a schedule can know in advance. Each proposal waits in the
+          queue for the amount received.
+        </Alert>
+      ) : null}
       <Alert kind="info">
         A recurrence proposes into the review queue and posts nothing. Each
         proposal is an ordinary staged row you check and commit.

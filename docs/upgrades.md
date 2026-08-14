@@ -13,7 +13,8 @@ container will not start and will not tell you until it has.
 | If your configuration has | 0.1.4 does | What to do |
 | --- | --- | --- |
 | `AUTH_SECRET` still set to the placeholder `.env.example` shipped | Refuses to start, naming the variable | Generate one: `openssl rand -base64 32` |
-| `NODE_ENV` set to anything but `production`, `development` or `test`, including unset or empty | Refuses to start | Set `NODE_ENV=production`. The images already do. |
+| `NODE_ENV` set to anything but `production`, `development` or `test`, empty included | Refuses to start | Set `NODE_ENV=production`. The images already do. |
+| `NODE_ENV` unset | Reads as `development`, so the setup code, sign-in rate limiting and secure cookies are all off | Set `NODE_ENV=production`. Unset is the one value that does not announce itself, which is what the row below catches. |
 | `NODE_ENV` not `production` while `APP_BASE_URL` names anything but localhost | Refuses to start | Set `NODE_ENV=production`, and give `APP_BASE_URL` the HTTPS origin your proxy terminates |
 
 **Replacing `AUTH_SECRET` signs everybody out** and disconnects every MCP

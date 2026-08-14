@@ -151,7 +151,7 @@ export default function RecurrencesPage() {
           body={
             recurrences.data?.items.length
               ? "Nothing here matches that search."
-              : "Set one up for anything that arrives on a schedule: rent, a salary, a subscription. Each due date puts a row in the review queue for you to check."
+              : "Set one up for anything that arrives on a schedule: rent, a salary, a subscription. Make one here, or open the menu on any transaction and choose “Save as recurring transaction”. Each due date puts a row in the review queue for you to check."
           }
         />
       ) : (

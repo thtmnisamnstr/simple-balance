@@ -227,14 +227,25 @@ back, so confirm it with the person first.
 
 `summarize_own_data` counts everything in the ledger.
 
+`get_financial_summary` is the one tool that answers a question about money
+rather than about a row. It computes balances, deposits, withdrawals and
+spending separately per currency, never mixing them, and it stops at today
+whatever `end` you ask for: money dated in the future has not moved yet, and
+`asOf` says which day the figures are really as of. Archived accounts are left
+out by default, because archiving posts an account's balance out to equity and
+counting it again would double it; `includeArchived` puts the account and its
+past activity back in.
+
 ## The review queue
 
 `list_staged_transactions`, `get_staged_transaction`,
 `create_staged_transaction`, `update_staged_transaction`,
 `delete_staged_transactions`, `commit_staged_transactions`, and
-`bulk_edit_staged_transactions`. All of them except the commit take
-`ledger:stage`, which is the scope to grant an agent you want proposing work
-rather than posting it.
+`bulk_edit_staged_transactions`. Reading the queue is part of `ledger:read`, so
+`list_staged_transactions` and `get_staged_transaction` need nothing more than
+that. The four that change a row take `ledger:stage`, which is the scope to
+grant an agent you want proposing work rather than posting it, and the commit
+takes `ledger:write` because it is what puts the row in the books.
 
 A staged row is a draft. Nothing about it affects a balance or a report until it
 is committed, so an agent holding only `ledger:stage` can propose anything and

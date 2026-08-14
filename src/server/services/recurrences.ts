@@ -180,7 +180,12 @@ const MISSING_AMOUNT_ISSUE: ValidationIssue = {
   message: "This recurrence does not set an amount. Fill one in before committing.",
 };
 
-export type RecurrenceTickOutcome = "proposed" | "nothing_due" | "gone" | "capped";
+export type RecurrenceTickOutcome =
+  | "proposed"
+  | "nothing_due"
+  | "gone"
+  | "capped"
+  | "claimed_elsewhere";
 
 /**
  * Decide everything this recurrence owes up to `today`, in one transaction.
@@ -198,14 +203,30 @@ export async function proposeDueOccurrences(
   limit: number,
 ): Promise<RecurrenceTickOutcome> {
   return getDb().transaction(async (tx) => {
+    // Skipping rather than queueing is what lets schedulers scale out. Every
+    // replica reads the same due list, so without this each row would be worked
+    // once and waited on by everybody else, and N replicas would do one
+    // replica's work N times as slowly. Skipped here means another replica holds
+    // the row and is doing exactly this; there is nothing left to wait for.
     const [row] = await tx
       .select()
       .from(recurrences)
       .where(
         and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)),
       )
-      .for("update");
-    if (!row) return "gone";
+      .for("update", { skipLocked: true });
+    if (!row) {
+      // Absent and locked are the same empty result, so they are told apart by
+      // asking again without the lock. A row that is genuinely gone was deleted
+      // between the due list and here, and the tick counts the two differently.
+      const [exists] = await tx
+        .select({ id: recurrences.id })
+        .from(recurrences)
+        .where(
+          and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)),
+        );
+      return exists ? "claimed_elsewhere" : "gone";
+    }
 
     const occurrences = occurrencesBetween(
       ruleOf(row),

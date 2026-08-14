@@ -2,7 +2,7 @@
 
 Notable changes, newest first.
 
-## 0.1.4 - 2026-08-11
+## 0.1.4 - 2026-08-13
 
 ### Added
 
@@ -19,6 +19,16 @@ electricity bill wants. A recurrence naming an account that has since been
 deleted still proposes its row, flagged and saying which field, rather than
 failing where nobody would see it. Deleting a recurrence leaves every row it
 proposed alone.
+
+Open the menu on any row, on the transactions list or the review queue, and save
+it as a recurring transaction, beside where you would save it as a template. The
+row fills the form in, and the date it fell on becomes the day of the month the
+schedule keeps to, rather than whatever today happens to be. What it does not
+carry is the reference it was imported under, for the reason a template does not
+carry one: on every proposal, it would make the next real import of that
+statement row look like one already seen. Two accounts in different currencies
+say so before you save, since the rate belongs to the day it was got and each
+proposal has to wait in the queue for it.
 
 The scheduler runs inside the server process and is on by default, so the
 documented single container keeps working with nothing added to it. Set

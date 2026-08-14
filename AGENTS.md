@@ -84,9 +84,10 @@
 - Two exceptions, both account management rather than bookkeeping: deleting an
   account and setting a sign-in password are reachable from a session and never
   from an MCP token.
-- A tool whose result does not satisfy its declared output schema has that
-  result silently dropped, so exercise new tools over a real connection rather
-  than trusting the schema alone.
+- A tool whose result does not satisfy its declared output schema fails the
+  call with an `Output validation error` naming the offending path, so a wrong
+  schema breaks the tool rather than trimming its reply. Exercise new tools over
+  a real connection rather than trusting the schema alone.
 - Balances derive from postings alone. Never add an account column back into a
   balance query.
 - Lists order by any column they display, in either direction. Order is

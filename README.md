@@ -173,8 +173,8 @@ price. Retiring an account archives it, which posts whatever it still holds out
 to equity so the account closes at zero and stops counting toward your totals
 without the books going out of balance; restoring it puts the balance back, and
 its history stays readable throughout. Transactions are deposits, withdrawals,
-and transfers, same-currency or converted. The payee is required. Everything
-else is optional.
+and transfers, same-currency or converted. A date, an account, an amount and a
+payee are required; the category, description and notes are not.
 
 ### Importing and exporting
 
@@ -229,6 +229,12 @@ of the month or on a relative day such as the second Tuesday or the last Friday.
 You choose what happens when the month is too short for the day you picked, and
 what happens when a date lands on a weekend.
 
+Make one on the Recurring screen, or from the menu on any row, on the
+transactions list or the review queue, the same way you save a template. The row
+supplies the payee, the account, the amount and the category, and its own date
+becomes the day of the month the schedule repeats on. You give it a name and
+pick how often.
+
 On its due date it puts an ordinary row in the review queue, dated its own
 occurrence, and posts nothing. You check it and commit it like anything else.
 Leave the amount out and each proposal waits for a number, which is what the
@@ -260,7 +266,9 @@ and merge by rewriting every reference at once.
 The dashboard covers balances, cash flow, and spending by category over any date
 range, and the range is in the URL, so you can link to it. It stops at today
 whatever range you pick, because money dated next month is not money you have.
-Every list sorts by any column it shows and pages by number. Everything the
+The transactions list, the review queue and the templates list sort by any
+column they show and page by number. Activity shows the hundred most recent
+events and neither sorts nor pages. Everything the
 browser or an agent did is in the audit log.
 
 ### Signing in, and leaving

@@ -1,7 +1,5 @@
 import { getConfig } from "./config.js";
 import { configuredRecurrenceTickSeconds } from "./config-limits.js";
-import { RECURRENCE_SCHEDULER_LOCK } from "./db/advisory-locks.js";
-import { getSchedulerLockPool } from "./db/client.js";
 import { runDueRecurrences, type TickSummary } from "./services/recurrences.js";
 
 /**
@@ -15,8 +13,9 @@ export const FIRST_TICK_DELAY_MS = 5_000;
 
 /**
  * Spread over the first tick so a rolling restart does not have every replica
- * reach for the same lock in the same millisecond, leaving one working and the
- * rest to have woken for nothing.
+ * read the same due list in the same millisecond. They would still divide the
+ * work, each skipping what another holds, but they would all pay for the scan
+ * and most would come away with the leavings.
  */
 export const FIRST_TICK_JITTER_MS = 15_000;
 
@@ -53,40 +52,19 @@ function defaultSchedule(callback: () => void, milliseconds: number): Timer {
 }
 
 /**
- * Take the tick lock, or find out somebody else has it.
+ * One sweep of everything due.
  *
- * Session level and on a connection of its own, because the tick commits once
- * per recurrence and a transaction-scoped lock would release at every one of
- * those commits. A replica that loses returns immediately rather than queueing:
- * the holder is doing exactly the work this one would have done, so waiting for
- * it only means running a second pass over rows already dealt with.
+ * No leader and no lease: replicas read the same due list and claim each
+ * recurrence with `for update skip locked`, so they divide the work by racing
+ * for rows rather than by electing one of themselves to do all of it. A replica
+ * killed mid-row ends its transaction, PostgreSQL drops the row lock with it,
+ * and the next tick finds the row unclaimed. Nothing to reap, nothing to hand
+ * over, and no reason a second replica has to wait for the first.
  */
-export async function tickUnderLock(
+export async function runTickSweep(
   stopped: () => boolean = () => false,
 ): Promise<TickSummary> {
-  const client = await getSchedulerLockPool().connect();
-  let held = false;
-  try {
-    const { rows } = await client.query<{ locked: boolean }>(
-      "select pg_try_advisory_lock($1) as locked",
-      [RECURRENCE_SCHEDULER_LOCK],
-    );
-    held = rows[0]?.locked === true;
-    if (!held) return { examined: 0, proposed: 0, failed: 0, capped: false };
-    return await runDueRecurrences(stopped);
-  } finally {
-    try {
-      if (held) {
-        await client.query("select pg_advisory_unlock($1)", [
-          RECURRENCE_SCHEDULER_LOCK,
-        ]);
-      }
-    } finally {
-      // A replica killed mid-tick ends its session and PostgreSQL drops the
-      // lock with it. No lease, no heartbeat, nothing to reap.
-      client.release();
-    }
-  }
+  return runDueRecurrences(stopped);
 }
 
 export function createRecurrenceScheduler(
@@ -95,7 +73,7 @@ export function createRecurrenceScheduler(
   const {
     enabled = getConfig().recurrenceSchedulerEnabled,
     tickSeconds = configuredRecurrenceTickSeconds(),
-    runTick = tickUnderLock,
+    runTick = runTickSweep,
     schedule = defaultSchedule,
     jitter = () => Math.random() * FIRST_TICK_JITTER_MS,
     logger = console,
