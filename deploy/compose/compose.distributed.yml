@@ -1,0 +1,249 @@
+# Simple Balance as the three containers deploy/docker/ builds: the API, which
+# also serves MCP; the nginx frontend, which serves the browser bundle and
+# proxies everything the API owns; and the recurrence scheduler. It is the shape
+# deploy/helm/simple-balance/ deploys, on one machine and without Kubernetes.
+#
+#   cp deploy/compose/.env.example deploy/compose/.env
+#   docker compose -f deploy/compose/compose.distributed.yml up -d --build
+#
+# One container is still the supported way to run this; see docs/deployment.md.
+# The point of this file is the split: the same three images, the same division
+# of settings between them, and the same things that have to line up.
+#
+# PostgreSQL is here because a trial on one machine should take one command. The
+# Helm chart deliberately provisions none: a cluster's database is bring your
+# own, since whoever runs it owns its backups, its version, and its
+# max_connections. Point DATABASE_URL at a real server and delete the postgres
+# service below when this stops being a trial.
+name: simple-balance-distributed
+
+# One block for both node processes, because src/server/scheduler.ts calls the
+# same getConfig() the API does and that validates the entire variable set:
+# APP_BASE_URL, AUTH_SECRET, AUTH_MODE and the Google and SMTP blocks included,
+# none of which the scheduler goes on to use. A scheduler given DATABASE_URL and
+# nothing else fails startup on APP_BASE_URL and restarts forever.
+#
+# RECURRENCE_SCHEDULER is deliberately absent: it is the one setting the two
+# disagree about, so each sets it for itself.
+x-app-config: &app-config
+  DATABASE_URL: postgresql://simple_balance:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/.env}@postgres:5432/simple_balance
+
+  # The FRONTEND's origin as the browser sees it, not the API's own address.
+  # Cookies are set by the API and read by the browser, so both have to be
+  # reached on one origin, and every request the browser makes arrives through
+  # nginx. The API also compares the Origin header against this value on every
+  # state-changing request, so naming the server here turns every write into a
+  # rejected cross-origin request.
+  #
+  # Loopback is also what makes plain HTTP legal: the images set
+  # NODE_ENV=production, and production refuses an APP_BASE_URL that is neither
+  # HTTPS nor loopback. Reaching this from another machine means TLS in front
+  # and an https:// value here.
+  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:8080}
+
+  AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in deploy/compose/.env}
+  AUTH_MODE: ${AUTH_MODE:-local}
+  ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
+  SETUP_TOKEN: ${SETUP_TOKEN:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+
+  # nginx is the address every connection to the API arrives from. Left false
+  # behind it, every visitor shares one sign-in rate-limit allowance, which is
+  # one visitor's worth. Believable here because the template in
+  # deploy/docker/nginx.conf.template sets X-Forwarded-For to $remote_addr
+  # rather than appending to whatever the caller sent, and because nothing sits
+  # in front of nginx in this file.
+  TRUST_PROXY: "true"
+
+  # Mail is optional and everything needing it degrades rather than breaks: with
+  # no host and no from address there is no password reset and nobody is asked
+  # to confirm an address. The port and the SSL flag carry defaults here because
+  # an empty string is not an unset variable to the server, and it refuses one.
+  SMTP_HOST: ${SMTP_HOST:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+  MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SSL: ${SMTP_SSL:-false}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  PORT: "3000"
+
+  # Move these together with SB_MAX_UPLOAD_SIZE below: nginx refuses a body over
+  # its limit before the API sees it, and the API sizes its own limit for the
+  # import routes at CSV_MAX_BYTES x 6 plus 64 KiB, because a CSV arrives as a
+  # JSON string.
+  CSV_MAX_BYTES: "10485760"
+  CSV_MAX_ROWS: "10000"
+
+  # Each process holds this many connections, plus one more while it starts, so
+  # this file peaks at 3 x (10 + 1) = 33 of the 100 connections PostgreSQL
+  # allows by default. Lower it before adding replicas of anything.
+  DATABASE_POOL_SIZE: "10"
+
+  RECURRENCE_TICK_SECONDS: "300"
+  RECURRENCE_CATCH_UP_LIMIT: "50"
+  RECURRENCE_CLAIM_LIMIT: "500"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: simple_balance
+      POSTGRES_USER: simple_balance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/.env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simple_balance -d simple_balance"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  server:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/server.Dockerfile
+    # Swap the build block for this to pull the release instead of building it.
+    # All three publish alongside the single container, on the same tags. Pinned
+    # rather than :latest, because an upgrade moves the schema and should be a
+    # decision rather than whatever a restart happened to pull.
+    # image: ghcr.io/thtmnisamnstr/simple-balance-server:0.1.4
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *app-config
+      # The scheduler service owns the job. Leaving this on would be safe rather
+      # than wrong, since a recurrence is claimed with `for update skip locked`,
+      # but it is a sweep of the due list for work the schedulers already have.
+      RECURRENCE_SCHEDULER: "false"
+    # No ports. The API is reached through nginx, on the one origin APP_BASE_URL
+    # names, and a second way in would be a second origin the cookies do not
+    # belong to.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    # Longer than the 10s drain the process gives itself on SIGTERM
+    # (DEFAULT_SHUTDOWN_DEADLINE_MS), so it is not killed mid-drain.
+    stop_grace_period: 30s
+    healthcheck:
+      # The image carries this same check on a 30s interval, which suits a
+      # long-running deployment and leaves `up` waiting half a minute after the
+      # API is already answering. /health/ready and not /health/live: the
+      # frontend below waits on this, and readiness is what says the migrations
+      # have run.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 3s
+      timeout: 5s
+      # The first start against an empty database runs every migration before
+      # readiness opens, and start_period is the budget for that: a failure
+      # before it elapses does not count against retries.
+      start_period: 90s
+      retries: 5
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/frontend.Dockerfile
+    # image: ghcr.io/thtmnisamnstr/simple-balance-frontend:0.1.4
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      # 8080 on both sides: the nginx-unprivileged base image runs as a non-root
+      # user, which cannot bind a privileged port. Bound to loopback because
+      # this listener is plain HTTP and the origin in APP_BASE_URL has to be the
+      # one people actually open.
+      - "127.0.0.1:8080:8080"
+    environment:
+      SB_API_ORIGIN: http://server:3000
+      SB_FRONTEND_PORT: "8080"
+      # Under CSV_MAX_BYTES x 6 plus 64 KiB, nginx refuses an import the API
+      # behind it would have taken.
+      SB_MAX_UPLOAD_SIZE: 61m
+    read_only: true
+    tmpfs:
+      # The entrypoint renders nginx.conf.template into /etc/nginx/conf.d at
+      # startup, once envsubst has put SB_API_ORIGIN and the rest into it.
+      # /var/cache/nginx is where a request body too large for the buffer is
+      # spooled, so every CSV import passes through it, and /tmp holds the pid
+      # file the unprivileged image writes there.
+      #
+      # uid and gid are the nginx user in the image, and they are not optional:
+      # Docker gives a tmpfs the mode of the directory it covers and leaves it
+      # owned by root, so without them the entrypoint finds conf.d unwritable,
+      # skips rendering the template, and nginx comes up serving nothing at all.
+      # A Kubernetes emptyDir needs no equivalent, which is why the chart has
+      # none.
+      - /etc/nginx/conf.d:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+      - /tmp:uid=101,gid=101
+    # nginx reads SIGTERM as a fast shutdown and SIGQUIT as a graceful one, so
+    # without this a `docker compose down` cuts off whatever it is still
+    # serving. This is the compose equivalent of the chart's preStop hook.
+    stop_signal: SIGQUIT
+    stop_grace_period: 30s
+    healthcheck:
+      # `/` and not `/health`: that path is proxied to the API, so it would
+      # report whether the pair works rather than whether this container does,
+      # and a frontend pulled out while the database is down is the one thing
+      # that could still serve the page saying so.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  scheduler:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/scheduler.Dockerfile
+    # image: ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.1.4
+    restart: unless-stopped
+    depends_on:
+      # The database and not the server: this entrypoint runs the migrations
+      # itself under the same advisory lock, so a scheduler that starts first
+      # does the work rather than failing on tables that do not exist yet.
+      postgres:
+        condition: service_healthy
+    deploy:
+      # Two of them, safely and usefully: there is no leader and no lease, and
+      # each recurrence is claimed with `for update skip locked`, so they divide
+      # the due list by racing for rows. One killed mid-row ends its
+      # transaction, PostgreSQL drops the row lock with it, and the next tick
+      # finds the row unclaimed.
+      replicas: 2
+    environment:
+      # RECURRENCE_SCHEDULER is not set at all: this entrypoint ignores it and
+      # always ticks, because a process whose only job is the schedule would be
+      # pointless with the flag off.
+      <<: *app-config
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    stop_grace_period: 30s
+    healthcheck:
+      # Health checks are all this process serves, so a probe on port 3000 is
+      # the only thing it will answer.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+
+volumes:
+  postgres-data:

@@ -1,0 +1,493 @@
+# Simple Balance, as the three workloads deploy/docker/ builds: the API (which
+# also serves MCP), the nginx frontend that serves the browser bundle and
+# proxies everything the API owns, and the recurrence scheduler.
+#
+# The database is bring your own. This chart provisions no PostgreSQL and offers
+# no in-cluster StatefulSet: it takes a DATABASE_URL and nothing else. If the
+# database that string names does not exist the server creates it, which needs
+# the connecting role to hold CREATEDB.
+
+global:
+  # Prefixed to every image repository below that names no registry of its own,
+  # so a mirror is one setting rather than three.
+  imageRegistry: ghcr.io
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Merged into the labels and annotations of every object the chart creates.
+commonLabels: {}
+commonAnnotations: {}
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  # Defaults to the release's full name.
+  name: ""
+  annotations: {}
+  # Nothing here talks to the Kubernetes API, so a mounted token would only be a
+  # credential sitting in a pod with no use for it.
+  automountServiceAccountToken: false
+
+# Settings the API and the scheduler share. They become one ConfigMap that both
+# Deployments read, because src/server/scheduler.ts calls the same getConfig()
+# the API does and validates the whole variable set: a scheduler pod given only
+# DATABASE_URL fails startup on APP_BASE_URL and crashloops.
+config:
+  # The FRONTEND's public origin, not the API's own address.
+  #
+  # Cookies are set by the API and read by the browser, so both have to be
+  # reached on one origin, and that origin is the nginx container: every request
+  # the browser makes arrives through it. Point this at the DNS name the Ingress
+  # answers on. The API also compares the Origin header against this value on
+  # every state-changing request, so a value naming the API Service instead
+  # turns every write into a rejected cross-origin request.
+  #
+  # An exact origin: scheme and host, no path, no query, and HTTPS unless the
+  # host is loopback.
+  appBaseUrl: https://simple-balance.example.com
+
+  # True because nginx is the address every connection to the API arrives from.
+  # Left false behind a proxy, every visitor in the cluster shares a single
+  # sign-in rate-limit allowance, which is one visitor's worth.
+  #
+  # Believable only while the frontend's nginx sets X-Forwarded-For to
+  # $remote_addr rather than appending to whatever the caller sent. An ingress
+  # terminating TLS in front of it makes $remote_addr the ingress and brings the
+  # shared allowance back; NOTES.txt prints the set_real_ip_from fix.
+  trustProxy: true
+
+  # local, google, or both. Google needs config.google.clientId,
+  # secret.googleClientSecret, and an allowedEmails list that admits somebody.
+  authMode: local
+
+  # Who may register, comma separated: addresses, domains (example.com), or *
+  # for anybody. Empty admits nobody but the first account, which is what keeps
+  # an unconfigured deployment private.
+  allowedEmails: ""
+
+  logLevel: info
+
+  # The port both node processes listen on. The images set it to 3000; changing
+  # it here moves the container ports, the probes and the Services together.
+  port: 3000
+
+  # The largest CSV import, in bytes, and the row cap that goes with it. The row
+  # cap is also the most any one mass edit, commit or delete covers, so an
+  # import always fits a single review-queue action and there is nothing to gain
+  # by raising it past 10000.
+  #
+  # Raising csvMaxBytes means raising frontend.maxUploadSize, the ingress body
+  # annotation, and the server's memory limit along with it. See all three.
+  csvMaxBytes: 10485760
+  csvMaxRows: 10000
+
+  # Connections each process holds open. Two others exist and neither is held:
+  # migrations take one at startup and close it, and the first-account claim
+  # takes one once in a deployment's life.
+  #
+  # The peak, which is the number that has to fit, is while replicas start:
+  #
+  #   replicas x (databasePoolSize + 1)  <  max_connections
+  #
+  # PostgreSQL defaults max_connections to 100, so at a pool of 10 that is nine
+  # replicas, not ninety, and the API and the scheduler both count against it:
+  # four API replicas and two scheduler replicas at a pool of 10 come to
+  # 6 x 11 = 66 of the 100. Lower this before raising any replica count, or put
+  # a connection pooler in front of PostgreSQL and set secret.directDatabaseUrl.
+  databasePoolSize: 10
+
+  # How often a scheduler pod sweeps the due list, how many occurrences one
+  # recurrence catches up per tick, and how many recurrences one tick claims.
+  recurrence:
+    tickSeconds: 300
+    catchUpLimit: 50
+    claimLimit: 500
+
+  google:
+    # The secret half of this pair is secret.googleClientSecret.
+    clientId: ""
+
+  # Mail is optional and everything needing it degrades rather than breaks: with
+  # no host there is no password reset and nobody is asked to confirm an
+  # address. host and from are set together or not at all.
+  mail:
+    host: ""
+    from: ""
+    replyTo: ""
+    port: 587
+    # True only for a connection encrypted from the first byte, which is port
+    # 465. False starts in the clear on 587 and upgrades with STARTTLS.
+    ssl: false
+
+  # Anything else the API and the scheduler should read, as name/value pairs.
+  extraEnv: {}
+
+# DATABASE_URL and AUTH_SECRET, and the other credentials when they apply.
+#
+# Either the chart creates this Secret or the operator names one that already
+# exists. Setting both fails the render rather than quietly picking one.
+secret:
+  create: true
+
+  # A Secret that already exists in the release namespace. Its keys have to be
+  # named exactly as the environment variables are: DATABASE_URL, AUTH_SECRET,
+  # and whichever of DIRECT_DATABASE_URL, GOOGLE_CLIENT_SECRET, SMTP_USERNAME,
+  # SMTP_PASSWORD and SETUP_TOKEN apply. Every key it carries reaches the API
+  # and the scheduler as an environment variable, so it must hold nothing else.
+  #
+  # Set secret.create=false alongside it.
+  existingSecret: ""
+
+  # Read only when create is true.
+  databaseUrl: ""
+  # A connection string that reaches PostgreSQL past a transaction pooler.
+  # PgBouncer in transaction mode suits the application pool, but migrations and
+  # the first-account claim hold session-level advisory locks, and through a
+  # pooler those are taken on one connection and released on another, which is
+  # to say not held at all. Leave it empty when there is no pooler.
+  directDatabaseUrl: ""
+  # Generate one and keep it: openssl rand -base64 32. Sessions are signed with
+  # it, so changing it signs everybody out. Startup refuses the published
+  # placeholders, so there is nothing to leave in place by accident.
+  authSecret: ""
+  # Optional: choose the one-time code that claims the first account rather than
+  # reading a generated one out of the server's startup log. At least 16
+  # characters, or startup refuses it.
+  setupToken: ""
+  googleClientSecret: ""
+  # Set together or not at all.
+  smtpUsername: ""
+  smtpPassword: ""
+
+server:
+  image:
+    # Falls back to global.imageRegistry when empty.
+    registry: ""
+    repository: thtmnisamnstr/simple-balance-server
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  # Ignored once autoscaling.enabled is true, so the HPA owns the count.
+  replicaCount: 2
+
+  # Requests are what an idle API replica actually holds. The memory limit is
+  # sized off config.csvMaxBytes: a CSV arrives as a JSON string, the API sizes
+  # its body limit for those routes at csvMaxBytes x 6 plus 64 KiB, and parsing
+  # holds the encoded document and the decoded rows at once. At the default
+  # 10 MiB that is a ~60 MiB body and several times that live while it is
+  # parsed. Raise this limit whenever csvMaxBytes goes up, or a large import is
+  # OOM-killed instead of refused.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    # The `node` user in the image.
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    # The process writes nothing to disk. PostgreSQL is the only persistent
+    # dependency there is.
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  # Above the 10s drain deadline the process gives itself on SIGTERM
+  # (DEFAULT_SHUTDOWN_DEADLINE_MS), so the pod is not killed mid-drain.
+  terminationGracePeriodSeconds: 30
+
+  # The first start against an empty database runs every migration under an
+  # advisory lock before readiness opens. The startup probe is what keeps the
+  # liveness probe from killing that: failureThreshold x periodSeconds is the
+  # budget, five minutes here.
+  startupProbe:
+    enabled: true
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 60
+  readinessProbe:
+    enabled: true
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    enabled: true
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  service:
+    port: 3000
+    annotations: {}
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    # Either target may be null to leave that metric out. Both null is an HPA
+    # that cannot scale anything, and fails the render.
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    # Node's heap comes down long after the burst that filled it, so a short
+    # window scales the tier down on memory that is about to be reclaimed and
+    # back up on the next import.
+    scaleDownStabilizationWindowSeconds: 300
+    scaleUpStabilizationWindowSeconds: 0
+
+  podDisruptionBudget:
+    enabled: true
+    # Set one of these, not both.
+    minAvailable: ""
+    maxUnavailable: 1
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+frontend:
+  image:
+    registry: ""
+    repository: thtmnisamnstr/simple-balance-frontend
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  # 8080 and not 80: the nginx-unprivileged base image runs as a non-root user,
+  # which cannot bind a privileged port.
+  containerPort: 8080
+
+  # The largest request body nginx passes through. A CSV arrives as a JSON
+  # string, and the API sizes its own limit for those routes at
+  # config.csvMaxBytes x 6 plus 64 KiB for worst-case escaping, which is ~60 MiB
+  # at the 10 MiB default. Under that, nginx refuses a CSV the API behind it
+  # would have taken. Raise it with config.csvMaxBytes.
+  maxUploadSize: 61m
+
+  # Kubernetes sends SIGTERM, which nginx reads as a *fast* shutdown rather than
+  # a graceful one, so the drain has to be asked for: sleep long enough for the
+  # load balancer and kube-proxy to stop handing this pod new connections, then
+  # let nginx finish what it is already holding. 0 removes the hook.
+  preStopSleepSeconds: 5
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    # The `nginx` user in the nginx-unprivileged image.
+    runAsUser: 101
+    runAsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  terminationGracePeriodSeconds: 30
+
+  # Probes / rather than /health, because that location is served by nginx out
+  # of the bundle it ships: it says whether this container works rather than
+  # whether the API behind it does. A frontend pulled out of rotation while the
+  # database is down would serve nobody the page that says so.
+  readinessProbe:
+    enabled: true
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    enabled: true
+    periodSeconds: 20
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  service:
+    port: 80
+    annotations: {}
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    scaleDownStabilizationWindowSeconds: 300
+    scaleUpStabilizationWindowSeconds: 0
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: ""
+    maxUnavailable: 1
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+scheduler:
+  image:
+    registry: ""
+    repository: thtmnisamnstr/simple-balance-scheduler
+    tag: ""
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  # No CSV parsing reaches this process, so the ceiling that sizes the API does
+  # not apply. What it does is sweep the due list and write staged rows.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+
+  terminationGracePeriodSeconds: 30
+
+  # This entrypoint runs the same migrations the API does, so a scheduler pod
+  # scheduled first works rather than failing on tables that do not exist yet.
+  # It needs the same protection from the liveness probe while it does.
+  startupProbe:
+    enabled: true
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 60
+  readinessProbe:
+    enabled: true
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    enabled: true
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  service:
+    port: 3000
+    annotations: {}
+
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+    # Worth knowing what this can and cannot do. Replicas divide the due list by
+    # claiming rows, so more of them genuinely is more throughput on a backlog.
+    # What CPU cannot see is the backlog itself: a sweep is a burst that ends,
+    # and a tier idle between ticks reads as a tier with nothing to do. So this
+    # answers a scheduler that is busy for a sustained stretch, which is the
+    # case that matters, and leaves a single tick's spike alone.
+    #
+    # Wider than the API's, because the load being measured is a sweep that runs
+    # once every config.recurrence.tickSeconds and then stops. A window shorter
+    # than the tick interval scales the tier down on the quiet gap and back up
+    # on the next sweep, forever.
+    scaleDownStabilizationWindowSeconds: 600
+    scaleUpStabilizationWindowSeconds: 0
+
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+# One Ingress, pointed at the frontend Service. Nothing routes to the API
+# directly: it is reached through nginx so the browser and the API share one
+# origin, which is the origin config.appBaseUrl names.
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    # ingress-nginx caps a body at 1 MiB, which refuses a CSV import long before
+    # it reaches the nginx inside the frontend container, let alone the API.
+    # Keep this in step with frontend.maxUploadSize. Other controllers spell it
+    # differently: HAProxy uses haproxy.org/client-body-size, Traefik imposes no
+    # limit of its own, and a cloud load balancer may cap it outside Kubernetes
+    # altogether.
+    nginx.ingress.kubernetes.io/proxy-body-size: 61m
+  host: simple-balance.example.com
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: true
+    # Defaults to <fullname>-tls. cert-manager fills it; nothing else should.
+    secretName: ""
+    # A cluster-wide ClusterIssuer, or issuer for a namespaced one. Set one.
+    clusterIssuer: letsencrypt-production
+    issuer: ""
+
+# Off by default: a policy naming the wrong ingress controller black-holes the
+# site silently, and the labels that name it differ per cluster.
+networkPolicy:
+  enabled: false
+
+  # Who may reach the frontend. Empty allows any source in the cluster to reach
+  # the frontend port, which is the honest default when the chart cannot know
+  # how the ingress controller is labelled. Standard NetworkPolicyPeer entries:
+  #   - namespaceSelector:
+  #       matchLabels:
+  #         kubernetes.io/metadata.name: ingress-nginx
+  frontendIngressFrom: []
+
+  # Anything besides the frontend that may reach the API: a metrics scraper, an
+  # MCP client inside the cluster. Same shape as above.
+  serverIngressFrom: []
+
+  # kubelet runs the probes from the node's own address. Some CNIs hold these
+  # rules against that traffic and others exempt it, so if probes start failing
+  # the moment this is switched on, put the node CIDR here.
+  probeSourceCidrs: []
+
+  # Egress is left open because the chart cannot know where any of it goes: the
+  # database is bring your own, and Google sign-in and SMTP are addresses on the
+  # internet. Turn this on and supply egressRules to close it.
+  restrictEgress: false
+  # Raw NetworkPolicyEgressRule entries, read only when restrictEgress is true.
+  # DNS and the frontend's hop to the API are added for you; everything else,
+  # the database included, has to be listed here.
+  egressRules: []

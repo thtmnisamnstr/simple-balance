@@ -1,0 +1,10 @@
+name: simple-balance-aws
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: >-
+  Simple Balance on EKS: a VPC, a managed node group that autoscales, the AWS
+  Load Balancer Controller, ingress-nginx, cert-manager with a Let's Encrypt
+  ClusterIssuer, and the Simple Balance Helm chart from deploy/helm. The
+  database is bring your own.

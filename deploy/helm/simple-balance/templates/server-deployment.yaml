@@ -1,0 +1,131 @@
+{{- $component := "server" -}}
+{{- $name := include "simple-balance.componentName" (dict "root" . "component" $component) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" $component) | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.server.autoscaling.enabled }}
+  replicas: {{ .Values.server.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Sessions live in PostgreSQL and the settings live here, so a pod that
+        # started before an edit is not the same process as one that started
+        # after it. Hashing both into the pod template is what rolls the tier
+        # when either changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.server.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "simple-balance.componentLabels" (dict "root" . "component" $component) | nindent 8 }}
+        {{- with .Values.server.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      serviceAccountName: {{ include "simple-balance.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      # The process stops accepting connections on SIGTERM and drains what it is
+      # holding, giving itself 10 seconds to finish. This has to outlast that or
+      # the drain is cut short by the kill.
+      terminationGracePeriodSeconds: {{ .Values.server.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.server.podSecurityContext | nindent 8 }}
+      containers:
+        - name: server
+          image: {{ include "simple-balance.image" (dict "root" $ "image" .Values.server.image) | quote }}
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.server.containerSecurityContext | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "simple-balance.configMapName" . }}
+            - secretRef:
+                name: {{ include "simple-balance.secretName" . }}
+          env:
+            # False here and nowhere else. The scheduler's own entrypoint
+            # ignores this flag and always ticks, so the only thing left to
+            # decide is whether the API replicas tick too, and every one of them
+            # doing it is a sweep of the due list per replica for work the
+            # schedulers already have in hand.
+            - name: RECURRENCE_SCHEDULER
+              value: "false"
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port }}
+              protocol: TCP
+          {{- if .Values.server.startupProbe.enabled }}
+          # Readiness stays closed until the migrations finish, and on a fresh
+          # database that is every migration there is. Without this the liveness
+          # probe kills the pod part-way through and the next one starts the
+          # same work over.
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: {{ .Values.server.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.startupProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.server.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: {{ .Values.server.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.server.readinessProbe.successThreshold }}
+          {{- end }}
+          {{- if .Values.server.livenessProbe.enabled }}
+          # /health/live and not /health/ready: readiness checks the database,
+          # and a database that has gone away is not a reason to restart every
+          # API pod in the cluster.
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: {{ .Values.server.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.server.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.server.livenessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+      {{- with .Values.server.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.server.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

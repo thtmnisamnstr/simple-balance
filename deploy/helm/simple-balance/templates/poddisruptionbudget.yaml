@@ -1,0 +1,11 @@
+{{- /*
+The two tiers that answer a request. A node drain that took every frontend or
+every API pod at once is an outage, and neither tier has any state to lose by
+being drained one pod at a time.
+
+The scheduler has none. A tick that does not happen because the last pod is
+being moved happens on the next one, and nothing is dropped: the watermark only
+moves for occurrences actually proposed.
+*/ -}}
+{{- include "simple-balance.pdb" (dict "root" $ "component" "server" "pdb" .Values.server.podDisruptionBudget) }}
+{{- include "simple-balance.pdb" (dict "root" $ "component" "frontend" "pdb" .Values.frontend.podDisruptionBudget) }}

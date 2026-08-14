@@ -1,0 +1,146 @@
+{{- $component := "frontend" -}}
+{{- $name := include "simple-balance.componentName" (dict "root" . "component" $component) -}}
+{{- $serverService := include "simple-balance.componentName" (dict "root" . "component" "server") -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" $component) | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.frontend.autoscaling.enabled }}
+  replicas: {{ .Values.frontend.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      {{- if or .Values.commonAnnotations .Values.frontend.podAnnotations }}
+      annotations:
+        {{- with .Values.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.frontend.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      labels:
+        {{- include "simple-balance.componentLabels" (dict "root" . "component" $component) | nindent 8 }}
+        {{- with .Values.frontend.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      serviceAccountName: {{ include "simple-balance.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.frontend.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.frontend.podSecurityContext | nindent 8 }}
+      containers:
+        - name: frontend
+          image: {{ include "simple-balance.image" (dict "root" $ "image" .Values.frontend.image) | quote }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.frontend.containerSecurityContext | nindent 12 }}
+          env:
+            # The API Service, in the cluster. Only the browser's origin is
+            # public; this hop is internal and plain HTTP.
+            - name: SB_API_ORIGIN
+              value: http://{{ $serverService }}:{{ .Values.server.service.port }}
+            - name: SB_FRONTEND_PORT
+              value: {{ .Values.frontend.containerPort | quote }}
+            - name: SB_MAX_UPLOAD_SIZE
+              value: {{ .Values.frontend.maxUploadSize | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.containerPort }}
+              protocol: TCP
+          {{- if gt (int .Values.frontend.preStopSleepSeconds) 0 }}
+          lifecycle:
+            preStop:
+              exec:
+                # The sleep is the load balancer's and kube-proxy's window to
+                # stop sending this pod new connections while it still answers
+                # them. `nginx -s quit` then drains what it is holding, because
+                # the SIGTERM that follows the hook is a fast shutdown to nginx
+                # and would cut those connections off.
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep {{ .Values.frontend.preStopSleepSeconds }}; nginx -s quit
+          {{- end }}
+          {{- if .Values.frontend.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: {{ .Values.frontend.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.frontend.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.frontend.readinessProbe.successThreshold }}
+          {{- end }}
+          {{- if .Values.frontend.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: {{ .Values.frontend.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.frontend.livenessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            # nginx writes in all three places and the root filesystem is read
+            # only, so each is an emptyDir that lives and dies with the pod.
+            #
+            # /etc/nginx/conf.d is where the image's entrypoint renders
+            # default.conf.template at startup, after envsubst has put
+            # SB_API_ORIGIN and the rest into it. Mounting over the directory
+            # hides the image's own default.conf, which the rendered file was
+            # going to overwrite anyway.
+            #
+            # /var/cache/nginx holds the temp files a request body is spooled
+            # into, so a CSV import the size of SB_MAX_UPLOAD_SIZE passes
+            # through here on its way to the API. /tmp holds the pid file the
+            # unprivileged image writes there.
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: nginx-conf
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.frontend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

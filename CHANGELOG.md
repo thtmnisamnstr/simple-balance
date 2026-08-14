@@ -33,10 +33,11 @@ proposal has to wait in the queue for it.
 The scheduler runs inside the server process and is on by default, so the
 documented single container keeps working with nothing added to it. Set
 `RECURRENCE_SCHEDULER=false` to switch it off on replicas that serve the API.
-Running several with it on is safe: one advisory lock lets a single replica tick
-at a time, and a per-occurrence unique key refuses a duplicate proposal even if
-the lock were bypassed. Public holidays are not modelled; a business day means
-Monday to Friday.
+Running several with it on is safe: each recurrence is claimed with `for update
+skip locked`, so replicas divide the due list rather than wait on one another,
+and a per-occurrence unique key refuses a duplicate proposal even if a claim
+were bypassed. Public holidays are not modelled; a business day means Monday to
+Friday.
 
 Four settings control it: `RECURRENCE_SCHEDULER`, `RECURRENCE_TICK_SECONDS`,
 `RECURRENCE_CATCH_UP_LIMIT` and `RECURRENCE_CLAIM_LIMIT`. Only the first is
@@ -44,9 +45,10 @@ likely to matter to you, and only if you split the deployment up.
 
 Three Dockerfiles under `deploy/docker/` split the single container into a
 server, an nginx frontend, and a scheduler, for running this under Kubernetes.
-There is no published image for any of them and no CI that builds them; the
-single container remains the supported way to run this. See
-[deployment](docs/deployment.md).
+Each publishes alongside the single container, on the same tags, as
+`simple-balance-server`, `simple-balance-frontend` and
+`simple-balance-scheduler`. The single container remains the supported way to
+run this. See [deployment](docs/deployment.md).
 
 One transaction can now be split across several categories. The grocery receipt
 that is partly food, partly household and partly something for the dog is one

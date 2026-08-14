@@ -1,0 +1,10 @@
+name: simple-balance-gcp
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: >-
+  Simple Balance on GKE: a VPC-native regional cluster with an autoscaling node
+  pool and node auto-provisioning, the built-in GKE ingress, cert-manager with a
+  Let's Encrypt ClusterIssuer, and the Simple Balance Helm chart from
+  deploy/helm. The database is bring your own.

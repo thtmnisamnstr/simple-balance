@@ -1,0 +1,129 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- $probes := list }}
+{{- range $np.probeSourceCidrs }}
+{{- $probes = append $probes (dict "ipBlock" (dict "cidr" .)) }}
+{{- end }}
+{{- $frontendPeers := concat $np.frontendIngressFrom $probes }}
+{{- $serverPeers := concat (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (include "simple-balance.name" .) "app.kubernetes.io/instance" .Release.Name "app.kubernetes.io/component" "frontend")))) $np.serverIngressFrom $probes }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "simple-balance.componentName" (dict "root" . "component" "frontend") }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "frontend") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "frontend") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # With no peers named, this is every source in the cluster but only on the
+    # one port, which is as far as the chart can go without knowing how the
+    # ingress controller is labelled.
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.frontend.containerPort }}
+      {{- with $frontendPeers }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  egress:
+    {{- if $np.restrictEgress }}
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "server") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.config.port }}
+    {{- with $np.egressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- else }}
+    - {}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "simple-balance.componentName" (dict "root" . "component" "server") }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "server") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "server") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # The frontend, plus whatever else was named. kubelet is not in this list
+    # unless networkPolicy.probeSourceCidrs put it there, which is what to reach
+    # for if the probes start failing the moment this policy exists.
+    - from:
+        {{- toYaml $serverPeers | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.config.port }}
+  egress:
+    {{- if $np.restrictEgress }}
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with $np.egressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- else }}
+    # Open, because the database is bring your own and Google sign-in and SMTP
+    # are addresses on the internet. Closing this means listing all three under
+    # networkPolicy.egressRules.
+    - {}
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "simple-balance.componentName" (dict "root" . "component" "scheduler") }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "scheduler") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" "scheduler") | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # The health port and nothing else. No workload here has any business
+    # reaching a scheduler pod; what is left is the probes.
+    - ports:
+        - protocol: TCP
+          port: {{ .Values.config.port }}
+      {{- with $probes }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  egress:
+    {{- if $np.restrictEgress }}
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- with $np.egressRules }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- else }}
+    - {}
+    {{- end }}
+{{- end }}

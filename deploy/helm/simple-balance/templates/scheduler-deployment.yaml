@@ -1,0 +1,116 @@
+{{- $component := "scheduler" -}}
+{{- $name := include "simple-balance.componentName" (dict "root" . "component" $component) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" $component) | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not .Values.scheduler.autoscaling.enabled }}
+  replicas: {{ .Values.scheduler.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "simple-balance.componentSelectorLabels" (dict "root" . "component" $component) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.commonAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- with .Values.scheduler.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "simple-balance.componentLabels" (dict "root" . "component" $component) | nindent 8 }}
+        {{- with .Values.scheduler.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      serviceAccountName: {{ include "simple-balance.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.scheduler.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.scheduler.podSecurityContext | nindent 8 }}
+      containers:
+        - name: scheduler
+          image: {{ include "simple-balance.image" (dict "root" $ "image" .Values.scheduler.image) | quote }}
+          imagePullPolicy: {{ .Values.scheduler.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.scheduler.containerSecurityContext | nindent 12 }}
+          # The same ConfigMap and Secret the API reads, RECURRENCE_SCHEDULER
+          # apart. This process calls the same getConfig(), which validates
+          # every variable there is before it will start: a scheduler pod given
+          # DATABASE_URL and nothing else fails on APP_BASE_URL and crashloops,
+          # however little of the rest it goes on to use.
+          envFrom:
+            - configMapRef:
+                name: {{ include "simple-balance.configMapName" . }}
+            - secretRef:
+                name: {{ include "simple-balance.secretName" . }}
+          ports:
+            # Health checks and nothing else are mounted on this port, so a
+            # Service pointed here by mistake cannot answer an API request.
+            - name: health
+              containerPort: {{ .Values.config.port }}
+              protocol: TCP
+          {{- if .Values.scheduler.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: health
+            periodSeconds: {{ .Values.scheduler.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.scheduler.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.scheduler.startupProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.scheduler.readinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: health
+            periodSeconds: {{ .Values.scheduler.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.scheduler.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.scheduler.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.scheduler.readinessProbe.successThreshold }}
+          {{- end }}
+          {{- if .Values.scheduler.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: health
+            periodSeconds: {{ .Values.scheduler.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.scheduler.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.scheduler.livenessProbe.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.scheduler.resources | nindent 12 }}
+      {{- with .Values.scheduler.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scheduler.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scheduler.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.scheduler.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

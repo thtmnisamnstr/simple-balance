@@ -1,0 +1,55 @@
+{{- if .Values.ingress.enabled }}
+{{- $tls := .Values.ingress.tls }}
+{{- if and $tls.enabled $tls.clusterIssuer $tls.issuer }}
+{{- fail "ingress.tls sets both clusterIssuer and issuer. cert-manager takes one annotation or the other." }}
+{{- end }}
+{{- if and $tls.enabled (not (or $tls.clusterIssuer $tls.issuer)) (not $tls.secretName) }}
+{{- fail "ingress.tls is enabled with no issuer and no secretName. Name a cert-manager ClusterIssuer or Issuer, or point secretName at a certificate that already exists." }}
+{{- end }}
+{{- $annotations := merge (dict) .Values.ingress.annotations .Values.commonAnnotations }}
+{{- if $tls.enabled }}
+{{- with $tls.clusterIssuer }}
+{{- $_ := set $annotations "cert-manager.io/cluster-issuer" . }}
+{{- end }}
+{{- with $tls.issuer }}
+{{- $_ := set $annotations "cert-manager.io/issuer" . }}
+{{- end }}
+{{- end }}
+{{/*
+One rule, one backend: the frontend. Everything the API owns is proxied by the
+nginx inside that container, which is what puts the browser and the API on one
+origin. A second rule sending /api straight to the server Service would bypass
+the X-Forwarded-For handling that TRUST_PROXY depends on.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "simple-balance.fullname" . }}
+  labels:
+    {{- include "simple-balance.labels" . | nindent 4 }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ $tls.secretName | default (printf "%s-tls" (include "simple-balance.fullname" .)) }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path }}
+            pathType: {{ .Values.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "simple-balance.componentName" (dict "root" $ "component" "frontend") }}
+                port:
+                  name: http
+{{- end }}

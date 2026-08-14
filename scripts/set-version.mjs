@@ -65,9 +65,9 @@ function rewriteLine(relative, pattern, replacement, describe) {
 }
 
 // Every image that stamps a version label, not just the one at the root. The
-// decomposed images are built by hand rather than by CI, so nothing else would
-// catch one left a release behind, and tests/dockerfile.test.ts fails the whole
-// suite when they disagree with package.json.
+// release workflow passes the version it is publishing, so these defaults are
+// what a hand-built image carries, and tests/dockerfile.test.ts fails the whole
+// suite when one of them disagrees with package.json.
 for (const dockerfile of [
   "Dockerfile",
   "deploy/docker/server.Dockerfile",

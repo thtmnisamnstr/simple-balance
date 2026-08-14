@@ -444,8 +444,14 @@ say not held at all. Set `DIRECT_DATABASE_URL` to a string that reaches
 PostgreSQL past the pooler and both go direct; leave it unset and everything
 uses `DATABASE_URL`, which is right when there is no pooler.
 
-There is no published image for any of these and no CI that builds them. They
-are here for you to build and push into your own registry.
+All three are published alongside the single container, on the same release and
+under the same tags: `ghcr.io/thtmnisamnstr/simple-balance-server`,
+`ghcr.io/thtmnisamnstr/simple-balance-frontend` and
+`ghcr.io/thtmnisamnstr/simple-balance-scheduler`, each carrying the version and,
+on a release that is not a prerelease, `latest`. They are built for amd64 and
+arm64, like the single container. Every pull request builds all four for the
+runner's own architecture, so a Dockerfile that stops building fails there
+rather than at the release that needed it.
 
 ## Health and shutdown
 

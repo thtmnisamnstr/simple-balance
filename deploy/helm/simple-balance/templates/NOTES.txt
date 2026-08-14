@@ -1,0 +1,115 @@
+{{- $fullname := include "simple-balance.fullname" . -}}
+{{- $serverName := include "simple-balance.componentName" (dict "root" . "component" "server") -}}
+{{- $frontendName := include "simple-balance.componentName" (dict "root" . "component" "frontend") -}}
+{{- $schedulerName := include "simple-balance.componentName" (dict "root" . "component" "scheduler") -}}
+{{- $pool := int .Values.config.databasePoolSize -}}
+{{- $serverPeak := int .Values.server.replicaCount -}}
+{{- if .Values.server.autoscaling.enabled }}{{ $serverPeak = int .Values.server.autoscaling.maxReplicas }}{{ end -}}
+{{- $schedulerPeak := int .Values.scheduler.replicaCount -}}
+{{- if .Values.scheduler.autoscaling.enabled }}{{ $schedulerPeak = int .Values.scheduler.autoscaling.maxReplicas }}{{ end -}}
+{{- $appHost := regexReplaceAll "^https?://" (trimSuffix "/" .Values.config.appBaseUrl) "" -}}
+{{- $peakConnections := mul (add $serverPeak $schedulerPeak) (add $pool 1) -}}
+
+Simple Balance {{ .Chart.AppVersion }} is installed as {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+Three workloads: {{ $serverName }} (API and MCP), {{ $frontendName }} (browser
+bundle and the proxy in front of the API), {{ $schedulerName }} (recurrences).
+
+1. Watch them come up. The API and the scheduler both run the migrations under
+   an advisory lock on first start, so the first rollout takes as long as the
+   migrations do and readiness stays closed until they finish:
+
+     kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ $serverName }}
+     kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ $frontendName }}
+     kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ $schedulerName }}
+
+   A pod stuck not-ready is nearly always the database: the role in DATABASE_URL
+   needs CREATEDB if the database it names does not exist yet.
+
+     kubectl -n {{ .Release.Namespace }} logs deploy/{{ $serverName }}
+
+{{ if .Values.ingress.enabled -}}
+2. Point DNS at your ingress controller for {{ .Values.ingress.host }}, and make
+   sure the {{ if .Values.ingress.tls.issuer }}Issuer {{ .Values.ingress.tls.issuer }}{{ else if .Values.ingress.tls.clusterIssuer }}ClusterIssuer {{ .Values.ingress.tls.clusterIssuer }}{{ else }}TLS secret{{ end }} exists. Then:
+
+     kubectl -n {{ .Release.Namespace }} get ingress {{ $fullname }}
+{{- if .Values.ingress.tls.enabled }}
+     kubectl -n {{ .Release.Namespace }} get certificate
+
+   The site answers on https://{{ .Values.ingress.host }}/ once the certificate
+   is ready.
+{{- else }}
+
+   The site answers on http://{{ .Values.ingress.host }}/.
+{{- end }}
+{{- else -}}
+2. No Ingress is enabled, so nothing outside the cluster reaches this yet. To
+   look at it:
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ $frontendName }} 8080:{{ .Values.frontend.service.port }}
+
+   Sign-in cookies are issued for {{ .Values.config.appBaseUrl }}, so a
+   port-forward on another origin will not keep you signed in. Set
+   config.appBaseUrl to whatever origin people actually reach before using this
+   for real.
+{{- end }}
+
+3. Claim the first account at {{ .Values.config.appBaseUrl }}/.
+{{ if .Values.secret.setupToken }}
+   The one-time code is the SETUP_TOKEN you put in secret.setupToken.
+{{ else }}
+   The one-time code was generated at startup and printed to the server log:
+
+     kubectl -n {{ .Release.Namespace }} logs deploy/{{ $serverName }} | grep -i setup
+{{ end }}
+   Then set config.allowedEmails to say who else may register. Left empty,
+   nobody but that first account can.
+
+{{- if and .Values.ingress.enabled (ne $appHost .Values.ingress.host) }}
+
+WARNING: config.appBaseUrl names {{ $appHost }} but the Ingress answers on
+{{ .Values.ingress.host }}. The API sets the cookies the browser reads and
+compares every write against this origin, so the two have to be the same host.
+Fix config.appBaseUrl unless something else in front is doing the translating.
+{{- end }}
+
+{{- if and .Values.config.trustProxy .Values.ingress.enabled }}
+
+Per-visitor rate limiting: the frontend's nginx sets X-Forwarded-For to
+$remote_addr, and behind an ingress that terminates TLS $remote_addr is the
+ingress rather than the visitor. With TRUST_PROXY on, every sign-in attempt in
+the cluster then counts against one allowance. Add
+
+  set_real_ip_from <your ingress CIDR>;
+  real_ip_header X-Forwarded-For;
+  real_ip_recursive on;
+
+to the proxy location in deploy/docker/nginx.conf.template and rebuild the
+frontend image, so $remote_addr resolves back to the visitor.
+{{- end }}
+
+Database connections. This release peaks at {{ $serverPeak }} API and {{ $schedulerPeak }} scheduler
+replicas, each holding {{ $pool }} connections and one more while it starts:
+
+  ({{ $serverPeak }} + {{ $schedulerPeak }}) x ({{ $pool }} + 1) = {{ $peakConnections }}
+
+against a max_connections that defaults to 100. Lower config.databasePoolSize
+before raising a replica count, or put a pooler in front and set
+secret.directDatabaseUrl so migrations and the first-account claim go past it.
+{{- if gt $peakConnections 100 }}
+
+WARNING: {{ $peakConnections }} is past that default. Scaled all the way out, replicas will fail
+to connect rather than queue. Raise max_connections to suit, or lower
+config.databasePoolSize, or lower the replica ceilings.
+{{- end }}
+{{- if .Values.secret.existingSecret }}
+
+Credentials come from the existing Secret {{ .Values.secret.existingSecret }}. Every key in it
+is handed to the API and the scheduler as an environment variable, so it must
+carry DATABASE_URL and AUTH_SECRET, whichever of DIRECT_DATABASE_URL,
+GOOGLE_CLIENT_SECRET, SMTP_USERNAME, SMTP_PASSWORD and SETUP_TOKEN apply, and
+nothing else.
+{{- end }}
+
+Back up before upgrading. Everything is in PostgreSQL, so pg_dump backs up the
+product: see docs/upgrades.md.

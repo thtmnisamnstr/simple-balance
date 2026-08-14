@@ -1,0 +1,24 @@
+{{- include "simple-balance.validate" . -}}
+{{/*
+One ConfigMap for both node processes. The scheduler reads the same settings the
+API does, RECURRENCE_SCHEDULER apart, because src/server/scheduler.ts calls
+getConfig() and that validates the entire variable set: APP_BASE_URL,
+AUTH_SECRET, AUTH_MODE and the Google and SMTP blocks included, none of which it
+goes on to use. A scheduler pod handed a cut-down environment crashloops.
+
+RECURRENCE_SCHEDULER is deliberately absent here. It is the one setting the two
+workloads disagree about, so it is set on the Deployment that needs it rather
+than shared and then overridden.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "simple-balance.configMapName" . }}
+  labels:
+    {{- include "simple-balance.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{- include "simple-balance.sharedEnv" . | nindent 2 }}

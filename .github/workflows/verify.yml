@@ -64,5 +64,36 @@ jobs:
         env:
           TEST_DATABASE_URL: ""
       - run: npm run test:integration
-      - if: matrix.postgres == '16-alpine' && matrix.node == '24'
-        run: docker build -t simple-balance:test .
+
+  # A Dockerfile that has stopped building should fail the pull request that
+  # broke it rather than the release that needed it. Its own job rather than
+  # more steps on the one above: that one is multiplied by every PostgreSQL and
+  # Node version, so four builds there are either sixteen builds for one answer
+  # or four in series behind an `if` pinning them to a single combination.
+  images:
+    name: build ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: simple-balance
+            dockerfile: Dockerfile
+          - image: simple-balance-server
+            dockerfile: deploy/docker/server.Dockerfile
+          - image: simple-balance-frontend
+            dockerfile: deploy/docker/frontend.Dockerfile
+          - image: simple-balance-scheduler
+            dockerfile: deploy/docker/scheduler.Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      # One architecture, the runner's own, and no push. The question here is
+      # whether the image still builds at all; the release workflow is where
+      # every architecture it ships on is proved, and emulating one costs
+      # minutes a pull request has no use for.
+      - env:
+          IMAGE: ${{ matrix.image }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+        run: docker build -f "$DOCKERFILE" -t "$IMAGE:test" .

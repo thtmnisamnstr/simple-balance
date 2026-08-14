@@ -92,15 +92,40 @@ jobs:
       ref: ${{ needs.resolve.outputs.tag }}
 
   publish:
+    name: publish ${{ matrix.name }}
     needs: [resolve, verify]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+    strategy:
+      # One image failing must not cancel a push already under way in another.
+      # Four that all failed is a state somebody can describe; three cancelled
+      # halfway through is not.
+      fail-fast: false
+      matrix:
+        # The single container publishes under the name it has always had, with
+        # no suffix, so nothing already on the registry changes meaning. The
+        # decomposed images hang off it by suffix, which is what the Helm chart
+        # and the deployment guide already call them.
+        include:
+          - name: single
+            suffix: ""
+            dockerfile: Dockerfile
+          - name: server
+            suffix: -server
+            dockerfile: deploy/docker/server.Dockerfile
+          - name: frontend
+            suffix: -frontend
+            dockerfile: deploy/docker/frontend.Dockerfile
+          - name: scheduler
+            suffix: -scheduler
+            dockerfile: deploy/docker/scheduler.Dockerfile
     env:
       # Named once so the build and the check after it cannot disagree about
-      # what was supposed to ship.
+      # what was supposed to ship, or about where it went.
       PLATFORMS: linux/amd64,linux/arm64
+      IMAGE: ${{ needs.resolve.outputs.image }}${{ matrix.suffix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -142,7 +167,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ needs.resolve.outputs.image }}
+          images: ${{ env.IMAGE }}
           tags: |
             type=raw,value=${{ needs.resolve.outputs.version }}
             type=raw,value=latest,enable=${{ needs.resolve.outputs.prerelease == 'false' }}
@@ -159,21 +184,24 @@ jobs:
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
+          file: ${{ matrix.dockerfile }}
           push: true
           platforms: ${{ env.PLATFORMS }}
           build-args: |
             APP_VERSION=${{ needs.resolve.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Four builds now run at once and the gha backend keys on one scope
+          # unless told otherwise, so without a scope each they would overwrite
+          # each other's cache and every release would start cold.
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       # A single-architecture publish looks like a success: the push works, the
       # tag resolves, and it only fails later on somebody else's machine. So the
       # manifest that was actually pushed is read back and checked.
       - name: Check every architecture reached the registry
         env:
-          IMAGE: ${{ needs.resolve.outputs.image }}
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
@@ -196,7 +224,7 @@ jobs:
 
       - name: Say what was published
         run: |
-          echo "### Published" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Published \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"

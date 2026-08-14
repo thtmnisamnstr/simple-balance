@@ -1,0 +1,24 @@
+{
+  "name": "simple-balance-pulumi",
+  "version": "0.1.4",
+  "description": "Pulumi programs that stand up the split Simple Balance deployment on EKS and on GKE.",
+  "license": "LGPL-3.0-only",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p aws/tsconfig.json && tsc --noEmit -p gcp/tsconfig.json"
+  },
+  "dependencies": {
+    "@pulumi/aws": "7.42.0",
+    "@pulumi/eks": "4.3.0",
+    "@pulumi/gcp": "9.34.1",
+    "@pulumi/kubernetes": "4.33.0",
+    "@pulumi/pulumi": "3.257.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
+  }
+}

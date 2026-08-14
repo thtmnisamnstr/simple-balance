@@ -1,0 +1,13 @@
+{{- include "simple-balance.hpa" (dict "root" $ "component" "server" "autoscaling" .Values.server.autoscaling) }}
+{{- include "simple-balance.hpa" (dict "root" $ "component" "frontend" "autoscaling" .Values.frontend.autoscaling) }}
+{{- /*
+An HPA on the scheduler is worth having. A tick reads the due list and claims
+each recurrence with `for update skip locked`: no leader, no lease, and nothing
+serialised behind a lock the other replicas wait on. Replicas divide the due
+rows between them, so a second pod is a second worker on a backlog rather than a
+spare watching one pod work.
+
+Whatever the count reaches still counts against max_connections. See
+config.databasePoolSize, where the arithmetic covers both tiers at once.
+*/ -}}
+{{- include "simple-balance.hpa" (dict "root" $ "component" "scheduler" "autoscaling" .Values.scheduler.autoscaling) }}

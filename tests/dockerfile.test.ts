@@ -143,10 +143,10 @@ describe("Docker runtime", () => {
 });
 
 /**
- * The decomposed images are not built by CI, by request, so nothing else would
- * notice them going stale. These assertions are the substitute: they catch a
- * renamed build script, a moved file, or a proxy that stops covering a route
- * prefix, which are the ways a Dockerfile nobody builds quietly stops working.
+ * CI builds all three, but a build proves only that it built. These assertions
+ * cover what it cannot: an entrypoint naming a file the compiler no longer
+ * emits, the browser bundle leaking into the API image, a proxy that stops
+ * covering a route prefix. Each of those builds cleanly and fails later.
  */
 describe("the decomposed images", () => {
   const read = (name: string) =>
