@@ -43,12 +43,28 @@ export function getDb() {
  * single-connection pool prevents a small application pool from deadlocking
  * while also bounding this process to one PostgreSQL lock connection.
  */
+/**
+ * The connection string for work a transaction pooler cannot carry.
+ *
+ * Two things here hold a session-level advisory lock across statements: the
+ * migration lock and the first-account claim. PgBouncer in transaction mode
+ * hands each statement whichever server connection is free, so the lock is
+ * taken on one and released on another, which is to say not held at all. Point
+ * DIRECT_DATABASE_URL past the pooler and both keep working; leave it unset and
+ * everything uses one string, which is right for every deployment that has no
+ * pooler in the first place.
+ */
+export function directConnectionString() {
+  const direct = process.env.DIRECT_DATABASE_URL?.trim();
+  const connectionString = direct || process.env.DATABASE_URL;
+  if (!connectionString) throw new Error("DATABASE_URL is required");
+  return connectionString;
+}
+
 export function getAuthBootstrapLockPool() {
   if (!authBootstrapLockPool) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) throw new Error("DATABASE_URL is required");
     authBootstrapLockPool = new Pool({
-      connectionString,
+      connectionString: directConnectionString(),
       max: 1,
       connectionTimeoutMillis: 10_000,
     });

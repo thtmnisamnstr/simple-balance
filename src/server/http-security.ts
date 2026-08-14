@@ -275,39 +275,119 @@ export function countableClientAddress(
 }
 
 /**
- * A fixed-window attempt counter held in this process.
+ * A fixed-window attempt counter every replica shares.
  *
- * In memory rather than in PostgreSQL because a refused guess should cost the
- * database nothing, and because the alternative is a write path whose whole
- * job is to be hammered. Replicas therefore each keep their own count, which
- * multiplies the allowance by the replica count and is still a bound where
- * there was none.
+ * The window lives in PostgreSQL because a count held in the process bounds
+ * nothing once there is more than one of them: each keeps its own tally, the
+ * allowance is multiplied by the replica count, and a guesser only has to
+ * spread their attempts. The table is the one place they can agree.
+ *
+ * A local tally still runs in front of it, and only ever to refuse. Local can
+ * never exceed shared, so a key already over the allowance here is over it
+ * there, and a flood is turned away without touching the database at all. The
+ * database is consulted only while a caller is still inside their allowance,
+ * which is the case that has to be right rather than the case that is hammered.
  */
 export function createAttemptLimiter(options: {
   max: number;
   windowMs: number;
+  now?: () => number;
+  store?: AttemptStore;
 }) {
+  const clock = options.now ?? (() => Date.now());
+  const store = options.store ?? postgresAttemptStore;
   const windows = new Map<string, { count: number; resetAt: number }>();
+
+  const countLocally = (key: string, now: number) => {
+    for (const [held, window] of windows) {
+      if (window.resetAt <= now) windows.delete(held);
+    }
+    const window = windows.get(key);
+    if (!window || window.resetAt <= now) {
+      windows.set(key, { count: 1, resetAt: now + options.windowMs });
+      return 1;
+    }
+    window.count += 1;
+    return window.count;
+  };
+
   return {
     /** True when this attempt is within the allowance, counting it. */
-    take(key: string, now = Date.now()) {
-      for (const [held, window] of windows) {
-        if (window.resetAt <= now) windows.delete(held);
-      }
-      const window = windows.get(key);
-      if (!window || window.resetAt <= now) {
-        windows.set(key, { count: 1, resetAt: now + options.windowMs });
+    async take(key: string) {
+      const now = clock();
+      if (countLocally(key, now) > options.max) return false;
+      try {
+        return await store.take(key, options.max, options.windowMs, now);
+      } catch (error) {
+        // Falls back to the local tally, which has already counted this attempt
+        // and already refused anything past the allowance. That bound is weaker
+        // than the shared one by the replica count, and it is a great deal
+        // better than the alternative here, which is refusing every sign-in on
+        // a deployment whose database is having a bad minute.
+        console.error("The shared attempt limiter could not be reached", error);
         return true;
       }
-      window.count += 1;
-      return window.count <= options.max;
     },
     /** Forget a key, so a success does not spend the next caller's allowance. */
-    clear(key: string) {
+    async clear(key: string) {
       windows.delete(key);
+      try {
+        await store.clear(key);
+      } catch (error) {
+        console.error("The shared attempt limiter could not be cleared", error);
+      }
     },
   };
 }
+
+export type AttemptStore = {
+  take: (
+    key: string,
+    max: number,
+    windowMs: number,
+    now: number,
+  ) => Promise<boolean>;
+  clear: (key: string) => Promise<void>;
+};
+
+/**
+ * One statement per attempt, and the count it returns is the one that decided.
+ *
+ * Reading and then writing would let two replicas both read the last allowed
+ * attempt and both allow it. The upsert increments inside the row's own lock
+ * and hands back what the row now holds, so whoever is second sees the first.
+ * A window that has run out is restarted in the same statement rather than
+ * deleted first, which would be a second round trip and a second race.
+ */
+export const postgresAttemptStore: AttemptStore = {
+  async take(key, max, windowMs, now) {
+    const { getDb } = await import("./db/client.js");
+    const { sql } = await import("drizzle-orm");
+    const result = await getDb().execute<{ count: number }>(sql`
+      insert into auth_rate_limit (id, key, count, last_request)
+      values (${`attempt:${key}`}, ${`attempt:${key}`}, 1, ${now})
+      on conflict (key) do update
+        set count = case
+              when auth_rate_limit.last_request <= ${now - windowMs} then 1
+              else auth_rate_limit.count + 1
+            end,
+            last_request = case
+              when auth_rate_limit.last_request <= ${now - windowMs}
+                then ${now}
+              else auth_rate_limit.last_request
+            end
+      returning count
+    `);
+    return Number(result.rows[0]?.count ?? 1) <= max;
+  },
+  async clear(key) {
+    const { getDb } = await import("./db/client.js");
+    const { sql } = await import("drizzle-orm");
+    await getDb().execute(
+      sql`delete from auth_rate_limit where key = ${`attempt:${key}`}`,
+    );
+  },
+};
 
 /**
  * Give every cookie leaving the auth routes the flags the session cookie gets.

@@ -2,7 +2,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
 import { MIGRATION_LOCK } from "./advisory-locks.js";
-import { closeDb, getPool } from "./client.js";
+import { closeDb, directConnectionString } from "./client.js";
 
 /**
  * PostgreSQL's code for "that database does not exist". The driver reports it
@@ -82,7 +82,7 @@ export async function runMigrations() {
         await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK]);
       }
     } finally {
-      client.release();
+      await client.end();
     }
   }
 }
@@ -104,11 +104,22 @@ const TLS_TRUST_FAILURES = new Set([
 ]);
 
 /**
- * A pool client, creating the database first if the server has never seen it.
+ * A connection of its own, creating the database first if the server has never
+ * seen it.
+ *
+ * Not borrowed from the application pool, because the lock below is
+ * session-level and a transaction pooler would hand the lock, the migration and
+ * the unlock to three different server connections. This one goes to
+ * DIRECT_DATABASE_URL when there is a pooler to go past.
  */
 async function connectForMigration() {
+  const connect = async () => {
+    const client = new Client({ connectionString: directConnectionString() });
+    await client.connect();
+    return client;
+  };
   try {
-    return await getPool().connect();
+    return await connect();
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code && TLS_TRUST_FAILURES.has(code)) {
@@ -126,10 +137,8 @@ async function connectForMigration() {
       );
     }
     if (code !== UNDEFINED_DATABASE) throw error;
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) throw error;
-    await createDatabaseIfMissing(connectionString);
-    return getPool().connect();
+    await createDatabaseIfMissing(directConnectionString());
+    return connect();
   }
 }
 

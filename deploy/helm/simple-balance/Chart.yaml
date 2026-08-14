@@ -1,0 +1,20 @@
+apiVersion: v2
+name: simple-balance
+description: Self-hosted double-entry ledger with an MCP endpoint, split into an API, an nginx frontend and a recurrence scheduler
+type: application
+version: 0.1.0
+appVersion: "0.1.4"
+# autoscaling/v2 is GA from 1.23; policy/v1 PodDisruptionBudget from 1.21.
+kubeVersion: ">=1.23.0-0"
+home: https://github.com/thtmnisamnstr/simple-balance
+sources:
+  - https://github.com/thtmnisamnstr/simple-balance
+keywords:
+  - accounting
+  - double-entry
+  - ledger
+  - mcp
+  - postgresql
+maintainers:
+  - name: thtmnisamnstr
+    url: https://github.com/thtmnisamnstr

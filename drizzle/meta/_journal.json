@@ -50,6 +50,13 @@
       "when": 1786418007842,
       "tag": "0006_recurring_transactions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786674647145,
+      "tag": "0007_shared_rate_limit",
+      "breakpoints": true
     }
   ]
 }

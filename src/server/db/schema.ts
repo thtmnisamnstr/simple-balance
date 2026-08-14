@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   check,
   date,
@@ -205,6 +206,33 @@ export const userPreferences = pgTable("user_preferences", {
     sql`${table.defaultCurrency} ~ '^[A-Z]{2,12}$'`,
   ),
 ]);
+
+/**
+ * Sign-in and other auth attempts, counted where every replica can see them.
+ *
+ * Better Auth counts in the process by default, which bounds nothing once there
+ * is more than one: each replica keeps its own tally, so the allowance is
+ * multiplied by the replica count and a guesser only has to spread their
+ * attempts. The model name and its three fields are Better Auth's, not ours.
+ *
+ * `key` is unique because two rows for one key split the count between them,
+ * which reads as half the attempts having happened. A race to insert raises
+ * here and Better Auth re-reads rather than failing the request.
+ */
+export const rateLimit = pgTable(
+  "auth_rate_limit",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").notNull(),
+    count: integer("count").notNull(),
+    // Milliseconds since the epoch, which is past what an integer holds.
+    lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("auth_rate_limit_key_unique").on(table.key),
+    index("auth_rate_limit_last_request_idx").on(table.lastRequest),
+  ],
+);
 
 export const ledgerAccounts = pgTable(
   "ledger_account",

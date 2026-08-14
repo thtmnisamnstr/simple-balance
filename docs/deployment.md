@@ -47,6 +47,7 @@ than warning about.
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
 | `TRUST_PROXY` | `false` | Turn it on when a reverse proxy sits in front and replaces `X-Forwarded-For`. See the reverse proxy section; getting it wrong costs per-visitor rate limiting. |
 | `DATABASE_POOL_SIZE` | `10` | Connections held open, per process. Ceiling 100. Raise it only if you have measured contention, and see the split-container section for what it means once there is more than one replica. |
+| `DIRECT_DATABASE_URL` | `DATABASE_URL` | A second connection string that bypasses a transaction pooler. Only needed when PgBouncer or similar sits in front; see below. |
 | `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. Ceiling 104857600. |
 | `CSV_MAX_ROWS` | `10000` | Most rows accepted from one CSV. Ceiling 10000, which is also the most rows one mass edit, commit, or delete covers, so an import always fits in a single review-queue action. |
 | `RECURRENCE_SCHEDULER` | `true` | Whether this process proposes recurring transactions. Turn it off on replicas that serve the API when a separate scheduler container owns the job. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
@@ -418,12 +419,30 @@ Five things have to line up:
   real_ip_recursive on;` to the proxy location so `$remote_addr` resolves back
   to the visitor.
 
-Each of these processes opens `DATABASE_POOL_SIZE` connections plus one for the
-auth bootstrap lock. That total is per replica, so the arithmetic that decides
-how far the API tier can scale is `replicas x (DATABASE_POOL_SIZE + 1)` against
-your server's `max_connections`, which is 100 by default. At the default pool of
-10 that is nine replicas, not nine hundred. Lower `DATABASE_POOL_SIZE` before
+Each of these processes opens `DATABASE_POOL_SIZE` connections and no more once
+it is running. Two others exist and neither is held: migrations take one at
+startup and close it, and the first-account claim takes one once in a
+deployment's life.
+
+So the arithmetic that decides how far the API tier can scale is
+`replicas x DATABASE_POOL_SIZE`, plus one per replica while they are starting,
+against your server's `max_connections`, which is 100 by default. At the default
+pool of 10 that is nine replicas, not ninety. Lower `DATABASE_POOL_SIZE` before
 raising the replica count, or put a connection pooler in front of PostgreSQL.
+
+### Behind a transaction pooler
+
+PgBouncer in transaction mode hands each statement whichever server connection
+is free, which suits the application pool exactly: every lock the ledger takes
+is transaction-scoped and is released by the commit that ends it.
+
+Two things are not. Migrations hold a session-level advisory lock across the
+whole run so two replicas starting together cannot migrate at once, and the
+first-account claim holds one for the length of the claim. Through a transaction
+pooler those are taken on one connection and released on another, which is to
+say not held at all. Set `DIRECT_DATABASE_URL` to a string that reaches
+PostgreSQL past the pooler and both go direct; leave it unset and everything
+uses `DATABASE_URL`, which is right when there is no pooler.
 
 There is no published image for any of these and no CI that builds them. They
 are here for you to build and push into your own registry.

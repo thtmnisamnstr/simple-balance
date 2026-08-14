@@ -328,7 +328,7 @@ app.post("/api/auth/sign-up/email", async (c) => {
     c,
     getConfig().trustProxy,
   );
-  if (!setupCodeAttempts.take(setupCaller)) {
+  if (!(await setupCodeAttempts.take(setupCaller))) {
     return c.json(
       {
         code: "TOO_MANY_SETUP_ATTEMPTS",
@@ -346,7 +346,7 @@ app.post("/api/auth/sign-up/email", async (c) => {
       403,
     );
   }
-  setupCodeAttempts.clear(setupCaller);
+  await setupCodeAttempts.clear(setupCaller);
   // Only the claim races, and it happens once in a deployment's life. Sign-ups
   // that the rule already admits returned above without coming near this lock.
   if (localBootstrapBusy) {

@@ -46,6 +46,16 @@ function createAuthInstance() {
       level: config.logLevel,
       disableColors: config.isProduction,
     },
+    // Counted in PostgreSQL rather than in the process. In memory the bound is
+    // per replica, so it is multiplied by the replica count and a guesser only
+    // has to spread their attempts; the table is the only place every replica
+    // can agree on. A refused attempt costs one indexed read and one update,
+    // which is what it costs to have a bound at all.
+    rateLimit: {
+      enabled: config.isProduction,
+      storage: "database",
+      modelName: "rateLimit",
+    },
     advanced: {
       trustedProxyHeaders: config.trustProxy,
       // Better Auth otherwise awaits sendVerificationEmail and

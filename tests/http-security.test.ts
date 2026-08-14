@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
@@ -477,31 +477,145 @@ describe("counting attempts against a caller", () => {
     expect(countableClientAddress(request(), withPeer(undefined), false)).toBe("unknown");
   });
 
-  it("allows the allowance and then refuses", () => {
-    const limiter = createAttemptLimiter({ max: 3, windowMs: 60_000 });
-    expect([1, 2, 3].map(() => limiter.take("a", 1_000))).toEqual([true, true, true]);
-    expect(limiter.take("a", 1_000)).toBe(false);
+  /**
+   * A store standing in for the table, so these stay unit tests. It counts the
+   * way the upsert does: one window per key, restarted once it has run out.
+   */
+  function fakeStore() {
+    const rows = new Map<string, { count: number; lastRequest: number }>();
+    return {
+      rows,
+      reached: 0,
+      async take(key: string, max: number, windowMs: number, now: number) {
+        this.reached += 1;
+        const row = rows.get(key);
+        if (!row || row.lastRequest <= now - windowMs) {
+          rows.set(key, { count: 1, lastRequest: now });
+          return 1 <= max;
+        }
+        row.count += 1;
+        return row.count <= max;
+      },
+      async clear(key: string) {
+        rows.delete(key);
+      },
+    };
+  }
+
+  const at = (times: number[]) => {
+    let index = 0;
+    return () => times[Math.min(index++, times.length - 1)]!;
+  };
+
+  it("allows the allowance and then refuses", async () => {
+    const store = fakeStore();
+    const limiter = createAttemptLimiter({
+      max: 3,
+      windowMs: 60_000,
+      now: () => 1_000,
+      store,
+    });
+    expect([
+      await limiter.take("a"),
+      await limiter.take("a"),
+      await limiter.take("a"),
+    ]).toEqual([true, true, true]);
+    expect(await limiter.take("a")).toBe(false);
   });
 
-  it("counts each caller on its own", () => {
-    const limiter = createAttemptLimiter({ max: 1, windowMs: 60_000 });
-    expect(limiter.take("a", 1_000)).toBe(true);
-    expect(limiter.take("b", 1_000)).toBe(true);
-    expect(limiter.take("a", 1_000)).toBe(false);
+  it("counts each caller on its own", async () => {
+    const store = fakeStore();
+    const limiter = createAttemptLimiter({
+      max: 1,
+      windowMs: 60_000,
+      now: () => 1_000,
+      store,
+    });
+    expect(await limiter.take("a")).toBe(true);
+    expect(await limiter.take("b")).toBe(true);
+    expect(await limiter.take("a")).toBe(false);
   });
 
-  it("starts over once the window has passed", () => {
-    const limiter = createAttemptLimiter({ max: 1, windowMs: 60_000 });
-    expect(limiter.take("a", 1_000)).toBe(true);
-    expect(limiter.take("a", 30_000)).toBe(false);
-    expect(limiter.take("a", 61_001)).toBe(true);
+  it("starts over once the window has passed", async () => {
+    const store = fakeStore();
+    const limiter = createAttemptLimiter({
+      max: 1,
+      windowMs: 60_000,
+      now: at([1_000, 30_000, 61_001]),
+      store,
+    });
+    expect(await limiter.take("a")).toBe(true);
+    expect(await limiter.take("a")).toBe(false);
+    expect(await limiter.take("a")).toBe(true);
   });
 
-  it("forgets a caller that succeeded", () => {
-    const limiter = createAttemptLimiter({ max: 1, windowMs: 60_000 });
-    expect(limiter.take("a", 1_000)).toBe(true);
-    limiter.clear("a");
-    expect(limiter.take("a", 1_000)).toBe(true);
+  it("forgets a caller that succeeded", async () => {
+    const store = fakeStore();
+    const limiter = createAttemptLimiter({
+      max: 1,
+      windowMs: 60_000,
+      now: () => 1_000,
+      store,
+    });
+    expect(await limiter.take("a")).toBe(true);
+    await limiter.clear("a");
+    expect(await limiter.take("a")).toBe(true);
+    expect(store.rows.has("a")).toBe(true);
+  });
+
+  /**
+   * The whole reason the count moved out of the process: two replicas each
+   * holding their own tally hand a guesser twice the allowance.
+   */
+  it("counts one allowance across separate replicas", async () => {
+    const store = fakeStore();
+    const replica = () =>
+      createAttemptLimiter({ max: 2, windowMs: 60_000, now: () => 1_000, store });
+    const first = replica();
+    const second = replica();
+    expect(await first.take("a")).toBe(true);
+    expect(await second.take("a")).toBe(true);
+    expect(await second.take("a")).toBe(false);
+    expect(await first.take("a")).toBe(false);
+  });
+
+  /**
+   * A flood is refused by the tally in this process, so the table it would
+   * otherwise be hammering is never reached for it.
+   */
+  it("stops asking the database once a caller is over the allowance", async () => {
+    const store = fakeStore();
+    const limiter = createAttemptLimiter({
+      max: 2,
+      windowMs: 60_000,
+      now: () => 1_000,
+      store,
+    });
+    for (let attempt = 0; attempt < 50; attempt += 1) await limiter.take("a");
+    expect(store.reached).toBe(2);
+  });
+
+  /**
+   * A database having a bad minute must not refuse every sign-in on the
+   * deployment. The local tally is what is left, and it is still a bound.
+   */
+  it("falls back to the local tally when the store cannot be reached", async () => {
+    const broken = {
+      take: async () => {
+        throw new Error("no connection");
+      },
+      clear: async () => {},
+    };
+    const limiter = createAttemptLimiter({
+      max: 2,
+      windowMs: 60_000,
+      now: () => 1_000,
+      store: broken,
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await limiter.take("a")).toBe(true);
+    expect(await limiter.take("a")).toBe(true);
+    expect(await limiter.take("a")).toBe(false);
   });
 });
 
