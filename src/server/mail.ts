@@ -85,7 +85,7 @@ export async function checkMailTransport() {
   }
 }
 
-export async function closeMail() {
+export function closeMail() {
   transport?.close();
   transport = undefined;
 }

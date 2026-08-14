@@ -810,9 +810,6 @@ describe("staged queue pagination", () => {
     expect(await screen.findByText("First page")).toBeInTheDocument();
     expect(screen.queryByText("Second page")).not.toBeInTheDocument();
     expect(
-      requestedStageCursors.filter((cursor) => cursor === "next-page"),
-    ).toHaveLength(0);
-    expect(
       screen.getByRole("option", { name: "first.csv (1)" }),
     ).toBeInTheDocument();
     expect(

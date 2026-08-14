@@ -1992,9 +1992,6 @@ export async function bulkEditTransactions(
         ),
       });
       const canonicalPayee = prepared.transaction.payee;
-      if (typeof canonicalPayee !== "string") {
-        throw new TypeError("Prepared transaction payee must be text");
-      }
       if (parsed.patch.accountId && before.type !== "transfer") {
         const previousCurrency =
           before.type === "deposit"
