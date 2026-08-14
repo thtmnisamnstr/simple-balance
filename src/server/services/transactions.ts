@@ -394,7 +394,7 @@ export function buildPreparedTransaction(
   actor: Actor,
   draft: TransactionDraft,
   accountMap: Map<string, PostingAccount>,
-  systemAccounts: SystemAccountMap = new Map(),
+  systemAccounts: SystemAccountMap,
 ): PreparedTransaction {
   const common = {
     userId: actor.userId,
@@ -1465,7 +1465,7 @@ function transactionFilterConditions(
   if (query.templateId) conditions.push(eq(transactions.templateId, query.templateId));
   if (query.payee) {
     conditions.push(
-      sql`lower(regexp_replace(trim(normalize(${transactions.payee}, NFKC)), '\\s+', ' ', 'g')) = ${normalizeTransactionText(query.payee)}`,
+      sql`lower(regexp_replace(trim(normalize(${transactions.payee}, NFKC)), '\\s+', ' ', 'g')) = ${normalizeHumanName(query.payee)}`,
     );
   }
   if (query.accountId) {
@@ -2499,7 +2499,7 @@ export async function findDuplicate(
         exclusion,
         eq(transactions.type, draft.type),
         eq(transactions.date, draft.date),
-        sql`lower(regexp_replace(trim(normalize(${transactions.payee}, NFKC)), '\\s+', ' ', 'g')) = ${normalizeTransactionText(draft.payee)}`,
+        sql`lower(regexp_replace(trim(normalize(${transactions.payee}, NFKC)), '\\s+', ' ', 'g')) = ${normalizeHumanName(draft.payee)}`,
         accountCondition,
         amountCondition,
         ...transferConditions,
@@ -2509,9 +2509,6 @@ export async function findDuplicate(
   return match?.id ?? null;
 }
 
-function normalizeTransactionText(value: string) {
-  return normalizeHumanName(value);
-}
 
 /**
  * Legs are deliberately not part of this, and neither is the category.
@@ -2526,7 +2523,7 @@ function transactionHeuristicDuplicateKey(draft: TransactionDraft) {
   const common = [
     draft.type,
     draft.date,
-    normalizeTransactionText(draft.payee),
+    normalizeHumanName(draft.payee),
   ];
   if (draft.type === "deposit") {
     return `heuristic:${JSON.stringify([

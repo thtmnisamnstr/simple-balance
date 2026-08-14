@@ -5,10 +5,8 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: "dist/client",
-    emptyOutDir: true,
   },
   server: {
-    port: 5173,
     proxy: {
       "/.well-known": "http://localhost:3000",
       "/api": "http://localhost:3000",

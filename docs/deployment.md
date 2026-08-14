@@ -179,8 +179,10 @@ yourself if you would rather choose the code than read it from a log. When
 it would guard a door anyone could walk around.
 
 Guessing the code is bounded: five attempts per client address every fifteen
-minutes, counted in this process's memory and reset by a restart. A correct code
-clears the count.
+minutes, counted in PostgreSQL so the bound holds across a restart and across
+every replica. A tally in the process refuses a caller already over the
+allowance without asking the database, which is what keeps a flood from becoming
+a write storm. A correct code clears the count.
 
 Passwords can be changed from Settings by whoever is signed in, and changing one
 signs every other session out and disconnects every MCP client, so an agent
@@ -192,9 +194,10 @@ when a password is *lost* depends on whether this deployment can send mail; see
 below.
 
 Sign-up and sign-in are rate limited to a few attempts per client address every
-ten seconds. The count lives in the process's memory, so it resets on restart
-and each replica counts separately. Which address they are counted against
-depends on `TRUST_PROXY`; see the reverse proxy section.
+ten seconds. The count lives in PostgreSQL, shared by every replica and kept
+across a restart, so the allowance is one allowance however many processes serve
+the deployment. Which address they are counted against depends on `TRUST_PROXY`;
+see the reverse proxy section.
 
 ## Sending mail
 
@@ -353,7 +356,11 @@ about the server is assumed or altered.
 
 One container is the supported way to run this, and the rest of this document
 assumes it. If you are running under Kubernetes and want to scale the web tier,
-`deploy/docker/` holds three Dockerfiles that split it up. Build them from the
+`deploy/docker/` holds three Dockerfiles that split it up, and three things
+built on them: a Helm chart in `deploy/helm/simple-balance/`, a compose file in
+`deploy/compose/` that runs the same split on one machine, and Pulumi programs
+in `deploy/pulumi/` for EKS and GKE. Each has a README of its own; what follows
+is the contract they all have to satisfy. Build them from the
 repository root:
 
 ```sh
@@ -375,7 +382,7 @@ port. Three settings, all with working defaults:
 | --- | --- | --- |
 | `SB_API_ORIGIN` | `http://simple-balance-server:3000` | Where to proxy everything the API owns. Point it at your API Service. |
 | `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
-| `SB_MAX_UPLOAD_SIZE` | `12m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
+| `SB_MAX_UPLOAD_SIZE` | `61m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
 
 nginx sets the content security policy, `X-Frame-Options`, `nosniff`,
 `Referrer-Policy` and HSTS on the files it serves itself, matching what the API

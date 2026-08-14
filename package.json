@@ -20,7 +20,6 @@
     "db:migrate": "tsx src/server/db/migrate.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
     "test": "vitest run",
-    "test:watch": "vitest",
     "test:integration": "vitest run tests/integration",
     "verify": "npm run typecheck && npm run test && npm run build",
     "set-version": "node scripts/set-version.mjs",

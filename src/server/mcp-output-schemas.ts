@@ -487,11 +487,44 @@ const recurrenceOccurrenceSchema = z.object({
   postedDate: nullableStringSchema,
 });
 
+/**
+ * What a recurrence proposes, described rather than deferred.
+ *
+ * Not `recurrenceShapeSchema` itself: that one carries `.transform()` on its
+ * nullable text fields, and a transform has no JSON Schema representation, so
+ * declaring it makes every tool registration fail with "Transforms cannot be
+ * represented in JSON Schema". This says the same thing in terms a schema can
+ * publish. It is read-only, so the fields an agent must send are the write
+ * schema's business and the discriminated union does not have to be repeated.
+ */
+const recurrenceShapeResultSchema = z.object({
+  type: z.enum(transactionTypes),
+  payee: z.string(),
+  fromAccountId: z.string().uuid().optional(),
+  toAccountId: z.string().uuid().optional(),
+  amount: z.string().optional(),
+  destinationAmount: z.string().optional(),
+  categoryId: z.string().uuid().nullable().optional(),
+  categoryName: z.string().nullable().optional(),
+  legs: z
+    .array(
+      z.object({
+        categoryId: z.string().uuid().optional(),
+        categoryName: z.string().optional(),
+        amount: z.string(),
+        note: z.string().optional(),
+      }),
+    )
+    .optional(),
+  description: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
 export const recurrenceResultSchema = z
   .object({
     ...versionedEntitySchema,
     name: z.string(),
-    shape: z.unknown(),
+    shape: recurrenceShapeResultSchema,
     frequency: z.enum(recurrenceFrequencies),
     interval: z.number().int().positive(),
     anchorDate: z.string(),

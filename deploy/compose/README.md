@@ -117,8 +117,8 @@ publishes 5432 so those commands can reach it; this file publishes nothing but
 the frontend.
 
 **The single container** is what [docs/deployment.md](../../docs/deployment.md)
-documents and what CI publishes: one image serving the bundle, the API, the MCP
-endpoint and the scheduler from one process, run with `docker run --env-file
+documents and the supported way to deploy this: one image serving the bundle,
+the API, the MCP endpoint and the scheduler from one process, run with `docker run --env-file
 .env`. It is the supported way to deploy this, and none of the settings below
 have to line up there, because there is nothing to line them up between.
 

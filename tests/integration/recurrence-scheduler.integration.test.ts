@@ -4,7 +4,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { user } from "../../src/server/db/schema.js";
-import { runTickSweep } from "../../src/server/recurrence-scheduler.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { setPreferences } from "../../src/server/services/preferences.js";
 import {
@@ -160,7 +159,7 @@ integration("the scheduler sweep", () => {
       rows.push(await make(settled, settledAccountId, name, today));
     }
 
-    await Promise.all([runTickSweep(), runTickSweep()]);
+    await Promise.all([runDueRecurrences(), runDueRecurrences()]);
 
     // Exactly one, from two sweeps that ran at the same time. Two is what a
     // pair of replicas without the row claim would leave behind, and none is
@@ -192,7 +191,7 @@ integration("the scheduler sweep", () => {
       // test is holding on purpose, and the suite hangs until something else
       // kills it.
       const summary = await Promise.race([
-        runTickSweep(),
+        runDueRecurrences(),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("the sweep waited for a held row")), 3_000),
         ),
@@ -205,7 +204,7 @@ integration("the scheduler sweep", () => {
       await holder.end();
     }
 
-    expect((await runTickSweep()).proposed).toBeGreaterThanOrEqual(1);
+    expect((await runDueRecurrences()).proposed).toBeGreaterThanOrEqual(1);
     expect(await staged(settled, held.id)).toHaveLength(1);
   });
 });

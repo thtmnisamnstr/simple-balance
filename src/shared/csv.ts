@@ -136,7 +136,7 @@ export function previewCsv(csv: string, limit = 25): CsvPreview {
 
 export function parseLocalizedAmount(
   value: string,
-  decimalSeparator: "." | "," = ".",
+  decimalSeparator: "." | ",",
 ): string | null {
   let unsigned = value.trim().replace(/[\u00a0\u202f]/g, " ");
   if (!unsigned) return null;

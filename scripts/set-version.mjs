@@ -82,6 +82,16 @@ for (const dockerfile of [
   );
 }
 
+// The chart's appVersion is what its values use as the default image tag, so a
+// release that leaves it behind installs the previous release's images while
+// reporting the new version everywhere else.
+rewriteLine(
+  "deploy/helm/simple-balance/Chart.yaml",
+  /^appVersion: ".*"$/m,
+  `appVersion: "${version}"`,
+  "chart appVersion",
+);
+
 // The MCP server announces this to every client that connects.
 rewriteLine(
   "src/shared/version.ts",

@@ -26,7 +26,7 @@ export function useTimezone() {
 
 export function calendarDateInTimezone(
   date: Date,
-  timezone = browserTimezone(),
+  timezone: string,
 ) {
   // Falls back to UTC rather than throwing, the way the shared todayIn does. A
   // stored timezone is free text checked only when it was written, and one an

@@ -8,9 +8,7 @@ function isLoopbackHostname(hostname: string) {
     octets[0] === "127" &&
     octets.every(
       (octet) =>
-        /^\d{1,3}$/.test(octet) &&
-        Number(octet) >= 0 &&
-        Number(octet) <= 255,
+        /^\d{1,3}$/.test(octet) && Number(octet) <= 255,
     )
   );
 }
@@ -137,8 +135,9 @@ export type AppConfig = {
    *
    * On by default, so the documented single container keeps working with no
    * extra configuration. Turn it off on web replicas when a separate scheduler
-   * container owns the job; leaving it on everywhere is also safe, because one
-   * advisory lock lets a single replica tick at a time.
+   * container owns the job; leaving it on everywhere is also safe, because a
+   * recurrence is claimed with `for update skip locked` and whoever reaches a
+   * row first is the only one that works it.
    */
   recurrenceSchedulerEnabled: boolean;
   isProduction: boolean;

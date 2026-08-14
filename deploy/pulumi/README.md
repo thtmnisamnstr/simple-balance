@@ -25,15 +25,18 @@ putting the credentials in a Secret, and installing the chart.
   Neither program will remind you.
 - **No DNS record.** Each program exports the address its load balancer answers
   on, and you create the record. Nothing here owns a zone.
-- **No images.** There is no published image for the split deployment and no CI
-  that builds one. Build and push all three yourself, then point
-  `simple-balance:imageRepositoryPrefix` at wherever you pushed them:
+- **No image builds.** The release workflow publishes all three beside the
+  single container, on the same tags, so the programs pull them rather than
+  build them:
 
-  ```sh
-  docker build -f deploy/docker/server.Dockerfile    -t ghcr.io/you/simple-balance-server:0.1.4 .
-  docker build -f deploy/docker/frontend.Dockerfile  -t ghcr.io/you/simple-balance-frontend:0.1.4 .
-  docker build -f deploy/docker/scheduler.Dockerfile -t ghcr.io/you/simple-balance-scheduler:0.1.4 .
   ```
+  ghcr.io/thtmnisamnstr/simple-balance-server:0.1.4
+  ghcr.io/thtmnisamnstr/simple-balance-frontend:0.1.4
+  ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.1.4
+  ```
+
+  Point `simple-balance:imageRepositoryPrefix` somewhere else only when you are
+  running images you built yourself.
 
 - **No mail and no Google sign-in.** Both are chart settings and neither is
   turned on here, so a deployment from these programs has local sign-in, no

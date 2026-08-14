@@ -34,7 +34,7 @@ contract breaks, which is not the same as when the app does.
 | `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
 | `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
 | `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |
-| `src/server/recurrence-scheduler.ts` | The loop that proposes recurring transactions, and the lock that keeps one replica doing it. |
+| `src/server/recurrence-scheduler.ts` | The loop that sweeps for recurrences that have come due. Replicas divide the sweep by claiming rows, so there is no leader. |
 | `src/server/db` | Drizzle schema, migration runner, connection pool. |
 | `src/client` | The browser app. Renders what the server computed. |
 | `drizzle` | Generated SQL migrations and their snapshots. |

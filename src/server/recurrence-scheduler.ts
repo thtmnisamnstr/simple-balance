@@ -51,29 +51,13 @@ function defaultSchedule(callback: () => void, milliseconds: number): Timer {
   return { clear: () => clearTimeout(timer), unref: () => timer.unref() };
 }
 
-/**
- * One sweep of everything due.
- *
- * No leader and no lease: replicas read the same due list and claim each
- * recurrence with `for update skip locked`, so they divide the work by racing
- * for rows rather than by electing one of themselves to do all of it. A replica
- * killed mid-row ends its transaction, PostgreSQL drops the row lock with it,
- * and the next tick finds the row unclaimed. Nothing to reap, nothing to hand
- * over, and no reason a second replica has to wait for the first.
- */
-export async function runTickSweep(
-  stopped: () => boolean = () => false,
-): Promise<TickSummary> {
-  return runDueRecurrences(stopped);
-}
-
 export function createRecurrenceScheduler(
   options: RecurrenceSchedulerOptions = {},
 ): RecurrenceScheduler {
   const {
     enabled = getConfig().recurrenceSchedulerEnabled,
     tickSeconds = configuredRecurrenceTickSeconds(),
-    runTick = runTickSweep,
+    runTick = runDueRecurrences,
     schedule = defaultSchedule,
     jitter = () => Math.random() * FIRST_TICK_JITTER_MS,
     logger = console,

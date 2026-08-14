@@ -2,10 +2,10 @@
 #
 #   docker build -f deploy/docker/scheduler.Dockerfile -t simple-balance-scheduler .
 #
-# Run exactly one replica and set RECURRENCE_SCHEDULER=false on the API
-# Deployment. Running more than one is safe rather than correct-by-accident: an
-# advisory lock lets a single replica tick at a time and the losers return
-# immediately, so extra replicas cost nothing and buy nothing.
+# Set RECURRENCE_SCHEDULER=false on the API Deployment so only these tick. Run
+# as many replicas as the backlog warrants: each recurrence is claimed with
+# `for update skip locked`, so replicas divide the due list rather than wait on
+# one another.
 FROM node:24-alpine AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./

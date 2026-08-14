@@ -43,6 +43,18 @@ Four settings control it: `RECURRENCE_SCHEDULER`, `RECURRENCE_TICK_SECONDS`,
 `RECURRENCE_CATCH_UP_LIMIT` and `RECURRENCE_CLAIM_LIMIT`. Only the first is
 likely to matter to you, and only if you split the deployment up.
 
+A Helm chart under `deploy/helm/`, a compose file that runs the same split on
+one machine under `deploy/compose/`, and Pulumi programs for EKS and GKE under
+`deploy/pulumi/`. All three tiers autoscale. The chart provisions no database:
+raising a PostgreSQL StatefulSet's replica count gives you empty databases
+rather than capacity, so it takes a `DATABASE_URL` and leaves the database to
+you.
+
+Set `DIRECT_DATABASE_URL` when PgBouncer or another transaction pooler sits in
+front of PostgreSQL. Every lock the ledger takes is transaction-scoped and suits
+transaction pooling exactly; the two that are not, the migration lock and the
+first-account claim, use this string to go past the pooler.
+
 Three Dockerfiles under `deploy/docker/` split the single container into a
 server, an nginx frontend, and a scheduler, for running this under Kubernetes.
 Each publishes alongside the single container, on the same tags, as
@@ -73,10 +85,10 @@ fill in. A CSV export carries a split by category name and reads back as the
 same split in a different ledger or a fresh install. Mass editing category or
 type is refused on a split rather than flattening it, and the panel says why.
 
-Upgrading runs two new migrations, 0005 for splits and 0006 for recurrences.
-Both are schema changes rather than data migrations: nothing existing is
-rewritten, no row is backfilled, and every figure reads the same the moment they
-finish.
+Upgrading runs three new migrations: 0005 for splits, 0006 for recurrences and
+0007 for the shared sign-in attempt table. All three are schema changes rather
+than data migrations: nothing existing is rewritten, no row is backfilled, and
+every figure reads the same the moment they finish.
 
 ### Security
 
@@ -110,6 +122,20 @@ minutes.
 Changing or resetting your password revokes every agent's access along with the
 approvals behind it. Before, an MCP token an agent already held kept working for
 its hour and its refresh token kept minting replacements for a week.
+
+Sign-in attempts were counted in the process, which bounds nothing once more
+than one is serving: each replica kept its own tally, so the allowance was
+multiplied by the replica count and a guesser only had to spread their attempts.
+Both counters, the sign-in one and the first-run setup code, are counted in
+PostgreSQL now. A tally in the process still refuses a caller already over the
+allowance without asking the database, so a flood does not become a write storm.
+
+Dynamic MCP client registration is unauthenticated and was minting a client
+secret for whoever asked, then storing it in the clear. The
+`storeClientSecret: "hashed"` setting never reached it: that one belongs to the
+OIDC provider's own register endpoint, and discovery advertises a different one.
+Clients register as public now. PKCE was already required and plain challenges
+already refused, which is what binds a code to its caller.
 
 `stage_csv` created categories, brought archived ones back, and widened what
 kind of entry a category may carry, all under `ledger:stage` — the scope for an

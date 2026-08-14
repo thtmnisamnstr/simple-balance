@@ -87,10 +87,7 @@ function stageView(
     // the rest of the queue. Where it was not computed the answer is unknown
     // rather than no, and saying `false` there contradicted what the same row
     // reports in a list.
-    repeatsStagedRow:
-      repeatsStagedRow === undefined || repeatsStagedRow === null
-        ? null
-        : Boolean(repeatsStagedRow),
+    repeatsStagedRow: repeatsStagedRow ?? null,
   };
 }
 
