@@ -2,7 +2,7 @@
 
 Notable changes, newest first.
 
-## 0.1.4 - 2026-08-13
+## 0.1.4 - 2026-08-14
 
 ### Added
 
