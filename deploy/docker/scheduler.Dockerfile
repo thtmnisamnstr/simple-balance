@@ -30,13 +30,13 @@ ARG APP_VERSION=0.1.4
 LABEL org.opencontainers.image.title="Simple Balance scheduler" \
   org.opencontainers.image.description="Proposes recurring transactions into the review queue" \
   org.opencontainers.image.version="${APP_VERSION}" \
-  org.opencontainers.image.licenses="LGPL-3.0-only" \
+  org.opencontainers.image.licenses="AGPL-3.0-only" \
   org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"
 COPY --from=runtime-dependencies --chown=node:node /runtime/package.json ./package.json
 COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist/server ./dist/server
 COPY --chown=node:node drizzle ./drizzle
-COPY --chown=node:node LICENSE COPYING ./
+COPY --chown=node:node LICENSE ./
 USER node
 # Health checks only. Nothing else is mounted on this port, so a Service
 # pointed here by mistake cannot serve an API request.

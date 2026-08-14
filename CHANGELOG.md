@@ -90,6 +90,21 @@ Upgrading runs three new migrations: 0005 for splits, 0006 for recurrences and
 than data migrations: nothing existing is rewritten, no row is backfilled, and
 every figure reads the same the moment they finish.
 
+### Changed
+
+The licence is now the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`), where it was the LGPL. What changes for somebody running this
+is nothing: self-hosting it for yourself, your household or your company was
+free before and is free now. What section 13 adds is that offering a *modified*
+version to people over a network entitles those people to that version's source.
+
+Every release up to and including 0.1.3 was published under the LGPL and remains
+available under it. This applies from 0.1.4 onward.
+
+The AGPL is a complete licence rather than a set of permissions layered on the
+GPL, so the images carry one licence file where they used to carry two, and
+`COPYING` is gone.
+
 ### Security
 
 `NODE_ENV` was compared against one string, so any other spelling, and leaving

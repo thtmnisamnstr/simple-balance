@@ -2,7 +2,7 @@
   "name": "simple-balance-pulumi",
   "version": "0.1.4",
   "description": "Pulumi programs that stand up the split Simple Balance deployment on EKS and on GKE.",
-  "license": "LGPL-3.0-only",
+  "license": "AGPL-3.0-only",
   "private": true,
   "engines": {
     "node": ">=20"

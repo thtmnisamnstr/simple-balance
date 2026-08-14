@@ -20,7 +20,7 @@ ARG APP_VERSION=0.1.4
 LABEL org.opencontainers.image.title="Simple Balance frontend" \
   org.opencontainers.image.description="Simple Balance browser bundle, served by nginx" \
   org.opencontainers.image.version="${APP_VERSION}" \
-  org.opencontainers.image.licenses="LGPL-3.0-only" \
+  org.opencontainers.image.licenses="AGPL-3.0-only" \
   org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"
 # 8080 rather than 80: the unprivileged image runs as a non-root user, which
 # cannot bind a privileged port.
@@ -42,7 +42,7 @@ COPY deploy/docker/nginx.conf.template /etc/nginx/templates/default.conf.templat
 # includes into http{} where a location-scoped directive is a syntax error.
 COPY deploy/docker/nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /app/dist/client /usr/share/nginx/html
-COPY LICENSE COPYING /usr/share/licenses/simple-balance/
+COPY LICENSE /usr/share/licenses/simple-balance/
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD ["/bin/sh", "-c", "wget -q -O /dev/null http://127.0.0.1:${SB_FRONTEND_PORT}/ || exit 1"]

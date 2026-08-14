@@ -311,8 +311,12 @@ by both sides of every boundary.
 
 ## License
 
-[GNU Lesser General Public License v3.0 only](LICENSE) (`LGPL-3.0-only`).
+[GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
 
-The LGPL is written as a set of additional permissions on top of the GPL, so
-both texts apply: [LICENSE](LICENSE) is the LGPL supplement and
-[COPYING](COPYING) is the GNU General Public License v3 it builds on.
+Run it, change it, and share it freely. What the Affero clause adds to the GPL
+is section 13: offer a modified version to people over a network, and those
+people are entitled to that version's source. Self-hosting it for yourself, your
+household, or your company changes nothing about how you use it.
+
+Every version up to and including 0.1.3 was published under the LGPL and stays
+available under it. This applies from 0.1.4 onward.
