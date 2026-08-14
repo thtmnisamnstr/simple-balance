@@ -489,6 +489,15 @@ function boundedRegistration(body: Record<string, unknown>) {
     if (encoded.length > REGISTRATION_TEXT_LIMITS.metadata) delete bounded.metadata;
   }
   if (!bounded.client_name) bounded.client_name = "Unnamed MCP client";
+  // Registration here is unauthenticated, so a secret would be handed to
+  // whoever asked for one and authenticate nothing. Better Auth's own MCP
+  // register treats a missing token_endpoint_auth_method as `client_secret_basic`
+  // and writes the generated secret to the row in cleartext, which the
+  // `storeClientSecret: "hashed"` setting does not reach: that one is read by
+  // the OIDC provider's register endpoint, and discovery advertises this one.
+  // Every client is public instead. PKCE is already required and plain
+  // challenges are refused, which is what actually binds a code to its caller.
+  bounded.token_endpoint_auth_method = "none";
   return bounded;
 }
 

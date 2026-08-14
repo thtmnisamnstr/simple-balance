@@ -269,6 +269,41 @@ for (const mode of ["local", "google", "both"] as const) {
       await stop();
     });
 
+    /**
+     * Registration is unauthenticated, so a secret would be issued to whoever
+     * asked and authenticate nobody. Better Auth reads a missing
+     * token_endpoint_auth_method as `client_secret_basic` and writes the
+     * generated secret to the row in cleartext, which `storeClientSecret:
+     * "hashed"` does not reach: that setting belongs to the OIDC provider's own
+     * register endpoint, and discovery advertises this one.
+     */
+    it("registers a client that asked for a secret as one without", async () => {
+      const registration = await app.request(`${BASE}/api/auth/mcp/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client_name: `secretless ${mode}`,
+          redirect_uris: ["http://127.0.0.1:7778/callback"],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+        }),
+      });
+      expect([200, 201]).toContain(registration.status);
+      const client = (await registration.json()) as {
+        client_id: string;
+        client_secret?: string;
+      };
+      expect(client.client_secret ?? "").toBe("");
+
+      const { getDb } = await import("../../src/server/db/client.js");
+      const { sql } = await import("drizzle-orm");
+      const stored = await getDb().execute<{ client_secret: string | null }>(
+        sql`select client_secret from auth_oauth_application
+             where client_id = ${client.client_id}`,
+      );
+      expect(stored.rows[0]?.client_secret ?? "").toBe("");
+    });
+
     // Whichever methods are configured, an unauthenticated authorization has to
     // hand the person to this application's own sign-in page with everything
     // the flow needs to carry on afterwards.

@@ -1933,21 +1933,33 @@ export function RecurrenceForm({
     // trip do: the picker is hidden for a transfer rather than emptied, so
     // clearing here would delete a category somebody chose on purpose, and on
     // the edit path it would delete one already saved.
-    const covers = (kind: string) =>
-      kind === "both" ||
-      (type === "deposit" && kind === "income") ||
-      (type === "withdrawal" && kind === "expense");
-    if (type === "transfer") return;
+    // An archived category is refused on every occurrence, at commit, whatever
+    // the type. A row filed under one still shows its name, and the picker
+    // keeps a category that is already selected, so seeded it reads exactly
+    // like a live one and nothing would say otherwise until the queue did,
+    // once per proposal, forever.
+    //
+    // Kind is the type's own rule and only the two that file under a category
+    // have one. A transfer keeps whatever it arrived with, the way the
+    // transaction form and a CSV round trip do: its picker is hidden rather
+    // than emptied, so clearing on kind would delete a category somebody chose
+    // on purpose, and on the edit path one already saved.
+    const usable = (category: Category) =>
+      !category.archivedAt &&
+      (type === "transfer" ||
+        category.kind === "both" ||
+        (type === "deposit" && category.kind === "income") ||
+        (type === "withdrawal" && category.kind === "expense"));
     const selected = categories.find((category) => category.id === categoryId);
-    if (selected && !covers(selected.kind)) {
+    if (selected && !usable(selected)) {
       setCategoryId("");
       setCategoryName("");
     }
-    // A split's legs each carry their own category, and a leg the type cannot
-    // cover is refused at commit exactly as the single one is.
+    // A split's legs each carry their own category and are refused at commit
+    // exactly as the single one is.
     const keptLegs = legs.map((leg) => {
       const legCategory = categories.find((one) => one.id === leg.categoryId);
-      return legCategory && !covers(legCategory.kind)
+      return legCategory && !usable(legCategory)
         ? { ...leg, categoryId: "", categoryName: "" }
         : leg;
     });

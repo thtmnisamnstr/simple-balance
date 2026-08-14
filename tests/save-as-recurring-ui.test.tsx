@@ -54,6 +54,14 @@ const groceries: Category = {
   version: 1,
 };
 
+const retiredCategory: Category = {
+  id: "99999999-9999-4999-8999-999999999999",
+  name: "Retired Groceries",
+  kind: "expense",
+  version: 1,
+  archivedAt: "2026-01-02T00:00:00.000Z",
+};
+
 const imported: Transaction = {
   id: "44444444-4444-4444-8444-444444444444",
   type: "withdrawal",
@@ -175,7 +183,8 @@ function stubLedger(transactions: Transaction[] = [imported]) {
       }
       if (url.pathname === "/api/v1/accounts")
         return jsonResponse([checking, euroSavings]);
-      if (url.pathname === "/api/v1/categories") return jsonResponse([groceries]);
+      if (url.pathname === "/api/v1/categories")
+        return jsonResponse([groceries, retiredCategory]);
       if (url.pathname === "/api/v1/transaction-templates") return jsonResponse([]);
       if (url.pathname === "/api/v1/payees/suggestions") return jsonResponse([]);
       return new Response("Not found", { status: 404 });
@@ -382,6 +391,37 @@ describe("saving a transaction as a recurring transaction", () => {
     expect(
       dialog.queryByText(/waits in the queue for the amount received/),
     ).not.toBeInTheDocument();
+  });
+
+  /**
+   * An archived category is refused at commit on every occurrence, and the row
+   * still shows its name because the transactions list asks for archived ones
+   * so the row can render. Seeded, the picker keeps it because it is selected,
+   * so it reads exactly like a live category and the queue is the only thing
+   * that would ever say otherwise.
+   */
+  it("does not carry an archived category into the schedule", async () => {
+    const filedUnderRetired: Transaction = {
+      ...imported,
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      payee: "Old Market",
+      categoryId: retiredCategory.id,
+      category: retiredCategory,
+    };
+    const writes = stubLedger([filedUnderRetired]);
+    renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
+    const dialog = await openRecurrenceEditor("Old Market");
+    await waitFor(() =>
+      expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue(""),
+    );
+    fireEvent.change(dialog.getByLabelText(/^Name/), {
+      target: { value: "Old shop" },
+    });
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body.shape).not.toHaveProperty("categoryId");
+    expect(JSON.stringify(writes[0]!.body)).not.toContain(retiredCategory.id);
   });
 
   it("does not put the row into the template dialog by mistake", async () => {

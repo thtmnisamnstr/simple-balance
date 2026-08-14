@@ -168,9 +168,10 @@ scheduler here at all today — no cron, no `setInterval`, no worker, nothing.
 default, so the documented single container keeps working with nothing added to
 it. `RECURRENCE_SCHEDULER=false` turns it off on replicas that serve the API,
 which is what a Kubernetes deployment does when it runs the scheduler container
-from `deploy/docker/scheduler.Dockerfile`. One replica ticks at a time under a
-session advisory lock, and a per-occurrence unique key refuses a second proposal
-of the same date even if the lock were bypassed entirely.
+from `deploy/docker/scheduler.Dockerfile`. Every replica sweeps the due list and
+claims each recurrence with `for update skip locked`, so they divide the work
+rather than wait on one another, and a per-occurrence unique key refuses a
+second proposal of the same date even if a claim were bypassed entirely.
 
 No holiday calendar. A business day means Monday to Friday, said in the tool
 description and beside the weekend-policy picker, because per-country holiday
