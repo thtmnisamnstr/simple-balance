@@ -65,6 +65,79 @@ jobs:
           TEST_DATABASE_URL: ""
       - run: npm run test:integration
 
+  # The chart and the Pulumi programs ship in the release, so a change that
+  # breaks either should fail here rather than at somebody's `helm install`.
+  # Neither is covered by `npm run verify`: the chart is YAML the TypeScript
+  # build never sees, and the programs are a separate npm project outside the
+  # root workspace.
+  deploy:
+    name: deployment material
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+
+      # helm through its own image, pinned by digest, rather than a setup
+      # action: it is one more thing to keep pinned and this needs helm for two
+      # commands. The digest is the tag's, recorded so a moved tag cannot change
+      # what runs here.
+      - name: Lint and render the chart
+        env:
+          HELM: alpine/helm@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b
+        run: |
+          set -euo pipefail
+          helm() { docker run --rm -v "$PWD/deploy/helm:/charts" "$HELM" "$@"; }
+          helm lint /charts/simple-balance
+          # Rendered with values that satisfy every required guard, because a
+          # chart that lints can still fail to template.
+          helm template release /charts/simple-balance \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set ingress.enabled=true \
+            --set ingress.host=books.example.org > /tmp/rendered.yaml
+          test -s /tmp/rendered.yaml
+          echo "rendered $(grep -c '^kind:' /tmp/rendered.yaml) objects"
+
+      # The guards are the reason a misconfigured install fails at render rather
+      # than as a crashlooping pod, so a release must not be able to lose them
+      # quietly. Each has to refuse, and the run fails if one renders.
+      - name: The chart refuses what it should refuse
+        env:
+          HELM: alpine/helm@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b
+        run: |
+          set -euo pipefail
+          helm() { docker run --rm -v "$PWD/deploy/helm:/charts" "$HELM" "$@"; }
+          refuses() {
+            local what="$1"; shift
+            if helm template release /charts/simple-balance "$@" >/dev/null 2>&1; then
+              echo "::error::the chart rendered $what instead of refusing it"
+              exit 1
+            fi
+            echo "refused: $what"
+          }
+          refuses "a missing DATABASE_URL"
+          refuses "the placeholder origin it ships" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789
+          refuses "a plaintext origin outside loopback" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=http://books.example.org
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: deploy/pulumi/package-lock.json
+
+      - name: Typecheck the Pulumi programs
+        working-directory: deploy/pulumi
+        run: |
+          npm ci
+          npm run typecheck
+
   # A Dockerfile that has stopped building should fail the pull request that
   # broke it rather than the release that needed it. Its own job rather than
   # more steps on the one above: that one is multiplied by every PostgreSQL and
