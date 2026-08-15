@@ -2,6 +2,52 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+### Fixed
+
+A duplicate payee group offers the spelling the ledger would itself keep. The
+group was ordered by how often each spelling is used and then by name, while a
+write reusing a payee breaks a tie by preferring a name already equal to its own
+cleaned form. So three equally used spellings of one shop offered
+`" ACME MARKET "` as the one to merge into, where the ledger would have kept
+`"Acme Market"`. Both the browser and the MCP guide say the first entry is the
+target, so this was the wrong answer rather than a cosmetic ordering. One rule
+now, used by the group and by the write.
+
+### Changed
+
+An idempotency key means the same thing over MCP as it does over the HTTP API.
+Ten MCP writes kept a replay record of their own on top of the one the service
+they call already keeps, and the two matched a retry differently: the outer one
+against the request as it arrived, the inner against what the service had
+normalised. A retry of a mass edit that listed the same rows in a different
+order was a different request to one and the same request to the other. They
+call their service directly now. Records already written are inert, and no key
+in an existing database loses its replay.
+
+`set_preferences` no longer advertises a call it refuses. Every field of the
+patch is optional, so an agent reading the schema was told that sending nothing
+but an idempotency key was valid, and found out otherwise at runtime.
+
+`create_transaction` says that a near-identical entry is refused and what
+`allowDuplicate` is for. Both mass edits say that one split anywhere in a
+selection refuses a category or type change for the whole call.
+
+`list_payees` described itself as returning canonical payee names. It returns
+every stored spelling, one row each, which is the opposite and the reason
+`list_duplicate_payees` exists. Both now say which question they answer.
+
+Recurrences report their shape over MCP. `get_recurrence` and
+`list_recurrences` declared it as an unknown value, so the one thing an agent
+reads a recurrence for was the one thing the tools would not describe.
+
+### Internal
+
+Thirteen schemas in the shared contracts no longer carry an export nothing
+outside the file used. Six types the browser had hand-written copies of are
+re-exported from the contracts they duplicated.
+
 ## 0.1.4 - 2026-08-14
 
 ### Added

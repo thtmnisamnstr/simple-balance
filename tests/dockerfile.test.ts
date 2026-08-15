@@ -121,8 +121,15 @@ describe("Docker runtime", () => {
       packages: Record<string, { version?: string; dev?: boolean }>;
     };
 
+    // Against the manifest rather than a version written out here. What is
+    // worth knowing is that the two agree, and a literal turns every routine
+    // Better Auth bump into a failing pull request that says nothing about
+    // whether anything is wrong.
+    const runtimeManifest = JSON.parse(
+      readFileSync(new URL("../runtime/package.json", import.meta.url), "utf8"),
+    ) as { dependencies: Record<string, string> };
     expect(runtimeLock.packages["node_modules/better-auth"]?.version).toBe(
-      "1.6.25",
+      runtimeManifest.dependencies["better-auth"],
     );
     // Better Auth declares optional peers on database tooling. The runtime image
     // ships production dependencies only, so none of it may reach the lockfile.
