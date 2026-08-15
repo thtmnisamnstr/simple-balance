@@ -20,7 +20,7 @@ const database = scratchDatabase("reports");
 const actor: Actor = { userId: "reports-user", source: "web" };
 
 let keySeed = 0;
-const nextKey = () => `reports-${(keySeed += 1)}`.padEnd(16, "0");
+const nextKey = () => `reports-${String((keySeed += 1)).padStart(6, "0")}`;
 
 let checkingId = "";
 let savingsId = "";
@@ -219,6 +219,89 @@ integration("reports", () => {
       end: "2026-03-31",
     });
     expect(row(later, checkingId)!.total).toBe("3350");
+  });
+
+  /**
+   * Movements add up; balances do not. Summing a monthly net worth reported six
+   * times the money the account holds, in a column headed Total on the page and
+   * in a field an agent has no way to know it should ignore.
+   */
+  it("totals a balance row on what it closes on, not on the sum of its columns", async () => {
+    const series = await getReport(actor, {
+      report: "net-worth",
+      ...year,
+      bucket: "month",
+    });
+    for (const currency of series.currencies) {
+      for (const entry of currency.rows) {
+        expect(entry.total).toBe(entry.values[entry.values.length - 1]);
+      }
+    }
+    const flow = await getReport(actor, {
+      report: "income-expense",
+      ...year,
+      bucket: "month",
+    });
+    for (const entry of usd(flow)!.rows) {
+      const summed = entry.values.reduce((total, value) => total + Number(value), 0);
+      expect(Number(entry.total)).toBe(summed);
+    }
+  });
+
+  /**
+   * Archiving posts a balance out to equity. Dropping the account takes its side
+   * of that posting with it and leaves the equity side behind, so the one report
+   * whose whole claim is that the rows total zero stopped totalling zero for
+   * every date before the archive.
+   */
+  it("balances the trial balance at a date before an account was archived", async () => {
+    const before = await getReport(actor, {
+      report: "trial-balance",
+      end: "2026-05-31",
+    });
+    const loaded = await getAccount(actor, savingsId);
+    await setAccountArchived(actor, savingsId, loaded.version, true);
+    try {
+      const after = await getReport(actor, {
+        report: "trial-balance",
+        end: "2026-05-31",
+      });
+      for (const currency of after.currencies) {
+        expect(currency.totals[0]).toBe("0");
+      }
+      expect(after.currencies.map((one) => one.currency)).toEqual(
+        before.currencies.map((one) => one.currency),
+      );
+    } finally {
+      const archived = await getAccount(actor, savingsId);
+      await setAccountArchived(actor, savingsId, archived.version, false);
+    }
+  });
+
+  /**
+   * Clamping a future start down to today instead reported today's figures under
+   * next month's heading, with the requested range echoed back beside them.
+   */
+  it("reports nothing for a range that has not happened yet", async () => {
+    const ahead = await getReport(actor, {
+      report: "income-expense",
+      start: "2027-11-01",
+      end: "2027-11-30",
+      bucket: "month",
+    });
+    expect(ahead.buckets).toEqual([]);
+    expect(ahead.currencies).toEqual([]);
+    expect(ahead.range).toEqual({ start: "2027-11-01", end: "2027-11-30" });
+  });
+
+  it("ranks categories the way the dashboard ranks them", async () => {
+    const summary = await getSummary(actor, year);
+    const report = await getReport(actor, { report: "categories", ...year });
+    expect(
+      usd(report)!
+        .rows.filter((entry) => entry.kind === "expense")
+        .map((entry) => entry.label),
+    ).toEqual(usdSummary(summary)!.spendingByCategory.map((entry) => entry.category));
   });
 
   /**

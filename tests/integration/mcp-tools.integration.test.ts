@@ -306,6 +306,51 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     });
     expect(out.isError).toBe(true);
   });
+  /**
+   * The sweep below calls each tool once, so `get_report` is only ever exercised
+   * with whichever preset the args map names. A preset whose shape its declared
+   * output schema refuses fails only when that preset is the one asked for.
+   */
+  it("answers every report over the wire, at every grouping", async () => {
+    const reports = [
+      "net-worth",
+      "income-expense",
+      "categories",
+      "cash-flow",
+      "balance-sheet",
+      "trial-balance",
+    ];
+    const buckets = ["none", "week", "month", "quarter", "year"];
+
+    for (const report of reports) {
+      for (const bucket of buckets) {
+        for (const includeArchived of [false, true]) {
+          const result = (await call("get_report", {
+            report,
+            bucket,
+            start: "2026-01-01",
+            includeArchived,
+          })) as {
+            report: string;
+            buckets: unknown[];
+            currencies: { rows: { values: unknown[] }[]; totals: unknown[] }[];
+          };
+          expect(result.report, `${report}/${bucket}`).toBe(report);
+          for (const currency of result.currencies) {
+            expect(currency.totals.length, `${report}/${bucket}`).toBe(
+              result.buckets.length,
+            );
+            for (const row of currency.rows) {
+              expect(row.values.length, `${report}/${bucket}`).toBe(
+                result.buckets.length,
+              );
+            }
+          }
+        }
+      }
+    }
+  });
+
   it("returns a structured result from every read tool", async () => {
     // Its own fixtures, made through the tools, so the sweep does not depend on
     // which other test ran first.

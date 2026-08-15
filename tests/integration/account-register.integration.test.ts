@@ -11,7 +11,11 @@ import {
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import { getAccountRegister } from "../../src/server/services/reports.js";
-import { createTransaction } from "../../src/server/services/transactions.js";
+import {
+  createTransaction,
+  getTransaction,
+  setTransactionDeleted,
+} from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -20,7 +24,7 @@ const database = scratchDatabase("account_register");
 const actor: Actor = { userId: "register-user", source: "web" };
 
 let keySeed = 0;
-const nextKey = () => `register-${(keySeed += 1)}`.padEnd(16, "0");
+const nextKey = () => `register-${String((keySeed += 1)).padStart(6, "0")}`;
 
 let checkingId = "";
 let spareId = "";
@@ -118,7 +122,7 @@ integration("the account register", () => {
     const balances = await getAccountBalances(actor, checkingId, {});
     expect(register.closingBalance).toBe("110");
     expect(register.entries[register.entries.length - 1]!.balanceAfter).toBe(
-      balances.ending.balance,
+      balances.current.balance,
     );
   });
 
@@ -167,6 +171,51 @@ integration("the account register", () => {
       (entry) => entry.date === "2026-02-01",
     );
     expect(sameDay.length).toBe(2);
+  });
+
+  /**
+   * Deleting posts the reversal on the original posting's date, so the pair
+   * collides on date. `posting.id` is a random uuid, so ordering on it alone
+   * listed the reversal first about half the time and walked the balance
+   * through a figure the account never held.
+   */
+  it("lists a reversal after the row it reverses", async () => {
+    const voided = [];
+    for (let day = 1; day <= 8; day += 1) {
+      voided.push(
+        await createTransaction(
+          actor,
+          {
+            type: "withdrawal",
+            date: `2026-05-0${day}`,
+            payee: `Undone ${day}`,
+            amount: "10",
+            fromAccountId: checkingId,
+            categoryId: foodId,
+          } as never,
+          nextKey(),
+        ),
+      );
+    }
+    for (const entry of voided) {
+      const current = await getTransaction(actor, entry.id);
+      await setTransactionDeleted(actor, entry.id, current.version, true, true);
+    }
+
+    const register = await getAccountRegister(actor, checkingId, {
+      start: "2026-05-01",
+      end: "2026-05-31",
+    });
+    expect(register.entries.length).toBe(16);
+    for (let index = 0; index + 1 < register.entries.length; index += 2) {
+      expect(Number(register.entries[index]!.amount)).toBeLessThan(0);
+      expect(Number(register.entries[index + 1]!.amount)).toBeGreaterThan(0);
+    }
+    const highest = register.entries.reduce(
+      (peak, entry) => Math.max(peak, Number(entry.balanceAfter)),
+      0,
+    );
+    expect(highest).toBe(Number(register.openingBalance));
   });
 
   it("stops at today rather than at an end in the future", async () => {

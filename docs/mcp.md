@@ -253,12 +253,24 @@ string, and nothing is ever added across currencies.
 | `balance-sheet` | your accounts | what they hold as of one date |
 | `trial-balance` | every account, counter-accounts included | the same, and it totals zero when the books are whole |
 
+The trial balance always counts archived accounts, whatever `includeArchived`
+says. Archiving posts a balance out to equity, so leaving the account out would
+drop its side of that posting and keep equity's, and the one report whose claim
+is that the rows total zero would stop totalling zero for every date before the
+archive.
+
 `bucket` is `none`, `week`, `month`, `quarter` or `year`, and defaults to
 `month` for the reports that plot over time and `none` for the ones that do not.
 `accumulation` in the reply says which of the two questions the numbers answer:
 `historical` is the balance a bucket ends on, `change` is what moved during it.
-Asking for more than 600 buckets is refused rather than served slowly, with the
-count and a suggestion to coarsen in the message.
+It also says what a row's `total` means. Movements add up, so on a `change`
+report the total is the sum of the row's buckets; balances do not, so on a
+`historical` one it is the balance the range closes on. Asking for more than 600
+buckets is refused rather than served slowly.
+
+A range that has not happened yet reports nothing: no buckets and no currencies,
+with the range you asked for echoed back. Today's figures are never presented
+under a future heading.
 
 `buckets` gives each column's `start` and `end` clipped to the range you asked
 for, so a range that opens mid-quarter reports a first column covering the part
