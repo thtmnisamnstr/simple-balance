@@ -353,6 +353,8 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     const args: Record<string, Record<string, unknown>> = {
       get_account: { id: accountId },
       get_account_balances: { id: accountId },
+      get_account_register: { id: accountId },
+      get_report: { report: "net-worth" },
       get_category: { id: categoryId },
       get_transaction: { id: transaction.id },
       get_staged_transaction: { id: staged.id },

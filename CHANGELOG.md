@@ -4,7 +4,42 @@ Notable changes, newest first.
 
 ## Unreleased
 
+### Added
+
+Reports. Six of them, over one date range, per currency and never added across
+currencies: net worth and a balance sheet for what the accounts hold, income
+against expense and categories for what moved, a cash flow statement for where
+the money that can be spent came from and went to, and a trial balance that
+totals zero when the books are whole. Each is a preset over one query that
+differs by which accounts it reads, whether it reports a period's movement or
+the balance it ends on, and how time is bucketed — weekly, monthly, quarterly,
+yearly, or not at all. Reachable at `/reports` and over MCP as `get_report`.
+
+The category report covers income as well as expense. Spending by category on
+the dashboard answers only where money went, and the same question about money
+arriving had no answer.
+
+A per-account register: every posting in date order with the balance before and
+after it, and the balance the window opens and closes on. It is for finding
+mistakes rather than for analysis — where a balance goes wrong, this is the row
+it went wrong on. An archived account ends at zero with the postings that closed
+it out to equity still in the list. `get_account_register` over MCP.
+
+The cash flow statement will not agree with income and expense, and the gap is
+widest for whoever uses a credit card most: a purchase is an expense the day the
+card is swiped, while the cash leaves when the bill is paid, in a different
+period and as borrowing rather than spending. Both figures are right. The report
+says so on the page rather than leaving it to be discovered.
+
 ### Fixed
+
+Cash flow, income and expense, and spending by category asked whether each entry
+still runs through an archived account once per posting rather than once per
+query. On a ledger of a hundred thousand postings the dashboard's own cash flow
+ran that subquery twenty-eight thousand times, reading a hundred and seventy
+thousand buffers to produce two rows. The same rule is now one aggregate the
+planner turns into a hash anti-join: sixty times fewer buffers and seven times
+faster, with the netting that decides membership unchanged.
 
 A duplicate payee group offers the spelling the ledger would itself keep. The
 group was ordered by how often each spelling is used and then by name, while a

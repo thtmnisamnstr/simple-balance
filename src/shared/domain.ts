@@ -756,6 +756,69 @@ export const dateRangeSchema = z.object({
   end: isoDateSchema.optional(),
 });
 
+export const reportNames = [
+  "net-worth",
+  "income-expense",
+  "categories",
+  "cash-flow",
+  "balance-sheet",
+  "trial-balance",
+] as const;
+export type ReportName = (typeof reportNames)[number];
+
+export const reportBuckets = [
+  "none",
+  "week",
+  "month",
+  "quarter",
+  "year",
+] as const;
+export type ReportBucket = (typeof reportBuckets)[number];
+
+/** How a report treats time: a period's own movement, or the balance it ends on. */
+export const reportAccumulations = ["change", "historical"] as const;
+export type ReportAccumulation = (typeof reportAccumulations)[number];
+
+/**
+ * Which accounts hold money that can be spent without selling something first.
+ * Cash flow is the only report that needs the distinction, and it takes it from
+ * the type the person already chose rather than from a second thing to declare.
+ */
+export const cashAccountTypes = ["checking", "savings", "cash"] as const;
+
+export const cashFlowSegments = [
+  "operating",
+  "investing",
+  "financing",
+  "internal",
+  "exchange",
+  "opening",
+] as const;
+export type CashFlowSegment = (typeof cashFlowSegments)[number];
+
+/**
+ * A ledger with a long history asked for weekly buckets is a request for
+ * thousands of columns nobody can read and a response nobody wants to hold in
+ * memory. Refused with the coarser bucket named, rather than served slowly.
+ */
+export const MAX_REPORT_BUCKETS = 600;
+
+/**
+ * The most postings one register will list. Refused rather than truncated: a
+ * register is read to find the row a balance went wrong on, and one cut short
+ * would close on a balance its own last row does not reach.
+ */
+export const MAX_REGISTER_ENTRIES = 10_000;
+
+export const reportNameSchema = z
+  .enum(reportNames)
+  .describe("Which report to run.");
+
+export const reportQuerySchema = dateRangeSchema.extend({
+  report: reportNameSchema,
+  bucket: z.enum(reportBuckets).optional(),
+});
+
 const queryBooleanSchema = z
   .union([
     z.boolean(),

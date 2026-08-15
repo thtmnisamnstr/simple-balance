@@ -288,6 +288,69 @@ export const summaryResultSchema = z.object({
   ),
 });
 
+/**
+ * One shape for every preset rather than a union per report. The output wrapper
+ * spends both members of its `anyOf` on success and error, so a success schema
+ * that is itself a union publishes three and the tool is refused.
+ *
+ * There is deliberately no total above `currencies`. Without exchange rates a
+ * figure spanning them could only come from the rates implied by past
+ * transfers, which is what those transfers cost, not what the money is worth.
+ */
+export const reportResultSchema = z.object({
+  report: z.string(),
+  range: z.object({
+    start: nullableStringSchema,
+    end: nullableStringSchema,
+  }),
+  asOf: z.string(),
+  bucket: z.string(),
+  accumulation: z.string(),
+  includesArchived: z.boolean(),
+  buckets: z.array(z.object({ start: z.string(), end: z.string() })),
+  currencies: z.array(
+    z.object({
+      currency: z.string(),
+      rows: z.array(
+        z.object({
+          key: z.string(),
+          label: z.string(),
+          kind: nullableStringSchema,
+          values: z.array(decimalSchema),
+          total: decimalSchema,
+        }),
+      ),
+      totals: z.array(decimalSchema),
+    }),
+  ),
+});
+
+export const accountRegisterResultSchema = z.object({
+  accountId: uuidSchema,
+  accountName: z.string(),
+  type: z.string(),
+  currency: z.string(),
+  archivedAt: nullableStringSchema,
+  range: z.object({
+    start: nullableStringSchema,
+    end: nullableStringSchema,
+  }),
+  asOf: z.string(),
+  openingBalance: decimalSchema,
+  closingBalance: decimalSchema,
+  entries: z.array(
+    z.object({
+      postingId: uuidSchema,
+      transactionId: uuidSchema.nullable(),
+      date: z.string(),
+      amount: decimalSchema,
+      balanceBefore: decimalSchema,
+      balanceAfter: decimalSchema,
+      origin: z.string(),
+    }),
+  ),
+});
+
 export const csvExportResultSchema = z.object({
   csv: z.string(),
   rowCount: z.number().int().nonnegative(),

@@ -948,6 +948,51 @@ export function moneyRatioPercent(amount: string, maximum: string) {
   return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
+export function moneyExtent(amounts: readonly string[]) {
+
+  let low: bigint | undefined;
+  let high: bigint | undefined;
+  for (const amount of amounts) {
+    const units = moneyUnits(amount);
+    if (units === null) continue;
+    if (low === undefined || units < low) low = units;
+    if (high === undefined || units > high) high = units;
+  }
+  if (low === undefined || high === undefined) return null;
+  return { low: moneyFromUnits(low), high: moneyFromUnits(high) };
+}
+
+/**
+ * Where a value sits between two bounds, as a percentage.
+ *
+ * Not `moneyRatioPercent`, which floors at four percent and answers "4" for
+ * anything at or below zero. That is right for a bar measuring spending against
+ * the largest spend, and wrong for anything that can be negative: a net worth
+ * below zero would plot as a short positive bar and the chart would read as the
+ * opposite of the truth.
+ */
+export function moneyScalePercent(
+  amount: string,
+  low: string,
+  high: string,
+): string {
+  const value = moneyUnits(amount);
+  const bottom = moneyUnits(low);
+  const top = moneyUnits(high);
+  if (value === null || bottom === null || top === null) return "0";
+  const span = top - bottom;
+  if (span <= 0n) return "50";
+
+  const clamped = value < bottom ? bottom : value > top ? top : value;
+  const hundredths = ((clamped - bottom) * 10_000n) / span;
+  const whole = hundredths / 100n;
+  const fraction = (hundredths % 100n)
+    .toString()
+    .padStart(2, "0")
+    .replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
+
 /**
  * Total on purpose. A staged row is allowed to hold whatever a CSV put in its
  * date column, and Intl throws a RangeError on an invalid date, which unmounts

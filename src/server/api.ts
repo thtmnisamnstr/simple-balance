@@ -22,6 +22,7 @@ import {
   dateRangeSchema,
   directTransactionCreateSchema,
   payeeMergeSchema,
+  reportNameSchema,
   transactionDeletedMutationSchema,
   versionedMutationSchema,
 } from "../shared/domain.js";
@@ -126,6 +127,7 @@ import {
   listStages,
   updateStage,
 } from "./services/staging.js";
+import { getAccountRegister, getReport } from "./services/reports.js";
 import { getSummary } from "./services/summary.js";
 import {
   bulkDeleteTransactions,
@@ -895,6 +897,8 @@ const body = async (c: Context<{ Variables: Variables }>) => c.req.json<unknown>
  */
 const pathId = (c: Context<{ Variables: Variables }>, name = "id") =>
   uuidPathSchema.parse(c.req.param(name));
+const pathReport = (c: Context<{ Variables: Variables }>) =>
+  reportNameSchema.parse(c.req.param("report"));
 const query = (c: Context<{ Variables: Variables }>) => c.req.query();
 
 app.get("/api/v1/session", async (c) =>
@@ -1264,6 +1268,23 @@ app.get("/api/v1/summary", async (c) =>
       query(c),
       c.req.query("includeArchived") === "true",
     ),
+  ),
+);
+app.get("/api/v1/reports/:report", async (c) =>
+  c.json(
+    await getReport(
+      c.get("actor"),
+      { ...c.req.query(), report: pathReport(c) },
+      c.req.query("includeArchived") === "true",
+    ),
+  ),
+);
+app.get("/api/v1/accounts/:id/register", async (c) =>
+  c.json(
+    await getAccountRegister(c.get("actor"), pathId(c), {
+      start: c.req.query("start"),
+      end: c.req.query("end"),
+    }),
   ),
 );
 app.get("/api/v1/audit-events", async (c) =>

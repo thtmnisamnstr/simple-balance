@@ -227,14 +227,63 @@ back, so confirm it with the person first.
 
 `summarize_own_data` counts everything in the ledger.
 
-`get_financial_summary` is the one tool that answers a question about money
-rather than about a row. It computes balances, deposits, withdrawals and
+`get_financial_summary` answers a question about money rather than about a row.
+It computes balances, deposits, withdrawals and
 spending separately per currency, never mixing them, and it stops at today
 whatever `end` you ask for: money dated in the future has not moved yet, and
 `asOf` says which day the figures are really as of. Archived accounts are left
 out by default, because archiving posts an account's balance out to equity and
 counting it again would double it; `includeArchived` puts the account and its
-past activity back in.
+past activity back in. It is the dashboard's own figures; `get_report` in
+[Reports](#reports) answers the same questions over time and in more detail.
+
+## Reports
+
+`get_report` runs one report over a date range and returns a matrix: named rows
+against time buckets, separately per currency. Pass `report`, and optionally
+`start`, `end`, `bucket` and `includeArchived`. Every figure is a decimal
+string, and nothing is ever added across currencies.
+
+| `report` | Rows | Answers |
+| --- | --- | --- |
+| `net-worth` | your accounts | what each held at the end of each bucket |
+| `income-expense` | income and expenses | what came in and went out during it |
+| `categories` | your categories | the same, split by what you filed it under, income as well as expense |
+| `cash-flow` | where the money came from | movements in and out of spendable accounts, by counterpart |
+| `balance-sheet` | your accounts | what they hold as of one date |
+| `trial-balance` | every account, counter-accounts included | the same, and it totals zero when the books are whole |
+
+`bucket` is `none`, `week`, `month`, `quarter` or `year`, and defaults to
+`month` for the reports that plot over time and `none` for the ones that do not.
+`accumulation` in the reply says which of the two questions the numbers answer:
+`historical` is the balance a bucket ends on, `change` is what moved during it.
+Asking for more than 600 buckets is refused rather than served slowly, with the
+count and a suggestion to coarsen in the message.
+
+`buckets` gives each column's `start` and `end` clipped to the range you asked
+for, so a range that opens mid-quarter reports a first column covering the part
+of it you asked about rather than a whole quarter that came up short.
+
+There is no total across currencies anywhere in the reply, and that is on
+purpose. This ledger records no exchange rates. A single number spanning
+currencies could only be built from the rates implied by transfers already made,
+which says what those transfers cost, not what the money is worth now.
+
+`cash-flow` needs one warning before you report it to anyone. It will not agree
+with `income-expense`, and the gap is widest for whoever uses a credit card
+most: a card purchase is an expense the day it is made, while the cash leaves on
+the day the bill is paid, in a different bucket and under `financing`. Both
+numbers are right and they answer different questions. Its rows are `operating`
+(earning and spending), `investing`, `financing`, `internal` (between your own
+spendable accounts, which nets to zero), `exchange` and `opening`. Spendable
+means an account typed `checking`, `savings` or `cash`.
+
+`get_account_register` lists one account's postings in date order with the
+balance before and after each, plus the balance the window opens and closes on.
+It is built for finding mistakes rather than for analysis: where a balance goes
+wrong, this is the row it went wrong on. An archived account ends at zero and
+the postings that closed it out to equity are in the list, marked `closing` in
+`origin`; an account's first pair is marked `opening`.
 
 ## The review queue
 
