@@ -664,13 +664,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       },
       (input) =>
         runTool(() =>
-          runIdempotentMcpMutation(
-            actor,
-            "stage.create",
-            input.idempotencyKey,
-            input,
-            (tx) => createStage(actor, input, tx),
-          ),
+          createStage(actor, input),
         ),
     );
     server.registerTool(
@@ -733,13 +727,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         runTool(() =>
           input.dryRun
             ? bulkEditStages(actor, input)
-            : runIdempotentMcpMutation(
-                actor,
-                "stage.bulkEdit",
-                input.idempotencyKey,
-                input,
-                (tx) => bulkEditStages(actor, input, tx),
-              ),
+            : bulkEditStages(actor, input),
         ),
     );
     server.registerTool(
@@ -756,17 +744,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         const options = {
           mayMutateCategories: scopes.has("ledger:write"),
         };
-        return runTool(() =>
-          input.dryRun
-            ? stageCsv(actor, input, undefined, options)
-            : runIdempotentMcpMutation(
-                actor,
-                "csv.stage",
-                input.idempotencyKey,
-                input,
-                (tx) => stageCsv(actor, input, tx, options),
-              ),
-        );
+        // Both branches now, because stageCsv honours the key itself.
+        return runTool(() => stageCsv(actor, input, undefined, options));
       },
     );
   }
@@ -1159,13 +1138,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         runTool(() =>
           input.dryRun
             ? bulkEditTransactionTemplates(actor, input)
-            : runIdempotentMcpMutation(
-                actor,
-                "transaction_template.bulk_edit",
-                input.idempotencyKey,
-                input,
-                (tx) => bulkEditTransactionTemplates(actor, input, tx),
-              ),
+            : bulkEditTransactionTemplates(actor, input),
         ),
     );
     server.registerTool(
@@ -1182,13 +1155,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         runTool(() =>
           input.dryRun
             ? bulkDeleteTransactionTemplates(actor, input)
-            : runIdempotentMcpMutation(
-                actor,
-                "transaction_template.bulk_delete",
-                input.idempotencyKey,
-                input,
-                (tx) => bulkDeleteTransactionTemplates(actor, input, tx),
-              ),
+            : bulkDeleteTransactionTemplates(actor, input),
         ),
     );
     server.registerTool(
@@ -1250,13 +1217,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       },
       (input) =>
         runTool(() =>
-          runIdempotentMcpMutation(
-            actor,
-            "payee.merge",
-            input.idempotencyKey,
-            input,
-            (tx) => mergePayees(actor, input, tx),
-          ),
+          mergePayees(actor, input),
         ),
     );
     server.registerTool(
@@ -1271,20 +1232,10 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       },
       ({ draft, idempotencyKey, allowDuplicate }) =>
         runTool(() =>
-          runIdempotentMcpMutation(
-            actor,
-            "transaction.create",
-            idempotencyKey,
-            { draft, allowDuplicate },
-            (tx) =>
-              createTransaction(
-                actor,
+          createTransaction(actor,
                 draft,
                 idempotencyKey,
-                allowDuplicate,
-                tx,
-              ),
-          ),
+                allowDuplicate),
         ),
     );
     server.registerTool(
@@ -1325,13 +1276,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         runTool(() =>
           input.dryRun
             ? bulkDeleteTransactions(actor, input)
-            : runIdempotentMcpMutation(
-                actor,
-                "transaction.bulk_delete",
-                input.idempotencyKey,
-                input,
-                (tx) => bulkDeleteTransactions(actor, input, tx),
-              ),
+            : bulkDeleteTransactions(actor, input),
         ),
     );
     server.registerTool(
@@ -1348,13 +1293,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         runTool(() =>
           input.dryRun
             ? bulkEditTransactions(actor, input)
-            : runIdempotentMcpMutation(
-                actor,
-                "transaction.bulk_edit",
-                input.idempotencyKey,
-                input,
-                (tx) => bulkEditTransactions(actor, input, tx),
-              ),
+            : bulkEditTransactions(actor, input),
         ),
     );
     server.registerTool(
@@ -1403,13 +1342,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         runTool(() =>
           input.dryRun
             ? commitStages(actor, input)
-            : runIdempotentMcpMutation(
-                actor,
-                "stage.commit",
-                input.idempotencyKey,
-                input,
-                (tx) => commitStages(actor, input, tx),
-              ),
+            : commitStages(actor, input),
         ),
     );
   }
