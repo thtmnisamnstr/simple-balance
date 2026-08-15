@@ -161,12 +161,24 @@ async function earliestPostingDate(userId: string, fallback: string) {
   return first ? String(first) : fallback;
 }
 
-function accountClass(report: ReportName): SQL {
+/**
+ * Which accounts a report reads, archived ones included or not.
+ *
+ * The trial balance takes every account whatever `includeArchived` says. Its
+ * whole claim is that the rows total zero, and archiving posts a balance out to
+ * equity: drop the account and its side of that posting goes with it while the
+ * equity side stays, so the report would contradict itself for every date
+ * before the archive.
+ */
+function accountScope(report: ReportName, includeArchived: boolean): SQL {
   if (report === "trial-balance") return sql``;
+  const archived = includeArchived
+    ? sql``
+    : sql`and a.archived_at is null`;
   if (report === "cash-flow") {
-    return sql`and a.system_kind is null and a.type in (${cashTypeList()})`;
+    return sql`and a.system_kind is null and a.type in (${cashTypeList()}) ${archived}`;
   }
-  return sql`and a.system_kind is null`;
+  return sql`and a.system_kind is null ${archived}`;
 }
 
 export async function getReport(
@@ -190,12 +202,29 @@ export async function getReport(
   // the calendar. Left at 0001-01-01 a monthly series would run to twenty-four
   // thousand columns before reaching anything anybody posted.
   const start = query.start ?? (await earliestPostingDate(actor.userId, asOf));
-  const windowStart = start > asOf ? asOf : start;
 
-  const gridRows = await getDb().execute(gridQuery(bucket, windowStart, asOf));
+  // A range that begins after today has not happened. Clamping its start down
+  // to today instead would report today's figures under next month's heading.
+  if (start > asOf) {
+    return {
+      report: query.report,
+      range: { start: query.start ?? null, end: query.end ?? null },
+      asOf,
+      bucket,
+      accumulation: preset.accumulation,
+      includesArchived: includeArchived,
+      buckets: [],
+      currencies: [],
+    };
+  }
+  const windowStart = start;
+
+  const gridRows = await getDb().execute(
+    sql`${gridQuery(bucket, windowStart, asOf)} limit ${MAX_REPORT_BUCKETS + 1}`,
+  );
   if (gridRows.rows.length > MAX_REPORT_BUCKETS) {
     throw validationError(
-      `That range needs ${gridRows.rows.length} ${bucket} columns, and ${MAX_REPORT_BUCKETS} is the most a report will draw. Ask for a coarser bucket or a shorter range.`,
+      `That range needs more than ${MAX_REPORT_BUCKETS} ${bucket} columns, which is the most a report will draw. Ask for a coarser bucket or a shorter range.`,
     );
   }
   const buckets = clip(
@@ -209,6 +238,7 @@ export async function getReport(
       ? assemble(
           await cashFlowCells(actor, bucket, windowStart, asOf, includeArchived),
           buckets,
+          preset.accumulation,
         )
       : preset.accumulation === "historical"
         ? assemble(
@@ -221,6 +251,7 @@ export async function getReport(
               includeArchived,
             ),
             buckets,
+            preset.accumulation,
           )
         : assemble(
             await flowCells(
@@ -232,6 +263,7 @@ export async function getReport(
               includeArchived,
             ),
             buckets,
+            preset.accumulation,
           );
 
   return {
@@ -242,7 +274,26 @@ export async function getReport(
     accumulation: preset.accumulation,
     includesArchived: includeArchived,
     buckets: buckets.map(({ start: from, end }) => ({ start: from, end })),
-    currencies,
+    currencies:
+      query.report === "categories" ? currencies.map(rankCategories) : currencies,
+  };
+}
+
+/**
+ * The same ranking the dashboard's spending list uses: biggest first, with the
+ * unfiled share last whatever it comes to. It is not a category anybody chose,
+ * so ranking it against the ones they did puts work-still-to-do at the top of a
+ * list meant to answer where the money went.
+ */
+function rankCategories(currency: CurrencyReport): CurrencyReport {
+  const unfiled = (row: ReportRow) => row.key.endsWith(":uncategorized");
+  return {
+    ...currency,
+    rows: [...currency.rows].sort((left, right) => {
+      if (unfiled(left) !== unfiled(right)) return unfiled(left) ? 1 : -1;
+      const size = decimal(right.total).abs().comparedTo(decimal(left.total).abs());
+      return size !== 0 ? size : left.label.localeCompare(right.label);
+    }),
   };
 }
 
@@ -267,8 +318,7 @@ async function balanceCells(
       select a.id, a.name, a.type::text as type, a.currency, a.system_kind
       from ledger_account a
       where a.user_id = ${actor.userId}
-        ${accountClass(report)}
-        and (${includeArchived} or a.archived_at is null)
+        ${accountScope(report, includeArchived)}
     ),
     changes as (
       select
@@ -428,20 +478,23 @@ async function cashFlowCells(
       where p.user_id = ${actor.userId}
         and p.transaction_id is not null
       group by 1, 2, 3, a.system_kind, a.type
+      having sum(p.amount) <> 0
     ),
     moves as (
       select
         p.transaction_id,
-        p.opening_account_id,
+        bool_or(p.opening_account_id is not null) as is_opening,
         p.date,
         p.currency,
         p.account_id,
-        p.amount
+        sum(p.amount) as amount
       from posting p
       join cash on cash.id = p.account_id
       where p.user_id = ${actor.userId}
         and p.closing_account_id is null
         and p.date between ${start}::date and ${asOf}::date
+      group by p.transaction_id, p.date, p.currency, p.account_id
+      having sum(p.amount) <> 0
     )
     select
       ${bucketExpression(bucket, start, "m")} as bucket,
@@ -449,7 +502,7 @@ async function cashFlowCells(
       case
         -- The equity half of an opening pair is joined by the account it opens
         -- rather than by a transaction, so it has no counterpart to look up.
-        when m.opening_account_id is not null then 'opening'
+        when m.is_opening then 'opening'
         when s.system_kind in ('income', 'expense') then 'operating'
         when s.system_kind = 'exchange' then 'exchange'
         when s.system_kind = 'equity' then 'opening'
@@ -481,10 +534,12 @@ async function cashFlowCells(
 /**
  * One account's postings with the balance before and after each of them.
  *
- * The running total is ordered by `(date, id)` rather than by date alone: two
- * postings on one day would otherwise take whichever order the scan produced,
- * and the balance printed beside each of them would change between two calls
- * that returned the same rows.
+ * The running total is ordered by `(date, created_at, id)` rather than by date
+ * alone. Two postings can share a day, and `id` is a random uuid, so ordering
+ * on it alone is a coin flip: a correction's reversal could be listed before
+ * the posting it reverses, walking the balance through a figure the account
+ * never held. Writing order settles it, and the uuid only breaks a remaining
+ * tie so the answer stays stable between two calls.
  *
  * Closing postings stay in. They are what an archived account's register ends
  * on, and leaving them out would show it still holding money it has already
@@ -551,7 +606,7 @@ export async function getAccountRegister(
       p.closing_account_id,
       p.amount::text as amount,
       (sum(p.amount) over (
-        order by p.date, p.id
+        order by p.date, p.created_at, p.id
         rows between unbounded preceding and current row
       ))::text as running
     from posting p
@@ -559,7 +614,7 @@ export async function getAccountRegister(
       and p.account_id = ${id}::uuid
       and p.date <= ${asOf}::date
       and (${!hasStart} or p.date >= ${start}::date)
-    order by p.date, p.id
+    order by p.date, p.created_at, p.id
   `);
 
   const rows = entries.rows.map((row) => {
@@ -604,8 +659,16 @@ export async function getAccountRegister(
  * Cells into a dense matrix. A bucket a row has no cell for is a zero rather
  * than a gap, so a quiet month keeps its column and the series does not
  * silently compress time.
+ *
+ * A row's total depends on what its values are. Movements add up; balances do
+ * not, and adding six months of them reports six times the money. So a
+ * historical row totals the balance it closes on.
  */
-function assemble(cells: Cell[], buckets: BucketWindow[]): CurrencyReport[] {
+function assemble(
+  cells: Cell[],
+  buckets: BucketWindow[],
+  accumulation: ReportAccumulation,
+): CurrencyReport[] {
   const index = new Map(
     buckets.map((bucket, position) => [bucket.periodStart, position]),
   );
@@ -635,9 +698,12 @@ function assemble(cells: Cell[], buckets: BucketWindow[]): CurrencyReport[] {
     .map(([currency, rows]) => {
       const list = [...rows.values()].map((row) => ({
         ...row,
-        total: canonicalDecimal(
-          row.values.reduce((sum, value) => sum.plus(value), decimal(ZERO)),
-        ),
+        total:
+          accumulation === "historical"
+            ? canonicalDecimal(row.values[row.values.length - 1] ?? ZERO)
+            : canonicalDecimal(
+                row.values.reduce((sum, value) => sum.plus(value), decimal(ZERO)),
+              ),
       }));
       const totals = buckets.map((_, position) =>
         canonicalDecimal(

@@ -23,7 +23,7 @@ const actor: Actor = { userId: "archived-exclusion-user", source: "web" };
 
 const range = { start: "2026-01-01", end: "2026-12-31" };
 let keySeed = 0;
-const nextKey = () => `archived-${(keySeed += 1)}`.padEnd(16, "0");
+const nextKey = () => `archived-${String((keySeed += 1)).padStart(6, "0")}`;
 
 let liveId = "";
 let doomedId = "";

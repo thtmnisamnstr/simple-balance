@@ -10,7 +10,10 @@ import {
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import { getReport } from "../../src/server/services/reports.js";
-import { createTransaction } from "../../src/server/services/transactions.js";
+import {
+  createTransaction,
+  updateTransaction,
+} from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -19,7 +22,7 @@ const database = scratchDatabase("cash_flow");
 const actor: Actor = { userId: "cash-flow-user", source: "web" };
 
 let keySeed = 0;
-const nextKey = () => `cashflow-${(keySeed += 1)}`.padEnd(16, "0");
+const nextKey = () => `cashflow-${String((keySeed += 1)).padStart(6, "0")}`;
 
 let checkingId = "";
 let savingsId = "";
@@ -406,6 +409,62 @@ integration("the cash flow statement", () => {
       "-220",
     );
     expect(euro.rows.find((row) => row.key === "exchange")!.total).toBe("200");
+  });
+
+  /**
+   * Postings are append-only, so correcting an entry onto another account
+   * leaves the first account's postings behind netting to zero. Counted as a
+   * counterpart they fan the cash side out to two rows and the same money is
+   * reported in two segments at once, which is what `having sum(...) <> 0` on
+   * `sides` and on `moves` exists to stop.
+   */
+  it("counts a corrected entry once, under where the money actually went", async () => {
+    const moved = await createTransaction(
+      actor,
+      {
+        type: "transfer",
+        date: "2026-05-05",
+        payee: "Move",
+        fromAccountId: checkingId,
+        toAccountId: savingsId,
+        sourceAmount: "400",
+      } as never,
+      nextKey(),
+    );
+    await updateTransaction(actor, moved.id, {
+      expectedVersion: moved.version,
+      draft: {
+        type: "transfer",
+        date: "2026-05-05",
+        payee: "Move",
+        fromAccountId: checkingId,
+        toAccountId: brokerageId,
+        sourceAmount: "400",
+      } as never,
+    });
+
+    const window = { start: "2026-05-01", end: "2026-05-31" };
+    const report = await getReport(actor, { report: "cash-flow", ...window }, true);
+    const totals = segments(report);
+    expect(totals.internal ?? "0").toBe("0");
+    expect(totals.investing).toBe("-400");
+
+    const moved_ = await getDb().execute(sql`
+      select coalesce(sum(p.amount), 0)::text as net
+      from posting p
+      join ledger_account a on a.user_id = p.user_id and a.id = p.account_id
+      where p.user_id = ${actor.userId}
+        and a.system_kind is null
+        and a.type in ('checking', 'savings', 'cash')
+        and p.currency = 'USD'
+        and p.closing_account_id is null
+        and p.date between ${window.start}::date and ${window.end}::date
+    `);
+    const summed = usd(report)!.rows.reduce(
+      (total, row) => total + Number(row.total),
+      0,
+    );
+    expect(summed).toBe(Number(moved_.rows[0]!.net));
   });
 
   it("answers the counterpart without a query per movement", async () => {
