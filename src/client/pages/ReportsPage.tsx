@@ -181,7 +181,7 @@ export default function ReportsPage() {
                   </>
                 ) : null}
 
-                <div className="table-card">
+                <div className="table-wrap">
                   <table className="data-table report-table">
                     <caption className="sr-only">
                       {TITLES[report]} in {currency.currency}
