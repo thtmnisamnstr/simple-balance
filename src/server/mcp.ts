@@ -328,7 +328,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List payees",
         description:
-          "List canonical payee names derived from committed and staged transactions.",
+          "Every payee spelling the ledger holds, one row per spelling as it was typed, with how many committed and staged entries carry each. A payee is text on a transaction rather than a record, so two spellings of one shop are two rows here. Use `list_duplicate_payees` to see which of them collide.",
         // The service's own schema, so what is advertised and what is accepted
         // cannot drift. They already had: this said 200 characters where the
         // service allows 160 and strips line breaks.
@@ -343,7 +343,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List duplicate payees",
         description:
-          "Find payee spellings that match after Unicode, whitespace, and case normalization.",
+          "Payee spellings that collide once Unicode form, whitespace and case are normalised, grouped by what they normalise to. This is the grouping `list_payees` does not do, and the normalisation is the server’s own: an agent cannot reliably reproduce it from the spellings alone. Reach for this before merging, and for `list_payees` when you want the whole list.",
         inputSchema: z.object({}),
         outputSchema: mcpOutputSchema(duplicatePayeesResultSchema),
         annotations: readAnnotations,
@@ -658,9 +658,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Stage a transaction",
         description: "Create a transaction for review without changing account balances.",
-        inputSchema: stageCreateSchema.extend({
-          idempotencyKey: idempotencyKeySchema,
-        }),
+        inputSchema: stageCreateSchema,
         outputSchema: mcpOutputSchema(stagedTransactionResultSchema),
         annotations: additiveAnnotations,
       },
@@ -726,7 +724,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Bulk edit staged transactions",
         description:
-          "Atomically edit explicit versioned staged transactions or a previewed all-matching selection. Every row is validated again afterwards, so filling in a missing account or category clears the issues that were blocking a commit. Account and type are refused on transfers, and dryRun validates without writing.",
+          "Atomically edit explicit versioned staged transactions or a previewed all-matching selection. Every row is validated again afterwards, so filling in a missing account or category clears the issues that were blocking a commit. Account and type are refused on transfers, and dryRun validates without writing. A selection holding even one split refuses a category or type change outright rather than flattening the split, so the whole call fails: leave splits out of the selection, or edit their legs one entry at a time.",
         inputSchema: bulkStageEditSchema,
         outputSchema: mcpOutputSchema(bulkStageEditMcpResultSchema),
         annotations: destructiveAnnotations,
@@ -750,9 +748,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "Stage CSV transactions",
         description:
           "Parse CSV text, preview it with dryRun, or place all rows in the staging queue. Categories named in the file are matched to ones that already exist. Creating a category, bringing an archived one back, or widening what it may carry are ledger:write changes, so with only ledger:stage the row is staged under the category's name and the resolution is reported as deferred; committing it, which needs ledger:write, is what makes the category.",
-        inputSchema: csvStageInputSchema.extend({
-          idempotencyKey: idempotencyKeySchema,
-        }),
+        inputSchema: csvStageInputSchema,
         outputSchema: mcpOutputSchema(csvStageResultSchema),
         annotations: additiveAnnotations,
       },
@@ -1051,9 +1047,17 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "Set regional preferences",
         description:
           "Set the timezone or the default currency. What you leave out keeps its current value. The timezone decides what today means everywhere a date is worked out, so changing it changes which day an open-ended range stops at and which day an entry dated \"today\" lands on. Confirm it with the person before changing it; there is no version to check and no undo beyond setting it back.",
-        inputSchema: preferencePatchSchema.extend({
-          idempotencyKey: idempotencyKeySchema,
-        }),
+        // Every field of the patch is optional, so without this an agent is
+        // told `{ idempotencyKey }` alone is a valid call and finds out
+        // otherwise from a runtime refusal. The service checks it too; this is
+        // the same rule said where an agent can read it before calling.
+        inputSchema: preferencePatchSchema
+          .extend({ idempotencyKey: idempotencyKeySchema })
+          .refine(
+            (patch) =>
+              patch.timezone !== undefined || patch.defaultCurrency !== undefined,
+            { message: "Choose at least one preference to change" },
+          ),
         outputSchema: mcpOutputSchema(preferencesResultSchema),
         annotations: destructiveAnnotations,
       },
@@ -1259,7 +1263,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "create_transaction",
       {
         title: "Commit a transaction",
-        description: "Directly commit a deposit, withdrawal, or transfer.",
+        description:
+          "Directly commit a deposit, withdrawal, or transfer. An entry that looks like one already in the books is refused with a DUPLICATE error rather than written; that is the refusal you are most likely to meet. Read what it names, and send `allowDuplicate: true` only once you are satisfied the two really are separate payments.",
         inputSchema: directTransactionCreateSchema,
         outputSchema: mcpOutputSchema(transactionResultSchema),
         annotations: additiveAnnotations,
@@ -1334,7 +1339,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Bulk edit committed transactions",
         description:
-          "Atomically edit explicit versioned transactions or a previewed all-matching selection. Transfers only accept common-field edits, account changes must preserve native currency, and dryRun validates without writing.",
+          "Atomically edit explicit versioned transactions or a previewed all-matching selection. Transfers only accept common-field edits, account changes must preserve native currency, and dryRun validates without writing. A selection holding even one split refuses a category or type change outright rather than flattening the split, so the whole call fails: leave splits out of the selection, or edit their legs one entry at a time.",
         inputSchema: bulkTransactionEditSchema,
         outputSchema: mcpOutputSchema(bulkTransactionEditMcpResultSchema),
         annotations: destructiveAnnotations,

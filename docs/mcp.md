@@ -381,8 +381,17 @@ alone and not counted in `changedCount`.
 ## Payees
 
 `list_payees`, `list_duplicate_payees`, and `merge_payees`. There is no payee
-record to fetch: payees are canonical text read out of committed and staged
-transactions, so MCP and the browser share one spelling and one audit trail.
+record to fetch: a payee is text on a transaction, read back out of committed
+and staged entries, so MCP and the browser share one spelling and one audit
+trail.
+
+The two listings answer different questions. `list_payees` is every spelling the
+ledger holds, one row each as it was typed, which is why one shop entered two
+ways is two rows. `list_duplicate_payees` groups the spellings that collide once
+Unicode form, whitespace and case are normalised, and that normalisation is the
+server's own rather than something an agent can reproduce from the spellings.
+Reach for the grouping before a merge, and for the flat list when you want
+everything.
 
 ## CSV
 

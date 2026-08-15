@@ -135,14 +135,19 @@ GOOGLE_CLIENT_ID: {{ . | quote }}
 {{- if $c.mail.host }}
 SMTP_HOST: {{ $c.mail.host | quote }}
 MAIL_FROM: {{ $c.mail.from | quote }}
-SMTP_PORT: {{ $c.mail.port | quote }}
+SMTP_PORT: {{ $c.mail.port | int64 | quote }}
 SMTP_SSL: {{ $c.mail.ssl | quote }}
 {{- with $c.mail.replyTo }}
 MAIL_REPLY_TO: {{ . | quote }}
 {{- end }}
 {{- end }}
 {{- range $name, $value := $c.extraEnv }}
-{{ $name }}: {{ $value | quote }}
+{{- /*
+The same hazard the numeric settings above are guarded against, and this is the
+one place a value's type is not known in advance. YAML reads a bare number as a
+float64, and quoting that directly gives 1.048576e+07 rather than 10485760.
+*/}}
+{{ $name }}: {{ if kindIs "float64" $value }}{{ $value | int64 | quote }}{{ else }}{{ $value | quote }}{{ end }}
 {{- end }}
 {{- end }}
 

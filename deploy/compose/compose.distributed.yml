@@ -26,6 +26,12 @@ name: simple-balance-distributed
 # RECURRENCE_SCHEDULER is deliberately absent: it is the one setting the two
 # disagree about, so each sets it for itself.
 x-app-config: &app-config
+  # Pinned rather than left to the image, which does set it. Unset reads as
+  # development, and that is the one misconfiguration with no symptom: no setup
+  # code, no sign-in rate limiting, no secure cookies, and nothing said. The
+  # chart pins it for the same reason.
+  NODE_ENV: production
+
   DATABASE_URL: postgresql://simple_balance:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/.env}@postgres:5432/simple_balance
 
   # The FRONTEND's origin as the browser sees it, not the API's own address.
@@ -146,8 +152,12 @@ services:
       timeout: 5s
       # The first start against an empty database runs every migration before
       # readiness opens, and start_period is the budget for that: a failure
-      # before it elapses does not count against retries.
-      start_period: 90s
+      # before it elapses does not count against retries. The chart's
+      # startupProbe allows the same 300s for the same work, and the two are
+      # kept in step deliberately: whichever is smaller is the one that decides
+      # how slow a first migration may be before somebody's deployment restarts
+      # in the middle of it.
+      start_period: 300s
       retries: 5
 
   frontend:
@@ -242,7 +252,9 @@ services:
         - "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
       interval: 10s
       timeout: 5s
-      start_period: 90s
+      # The same budget the server gets, for the same reason: on a first start
+      # against an empty database this waits behind every migration too.
+      start_period: 300s
       retries: 5
 
 volumes:

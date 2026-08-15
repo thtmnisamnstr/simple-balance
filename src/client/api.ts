@@ -152,26 +152,23 @@ export type CategoryMergeResult = {
   updatedStagedTransactionCount: number;
 };
 
-export type PayeeSummary = {
-  name: string;
-  normalizedName: string;
-  transactionCount: number;
-  stagedTransactionCount: number;
-  totalCount: number;
-};
+/**
+ * Re-exported rather than restated, the way CsvPreview already is. A second
+ * copy of a shape the server defines is a copy that can drift, and nothing here
+ * would catch it: the browser would keep compiling against a shape the API had
+ * stopped sending.
+ */
+export type {
+  PayeeSummary,
+  PayeeDuplicateGroup,
+  PayeeMergeResult,
+} from "../shared/domain.js";
+export type {
+  BulkTransactionSelectionSnapshot as TransactionBulkSelectionPreview,
+  BulkTransactionEditResult as TransactionBulkEditResult,
+  BulkStageEditResult as StagedBulkEditResult,
+} from "../shared/domain.js";
 
-export type PayeeDuplicateGroup = {
-  normalizedName: string;
-  count: number;
-  payees: PayeeSummary[];
-};
-
-export type PayeeMergeResult = {
-  targetPayee: string;
-  mergedSourcePayees: string[];
-  updatedTransactionCount: number;
-  updatedStagedTransactionCount: number;
-};
 
 /**
  * One category's share of a split. `id` is what an edit sends back to keep
@@ -235,15 +232,6 @@ export type TransactionBulkEditSelection =
       expectedFingerprint: string;
     };
 
-export type TransactionBulkSelectionPreview = {
-  count: number;
-  fingerprint: string;
-  activeCount: number;
-  deletedCount: number;
-  transferCount: number;
-  splitCount: number;
-  currencies: string[];
-};
 
 export type TransactionBulkEditPatch = {
   date?: string;
@@ -255,26 +243,6 @@ export type TransactionBulkEditPatch = {
   type?: "deposit" | "withdrawal";
 };
 
-export type TransactionBulkEditResult = {
-  updatedCount: number;
-  selectionCount: number;
-  selectionFingerprint: string;
-  activeCount: number;
-  deletedCount: number;
-  transferCount: number;
-  splitCount: number;
-  currencies: string[];
-  itemsTruncated: boolean;
-  dryRun: boolean;
-  items: {
-    id: string;
-    previousVersion: number;
-    nextVersion: number;
-    type: TransactionType;
-    date: string;
-    payee: string;
-  }[];
-};
 
 export type StagedTransaction = {
   id: string;
@@ -319,18 +287,6 @@ export type StagedBulkEditPatch = {
   type?: "deposit" | "withdrawal";
 };
 
-export type StagedBulkEditResult = {
-  dryRun: boolean;
-  updatedCount: number;
-  validCount: number;
-  invalidCount: number;
-  items: {
-    id: string;
-    version: number;
-    issueCount: number;
-    possiblyDuplicate: boolean;
-  }[];
-};
 
 /**
  * A saved starting point for the transaction form. The draft is partial on
