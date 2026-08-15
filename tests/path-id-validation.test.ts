@@ -22,8 +22,10 @@ describe("ids taken out of the URL", () => {
       (match) => match[1]!,
     );
     // clientId is an OAuth client identifier rather than a uuid, and the route
-    // that takes it compares it as text.
-    expect(raw.filter((name) => name !== "clientId")).toEqual([]);
+    // that takes it compares it as text. report names one of a closed set and
+    // is parsed against that set at the boundary, so neither reaches a cast.
+    const checkedElsewhere = new Set(["clientId", "report"]);
+    expect(raw.filter((name) => !checkedElsewhere.has(name))).toEqual([]);
   });
 
   it("routes every uuid path parameter through the same check", async () => {

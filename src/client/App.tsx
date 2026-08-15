@@ -10,6 +10,7 @@ import {
   LogOut,
   Menu,
   ReceiptText,
+  ChartColumn,
   Repeat,
   Settings,
   Sparkles,
@@ -43,6 +44,7 @@ import CategoryDetailPage from "./pages/CategoryDetailPage.js";
 import PayeeDetailPage from "./pages/PayeeDetailPage.js";
 import PayeesPage from "./pages/PayeesPage.js";
 import DashboardPage from "./pages/DashboardPage.js";
+import ReportsPage from "./pages/ReportsPage.js";
 import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
 import RecurrencesPage from "./pages/RecurrencesPage.js";
@@ -57,6 +59,7 @@ const nav = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/accounts", label: "Accounts", icon: Landmark },
   { to: "/transactions", label: "Transactions", icon: ReceiptText },
+  { to: "/reports", label: "Reports", icon: ChartColumn },
   { to: "/staged", label: "Staged", icon: Sparkles },
   { to: "/categories", label: "Categories", icon: Tags },
   { to: "/payees", label: "Payees", icon: UserRound },
@@ -677,6 +680,8 @@ function Shell({ session }: { session: Session }) {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/accounts" element={<AccountsPage session={session} />} />
               <Route path="/accounts/:accountId" element={<AccountDetailPage />} />
+              <Route path="/reports" element={<ReportsPage />} />
+              <Route path="/reports/:report" element={<ReportsPage />} />
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/staged" element={<StagingPage />} />
               <Route path="/categories" element={<CategoriesPage />} />

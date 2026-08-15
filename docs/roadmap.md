@@ -193,9 +193,9 @@ data ageing inside a container nobody updates is worse than not having it.
 - Deleting a recurrence leaves rows already proposed or committed untouched
 - Reachable over MCP under the same scope rules as everything else
 
-## SB-018 — Reporting
+## SB-018 — Reporting — **done**
 
-**Priority 180. Depends on SB-015.**
+**Priority 180. Depends on SB-015. Shipped with no migration.**
 
 Net worth over time, income against expense, and category trends across a range.
 
@@ -221,6 +221,50 @@ The dashboard currently stops at balances, cash flow, and spending by category.
   with a closed account contributing the zero it actually holds
 - The range lives in the URL, as it does elsewhere
 - Every report is reachable over MCP as a read tool
+
+**How it was met**
+
+One parameterised aggregation with named presets, after hledger: a statement is
+a preset over one query differing by which accounts it reads, whether it reports
+a period's movement or the balance it ends on, and how time is bucketed. That is
+why six reports cost one route and one tool, and why the seventh will cost an
+enum value.
+
+Net worth is a vector, never a scalar. There is no exchange rate in this ledger,
+so a figure spanning currencies could only come from the rates implied by
+transfers already made — what those transfers cost, not what the money is worth.
+The response has no field above `currencies` for such a number to occupy, so it
+cannot be added back by accident.
+
+Two things were measured rather than assumed, against a seeded ledger of a
+hundred thousand postings on PostgreSQL 15 and 16. A balance series accumulates
+with a window function over one pass of the postings; asking the database for a
+balance as of each bucket's end instead is fifty times slower and worsens as the
+series lengthens. And no index was added: the candidate for the register's
+ordering costs fifteen megabytes, buys under a millisecond, and the planner
+declines to use it. Both properties are pinned by plan assertions that price
+sorts and sequential scans out of the way, so they answer whether an index can
+serve the query rather than whether the planner bothers on a handful of rows.
+
+**Beyond the criteria**
+
+A cash flow statement, asked for after the plan was drawn. It is the direct
+method — the movements themselves, not net income adjusted for non-cash items,
+which would need accruals this ledger does not record. Its segmentation is
+structural rather than a classification anybody maintains: every posting on a
+spendable account belongs to a transaction whose other side in the same currency
+names exactly one account, and that account's type decides whether the money was
+earned, invested, borrowed, moved between your own accounts, or converted. It
+goes further than the field ships — hledger and GnuCash segment nothing, and
+Fava has no cash flow report at all — so it carries its one caveat on the page:
+it will not agree with income and expense wherever a credit card is involved,
+and both figures are right.
+
+Also a per-account register, which Firefly III positions as an error-finding
+tool rather than an analytical one, and the two canonical statements every
+strict double-entry tool ships. The balance sheet is net worth with one column,
+and the trial balance is the same query with the counter-accounts left in, so
+both were nearly free once the engine existed.
 
 ## SB-019 — Budgeting
 

@@ -4,6 +4,7 @@ import { dateRangeSchema } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
+import { archivedExclusion, withClause } from "./report-sql.js";
 import { todayIn } from "../../shared/recurrence-dates.js";
 
 type CurrencySummary = {
@@ -39,6 +40,7 @@ export async function getSummary(
   // actually used is returned, so nothing has to guess what it is showing.
   const requestedEnd = range.end ?? "9999-12-31";
   const end = requestedEnd < today ? requestedEnd : today;
+  const archived = archivedExclusion(actor.userId, includeArchived);
   const accountQuery = db.execute(sql`
     select
       a.id,
@@ -62,6 +64,7 @@ export async function getSummary(
   // off them rather than off the transaction rows means a corrected entry is
   // reflected here for the same reason it is reflected in a balance.
   const flowQuery = db.execute(sql`
+    ${withClause(archived.cte)}
     select
       p.currency,
       coalesce(-sum(p.amount) filter (where a.system_kind = 'income'), 0)::text as deposits,
@@ -70,26 +73,11 @@ export async function getSummary(
     join ledger_account a
       on a.user_id = p.user_id
       and a.id = p.account_id
+    ${archived.join}
     where p.user_id = ${actor.userId}
       and a.system_kind in ('income', 'expense')
       and p.date between ${start}::date and ${end}::date
-      and (${includeArchived} or not exists (
-        -- Whether this entry still runs through an archived account, by net
-        -- rather than by the presence of a row. A correction that moved it on
-        -- to a live account leaves its old postings behind netting to zero,
-        -- and matching those dropped the entry from the figures for good.
-        select 1
-        from posting sibling
-        join ledger_account side
-          on side.user_id = sibling.user_id
-          and side.id = sibling.account_id
-        where sibling.user_id = p.user_id
-          and sibling.transaction_id = p.transaction_id
-          and side.system_kind is null
-          and side.archived_at is not null
-        group by sibling.account_id
-        having sum(sibling.amount) <> 0
-      ))
+      ${archived.filter}
     group by p.currency
   `);
   // The amount is the posting's; the transaction and the leg are joined only
@@ -102,6 +90,7 @@ export async function getSummary(
   // is three postings of 100 between them, not one posting counted three
   // times. The leg join is many-to-one on a primary key.
   const categoryQuery = db.execute(sql`
+    ${withClause(archived.cte)}
     select
       p.currency,
       c.id as category_id,
@@ -112,12 +101,13 @@ export async function getSummary(
       on a.user_id = p.user_id
       and a.id = p.account_id
       and a.system_kind = 'expense'
-    left join ledger_transaction t
-      on t.user_id = p.user_id
-      and t.id = p.transaction_id
     left join transaction_leg l
       on l.user_id = p.user_id
       and l.id = p.leg_id
+    left join ledger_transaction t
+      on p.leg_id is null
+      and t.user_id = p.user_id
+      and t.id = p.transaction_id
     left join category c
       on c.user_id = p.user_id
       -- A case rather than a coalesce: a leg with no category is a share the
@@ -127,25 +117,10 @@ export async function getSummary(
         when p.leg_id is not null then l.category_id
         else t.category_id
       end
+    ${archived.join}
     where p.user_id = ${actor.userId}
       and p.date between ${start}::date and ${end}::date
-      and (${includeArchived} or not exists (
-        -- Whether this entry still runs through an archived account, by net
-        -- rather than by the presence of a row. A correction that moved it on
-        -- to a live account leaves its old postings behind netting to zero,
-        -- and matching those dropped the entry from the figures for good.
-        select 1
-        from posting sibling
-        join ledger_account side
-          on side.user_id = sibling.user_id
-          and side.id = sibling.account_id
-        where sibling.user_id = p.user_id
-          and sibling.transaction_id = p.transaction_id
-          and side.system_kind is null
-          and side.archived_at is not null
-        group by sibling.account_id
-        having sum(sibling.amount) <> 0
-      ))
+      ${archived.filter}
     group by p.currency, c.id, c.name
     having sum(p.amount) <> 0
     -- Uncategorised last, whatever it totals. It is not a category somebody

@@ -7,6 +7,8 @@ import type {
   RecurrenceFrequencyName,
   RecurrenceSchedule,
   RecurrenceShape,
+  ReportBucket,
+  ReportName,
   StagedDraft,
   TransactionTemplateDraft,
   TransactionType,
@@ -368,6 +370,49 @@ export type Summary = {
       category: string;
       amount: string;
     }[];
+  }[];
+};
+
+export type Report = {
+  report: ReportName;
+  range: { start: string | null; end: string | null };
+  /** The day the figures are really as of, which is today when the range runs past it. */
+  asOf: string;
+  bucket: ReportBucket;
+  accumulation: "change" | "historical";
+  includesArchived: boolean;
+  buckets: { start: string; end: string }[];
+  currencies: {
+    currency: string;
+    rows: {
+      key: string;
+      label: string;
+      kind: string | null;
+      values: string[];
+      total: string;
+    }[];
+    totals: string[];
+  }[];
+};
+
+export type AccountRegister = {
+  accountId: string;
+  accountName: string;
+  type: UserAccountType;
+  currency: string;
+  archivedAt: string | null;
+  range: { start: string | null; end: string | null };
+  asOf: string;
+  openingBalance: string;
+  closingBalance: string;
+  entries: {
+    postingId: string;
+    transactionId: string | null;
+    date: string;
+    amount: string;
+    balanceBefore: string;
+    balanceAfter: string;
+    origin: "opening" | "closing" | "transaction";
   }[];
 };
 

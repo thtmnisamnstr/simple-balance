@@ -19,6 +19,7 @@ import {
   dateRangeSchema,
   directTransactionCreateSchema,
   idempotencyKeySchema,
+  reportQuerySchema,
   recurrenceCreateSchema,
   recurrenceUpdateSchema,
   listQuerySchema,
@@ -106,6 +107,7 @@ import {
   listConnectedApps,
   revokeConnectedApp,
 } from "./services/connected-apps.js";
+import { getAccountRegister, getReport } from "./services/reports.js";
 import { getSummary } from "./services/summary.js";
 import {
   createRecurrence,
@@ -155,6 +157,8 @@ import {
   importBatchResultSchema,
   ownDataSummaryResultSchema,
   preferencesResultSchema,
+  accountRegisterResultSchema,
+  reportResultSchema,
   summaryResultSchema,
   transactionResultSchema,
   transactionTemplateBulkMcpResultSchema,
@@ -598,6 +602,37 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       },
       ({ includeArchived, ...input }) =>
         runTool(() => getSummary(actor, input, includeArchived ?? false)),
+    );
+    server.registerTool(
+      "get_report",
+      {
+        title: "Run a financial report",
+        description:
+          "Run one of six reports over a date range, returned as a matrix of rows by time bucket, separately per currency and never mixed across them. net-worth and balance-sheet are what the accounts hold at the end of each bucket; income-expense, categories and cash-flow are what moved during it; trial-balance lists every account including the server's own counter-accounts and totals zero when the books are whole. Nothing dated after today is counted whatever end you ask for, and asOf says which day the figures are really as of.",
+        inputSchema: reportQuerySchema.extend({
+          includeArchived: z
+            .boolean()
+            .optional()
+            .describe("Count archived accounts and their activity too. Off by default: archiving posts an account's balance out to equity, so an archived account holds nothing and its past activity is left out of the totals."),
+        }),
+        outputSchema: mcpOutputSchema(reportResultSchema),
+        annotations: readAnnotations,
+      },
+      ({ includeArchived, ...input }) =>
+        runTool(() => getReport(actor, input, includeArchived ?? false)),
+    );
+    server.registerTool(
+      "get_account_register",
+      {
+        title: "List one account's postings with a running balance",
+        description:
+          "List every posting on one account in date order with the balance before and after each of them, plus the balance the window opens and closes on. Built for finding mistakes rather than for analysis: where a balance goes wrong, this is the row it went wrong on. An archived account ends at zero, and the postings that closed it out to equity are in the list.",
+        inputSchema: dateRangeSchema.extend({ id: z.string().uuid() }),
+        outputSchema: mcpOutputSchema(accountRegisterResultSchema),
+        annotations: readAnnotations,
+      },
+      ({ id, start, end }) =>
+        runTool(() => getAccountRegister(actor, id, { start, end })),
     );
     server.registerTool(
       "export_transactions_csv",
