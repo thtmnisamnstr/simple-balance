@@ -209,7 +209,7 @@ export const MAX_TRANSACTION_LEGS = 50;
  * `amount` is unsigned. Direction belongs to the entry — every leg of a
  * withdrawal is money out — so a signed leg could only ever contradict it.
  */
-export const transactionLegSchema = z
+const transactionLegSchema = z
   .object({
     id: z.string().uuid().optional(),
     categoryId: z.string().uuid().optional().nullable(),
@@ -224,7 +224,7 @@ export const transactionLegSchema = z
   })
   .strict();
 
-export type TransactionLegInput = z.infer<typeof transactionLegSchema>;
+type TransactionLegInput = z.infer<typeof transactionLegSchema>;
 
 const legsField = z
   .array(transactionLegSchema)
@@ -346,7 +346,7 @@ const transactionCommon = {
   ...transactionShapeCommon,
 };
 
-export const depositDraftSchema = z
+const depositDraftSchema = z
   .object({
     type: z.literal("deposit"),
     ...transactionCommon,
@@ -355,7 +355,7 @@ export const depositDraftSchema = z
   })
   .superRefine(checkTransactionLegs);
 
-export const withdrawalDraftSchema = z
+const withdrawalDraftSchema = z
   .object({
     type: z.literal("withdrawal"),
     ...transactionCommon,
@@ -364,7 +364,7 @@ export const withdrawalDraftSchema = z
   })
   .superRefine(checkTransactionLegs);
 
-export const transferDraftSchema = z
+const transferDraftSchema = z
   .object({
     type: z.literal("transfer"),
     ...transactionCommon,
@@ -756,7 +756,7 @@ export const dateRangeSchema = z.object({
   end: isoDateSchema.optional(),
 });
 
-export const queryBooleanSchema = z
+const queryBooleanSchema = z
   .union([
     z.boolean(),
     z.literal("true").transform(() => true),
@@ -768,7 +768,7 @@ export const sortDirections = ["asc", "desc"] as const;
 export type SortDirection = (typeof sortDirections)[number];
 
 /** Every column the transaction list puts on screen can order it. */
-export const transactionSortFields = [
+const transactionSortFields = [
   "date",
   "payee",
   "account",
@@ -778,7 +778,7 @@ export const transactionSortFields = [
 export type TransactionSortField = (typeof transactionSortFields)[number];
 
 /** Same rule for the staged queue. */
-export const stageSortFields = [
+const stageSortFields = [
   "date",
   "payee",
   "account",
@@ -810,7 +810,7 @@ export const listQuerySchema = dateRangeSchema.extend({
 // a fingerprinted selection to whichever page happened to be open.
 // Order is presentation, not scope. Leaving it in would make two requests that
 // select the same rows look like different selections to the fingerprint.
-export const bulkTransactionFilterSchema = listQuerySchema
+const bulkTransactionFilterSchema = listQuerySchema
   .omit({ cursor: true, page: true, limit: true, sort: true, direction: true })
   .strict();
 
@@ -893,7 +893,7 @@ export const bulkTransactionSelectionSnapshotSchema = z
   })
   .strict();
 
-export const bulkTransactionPatchSchema = z
+const bulkTransactionPatchSchema = z
   .object({
     date: isoDateSchema.optional(),
     payee: z.string().trim().min(1, "Payee is required").max(160).optional(),
@@ -939,7 +939,7 @@ export const bulkTransactionDeleteSchema = z
   })
   .strict();
 
-export const bulkTransactionEditItemSchema = z
+const bulkTransactionEditItemSchema = z
   .object({
     id: z.string().uuid(),
     previousVersion: z.number().int().positive(),
@@ -1099,7 +1099,7 @@ export const bulkStageSelectionSnapshotSchema = z
  * refused for a transfer, which has two sides and no single account to move,
  * exactly as they are on committed rows.
  */
-export const bulkStagePatchSchema = z
+const bulkStagePatchSchema = z
   .object({
     date: isoDateSchema.optional(),
     payee: z.string().trim().min(1, "Payee is required").max(160).optional(),
@@ -1145,7 +1145,7 @@ export const bulkStageEditSchema = z
   })
   .strict();
 
-export const bulkStageEditItemSchema = z
+const bulkStageEditItemSchema = z
   .object({
     id: z.string().uuid(),
     version: z.number().int().positive(),
