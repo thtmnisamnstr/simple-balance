@@ -1294,6 +1294,14 @@ input[type="radio"] {
   border-radius: 12px;
 }
 
+/* For a table already inside a panel. `.table-card` carries a card's own
+   border, background and shadow, so using it here draws a second card around
+   the first; leaving the wrapper unstyled lets a table wider than the panel
+   spill past its edge with no way to reach the far columns. */
+.table-wrap {
+  overflow-x: auto;
+}
+
 .data-table {
   width: 100%;
   min-width: 760px;

@@ -33,6 +33,13 @@ says so on the page rather than leaving it to be discovered.
 
 ### Fixed
 
+A table wider than the panel holding it spilled past the edge instead of
+scrolling inside it, so the far columns could not be reached at all. The
+templates and recurrences pages both wrapped their table in `table-wrap`, a
+class nothing in the stylesheet ever defined, and had done since they shipped.
+The rule exists now, and a test names any table left without a wrapper that
+scrolls.
+
 Cash flow, income and expense, and spending by category asked whether each entry
 still runs through an archived account once per posting rather than once per
 query. On a ledger of a hundred thousand postings the dashboard's own cash flow
