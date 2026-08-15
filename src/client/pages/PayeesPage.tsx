@@ -123,11 +123,11 @@ export default function PayeesPage() {
   }, [payees.data, search, sort]);
 
   const chooseDuplicateGroup = (group: PayeeDuplicateGroup) => {
-    const ranked = [...group.payees].sort(
-      (left, right) =>
-        right.totalCount - left.totalCount || left.name.localeCompare(right.name),
-    );
-    const target = ranked[0];
+    // The server sends the group already in the order it would itself reuse a
+    // spelling in, so the first entry is the one to merge into. Re-sorting here
+    // by a shorter version of that rule is how this came to offer an untrimmed
+    // name as the target while the ledger would have kept the tidy one.
+    const target = group.payees[0];
     if (!target) return;
     setParticipants(new Set(group.payees.map((payee) => payee.name)));
     setTargetPayee(target.name);

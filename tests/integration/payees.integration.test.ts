@@ -16,6 +16,7 @@ import {
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
   listDuplicatePayees,
+  preferredPayee,
   listPayees,
   listPayeeSuggestions,
   mergePayees,
@@ -251,7 +252,8 @@ integration("derived payee management", () => {
     expect(await listPayeeSuggestions(primary, "ACME")).toEqual([
       "Acme Market",
     ]);
-    expect(await listDuplicatePayees(primary)).toEqual(
+    const duplicates = await listDuplicatePayees(primary);
+    expect(duplicates).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           normalizedName: "acme market",
@@ -264,6 +266,15 @@ integration("derived payee management", () => {
         }),
       ]),
     );
+
+    // The first entry is what a caller merges into, and the browser and the
+    // MCP guide both say so. These three are used the same number of times, so
+    // the tie is decided by which spelling is already tidy: sorted on count and
+    // name alone this offered " ACME MARKET ", while a write reusing the payee
+    // would have kept "Acme Market". Two answers to one question.
+    const acme = duplicates.find((group) => group.normalizedName === "acme market");
+    expect(acme!.payees[0]!.name).toBe("Acme Market");
+    expect(preferredPayee(acme!.payees).name).toBe(acme!.payees[0]!.name);
 
     const mergeInput = {
       sourcePayees: ["acme   market", " ACME MARKET "],

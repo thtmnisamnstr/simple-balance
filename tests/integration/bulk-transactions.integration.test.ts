@@ -155,9 +155,15 @@ integration("atomic committed transaction bulk editing", () => {
     expect(deletedSecond.deletedAt).not.toBeNull();
     expect(deletedFirst.version).toBe(first.version + 1);
 
-    // Replaying the same key must not bump versions a second time.
+    // Replaying the same key must not bump versions a second time, and the
+    // same selection listed in a different order is the same selection. That
+    // second half is the reason the key is matched against what the service
+    // normalised rather than against the request as it arrived: a caller
+    // retrying after a dropped connection has no reason to preserve the order
+    // it sent, and being told CONFLICT would leave it unable to tell a retry
+    // from a genuine clash.
     const replay = await bulkDeleteTransactions(actor, {
-      selection: explicitSelection([first, second]),
+      selection: explicitSelection([second, first]),
       idempotencyKey: "bulk-delete-live",
       dryRun: false,
     });

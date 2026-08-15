@@ -183,25 +183,32 @@ export async function listDuplicatePayees(actor: Actor) {
       .map(([normalizedName, payees]) => ({
         normalizedName,
         count: payees.length,
-        payees: payees.sort(
-          (left, right) =>
-            right.totalCount - left.totalCount ||
-            left.name.localeCompare(right.name),
-        ),
+        payees: [...payees].sort(preferredPayeeOrder),
       })),
   );
 }
 
+/**
+ * Which spelling of one payee the ledger treats as the real one.
+ *
+ * Most used first, and on a tie the one that is already tidy: a name equal to
+ * its own cleaned form beats one that only differs by the spaces around it.
+ * Written once because two copies of this rule is two answers to the same
+ * question, and a duplicate group listing them in a different order than this
+ * invites a merge into the untidy spelling.
+ */
+export function preferredPayeeOrder(left: PayeeSummary, right: PayeeSummary) {
+  const leftClean = left.name === cleanHumanName(left.name) ? 1 : 0;
+  const rightClean = right.name === cleanHumanName(right.name) ? 1 : 0;
+  return (
+    right.totalCount - left.totalCount ||
+    rightClean - leftClean ||
+    left.name.localeCompare(right.name)
+  );
+}
+
 export function preferredPayee(payees: readonly PayeeSummary[]) {
-  return [...payees].sort((left, right) => {
-    const leftClean = left.name === cleanHumanName(left.name) ? 1 : 0;
-    const rightClean = right.name === cleanHumanName(right.name) ? 1 : 0;
-    return (
-      right.totalCount - left.totalCount ||
-      rightClean - leftClean ||
-      left.name.localeCompare(right.name)
-    );
-  })[0];
+  return [...payees].sort(preferredPayeeOrder)[0];
 }
 
 export async function listPayeeSuggestions(

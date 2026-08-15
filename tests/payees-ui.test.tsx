@@ -142,11 +142,15 @@ describe("payee browsing and merging", () => {
     });
   });
 
-  it("preselects every duplicate and defaults to the most-used payee", async () => {
+  it("preselects every duplicate and keeps the payee the server put first", async () => {
+    // The order the server sends: most used first, and on a tie the spelling
+    // that is already tidy. The page takes the first entry rather than ranking
+    // again, because a second copy of that rule here is a second answer, and
+    // the shorter one it used to apply offered an untrimmed name as the target.
     const duplicateGroup: PayeeDuplicateGroup = {
       normalizedName: "acme market",
       count: 2,
-      payees: [acmeMarkets, acmeMarket],
+      payees: [acmeMarket, acmeMarkets],
     };
     vi.stubGlobal(
       "fetch",
