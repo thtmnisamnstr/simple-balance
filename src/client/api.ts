@@ -253,6 +253,12 @@ export type StagedTransaction = {
   duplicateOfId?: string | null;
   /** Another row still waiting in the queue carries the same fingerprint. */
   repeatsStagedRow?: boolean;
+  /**
+   * A committed transaction that looks like the same money: same account, same
+   * direction, same amount, within a few days. Payee and category are ignored,
+   * being the two most likely to differ between two records of one purchase.
+   */
+  likelyDuplicateOfId?: string | null;
   importBatchId?: string | null;
   recurrenceId?: string | null;
   occurrenceDate?: string | null;
@@ -414,6 +420,24 @@ export type AccountRegister = {
     balanceAfter: string;
     origin: "opening" | "closing" | "transaction";
   }[];
+};
+
+/**
+ * A staged row beside the one thing it looks like a repeat of.
+ *
+ * `second` is null when nothing matches it any more, which is what a pair
+ * somebody has already resolved looks like. A committed transaction is always
+ * `second`; where both sides are staged, the older one is.
+ */
+export type StagedDuplicateReview = {
+  first: DuplicateReviewSide;
+  second: DuplicateReviewSide | null;
+};
+
+export type DuplicateReviewSide = {
+  kind: "staged" | "committed";
+  staged: StagedTransaction | null;
+  committed: Transaction | null;
 };
 
 export type AuditEvent = {

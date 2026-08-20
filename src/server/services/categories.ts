@@ -645,21 +645,20 @@ export async function setCategoryArchived(
   });
 }
 
-export async function deleteCategory(
+/**
+ * Everything that would still point at a category if it went.
+ *
+ * Shared so that deleting on request and tidying up after an edit cannot come
+ * to different answers about what "unused" means. A recurrence and a template
+ * both count: neither holds a foreign key, so nothing in the database would
+ * stop the delete, and what is left is a standing instruction or a saved form
+ * naming a category that no longer exists.
+ */
+async function countCategoryUses(
+  tx: DbTransaction,
   actor: Actor,
   id: string,
-  expectedVersion: number,
-  transaction?: DbTransaction,
 ) {
-  return withTransaction(transaction, async (tx) => {
-    await lockCategoryNamespace(tx, actor);
-    const [before] = await tx
-      .select()
-      .from(categories)
-      .where(and(eq(categories.id, id), eq(categories.userId, actor.userId)))
-      .limit(1);
-    if (!before) throw notFound("Category not found");
-    if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
     // Legs count whatever they are worth, including the zeroed ones. A retired
     // leg keeps the category it was filed under, so the foreign key still holds
     // it: without this the guard would pass and the delete below would fail
@@ -760,6 +759,26 @@ export async function deleteCategory(
           )!,
         ),
       );
+  return { transactionCount, stagedCount, recurrenceCount, templateCount };
+}
+
+export async function deleteCategory(
+  actor: Actor,
+  id: string,
+  expectedVersion: number,
+  transaction?: DbTransaction,
+) {
+  return withTransaction(transaction, async (tx) => {
+    await lockCategoryNamespace(tx, actor);
+    const [before] = await tx
+      .select()
+      .from(categories)
+      .where(and(eq(categories.id, id), eq(categories.userId, actor.userId)))
+      .limit(1);
+    if (!before) throw notFound("Category not found");
+    if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    const { transactionCount, stagedCount, recurrenceCount, templateCount } =
+      await countCategoryUses(tx, actor, id);
     if (transactionCount || stagedCount || recurrenceCount || templateCount) {
       throw conflict("This category is in use. Archive it instead of deleting it.", {
         transactionCount,
@@ -787,6 +806,60 @@ export async function deleteCategory(
     });
     return { id, deleted: true };
   });
+}
+
+/**
+ * Removes a category an edit has just left with nothing pointing at it.
+ *
+ * Called with the categories a transaction or staged row referenced *before* the
+ * write, so the only ones considered are ones somebody moved money off. A
+ * category that was already empty is left alone, because nobody has touched it
+ * and it may well be there on purpose, waiting for next month.
+ *
+ * Anything still in use survives, templates and recurrences included: the
+ * question asked here is the same one `deleteCategory` asks, and a category held
+ * only by a standing instruction is held all the same.
+ */
+export async function pruneOrphanedCategories(
+  tx: DbTransaction,
+  actor: Actor,
+  candidateIds: readonly string[],
+) {
+  const unique = [...new Set(candidateIds.filter(Boolean))];
+  if (!unique.length) return [];
+
+  await lockCategoryNamespace(tx, actor);
+  const removed: string[] = [];
+  for (const id of unique) {
+    const [before] = await tx
+      .select()
+      .from(categories)
+      .where(and(eq(categories.id, id), eq(categories.userId, actor.userId)))
+      .limit(1);
+    if (!before) continue;
+    const uses = await countCategoryUses(tx, actor, id);
+    if (
+      uses.transactionCount ||
+      uses.stagedCount ||
+      uses.recurrenceCount ||
+      uses.templateCount
+    ) {
+      continue;
+    }
+    const deleted = await tx
+      .delete(categories)
+      .where(and(eq(categories.id, id), eq(categories.userId, actor.userId)))
+      .returning({ id: categories.id });
+    if (!deleted.length) continue;
+    await writeAudit(tx, actor, {
+      entityType: "category",
+      entityId: id,
+      operation: "delete",
+      before: serializeRow(before),
+    });
+    removed.push(id);
+  }
+  return removed;
 }
 
 function mergedCategoryKind(rows: CategoryRow[]) {

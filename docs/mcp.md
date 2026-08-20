@@ -310,16 +310,33 @@ takes `ledger:write` because it is what puts the row in the books.
 
 A staged row is a draft. Nothing about it affects a balance or a report until it
 is committed, so an agent holding only `ledger:stage` can propose anything and
-change nothing. Each row carries `validationIssues` saying what still stops it
-being committed, `duplicateOfId` when it matches a transaction already recorded,
-and `repeatsStagedRow` when it matches another row still waiting. That last one
-is only worked out by the list, so every other tool returns `null` for it,
-meaning "not compared" rather than "no".
+change nothing. Each row says three separate things about whether it repeats
+something:
 
-`validity` filters the list to `valid`, `invalid` or `duplicate`, which is how
-you find the rows that need attention without reading the whole queue.
-`importBatchId` scopes it to one imported file and `recurrenceId` to one
+| Field | Means |
+| --- | --- |
+| `duplicateOfId` | A committed transaction it matches on the same day, the same payee, the same account and the same amount. This is the strict test, and it is the one that refuses a commit. |
+| `likelyDuplicateOfId` | A committed transaction that looks like the same money without matching that exactly: same account, same direction, same amount, within three days. Payee and category are ignored, being the two most likely to differ between a bank's record of a purchase and yours. Advisory — it does not refuse anything. |
+| `repeatsStagedRow` | Another row still waiting in the queue carries the same fingerprint. |
+
+The last two are only worked out by the list, so every other tool returns `null`
+for them, meaning "not compared" rather than "no".
+
+`validity` filters the list to `valid`, `invalid` or `duplicate`. `duplicate`
+covers all three of the above, so one filter finds everything worth a second
+look. `importBatchId` scopes it to one imported file and `recurrenceId` to one
 recurring transaction.
+
+`get_staged_duplicate` opens a row beside the one thing it repeats, which is what
+the browser's side-by-side review reads. `first` is the staged row you asked
+about; `second` is what it looks like a repeat of, and is `null` when nothing
+matches it any more. A committed transaction is always `second`, and where both
+sides are staged the older one is. Each side names its `kind` and fills either
+`staged` or `committed`, never both.
+
+Resolving a duplicate means editing one side or dropping one. Only a staged side
+can be dropped: a committed transaction is already in the books, so the copy to
+remove is the one that has not been recorded yet.
 
 Committing is explicit: name the ids and the version you last saw for each.
 A row that fails validation, or that repeats another row in the same selection,

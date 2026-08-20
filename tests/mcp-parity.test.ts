@@ -82,6 +82,7 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/csv/stage": "stage_csv",
   "GET /api/v1/import-batches": "list_import_batches",
   "GET /api/v1/reports/:report": "get_report",
+  "GET /api/v1/staged/:id/duplicate": "get_staged_duplicate",
   "GET /api/v1/summary": "get_financial_summary",
   "GET /api/v1/audit-events": "list_audit_events",
   "GET /api/v1/connected-apps": "list_connected_agents",

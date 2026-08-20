@@ -99,6 +99,7 @@ import {
   createStage,
   deleteStages,
   getStage,
+  getStagedDuplicateReview,
   listStages,
   previewBulkStageSelection,
   updateStage,
@@ -149,6 +150,7 @@ import {
   payeeResultSchema,
   cursorPageResultSchema,
   pageResultSchema,
+  stagedDuplicateReviewResultSchema,
   stagedTransactionResultSchema,
   connectedAppListSchema,
   revokedConnectedAppSchema,
@@ -604,6 +606,20 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         runTool(() => getSummary(actor, input, includeArchived ?? false)),
     );
     server.registerTool(
+      "get_staged_duplicate",
+      {
+        title: "Open a staged row beside what it repeats",
+        description:
+          "Fetch a staged row together with the one thing it looks like a repeat of, ordered for review. The second side is the committed transaction where there is one, and otherwise the older of the two staged rows; it is null when nothing matches it any more. Only a staged side may be deleted, because the way out of a duplicate is to drop the copy that has not been recorded yet.",
+        inputSchema: z.object({
+          id: z.string().uuid().describe("The staged row to review."),
+        }),
+        outputSchema: mcpOutputSchema(stagedDuplicateReviewResultSchema),
+        annotations: readAnnotations,
+      },
+      ({ id }) => runTool(() => getStagedDuplicateReview(actor, id)),
+    );
+    server.registerTool(
       "get_report",
       {
         title: "Run a financial report",
@@ -722,7 +738,10 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             "stage.update",
             idempotencyKey,
             { id, input },
-            (tx) => updateStage(actor, id, input, tx),
+            (tx) =>
+              updateStage(actor, id, input, tx, {
+                mayEditLedgerRecords: scopes.has("ledger:write"),
+              }),
           ),
         ),
     );

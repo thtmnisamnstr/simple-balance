@@ -251,9 +251,12 @@ integration("what a split looks like in the reports", () => {
     const before = (await listTransactions(actor, { limit: 50 })).items.find(
       (item) => item.id === splitId,
     )!;
-    const pets = (await listCategorySummaries(actor)).find(
-      (one) => one.name === "Pets",
-    )!;
+    // Moving the leg above was the last thing using Pets, so it went with the
+    // edit. Merging into it means having one again, which is the point of the
+    // merge rather than a detour around it.
+    const pets =
+      (await listCategorySummaries(actor)).find((one) => one.name === "Pets") ??
+      (await createCategory(actor, { name: "Pets", kind: "expense" }));
     const merged = await mergeCategories(actor, {
       targetCategoryId: pets.id,
       targetExpectedVersion: pets.version,

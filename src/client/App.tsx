@@ -44,6 +44,7 @@ import CategoryDetailPage from "./pages/CategoryDetailPage.js";
 import PayeeDetailPage from "./pages/PayeeDetailPage.js";
 import PayeesPage from "./pages/PayeesPage.js";
 import DashboardPage from "./pages/DashboardPage.js";
+import DuplicateReviewPage from "./pages/DuplicateReviewPage.js";
 import ReportsPage from "./pages/ReportsPage.js";
 import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
@@ -684,6 +685,10 @@ function Shell({ session }: { session: Session }) {
               <Route path="/reports/:report" element={<ReportsPage />} />
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/staged" element={<StagingPage />} />
+              <Route
+                path="/staged/duplicates/:id"
+                element={<DuplicateReviewPage />}
+              />
               <Route path="/categories" element={<CategoriesPage />} />
               <Route path="/categories/:categoryId" element={<CategoryDetailPage />} />
               <Route path="/payees" element={<PayeesPage />} />

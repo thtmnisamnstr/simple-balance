@@ -194,6 +194,7 @@ export const stagedTransactionResultSchema = z
     // returns null here. Declaring it as a plain boolean would make those
     // results fail this schema and be dropped without a word.
     repeatsStagedRow: z.boolean().nullable(),
+    likelyDuplicateOfId: uuidSchema.nullable(),
     importBatchId: uuidSchema.nullable(),
     // Where a proposed row came from, and which instance of the schedule it is.
     // Declared rather than left to passthrough, because a caller reading the
@@ -206,6 +207,23 @@ export const stagedTransactionResultSchema = z
     deletedAt: timestampSchema.nullable(),
   })
   .passthrough();
+
+/**
+ * One side of a duplicate review. `kind` says which of the two objects is
+ * filled, rather than the two being a union: the output wrapper spends both
+ * members of its `anyOf` on success and error, so a union here would publish a
+ * third and the tool would be refused.
+ */
+const duplicateReviewSideSchema = z.object({
+  kind: z.enum(["staged", "committed"]),
+  staged: stagedTransactionResultSchema.nullable(),
+  committed: transactionResultSchema.nullable(),
+});
+
+export const stagedDuplicateReviewResultSchema = z.object({
+  first: duplicateReviewSideSchema,
+  second: duplicateReviewSideSchema.nullable(),
+});
 
 export function pageResultSchema<T extends z.ZodType>(itemSchema: T) {
   return z.object({

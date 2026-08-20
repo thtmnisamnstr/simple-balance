@@ -21,7 +21,8 @@ parts without being able to do the dangerous ones.
   crypto wallets, each in its own currency
 - Deposits, withdrawals, and transfers, including conversions that keep the sent
   and received amounts apart
-- CSV import through a review queue, and an export that reads back in
+- CSV import through a review queue that flags a row repeating one you already
+  have, and opens the two side by side to sort out
 - Templates for the transactions you enter over and over
 - Recurring transactions that propose into the review queue on a schedule, and
   post nothing until you commit them

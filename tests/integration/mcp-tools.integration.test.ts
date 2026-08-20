@@ -152,14 +152,14 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
           amount: "40.00",
           legs: [
             { id: created.legs[0]!.id, categoryId: household.id, amount: "25.00" },
-            { id: created.legs[1]!.id, categoryId: household.id, amount: "15.00" },
+            { id: created.legs[1]!.id, categoryId, amount: "15.00" },
           ],
         },
       },
     })) as { legs: { category: { name: string } | null }[] };
     expect(relabelled.legs.map((leg) => leg.category?.name)).toEqual([
       "Household",
-      "Household",
+      "Groceries",
     ]);
   });
 
@@ -403,6 +403,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       get_category: { id: categoryId },
       get_transaction: { id: transaction.id },
       get_staged_transaction: { id: staged.id },
+      get_staged_duplicate: { id: staged.id },
       get_recurrence: { id: recurrence.id },
       get_transaction_template: { id: template.id },
       preview_csv: { csv: "date,payee,amount\n2026-01-01,Shop,5.00" },
