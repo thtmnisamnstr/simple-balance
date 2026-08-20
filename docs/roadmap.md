@@ -195,7 +195,7 @@ data ageing inside a container nobody updates is worse than not having it.
 
 ## SB-018 — Reporting — **done**
 
-**Priority 180. Depends on SB-015. Shipped with no migration.**
+**Priority 180. Depends on SB-015. Built, unreleased, and needing no migration.**
 
 Net worth over time, income against expense, and category trends across a range.
 
