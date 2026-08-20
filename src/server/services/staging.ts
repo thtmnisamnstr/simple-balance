@@ -3,6 +3,7 @@ import {
   count,
   eq,
   inArray,
+  ne,
   notInArray,
   sql,
   type SQL, getTableColumns } from "drizzle-orm";
@@ -18,6 +19,7 @@ import type {
   StageSortField,
 } from "../../shared/domain.js";
 import {
+  LIKELY_DUPLICATE_DAYS,
   bulkDeleteStageSchema,
   bulkStageEditSchema,
   bulkStageFilterSelectionRequestSchema,
@@ -61,10 +63,12 @@ import {
   ordered,
 } from "./sorting.js";
 import { normalizeHumanName } from "../../shared/names.js";
+import { pruneOrphanedCategories } from "./categories.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
 import {
   createTransactionWithinTx,
   findDuplicate,
+  getTransaction,
   lockTransactionDuplicateKeys,
   prepareTransaction,
   transactionDuplicateKeys,
@@ -74,11 +78,19 @@ export type StageView = ReturnType<typeof stageView>;
 const referenceUuidSchema = z.string().uuid();
 
 function stageView(
-  row: StagedTransactionRow & { repeatsStagedRow?: boolean },
+  row: StagedTransactionRow & {
+    repeatsStagedRow?: boolean;
+    likelyDuplicateOfId?: string | null;
+  },
 ) {
   // The fingerprint itself is an internal detail; what a caller needs is
   // whether the row repeats something, and which something.
-  const { duplicateKey: _duplicateKey, repeatsStagedRow, ...rest } = row;
+  const {
+    duplicateKey: _duplicateKey,
+    repeatsStagedRow,
+    likelyDuplicateOfId: likely,
+    ...rest
+  } = row;
   return {
     ...serializeRow(rest as StagedTransactionRow),
     validationIssues: row.validationIssues as ValidationIssue[],
@@ -88,6 +100,9 @@ function stageView(
     // rather than no, and saying `false` there contradicted what the same row
     // reports in a list.
     repeatsStagedRow: repeatsStagedRow ?? null,
+    // Same rule as above: only the list compares this row against the ledger,
+    // and where it did not the answer is unknown rather than none.
+    likelyDuplicateOfId: likely === undefined ? null : likely,
   };
 }
 
@@ -462,7 +477,7 @@ function stageSortPlan(
       end`);
     case "amount":
       return paged(sql`case
-        when ${draft} ->> 'amount' ~ '^-?[0-9]+(\.[0-9]+)?$'
+        when ${draft} ->> 'amount' ~ '^-?[0-9]+(\\.[0-9]+)?$'
           then (${draft} ->> 'amount')::numeric
       end`);
     default: {
@@ -508,8 +523,86 @@ const repeatsAnotherStagedRow = sql`(
       and other.id <> ${stagedTransactions.id}
   )
 )`;
+/**
+ * Whether a committed transaction looks like the same money as this staged row.
+ *
+ * Deliberately looser than `findDuplicate`, which is the guard a commit runs and
+ * demands the same day and the same payee. Neither survives a real import: the
+ * bank posts when it settles rather than when the card was swiped, and it names
+ * the merchant its own way. What does survive is the amount, so that is the
+ * anchor, with the account and the direction to keep two unrelated spends of the
+ * same size apart and a few days of latitude on the date. Payee and category are
+ * ignored on purpose, being the two fields most likely to differ.
+ *
+ * Advisory only. It badges the queue and opens the review; the strict guard is
+ * what still decides whether a commit is refused, because loosening that would
+ * start turning down two genuine coffees bought on one card in one week.
+ */
+const draftAmount = (field: string) => sql`(
+  case
+    when ${stagedTransactions.draft} ->> ${field} ~ '^[0-9]+(\\.[0-9]+)?$'
+      then (${stagedTransactions.draft} ->> ${field})::numeric
+  end
+)`;
+
+const likelyCommittedMatch = sql`(
+  select candidate.id
+  from ledger_transaction candidate
+  where candidate.user_id = ${stagedTransactions.userId}
+    and candidate.deleted_at is null
+    and candidate.type::text = ${stagedTransactions.draft} ->> 'type'
+    and abs(
+      candidate.date - (${stagedTransactions.draft} ->> 'date')::date
+    ) <= ${LIKELY_DUPLICATE_DAYS}
+    and (
+      (
+        candidate.type = 'deposit'
+        and candidate.destination_account_id::text
+          = ${stagedTransactions.draft} ->> 'toAccountId'
+        and candidate.destination_amount = ${draftAmount("amount")}
+      )
+      or (
+        candidate.type = 'withdrawal'
+        and candidate.source_account_id::text
+          = ${stagedTransactions.draft} ->> 'fromAccountId'
+        and candidate.source_amount = ${draftAmount("amount")}
+      )
+      or (
+        candidate.type = 'transfer'
+        and candidate.source_account_id::text
+          = ${stagedTransactions.draft} ->> 'fromAccountId'
+        and candidate.destination_account_id::text
+          = ${stagedTransactions.draft} ->> 'toAccountId'
+        and candidate.source_amount = ${draftAmount("sourceAmount")}
+      )
+    )
+  order by
+    abs(candidate.date - (${stagedTransactions.draft} ->> 'date')::date),
+    candidate.date desc,
+    candidate.id
+  limit 1
+)`;
+
+/**
+ * The date cast would raise on a row whose draft holds whatever a CSV put in
+ * that column, and those are exactly the rows somebody is in the queue to fix.
+ * A `case` is the one construct that promises not to evaluate the branch it
+ * does not take.
+ */
+const guardedByDate = (expression: SQL) => sql`(
+  case
+    when ${stagedTransactions.draft} ->> 'date' ~ '^\\d{4}-\\d{2}-\\d{2}$'
+      then ${expression}
+  end
+)`;
+
+const likelyDuplicateOfId = guardedByDate(likelyCommittedMatch);
+const repeatsCommittedRow = sql`${guardedByDate(sql`exists ${likelyCommittedMatch}`)} is true`;
+
 const possiblyDuplicate = sql`(
-  ${stagedTransactions.duplicateOfId} is not null or ${repeatsAnotherStagedRow}
+  ${stagedTransactions.duplicateOfId} is not null
+  or ${repeatsAnotherStagedRow}
+  or ${repeatsCommittedRow}
 )`;
 
 export type StageFilterQuery = Pick<
@@ -659,6 +752,9 @@ export async function listStages(
       // the rest of the queue, not on the row, so it is answered here rather
       // than stored.
       repeatsStagedRow: sql<boolean>`${repeatsAnotherStagedRow}`,
+      // Which committed transaction it looks like, so the review can open the
+      // pair without asking again.
+      likelyDuplicateOfId: sql<string | null>`${likelyDuplicateOfId}`,
     })
     .from(stagedTransactions)
     .where(and(...conditions))
@@ -698,11 +794,97 @@ export async function getStage(actor: Actor, id: string) {
   return stageView(row);
 }
 
+/**
+ * A staged row and the one thing it looks like a repeat of, ordered for review.
+ *
+ * The older of the two sits second, and a committed transaction is always second
+ * whatever its date: it is the one already in the books, and the staged row is
+ * the one still up for a decision. That is also why only a staged side may be
+ * deleted from the review — the way out of a duplicate is to drop the copy that
+ * has not been recorded yet.
+ *
+ * A counterpart is looked for in the order the queue itself trusts: what the
+ * commit guard already matched, then what merely looks alike, then another row
+ * still waiting under the same fingerprint. `null` where nothing matches any
+ * more, which is what an already-resolved pair looks like.
+ */
+export async function getStagedDuplicateReview(actor: Actor, id: string) {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      ...getTableColumns(stagedTransactions),
+      likelyDuplicateOfId: sql<string | null>`${likelyDuplicateOfId}`,
+    })
+    .from(stagedTransactions)
+    .where(
+      and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)),
+    )
+    .limit(1);
+  // Still in the queue, not merely still on file. A row that has been dropped
+  // or committed opens a review whose forms every save would refuse, and the
+  // pair it was half of is already resolved.
+  if (!row || row.status !== "staged") {
+    throw notFound("Staged transaction not found");
+  }
+
+  const subject = stageView(row);
+  const committedId = row.duplicateOfId ?? row.likelyDuplicateOfId ?? null;
+  const committed = committedId
+    ? await getTransaction(actor, committedId).catch(() => null)
+    : null;
+
+  if (committed) {
+    return {
+      first: { kind: "staged" as const, staged: subject, committed: null },
+      second: { kind: "committed" as const, staged: null, committed },
+    };
+  }
+
+  const [sibling] = row.duplicateKey
+    ? await db
+        .select()
+        .from(stagedTransactions)
+        .where(
+          and(
+            eq(stagedTransactions.userId, actor.userId),
+            eq(stagedTransactions.status, "staged"),
+            eq(stagedTransactions.duplicateKey, row.duplicateKey),
+            ne(stagedTransactions.id, row.id),
+          ),
+        )
+        .orderBy(stagedTransactions.createdAt, stagedTransactions.id)
+        .limit(1)
+    : [];
+
+  if (!sibling) {
+    return {
+      first: { kind: "staged" as const, staged: subject, committed: null },
+      second: null,
+    };
+  }
+
+  const other = stageView(sibling);
+  const subjectIsOlder =
+    row.createdAt.getTime() === sibling.createdAt.getTime()
+      ? row.id < sibling.id
+      : row.createdAt.getTime() < sibling.createdAt.getTime();
+  return subjectIsOlder
+    ? {
+        first: { kind: "staged" as const, staged: other, committed: null },
+        second: { kind: "staged" as const, staged: subject, committed: null },
+      }
+    : {
+        first: { kind: "staged" as const, staged: subject, committed: null },
+        second: { kind: "staged" as const, staged: other, committed: null },
+      };
+}
+
 export async function updateStage(
   actor: Actor,
   id: string,
   input: unknown,
   transaction?: DbTransaction,
+  options: { mayEditLedgerRecords?: boolean } = {},
 ) {
   const { draft, expectedVersion } = stageUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
@@ -750,8 +932,47 @@ export async function updateStage(
       before: stageView(before),
       after: view,
     });
+    // Only for a caller who could delete the category outright. A queue token
+    // proposes and never decides, and removing one of the ledger's own records
+    // is a decision however small it looks.
+    if (options.mayEditLedgerRecords !== false) {
+      await pruneOrphanedCategories(
+        tx,
+        actor,
+        draftCategoriesReleasedBy(before.draft, canonicalDraft),
+      );
+    }
     return view;
   });
+}
+
+/**
+ * Which categories a staged edit stopped pointing at.
+ *
+ * A draft is whatever a CSV or an agent put there, so every field is read
+ * defensively: a category is only considered released if it was a uuid before
+ * and is not one of the uuids the draft carries now.
+ */
+function draftCategoriesReleasedBy(before: unknown, after: unknown) {
+  const held = (draft: unknown) => {
+    const ids = new Set<string>();
+    if (!draft || typeof draft !== "object") return ids;
+    const record = draft as Record<string, unknown>;
+    const add = (value: unknown) => {
+      if (referenceUuidSchema.safeParse(value).success) ids.add(value as string);
+    };
+    add(record.categoryId);
+    if (Array.isArray(record.legs)) {
+      for (const leg of record.legs) {
+        if (leg && typeof leg === "object") {
+          add((leg as Record<string, unknown>).categoryId);
+        }
+      }
+    }
+    return ids;
+  };
+  const kept = held(after);
+  return [...held(before)].filter((id) => !kept.has(id));
 }
 
 export async function deleteStages(

@@ -756,6 +756,15 @@ export const dateRangeSchema = z.object({
   end: isoDateSchema.optional(),
 });
 
+/**
+ * How far apart two dates can be and still describe the same money moving.
+ *
+ * A statement row and the same purchase entered by hand rarely land on one day:
+ * the bank posts when it settles. Three days either side covers that without
+ * making a weekly shop of the same amount look like a repeat of last week's.
+ */
+export const LIKELY_DUPLICATE_DAYS = 3;
+
 export const reportNames = [
   "net-worth",
   "income-expense",

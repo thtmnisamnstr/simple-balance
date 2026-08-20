@@ -1,4 +1,4 @@
-import { useSearchParams } from "../router.js";
+import { Link, useSearchParams } from "../router.js";
 import {
   useInfiniteQuery,
   useMutation,
@@ -509,7 +509,9 @@ export default function StagingPage() {
   };
   const invalidSelected = selectedRows.some((stage) => stage.validationIssues.length);
   const isPossibleDuplicate = (stage: StagedTransaction) =>
-    Boolean(stage.duplicateOfId) || Boolean(stage.repeatsStagedRow);
+    Boolean(stage.duplicateOfId) ||
+    Boolean(stage.likelyDuplicateOfId) ||
+    Boolean(stage.repeatsStagedRow);
   const duplicateSelected = selectedRows.some(isPossibleDuplicate);
   const duplicateCommitError =
     bulkMutation.error instanceof ApiClientError &&
@@ -845,10 +847,20 @@ export default function StagingPage() {
                     <td>
                       {stage.validationIssues.length ? (
                         <Badge tone="red">Needs attention</Badge>
-                      ) : stage.duplicateOfId ? (
-                        <Badge tone="amber">Already recorded</Badge>
-                      ) : stage.repeatsStagedRow ? (
-                        <Badge tone="amber">Repeats another row</Badge>
+                      ) : isPossibleDuplicate(stage) ? (
+                        // A link rather than a label: the useful next step is
+                        // seeing the two side by side, and the badge is where
+                        // somebody's eye already is.
+                        <Link
+                          className="duplicate-badge-link"
+                          to={`/staged/duplicates/${stage.id}`}
+                        >
+                          <Badge tone="amber">
+                            {stage.duplicateOfId || stage.likelyDuplicateOfId
+                              ? "Already recorded"
+                              : "Repeats another row"}
+                          </Badge>
+                        </Link>
                       ) : (
                         <Badge tone="green">Ready</Badge>
                       )}

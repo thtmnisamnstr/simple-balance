@@ -81,7 +81,10 @@ import {
   ordered,
 } from "./sorting.js";
 import { ensureSystemAccount, postClosingBalance } from "./accounts.js";
-import { resolveDraftCategory } from "./categories.js";
+import {
+  pruneOrphanedCategories,
+  resolveDraftCategory,
+} from "./categories.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { resolveCanonicalPayee } from "./payees.js";
 
@@ -2342,16 +2345,25 @@ export async function updateTransaction(
       id,
       updated.deletedAt ? [] : withLegIds(prepared.postings, legIds, id),
     );
+    const afterLegs = (await legsByTransaction(tx, actor, [id])).get(id) ?? [];
     await writeAudit(tx, actor, {
       entityType: "transaction",
       entityId: id,
       operation: "update",
       before: auditedTransaction(before, beforeLegs ?? []),
-      after: auditedTransaction(
-        updated,
-        (await legsByTransaction(tx, actor, [id])).get(id) ?? [],
-      ),
+      after: auditedTransaction(updated, afterLegs),
     });
+    // A category this entry has stopped using, and that nothing else uses, goes
+    // with the edit. Only what it moved off is considered, so a category
+    // standing empty on purpose is left where it is.
+    await pruneOrphanedCategories(
+      tx,
+      actor,
+      categoriesReleasedBy(
+        { categoryId: before.categoryId, legs: beforeLegs ?? [] },
+        { categoryId: updated.categoryId, legs: afterLegs },
+      ),
+    );
     return hydrateTransaction(tx, actor, updated);
   });
 }
@@ -2434,6 +2446,28 @@ export async function setTransactionDeleted(
     });
     return hydrateTransaction(tx, actor, updated);
   });
+}
+
+/**
+ * Which categories an edit stopped pointing at.
+ *
+ * A split makes this more than one field: a receipt cut three ways names three,
+ * and relabelling one leg releases only that leg's category. Comparing the two
+ * whole sets is what keeps a category that merely moved between legs from
+ * looking released.
+ */
+function categoriesReleasedBy(
+  before: { categoryId: string | null; legs: readonly { categoryId: string | null }[] },
+  after: { categoryId: string | null; legs: readonly { categoryId: string | null }[] },
+) {
+  const held = (side: typeof before) =>
+    new Set(
+      [side.categoryId, ...side.legs.map((leg) => leg.categoryId)].filter(
+        (value): value is string => typeof value === "string",
+      ),
+    );
+  const kept = held(after);
+  return [...held(before)].filter((id) => !kept.has(id));
 }
 
 export async function findDuplicate(

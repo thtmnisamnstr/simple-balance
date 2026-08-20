@@ -2882,3 +2882,52 @@ input[type="radio"] {
 .report-table tfoot td {
   border-top: 1px solid var(--line);
 }
+
+/* Two records of one payment, side by side on a desktop and stacked on a
+   phone. `minmax(0, 1fr)` rather than `1fr`: each side holds a form whose
+   min-content width would otherwise push the pair wider than the page. */
+.duplicate-review {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.duplicate-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.duplicate-side .panel-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.duplicate-side-actions {
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.duplicate-side-actions .panel-empty {
+  margin: 0;
+  text-align: right;
+}
+
+.duplicate-badge-link {
+  text-decoration: none;
+}
+
+.duplicate-badge-link:hover .badge {
+  outline: 1px solid var(--amber);
+}
+
+@media (max-width: 980px) {
+  .duplicate-review {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

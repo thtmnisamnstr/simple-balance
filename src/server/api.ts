@@ -125,6 +125,7 @@ import {
   deleteStages,
   getStage,
   listStages,
+  getStagedDuplicateReview,
   updateStage,
 } from "./services/staging.js";
 import { getAccountRegister, getReport } from "./services/reports.js";
@@ -1269,6 +1270,9 @@ app.get("/api/v1/summary", async (c) =>
       c.req.query("includeArchived") === "true",
     ),
   ),
+);
+app.get("/api/v1/staged/:id/duplicate", async (c) =>
+  c.json(await getStagedDuplicateReview(c.get("actor"), pathId(c))),
 );
 app.get("/api/v1/reports/:report", async (c) =>
   c.json(

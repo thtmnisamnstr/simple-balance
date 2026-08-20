@@ -31,31 +31,27 @@ card is swiped, while the cash leaves when the bill is paid, in a different
 period and as borrowing rather than spending. Both figures are right. The report
 says so on the page rather than leaving it to be discovered.
 
-### Fixed
+The review queue finds a staged row that repeats something already recorded,
+not just one that repeats another row still waiting. The check it had wanted the
+same day and the same payee, which a real import has neither of: the bank posts
+when it settles and names the merchant its own way. So the amount is the anchor
+now, with the account and the direction to keep two unrelated spends of the same
+size apart, and three days of latitude on the date. Payee and category are
+ignored, being the two most likely to differ between a bank's record of a
+purchase and yours. The same `duplicate` filter finds all of it.
 
-A table wider than the panel holding it spilled past the edge instead of
-scrolling inside it, so the far columns could not be reached at all. The
-templates and recurrences pages both wrapped their table in `table-wrap`, a
-class nothing in the stylesheet ever defined, and had done since they shipped.
-The rule exists now, and a test names any table left without a wrapper that
-scrolls.
+That looser test is advisory. What refuses a commit is unchanged and still
+strict, because loosening it would start turning down two genuine coffees bought
+on one card in one week.
 
-Cash flow, income and expense, and spending by category asked whether each entry
-still runs through an archived account once per posting rather than once per
-query. On a ledger of a hundred thousand postings the dashboard's own cash flow
-ran that subquery twenty-eight thousand times, reading a hundred and seventy
-thousand buffers to produce two rows. The same rule is now one aggregate the
-planner turns into a hash anti-join: sixty times fewer buffers and seven times
-faster, with the netting that decides membership unchanged.
-
-A duplicate payee group offers the spelling the ledger would itself keep. The
-group was ordered by how often each spelling is used and then by name, while a
-write reusing a payee breaks a tie by preferring a name already equal to its own
-cleaned form. So three equally used spellings of one shop offered
-`" ACME MARKET "` as the one to merge into, where the ledger would have kept
-`"Acme Market"`. Both the browser and the MCP guide say the first entry is the
-target, so this was the wrong answer rather than a cosmetic ordering. One rule
-now, used by the group and by the write.
+A side-by-side review, reached from the badge on any flagged row. Both records
+are open to edit and each saves on its own; a staged row saves rather than
+commits. The one already in the books sits second — on the right, or underneath
+on a phone — and where both are staged the older one does. Only a staged side
+can be dropped, because the way out of a duplicate is to remove the copy that
+has not been recorded yet. It is not a diff: the fields that differ are the ones
+that always differ, and colouring them says nothing a person reading two
+transactions cannot already see.
 
 ### Changed
 
@@ -83,6 +79,53 @@ every stored spelling, one row each, which is the opposite and the reason
 Recurrences report their shape over MCP. `get_recurrence` and
 `list_recurrences` declared it as an unknown value, so the one thing an agent
 reads a recurrence for was the one thing the tools would not describe.
+
+Recategorising the last transaction off a category removes that category. Only
+what an edit moved off is considered, so one made ahead of time and standing
+empty on purpose is left alone, and anything a recurrence or a template still
+names is kept — neither holds a foreign key, so nothing else would stop the
+delete and what would be left is a standing instruction naming a category that
+is gone. A queue-scoped agent edits the row and leaves the category, on the same
+rule that stops it creating one.
+
+Payees needed no such change and got none. Every list of them is a group-by over
+the rows that name them, so a payee nothing references has already stopped
+existing.
+
+### Fixed
+
+A table wider than the panel holding it spilled past the edge instead of
+scrolling inside it, so the far columns could not be reached at all. The
+templates and recurrences pages both wrapped their table in `table-wrap`, a
+class nothing in the stylesheet ever defined, and had done since they shipped.
+The rule exists now, and a test names any table left without a wrapper that
+scrolls.
+
+Cash flow, income and expense, and spending by category asked whether each entry
+still runs through an archived account once per posting rather than once per
+query. On a ledger of a hundred thousand postings the dashboard's own cash flow
+ran that subquery twenty-eight thousand times, reading a hundred and seventy
+thousand buffers to produce two rows. The same rule is now one aggregate the
+planner turns into a hash anti-join: sixty times fewer buffers and seven times
+faster, with the netting that decides membership unchanged.
+
+A duplicate payee group offers the spelling the ledger would itself keep. The
+group was ordered by how often each spelling is used and then by name, while a
+write reusing a payee breaks a tie by preferring a name already equal to its own
+cleaned form. So three equally used spellings of one shop offered
+`" ACME MARKET "` as the one to merge into, where the ledger would have kept
+`"Acme Market"`. Both the browser and the MCP guide say the first entry is the
+target, so this was the wrong answer rather than a cosmetic ordering. One rule
+now, used by the group and by the write.
+
+Sorting the review queue by amount could fail on a row whose amount a CSV left
+unreadable. The guard meant to catch that admitted anything with a digit either
+side of any character, so `42x50` passed it and then raised on the cast — a
+backslash lost to a template literal, in a regex that has been there since the
+column was sortable.
+
+The recurrence form's preview test asserted a date that has now gone by, and
+would have failed from here on whatever anybody changed.
 
 ### Internal
 
