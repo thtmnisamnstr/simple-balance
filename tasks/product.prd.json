@@ -350,6 +350,34 @@
         "npm test",
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
       ]
+    },
+    {
+      "id": "SB-018",
+      "priority": 180,
+      "title": "Reporting",
+      "dependsOn": [
+        "SB-015"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "Net worth over a range, per currency, derived from postings alone, with no figure spanning currencies anywhere in the reply",
+        "Income against expense over a range, agreeing with the dashboard's cash flow for the same range and accounts",
+        "Category trends over time, spanning income as well as expense, agreeing with the existing spending-by-category figures and ranking for a single period",
+        "A cash flow statement over the accounts money can be spent from, decomposed by the class of the account on the far side of each transaction, reconciling to the change in those accounts",
+        "A balance sheet as of one date, and a trial balance that totals zero in every currency at every date, archived accounts included",
+        "A per-account register listing every posting with the balance before and after it, opening on the balance the window starts from and closing on the one it ends on",
+        "Every figure stops at today in the person's own timezone, and a range that has not happened yet reports nothing rather than today's figures",
+        "A row's total is the sum of its buckets where they are movements and the balance it closes on where they are balances",
+        "Archived accounts are included or excluded consistently across every report, with a closed account contributing the zero it actually holds",
+        "The range, the report and the grouping live in the URL, as the range does elsewhere",
+        "Every report is reachable over MCP as a read tool, and every figure drawn in a chart is also present as text"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
+      ]
     }
   ]
 }

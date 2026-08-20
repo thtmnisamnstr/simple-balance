@@ -29,6 +29,8 @@ parts without being able to do the dangerous ones.
   succeeds or wholly does not
 - One transaction split across several categories, each attributed on its own
 - Balances, cash flow, and spending by category over any date range
+- Net worth, income against expense, categories, cash flow, a balance sheet and
+  a trial balance, each per currency and over any range
 - Categories and payees that match case-insensitively, flag near-duplicates, and
   merge
 - An audit log of everything the browser or an agent did
@@ -266,6 +268,15 @@ and merge by rewriting every reference at once.
 The dashboard covers balances, cash flow, and spending by category over any date
 range, and the range is in the URL, so you can link to it. It stops at today
 whatever range you pick, because money dated next month is not money you have.
+
+Reports go further: net worth and a balance sheet for what the accounts hold,
+income against expense and categories for what moved, a cash flow statement for
+where the money you can spend came from and went to, and a trial balance that
+totals zero when the books are whole. Group by week, month, quarter or year, or
+not at all. Every figure is per currency and none is ever added across them,
+because there are no exchange rates here to add them with. Any account also has
+a register: every posting in date order with the balance before and after it,
+for when a balance is wrong and you need the row it went wrong on.
 The transactions list, the review queue and the templates list sort by any
 column they show and page by number. Activity shows the hundred most recent
 events and neither sorts nor pages. Everything the
@@ -284,8 +295,7 @@ no agent can do it for you.
 
 ### Not built yet
 
-Reporting beyond the dashboard, budgets, bank sync, account sharing,
-attachments, and reconciliation. What is planned, in what
+Budgets, bank sync, account sharing, attachments, and reconciliation. What is planned, in what
 order, and the evidence behind each is in the [roadmap](docs/roadmap.md), which
 also says what is deliberately not planned and why, market prices among it. Tags
 are neither built nor planned.
