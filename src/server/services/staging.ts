@@ -1387,6 +1387,7 @@ export async function bulkEditStages(
   actor: Actor,
   input: unknown,
   transaction?: DbTransaction,
+  options: { mayEditLedgerRecords?: boolean } = {},
 ) {
   const parsed = bulkStageEditSchema.parse(input);
   const { selection, patch } = parsed;
@@ -1598,6 +1599,20 @@ export async function bulkEditStages(
       }
     }
     await writeAuditMany(tx, actor, audits);
+    // The same rule the single-row edit applies, which this path did not:
+    // recategorising the last row off a category clears the category behind it,
+    // and doing the identical edit to a hundred rows in one request left it
+    // standing. Gated the same way too — a queue token proposes and never
+    // decides, and removing one of the ledger's own records is a decision.
+    if (options.mayEditLedgerRecords !== false) {
+      await pruneOrphanedCategories(
+        tx,
+        actor,
+        planned.flatMap((entry) =>
+          draftCategoriesReleasedBy(entry.row.draft, entry.draft),
+        ),
+      );
+    }
     await setIdempotent(
       tx,
       actor,

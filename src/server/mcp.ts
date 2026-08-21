@@ -778,7 +778,12 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(bulkStageEditMcpResultSchema),
         annotations: destructiveAnnotations,
       },
-      (input) => runTool(() => bulkEditStages(actor, input)),
+      (input) =>
+        runTool(() =>
+          bulkEditStages(actor, input, undefined, {
+            mayEditLedgerRecords: scopes.has("ledger:write"),
+          }),
+        ),
     );
     server.registerTool(
       "stage_csv",

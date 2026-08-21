@@ -211,6 +211,18 @@ transactions and staged rows already committed or discarded. A row that has been
 committed is counted once, as a transaction, not again as the staged row it came
 from.
 
+**A category can disappear as a side effect of an edit.** Recategorising the last
+transaction off a category deletes that category, in the same transaction, and
+writes an audit event for the deletion. It happens on `update_transaction`,
+`bulk_edit_transactions`, `update_staged_transaction` and
+`bulk_edit_staged_transactions`, and only for a category the edit itself moved
+off: one that was already standing empty is left alone, so a category made ahead
+of time survives. Anything else still naming it keeps it — another transaction, a
+staged row, a recurrence, or a template — and a caller holding only
+`ledger:stage` never triggers it, on the same rule that stops that scope creating
+a category. If you cached a category id before an edit, read it back afterwards
+rather than assuming it is still there.
+
 ## Knowing where you are
 
 `whoami` reports whose books these are and the client id this call is authorized
