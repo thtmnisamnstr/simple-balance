@@ -6,6 +6,33 @@ Notable changes, newest first.
 
 ### Added
 
+Emailed notifications, on a schedule, in two kinds.
+
+A recurrence can say to write when it proposes. One message per proposal however
+many rows it holds, naming the dates and pointing at the review queue, sent to
+the address on the account. It says nothing on a tick that proposes nothing, so a
+schedule that has caught up goes quiet rather than arriving every five minutes.
+The Recurring list says which recurrences are set to send one.
+
+A template can carry a reminder, which is the other half of the same idea: a
+template is filled in by hand, so nothing can make it for you, but something can
+tell you it is the day. Once on a date, or repeating on the same schedules a
+recurrence offers, and either way at a time of day — the first thing here that
+needs more than a date, and it is read on the person's own clock rather than the
+server's. The Templates list says which templates have one and whether it
+repeats.
+
+A reminder that happens once is a first-class answer rather than a yearly rule
+nobody means: its frequency is null, and it refuses the interval and the policies
+a repeating rule needs rather than storing leftovers of them. Once sent it says
+so and the scheduler stops looking at it.
+
+Both ride the recurrence scheduler's existing tick rather than a loop of their
+own, and a backlog collapses into one message: coming back from a week of
+downtime brings one reminder, not seven. Neither can be delivered without
+`SMTP_HOST` and `MAIL_FROM`, and the form says so rather than accepting a setting
+that would quietly never fire.
+
 Reports. Six of them, over one date range, per currency and never added across
 currencies: net worth and a balance sheet for what the accounts hold, income
 against expense and categories for what moved, a cash flow statement for where

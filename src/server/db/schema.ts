@@ -890,6 +890,95 @@ export const transactionTemplates = pgTable(
 );
 
 /**
+ * A reminder to make a transaction from a template, at most one per template.
+ *
+ * Its own table rather than columns on the template. A template with no reminder
+ * is the common case and would carry eight null columns describing a schedule it
+ * does not have, and the scheduler needs an index leading with the due date,
+ * which on the template table would be an index over mostly nulls.
+ *
+ * The schedule is a recurrence's, and deliberately the same shape so the same
+ * date arithmetic serves both. What a recurrence has no need for is the two
+ * things below: a time of day, and a null frequency.
+ */
+export const templateNotifications = pgTable(
+  "template_notification",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    // One reminder per template, and it goes when the template does.
+    templateId: uuid("template_id")
+      .notNull()
+      .unique()
+      .references(() => transactionTemplates.id, { onDelete: "cascade" }),
+
+    // Null is a reminder that happens once, on the anchor date. A template is
+    // filled in by hand and half the reason to be reminded of one is a payment
+    // that only ever happens once, so "once" is a first-class answer here rather
+    // than a yearly rule nobody means.
+    frequency: recurrenceFrequencyEnum("frequency"),
+    interval: smallint("interval").default(1).notNull(),
+    anchorDate: date("anchor_date").notNull(),
+    monthPolicy: recurrenceMonthPolicyEnum("month_policy").default("last_day").notNull(),
+    weekendPolicy: recurrenceWeekendPolicyEnum("weekend_policy").default("allow").notNull(),
+    positionOrdinal: smallint("position_ordinal"),
+    positionWeekday: smallint("position_weekday"),
+
+    // The wall-clock time in the person's own timezone, not an instant. The zone
+    // is a preference they can change, and a reminder set for half past eight
+    // means half past eight after they move as well as before.
+    notifyAt: text("notify_at").notNull(),
+
+    // The last occurrence this has sent for, and the next it will. Null next is
+    // "nothing further", which is where a one-off ends up and is what stops the
+    // scheduler looking at it again. Same watermark discipline as a recurrence:
+    // whether to send is decided from the rule and the person's own clock, never
+    // from these, and they only ever move forwards.
+    lastNotifiedDate: date("last_notified_date"),
+    nextNotificationDate: date("next_notification_date"),
+
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("template_notification_user_idx").on(table.userId),
+    // The scheduler's due query, which like the recurrence one has to find work
+    // across every ledger before it can know whose it is.
+    index("template_notification_due_idx").on(
+      table.nextNotificationDate,
+      table.userId,
+      table.id,
+    ),
+    check(
+      "template_notification_interval_check",
+      sql`${table.interval} between 1 and ${sql.raw(String(MAX_RECURRENCE_INTERVAL))}`,
+    ),
+    check(
+      "template_notification_notify_at_check",
+      sql`${table.notifyAt} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`,
+    ),
+    // Both or neither, and only where a month is being counted within.
+    check(
+      "template_notification_position_check",
+      sql`(${table.positionOrdinal} is null) = (${table.positionWeekday} is null)`,
+    ),
+    check(
+      "template_notification_position_frequency_check",
+      sql`${table.positionOrdinal} is null or ${table.frequency} in ('monthly', 'yearly')`,
+    ),
+    // A reminder that happens once has no interval and no policies to apply, so
+    // it must not be storing a repeating rule's leftovers.
+    check(
+      "template_notification_once_check",
+      sql`${table.frequency} is not null or (${table.interval} = 1 and ${table.positionOrdinal} is null)`,
+    ),
+    check("template_notification_version_check", sql`${table.version} >= 1`),
+  ],
+);
+
+/**
  * A saved shape, a schedule, and what to do about the dates a calendar does not
  * have. It posts nothing and commits nothing: on its due date it puts an
  * ordinary row in the review queue and waits for somebody.
@@ -951,6 +1040,12 @@ export const recurrences = pgTable(
     // drifted shows up as a recurrence overdue with nothing proposed rather than
     // as a wrong date on a row.
     nextOccurrenceDate: date("next_occurrence_date").notNull(),
+
+    // Whether the scheduler tells this person it proposed something. Beside the
+    // rule rather than in it: the rule decides what is proposed, this decides
+    // whether anybody hears about it, and a tick that proposes nothing sends
+    // nothing whatever this says.
+    notifyOnCreate: boolean("notify_on_create").default(false).notNull(),
 
     version: integer("version").default(1).notNull(),
     ...timestamps,

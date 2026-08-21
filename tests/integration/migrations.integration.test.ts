@@ -76,6 +76,7 @@ integration("PostgreSQL migrations", () => {
       "posting",
       "recurrence",
       "staged_transaction",
+      "template_notification",
       "transaction_leg",
       "transaction_template",
       "user_preferences",

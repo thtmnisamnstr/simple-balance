@@ -206,6 +206,13 @@ reset a forgotten password, and a new account has to confirm its address before
 it works. Leave them unset and neither happens, which is the right answer for a
 deployment of one where the password lives in a password manager.
 
+Scheduled notifications need the same two, and behave differently from the two
+above: a recurrence set to email when it proposes, or a template with a reminder,
+keeps that setting whether or not mail is configured, and starts sending once it
+is. Nothing queues in the meantime — a reminder whose moment passed while there
+was nowhere to send it is not sent later. They also need the scheduler, so a
+deployment with `RECURRENCE_SCHEDULER=false` on every replica sends none of them.
+
 | Variable | Default | What it is |
 | --- | --- | --- |
 | `SMTP_HOST` | unset | The submission server. Setting it turns mail on. |

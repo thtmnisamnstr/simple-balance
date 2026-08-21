@@ -27,6 +27,7 @@ import {
   type RecurrenceRow,
 } from "../db/schema.js";
 import { conflict, duplicate, notFound, staleVersion } from "./errors.js";
+import { notifyRecurrenceProposed } from "./notifications.js";
 import { lockRecurrenceNamespace, serializeRow, writeAudit } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { insertRecurringStages } from "./staging.js";
@@ -196,11 +197,25 @@ export type RecurrenceTickOutcome =
  * transaction to one tenant, which the payee canonicalisation cache requires
  * because it is keyed by transaction and normalised name with no user in it.
  */
+/**
+ * What was written, for a caller that has to tell somebody about it.
+ *
+ * Handed out through a callback rather than returned, so the mail is sent by the
+ * tick after this transaction has committed. A message about rows that were
+ * rolled back is worse than no message: it names a queue that has nothing in it.
+ */
+export type ProposedOccurrences = {
+  recurrenceName: string;
+  notifyOnCreate: boolean;
+  occurrenceDates: string[];
+};
+
 export async function proposeDueOccurrences(
   actor: Actor,
   recurrenceId: string,
   today: string,
   limit: number,
+  collect?: (proposed: ProposedOccurrences) => void,
 ): Promise<RecurrenceTickOutcome> {
   return getDb().transaction(async (tx) => {
     // Skipping rather than queueing is what lets schedulers scale out. Every
@@ -249,6 +264,11 @@ export async function proposeDueOccurrences(
       (one) => one.postedDate !== null && one.postedDate >= row.proposesFrom,
     );
     if (proposable.length) {
+      collect?.({
+        recurrenceName: row.name,
+        notifyOnCreate: row.notifyOnCreate,
+        occurrenceDates: proposable.map((one) => one.occurrenceDate),
+      });
       const referenceIssues = await recurrenceReferenceIssues(tx, actor, shape);
       const initialIssues =
         (shape as { amount?: string }).amount === undefined
@@ -297,6 +317,8 @@ export type TickSummary = {
   examined: number;
   proposed: number;
   failed: number;
+  /** How many people were told, which is never more than `proposed`. */
+  notified: number;
   capped: boolean;
 };
 
@@ -342,6 +364,7 @@ export async function runDueRecurrences(
   let examined = 0;
   let proposed = 0;
   let failed = 0;
+  let notified = 0;
   let capped = false;
   for (const row of due.rows) {
     if (stopped()) break;
@@ -351,14 +374,28 @@ export async function runDueRecurrences(
     const today = todayIn(String(row.timezone));
     if (String(row.next_occurrence_date) > today) continue;
     try {
+      // Collected inside the transaction and written about after it, so nothing
+      // is announced that a rollback took back.
+      let announce: ProposedOccurrences | undefined;
       const outcome = await proposeDueOccurrences(
         { userId: String(row.user_id), source: "schedule" },
         String(row.id),
         today,
         catchUpLimit,
+        (details) => {
+          announce = details;
+        },
       );
       if (outcome === "proposed" || outcome === "capped") proposed += 1;
       if (outcome === "capped") capped = true;
+      if (announce?.notifyOnCreate) {
+        // Awaited rather than left running: an unhandled rejection here would
+        // take the process down, and a tick that outlives its own mail is a tick
+        // whose next run can start while this one is still sending.
+        if (await notifyRecurrenceProposed(String(row.user_id), announce)) {
+          notified += 1;
+        }
+      }
     } catch (error) {
       // One recurrence must never be able to end the sweep. This is the only
       // loop in the product that serves every tenant at once, and it runs most
@@ -373,7 +410,7 @@ export async function runDueRecurrences(
       console.error(`Recurrence ${row.id} could not be proposed`, error);
     }
   }
-  return { examined, proposed, failed, capped };
+  return { examined, proposed, failed, notified, capped };
 }
 
 async function assertNameAvailable(
@@ -500,6 +537,7 @@ export async function createRecurrence(
         userId: actor.userId,
         name: parsed.name,
         shape: parsed.shape,
+        notifyOnCreate: parsed.notifyOnCreate,
         ...columns,
         proposesFrom,
         lastOccurrenceDate: null,
@@ -564,6 +602,9 @@ export async function updateRecurrence(
       .set({
         ...(changes.name !== undefined ? { name: changes.name } : {}),
         ...(changes.shape !== undefined ? { shape: changes.shape } : {}),
+        ...(changes.notifyOnCreate !== undefined
+          ? { notifyOnCreate: changes.notifyOnCreate }
+          : {}),
         ...columns,
         nextOccurrenceDate: nextOccurrenceDateFor({
           ...before,

@@ -50,6 +50,7 @@ const rent: Recurrence = {
   weekendPolicy: "allow",
   positionOrdinal: null,
   positionWeekday: null,
+  notifyOnCreate: false,
   proposesFrom: "2026-08-01",
   lastOccurrenceDate: "2026-08-01",
   nextOccurrenceDate: "2026-09-01",
@@ -418,5 +419,43 @@ describe("the recurrence form", () => {
       name: "Payday",
       schedule: { position: { ordinal: -1, weekday: 5 } },
     });
+  });
+
+  it("shows on the list whether a recurrence writes when it proposes", async () => {
+    await renderPage([
+      rent,
+      { ...payroll, notifyOnCreate: true },
+    ]);
+
+    expect(within(rowFor("Rent")).getByText("No")).toBeInTheDocument();
+    expect(within(rowFor("Salary")).getByText("Email")).toBeInTheDocument();
+  });
+
+  it("sends the notification choice, off unless it is asked for", async () => {
+    const writes = await renderPage([]);
+    await openForm();
+
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Rent" } });
+    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: "Landlord" } });
+    fireEvent.change(screen.getByLabelText(/^Account/), {
+      target: { value: checking.id },
+    });
+    const toggle = screen.getByLabelText(/Email me when this proposes/);
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Create recurrence" }));
+
+    await vi.waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).toMatchObject({ notifyOnCreate: true });
+  });
+
+  it("seeds the notification choice from the recurrence being edited", async () => {
+    await renderPage([{ ...rent, notifyOnCreate: true }]);
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Rent/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(
+      await screen.findByLabelText(/Email me when this proposes/),
+    ).toBeChecked();
   });
 });

@@ -222,6 +222,11 @@ export async function getPublicAuthOptions() {
     // usable straight away rather than waiting on a message that never comes.
     passwordResetAvailable: config.localAuthEnabled && mailEnabled(),
     emailVerificationRequired: config.localAuthEnabled && mailEnabled(),
+    // Not gated on local auth, unlike the two above: somebody who signed in
+    // through Google has an address to write to just the same. Exposed so a form
+    // offering a reminder can say when the deployment has no way to deliver one,
+    // rather than accepting a setting that quietly never fires.
+    notificationsAvailable: mailEnabled(),
     minimumPasswordLength: 12,
   };
 }

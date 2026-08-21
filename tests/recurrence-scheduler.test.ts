@@ -8,7 +8,13 @@ import {
 } from "../src/server/recurrence-scheduler.js";
 import type { TickSummary } from "../src/server/services/recurrences.js";
 
-const nothing: TickSummary = { examined: 0, proposed: 0, failed: 0, capped: false };
+const nothing: TickSummary = {
+  examined: 0,
+  proposed: 0,
+  failed: 0,
+  notified: 0,
+  capped: false,
+};
 
 function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
   const armed: { delay: number; fire: () => void; timer: ReturnType<typeof timerFor> }[] =
@@ -21,10 +27,15 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
   });
   const logger = { info: vi.fn(), error: vi.fn() };
   const runTick = vi.fn(async () => nothing);
+  // Stubbed, or the default reaches the real sweep and the real database. It
+  // would be swallowed by the loop's own guard, which is exactly why leaving it
+  // out would make these tests pass while proving nothing about it.
+  const runReminders = vi.fn(async () => ({ examined: 0, sent: 0, failed: 0 }));
   const scheduler = createRecurrenceScheduler({
     enabled: true,
     tickSeconds: 60,
     runTick,
+    runReminders,
     schedule,
     jitter: () => 0,
     logger,
@@ -34,7 +45,7 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
     armed.at(-1)!.fire();
     await vi.waitFor(() => expect(armed.length).toBeGreaterThan(1));
   };
-  return { armed, fireLast, logger, runTick, schedule, scheduler };
+  return { armed, fireLast, logger, runTick, runReminders, schedule, scheduler };
 }
 
 describe("the recurrence scheduler loop", () => {
@@ -90,7 +101,13 @@ describe("the recurrence scheduler loop", () => {
 
   it("comes straight back when a tick stopped at its catch-up cap", async () => {
     const harness = schedulerHarness({
-      runTick: vi.fn(async () => ({ examined: 1, proposed: 1, failed: 0, capped: true })),
+      runTick: vi.fn(async () => ({
+        examined: 1,
+        proposed: 1,
+        failed: 0,
+        notified: 0,
+        capped: true,
+      })),
     });
 
     await harness.fireLast();
@@ -179,5 +196,55 @@ describe("the recurrence scheduler loop", () => {
     expect(harness.schedule).not.toHaveBeenCalled();
     await expect(harness.scheduler.stop()).resolves.toBeUndefined();
     expect(harness.runTick).not.toHaveBeenCalled();
+    expect(harness.runReminders).not.toHaveBeenCalled();
+  });
+
+  it("sweeps template reminders on the same tick, after the proposals", async () => {
+    const order: string[] = [];
+    const harness = schedulerHarness({
+      runTick: vi.fn(async () => {
+        order.push("propose");
+        return nothing;
+      }),
+      runReminders: vi.fn(async () => {
+        order.push("remind");
+        return { examined: 0, sent: 0, failed: 0 };
+      }),
+    });
+
+    await harness.fireLast();
+
+    expect(order).toEqual(["propose", "remind"]);
+  });
+
+  /**
+   * The two sweeps share a tick, so neither may be able to stop the other. A
+   * reminder that throws must not cost the proposals their catch-up signal, and
+   * proposals that throw must not stop reminders being tried next time round.
+   */
+  it("keeps ticking when the reminder sweep throws", async () => {
+    const harness = schedulerHarness({
+      runTick: vi.fn(async () => ({ ...nothing, capped: true })),
+      runReminders: vi.fn(async () => {
+        throw new Error("no mail server");
+      }),
+    });
+
+    await harness.fireLast();
+
+    expect(harness.logger.error).toHaveBeenCalledWith(
+      "Template reminder sweep failed",
+      expect.any(Error),
+    );
+    // Still zero, which is the catch-up signal surviving a failed reminder.
+    expect(harness.armed.at(-1)!.delay).toBe(0);
+  });
+
+  it("still sweeps reminders when a tick has nothing to propose", async () => {
+    const harness = schedulerHarness();
+
+    await harness.fireLast();
+
+    expect(harness.runReminders).toHaveBeenCalledTimes(1);
   });
 });

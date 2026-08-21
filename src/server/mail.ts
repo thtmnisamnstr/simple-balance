@@ -142,6 +142,61 @@ export function passwordResetMessage(url: string, appUrl: string) {
   };
 }
 
+/**
+ * What the scheduler proposed, for somebody who asked to be told.
+ *
+ * Names the rows and stops there. It does not say what they add up to, because a
+ * proposed row is not money that has moved — it is waiting in the queue for
+ * somebody to look at it, and a total in a mail reads like a statement.
+ */
+export function recurrenceProposedMessage(
+  recurrenceName: string,
+  occurrenceDates: string[],
+  appUrl: string,
+) {
+  const one = occurrenceDates.length === 1;
+  return {
+    subject: one
+      ? `${recurrenceName} is waiting in your review queue`
+      : `${recurrenceName} has ${occurrenceDates.length} rows waiting in your review queue`,
+    body:
+      `Simple Balance proposed ${one ? "a transaction" : `${occurrenceDates.length} transactions`} ` +
+      `from your recurring transaction "${recurrenceName}":\n\n` +
+      occurrenceDates.map((date) => `  ${date}`).join("\n") +
+      "\n\nNothing has been recorded yet. Review and commit it here:\n\n" +
+      `${appUrl}/staged\n` +
+      "\nYou asked for this when you set the recurring transaction up. Turn it " +
+      "off on that transaction's edit screen.\n",
+  };
+}
+
+/**
+ * A nudge to make a transaction the person keeps a template for.
+ *
+ * A template is filled in by hand, so this can only ask. It carries no link that
+ * writes anything: the whole point of a template is that somebody looks at it
+ * and decides.
+ */
+export function templateReminderMessage(
+  templateName: string,
+  occurrenceDate: string,
+  appUrl: string,
+  repeats: boolean,
+) {
+  return {
+    subject: `Reminder: ${templateName}`,
+    body:
+      `You asked to be reminded about "${templateName}" on ${occurrenceDate}.\n\n` +
+      "The template is ready to fill in here:\n\n" +
+      `${appUrl}/templates\n` +
+      `\n${
+        repeats
+          ? "This reminder repeats. Change or turn it off on the template's edit screen."
+          : "This was a one-off reminder, so there will not be another."
+      }\n`,
+  };
+}
+
 export function verificationMessage(url: string, appUrl: string) {
   return {
     subject: "Confirm your email address",

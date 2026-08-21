@@ -1,5 +1,6 @@
 import { getConfig } from "./config.js";
 import { configuredRecurrenceTickSeconds } from "./config-limits.js";
+import { runDueNotifications } from "./services/notifications.js";
 import { runDueRecurrences, type TickSummary } from "./services/recurrences.js";
 
 /**
@@ -41,6 +42,7 @@ export type RecurrenceSchedulerOptions = {
   enabled?: boolean;
   tickSeconds?: number;
   runTick?: (stopped: () => boolean) => Promise<TickSummary>;
+  runReminders?: (stopped: () => boolean) => Promise<unknown>;
   schedule?: (callback: () => void, milliseconds: number) => Timer;
   jitter?: () => number;
   logger?: SchedulerLogger;
@@ -58,6 +60,7 @@ export function createRecurrenceScheduler(
     enabled = getConfig().recurrenceSchedulerEnabled,
     tickSeconds = configuredRecurrenceTickSeconds(),
     runTick = runDueRecurrences,
+    runReminders = runDueNotifications,
     schedule = defaultSchedule,
     jitter = () => Math.random() * FIRST_TICK_JITTER_MS,
     logger = console,
@@ -80,6 +83,19 @@ export function createRecurrenceScheduler(
     const running = (async () => {
       try {
         const summary = await runTick(() => stopping);
+        // Reminders ride the same tick rather than a loop of their own. They are
+        // due on a schedule of the same shape, read by a query of the same shape,
+        // and a second timer would be a second thing to configure, a second
+        // thing to shut down, and a second thing to notice had stopped.
+        //
+        // After the proposals, so a recurrence that proposes and a template that
+        // reminds on one day arrive in that order. Its own try, because a
+        // reminder that fails must not cost the proposals their catch-up signal.
+        try {
+          await runReminders(() => stopping);
+        } catch (error) {
+          logger.error("Template reminder sweep failed", error);
+        }
         // A recurrence that filled its catch-up cap has strictly advanced its
         // watermark, so coming straight back drains a backlog at full speed and
         // still terminates. Everything else waits out the interval.

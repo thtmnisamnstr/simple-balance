@@ -498,15 +498,6 @@ export type TransactionTemplateDraft = z.infer<
   typeof transactionTemplateDraftSchema
 >;
 
-export const transactionTemplateCreateSchema = z.object({
-  name: oneLine(z.string().trim().min(1).max(120)),
-  draft: transactionTemplateDraftSchema,
-});
-
-export const transactionTemplateUpdateSchema = transactionTemplateCreateSchema
-  .partial()
-  .extend({ expectedVersion: z.number().int().positive() });
-
 /**
  * Every selected template is named outright, with the version it was read at.
  *
@@ -1531,11 +1522,106 @@ export const recurrenceSchedulePatchSchema = z
   })
   .strict();
 
+/**
+ * A time of day, as the person's own clock reads it.
+ *
+ * `HH:MM` and nothing finer. A reminder is a thing somebody reads when they next
+ * look at their mail, so seconds would be a precision the delivery cannot keep
+ * and the scheduler's tick interval would make a lie of.
+ */
+export const clockTimeSchema = z
+  .string()
+  .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "Use a time of day as HH:MM, from 00:00 to 23:59")
+  .describe(
+    'A time of day in the person\'s own timezone, as "HH:MM" on a 24-hour clock, for example "08:30".',
+  );
+
+/**
+ * When to remind somebody to make a transaction from a template.
+ *
+ * The schedule is a recurrence's, with a time added, and with one thing a
+ * recurrence has no need for: `frequency` may be null, which is a single
+ * reminder on the anchor date rather than a repeating one. A template is a thing
+ * somebody fills in by hand, and half the reason to be reminded of one is a
+ * payment that happens once.
+ *
+ * The fields a one-off cannot use are refused rather than ignored, the same way
+ * a position on a daily schedule is: silently dropping an interval somebody
+ * typed is how a reminder ends up arriving on a day nobody chose.
+ */
+export const templateNotificationSchema = z
+  .object({
+    frequency: z.enum(recurrenceFrequencies).nullable().default(null),
+    interval: z.number().int().min(1).max(MAX_RECURRENCE_INTERVAL).optional(),
+    anchorDate: recurrenceAnchorDateSchema,
+    monthPolicy: z.enum(recurrenceMonthPolicies).optional(),
+    weekendPolicy: z.enum(recurrenceWeekendPolicies).optional(),
+    position: recurrencePositionSchema.nullable().optional(),
+    time: clockTimeSchema,
+  })
+  .strict()
+  .superRefine((notification, context) => {
+    if (notification.frequency === null) {
+      for (const field of ["interval", "monthPolicy", "weekendPolicy", "position"] as const) {
+        if (notification[field] !== undefined && notification[field] !== null) {
+          context.addIssue({
+            code: "custom",
+            path: [field],
+            message:
+              "A reminder that happens once needs only its date and time. Choose a frequency to repeat it.",
+          });
+        }
+      }
+      return;
+    }
+    checkSchedule(
+      {
+        frequency: notification.frequency,
+        interval: notification.interval ?? 1,
+        weekendPolicy: notification.weekendPolicy ?? "allow",
+        position: notification.position,
+      },
+      context,
+    );
+  });
+
+export type TemplateNotification = z.infer<typeof templateNotificationSchema>;
+
+export const transactionTemplateCreateSchema = z.object({
+  name: oneLine(z.string().trim().min(1).max(120)),
+  draft: transactionTemplateDraftSchema,
+  /** A reminder to make this one. Null, or left out, is no reminder. */
+  notification: templateNotificationSchema.nullable().optional(),
+});
+
+/**
+ * `notification` left out keeps whatever is stored and null removes it, which is
+ * why it cannot be made optional by `.partial()` alone: an update that says
+ * nothing about the reminder must not be read as asking to delete it.
+ */
+export const transactionTemplateUpdateSchema = transactionTemplateCreateSchema
+  .partial()
+  .extend({ expectedVersion: z.number().int().positive() });
+
+/**
+ * Whether to send an email when the scheduler proposes from this recurrence.
+ *
+ * Not part of the schedule: the schedule decides when a row is proposed, and
+ * this decides whether anybody hears about it. Folded in, changing the notice
+ * would look like changing the dates.
+ */
+const recurrenceNotifySchema = z
+  .boolean()
+  .describe(
+    "Email when this recurrence proposes a row into the review queue. The mail names what was proposed and links to the queue; it never commits anything. Needs a deployment with SMTP configured.",
+  );
+
 export const recurrenceCreateSchema = z
   .object({
     name: oneLine(z.string().trim().min(1).max(120)),
     shape: recurrenceShapeSchema,
     schedule: recurrenceScheduleSchema,
+    notifyOnCreate: recurrenceNotifySchema.default(false),
   })
   .strict();
 
@@ -1544,6 +1630,7 @@ export const recurrenceUpdateSchema = z
     name: oneLine(z.string().trim().min(1).max(120)).optional(),
     shape: recurrenceShapeSchema.optional(),
     schedule: recurrenceSchedulePatchSchema.optional(),
+    notifyOnCreate: recurrenceNotifySchema.optional(),
     expectedVersion: z.number().int().positive(),
   })
   .strict();

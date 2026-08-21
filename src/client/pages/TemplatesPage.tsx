@@ -11,6 +11,7 @@ import {
 import {
   Alert,
   Badge,
+  formatDate,
   Button,
   ConfirmDialog,
   EmptyState,
@@ -554,6 +555,7 @@ export default function TemplatesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
+                  <th scope="col">Reminder</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>
@@ -630,6 +632,22 @@ export default function TemplatesPage() {
                             {`${template.transactionCount ?? 0} committed · ${template.stagedTransactionCount} pending`}
                           </span>
                         ) : null}
+                      </td>
+                      <td>
+                        {template.notification ? (
+                          <div className="transaction-payee">
+                            <Badge tone={template.notification.repeats ? "blue" : undefined}>
+                              {template.notification.repeats ? "Repeating" : "Once"}
+                            </Badge>
+                            <span className="table-subtitle">
+                              {template.notification.nextNotificationDate
+                                ? `${formatDate(template.notification.nextNotificationDate)} at ${template.notification.time}`
+                                : "sent"}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="template-blank">none</span>
+                        )}
                       </td>
                       <td className="row-actions">
                         <RowMenu label={`Actions for ${template.name}`}>

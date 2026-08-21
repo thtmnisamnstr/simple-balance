@@ -422,6 +422,14 @@ either. Deleting a recurrence leaves every row it proposed alone; those rows
 keep its name, so a queue entry can still say where it came from. To find them,
 `list_staged_transactions` takes a `recurrenceId` filter.
 
+`notifyOnCreate` sends an email when the scheduler proposes from this recurrence.
+One message per proposal however many rows it holds, sent to the address on the
+account, naming the dates and pointing at the queue. It says nothing on a tick
+that proposes nothing, and nothing at all on a deployment with no mail server —
+the setting is still stored, so it starts working when one is configured. It is
+set beside the schedule rather than inside it, so changing the notice does not
+look like changing the dates.
+
 ## Transaction templates
 
 `list_transaction_templates`, `get_transaction_template`,
@@ -476,6 +484,26 @@ on anything that is not a transfer. References are checked only where the patch
 introduces them, so a template naming an account since deleted can still have its
 payee changed. A row whose next draft matches what it already holds is left
 alone and not counted in `changedCount`.
+
+A template can also carry a reminder, as `notification`, and null is none. It is
+a recurrence's schedule with two differences: a `time`, as `HH:MM` on the
+person's own clock, and a `frequency` that may be null, which is a reminder that
+happens once on its `anchorDate`. A one-off refuses `interval`, the two policies
+and `position` rather than ignoring them, because a reminder arriving on a day
+nobody chose is worse than a refusal. `repeats` in the reply is `frequency` not
+being null, said outright.
+
+The reminder asks and never writes: a template is filled in by hand, so the mail
+points at the template and records nothing. `nextNotificationDate` is when the
+next one goes, and null means nothing further is owed — which for a one-off is
+how it says it has already been sent. A backlog collapses into one message, so
+coming back from a week of downtime brings one reminder rather than seven.
+
+On an update, `notification` left out keeps whatever is stored and null removes
+it. Given a new one it replaces the old one whole rather than merging, because
+the rule is refused or accepted whole: a stored monthly rule merged with an
+incoming null frequency would be a one-off still carrying a month policy.
+Deleting the template deletes the reminder with it.
 
 ## Payees
 

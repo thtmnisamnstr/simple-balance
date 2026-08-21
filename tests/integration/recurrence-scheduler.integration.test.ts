@@ -114,7 +114,13 @@ integration("the scheduler sweep", () => {
 
     const summary = await runDueRecurrences(() => true);
 
-    expect(summary).toEqual({ examined: 0, proposed: 0, failed: 0, capped: false });
+    expect(summary).toEqual({
+      examined: 0,
+      proposed: 0,
+      failed: 0,
+      notified: 0,
+      capped: false,
+    });
   });
 
   /**
