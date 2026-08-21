@@ -197,6 +197,15 @@ this project has published.
 {{- if not .Values.secret.authSecret }}
 {{- fail "secret.authSecret is required when secret.create is true. Generate one with `openssl rand -base64 32`." }}
 {{- end }}
+{{- if lt (len .Values.secret.authSecret) 32 }}
+{{- fail "secret.authSecret must be at least 32 characters. Startup refuses a shorter one, so the release would install cleanly and then crashloop every tier." }}
+{{- end }}
+{{- if has (trim .Values.secret.authSecret) (list "development-only-secret-change-me-1234567890" "replace-with-at-least-32-random-characters" "change-me") }}
+{{- fail "secret.authSecret is one of the published placeholders. Sessions are signed with it, so it has to be a secret nobody else has. Generate one with `openssl rand -base64 32`." }}
+{{- end }}
+{{- if and .Values.secret.setupToken (lt (len .Values.secret.setupToken) 16) }}
+{{- fail "secret.setupToken must be at least 16 characters when it is set. Startup refuses a shorter one." }}
+{{- end }}
 {{- if not (eq (empty .Values.secret.smtpUsername) (empty .Values.secret.smtpPassword)) }}
 {{- fail "secret.smtpUsername and secret.smtpPassword are set together or not at all." }}
 {{- end }}

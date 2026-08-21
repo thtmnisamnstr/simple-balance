@@ -119,8 +119,18 @@ export function laterOf(left: string, right: string) {
   return left >= right ? left : right;
 }
 
-/** The calendar date it is where this person lives, not where the server runs. */
-export function todayIn(timezone: string) {
+/**
+ * The calendar date some instant fell on where this person lives.
+ *
+ * The one place that question is answered. PostgreSQL can answer it too, but not
+ * the same way: `at time zone '-08:00'` reads a bare offset with the POSIX sign
+ * convention while `Intl` reads it as ISO, so the two disagree by sixteen hours
+ * for anybody whose stored timezone is an offset rather than a zone name. Having
+ * both was enough to close an account on a day the dashboard had not reached
+ * yet, leaving its balance out of the headline total while the ledger still
+ * counted it.
+ */
+export function calendarDayIn(instant: Date, timezone: string) {
   // The stored timezone is free text, checked only when it was written, so an
   // ICU update or a hand-edited row can leave one unrecognisable years later.
   // Inside a loop that serves everybody, one such row must not be able to throw.
@@ -141,9 +151,14 @@ export function todayIn(timezone: string) {
     });
   }
   const value = Object.fromEntries(
-    formatter.formatToParts(new Date()).map((part) => [part.type, part.value]),
+    formatter.formatToParts(instant).map((part) => [part.type, part.value]),
   );
   return `${value.year}-${value.month}-${value.day}`;
+}
+
+/** The calendar date it is where this person lives, not where the server runs. */
+export function todayIn(timezone: string) {
+  return calendarDayIn(new Date(), timezone);
 }
 
 /**

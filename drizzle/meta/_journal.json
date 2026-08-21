@@ -57,6 +57,13 @@
       "when": 1786674647145,
       "tag": "0007_shared_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787273357566,
+      "tag": "0008_owner_setup_token",
+      "breakpoints": true
     }
   ]
 }

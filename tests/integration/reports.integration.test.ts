@@ -510,6 +510,60 @@ integration("reports", () => {
     }
   });
 
+  it("keeps an archived account's history in the buckets it was still open for", async () => {
+    const monthly = { report: "net-worth" as const, ...year, bucket: "month" as const };
+    const before = usd(await getReport(actor, monthly))!.totals;
+
+    const loaded = await getAccount(actor, savingsId);
+    await setAccountArchived(actor, savingsId, loaded.version, true);
+    try {
+      const after = await getReport(actor, monthly);
+      const closed = row(after, savingsId)!;
+
+      expect(usd(after)!.totals.slice(0, -1)).toEqual(before.slice(0, -1));
+      expect(closed.values.some((value) => value !== "0")).toBe(true);
+      expect(closed.total).toBe("0");
+      // Kept, so it has to say what it is: without this the past balance of a
+      // closed account reads as money still in the live ones.
+      expect(closed.archived).toBe(true);
+      expect(row(after, checkingId)!.archived).toBe(false);
+    } finally {
+      const archived = await getAccount(actor, savingsId);
+      await setAccountArchived(actor, savingsId, archived.version, false);
+    }
+  });
+
+  /**
+   * Hiding the row is the whole of what excluding an archived account can mean
+   * on a balance report, so a currency with nothing left to show must not come
+   * back as a section at all — a heading over an empty table, with the empty
+   * state suppressed because a currency exists, reads as a broken page.
+   */
+  it("leaves out a currency whose only account is closed and empty", async () => {
+    const empty = await createAccount(actor, {
+      name: "Yen Cash",
+      type: "cash",
+      currency: "JPY",
+      openingDate: "2026-01-01",
+      openingBalance: "0",
+    });
+    await setAccountArchived(actor, empty.id, empty.version, true);
+    try {
+      const report = await getReport(actor, { report: "balance-sheet", ...year });
+      expect(report.currencies.map((entry) => entry.currency)).not.toContain("JPY");
+
+      const shown = await getReport(
+        actor,
+        { report: "balance-sheet", ...year },
+        true,
+      );
+      expect(shown.currencies.map((entry) => entry.currency)).toContain("JPY");
+    } finally {
+      const archived = await getAccount(actor, empty.id);
+      await setAccountArchived(actor, empty.id, archived.version, false);
+    }
+  });
+
   it("keeps the whole ledger summing to zero", async () => {
     const result = await getDb().execute(sql`
       select p.currency, sum(p.amount)::text as total

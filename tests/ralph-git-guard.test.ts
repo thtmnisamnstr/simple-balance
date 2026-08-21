@@ -200,6 +200,42 @@ describe("Ralph Git guard", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  it("refuses a config key written on the same line as its section header", () => {
+    const root = realpathSync(
+      mkdtempSync(path.join(tmpdir(), "simple-balance-git-guard-")),
+    );
+    temporaryRoots.push(root);
+    expect(git(root, ["init", "--quiet"]).status).toBe(0);
+    const gitDirectory = realpathSync(path.join(root, ".git"));
+    const configPath = path.join(gitDirectory, "config");
+    // Written by hand, because `git config` always emits the two-line form. git
+    // honours both; the scan only ever read one, so this shape reached the
+    // snapshot as though the file held nothing executable.
+    writeFileSync(
+      configPath,
+      `${readFileSync(configPath, "utf8")}[core] fsmonitor = /tmp/evil.sh\n`,
+    );
+    const trusted = path.join(root, "trusted");
+    mkdirSync(trusted);
+
+    const snapshot = spawnSync(
+      process.execPath,
+      [
+        guard,
+        "snapshot",
+        root,
+        gitDirectory,
+        gitDirectory,
+        gitExecutable,
+        path.join(trusted, "git-state.json"),
+      ],
+      { cwd: root, encoding: "utf8" },
+    );
+
+    expect(snapshot.status).not.toBe(0);
+    expect(snapshot.stderr).toMatch(/executable or included configuration key/);
+  });
+
   it("refuses an agent-modified index instead of committing a different tree", () => {
     const testRepository = fixture();
     writeFileSync(path.join(testRepository.root, "hidden.txt"), "staged early\n");

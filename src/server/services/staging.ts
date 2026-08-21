@@ -100,8 +100,9 @@ function stageView(
     // rather than no, and saying `false` there contradicted what the same row
     // reports in a list.
     repeatsStagedRow: repeatsStagedRow ?? null,
-    // Same rule as above: only the list compares this row against the ledger,
-    // and where it did not the answer is unknown rather than none.
+    // Same rule as above, but two callers compare against the ledger rather than
+    // one: the list, and the duplicate review on the row it was asked about.
+    // Where neither did the answer is unknown rather than none.
     likelyDuplicateOfId: likely === undefined ? null : likely,
   };
 }
@@ -206,7 +207,9 @@ async function validateDraft(
   const duplicateKey =
     stagedKeys.find((key) => key.startsWith("external:")) ?? stagedKeys[0] ?? null;
   try {
-    await prepareTransaction(tx, actor, parsed.data);
+    // Lookup rather than ensure: validating a draft answers whether it would
+    // balance, and a question about the books should not add to them.
+    await prepareTransaction(tx, actor, parsed.data, { systemAccounts: "lookup" });
     // Skipped where the caller is about to take the duplicate-key locks and ask
     // again under them. The unlocked answer is a badge for the queue, not a
     // decision, so computing it for a commit is a lookup per row whose result
@@ -431,6 +434,19 @@ export async function insertImportedStages(
 }
 
 /**
+ * `decimalStringSchema`'s rule, written for PostgreSQL: at most 26 digits before
+ * the point and 18 after.
+ *
+ * The bound is the whole point. Guarding a `::numeric` cast on shape alone
+ * admits literals `numeric` cannot hold, and a draft amount of two hundred
+ * thousand digits then raises SQLSTATE 22003 and takes the queue down on its
+ * default sort — the same failure, and the same dead end, as an impossible date.
+ * Anything the domain would accept casts; anything it would not lands as NULL,
+ * which is where a draft the person still has to fix belongs anyway.
+ */
+const DRAFT_DECIMAL = "^-?(0|[1-9][0-9]{0,25})(\\.[0-9]{1,18})?$";
+
+/**
  * A staged row is a draft, so the columns the queue shows live inside unvalidated
  * JSON. Every expression here reads that JSON as text and compares it as text,
  * which keeps a malformed draft from turning a sort into a cast error.
@@ -477,7 +493,7 @@ function stageSortPlan(
       end`);
     case "amount":
       return paged(sql`case
-        when ${draft} ->> 'amount' ~ '^-?[0-9]+(\\.[0-9]+)?$'
+        when ${draft} ->> 'amount' ~ ${DRAFT_DECIMAL}
           then (${draft} ->> 'amount')::numeric
       end`);
     default: {
@@ -540,7 +556,7 @@ const repeatsAnotherStagedRow = sql`(
  */
 const draftAmount = (field: string) => sql`(
   case
-    when ${stagedTransactions.draft} ->> ${field} ~ '^[0-9]+(\\.[0-9]+)?$'
+    when ${stagedTransactions.draft} ->> ${field} ~ ${DRAFT_DECIMAL}
       then (${stagedTransactions.draft} ->> ${field})::numeric
   end
 )`;
@@ -588,10 +604,28 @@ const likelyCommittedMatch = sql`(
  * that column, and those are exactly the rows somebody is in the queue to fix.
  * A `case` is the one construct that promises not to evaluate the branch it
  * does not take.
+ *
+ * The shape of a date is not enough to make it castable: `2026-02-30` and
+ * `2026-13-01` both match the pattern and PostgreSQL refuses both, which took
+ * the whole queue down with SQLSTATE 22008 for as long as one such row existed
+ * — the queue being the only place that row could be seen and fixed. So the
+ * guard asks what validation already decided instead of trying to out-guess the
+ * calendar: a row reaches the cast only if nothing filed an issue against its
+ * date, and only if its type named one of the union branches. The second term
+ * is not redundant. An unrecognised type fails the discriminator, so Zod never
+ * reaches the date at all and files nothing against it; such a row would carry
+ * a bad date and no date issue.
  */
 const guardedByDate = (expression: SQL) => sql`(
   case
     when ${stagedTransactions.draft} ->> 'date' ~ '^\\d{4}-\\d{2}-\\d{2}$'
+      and ${stagedTransactions.draft} ->> 'type'
+        in ('deposit', 'withdrawal', 'transfer')
+      and not exists (
+        select 1
+        from jsonb_array_elements(${stagedTransactions.validationIssues}) as issue
+        where issue ->> 'field' = 'date'
+      )
       then ${expression}
   end
 )`;

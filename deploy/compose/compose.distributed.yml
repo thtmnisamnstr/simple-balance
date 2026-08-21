@@ -185,9 +185,12 @@ services:
     tmpfs:
       # The entrypoint renders nginx.conf.template into /etc/nginx/conf.d at
       # startup, once envsubst has put SB_API_ORIGIN and the rest into it.
-      # /var/cache/nginx is where a request body too large for the buffer is
-      # spooled, so every CSV import passes through it, and /tmp holds the pid
-      # file the unprivileged image writes there.
+      # /tmp is where a request body too large for the buffer is spooled, so
+      # every CSV import passes through it: the unprivileged image overrides all
+      # five of nginx's temp paths to /tmp so it can write them as a non-root
+      # user, and it puts the pid file there too. /var/cache/nginx is mounted
+      # against a base image that stops doing that, since a read-only root would
+      # then leave nginx with nowhere to spool and no way to say so.
       #
       # uid and gid are the nginx user in the image, and they are not optional:
       # Docker gives a tmpfs the mode of the directory it covers and leaves it
@@ -200,7 +203,10 @@ services:
       - /tmp:uid=101,gid=101
     # nginx reads SIGTERM as a fast shutdown and SIGQUIT as a graceful one, so
     # without this a `docker compose down` cuts off whatever it is still
-    # serving. This is the compose equivalent of the chart's preStop hook.
+    # serving. Stated rather than inherited: the image declares SIGQUIT as its
+    # stop signal and compose would honour that anyway, but the whole reason the
+    # frontend can be stopped without cutting a response is worth naming where
+    # somebody reading this file will find it.
     stop_signal: SIGQUIT
     stop_grace_period: 30s
     healthcheck:

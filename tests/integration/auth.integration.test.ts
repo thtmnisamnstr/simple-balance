@@ -434,4 +434,66 @@ integration("embedded local authentication", () => {
       result: { serverInfo: { name: "simple-balance" } },
     });
   });
+
+  it.each([
+    ["no body at all", undefined],
+    ["a truncated object", "{"],
+    ["something that is not JSON", "not json"],
+  ])("answers 400 rather than 500 for %s", async (_label, raw) => {
+    const response = await app.request("http://localhost:3000/api/v1/accounts", {
+      method: "POST",
+      headers: {
+        origin: "http://localhost:3000",
+        "x-forwarded-for": fromNewClient(),
+        "content-type": "application/json",
+        cookie: ownerCookie,
+      },
+      body: raw,
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: "VALIDATION_ERROR" },
+    });
+  });
+
+  it.each([
+    "/api/v1/does-not-exist",
+    "/api/v1/transactions/",
+    "/api/v1/accounts/",
+  ])("answers a JSON 404 for the unmatched path %s", async (path) => {
+    const response = await authRequest(path, undefined, ownerCookie);
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
+  });
+
+  it("tells caches not to keep a response carrying a session token", async () => {
+    const sessions = await authRequest(
+      "/api/auth/list-sessions",
+      undefined,
+      ownerCookie,
+    );
+    expect(sessions.status).toBe(200);
+    expect(sessions.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("leaves the public signing keys cacheable", async () => {
+    const jwks = await authRequest("/api/auth/mcp/jwks");
+    expect(jwks.status).toBe(200);
+    expect(jwks.headers.get("cache-control")).toBe("public, max-age=300");
+  });
+
+  it("answers a malformed consent cookie without a 500", async () => {
+    const response = await app.request(
+      "http://localhost:3000/api/auth/oauth2/consent-request",
+      {
+        headers: {
+          origin: "http://localhost:3000",
+          "x-forwarded-for": fromNewClient(),
+          cookie: `${ownerCookie}; oidc_consent_prompt=%zz`,
+        },
+      },
+    );
+    expect(response.status).toBeLessThan(500);
+  });
 });

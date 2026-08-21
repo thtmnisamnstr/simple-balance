@@ -92,10 +92,11 @@ config:
   #   replicas x (databasePoolSize + 1)  <  max_connections
   #
   # PostgreSQL defaults max_connections to 100, so at a pool of 10 that is nine
-  # replicas, not ninety, and the API and the scheduler both count against it:
-  # four API replicas and two scheduler replicas at a pool of 10 come to
-  # 6 x 11 = 66 of the 100. Lower this before raising any replica count, or put
-  # a connection pooler in front of PostgreSQL and set secret.directDatabaseUrl.
+  # replicas, not ninety, and the API and the scheduler both count against it.
+  # This chart's own ceilings are four API replicas and two scheduler replicas,
+  # which at a pool of 10 come to 6 x 11 = 66 of the 100. Lower this before
+  # raising either ceiling, or put a connection pooler in front of PostgreSQL and
+  # set secret.directDatabaseUrl.
   databasePoolSize: 10
 
   # How often a scheduler pod sweeps the due list, how many occurrences one
@@ -154,7 +155,11 @@ secret:
   authSecret: ""
   # Optional: choose the one-time code that claims the first account rather than
   # reading a generated one out of the server's startup log. At least 16
-  # characters, or startup refuses it.
+  # characters, or startup refuses it. Read only when create is true — with an
+  # existingSecret, put SETUP_TOKEN in that Secret instead.
+  #
+  # Left empty, one is generated and stored, so every replica agrees on it and
+  # the code in the log is the code the form accepts.
   setupToken: ""
   googleClientSecret: ""
   # Set together or not at all.
@@ -236,7 +241,7 @@ server:
   autoscaling:
     enabled: true
     minReplicas: 2
-    maxReplicas: 6
+    maxReplicas: 4
     # Either target may be null to leave that metric out. Both null is an HPA
     # that cannot scale anything, and fails the render.
     targetCPUUtilizationPercentage: 70
@@ -280,10 +285,15 @@ frontend:
   # would have taken. Raise it with config.csvMaxBytes.
   maxUploadSize: 61m
 
-  # Kubernetes sends SIGTERM, which nginx reads as a *fast* shutdown rather than
-  # a graceful one, so the drain has to be asked for: sleep long enough for the
-  # load balancer and kube-proxy to stop handing this pod new connections, then
-  # let nginx finish what it is already holding. 0 removes the hook.
+  # How long to keep answering after Kubernetes decides this pod is going, so
+  # the load balancer and kube-proxy have stopped handing it new connections
+  # before anything shuts down. 0 removes the hook.
+  #
+  # Only the waiting is here. nginx drains on its own: the runtime stops a
+  # container with the signal its image declares, and the frontend image declares
+  # SIGQUIT, which is nginx's graceful shutdown. What bounds that drain is
+  # terminationGracePeriodSeconds below, so raise that one if long MCP streams
+  # matter more than quick rollouts.
   preStopSleepSeconds: 5
 
   resources:
@@ -308,6 +318,9 @@ frontend:
       drop:
         - ALL
 
+  # The whole shutdown budget: preStopSleepSeconds first, then however long nginx
+  # needs to finish its open responses. A request still streaming when this
+  # expires is cut, so anyone holding long MCP streams open should raise it.
   terminationGracePeriodSeconds: 30
 
   # Probes / rather than /health, because that location is served by nginx out
@@ -412,7 +425,7 @@ scheduler:
   autoscaling:
     enabled: true
     minReplicas: 1
-    maxReplicas: 4
+    maxReplicas: 2
     targetCPUUtilizationPercentage: 70
     targetMemoryUtilizationPercentage: 80
     # Worth knowing what this can and cannot do. Replicas divide the due list by

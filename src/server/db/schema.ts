@@ -171,6 +171,22 @@ export const mcpSigningKeys = pgTable("auth_mcp_signing_key", {
   retiredAt: timestamp("retired_at", { withTimezone: true }),
 });
 
+/**
+ * The one-time code that claims an unclaimed deployment, when the operator did
+ * not choose one.
+ *
+ * A row rather than a module variable because the web tier can run more than one
+ * replica: a code generated per process is printed by the pod that generated it
+ * and rejected by every other, so the claim documented in the chart's own notes
+ * failed about half the time. One row, so it is the same code whichever pod
+ * answers.
+ */
+export const ownerSetupTokens = pgTable("auth_owner_setup_token", {
+  id: text("id").primaryKey(),
+  token: text("token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const accountTypeEnum = pgEnum("ledger_account_type", accountTypes);
 export const systemAccountKindEnum = pgEnum(
   "system_account_kind",

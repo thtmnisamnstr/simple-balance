@@ -9,6 +9,11 @@ const keys = [
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "ALLOWED_EMAILS",
+  // Anything not named here is dropped by setEnvironment rather than set, so a
+  // test for it passes for the wrong reason.
+  "RECURRENCE_SCHEDULER",
+  "TRUST_PROXY",
+  "LOG_LEVEL",
 ] as const;
 const original = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 
@@ -90,6 +95,13 @@ describe("authentication configuration", () => {
     "https://@simple-balance.example.com",
     "https://owner@simple-balance.example.com",
     "https://owner:secret@simple-balance.example.com",
+    // Values the URL constructor itself refuses. These used to escape the
+    // schema as a bare "Invalid URL", so the operator got a stack trace instead
+    // of the rule the schema exists to state.
+    "simple-balance.example.com",
+    "//simple-balance.example.com",
+    "",
+    "https://",
   ])("rejects a production APP_BASE_URL that is not an exact origin: %s", async (baseUrl) => {
     setEnvironment({
       NODE_ENV: "production",
@@ -101,6 +113,26 @@ describe("authentication configuration", () => {
     vi.resetModules();
     const { getConfig } = await import("../src/server/config.js");
     expect(() => getConfig()).toThrow(/exact HTTP\(S\) origin/);
+  });
+
+  it.each([
+    ["RECURRENCE_SCHEDULER", "yes", /RECURRENCE_SCHEDULER must be true or false/],
+    ["TRUST_PROXY", "yes", /TRUST_PROXY must be true or false/],
+    ["LOG_LEVEL", "loud", /LOG_LEVEL must be debug, info, warn or error/],
+    ["AUTH_MODE", "sso", /AUTH_MODE must be one of/],
+    ["NODE_ENV", "Prod", /NODE_ENV must be production, development or test/],
+  ])("says which variable was wrong when %s is not a value it takes", async (name, value, expected) => {
+    setEnvironment({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://simple_balance:secret@database.example/simple_balance",
+      APP_BASE_URL: "https://simple-balance.example.com",
+      AUTH_SECRET: "a-production-secret-that-is-at-least-32-characters",
+      AUTH_MODE: "local",
+      [name]: value,
+    });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+    expect(() => getConfig()).toThrow(expected);
   });
 
   it("accepts and normalizes an optional trailing slash on the production origin", async () => {

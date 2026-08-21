@@ -70,15 +70,22 @@ spec:
           lifecycle:
             preStop:
               exec:
-                # The sleep is the load balancer's and kube-proxy's window to
-                # stop sending this pod new connections while it still answers
-                # them. `nginx -s quit` then drains what it is holding, because
-                # the SIGTERM that follows the hook is a fast shutdown to nginx
-                # and would cut those connections off.
+                # Only a wait. The load balancer and kube-proxy need a window
+                # to stop sending this pod new connections, and until they have
+                # had it a shutdown cuts requests that were still arriving.
+                #
+                # The drain itself needs no help: the runtime stops a container
+                # with the signal its image declares, and this base image
+                # declares SIGQUIT, which is nginx's graceful shutdown. An
+                # earlier version of this hook ran `nginx -s quit` on the theory
+                # that SIGTERM was coming — it is not — and then waited for the
+                # pid file to disappear, which left the hook failing on a
+                # container whose shell had already gone. The drain is bounded by
+                # terminationGracePeriodSeconds either way.
                 command:
                   - /bin/sh
                   - -c
-                  - sleep {{ .Values.frontend.preStopSleepSeconds }}; nginx -s quit
+                  - sleep {{ .Values.frontend.preStopSleepSeconds }}
           {{- end }}
           {{- if .Values.frontend.readinessProbe.enabled }}
           readinessProbe:
@@ -111,10 +118,13 @@ spec:
             # hides the image's own default.conf, which the rendered file was
             # going to overwrite anyway.
             #
-            # /var/cache/nginx holds the temp files a request body is spooled
-            # into, so a CSV import the size of SB_MAX_UPLOAD_SIZE passes
-            # through here on its way to the API. /tmp holds the pid file the
-            # unprivileged image writes there.
+            # /tmp holds the temp files a request body is spooled into, so a
+            # CSV import the size of SB_MAX_UPLOAD_SIZE passes through there on
+            # its way to the API: the unprivileged image overrides all five of
+            # nginx's temp paths to /tmp so a non-root user can write them, and
+            # the pid file goes there too. /var/cache/nginx is mounted against a
+            # base image that stops doing that, since a read-only root would then
+            # leave nginx with nowhere to spool and no way to say so.
             - name: nginx-conf
               mountPath: /etc/nginx/conf.d
             - name: nginx-cache

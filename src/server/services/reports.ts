@@ -23,6 +23,15 @@ type ReportRow = {
   key: string;
   label: string;
   kind: string | null;
+  /**
+   * Whether this row is a closed account.
+   *
+   * A balance report keeps an archived account's history, because it held what
+   * it held before it closed, so without this a closed account's past reads as
+   * money still in live accounts. Only the account reports can say; everything
+   * grouped by category or by segment reports false.
+   */
+  archived: boolean;
   values: string[];
   total: string;
 };
@@ -51,6 +60,7 @@ type Cell = {
   label: string;
   kind: string | null;
   value: string;
+  archived?: boolean;
 };
 
 const PRESETS: Record<
@@ -162,23 +172,25 @@ async function earliestPostingDate(userId: string, fallback: string) {
 }
 
 /**
- * Which accounts a report reads, archived ones included or not.
+ * Which accounts a balance report reads.
  *
- * The trial balance takes every account whatever `includeArchived` says. Its
- * whole claim is that the rows total zero, and archiving posts a balance out to
- * equity: drop the account and its side of that posting goes with it while the
- * equity side stays, so the report would contradict itself for every date
- * before the archive.
+ * No report leaves archived accounts out of the query. Archiving posts a balance
+ * out to equity, so an archived account holds nothing from the day it closed and
+ * needs no filtering to report zero — but it held money before that day, and
+ * filtering it out took that money out of every earlier bucket too, so a monthly
+ * net worth lost history it had reported correctly the day before. Excluding an
+ * archived account can only mean hiding a row that is flat at zero, which is
+ * decided once the whole series is known.
+ *
+ * The trial balance keeps every account either way, system ones included, since
+ * its whole claim is that the rows total zero. The flow reports never come
+ * through here — they read postings directly and drop an account whose movements
+ * net to nothing — and neither does the dashboard summary, which does still
+ * leave an archived account's activity out.
  */
-function accountScope(report: ReportName, includeArchived: boolean): SQL {
+function accountScope(report: ReportName): SQL {
   if (report === "trial-balance") return sql``;
-  const archived = includeArchived
-    ? sql``
-    : sql`and a.archived_at is null`;
-  if (report === "cash-flow") {
-    return sql`and a.system_kind is null and a.type in (${cashTypeList()}) ${archived}`;
-  }
-  return sql`and a.system_kind is null ${archived}`;
+  return sql`and a.system_kind is null`;
 }
 
 export async function getReport(
@@ -242,16 +254,10 @@ export async function getReport(
         )
       : preset.accumulation === "historical"
         ? assemble(
-            await balanceCells(
-              actor,
-              query.report,
-              bucket,
-              windowStart,
-              asOf,
-              includeArchived,
-            ),
+            await balanceCells(actor, query.report, bucket, windowStart, asOf),
             buckets,
             preset.accumulation,
+            !includeArchived && query.report !== "trial-balance",
           )
         : assemble(
             await flowCells(
@@ -311,14 +317,19 @@ async function balanceCells(
   bucket: ReportBucket,
   start: string,
   asOf: string,
-  includeArchived: boolean,
 ): Promise<Cell[]> {
   const result = await getDb().execute(sql`
     with accounts as (
-      select a.id, a.name, a.type::text as type, a.currency, a.system_kind
+      select
+        a.id,
+        a.name,
+        a.type::text as type,
+        a.currency,
+        a.system_kind,
+        a.archived_at is not null as archived
       from ledger_account a
       where a.user_id = ${actor.userId}
-        ${accountScope(report, includeArchived)}
+        ${accountScope(report)}
     ),
     changes as (
       select
@@ -339,6 +350,7 @@ async function balanceCells(
       acc.type,
       acc.currency,
       acc.system_kind::text as system_kind,
+      acc.archived,
       (coalesce(o.amount, 0) + sum(coalesce(ch.amount, 0)) over (
         partition by acc.id order by g.bucket_start
         rows between unbounded preceding and current row
@@ -357,6 +369,7 @@ async function balanceCells(
     label: String(row.name),
     kind: row.system_kind ? `system:${String(row.system_kind)}` : String(row.type),
     value: String(row.value),
+    archived: row.archived === true,
   }));
 }
 
@@ -471,15 +484,6 @@ async function cashFlowCells(
         and a.type in (${cashTypeList()})
         and (${includeArchived} or a.archived_at is null)
     ),
-    sides as (
-      select p.transaction_id, p.currency, p.account_id, a.system_kind, a.type
-      from posting p
-      join ledger_account a on a.user_id = p.user_id and a.id = p.account_id
-      where p.user_id = ${actor.userId}
-        and p.transaction_id is not null
-      group by 1, 2, 3, a.system_kind, a.type
-      having sum(p.amount) <> 0
-    ),
     moves as (
       select
         p.transaction_id,
@@ -494,6 +498,25 @@ async function cashFlowCells(
         and p.closing_account_id is null
         and p.date between ${start}::date and ${asOf}::date
       group by p.transaction_id, p.date, p.currency, p.account_id
+      having sum(p.amount) <> 0
+    ),
+    -- Declared after the movements so it can be bounded by them: a one-month
+    -- cash flow was reading every posting in the ledger to find counterparts for
+    -- a few dozen transactions, which cost ten times what the other five
+    -- reports do.
+    --
+    -- Bounded by transaction, deliberately not by date. The netting guard has to
+    -- see every posting of a transaction to tell a corrected one from a real
+    -- movement, and a correction can be posted in a later month than the
+    -- original, so narrowing this by date would start double-counting.
+    sides as (
+      select p.transaction_id, p.currency, p.account_id, a.system_kind, a.type
+      from posting p
+      join ledger_account a on a.user_id = p.user_id and a.id = p.account_id
+      where p.user_id = ${actor.userId}
+        and p.transaction_id is not null
+        and p.transaction_id in (select m.transaction_id from moves m)
+      group by 1, 2, 3, a.system_kind, a.type
       having sum(p.amount) <> 0
     )
     select
@@ -572,6 +595,10 @@ export async function getAccountRegister(
   const details = account.rows[0];
   if (!details) throw notFound("Account not found");
 
+  // Bounded by asOf as well as by start. For any window opening on or before
+  // today `p.date < start` already excludes the future, but a window that opens
+  // after today has no such bound, and the opening balance then counted postings
+  // dated beyond the day it is reported as of.
   const opening = await getDb().execute(sql`
     select coalesce(sum(p.amount) filter (
       where ${hasStart} and p.date < ${start}::date
@@ -579,6 +606,7 @@ export async function getAccountRegister(
     from posting p
     where p.user_id = ${actor.userId}
       and p.account_id = ${id}::uuid
+      and p.date <= ${asOf}::date
   `);
   const openingBalance = canonicalDecimal(String(opening.rows[0]?.opening ?? ZERO));
 
@@ -668,15 +696,18 @@ function assemble(
   cells: Cell[],
   buckets: BucketWindow[],
   accumulation: ReportAccumulation,
+  hideClosedRows = false,
 ): CurrencyReport[] {
   const index = new Map(
     buckets.map((bucket, position) => [bucket.periodStart, position]),
   );
   const byCurrency = new Map<string, Map<string, ReportRow>>();
+  const closed = new Set<string>();
 
   for (const cell of cells) {
     const position = index.get(cell.bucketStart);
     if (position === undefined) continue;
+    if (cell.archived) closed.add(`${cell.currency}|${cell.key}`);
     if (!byCurrency.has(cell.currency)) byCurrency.set(cell.currency, new Map());
     const rows = byCurrency.get(cell.currency)!;
     if (!rows.has(cell.key)) {
@@ -684,6 +715,7 @@ function assemble(
         key: cell.key,
         label: cell.label,
         kind: cell.kind,
+        archived: cell.archived === true,
         values: buckets.map(() => ZERO),
         total: ZERO,
       });
@@ -696,15 +728,25 @@ function assemble(
 
   return [...byCurrency.entries()]
     .map(([currency, rows]) => {
-      const list = [...rows.values()].map((row) => ({
-        ...row,
-        total:
-          accumulation === "historical"
-            ? canonicalDecimal(row.values[row.values.length - 1] ?? ZERO)
-            : canonicalDecimal(
-                row.values.reduce((sum, value) => sum.plus(value), decimal(ZERO)),
-              ),
-      }));
+      const list = [...rows.values()]
+        // An account closed before the window opened has nothing to show for
+        // itself, and only that case is a row worth hiding: an account still in
+        // use can sit at zero for a whole year and still belongs on the page.
+        .filter(
+          (row) =>
+            !hideClosedRows ||
+            !closed.has(`${currency}|${row.key}`) ||
+            row.values.some((value) => !decimal(value).isZero()),
+        )
+        .map((row) => ({
+          ...row,
+          total:
+            accumulation === "historical"
+              ? canonicalDecimal(row.values[row.values.length - 1] ?? ZERO)
+              : canonicalDecimal(
+                  row.values.reduce((sum, value) => sum.plus(value), decimal(ZERO)),
+                ),
+        }));
       const totals = buckets.map((_, position) =>
         canonicalDecimal(
           list.reduce(
@@ -715,5 +757,10 @@ function assemble(
       );
       return { currency, rows: list, totals };
     })
+    // A currency whose only accounts are closed contributes nothing to show, and
+    // an entry with no rows is worse than no entry: the page draws its heading,
+    // an empty chart and a footer reading zero, and the empty state that would
+    // have said there is nothing to report cannot fire while a currency exists.
+    .filter((entry) => entry.rows.length > 0)
     .sort((left, right) => left.currency.localeCompare(right.currency));
 }

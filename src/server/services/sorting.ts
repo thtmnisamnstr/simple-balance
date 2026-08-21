@@ -12,6 +12,19 @@ import type { SortDirection } from "../../shared/domain.js";
 export type SortPlan<Row> = {
   orderBy: SQL[];
   keyset: ((value: string, id: string) => SQL) | null;
+  /**
+   * The ordering expression, selected alongside the row so the cursor can carry
+   * back exactly what the comparison will be made against.
+   *
+   * Recomputing it in JavaScript instead looks equivalent and is not.
+   * `lower()` in PostgreSQL and `toLowerCase()` in JavaScript are different
+   * functions — they disagree on the Turkish dotted capital and on a final
+   * sigma, and they agree or disagree depending on the collation the database
+   * was created with. A cursor built from the wrong one either skips every row
+   * sharing the boundary's lowered value or returns the boundary row forever,
+   * silently, with the row count still reporting the truth.
+   */
+  sortValue?: SQL;
   cursorValue: ((row: Row) => string) | null;
   /**
    * Checks that a cursor's remembered value is the shape this ordering compares

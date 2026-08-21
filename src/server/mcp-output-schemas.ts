@@ -334,6 +334,7 @@ export const reportResultSchema = z.object({
           key: z.string(),
           label: z.string(),
           kind: nullableStringSchema,
+          archived: z.boolean(),
           values: z.array(decimalSchema),
           total: decimalSchema,
         }),

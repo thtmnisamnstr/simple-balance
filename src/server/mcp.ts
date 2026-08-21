@@ -629,7 +629,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           includeArchived: z
             .boolean()
             .optional()
-            .describe("Count archived accounts and their activity too. Off by default: archiving posts an account's balance out to equity, so an archived account holds nothing and its past activity is left out of the totals."),
+            .describe("Show rows for archived accounts. What it does depends on the report. On income-expense, categories and cash-flow it decides whether an archived account's activity is counted at all. On net-worth, balance-sheet and trial-balance it never changes a figure: an archived account held what it held for every bucket before it closed, and archiving posts that balance out to equity so it reads zero from the day it closed. There the flag only decides whether a row that is flat at zero across the whole window is listed. Each row says whether its account is archived."),
         }),
         outputSchema: mcpOutputSchema(reportResultSchema),
         annotations: readAnnotations,
@@ -676,7 +676,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "list_audit_events",
       {
         title: "List activity history",
-        description: "List append-only web and MCP ledger activity.",
+        description:
+          "List append-only ledger activity: every write, whether it came from the browser, an agent, or the recurrence scheduler. actorSource says which.",
         inputSchema: z.object({
           cursor: z.string().max(500).optional(),
           limit: z.number().int().min(1).max(200).default(50),
@@ -983,7 +984,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "delete_account",
       {
         title: "Delete unused account",
-        description: "Permanently delete an account only when it has no history or staged rows.",
+        description:
+          "Permanently delete an account, only when it is not archived and has no history or staged rows. Unarchive it first if it is archived.",
         inputSchema: z.object({
           id: z.string().uuid(),
           expectedVersion: z.number().int().positive(),

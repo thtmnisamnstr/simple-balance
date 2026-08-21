@@ -17,12 +17,22 @@ on:
         description: "Existing release tag to publish, for example v0.1.0"
         required: true
         type: string
+      latest:
+        description: "Also move the `latest` tag on to this release"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
+# One publish at a time for the whole repository, not one per tag. Grouping by
+# tag put two releases in two groups, so both could be pushing when both wanted
+# `latest`, and which one ended up holding it came down to ordering. Not
+# per-job: a job-level group is evaluated once per matrix leg, so all four legs
+# of one run would queue behind each other.
 concurrency:
-  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  group: release-publish
   cancel-in-progress: false
 
 jobs:
@@ -34,6 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
       version: ${{ steps.release.outputs.version }}
       prerelease: ${{ steps.release.outputs.prerelease }}
       image: ${{ steps.release.outputs.image }}
@@ -41,9 +52,11 @@ jobs:
       - name: Resolve the release
         id: release
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
           MARKED_PRERELEASE: ${{ github.event.release.prerelease }}
           EVENT: ${{ github.event_name }}
+          WANTS_LATEST: ${{ inputs.latest }}
         run: |
           set -euo pipefail
           case "$TAG" in
@@ -63,12 +76,18 @@ jobs:
 
           # A prerelease is one GitHub marked as such, or one whose version
           # carries a suffix. Either way it publishes its own tag and leaves
-          # `latest` where it is. A dispatch has no release object to consult,
-          # so it will not move `latest` on to a version it cannot ask about
-          # unless the version itself says plainly that it is final.
+          # `latest` where it is.
+          #
+          # A dispatch has no release object to consult, so it cannot see the
+          # marking. Left to infer, it read an unsuffixed version marked
+          # prerelease in the UI as final and moved `latest` on to it. So a
+          # dispatch never moves `latest` unless it was asked to, in so many
+          # words, by the person running it.
           prerelease=false
           if [ "$EVENT" = "release" ]; then
             prerelease="${MARKED_PRERELEASE:-false}"
+          elif [ "$WANTS_LATEST" != "true" ]; then
+            prerelease=true
           fi
           case "$version" in
             *-*) prerelease=true ;;
@@ -83,13 +102,28 @@ jobs:
             echo "image=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
           } >> "$GITHUB_OUTPUT"
 
+          # The commit, settled once. Checking out by tag name twice let a tag
+          # moved between the two jobs verify one commit and ship another, which
+          # is the single way an unverified image reaches the registry.
+          #
+          # Shape-checked before it leaves this step, like the tag above. This
+          # value becomes the ref two jobs check out, and a response body is not
+          # something to hand to `git checkout` unread however trustworthy the
+          # host.
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
+          case "$sha" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+            *) echo "Could not resolve $TAG to a commit" >&2; exit 1 ;;
+          esac
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
   # The same gates every pull request runs, against the exact commit being
   # shipped. A tag can never ship an image that would have failed them.
   verify:
     needs: resolve
     uses: ./.github/workflows/verify.yml
     with:
-      ref: ${{ needs.resolve.outputs.tag }}
+      ref: ${{ needs.resolve.outputs.sha }}
 
   publish:
     name: publish ${{ matrix.name }}
@@ -129,7 +163,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.resolve.outputs.tag }}
+          ref: ${{ needs.resolve.outputs.sha }}
 
       - name: Check the tag against the manifest
         # Read as environment variables rather than pasted into the script, so
@@ -163,7 +197,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Tags are stated outright rather than inferred from the git ref, so a
-      # dispatch run publishes the same tags a release run does.
+      # dispatch run publishes the same version tag a release run does. Whether
+      # it also moves `latest` is the one difference, and it is asked for
+      # explicitly, because a dispatch cannot see the release's prerelease mark.
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:

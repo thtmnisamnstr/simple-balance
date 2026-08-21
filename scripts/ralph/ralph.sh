@@ -124,11 +124,16 @@ if [ "$DRY_RUN" != true ] && {
 fi
 
 mkdir -p "$ROOT/.ralph"
-LOCK="$ROOT/.ralph/lock"
-if ! mkdir "$LOCK" 2>/dev/null; then
-  echo "Another Ralph loop is already running ($LOCK)." >&2
+# Acquire first, record second. Naming the lock before taking it meant a refused
+# second invocation still had it in $LOCK when its EXIT trap ran, so the run that
+# was told "already running" removed the running loop's lock on its way out and
+# left a third free to start alongside the first.
+LOCK_PATH="$ROOT/.ralph/lock"
+if ! mkdir "$LOCK_PATH" 2>/dev/null; then
+  echo "Another Ralph loop is already running ($LOCK_PATH)." >&2
   exit 1
 fi
+LOCK="$LOCK_PATH"
 
 iteration=1
 while [ "$iteration" -le "$MAX_ITERATIONS" ]; do

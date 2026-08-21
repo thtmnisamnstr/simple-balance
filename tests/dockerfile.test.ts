@@ -111,6 +111,26 @@ describe("Docker runtime", () => {
     );
   });
 
+  /**
+   * The frontend is the one published image that terminates traffic, and it was
+   * also the one that never applied its base image's updates. It runs as a
+   * non-root user, so the upgrade has to step up to root and back down again —
+   * getting the second half wrong would leave nginx running as root.
+   */
+  it("patches the frontend image and leaves it running as its own user", () => {
+    const dockerfile = readFileSync(
+      new URL("../deploy/docker/frontend.Dockerfile", import.meta.url),
+      "utf8",
+    );
+    const runtimeStage = dockerfile.slice(dockerfile.indexOf("AS runtime"));
+
+    expect(runtimeStage).toContain("RUN apk upgrade --no-cache");
+    const upgrade = runtimeStage.indexOf("RUN apk upgrade --no-cache");
+    expect(runtimeStage.lastIndexOf("USER root", upgrade)).toBeGreaterThan(-1);
+    expect(runtimeStage.indexOf("USER 101", upgrade)).toBeGreaterThan(upgrade);
+    expect(runtimeStage.trimEnd().endsWith("USER root")).toBe(false);
+  });
+
   it("locks the standalone runtime without Better Auth development peers", () => {
     const runtimeLock = JSON.parse(
       readFileSync(

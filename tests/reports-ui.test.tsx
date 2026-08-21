@@ -34,6 +34,7 @@ const report: Report = {
           key: "checking",
           label: "Checking",
           kind: "checking",
+          archived: false,
           values: ["100.00", "-25.00", "250.00"],
           total: "325.00",
         },
@@ -214,6 +215,7 @@ describe("the reports page", () => {
               key: "checking",
               label: "Checking",
               kind: "checking",
+              archived: false,
               values: ["325.00"],
               total: "325.00",
             },
@@ -226,5 +228,68 @@ describe("the reports page", () => {
     await screen.findByRole("rowheader", { name: "Checking" });
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.getAllByText("$325.00").length).toBeGreaterThan(0);
+  });
+
+  it("heads the trailing column of a running balance as a closing figure", async () => {
+    stub();
+    renderReports();
+    await screen.findByRole("rowheader", { name: "Checking" });
+    expect(screen.getByRole("columnheader", { name: "Closing" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Total" })).toBeNull();
+  });
+
+  it("does not call a categories column sum a net", async () => {
+    stub({
+      ...report,
+      report: "categories",
+      accumulation: "change",
+      currencies: [
+        {
+          currency: "USD",
+          rows: [
+            {
+              key: "income:salary",
+              label: "Salary",
+              kind: "income",
+              archived: false,
+              values: ["3000.00", "3000.00", "3000.00"],
+              total: "9000.00",
+            },
+            {
+              key: "expense:rent",
+              label: "Rent",
+              kind: "expense",
+              archived: false,
+              values: ["1200.00", "1200.00", "1200.00"],
+              total: "3600.00",
+            },
+          ],
+          totals: ["4200.00", "4200.00", "4200.00"],
+        },
+      ],
+    });
+    renderReports("/reports/categories");
+    await screen.findByRole("rowheader", { name: "Salary" });
+    expect(screen.getByRole("rowheader", { name: "Total filed" })).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: "Net" })).toBeNull();
+  });
+
+  it("does not tell a ledger it is empty when the report failed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname.startsWith("/api/v1/reports/")) {
+          return Response.json(
+            { error: { code: "VALIDATION_ERROR", message: "Bucket is not valid" } },
+            { status: 400 },
+          );
+        }
+        return Response.json([]);
+      }),
+    );
+    renderReports();
+    expect(await screen.findByText("Bucket is not valid")).toBeInTheDocument();
+    expect(screen.queryByText("Nothing to report yet")).toBeNull();
   });
 });

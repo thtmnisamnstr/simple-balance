@@ -117,7 +117,12 @@ function scanConfig(file, state) {
     if (/^\[\s*(?:filter|include|includeif)(?:\s|\])/i.test(candidate)) {
       fail(`${file} contains an executable or included configuration section`);
     }
-    if (/^(?:fsmonitor|include(?:if)?\.|filter\.)/i.test(candidate)) {
+    // git accepts a key on the same line as its section header, so the key
+    // pattern has to see the line with any header stripped off. Tested only
+    // against the raw line, `[core] fsmonitor = ...` walked straight past a
+    // check that caught the same key written underneath.
+    const bare = candidate.replace(/^\[[^\]]*\]\s*/, "");
+    if (/^(?:fsmonitor|include(?:if)?\.|filter\.)/i.test(bare)) {
       fail(`${file} contains an executable or included configuration key`);
     }
   }

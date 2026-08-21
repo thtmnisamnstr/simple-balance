@@ -263,6 +263,21 @@ app.get("/health/ready", async (c) => {
   }
 });
 
+app.use("/api/auth/*", async (c, next) => {
+  // These answer with a cookie for authorisation and hand back session tokens,
+  // IP addresses and user agents, which is exactly what a shared cache or a
+  // browser's back-forward store will hold on to by default.
+  //
+  // Set on the way out, not on the way in: most of this prefix is served by
+  // Better Auth's own handler, which returns a Response of its own and takes
+  // everything set beforehand with it. Only where nothing has already said
+  // otherwise, so the JWKS route keeps the public caching every MCP client
+  // depends on.
+  await next();
+  if (!c.res.headers.has("Cache-Control")) {
+    c.res.headers.set("Cache-Control", "no-store");
+  }
+});
 app.use("/api/auth/*", protectAuthMutation(getConfig().baseUrl));
 app.use("/api/auth/*", hardenAuthCookies(getConfig().baseUrl));
 
@@ -340,7 +355,7 @@ app.post("/api/auth/sign-up/email", async (c) => {
       429,
     );
   }
-  if (!isOwnerSetupTokenValid(field("setupToken"))) {
+  if (!(await isOwnerSetupTokenValid(field("setupToken")))) {
     return c.json(
       {
         code: "INVALID_SETUP_TOKEN",
@@ -587,7 +602,18 @@ app.on(["GET", "POST"], "/api/auth/mcp/get-session", (c) =>
 function consentCodeFromCookie(c: Context) {
   const cookie = getCookie(c, "oidc_consent_prompt");
   // The cookie is signed as `value.signature`; only the value names the record.
-  return cookie ? decodeURIComponent(cookie.split(".", 1)[0]!) : null;
+  if (!cookie) return null;
+  const value = cookie.split(".", 1)[0]!;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    // A broken percent escape threw out of here and became a 500 with a stack
+    // trace, for a cookie the caller controls. The raw value is the right
+    // fallback rather than null: a code that was never encoded still names its
+    // record, and one that names nothing fails the lookup a few lines later,
+    // which is where a bad code is supposed to be turned away.
+    return value;
+  }
 }
 
 /**
@@ -886,7 +912,17 @@ app.use(
   "/api/v1/*",
   boundRequestBody({ maxBytes: (context) => requestBodyLimit(context.req.path) }),
 );
-const body = async (c: Context<{ Variables: Variables }>) => c.req.json<unknown>();
+const body = async (c: Context<{ Variables: Variables }>) => {
+  try {
+    return await c.req.json<unknown>();
+  } catch {
+    // Every mutation reads its body through here, so a truncated or absent one
+    // threw past all of them and arrived as a 500 with a stack trace in the log
+    // — for what is only ever a malformed request. The same reasoning as
+    // `pathId` below.
+    throw new AppError("VALIDATION_ERROR", "Request body must be JSON", 400);
+  }
+};
 
 /**
  * The id out of the path, checked before it reaches a query.
@@ -1298,6 +1334,16 @@ app.get("/api/v1/audit-events", async (c) =>
       limit: Number(c.req.query("limit") ?? 50),
     }),
   ),
+);
+
+// Below every route this prefix owns and above the single-page fallback. A
+// mistyped path, and any path with a trailing slash, otherwise reached the shell
+// and came back as 200 text/html — an API client parsing that gets a syntax
+// error rather than the 404 it asked for, and a person debugging a URL sees a
+// working page. The same path with a non-GET method already answered 404, so the
+// prefix disagreed with itself.
+app.all("/api/v1/*", (c) =>
+  c.json({ error: { code: "NOT_FOUND", message: "No such endpoint" } }, 404),
 );
 
 // Only when there is a bundle to serve. The decomposed deployment builds an

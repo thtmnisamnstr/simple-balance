@@ -30,8 +30,14 @@ describe("the release version", () => {
     expect(manifestVersion("runtime/package.json")).toBe(version);
     expect(manifestVersion("package-lock.json")).toBe(version);
     expect(manifestVersion("runtime/package-lock.json")).toBe(version);
+    expect(manifestVersion("deploy/pulumi/package.json")).toBe(version);
+    expect(manifestVersion("deploy/pulumi/package-lock.json")).toBe(version);
     // A lockfile records the version of the root package it locks, too.
-    for (const lockfile of ["package-lock.json", "runtime/package-lock.json"]) {
+    for (const lockfile of [
+      "package-lock.json",
+      "runtime/package-lock.json",
+      "deploy/pulumi/package-lock.json",
+    ]) {
       const parsed = JSON.parse(read(lockfile)) as {
         packages: Record<string, { version?: string }>;
       };
@@ -43,8 +49,25 @@ describe("the release version", () => {
     expect(APP_VERSION).toBe(version);
   });
 
-  it("is the image's default build argument", () => {
-    expect(read("Dockerfile")).toContain(`ARG APP_VERSION=${version}`);
+  it("is every image's default build argument", () => {
+    for (const dockerfile of [
+      "Dockerfile",
+      "deploy/docker/server.Dockerfile",
+      "deploy/docker/frontend.Dockerfile",
+      "deploy/docker/scheduler.Dockerfile",
+    ]) {
+      expect(read(dockerfile), dockerfile).toContain(`ARG APP_VERSION=${version}`);
+    }
+  });
+
+  // The one version location with a consequence of its own: the chart's values
+  // use it as the default image tag, so a release that leaves it behind installs
+  // the previous release's images while reporting the new version everywhere
+  // else. It was also the one location nothing checked.
+  it("is the image tag the chart installs", () => {
+    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(
+      `appVersion: "${version}"`,
+    );
   });
 
   it("is the version the product backlog says it describes", () => {
@@ -61,6 +84,12 @@ describe("the release version", () => {
       "runtime/package.json",
       "runtime/package-lock.json",
       "Dockerfile",
+      "deploy/docker/server.Dockerfile",
+      "deploy/docker/frontend.Dockerfile",
+      "deploy/docker/scheduler.Dockerfile",
+      "deploy/helm/simple-balance/Chart.yaml",
+      "deploy/pulumi/package.json",
+      "deploy/pulumi/package-lock.json",
       "src/shared/version.ts",
       "tasks/product.prd.json",
     ]) {

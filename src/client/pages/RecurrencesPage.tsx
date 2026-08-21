@@ -21,6 +21,7 @@ import {
   RowMenu,
   SortableHeader,
   compareForSort,
+  compareMoney,
   formatDate,
   formatMoney,
   useConfirm,
@@ -97,9 +98,18 @@ export default function RecurrencesPage() {
           return recurrence.nextOccurrence.occurrenceDate;
       }
     };
-    return [...matching].sort((left, right) =>
-      compareForSort(key(left), key(right), sort.direction),
-    );
+    return [...matching].sort((left, right) => {
+      // Amounts are stored exactly as typed, so comparing them as text puts
+      // 1.45 above 1.50. The same branch the templates list already has.
+      const leftAmount = left.shape.amount;
+      const rightAmount = right.shape.amount;
+      if (sort.field === "amount" && leftAmount && rightAmount) {
+        return (
+          (sort.direction === "asc" ? 1 : -1) * compareMoney(leftAmount, rightAmount)
+        );
+      }
+      return compareForSort(key(left), key(right), sort.direction);
+    });
   }, [recurrences.data, search, sort]);
 
   const overdue = visible.filter((recurrence) => recurrence.overdue).length;

@@ -2931,3 +2931,8 @@ input[type="radio"] {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.row-note {
+  color: var(--muted);
+  font-weight: 400;
+}

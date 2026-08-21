@@ -34,6 +34,7 @@ import {
   writeAudit,
 } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
+import { calendarDayIn, todayIn } from "../../shared/recurrence-dates.js";
 
 function stagedAccountReference(accountId: string) {
   return sql`(
@@ -99,6 +100,35 @@ export async function ensureSystemAccount(
   const found = await ensureSystemAccountUncached(tx, actor, kind, currency);
   cache.set(cacheKey, found);
   return found;
+}
+
+/**
+ * The counter-account if it already exists, without opening one.
+ *
+ * For a caller that is only checking whether a draft would balance. Validating a
+ * staged row went through the create-if-missing path, so proposing a
+ * transaction — the one thing a stage-only token is supposed to be able to do
+ * without touching the books — inserted a ledger account and put a new zero row
+ * in the trial balance.
+ */
+export async function findSystemAccount(
+  tx: DbTransaction,
+  actor: Actor,
+  kind: SystemAccountKind,
+  currency: string,
+) {
+  const [existing] = await tx
+    .select()
+    .from(ledgerAccounts)
+    .where(
+      and(
+        eq(ledgerAccounts.userId, actor.userId),
+        eq(ledgerAccounts.systemKind, kind),
+        eq(ledgerAccounts.currency, currency),
+      ),
+    )
+    .limit(1);
+  return existing ?? null;
 }
 
 /**
@@ -355,21 +385,18 @@ export async function postClosingBalance(
   // it day for day. A closing pair already posted is left out of the sum rather
   // than making the account look like it needs closing twice.
   //
-  // The anchor is the archive day where this person lives. current_date is the
-  // database session's day, which for anyone west of it is tomorrow for part of
-  // every evening, and every other "as of today" figure uses the preference
-  // timezone.
+  // The anchor is the archive day where this person lives, worked out in one
+  // place rather than asked of PostgreSQL, which reads an offset-form timezone
+  // with the opposite sign convention. It has to stay the archive day and not
+  // today, or this reconcile re-dates every old closing on the first boot of
+  // each new day.
   const desired: { accountId: string; date: string; amount: Decimal }[] = [];
   if (archived) {
     const { timezone } = await getPreferences(actor, tx);
-    const anchoredAt = account.archivedAt?.toISOString() ?? null;
+    const anchorDay = calendarDayIn(account.archivedAt ?? new Date(), timezone);
     const measured = await tx.execute(sql`
       select
-        greatest(
-          p.date,
-          (coalesce(${anchoredAt}::timestamptz, current_timestamp)
-            at time zone ${timezone})::date
-        )::text as date,
+        greatest(p.date, ${anchorDay}::date)::text as date,
         sum(p.amount)::text as amount
       from posting p
       where p.user_id = ${actor.userId}
@@ -554,14 +581,13 @@ export async function getAccountBalances(
   const hasStart = Boolean(range.start);
   const start = range.start ?? "0001-01-01";
   const end = range.end ?? "9999-12-31";
+  const { timezone } = await getPreferences(actor);
+  const today = todayIn(timezone);
   const result = await getDb().execute(sql`
     select
       a.id,
       a.type,
       a.currency,
-      (
-        current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
-      )::date::text as today,
       coalesce(sum(p.amount) filter (
         where ${hasStart} and p.date < ${start}::date
       ), 0)::text as beginning_balance,
@@ -569,20 +595,16 @@ export async function getAccountBalances(
         where p.date <= ${end}::date
       ), 0)::text as ending_balance,
       coalesce(sum(p.amount) filter (
-        where p.date <= (
-          current_timestamp at time zone coalesce(preferences.timezone, 'UTC')
-        )::date
+        where p.date <= ${today}::date
       ), 0)::text as current_balance,
       coalesce(sum(p.amount), 0)::text as future_balance
     from ledger_account a
-    left join user_preferences preferences
-      on preferences.user_id = a.user_id
     left join posting p
       on p.account_id = a.id
       and p.user_id = a.user_id
     where a.id = ${id}::uuid
       and a.user_id = ${actor.userId}
-    group by a.id, preferences.timezone
+    group by a.id
   `);
   const row = result.rows[0];
   if (!row) throw notFound("Account not found");
@@ -594,7 +616,7 @@ export async function getAccountBalances(
     range: {
       start: range.start ?? null,
       end: range.end ?? null,
-      today: String(row.today),
+      today,
     },
     beginning: presentAccountBalance(type, String(row.beginning_balance)),
     ending: presentAccountBalance(type, String(row.ending_balance)),
