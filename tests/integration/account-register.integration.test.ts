@@ -227,6 +227,45 @@ integration("the account register", () => {
   });
 
   /**
+   * A window that opens after today lists nothing, so its opening balance is the
+   * whole of what the account holds as of today — not what it will hold once the
+   * future-dated rows arrive. The other windows are bounded already, because a
+   * start on or before today bounds the sum on its own.
+   */
+  it("reports an opening balance as of today for a window that has not started", async () => {
+    const dated = (
+      await createAccount(actor, {
+        name: "Dated Ahead",
+        type: "checking",
+        currency: "USD",
+        openingDate: "2026-01-01",
+        openingBalance: "300",
+      })
+    ).id;
+    // The row the unbounded sum used to swallow.
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2998-06-01",
+        payee: "Long from now",
+        amount: "111",
+        fromAccountId: dated,
+      } as never,
+      nextKey(),
+    );
+
+    const today = new Date().toISOString().slice(0, 10);
+    const asOfToday = await getAccountRegister(actor, dated, { end: today });
+    const future = await getAccountRegister(actor, dated, { start: "2999-01-01" });
+
+    expect(asOfToday.closingBalance).toBe("300");
+    expect(future.entries).toHaveLength(0);
+    expect(future.openingBalance).toBe("300");
+    expect(future.closingBalance).toBe("300");
+  });
+
+  /**
    * Archiving posts the balance out to equity, so the register has to end on
    * zero and show the row that took it there. Filtering closing postings out
    * would leave the account looking as though it still held the money.

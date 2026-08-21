@@ -35,6 +35,7 @@ export interface Settings {
   databaseUrl: pulumi.Output<string>;
   authSecret: pulumi.Output<string>;
   directDatabaseUrl?: pulumi.Output<string>;
+  setupToken?: pulumi.Output<string>;
 }
 
 /**
@@ -62,7 +63,19 @@ export function readSettings(): Settings {
     databaseUrl: cfg.requireSecret("databaseUrl"),
     authSecret: cfg.requireSecret("authSecret"),
     directDatabaseUrl: cfg.getSecret("directDatabaseUrl"),
+    setupToken: cfg.getSecret("setupToken"),
   };
+
+  // Checked here rather than left to the server, which refuses a short one by
+  // crashlooping every pod in the tier. The chart's own guard cannot see this
+  // path: the value goes into a Secret this program builds, not into chart
+  // values.
+  const setupToken = cfg.get("setupToken")?.trim();
+  if (setupToken && setupToken.length < 16) {
+    throw new Error(
+      "simple-balance:setupToken must contain at least 16 characters. Startup refuses a shorter one.",
+    );
+  }
 
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(settings.hostname)) {
     throw new Error(
@@ -199,6 +212,9 @@ export function simpleBalance(args: AppArgs): App {
   };
   if (settings.directDatabaseUrl) {
     credentialData.DIRECT_DATABASE_URL = settings.directDatabaseUrl;
+  }
+  if (settings.setupToken) {
+    credentialData.SETUP_TOKEN = settings.setupToken;
   }
 
   // The chart hands every key of this Secret to the API and the scheduler as an

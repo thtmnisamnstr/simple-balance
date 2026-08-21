@@ -63,6 +63,7 @@ integration("PostgreSQL migrations", () => {
       "auth_oauth_access_token",
       "auth_oauth_application",
       "auth_oauth_consent",
+      "auth_owner_setup_token",
       "auth_rate_limit",
       "auth_session",
       "auth_user",

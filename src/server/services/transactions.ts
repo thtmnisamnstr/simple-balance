@@ -3,6 +3,7 @@ import {
   and,
   count,
   eq,
+  getTableColumns,
   ilike,
   inArray,
   isNotNull,
@@ -80,7 +81,11 @@ import {
   keysetAfter,
   ordered,
 } from "./sorting.js";
-import { ensureSystemAccount, postClosingBalance } from "./accounts.js";
+import {
+  ensureSystemAccount,
+  findSystemAccount,
+  postClosingBalance,
+} from "./accounts.js";
 import {
   pruneOrphanedCategories,
   resolveDraftCategory,
@@ -231,7 +236,25 @@ type PrepareTransactionOptions = {
    * person, so reading them whole costs three queries instead of three per row.
    */
   references?: LedgerReferences;
+  /**
+   * Whether a missing counter-account may be opened.
+   *
+   * `lookup` is for a caller that only wants to know whether a draft would
+   * balance — validating a staged row, which is meant to leave the books
+   * untouched. A counter-account that does not exist yet is stood in for, so the
+   * balance still adds up and the draft is not reported as invalid for a reason
+   * that is nothing to do with what somebody typed. The stand-in is never
+   * written; whoever commits the row opens the real one.
+   */
+  systemAccounts?: "ensure" | "lookup";
 };
+
+/**
+ * The account a lookup-only prepare uses in place of a counter-account nobody
+ * has opened yet. All zeroes, so a posting built against it could not be
+ * mistaken for one naming a real account.
+ */
+const UNOPENED_ACCOUNT_ID = "00000000-0000-0000-0000-000000000000";
 
 export type LedgerReferences = {
   accounts: Map<string, typeof ledgerAccounts.$inferSelect>;
@@ -936,7 +959,13 @@ export async function prepareTransaction(
     }
   }
   for (const { kind, currency } of needed) {
-    const account = await ensureSystemAccount(tx, actor, kind, currency);
+    const account =
+      options.systemAccounts === "lookup"
+        ? ((await findSystemAccount(tx, actor, kind, currency)) ?? {
+            id: UNOPENED_ACCOUNT_ID,
+            currency,
+          })
+        : await ensureSystemAccount(tx, actor, kind, currency);
     systemAccounts.set(systemAccountKey(kind, currency), account);
   }
 
@@ -1251,12 +1280,13 @@ function transactionSortPlan(
   const tie = ordered(id, direction);
   const resumable = (
     expression: SQL,
-    value: (row: TransactionRow) => string,
     parseCursorValue?: (value: string) => void,
   ) => ({
     orderBy: [ordered(expression, direction), tie],
     keyset: keysetAfter(expression, id, direction),
-    cursorValue: value,
+    sortValue: expression,
+    cursorValue: (row: TransactionRow & { cursorSort?: unknown }) =>
+      String(row.cursorSort),
     parseCursorValue,
   });
   // Reached through another table, so the value can be absent and the ordering
@@ -1269,15 +1299,12 @@ function transactionSortPlan(
 
   switch (sort) {
     case "payee":
-      return resumable(sql`lower(${transactions.payee})`, (row) =>
-        row.payee.toLowerCase(),
-      );
+      return resumable(sql`lower(${transactions.payee})`);
     case "amount":
       // The magnitude the row shows: a deposit records only a destination
       // amount, everything else records a source amount.
       return resumable(
         sql`coalesce(${transactions.sourceAmount}, ${transactions.destinationAmount})`,
-        (row) => String(row.sourceAmount ?? row.destinationAmount ?? "0"),
         // Compared against numeric(44,18).
         (value) => {
           decimalStringSchema.parse(value);
@@ -1313,7 +1340,7 @@ function transactionSortPlan(
       )`);
     default:
       // Compared against a date column.
-      return resumable(sql`${transactions.date}`, (row) => row.date, (value) => {
+      return resumable(sql`${transactions.date}`, (value) => {
         isoDateSchema.parse(value);
       });
   }
@@ -1350,13 +1377,25 @@ export async function listAllTransactions(
         ? [...filters, plan.keyset!(after.sort, after.id)]
         : filters;
       const rows = await tx
-        .select()
+        .select({
+          ...getTableColumns(transactions),
+          cursorSort: plan.sortValue ?? sql`null`,
+        })
         .from(transactions)
         .where(and(...conditions))
         .orderBy(...plan.orderBy)
         .limit(batchSize);
       if (!rows.length) return all;
-      all.push(...(await hydrateTransactions(tx, actor, rows)));
+      // Stripped before hydration. `transactionView` spreads the row it is
+      // given, so an ordering value left on it is published as a field of every
+      // transaction the list returns, on both the API and the MCP tool.
+      all.push(
+        ...(await hydrateTransactions(
+          tx,
+          actor,
+          rows.map(({ cursorSort: _cursorSort, ...row }) => row),
+        )),
+      );
       if (all.length > maxRows) {
         throw validationError(
           `Export exceeds ${maxRows.toLocaleString("en-US")} rows`,
@@ -1409,7 +1448,10 @@ export async function listTransactions(
   const page = query.cursor ? 1 : Math.min(query.page, totalPages);
   const offset = query.cursor ? 0 : (page - 1) * query.limit;
   const rows = await db
-    .select()
+    .select({
+      ...getTableColumns(transactions),
+      cursorSort: plan.sortValue ?? sql`null`,
+    })
     .from(transactions)
     .where(and(...conditions))
     .orderBy(...plan.orderBy)
@@ -1419,7 +1461,13 @@ export async function listTransactions(
   const pageRows = rows.slice(0, query.limit);
   const last = pageRows.at(-1);
   const items = await db.transaction(async (tx) =>
-    hydrateTransactions(tx, actor, pageRows),
+    // Stripped before hydration, for the same reason as above: the boundary
+    // row's ordering value is all the cursor needs, and `last` still holds it.
+    hydrateTransactions(
+      tx,
+      actor,
+      pageRows.map(({ cursorSort: _cursorSort, ...row }) => row),
+    ),
   );
   return {
     items,

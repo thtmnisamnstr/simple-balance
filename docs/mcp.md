@@ -85,10 +85,12 @@ An archived account still comes back from `get_account`, so read `archivedAt`
 rather than treating a result as proof the account is in use. Archiving posts
 whatever the account still holds out to equity, so it closes at zero and
 restoring posts the balance back; that is what lets a total leave archived
-accounts out and still be right. Deleting is only possible while nothing
-references it: no transaction, no staged row, no posting, and no recurrence or
-template naming it in its schedule or draft. A category is the same, and its
-list of holdouts includes templates too.
+accounts out and still be right. Deleting is only possible while the
+account is not archived — unarchive it first — and while nothing references it:
+no transaction, no staged row, no posting, and no recurrence or template naming
+it in its schedule or draft. A category answers to the same list of holdouts, and
+to templates as well, but not to the archived rule: an archived category with
+nothing pointing at it can be deleted where an archived account cannot.
 
 ## Transactions
 
@@ -183,8 +185,10 @@ Send both and the cursor wins.
 Lists also take `sort` and `direction`. A cursor belongs to the ordering it was
 issued under and is refused if you change the ordering underneath it, because
 resuming a keyset walk in a different order silently skips and repeats rows.
-Ordering by account or category cannot be resumed that way at all, so those
-return no cursor and you page them by number.
+Which orderings can be resumed differs by list. On the transactions list,
+account and category cannot be, so those return no cursor and you page them by
+number. On the staged queue only `date` can, and the other five page by
+number.
 
 ## Categories
 
@@ -253,14 +257,29 @@ string, and nothing is ever added across currencies.
 | `balance-sheet` | your accounts | what they hold as of one date |
 | `trial-balance` | every account, counter-accounts included | the same, and it totals zero when the books are whole |
 
-The trial balance always counts archived accounts, whatever `includeArchived`
-says. Archiving posts a balance out to equity, so leaving the account out would
-drop its side of that posting and keep equity's, and the one report whose claim
-is that the rows total zero would stop totalling zero for every date before the
-archive.
+`includeArchived` does different things on different reports. On
+`income-expense`, `categories` and `cash-flow` it decides whether an archived
+account's activity is counted at all. On `net-worth`, `balance-sheet` and
+`trial-balance` it changes no figure: an archived account held what it held for
+every bucket before it closed, and archiving posts that balance out to equity, so
+it reads zero from the day it closed and needs no filtering to say so. Leaving it
+out of those reports altogether took its money out of the months it was open too,
+which is history the report had right the day before. So there the flag only
+decides whether a row that is flat at zero across the whole window is listed —
+and a currency with nothing left to list is left out entirely rather than coming
+back as an empty section. Each row carries `archived`, so a closed account's
+history is not mistaken for money still held.
 
-`bucket` is `none`, `week`, `month`, `quarter` or `year`, and defaults to
-`month` for the reports that plot over time and `none` for the ones that do not.
+The trial balance goes further and always lists archived accounts, whatever the
+flag says: leaving one out would drop its side of the closing posting and keep
+equity's, and the one report whose claim is that the rows total zero would stop
+totalling zero for every date before the archive.
+
+`bucket` is `none`, `week`, `month`, `quarter` or `year`. The default is
+`month` for `net-worth`, `income-expense` and `cash-flow`, and `none` for
+`categories`, `balance-sheet` and `trial-balance` — so a `categories` report
+asked for without a bucket comes back as one column covering the whole range,
+not as a monthly series.
 `accumulation` in the reply says which of the two questions the numbers answer:
 `historical` is the balance a bucket ends on, `change` is what moved during it.
 It also says what a row's `total` means. Movements add up, so on a `change`
@@ -319,8 +338,10 @@ something:
 | `likelyDuplicateOfId` | A committed transaction that looks like the same money without matching that exactly: same account, same direction, same amount, within three days. Payee and category are ignored, being the two most likely to differ between a bank's record of a purchase and yours. Advisory — it does not refuse anything. |
 | `repeatsStagedRow` | Another row still waiting in the queue carries the same fingerprint. |
 
-The last two are only worked out by the list, so every other tool returns `null`
-for them, meaning "not compared" rather than "no".
+`repeatsStagedRow` is only worked out by the list. `likelyDuplicateOfId` is
+worked out by the list and, on the row you asked about, by
+`get_staged_duplicate`. Everywhere else both come back `null`, meaning "not
+compared" rather than "no".
 
 `validity` filters the list to `valid`, `invalid` or `duplicate`. `duplicate`
 covers all three of the above, so one filter finds everything worth a second
@@ -328,10 +349,10 @@ look. `importBatchId` scopes it to one imported file and `recurrenceId` to one
 recurring transaction.
 
 `get_staged_duplicate` opens a row beside the one thing it repeats, which is what
-the browser's side-by-side review reads. `first` is the staged row you asked
-about; `second` is what it looks like a repeat of, and is `null` when nothing
-matches it any more. A committed transaction is always `second`, and where both
-sides are staged the older one is. Each side names its `kind` and fills either
+the browser's side-by-side review reads. The pair comes back oldest last, whichever
+of the two you asked about: a committed transaction is always `second`, and of
+two staged rows the older one is. `second` is `null` when nothing matches any
+more. Each side names its `kind` and fills either
 `staged` or `committed`, never both.
 
 Resolving a duplicate means editing one side or dropping one. Only a staged side
@@ -509,7 +530,9 @@ afterwards.
 
 `list_audit_events` reports what was done to this ledger, by whom, and through
 what: `actorSource` is `web`, `mcp`, or `schedule`, and `clientId` names the
-agent when it was one. It pages like any other list.
+agent when it was one. It pages forward by cursor only: no page number, no
+total count, and no `sort` or `direction`. Sending those does not fail, it is
+simply ignored, so a request for page two comes back as page one.
 
 This is how an agent checks its own work, and how a person sees an agent's.
 Every write goes in, including the ones a scheduler makes on its own, so a row

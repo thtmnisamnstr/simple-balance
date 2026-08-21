@@ -577,6 +577,7 @@ export default function StagingPage() {
         <label className="search-box">
           <Search size={16} />
           <Input
+            aria-label="Search staged transactions"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search staged transactions"

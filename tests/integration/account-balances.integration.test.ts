@@ -194,6 +194,10 @@ integration("account balance snapshots", () => {
       deleteAccount(first, account.id, archived.version),
     ).rejects.toMatchObject({
       code: "CONFLICT",
+      // The precondition docs/mcp.md and the delete_account description both
+      // state. It is refused before any reference is counted, so an account
+      // archived while empty is refused too.
+      message: expect.stringContaining("Unarchive this account first"),
     });
 
     const persisted = await getDb()

@@ -275,9 +275,9 @@ income against expense and categories for what moved, a cash flow statement for
 where the money you can spend came from and went to, and a trial balance that
 totals zero when the books are whole. Group by week, month, quarter or year, or
 not at all. Every figure is per currency and none is ever added across them,
-because there are no exchange rates here to add them with. Any account also has
-a register: every posting in date order with the balance before and after it,
-for when a balance is wrong and you need the row it went wrong on.
+because there are no exchange rates here to add them with. Over the API and MCP, any account also
+has a register: every posting in date order with the balance before and after
+it, for when a balance is wrong and you need the row it went wrong on.
 The transactions list, the review queue and the templates list sort by any
 column they show and page by number. Activity shows the hundred most recent
 events and neither sorts nor pages. Everything the

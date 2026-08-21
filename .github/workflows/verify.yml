@@ -6,7 +6,9 @@ name: verify
 on:
   pull_request:
   # The release workflow reuses these gates so a publish cannot outrun them.
-  # It passes the tag being published, because a reusable workflow called from
+  # It passes the commit its resolve job settled on rather than the tag name, so
+  # verify and publish cannot end up checking out different trees if the tag
+  # moves between them. The ref matters because a reusable workflow called from
   # this repository always runs the definition at the caller's ref, and a
   # dispatched re-publish is started from a branch rather than from the tag.
   workflow_call:
@@ -63,7 +65,13 @@ jobs:
       - run: npm run verify
         env:
           TEST_DATABASE_URL: ""
-      - run: npm run test:integration
+      # A suite with no TEST_DATABASE_URL skips every file and still exits 0, so
+      # the gate would go green having run nothing. The step above deliberately
+      # blanks the variable, which is exactly the edit that could reach here.
+      - name: Integration tests
+        run: |
+          test -n "${TEST_DATABASE_URL:-}"
+          npm run test:integration
 
   # The chart and the Pulumi programs ship in the release, so a change that
   # breaks either should fail here rather than at somebody's `helm install`.
@@ -99,6 +107,17 @@ jobs:
             --set ingress.host=books.example.org > /tmp/rendered.yaml
           test -s /tmp/rendered.yaml
           echo "rendered $(grep -c '^kind:' /tmp/rendered.yaml) objects"
+          # Off at default values, so the render above never reached this
+          # template and a break in it would have shipped. Rendered separately
+          # and checked by kind, because a template that produces nothing also
+          # produces no error.
+          helm template release /charts/simple-balance \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set networkPolicy.enabled=true > /tmp/rendered-netpol.yaml
+          grep -q 'kind: NetworkPolicy' /tmp/rendered-netpol.yaml
+          echo "rendered the NetworkPolicy"
 
       # The guards are the reason a misconfigured install fails at render rather
       # than as a crashlooping pod, so a release must not be able to lose them
@@ -109,19 +128,42 @@ jobs:
         run: |
           set -euo pipefail
           helm() { docker run --rm -v "$PWD/deploy/helm:/charts" "$HELM" "$@"; }
+          # The message matters as much as the exit code. Checking only that the
+          # render failed passes when it failed for some other reason, so a
+          # deleted guard reads as "refused" while nothing is guarding anything.
+          # Every case therefore supplies the values it is not testing.
           refuses() {
-            local what="$1"; shift
-            if helm template release /charts/simple-balance "$@" >/dev/null 2>&1; then
+            local what="$1"; local fragment="$2"; shift 2
+            local output
+            if output=$(helm template release /charts/simple-balance "$@" 2>&1); then
               echo "::error::the chart rendered $what instead of refusing it"
+              exit 1
+            fi
+            if ! printf '%s' "$output" | grep -qF "$fragment"; then
+              echo "::error::the chart refused $what, but not for the stated reason"
+              printf '%s\n' "$output"
               exit 1
             fi
             echo "refused: $what"
           }
-          refuses "a missing DATABASE_URL"
-          refuses "the placeholder origin it ships" \
+          refuses "a missing DATABASE_URL" "secret.databaseUrl is required" \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org
+          refuses "a missing AUTH_SECRET" "secret.authSecret is required" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set config.appBaseUrl=https://books.example.org
+          refuses "an AUTH_SECRET too short to sign with" "at least 32 characters" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=short \
+            --set config.appBaseUrl=https://books.example.org
+          refuses "the placeholder secret it ships" "published placeholders" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=replace-with-at-least-32-random-characters \
+            --set config.appBaseUrl=https://books.example.org
+          refuses "the placeholder origin it ships" "config.appBaseUrl" \
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=0123456789012345678901234567890123456789
-          refuses "a plaintext origin outside loopback" \
+          refuses "a plaintext origin outside loopback" "config.appBaseUrl" \
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=0123456789012345678901234567890123456789 \
             --set config.appBaseUrl=http://books.example.org

@@ -22,6 +22,13 @@ LABEL org.opencontainers.image.title="Simple Balance frontend" \
   org.opencontainers.image.version="${APP_VERSION}" \
   org.opencontainers.image.licenses="AGPL-3.0-only" \
   org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"
+# The three Node images apply this too. Left out here, the one image that
+# actually terminates traffic was the one shipping whatever its base last built
+# with. Root only for the upgrade: the base image runs as uid 101 and everything
+# after this has to run as that user again.
+USER root
+RUN apk upgrade --no-cache
+USER 101
 # 8080 rather than 80: the unprivileged image runs as a non-root user, which
 # cannot bind a privileged port.
 ENV SB_FRONTEND_PORT=8080

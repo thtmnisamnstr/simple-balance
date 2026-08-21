@@ -195,6 +195,35 @@ describe("the recurrences list", () => {
     expect(link).toHaveAttribute("href", `/staged?recurrenceId=${rent.id}`);
   });
 
+  it("orders the amount column as money rather than as text", async () => {
+    const cheap: Recurrence = {
+      ...rent,
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      name: "Cheap",
+      shape: { ...rent.shape, amount: "1.45" },
+    };
+    const dearer: Recurrence = {
+      ...rent,
+      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      name: "Dearer",
+      shape: { ...rent.shape, amount: "1.5" },
+    };
+    await renderPage([cheap, dearer]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Amount/ }));
+    await vi.waitFor(() => {
+      const order = screen
+        .getAllByRole("row")
+        .map((row) => row.textContent ?? "")
+        .filter((text) => text.includes("Cheap") || text.includes("Dearer"))
+        .map((text) => (text.includes("Cheap") ? "Cheap" : "Dearer"));
+      // Biggest first. The generic comparison reads each run of digits as its
+      // own whole number, so it puts 1.50 below 1.45 by comparing 5 against 45
+      // — which is why an amount needs comparing as money.
+      expect(order).toEqual(["Dearer", "Cheap"]);
+    });
+  });
+
   it("says an amount is filled in each time when the recurrence holds none", async () => {
     await renderPage([payroll]);
 

@@ -394,6 +394,8 @@ export type Report = {
       key: string;
       label: string;
       kind: string | null;
+      /** A closed account, whose history a balance report still reports. */
+      archived: boolean;
       values: string[];
       total: string;
     }[];

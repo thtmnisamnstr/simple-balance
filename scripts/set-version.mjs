@@ -3,8 +3,9 @@
  * Set the release version everywhere it is written down.
  *
  * The version appears in the application manifest, the runtime manifest that
- * ships inside the image, both lockfiles, the Dockerfile's default build
- * argument, and the constant the MCP server announces to its clients. `npm run verify` checks that the two manifests agree, and the
+ * ships inside the image, every lockfile, the four Dockerfiles' default build
+ * argument, the chart's appVersion, the Pulumi project's manifest, and the
+ * constant the MCP server announces to its clients. `npm run verify` checks that the two manifests agree, and the
  * release workflow refuses to publish when the tag and the manifest disagree,
  * so changing one by hand and missing another fails late and confusingly.
  *
@@ -33,6 +34,11 @@ const manifests = [
   "package-lock.json",
   "runtime/package.json",
   "runtime/package-lock.json",
+  // Its own npm project, outside the root workspace, which is how it was
+  // missed: nothing in the root install or the root verify reads it, so nothing
+  // would have complained had it drifted.
+  "deploy/pulumi/package.json",
+  "deploy/pulumi/package-lock.json",
 ];
 
 for (const relative of manifests) {

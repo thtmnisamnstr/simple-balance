@@ -55,10 +55,11 @@ bundle and the proxy in front of the API), {{ $schedulerName }} (recurrences).
 {{- end }}
 
 3. Claim the first account at {{ .Values.config.appBaseUrl }}/.
-{{ if .Values.secret.setupToken }}
+{{ if and .Values.secret.create .Values.secret.setupToken }}
    The one-time code is the SETUP_TOKEN you put in secret.setupToken.
 {{ else }}
-   The one-time code was generated at startup and printed to the server log:
+   The one-time code was generated once for this deployment, so every API pod
+   prints the same one and any pod's log has it:
 
      kubectl -n {{ .Release.Namespace }} logs deploy/{{ $serverName }} | grep -i setup
 {{ end }}

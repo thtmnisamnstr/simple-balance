@@ -104,6 +104,7 @@ same thing in either one.
 | `simple-balance:databaseUrl` | yes, secret | | Set with `--secret`. Never plaintext. |
 | `simple-balance:authSecret` | yes, secret | | Set with `--secret`. Sessions are signed with it. |
 | `simple-balance:directDatabaseUrl` | no, secret | | A string that reaches PostgreSQL past a transaction pooler. Migrations and the first-account claim hold session-level advisory locks, which through a pooler are taken on one connection and released on another. Leave it unset when there is no pooler. |
+| `simple-balance:setupToken` | no, secret | | The one-time code that claims the first account, at least 16 characters. Set with `--secret`. Left unset, one is generated and stored in the database, and printed to the startup log of whichever API pod reads it first. |
 | `simple-balance:acmeStaging` | no | `false` | Issue from Let's Encrypt's staging endpoint, whose rate limits are generous and whose certificates no browser trusts. Worth using while you are still getting DNS wrong. |
 | `simple-balance:allowedEmails` | no | `""` | Who may register: addresses, domains, or `*`. Empty admits nobody but the first account. |
 | `simple-balance:namespace` | no | `simple-balance` | |
@@ -219,8 +220,10 @@ gcloud container clusters get-credentials "$(pulumi stack output clusterName)" -
    grows to about an hour. If you would rather not wait, delete the failed order
    and cert-manager starts over:
    `kubectl -n simple-balance delete order --all`.
-3. **Claim the first account** at `https://<hostname>/`. The one-time code is
-   printed to the API log at startup:
+3. **Claim the first account** at `https://<hostname>/`. If you set
+   `simple-balance:setupToken`, that is the one-time code. Otherwise one is
+   generated once for the deployment and stored, so every API pod prints the same
+   one and any pod's log has it:
    `kubectl -n simple-balance logs deploy/simple-balance-server | grep -i setup`.
    Then set `simple-balance:allowedEmails` to say who else may register. Left
    empty, nobody but that first account can.

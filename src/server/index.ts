@@ -58,7 +58,7 @@ async function main() {
     !isRegistrationOpenToAnyone() &&
     (await isLocalBootstrapOpen())
   ) {
-    console.info(`First-run setup code: ${getOwnerSetupToken()}`);
+    console.info(`First-run setup code: ${await getOwnerSetupToken()}`);
     console.info(
       isRegistrationClosed()
         ? "ALLOWED_EMAILS admits nobody, so this is the only way to create the first account. It stops working once one exists."

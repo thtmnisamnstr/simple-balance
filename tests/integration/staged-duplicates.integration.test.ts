@@ -298,4 +298,44 @@ integration("a staged row that looks like a committed transaction", () => {
     });
     expect(page.items.length).toBeGreaterThan(0);
   });
+
+  it.each([
+    ["a day that month does not have", "2026-02-30"],
+    ["a month that does not exist", "2026-13-01"],
+    ["the year before year one", "0000-01-01"],
+    ["digits that are not a date at all", "9999-99-99"],
+  ])("still lists the queue holding %s", async (_label, date) => {
+    const row = await stage({
+      type: "withdrawal",
+      date,
+      payee: "Impossible day",
+      amount: "200",
+      fromAccountId: checkingId,
+    });
+    expect(row.validationIssues.some((issue) => issue.field === "date")).toBe(true);
+
+    for (const sort of ["date", "amount", "status"] as const) {
+      const page = await listStages(actor, { limit: 100, sort });
+      expect(page.items.map((item) => item.id)).toContain(row.id);
+    }
+    for (const validity of ["invalid", "duplicate"] as const) {
+      await expect(listStages(actor, { limit: 100, validity })).resolves.toBeDefined();
+    }
+    const review = await getStagedDuplicateReview(actor, row.id);
+    expect(review.second).toBeNull();
+  });
+
+  it("still lists the queue holding an amount too long for numeric", async () => {
+    const row = await stage({
+      type: "withdrawal",
+      date: "2026-07-04",
+      payee: "Too many digits",
+      amount: "9".repeat(200_000),
+      fromAccountId: checkingId,
+    });
+    expect(row.validationIssues.some((issue) => issue.field === "amount")).toBe(true);
+
+    const page = await listStages(actor, { limit: 100, sort: "amount" });
+    expect(page.items.map((item) => item.id)).toContain(row.id);
+  });
 });

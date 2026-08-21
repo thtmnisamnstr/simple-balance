@@ -2,10 +2,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
-import { categories, user } from "../../src/server/db/schema.js";
+import { categories, ledgerAccounts, user } from "../../src/server/db/schema.js";
 import { createMcpServer } from "../../src/server/mcp.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
@@ -159,6 +159,64 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
     const [row] = await categoryNamed("Hardware");
     expect(row).toBeTruthy();
     expect(result.referenceResolution.categories[0]!.categoryId).toBe(row!.id);
+  });
+
+  /**
+   * Preparing a draft is meant to answer whether it would balance, and nothing
+   * else. It used to open the counter-account it needed on the way, so an agent
+   * with nothing but propose rights wrote a ledger account and put a new zero
+   * row in the trial balance.
+   */
+  it("does not open a counter-account a draft would need", async () => {
+    // A currency nothing has settled in yet, so the counter-account this draft
+    // needs genuinely does not exist. Against the USD account the expense
+    // account is already there and the write has nothing to show.
+    const euro = (
+      await createAccount(actor, {
+        name: "Euro Current",
+        type: "checking",
+        currency: "EUR",
+        openingDate: "2026-01-01",
+        openingBalance: "100",
+      })
+    ).id;
+    const systemAccounts = () =>
+      getDb()
+        .select()
+        .from(ledgerAccounts)
+        .where(
+          and(
+            eq(ledgerAccounts.userId, actor.userId),
+            isNotNull(ledgerAccounts.systemKind),
+          ),
+        );
+    const before = await systemAccounts();
+
+    const { server, client } = await connectWith(["ledger:stage"]);
+    try {
+      const out = await client.callTool({
+        name: "create_staged_transaction",
+        arguments: {
+          draft: {
+            type: "withdrawal",
+            date: "2026-05-05",
+            payee: "Papeterie",
+            amount: "12.00",
+            fromAccountId: euro,
+          },
+          idempotencyKey: "stage-only-counter-account",
+        },
+      });
+      expect(out.isError, JSON.stringify(out.structuredContent)).toBeFalsy();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+
+    const after = await systemAccounts();
+    expect(after.map((row) => row.name).sort()).toEqual(
+      before.map((row) => row.name).sort(),
+    );
   });
 
   it("brings an archived one back with ledger:write", async () => {

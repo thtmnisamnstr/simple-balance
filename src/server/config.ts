@@ -13,8 +13,20 @@ function isLoopbackHostname(hostname: string) {
   );
 }
 
-const productionBaseUrlSchema = z.string().url().superRefine((value, context) => {
-  const url = new URL(value);
+const ORIGIN_RULE =
+  "APP_BASE_URL must be an exact HTTP(S) origin with no credentials, path, query, or fragment";
+
+const productionBaseUrlSchema = z.string().superRefine((value, context) => {
+  // `new URL` throws on a host with no scheme, on an empty string, and on a
+  // protocol-relative value, and the throw escaped the parse: the operator got a
+  // bare "Invalid URL" stack instead of the rule this schema exists to state.
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    context.addIssue({ code: "custom", message: ORIGIN_RULE });
+    return;
+  }
   if (
     !/^https?:\/\/[^\s\\/@?#]+\/?$/i.test(value) ||
     url.username !== "" ||
@@ -23,11 +35,7 @@ const productionBaseUrlSchema = z.string().url().superRefine((value, context) =>
     url.search !== "" ||
     url.hash !== ""
   ) {
-    context.addIssue({
-      code: "custom",
-      message:
-        "APP_BASE_URL must be an exact HTTP(S) origin with no credentials, path, query, or fragment",
-    });
+    context.addIssue({ code: "custom", message: ORIGIN_RULE });
   }
   if (
     url.protocol !== "https:" &&
@@ -152,27 +160,35 @@ export function getConfig(): AppConfig {
   // setup code is not demanded, sign-in attempts are not rate limited, and
   // cookies are not marked secure. `NODE_ENV=Production` had no symptom.
   const nodeEnv = z
-    .enum(["production", "development", "test"])
+    .enum(["production", "development", "test"], {
+      error: () => "NODE_ENV must be production, development or test",
+    })
     .parse((process.env.NODE_ENV ?? "development").toLowerCase());
   const isProduction = nodeEnv === "production";
   const authMode = z
-    .enum(authModes)
+    .enum(authModes, {
+      error: () => `AUTH_MODE must be one of ${authModes.join(", ")}`,
+    })
     .parse((process.env.AUTH_MODE ?? "local").toLowerCase());
   const localAuthEnabled = authMode === "local" || authMode === "both";
   const googleAuthEnabled = authMode === "google" || authMode === "both";
   const port = z.coerce.number().int().min(1).max(65535).parse(process.env.PORT ?? 3000);
   const logLevel = z
-    .enum(["debug", "info", "warn", "error"])
+    .enum(["debug", "info", "warn", "error"], {
+      error: () => "LOG_LEVEL must be debug, info, warn or error",
+    })
     .parse((process.env.LOG_LEVEL ?? "info").toLowerCase());
   const trustProxy = z
-    .enum(["true", "false"])
+    .enum(["true", "false"], { error: () => "TRUST_PROXY must be true or false" })
     .transform((value) => value === "true")
     .parse((process.env.TRUST_PROXY ?? "false").toLowerCase());
   // Parsed strictly rather than treating anything unrecognised as off. A
   // misspelling here has no symptom: the process starts, serves, and quietly
   // proposes nothing until somebody notices a year of missing rent.
   const recurrenceSchedulerEnabled = z
-    .enum(["true", "false"])
+    .enum(["true", "false"], {
+      error: () => "RECURRENCE_SCHEDULER must be true or false",
+    })
     .transform((value) => value === "true")
     .parse((process.env.RECURRENCE_SCHEDULER ?? "true").toLowerCase());
   const values = {
@@ -297,7 +313,7 @@ export function parseMailSettings(env: {
   }
 
   const ssl = z
-    .enum(["true", "false"])
+    .enum(["true", "false"], { error: () => "SMTP_SSL must be true or false" })
     .transform((value) => value === "true")
     .parse((env.SMTP_SSL ?? "false").toLowerCase());
   const port = z.coerce

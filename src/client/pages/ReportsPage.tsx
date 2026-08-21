@@ -62,6 +62,12 @@ export default function ReportsPage() {
       api<Report>(
         `/api/v1/reports/${report}?${queryString({ start, end, bucket })}`,
       ),
+    // Every figure here is derived from transactions edited on other pages, and
+    // none of those mutations knows to invalidate a report. Refetching on mount
+    // closes that window at the one place that reads it, rather than adding this
+    // key to eight mutation callbacks that would each have to remember it.
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const setBucket = (next: string) => {
@@ -135,7 +141,7 @@ export default function ReportsPage() {
         <div className="currency-sections">
           <Skeleton height={220} />
         </div>
-      ) : !data?.currencies.length ? (
+      ) : query.error ? null : !data?.currencies.length ? (
         <EmptyState
           title="Nothing to report yet"
           body="Once there are transactions in this date range, this report will fill in."
@@ -195,14 +201,22 @@ export default function ReportsPage() {
                           </th>
                         ))}
                         <th scope="col" className="align-right">
-                          Total
+                          {data.accumulation === "historical" ? "Closing" : "Total"}
                         </th>
                       </tr>
                     </thead>
                     <tbody>
                       {currency.rows.map((entry) => (
                         <tr key={entry.key}>
-                          <th scope="row">{entry.label}</th>
+                          <th scope="row">
+                            {entry.label}
+                            {/* A balance report keeps a closed account's
+                                history, so without saying so its past reads as
+                                money still held. */}
+                            {entry.archived ? (
+                              <span className="row-note"> (closed)</span>
+                            ) : null}
+                          </th>
                           {entry.values.map((value, position) => (
                             <td
                               className={`align-right${isNegativeMoney(value) ? " money-negative" : ""}`}
@@ -222,7 +236,11 @@ export default function ReportsPage() {
                     <tfoot>
                       <tr>
                         <th scope="row">
-                          {data.accumulation === "historical" ? "Total held" : "Net"}
+                          {report === "categories"
+                            ? "Total filed"
+                            : data.accumulation === "historical"
+                              ? "Total held"
+                              : "Net"}
                         </th>
                         {currency.totals.map((value, position) => (
                           <td

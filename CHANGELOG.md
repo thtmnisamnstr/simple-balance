@@ -94,6 +94,71 @@ existing.
 
 ### Fixed
 
+The review queue died on a single row it exists to show. A draft date matching
+the shape of a date but naming no real day — `2026-02-30`, `2026-13-01` — was
+accepted, filed with a "Date is not valid" issue, and from then on every attempt
+to list the queue failed on the cast. The queue was the only place that row could
+be seen, so the only cure was deleting it by an id nothing would show you. The
+guard now asks what validation already decided instead of trying to out-guess the
+calendar. The amount guard had the same hole with no bound on length, where a
+draft of two hundred thousand digits overflowed `numeric` and took the default
+sort down with it; both now hold to the shape the domain accepts.
+
+Two answers to what day it is. PostgreSQL reads a bare offset timezone with the
+POSIX sign convention and `Intl` reads it as ISO, so for anyone whose stored
+timezone was an offset rather than a zone name the two disagreed by sixteen
+hours. An account archived in that window closed on a day the dashboard had not
+reached, and its balance was left out of the headline total while the ledger went
+on counting it. One implementation now answers the question, and PostgreSQL is
+not asked.
+
+Net worth and the balance sheet took an archived account's history away along
+with the account. Excluding it dropped it from every bucket, including the months
+it was open and holding money, so a monthly chart lost history it had reported
+correctly the day before. Archiving posts the balance out to equity, which is
+what carries the account to zero on the day it closed; the row is kept and hidden
+only when it is flat at zero across the whole window. So on those two reports
+`includeArchived` no longer changes a figure, only which rows are listed, and
+each row now carries `archived` — a closed account's past would otherwise read as
+money still sitting in the live ones. A currency with nothing left to list is
+left out rather than returned as an empty section.
+
+A payee-sorted list paged with a cursor could skip rows or never end. The
+ordering was `lower()` in the database and `toLowerCase()` in JavaScript, and
+those are different functions — they disagree on a Turkish dotted capital and on
+a final sigma, and whether they disagree at all depends on the database's
+collation. The cursor now carries the value the database sorted on.
+
+The categories report added income to expenses and headed the answer "Net". Each
+row is a magnitude there, on purpose, so the column sum is a total filed rather
+than a net, and it says so. The trailing column of a running-balance report is
+headed "Closing" rather than "Total", because that is what it holds.
+
+The generated first-run setup code belonged to one process. On a web tier running
+more than one replica — which the chart does by default — the code printed in the
+log was rejected by every other pod, so the claim the chart's own notes describe
+failed about half the time. It is stored now, like the MCP signing key, so every
+replica agrees on it. An operator-chosen `SETUP_TOKEN` still never touches the
+database, and Pulumi can supply one, which it could not before.
+
+Validating a staged draft opened a ledger account. Preparation is meant to answer
+whether a draft would balance and nothing else, so an agent holding only
+`ledger:stage` — the posture that is supposed to be unable to touch the books —
+added a counter-account and a new zero row to the trial balance. It looks the
+account up now and stands one in when there is none.
+
+Smaller ones. A malformed request body answered 500 with a stack trace instead of
+400. A mistyped `/api/v1` path, and any with a trailing slash, came back as the
+application shell with a 200. Responses carrying a session token had no
+`Cache-Control`. A broken consent cookie 500ed. An `APP_BASE_URL` that was not a
+URL, and every strict scalar setting, refused to start without saying which
+variable was wrong. A register window opening after today summed future postings
+into a balance labelled as of today. The cash flow statement read every posting
+in the ledger to answer about one month, at eight times the cost. A failed report
+also told a full ledger it was empty, and reports could show figures from before
+an edit. The recurring list ordered amounts as text, so 1.50 sorted below 1.45.
+One search box had no accessible name.
+
 A table wider than the panel holding it spilled past the edge instead of
 scrolling inside it, so the far columns could not be reached at all. The
 templates and recurrences pages both wrapped their table in `table-wrap`, a
@@ -128,6 +193,27 @@ The recurrence form's preview test asserted a date that has now gone by, and
 would have failed from here on whatever anybody changed.
 
 ### Internal
+
+Gates that could not fail. The PostgreSQL job would have gone green having
+skipped every integration file if it ever lost its database URL, and nothing
+asserted otherwise. The chart's negative gate checked that a render failed
+without checking why, so deleting the guard under test still read as "refused".
+The NetworkPolicy template was never rendered at all, being off at default
+values. A release resolved its tag twice, so a tag moved mid-run could verify one
+commit and publish another; it resolves to a commit once now. A dispatched
+re-publish inferred that an unsuffixed version was final and moved `latest` on to
+a release marked as a prerelease — it asks instead. Two tags could publish at
+once and race for `latest`. And no test covered the chart's `appVersion`, the one
+version location whose drift installs the previous release's images.
+
+A refused second Ralph run deleted the lock the first one was holding, because
+the lock was named before it was taken, leaving a third free to start alongside
+the first. The git guard's config scan missed git's one-line
+`[section] key = value` form, catching the same key only when written underneath.
+`set-version` did not know about the Pulumi project's manifests. They happen to
+be current, because the version they were added at is still the version — but
+nothing in the root install or the root verify reads them, so nothing would have
+said otherwise.
 
 Thirteen schemas in the shared contracts no longer carry an export nothing
 outside the file used. Six types the browser had hand-written copies of are

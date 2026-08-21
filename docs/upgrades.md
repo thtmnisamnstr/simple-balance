@@ -92,7 +92,9 @@ the version carries a suffix, in which case only the version tag is published.
 
 If a publish fails for a reason that has nothing to do with the code, run the
 release workflow by hand from the Actions tab and give it the tag; it publishes
-the same tags without needing a new release.
+the same version tag without needing a new release. It leaves `latest` alone
+unless you tick the box asking for it, because a run started by hand cannot see
+whether the release was marked as a prerelease and should not guess.
 
 ## The schema contract
 
