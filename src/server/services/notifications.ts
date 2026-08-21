@@ -278,7 +278,7 @@ async function claimDueNotification(
           eq(templateNotifications.userId, userId),
         ),
       )
-      ;
+      .for("update", { skipLocked: true });
     if (!row) return null;
 
     const rule = notificationRuleOf(row.notification);

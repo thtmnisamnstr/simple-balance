@@ -312,6 +312,47 @@ integration("scheduled notifications", () => {
     });
   });
 
+  /**
+   * Two schedulers read the same due list, so the row has to be CLAIMED rather
+   * than merely read — otherwise both sweeps decide the same reminder is owed and
+   * the person gets it twice. This went uncaught once: the lock was removed by
+   * accident and every other test still passed.
+   *
+   * Held from another transaction rather than by racing two sweeps, because two
+   * sweeps in one process do not reliably overlap inside the window that matters:
+   * whichever gets there second finds the watermark already moved and correctly
+   * has nothing to do, whether a lock was taken or not. A row somebody else is
+   * holding is the same situation seen from the outside, and it is deterministic.
+   *
+   * A sweep that reads the row without claiming it does not fail an assertion
+   * here — it blocks on this lock when it tries to move the watermark, so the
+   * regression shows up as this test timing out and taking the rest of the file
+   * with it. Loud either way, which is the point.
+   */
+  it("passes over a reminder another sweep is holding", { timeout: 8_000 }, async () => {
+    at("2026-05-10T09:00:00Z");
+    const created = await template("Contended", {
+      anchorDate: "2026-05-10",
+      time: "08:00",
+    });
+
+    await getDb().transaction(async (tx) => {
+      await tx
+        .select()
+        .from(templateNotifications)
+        .where(eq(templateNotifications.templateId, created.id))
+        .for("update");
+
+      // Skipped, not waited for and not sent twice.
+      expect(await runDueNotifications()).toMatchObject({ examined: 1, sent: 0 });
+      expect(sent).toHaveLength(0);
+    });
+
+    // Released, so the next sweep picks it up exactly once.
+    expect(await runDueNotifications()).toMatchObject({ sent: 1 });
+    expect(sent).toHaveLength(1);
+  });
+
   describe("whose clock it runs on", () => {
     it("uses the person's timezone rather than the server's", async () => {
       await setPreferences(actor, { timezone: "Asia/Tokyo" });
