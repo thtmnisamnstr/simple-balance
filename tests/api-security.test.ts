@@ -170,6 +170,42 @@ describe("static files at the root of the client bundle", () => {
     expect(rootHandler).toBeLessThan(shellFallback);
   });
 
+  /**
+   * Three descriptions of this product and one of them was different. The shell
+   * is the one a search engine and a link preview read, and it had drifted into
+   * saying something vaguer than the manifest the release publishes.
+   */
+  it("describes the product the way the manifest does", () => {
+    const html = readFileSync(
+      path.join(import.meta.dirname, "..", "index.html"),
+      "utf8",
+    );
+    const manifest = JSON.parse(
+      readFileSync(path.join(import.meta.dirname, "..", "package.json"), "utf8"),
+    ) as { description: string };
+    expect(html).toContain(manifest.description);
+  });
+
+  /**
+   * A phone paints its browser chrome with `theme-color`. The stylesheet commits
+   * to `color-scheme: light`, so a dark value here frames a light page in
+   * near-black.
+   */
+  it("colours the browser chrome the same as the page", () => {
+    const html = readFileSync(
+      path.join(import.meta.dirname, "..", "index.html"),
+      "utf8",
+    );
+    const css = readFileSync(
+      path.join(import.meta.dirname, "..", "src/client/styles.css"),
+      "utf8",
+    );
+    const themeColor = /<meta name="theme-color" content="(#[0-9a-f]{6})"/.exec(html);
+    expect(themeColor, "index.html declares a theme-color").not.toBeNull();
+    expect(css).toContain("color-scheme: light");
+    expect(css).toContain(`background: ${themeColor![1]}`);
+  });
+
   it("keeps the icon the document asks for in the bundle", () => {
     const html = readFileSync(
       path.join(import.meta.dirname, "..", "index.html"),

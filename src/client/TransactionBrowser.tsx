@@ -220,24 +220,27 @@ export function TransactionBrowser({
       ),
     placeholderData: (previous) => previous,
   });
+  // The rows waiting above the committed ones. Narrowed by everything the list
+  // below is narrowed by, because the two are read as one list: a type filter or
+  // a search that moved the committed rows and left these standing showed rows
+  // the page had just been told to exclude. `includeDeleted` is the exception,
+  // having no meaning for a row that was never posted.
+  const stagedParams = {
+    categoryId: fixedCategoryId,
+    templateId: fixedTemplateId,
+    payee: fixedPayee,
+    accountId: selectedAccountId || undefined,
+    type: type || undefined,
+    search: settledSearch || undefined,
+    start,
+    end,
+  };
   const staged = useQuery({
-    queryKey: [
-      "staged",
-      "for-browser",
-      fixedCategoryId,
-      fixedTemplateId,
-      fixedPayee,
-      start,
-      end,
-    ],
+    queryKey: ["staged", "for-browser", stagedParams],
     queryFn: () =>
       api<PaginatedPage<StagedTransaction>>(
         `/api/v1/staged-transactions?${queryString({
-          categoryId: fixedCategoryId,
-          templateId: fixedTemplateId,
-          payee: fixedPayee,
-          start,
-          end,
+          ...stagedParams,
           limit: "100",
         })}`,
       ),
