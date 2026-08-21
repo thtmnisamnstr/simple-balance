@@ -829,6 +829,15 @@ input[type="radio"] {
   justify-content: space-between;
   gap: 16px;
   font-size: 12px;
+  /* A link, so it would otherwise take the green every anchor gets. It should
+     read as the row it is and green the name on hover, the way
+     .account-card-link does for the card on the accounts page. */
+  color: inherit;
+  text-decoration: none;
+}
+
+.account-mini-row:hover strong {
+  color: var(--green);
 }
 
 .account-mini-row strong {

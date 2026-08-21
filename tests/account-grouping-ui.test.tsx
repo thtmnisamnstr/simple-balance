@@ -140,6 +140,42 @@ describe("accounts grouped by type", () => {
     ]);
   });
 
+  /**
+   * The balance is what somebody is looking at when they decide to open an
+   * account, so the row is the target rather than the name alone. The range
+   * travels with them: without it the account page recomputes the month from
+   * its own default and shows a different period from the one they clicked on.
+   */
+  it("opens an account from the overview, keeping the range", async () => {
+    stub();
+    window.history.replaceState(
+      null,
+      "",
+      "/?preset=custom&start=2026-03-01&end=2026-03-31",
+    );
+    render(
+      <QueryClientProvider client={client()}>
+        <BrowserRouter>
+          <DashboardPage />
+        </BrowserRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Wallet");
+
+    const row = screen.getByText("Wallet").closest("a");
+    expect(row).not.toBeNull();
+    const href = row!.getAttribute("href")!;
+    expect(href.startsWith("/accounts/id-Wallet?")).toBe(true);
+    const asked = new URL(href, window.location.origin).searchParams;
+    expect(asked.get("start")).toBe("2026-03-01");
+    expect(asked.get("end")).toBe("2026-03-31");
+    // The balance is inside the link, so the whole row is clickable rather
+    // than just the name.
+    expect(row!.textContent).toContain("Wallet");
+    expect(row!.textContent).toContain("$10.00");
+    window.history.replaceState(null, "", "/");
+  });
+
   it("keeps every account it was given", async () => {
     stub();
     render(

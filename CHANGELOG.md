@@ -62,6 +62,11 @@ The Reminder and Notifies columns sort, ranked by what they are going to tell
 you rather than alphabetically by the badge text: a reminder still to come above
 one already sent above none at all.
 
+Each account on the overview opens that account. The whole row rather than the
+name, because the balance is what somebody is looking at when they decide to go
+in, and the date range travels with them, so the account page opens on the
+period they were reading.
+
 The cash flow statement will not agree with income and expense, and the gap is
 widest for whoever uses a credit card most: a purchase is an expense the day the
 card is swiped, while the cash leaves when the bill is paid, in a different
