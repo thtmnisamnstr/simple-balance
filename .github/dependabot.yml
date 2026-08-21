@@ -49,8 +49,11 @@ updates:
       #
       # Held rather than left to fail, because better-auth sits in the routine
       # group: an un-takeable member makes every weekly pull request
-      # un-mergeable and the safe bumps in it stop arriving. Lift this in the
-      # change that does the migration, not before.
+      # un-mergeable and the safe bumps in it stop arriving. The 1.6 line still
+      # comes through, which is the point — 1.6.26 fixed JWT key minting inside
+      # a transaction and 1.6.30 an async-storage race on cold start, both of
+      # which this deployment meets. Lift this in the change that does the
+      # migration, not before.
       - dependency-name: "better-auth"
         versions: [">=1.7.0"]
 
