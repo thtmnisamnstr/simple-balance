@@ -81,7 +81,7 @@ a refusal is explainable rather than surprising.
 | --- | --- | --- |
 | Rows in one mass edit or mass delete | 10,000 | A selection larger than this is refused rather than truncated. Split the work across calls; each one stands or falls on its own. |
 | Category legs on one transaction | 50 | Far past a receipt anybody itemises by hand. A split is the whole counter-side of the entry rewritten, so the cost is paid on every read of it. |
-| Recurring transactions per person | 200 | Each one is a standing instruction that proposes rows on every tick, so an uncapped list is a way to flood the review queue with nothing but `ledger:write`. |
+| Recurring transactions per person | 200 | Each one is a standing instruction that proposes rows on every tick, so an uncapped list is a way to flood Staged transactions with nothing but `ledger:write`. |
 | Transaction templates per person | 200 | A template is read into the form's dropdown on every visit, so the list is loaded whole rather than paged. |
 | Columns in one report | 600 | A long history asked for weekly buckets is thousands of columns nobody can read. Refused with the coarser bucket named, rather than served slowly. |
 | Postings in one register | 10,000 | Refused rather than truncated: a register is read to find the row a balance went wrong on, and one cut short would close on a balance its own last row does not reach. Narrow the date range. |

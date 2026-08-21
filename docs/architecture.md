@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 Three callers, then, and the third is the one worth knowing about: it acts
-without anybody asking. What it writes is a proposal into the review queue
+without anybody asking. What it writes is a proposal into Staged transactions
 rather than a posting, and what it sends is mail about work waiting to be done.
 The [scheduler](#the-scheduler) section says how that stays true.
 

@@ -6,14 +6,14 @@ parts without being able to do the dangerous ones.
 - **Double-entry and append-only.** Every entry balances to zero in each currency
   it touches, corrections are posted rather than typed over, and deleting
   something reverses it instead of erasing it.
-- **A review queue in front of the books.** Bank CSVs are read, mapped, and
-  checked first, and nothing counts until you commit it.
+- **Staged transactions, a review queue in front of the books.** Bank CSVs are
+  read, mapped, and checked first, and nothing counts until you commit it.
 - **Agents that cannot overreach.** MCP clients call the same code the browser
   does, under separate read, stage, and write scopes.
 - **One container and a database.** Any number of people on a deployment, each
   with their own separate books.
 
-![The Simple Balance overview: balances, cash flow, and spending by category, shown per currency for a month of activity](docs/images/dashboard.png)
+![The Simple Balance overview: balance, deposits, withdrawals and net cash flow for a month, then accounts and spending by category, reported separately for each currency the ledger holds](docs/images/dashboard.png)
 
 ## What it does
 
@@ -22,11 +22,11 @@ parts without being able to do the dangerous ones.
 - Deposits, withdrawals, and transfers, including conversions that keep the sent
   and received amounts apart
 - One transaction split across several categories, each attributed on its own
-- CSV import through a review queue that flags a row repeating one you already
-  have, and opens the two side by side to sort out
+- CSV import through Staged transactions, which flags a row repeating one you
+  already have and opens the two side by side to sort out
 - Templates for the transactions you enter over and over
-- Recurring transactions that propose into the review queue on a schedule, and
-  post nothing until you commit them
+- Recurring transactions that propose into Staged transactions on a schedule,
+  and post nothing until you commit them
 - Emailed reminders: when a recurrence proposes, and when a template is one you
   meant to fill in today
 - Mass edit and mass delete, up to 10,000 rows in one request that either wholly

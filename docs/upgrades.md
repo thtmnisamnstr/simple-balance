@@ -23,7 +23,7 @@ to send it is not sent later. On a split deployment, give the scheduler
 container those settings too — it is the process that sends them, and without
 them it proposes rows and sends nothing, with no error to see.
 
-**The duplicate check in the review queue got looser, and only as advice.** It
+**The duplicate check on Staged transactions got looser, and only as advice.** It
 now anchors on the amount with three days of latitude on the date rather than
 demanding the same day and the same payee, so an import will flag rows it would
 have let past before. What refuses a commit is unchanged. Nothing already in the
