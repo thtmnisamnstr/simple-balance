@@ -198,6 +198,12 @@ replaced whole, so an edit to the payee replaced the watermark with it and the
 reminder was owed again. A schedule that really did change still starts afresh,
 which is what somebody moving the date is asking for.
 
+A staged mass edit left behind a category the identical edit, done one row at a
+time, would have cleared. The committed side had the same split and was fixed in
+this cycle; the queue had it too. A caller holding only `ledger:stage` still
+leaves the category standing, on the rule that a queue token proposes and never
+decides.
+
 The reminder sweep claimed rows on a deployment with no mail server. Every claim
 advanced a watermark past an occurrence nobody was told about, so configuring
 SMTP a month later would have found a schedule that had quietly eaten its own

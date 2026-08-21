@@ -7,10 +7,15 @@ import {
   createCategory,
   listCategories,
 } from "../../src/server/services/categories.js";
-import { createStage, updateStage } from "../../src/server/services/staging.js";
+import {
+  bulkEditStages,
+  createStage,
+  updateStage,
+} from "../../src/server/services/staging.js";
 import { createTransactionTemplate } from "../../src/server/services/transaction-templates.js";
 import { createRecurrence } from "../../src/server/services/recurrences.js";
 import {
+  bulkEditTransactions,
   createTransaction,
   getTransaction,
   updateTransaction,
@@ -424,13 +429,80 @@ integration("a category nothing points at any more", () => {
   });
 
   /**
+   * The queue had the same split the committed rows had: one row at a time
+   * cleared the category, a mass edit over the identical rows left it standing.
+   */
+  it("clears a category a staged mass edit emptied", async () => {
+    const doomed = await category("Staged bulk emptied");
+    const keeper = await category("Staged bulk destination");
+    const rows = [];
+    for (const day of ["2026-05-01", "2026-05-02"]) {
+      rows.push(
+        await createStage(actor, {
+          draft: {
+            type: "withdrawal",
+            date: day,
+            payee: "Queued",
+            amount: "9",
+            fromAccountId: checkingId,
+            categoryId: doomed,
+          },
+          idempotencyKey: nextKey(),
+        }),
+      );
+    }
+
+    await bulkEditStages(actor, {
+      selection: {
+        mode: "ids" as const,
+        items: rows.map((row) => ({ id: row.id, expectedVersion: row.version })),
+      },
+      patch: { categoryId: keeper },
+      idempotencyKey: nextKey(),
+    });
+
+    const remaining = await names();
+    expect(remaining).not.toContain("Staged bulk emptied");
+    expect(remaining).toContain("Staged bulk destination");
+  });
+
+  it("leaves it alone when a staged mass edit may only stage", async () => {
+    const doomed = await category("Staged bulk scoped");
+    const keeper = await category("Staged bulk scoped destination");
+    const row = await createStage(actor, {
+      draft: {
+        type: "withdrawal",
+        date: "2026-05-03",
+        payee: "Queued",
+        amount: "11",
+        fromAccountId: checkingId,
+        categoryId: doomed,
+      },
+      idempotencyKey: nextKey(),
+    });
+
+    await bulkEditStages(
+      actor,
+      {
+        selection: {
+          mode: "ids" as const,
+          items: [{ id: row.id, expectedVersion: row.version }],
+        },
+        patch: { categoryId: keeper },
+        idempotencyKey: nextKey(),
+      },
+      undefined,
+      { mayEditLedgerRecords: false },
+    );
+
+    expect(await names()).toContain("Staged bulk scoped");
+  });
+
+  /**
    * Recategorising a hundred rows one at a time cleared the category behind
    * them; doing it in one request left it standing. Two paths, one rule.
    */
   it("clears a category a mass edit emptied", async () => {
-    const { bulkEditTransactions } = await import(
-      "../../src/server/services/transactions.js"
-    );
     const doomed = await createCategory(actor, { name: "Bulk Emptied", kind: "expense" });
     const keeper = await createCategory(actor, { name: "Bulk Destination", kind: "expense" });
 

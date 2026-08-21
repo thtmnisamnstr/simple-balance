@@ -1034,6 +1034,10 @@ integration("what an agent reads about the person and their settings", () => {
       email: "ada@example.com",
       clientId: "agent-7",
       source: "mcp",
+      // False because this suite configures no mail server. A reminder is stored
+      // whether or not one exists, so this is how an agent tells somebody the
+      // reminder it just set up will not arrive until an operator sets SMTP up.
+      notificationsAvailable: false,
     });
   });
 
