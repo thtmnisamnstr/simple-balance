@@ -20,7 +20,7 @@
     "db:migrate": "tsx src/server/db/migrate.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
     "test": "vitest run",
-    "test:integration": "vitest run tests/integration",
+    "test:integration": "vitest run -c vitest.integration.config.ts tests/integration",
     "verify": "npm run typecheck && npm run test && npm run build",
     "set-version": "node scripts/set-version.mjs",
     "ralph": "./scripts/ralph/ralph.sh"

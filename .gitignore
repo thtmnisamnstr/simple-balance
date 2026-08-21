@@ -28,3 +28,13 @@ outputs/
 # never deliverables, and one committed by accident runs in every CI leg.
 tests/tmp*/
 tests/zz-*
+
+# Throwaway probes. A review or an audit sometimes needs to run a script against
+# the real modules, which means writing it inside the repository so it can import
+# them — and one such file was committed by a `git add -A` that ran while it was
+# on disk, along with a mutation to a source file that happened to be applied at
+# that moment. Ignored so the next one cannot be.
+.audit*.mts
+.review*.mts
+.verify*.mts
+.probe*.mts
