@@ -46,7 +46,8 @@ type TemplateSortField =
   | "amount"
   | "account"
   | "category"
-  | "used";
+  | "used"
+  | "reminder";
 
 /**
  * Which fields a mass edit offers.
@@ -185,7 +186,34 @@ export default function TemplatesPage() {
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
     });
-    const sorted = [...rows].sort((left, right) => {
+    const key = (template: TransactionTemplate) => {
+      switch (sort.field) {
+        case "name":
+          return template.name;
+        case "type":
+          return template.draft.type;
+        case "payee":
+          return template.draft.payee ?? null;
+        case "account":
+          return accountLabel(template);
+        case "used":
+          return template.totalTransactionCount ?? 0;
+        // Ranked rather than alphabetical: a reminder still to come outranks one
+        // that has already gone, which outranks no reminder at all. Sorting this
+        // column is somebody asking what they are going to be told about.
+        case "reminder":
+          return template.notification
+            ? template.notification.nextNotificationDate
+              ? 2
+              : 1
+            : 0;
+        default:
+          return categoryLabel(template) ?? null;
+      }
+    };
+    return [...rows].sort((left, right) => {
+      // Amounts are stored exactly as typed, so comparing them as text puts
+      // 1.45 above 1.5.
       const order =
         sort.field === "amount"
           ? left.draft.amount && right.draft.amount
@@ -196,34 +224,11 @@ export default function TemplatesPage() {
                 right.draft.amount ?? null,
                 sort.direction,
               )
-          : compareForSort(
-              sort.field === "name"
-                ? left.name
-                : sort.field === "type"
-                  ? left.draft.type
-                  : sort.field === "payee"
-                    ? (left.draft.payee ?? null)
-                    : sort.field === "account"
-                      ? accountLabel(left)
-                      : sort.field === "used"
-                        ? (left.totalTransactionCount ?? 0)
-                        : (categoryLabel(left) ?? null),
-              sort.field === "name"
-                ? right.name
-                : sort.field === "type"
-                  ? right.draft.type
-                  : sort.field === "payee"
-                    ? (right.draft.payee ?? null)
-                    : sort.field === "account"
-                      ? accountLabel(right)
-                      : sort.field === "used"
-                        ? (right.totalTransactionCount ?? 0)
-                        : (categoryLabel(right) ?? null),
-              sort.direction,
-            );
+          : compareForSort(key(left), key(right), sort.direction);
+      // Name breaks every tie, so a page of rows that match on the sorted
+      // column keeps a stable order across renders.
       return order || left.name.localeCompare(right.name);
     });
-    return sorted;
   }, [templates.data, accounts.data, categories.data, search, typeFilter, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -557,7 +562,13 @@ export default function TemplatesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <th scope="col">Reminder</th>
+                  <SortableHeader
+                    field="reminder"
+                    label="Reminder"
+                    lean="descending"
+                    sort={sort}
+                    onSort={setSort}
+                  />
                   <th aria-label="Actions" />
                 </tr>
               </thead>

@@ -172,6 +172,33 @@ const templateView = (
 });
 
 /**
+ * The reminders these templates have, keyed by template.
+ *
+ * Read before any write that replaces or removes them, because an audit
+ * snapshot built without it says `notification: null`, and null in that record
+ * does not read as "nobody asked" — it reads as "this template had no
+ * reminder". The bulk paths and the delete paths were writing exactly that
+ * about templates that did.
+ */
+async function readNotifications(
+  tx: DbTransaction,
+  actor: Actor,
+  templateIds: readonly string[],
+) {
+  if (templateIds.length === 0) return new Map<string, NotificationRow>();
+  const rows = await tx
+    .select()
+    .from(templateNotifications)
+    .where(
+      and(
+        eq(templateNotifications.userId, actor.userId),
+        inArray(templateNotifications.templateId, [...templateIds]),
+      ),
+    );
+  return new Map(rows.map((row) => [row.templateId, row]));
+}
+
+/**
  * Write, replace or remove the one reminder a template may have.
  *
  * `undefined` leaves whatever is stored alone, which is what an update that says
@@ -186,11 +213,9 @@ async function writeNotification(
   templateId: string,
   notification: TemplateNotification | null | undefined,
 ) {
-  const [existing] = await tx
-    .select()
-    .from(templateNotifications)
-    .where(eq(templateNotifications.templateId, templateId))
-    .limit(1);
+  const existing = (await readNotifications(tx, actor, [templateId])).get(
+    templateId,
+  );
   if (notification === undefined) return existing ?? null;
   await tx
     .delete(templateNotifications)
@@ -467,6 +492,13 @@ export async function bulkEditTransactionTemplates(
       };
     }
 
+    // The patch cannot touch a reminder, so the same one stands on both sides
+    // of the snapshot. Left out, the record would claim the edit removed it.
+    const reminders = await readNotifications(
+      tx,
+      actor,
+      changed.map(({ row }) => row.id),
+    );
     const items: TransactionTemplateBulkResult["items"] = [];
     for (const { row, draft } of changed) {
       const [updated] = await tx
@@ -485,8 +517,8 @@ export async function bulkEditTransactionTemplates(
         entityType: "transaction_template",
         entityId: row.id,
         operation: "bulk_edit",
-        before: templateView(row),
-        after: templateView(updated),
+        before: templateView(row, reminders.get(row.id) ?? null),
+        after: templateView(updated, reminders.get(row.id) ?? null),
       });
       items.push({
         id: updated.id,
@@ -543,6 +575,13 @@ export async function bulkDeleteTransactionTemplates(
       return { dryRun: true, changedCount: items.length, items };
     }
 
+    // Before the delete: the reminders go with the templates, so afterwards
+    // there is nothing left to record.
+    const reminders = await readNotifications(
+      tx,
+      actor,
+      rows.map((row) => row.id),
+    );
     await tx.delete(transactionTemplates).where(
       and(
         eq(transactionTemplates.userId, actor.userId),
@@ -557,7 +596,7 @@ export async function bulkDeleteTransactionTemplates(
         entityType: "transaction_template",
         entityId: row.id,
         operation: "bulk_delete",
-        before: templateView(row),
+        before: templateView(row, reminders.get(row.id) ?? null),
       });
     }
 
@@ -743,7 +782,8 @@ export async function updateTransactionTemplate(
     if (changes.draft !== undefined) {
       await assertReferencesAreOwned(tx, actor, changes.draft);
     }
-    const beforeNotification = await writeNotification(tx, actor, id, undefined);
+    const beforeNotification =
+      (await readNotifications(tx, actor, [id])).get(id) ?? null;
     const notification = await writeNotification(
       tx,
       actor,
@@ -800,6 +840,7 @@ export async function deleteTransactionTemplate(
     if (before.version !== expectedVersion) {
       throw staleVersion({ currentVersion: before.version });
     }
+    const reminder = (await readNotifications(tx, actor, [id])).get(id) ?? null;
     // Deleted outright rather than archived. A template records nothing that
     // happened, so there is no history to keep, and the transactions made from
     // it are unaffected.
@@ -816,7 +857,7 @@ export async function deleteTransactionTemplate(
       entityType: "transaction_template",
       entityId: id,
       operation: "delete",
-      before: templateView(before),
+      before: templateView(before, reminder),
     });
     return { id, deleted: true };
   });

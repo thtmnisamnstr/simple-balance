@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import {
+  auditEvents,
   templateNotifications,
   transactionTemplates,
   user,
@@ -17,6 +18,8 @@ import {
   updateRecurrence,
 } from "../../src/server/services/recurrences.js";
 import {
+  bulkDeleteTransactionTemplates,
+  bulkEditTransactionTemplates,
   createTransactionTemplate,
   deleteTransactionTemplate,
   getTransactionTemplate,
@@ -56,6 +59,14 @@ const at = (instant: string) => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date(instant));
 };
+
+/** Every audit row written about one template, oldest first. */
+const auditFor = async (templateId: string) =>
+  getDb()
+    .select()
+    .from(auditEvents)
+    .where(eq(auditEvents.entityId, templateId))
+    .orderBy(auditEvents.createdAt);
 
 const reminderRow = async (templateId: string) => {
   const [row] = await getDb()
@@ -103,6 +114,7 @@ integration("scheduled notifications", () => {
     vi.useRealTimers();
     await getDb().delete(templateNotifications);
     await getDb().delete(transactionTemplates);
+    await getDb().delete(auditEvents);
   });
 
   afterAll(async () => {
@@ -554,6 +566,85 @@ integration("scheduled notifications", () => {
         repeats: true,
         time: "09:15",
       });
+    });
+  });
+
+  /**
+   * The audit log is append-only, so a snapshot that records the wrong thing
+   * cannot be corrected later — it can only be contradicted. `templateView`
+   * defaults the reminder to null, which in a record does not read as "nobody
+   * asked about it" but as "this template had no reminder", and every path that
+   * did not pass one was writing that about templates that did.
+   */
+  describe("what the audit log records about a reminder", () => {
+    const selection = (id: string, version: number) => ({
+      items: [{ id, expectedVersion: version }],
+    });
+
+    it("keeps it on both sides of a bulk edit that did not touch it", async () => {
+      at("2026-06-01T08:00:00Z");
+      const created = await template("Bulk edited", {
+        frequency: "monthly",
+        interval: 1,
+        anchorDate: "2026-06-20",
+        time: "07:30",
+      });
+
+      await bulkEditTransactionTemplates(actor, {
+        selection: selection(created.id, created.version),
+        patch: { payee: "Someone else" },
+        idempotencyKey: "audit-bulk-edit",
+      });
+
+      const [, edit] = await auditFor(created.id);
+      expect(edit!.operation).toBe("bulk_edit");
+      expect(edit!.before).toMatchObject({ notification: { time: "07:30" } });
+      expect(edit!.after).toMatchObject({ notification: { time: "07:30" } });
+    });
+
+    it("records the one a bulk delete took away with it", async () => {
+      at("2026-06-01T08:00:00Z");
+      const created = await template("Bulk deleted", {
+        anchorDate: "2026-06-20",
+        time: "07:45",
+      });
+
+      await bulkDeleteTransactionTemplates(actor, {
+        selection: selection(created.id, created.version),
+        idempotencyKey: "audit-bulk-delete",
+      });
+
+      const [, removal] = await auditFor(created.id);
+      expect(removal!.operation).toBe("bulk_delete");
+      expect(removal!.before).toMatchObject({ notification: { time: "07:45" } });
+      expect(removal!.after).toBeNull();
+    });
+
+    it("records the one a delete took away with it", async () => {
+      at("2026-06-01T08:00:00Z");
+      const created = await template("Deleted", {
+        anchorDate: "2026-06-20",
+        time: "07:15",
+      });
+
+      await deleteTransactionTemplate(actor, created.id, created.version);
+
+      const [, removal] = await auditFor(created.id);
+      expect(removal!.operation).toBe("delete");
+      expect(removal!.before).toMatchObject({ notification: { time: "07:15" } });
+    });
+
+    it("still says null when there really was no reminder", async () => {
+      at("2026-06-01T08:00:00Z");
+      const created = await createTransactionTemplate(actor, {
+        name: "No reminder",
+        draft: { type: "withdrawal", payee: "Landlord", amount: "1200" },
+      });
+
+      await deleteTransactionTemplate(actor, created.id, created.version);
+
+      const [, removal] = await auditFor(created.id);
+      expect(removal!.before).toMatchObject({ notification: null });
     });
   });
 

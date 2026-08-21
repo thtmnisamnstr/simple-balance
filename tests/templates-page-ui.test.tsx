@@ -540,6 +540,47 @@ describe("the templates screen", () => {
     expect(within(rowFor("Salary")).getByText("none")).toBeInTheDocument();
   });
 
+  it("sorts by what it is going to remind you about", async () => {
+    const due: TransactionTemplate = {
+      ...rent,
+      notification: {
+        frequency: null,
+        interval: 1,
+        anchorDate: "2026-06-15",
+        monthPolicy: "last_day",
+        weekendPolicy: "allow",
+        position: null,
+        time: "09:00",
+        repeats: false,
+        lastNotifiedDate: null,
+        nextNotificationDate: "2026-06-15",
+      },
+    };
+    // Sent, and nothing further owed. Still a reminder, but not one that is
+    // going to say anything, so it sits below the one that is.
+    const spent: TransactionTemplate = {
+      ...coffee,
+      notification: {
+        ...due.notification!,
+        lastNotifiedDate: "2026-06-15",
+        nextNotificationDate: null,
+      },
+    };
+    stubApi([spent, salary, due]);
+    await renderPage([spent, salary, due]);
+    const names = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.querySelector("strong")?.textContent);
+
+    // Leans descending, so one click puts what is still to come first.
+    fireEvent.click(screen.getByRole("button", { name: /Reminder/ }));
+    expect(names()).toEqual(["Rent", "Coffee", "Salary"]);
+    fireEvent.click(screen.getByRole("button", { name: /Reminder/ }));
+    expect(names()).toEqual(["Salary", "Coffee", "Rent"]);
+  });
+
   const openEditor = async (name: string) => {
     fireEvent.click(screen.getByRole("button", { name: `Actions for ${name}` }));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));

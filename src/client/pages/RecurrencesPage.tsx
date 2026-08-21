@@ -33,7 +33,13 @@ import { RecurrenceForm, scheduleSentence } from "../forms.js";
 import { Link } from "../router.js";
 import { transactionTypeLabels } from "./TemplatesPage.js";
 
-type RecurrenceSortField = "name" | "schedule" | "amount" | "next" | "proposed";
+type RecurrenceSortField =
+  | "name"
+  | "schedule"
+  | "amount"
+  | "next"
+  | "proposed"
+  | "notifies";
 
 export default function RecurrencesPage() {
   const queryClient = useQueryClient();
@@ -96,6 +102,11 @@ export default function RecurrencesPage() {
           return recurrence.shape.amount ?? "";
         case "proposed":
           return recurrence.proposedCount;
+        // A boolean as a number, so the column groups rather than ordering by
+        // the word "Email". Descending puts the ones that will email first,
+        // which is the question somebody sorting this column is asking.
+        case "notifies":
+          return recurrence.notifyOnCreate ? 1 : 0;
         default:
           return recurrence.nextOccurrence.occurrenceDate;
       }
@@ -201,7 +212,13 @@ export default function RecurrencesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <th scope="col">Notifies</th>
+                  <SortableHeader
+                    field="notifies"
+                    label="Notifies"
+                    lean="descending"
+                    sort={sort}
+                    onSort={setSort}
+                  />
                   <th aria-label="Actions" />
                 </tr>
               </thead>
