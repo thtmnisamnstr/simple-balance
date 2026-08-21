@@ -7,7 +7,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Report } from "../src/client/api.js";
-import { SERIES_COLOURS } from "../src/client/charts.js";
+import {
+  bucketLabel,
+  labelBudget,
+  labelledBuckets,
+  niceTicks,
+  SERIES_COLOURS,
+} from "../src/client/charts.js";
 import {
   moneyExtent,
   moneyRatioPercent,
@@ -123,6 +129,121 @@ describe("scaling money for a chart", () => {
   });
 });
 
+/**
+ * A chart with no numbers beside it is a shape. These were drawn for a year
+ * without a value scale or a date under them, which made a line that ended
+ * higher than it started the only thing either chart actually said.
+ */
+describe("the axis a chart is read against", () => {
+  it("puts the gridlines on round numbers, not on quarters of the range", () => {
+    // Four equal slices of this range would be 1247.83, 2495.66, 3743.49.
+    expect(niceTicks("0", "4991.32")).toEqual([
+      "0",
+      "1000",
+      "2000",
+      "3000",
+      "4000",
+    ]);
+  });
+
+  it("crosses zero when the range does, so the line is one of the ticks", () => {
+    expect(niceTicks("-1800", "3200")).toContain("0");
+  });
+
+  it("holds to the scale money is stored at", () => {
+    // Eighteen decimal places, where a step worked out in floating point would
+    // land the tick a hair off the round number it is printed as.
+    expect(niceTicks("0", "0.000000000000000005")).toEqual([
+      "0",
+      "0.000000000000000001",
+      "0.000000000000000002",
+      "0.000000000000000003",
+      "0.000000000000000004",
+      "0.000000000000000005",
+    ]);
+  });
+
+  it("draws one line for a series that never moves", () => {
+    expect(niceTicks("5", "5")).toEqual(["5"]);
+  });
+
+  it("never returns a single tick for a range that has two ends", () => {
+    for (const [low, high] of [
+      ["0", "1"],
+      ["-1", "1"],
+      ["0", "0.000000000000000001"],
+      ["1000000000000", "1000000000001"],
+    ]) {
+      expect(niceTicks(low!, high!).length, `${low}..${high}`).toBeGreaterThan(1);
+    }
+  });
+
+  /**
+   * A report will draw up to six hundred columns, and six hundred dates under
+   * one is a grey smear. Both ends are always named, or the axis stops saying
+   * where the series begins and ends.
+   */
+  it("thins the dates evenly, and labels a year of months in full", () => {
+    expect(labelledBuckets(4)).toEqual([0, 1, 2, 3]);
+    // Twelve months all get a label. Spreading a fixed count across the range
+    // instead rounded to 0, 1, 2, 4, 5, 6, 7 and skipped April on its own.
+    expect(labelledBuckets(12)).toEqual([
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+    ]);
+
+    const many = labelledBuckets(600);
+    expect(many.length).toBeLessThanOrEqual(12);
+    expect(many[0]).toBe(0);
+    // Every gap identical, because a stride cannot bunch.
+    const gaps = many.slice(1).map((at, index) => at - many[index]!);
+    expect(new Set(gaps).size).toBe(1);
+  });
+
+  /**
+   * Twelve dates read well across a report panel and are a grey smear across a
+   * phone, where they overlapped into one illegible line. The budget comes from
+   * the measured width of the drawing rather than from a breakpoint, because the
+   * same chart is wide on this page and narrow in a card at the same viewport.
+   */
+  it("spends fewer labels on a narrower chart", () => {
+    expect(labelBudget(1130)).toBe(12);
+    expect(labelBudget(600)).toBe(7);
+    // A phone, where twelve became a smear and four still touched.
+    expect(labelBudget(300)).toBe(3);
+    // Never one, which says less than none, and never zero.
+    expect(labelBudget(40)).toBe(2);
+    expect(labelBudget(0)).toBe(12);
+    expect(labelBudget(Number.NaN)).toBe(12);
+  });
+
+  it("thins to whatever budget it is given", () => {
+    expect(labelledBuckets(12, 4)).toEqual([0, 3, 6, 9]);
+    expect(labelledBuckets(12, 12)).toHaveLength(12);
+    // A budget of nothing still returns something rather than dividing by zero.
+    expect(labelledBuckets(4, 0)).toEqual([0]);
+  });
+
+  /**
+   * The full date belongs in the table's column header, which has the room for
+   * it. Under the chart it only has to say which period this is, and the
+   * shorter it is the more of them fit before the axis has to start skipping.
+   */
+  it("writes each bucket the way that bucket is named", () => {
+    expect(bucketLabel("2026-04-01", "year")).toBe("2026");
+    expect(bucketLabel("2026-04-01", "quarter")).toBe("Q2 2026");
+    expect(bucketLabel("2026-10-01", "quarter")).toBe("Q4 2026");
+    expect(bucketLabel("2026-04-01", "month")).toBe("Apr 2026");
+    expect(bucketLabel("2026-04-06", "week")).toBe("Apr 6");
+    // A date the calendar does not have is shown as it arrived rather than
+    // throwing inside a render.
+    expect(bucketLabel("nonsense", "month")).toBe("nonsense");
+  });
+
+  it("labels nothing when there is nothing to label", () => {
+    expect(labelledBuckets(0)).toEqual([]);
+  });
+});
+
 describe("the chart palette", () => {
   // jsdom gives `import.meta.url` an http origin, so the path is joined from
   // the test directory rather than resolved as a file URL.
@@ -161,6 +282,71 @@ describe("the reports page", () => {
     expect(screen.getAllByText("-$25.00").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$250.00").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$325.00").length).toBeGreaterThan(0);
+  });
+
+  it("puts a value scale beside the chart and dates under it", async () => {
+    stub();
+    renderReports();
+    await screen.findByRole("rowheader", { name: "Checking" });
+
+    // The values run -25 to 250, so the axis covers that in round steps.
+    const scale = [
+      ...document.querySelectorAll(".chart-axis-value"),
+    ].map((node) => node.textContent);
+    expect(scale.length).toBeGreaterThan(1);
+    expect(scale).toContain("$0.00");
+    // Every label is money, formatted the way the table formats it.
+    for (const label of scale) expect(label).toMatch(/^-?\$[\d,]+\.\d\d$/);
+
+    // One label per bucket here, because three is under the thinning limit.
+    const timeAxis = document.querySelector(".chart-axis-x")!;
+    expect(
+      [...timeAxis.querySelectorAll("span")].map((node) => node.textContent),
+    ).toEqual(["Jan 2026", "Feb 2026", "Mar 2026"]);
+  });
+
+  /**
+   * Positioned by percentage against the drawing's own box, so a label lands on
+   * the line it names at every width. Read off the style rather than trusted,
+   * because getting this wrong puts "$0.00" beside a gridline that is not zero.
+   */
+  it("lines each value up with its own gridline", async () => {
+    stub();
+    renderReports();
+    await screen.findByRole("rowheader", { name: "Checking" });
+
+    const labels = [
+      ...document.querySelectorAll<HTMLElement>(".chart-axis-value"),
+    ];
+    const tops = labels.map((node) => Number.parseFloat(node.style.top));
+    // Down the box as the value falls, and inside it at both ends.
+    expect(tops).toEqual([...tops].sort((left, right) => right - left));
+    for (const top of tops) {
+      expect(top).toBeGreaterThanOrEqual(0);
+      expect(top).toBeLessThanOrEqual(100);
+    }
+
+    const gridlines = [...document.querySelectorAll("line")];
+    // A line for every label, and one of them is the zero line.
+    expect(gridlines.length).toBeGreaterThanOrEqual(labels.length);
+    expect(document.querySelector(".chart-zero")).not.toBeNull();
+  });
+
+  it("keeps the axes out of the accessible name of the chart", async () => {
+    stub();
+    renderReports();
+    await screen.findByRole("rowheader", { name: "Checking" });
+
+    // Read linearly an axis is a run of bare numbers, and the table beside it
+    // already carries every figure as text.
+    expect(document.querySelector(".chart-axis-y")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
+    expect(document.querySelector(".chart-axis-x")).toHaveAttribute(
+      "aria-hidden",
+      "true",
+    );
   });
 
   it("labels the chart for anyone who cannot see it", async () => {

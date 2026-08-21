@@ -62,6 +62,21 @@ The Reminder and Notifies columns sort, ranked by what they are going to tell
 you rather than alphabetically by the badge text: a reminder still to come above
 one already sent above none at all.
 
+Axes on the report charts, which shipped without any. A line that ended higher
+than it started was all either chart actually said: there was no value scale
+beside it and no date under it, only a caption naming the range. Both now carry
+gridlines on round numbers — worked out in scaled integers, so a tick sits
+exactly where its own label says it does — and the dates of the periods they
+cover, written as that period is named rather than as a full date, so a year of
+months fits.
+
+The axis text is HTML rather than drawn into the SVG. The drawing scales to its
+panel, so a label inside it would read as twelve pixels wide on a desktop and
+four on a phone, which is an axis nobody can read on the device most likely to
+need one. How many dates fit comes from measuring the chart rather than from a
+breakpoint, because the same chart is wide on the reports page and narrow in a
+card at the same viewport.
+
 Reports sits after Recurring in the sidebar rather than after Transactions. The
 sidebar reads in order: where the money is and what moved it, then the work
 waiting on you, then the things that file and repeat it, then what it all adds up
