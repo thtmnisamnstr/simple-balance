@@ -42,8 +42,6 @@ import {
   Button,
   DateRangeBar,
   EmptyState,
-  formatDate,
-  formatMoney,
   Input,
   Modal,
   Pagination,
@@ -53,10 +51,14 @@ import {
   ConfirmDialog,
   SortableHeader,
   type SortState,
-  sumMoney,
   useConfirm,
-  compareMoney,
 } from "./components.js";
+import {
+  formatDate,
+  formatMoney,
+  sumMoney,
+  compareMoney,
+} from "./money.js";
 import {
   draftForTransactionForm,
   recurrenceShapeFromDraft,
@@ -915,9 +917,7 @@ export function TransactionBrowser({
                       <td>{stagedDate ? formatDate(stagedDate) : "—"}</td>
                       <td>
                         <div className="transaction-payee">
-                          <span className="transaction-payee-name">
-                            {stagedPayee}
-                          </span>
+                          <span>{stagedPayee}</span>
                           <Badge tone="amber">Staged</Badge>
                         </div>
                       </td>
@@ -929,7 +929,7 @@ export function TransactionBrowser({
                           : "—"}
                       </td>
                       <td>
-                        <Link className="text-link" to="/staged">
+                        <Link to="/staged">
                           Review
                         </Link>
                       </td>

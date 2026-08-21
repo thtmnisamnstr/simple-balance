@@ -778,12 +778,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(bulkStageEditMcpResultSchema),
         annotations: destructiveAnnotations,
       },
-      (input) =>
-        runTool(() =>
-          input.dryRun
-            ? bulkEditStages(actor, input)
-            : bulkEditStages(actor, input),
-        ),
+      (input) => runTool(() => bulkEditStages(actor, input)),
     );
     server.registerTool(
       "stage_csv",
@@ -1190,12 +1185,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(transactionTemplateBulkMcpResultSchema),
         annotations: destructiveAnnotations,
       },
-      (input) =>
-        runTool(() =>
-          input.dryRun
-            ? bulkEditTransactionTemplates(actor, input)
-            : bulkEditTransactionTemplates(actor, input),
-        ),
+      (input) => runTool(() => bulkEditTransactionTemplates(actor, input)),
     );
     server.registerTool(
       "bulk_delete_transaction_templates",
@@ -1207,12 +1197,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(transactionTemplateBulkMcpResultSchema),
         annotations: destructiveAnnotations,
       },
-      (input) =>
-        runTool(() =>
-          input.dryRun
-            ? bulkDeleteTransactionTemplates(actor, input)
-            : bulkDeleteTransactionTemplates(actor, input),
-        ),
+      (input) => runTool(() => bulkDeleteTransactionTemplates(actor, input)),
     );
     server.registerTool(
       "delete_category",
@@ -1328,12 +1313,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(bulkTransactionEditMcpResultSchema),
         annotations: destructiveAnnotations,
       },
-      (input) =>
-        runTool(() =>
-          input.dryRun
-            ? bulkDeleteTransactions(actor, input)
-            : bulkDeleteTransactions(actor, input),
-        ),
+      (input) => runTool(() => bulkDeleteTransactions(actor, input)),
     );
     server.registerTool(
       "bulk_edit_transactions",
@@ -1345,12 +1325,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(bulkTransactionEditMcpResultSchema),
         annotations: destructiveAnnotations,
       },
-      (input) =>
-        runTool(() =>
-          input.dryRun
-            ? bulkEditTransactions(actor, input)
-            : bulkEditTransactions(actor, input),
-        ),
+      (input) => runTool(() => bulkEditTransactions(actor, input)),
     );
     server.registerTool(
       "set_transaction_deleted",
@@ -1394,12 +1369,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(committedStagesResultSchema),
         annotations: destructiveAnnotations,
       },
-      (input) =>
-        runTool(() =>
-          input.dryRun
-            ? commitStages(actor, input)
-            : commitStages(actor, input),
-        ),
+      (input) => runTool(() => commitStages(actor, input)),
     );
   }
 

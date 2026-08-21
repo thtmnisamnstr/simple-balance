@@ -4,12 +4,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { Report } from "../src/client/api.js";
+import { SERIES_COLOURS } from "../src/client/charts.js";
 import {
   moneyExtent,
   moneyRatioPercent,
   moneyScalePercent,
-} from "../src/client/components.js";
+} from "../src/client/money.js";
 import ReportsPage from "../src/client/pages/ReportsPage.js";
 import { BrowserRouter, Route, Routes } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -117,6 +120,35 @@ describe("scaling money for a chart", () => {
   it("reads an extent without dropping negatives", () => {
     expect(moneyExtent(["-40", "10", "3"])).toEqual({ low: "-40", high: "10" });
     expect(moneyExtent([])).toBeNull();
+  });
+});
+
+describe("the chart palette", () => {
+  // jsdom gives `import.meta.url` an http origin, so the path is joined from
+  // the test directory rather than resolved as a file URL.
+  const css = readFileSync(
+    path.join(import.meta.dirname, "..", "src/client/styles.css"),
+    "utf8",
+  );
+
+  /**
+   * The count lives in two files, so it can drift. It did: there were six
+   * colours, and a seventh account on a report silently shared the first
+   * account's colour, which makes a legend say two things at once.
+   */
+  it("has a colour in the stylesheet for every series the code will ask for", () => {
+    const strokes = new Set(css.match(/^\.chart-series-\d+ \{/gm) ?? []);
+    const swatches = new Set(css.match(/^\.chart-swatch\.chart-series-\d+ \{/gm) ?? []);
+    expect(strokes.size).toBe(SERIES_COLOURS);
+    expect(swatches.size).toBe(SERIES_COLOURS);
+  });
+
+  it("gives each of those colours a different value", () => {
+    const hues = (css.match(/^\.chart-series-\d+ \{ stroke: (#[0-9a-f]{6})/gm) ?? []).map(
+      (line) => line.slice(line.indexOf("#")),
+    );
+    expect(hues).toHaveLength(SERIES_COLOURS);
+    expect(new Set(hues).size).toBe(SERIES_COLOURS);
   });
 });
 

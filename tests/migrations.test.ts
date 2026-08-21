@@ -167,6 +167,137 @@ describe("migration baseline", () => {
   });
 
   /**
+   * 0007 and 0008 add tables nothing else reads yet, which is exactly when a
+   * migration slips through unasserted. Both are pure additions; neither may
+   * grow a backfill later.
+   */
+  it("adds the shared rate limit and the setup token as pure additions", async () => {
+    for (const name of ["0007_shared_rate_limit", "0008_owner_setup_token"]) {
+      const sql = await readFile(
+        path.join(migrationDirectory, `${name}.sql`),
+        "utf8",
+      );
+      for (const forbidden of [
+        /\bDROP\b/i,
+        /^\s*UPDATE\s/im,
+        /^\s*DELETE\s/im,
+        /^\s*INSERT\s/im,
+        /\bALTER COLUMN\b/i,
+      ]) {
+        expect(sql, `${name}: ${forbidden.source}`).not.toMatch(forbidden);
+      }
+    }
+
+    const rateLimit = await readFile(
+      path.join(migrationDirectory, "0007_shared_rate_limit.sql"),
+      "utf8",
+    );
+    // The whole point of the table: one row per key across every replica, so
+    // the counter is shared rather than per-process.
+    expect(rateLimit).toContain('CREATE TABLE "auth_rate_limit"');
+    expect(rateLimit).toContain(
+      'CREATE UNIQUE INDEX "auth_rate_limit_key_unique" ON "auth_rate_limit" USING btree ("key")',
+    );
+    // Sweeping expired counters needs the timestamp indexed, or the sweep is a
+    // full scan on the one table every request writes to.
+    expect(rateLimit).toContain(
+      'CREATE INDEX "auth_rate_limit_last_request_idx" ON "auth_rate_limit" USING btree ("last_request")',
+    );
+
+    const setupToken = await readFile(
+      path.join(migrationDirectory, "0008_owner_setup_token.sql"),
+      "utf8",
+    );
+    expect(setupToken).toContain('CREATE TABLE "auth_owner_setup_token"');
+    expect(setupToken).toContain('"token" text NOT NULL');
+  });
+
+  /**
+   * Reminders arrive as a new table plus one column on recurrences. The column
+   * is the part that can go wrong: a NOT NULL added to a table with rows in it
+   * needs a default, and every existing recurrence has to keep meaning "do not
+   * email me" rather than suddenly opting in.
+   */
+  it("adds notifications without opting an existing recurrence in", async () => {
+    const sql = await readFile(
+      path.join(migrationDirectory, "0009_scheduled_notifications.sql"),
+      "utf8",
+    );
+
+    expect(sql).toContain('CREATE TABLE "template_notification"');
+    expect(sql).toContain(
+      'ALTER TABLE "recurrence" ADD COLUMN "notify_on_create" boolean DEFAULT false NOT NULL;',
+    );
+    // A default of true would start emailing about every rule already in the
+    // ledger the moment the upgrade finished.
+    expect(sql).not.toMatch(/notify_on_create.*DEFAULT true/i);
+    // At most one reminder per template, enforced by the database rather than
+    // by the code that writes it.
+    expect(sql).toContain(
+      'CONSTRAINT "template_notification_template_id_unique" UNIQUE("template_id")',
+    );
+    // The scheduler's due query leads with the date, because it has to find
+    // work across every ledger before it can know whose it is.
+    expect(sql).toContain(
+      'CREATE INDEX "template_notification_due_idx" ON "template_notification" USING btree ("next_notification_date","user_id","id")',
+    );
+    // A reminder goes when its template goes; an orphan would be a mail about
+    // a template that no longer exists.
+    expect(sql).toMatch(
+      /template_notification_template_id_transaction_template_id_fk[\s\S]*?ON DELETE cascade/,
+    );
+    // The time of day is a wall clock, so it is checked as one.
+    expect(sql).toContain(
+      `CHECK ("template_notification"."notify_at" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')`,
+    );
+
+    for (const forbidden of [
+      /\bDROP\b/i,
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /^\s*INSERT\s/im,
+    ]) {
+      expect(sql, forbidden.source).not.toMatch(forbidden);
+    }
+    // Every added column carries a default, so no existing row is rewritten.
+    expect(sql).not.toMatch(/ADD COLUMN(?!.*DEFAULT).*NOT NULL/i);
+  });
+
+  /**
+   * The one migration here that removes something. It drops four indexes whose
+   * leading column is already the leading column of a unique constraint on the
+   * same table, so nothing loses a plan. Dropping anything else — a column, a
+   * constraint, a table — would be data or a rule going away.
+   */
+  it("drops only indexes another index already covers", async () => {
+    const sql = await readFile(
+      path.join(migrationDirectory, "0010_drop_covered_user_indexes.sql"),
+      "utf8",
+    );
+
+    const dropped = [...sql.matchAll(/DROP INDEX IF EXISTS "([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(dropped).toEqual([
+      "category_user_idx",
+      "ledger_account_user_idx",
+      "recurrence_user_idx",
+      "transaction_template_user_idx",
+    ]);
+    // IF EXISTS, so a database restored from a dump that never had them still
+    // runs the migration rather than stopping the upgrade.
+    expect([...sql.matchAll(/DROP INDEX/g)]).toHaveLength(dropped.length);
+    for (const forbidden of [
+      /DROP\s+(TABLE|COLUMN|CONSTRAINT|TYPE|VIEW)/i,
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /\bALTER COLUMN\b/i,
+    ]) {
+      expect(sql, forbidden.source).not.toMatch(forbidden);
+    }
+  });
+
+  /**
    * The same promise for recurrences, and one more besides. Adding a value to
    * an existing enum is the only statement in either migration that touches a
    * type the running application already reads, and PostgreSQL will not let it

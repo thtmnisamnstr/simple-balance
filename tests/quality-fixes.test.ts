@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { compareMoney, formatDate, moneyUnits } from "../src/client/components.js";
+import {
+  compareMoney,
+  formatDate,
+  moneyUnits,
+} from "../src/client/money.js";
 import {
   bulkStageFilterSchema,
   stageListQuerySchema,

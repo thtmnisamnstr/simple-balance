@@ -53,7 +53,7 @@ type Bucket = { start: string; end: string };
  */
 type BucketWindow = Bucket & { periodStart: string };
 
-type Cell = {
+export type Cell = {
   bucketStart: string;
   currency: string;
   key: string;
@@ -229,10 +229,9 @@ export async function getReport(
       currencies: [],
     };
   }
-  const windowStart = start;
 
   const gridRows = await getDb().execute(
-    sql`${gridQuery(bucket, windowStart, asOf)} limit ${MAX_REPORT_BUCKETS + 1}`,
+    sql`${gridQuery(bucket, start, asOf)} limit ${MAX_REPORT_BUCKETS + 1}`,
   );
   if (gridRows.rows.length > MAX_REPORT_BUCKETS) {
     throw validationError(
@@ -241,20 +240,20 @@ export async function getReport(
   }
   const buckets = clip(
     gridRows.rows as { bucket_start: unknown; period_end: unknown }[],
-    windowStart,
+    start,
     asOf,
   );
 
   const currencies =
     query.report === "cash-flow"
       ? assemble(
-          await cashFlowCells(actor, bucket, windowStart, asOf, includeArchived),
+          await cashFlowCells(actor, bucket, start, asOf, includeArchived),
           buckets,
           preset.accumulation,
         )
       : preset.accumulation === "historical"
         ? assemble(
-            await balanceCells(actor, query.report, bucket, windowStart, asOf),
+            await balanceCells(actor, query.report, bucket, start, asOf),
             buckets,
             preset.accumulation,
             !includeArchived && query.report !== "trial-balance",
@@ -264,7 +263,7 @@ export async function getReport(
               actor,
               query.report,
               bucket,
-              windowStart,
+              start,
               asOf,
               includeArchived,
             ),
@@ -457,7 +456,7 @@ async function flowCells(
     order by p.currency, 1
   `);
 
-  return result.rows.map((row) => {
+  const cells = result.rows.map((row) => {
     const kind = String(row.kind);
     const categoryId = byCategory && row.category_id ? String(row.category_id) : null;
     return {
@@ -473,6 +472,31 @@ async function flowCells(
       value: String(row.value),
     };
   });
+
+  return byCategory ? qualifyRepeatedLabels(cells) : cells;
+}
+
+/**
+ * Name apart two rows that arrived with one name.
+ *
+ * A category set to cover both sides — a refund filed where the spending was
+ * filed — is two rows in this report, correctly, one under income and one under
+ * expense. Uncategorized always spans both. They come back carrying the same
+ * label, so the table and the chart legend would show that label twice and say
+ * nothing about which is which. Only a name that genuinely spans more than one
+ * row is qualified; every ordinary row reads as the person named it.
+ */
+export function qualifyRepeatedLabels(cells: Cell[]): Cell[] {
+  const keysPerLabel = new Map<string, Set<string>>();
+  for (const cell of cells) {
+    if (!keysPerLabel.has(cell.label)) keysPerLabel.set(cell.label, new Set());
+    keysPerLabel.get(cell.label)!.add(cell.key);
+  }
+  return cells.map((cell) =>
+    (keysPerLabel.get(cell.label)?.size ?? 0) > 1
+      ? { ...cell, label: `${cell.label} (${cell.kind})` }
+      : cell,
+  );
 }
 
 /**
