@@ -66,17 +66,18 @@ jobs:
       # TEST_DATABASE_URL is set for the whole job, so the suite `verify` runs
       # already includes the integration tests. It is unset here so that step
       # stays the fast one it is meant to be, and the integration suite runs
-      # once, in the step named after it.
+      # once, in the step below.
       - run: npm run verify
         env:
           TEST_DATABASE_URL: ""
-      # A suite with no TEST_DATABASE_URL skips every file and still exits 0, so
-      # the gate would go green having run nothing. The step above deliberately
-      # blanks the variable, which is exactly the edit that could reach here.
-      - name: Integration tests
-        run: |
-          test -n "${TEST_DATABASE_URL:-}"
-          npm run test:integration
+      # The guard runs in the same step on purpose. A suite with no
+      # TEST_DATABASE_URL skips every file and still exits 0, so without it the
+      # gate would go green having run nothing — and the step above deliberately
+      # blanks the variable, which is exactly the edit that could reach here. One
+      # step rather than two because each step in a job that checks out a
+      # caller's ref is another thing the cache-poisoning query has to reason
+      # about, and this guard is not worth a step of its own.
+      - run: test -n "${TEST_DATABASE_URL:-}" && npm run test:integration
 
   # The chart and the Pulumi programs ship in the release, so a change that
   # breaks either should fail here rather than at somebody's `helm install`.
