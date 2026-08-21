@@ -39,6 +39,20 @@ updates:
       # when the base image does.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # 1.7 is a minor by its number and a rewrite by its contents. It moves the
+      # MCP plugin out into `@better-auth/mcp`, so `mcp`, `withMcpAuth`,
+      # `oAuthDiscoveryMetadata` and `oAuthProtectedResourceMetadata` no longer
+      # exist on `better-auth/plugins` and the server does not compile. Taking
+      # it also means renaming `oauthApplication` to `oauthClient`, two new
+      # tables, and an `Account.issuer` backfill — a migration of our own, since
+      # every shipped one is frozen.
+      #
+      # Held rather than left to fail, because better-auth sits in the routine
+      # group: an un-takeable member makes every weekly pull request
+      # un-mergeable and the safe bumps in it stop arriving. Lift this in the
+      # change that does the migration, not before.
+      - dependency-name: "better-auth"
+        versions: [">=1.7.0"]
 
   - package-ecosystem: github-actions
     directory: "/"
