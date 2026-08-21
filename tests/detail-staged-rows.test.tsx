@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
@@ -157,6 +157,32 @@ describe("staged rows on category and payee detail", () => {
     expect(await screen.findByText("Staged Only Payee")).toBeInTheDocument();
     expect(stagedQueries[0]?.searchParams.get("payee")).toBe(
       "Staged Only Payee",
+    );
+  });
+
+  /**
+   * The staged strip and the committed list read as one list, so a narrowing
+   * the page applies to one has to reach the other. Choosing a type moved the
+   * committed rows and left these standing, so a staged deposit sat above rows
+   * the page had just been told to exclude.
+   */
+  it("narrows the staged lookup by the type the list is filtered to", async () => {
+    const stagedQueries = stub({ committed: [] });
+    renderBrowser({ includeStaged: true, fixedCategoryId: CATEGORY_ID });
+
+    expect(await screen.findByText("Staged Only Payee")).toBeInTheDocument();
+    expect(stagedQueries[0]!.searchParams.get("categoryId")).toBe(CATEGORY_ID);
+    expect(stagedQueries[0]!.searchParams.get("start")).toBe("2026-01-01");
+
+    fireEvent.change(screen.getByLabelText("Transaction type"), {
+      target: { value: "deposit" },
+    });
+
+    await vi.waitFor(() => {
+      expect(stagedQueries.at(-1)!.searchParams.get("type")).toBe("deposit");
+    });
+    expect(stagedQueries.at(-1)!.searchParams.get("categoryId")).toBe(
+      CATEGORY_ID,
     );
   });
 

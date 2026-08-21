@@ -117,7 +117,10 @@ const cashTypeList = () =>
 function bucketExpression(
   bucket: ReportBucket,
   start: string,
-  alias: string,
+  // The two table aliases this is called with, spelled out rather than typed
+  // `string`. It is the one `sql.raw` in the product that is not a compile-time
+  // constant, and a union is what keeps it one a caller cannot widen.
+  alias: "p" | "m",
 ): SQL {
   const column = sql.raw(`${alias}.date`);
   if (bucket === "none") {
