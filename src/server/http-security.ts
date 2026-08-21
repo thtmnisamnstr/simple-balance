@@ -1,6 +1,61 @@
 import type { Context, MiddlewareHandler } from "hono";
+import { secureHeaders } from "hono/secure-headers";
 import { MAX_BULK_SELECTION_ENTRIES } from "../shared/domain.js";
 import { configuredCsvMaxBytes } from "./config-limits.js";
+
+/**
+ * What every response from this process carries, and the one place it is
+ * written down.
+ *
+ * A function rather than a constant, because HSTS depends on configuration and
+ * a constant would read it at import time, before the process has parsed any.
+ * Exported rather than declared inline at the call site, because the split
+ * deployment's nginx has to repeat these on the files it serves itself — the
+ * application shell never reaches this process — and a test compares the two.
+ * Two lists in two languages drift silently otherwise, and the response that
+ * drifted is the only one that runs the app.
+ */
+export const securityHeaderOptions = (isProduction: boolean) =>
+  ({
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      // No 'unsafe-inline'. The few inline styles here are React `style` props,
+      // which are applied through the CSSOM rather than written as a style
+      // attribute, and CSP does not govern those. Vite emits the stylesheet as
+      // a file. Checked in a browser across the sign-in, overview, and
+      // transaction pages with no violation reported.
+      styleSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      connectSrc: ["'self'"],
+      // None of these four fall back to default-src, so leaving them out left
+      // real gaps. base-uri stops an injected <base> quietly repointing every
+      // relative URL on the page, including the one the sign-in form posts to.
+      // form-action stops a form being aimed somewhere else. frame-ancestors
+      // is the modern half of the clickjacking defence that X-Frame-Options
+      // covers for older browsers. object-src closes plugin embedding.
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      objectSrc: ["'none'"],
+    },
+    // Not the `no-referrer` this defaults to. Under that policy a browser sends
+    // `Origin: null` on a form submission, including the sign-in form posting to
+    // this very server, and protectAuthMutation rightly refuses an origin it
+    // cannot recognise. That broke MCP authorization, where the sign-in form is
+    // submitted natively so the OAuth redirect stays a top-level navigation.
+    // `same-origin` still sends nothing at all to anybody else.
+    referrerPolicy: "same-origin",
+    // Not the `SAMEORIGIN` this defaults to, which contradicts the
+    // `frame-ancestors 'none'` above it: nothing here is ever meant to be
+    // framed, including by itself. The split deployment's nginx says DENY for
+    // the files it serves, and the two have to agree or the shell and the API
+    // answer differently about the same application.
+    xFrameOptions: "DENY",
+    strictTransportSecurity: isProduction
+      ? "max-age=31536000; includeSubDomains"
+      : false,
+  }) satisfies Parameters<typeof secureHeaders>[0];
 
 export const AUTH_REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
 export const API_REQUEST_BODY_LIMIT_BYTES = 256 * 1024;

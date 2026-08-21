@@ -50,17 +50,26 @@ than warning about.
 | `DIRECT_DATABASE_URL` | `DATABASE_URL` | A second connection string that bypasses a transaction pooler. Only needed when PgBouncer or similar sits in front; see below. |
 | `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. Ceiling 104857600. |
 | `CSV_MAX_ROWS` | `10000` | Most rows accepted from one CSV. Ceiling 10000, which is also the most rows one mass edit, commit, or delete covers, so an import always fits in a single review-queue action. |
-| `RECURRENCE_SCHEDULER` | `true` | Whether this process proposes recurring transactions. Turn it off on replicas that serve the API when a separate scheduler container owns the job. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
-| `RECURRENCE_TICK_SECONDS` | `300` | How often it looks for a recurrence that has come due. Latency only: whatever a missed tick leaves behind, the next one catches up. Ceiling 3600. |
+| `RECURRENCE_SCHEDULER` | `true` | Whether this process runs the schedule at all: proposing recurring transactions, and sending the reminders and proposal notices that go by email. Turn it off on replicas that serve the API when a separate scheduler container owns the job. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
+| `RECURRENCE_TICK_SECONDS` | `300` | How often it looks for work that has come due, meaning both a recurrence to propose and a reminder to send. Latency only for a recurrence: whatever a missed tick leaves behind, the next one catches up. A reminder whose moment passed is not sent late, so this is also how close to the requested time a reminder lands. Ceiling 3600. |
 | `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. Ceiling 500. |
 | `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. Ceiling 5000. |
 
-Each of the five above is a whole number between 1 and the ceiling shown.
-Anything else, whether a word, a zero, a negative or something past the ceiling,
-falls back to the default rather than being clamped or refused, so a typo gets
-you the default rather than a value you did not intend. `DATABASE_POOL_SIZE` is the
-exception and refuses to start, because a wrong pool size is not something to
-discover later.
+`CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `RECURRENCE_TICK_SECONDS`,
+`RECURRENCE_CATCH_UP_LIMIT` and `RECURRENCE_CLAIM_LIMIT` are each a whole number
+between 1 and the ceiling shown. Anything else, whether a word, a zero, a
+negative or something past the ceiling, falls back to the default rather than
+being clamped or refused, so a typo gets you the default rather than a value you
+did not intend.
+
+The rest refuse to start instead, because a wrong value there is not something
+to discover later. `NODE_ENV`, `AUTH_MODE`, `LOG_LEVEL`, `TRUST_PROXY` and
+`RECURRENCE_SCHEDULER` are each parsed against the values they accept and
+nothing else: comparing to one string is what turns every other spelling into
+the default with no symptom at all, and for `RECURRENCE_SCHEDULER` that default
+would be a schedule quietly not running. `PORT` has to be a port, and
+`DATABASE_POOL_SIZE` a size, because too many connections takes the database
+down rather than this process.
 
 ### Limits you cannot change
 
@@ -74,6 +83,10 @@ a refusal is explainable rather than surprising.
 | Category legs on one transaction | 50 | Far past a receipt anybody itemises by hand. A split is the whole counter-side of the entry rewritten, so the cost is paid on every read of it. |
 | Recurring transactions per person | 200 | Each one is a standing instruction that proposes rows on every tick, so an uncapped list is a way to flood the review queue with nothing but `ledger:write`. |
 | Transaction templates per person | 200 | A template is read into the form's dropdown on every visit, so the list is loaded whole rather than paged. |
+| Columns in one report | 600 | A long history asked for weekly buckets is thousands of columns nobody can read. Refused with the coarser bucket named, rather than served slowly. |
+| Postings in one register | 10,000 | Refused rather than truncated: a register is read to find the row a balance went wrong on, and one cut short would close on a balance its own last row does not reach. Narrow the date range. |
+| Consecutive skipped occurrences a reminder looks past | 400 | A rule whose every date its own policies skip — the 31st of every month with `skip`, say — has no schedule left to speak of, and the bound is what stops it spinning inside a scheduler tick. |
+| Interval on a schedule | 366 | The N in "every N days", for a recurrence and for a template reminder alike. |
 
 ### Only for Google sign-in
 
@@ -391,17 +404,23 @@ port. Three settings, all with working defaults:
 | `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
 | `SB_MAX_UPLOAD_SIZE` | `61m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
 
-nginx sets the content security policy, `X-Frame-Options`, `nosniff`,
-`Referrer-Policy` and HSTS on the files it serves itself, matching what the API
-sets on its own responses. The application shell never reaches the API process,
-so without this the one document that actually runs the app would ship with no
-policy at all. It replaces `X-Forwarded-For` with `$remote_addr` rather than
+nginx repeats every response header the API sets — the content security policy,
+`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS, the two
+`Cross-Origin-*` policies, `Origin-Agent-Cluster` and the legacy four — on the
+files it serves itself. The application shell never reaches the API process, so
+without this the one document that actually runs the app would ship with no
+policy at all. `tests/security-header-parity.test.ts` runs a real response
+through the middleware and fails if the two lists differ by a header or by a
+value, because they are one policy written in two languages. It replaces `X-Forwarded-For` with `$remote_addr` rather than
 appending to it, which is what `TRUST_PROXY=true` on the server is safe to
 believe.
 
-The scheduler image proposes recurring transactions and serves nothing but its
-own health checks, so a Service pointed at it by mistake cannot answer an API
-request. It runs one entrypoint of its own and always ticks: the
+The scheduler image runs the whole schedule — proposing recurring transactions
+and sending the reminders and proposal notices — and serves nothing but its own
+health checks, so a Service pointed at it by mistake cannot answer an API
+request. Give it the `SMTP_*` and `MAIL_FROM` settings as well: without them it
+proposes rows and sends nothing, and there is no error to see, because a
+deployment with no mail server is a supported one. It runs one entrypoint of its own and always ticks: the
 `RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
 whose only job is this one would be pointless with it off.
 
@@ -476,7 +495,9 @@ have. Point your orchestrator at readiness.
 A process with the scheduler switched off is not an unhealthy one, so readiness
 says nothing about it. What tells you the scheduler has stopped is the Recurring
 page: a recurrence past its due date with nothing proposed means whatever runs
-the schedule is not running.
+the schedule is not running. Reminders give no such signal — an email that never
+arrived looks like an email nobody sent — so the Recurring page is the one place
+to look for both.
 
 On `SIGTERM` the process stops accepting connections, closes the HTTP server,
 and drains the database pool before exiting.
