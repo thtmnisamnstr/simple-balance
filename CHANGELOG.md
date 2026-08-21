@@ -50,7 +50,17 @@ A per-account register: every posting in date order with the balance before and
 after it, and the balance the window opens and closes on. It is for finding
 mistakes rather than for analysis — where a balance goes wrong, this is the row
 it went wrong on. An archived account ends at zero with the postings that closed
-it out to equity still in the list. `get_account_register` over MCP.
+it out to equity still in the list. On the account page behind **Show register**,
+fetched only when asked for so the ordinary visit costs nothing, and
+`get_account_register` over MCP.
+
+`whoami` says whether this deployment can send mail at all. A reminder is stored
+whether or not it can, so an agent could set one up and had no way to tell
+somebody it would never arrive.
+
+The Reminder and Notifies columns sort, ranked by what they are going to tell
+you rather than alphabetically by the badge text: a reminder still to come above
+one already sent above none at all.
 
 The cash flow statement will not agree with income and expense, and the gap is
 widest for whoever uses a credit card most: a purchase is an expense the day the
@@ -161,6 +171,46 @@ row is a magnitude there, on purpose, so the column sum is a total filed rather
 than a net, and it says so. The trailing column of a running-balance report is
 headed "Closing" rather than "Total", because that is what it holds.
 
+The same report showed one name twice with no way to tell the rows apart. A
+category set to cover both sides is two rows there, correctly — one for what came
+in under it, one for what went out — and Uncategorized always is. Only a name
+that really does span both sides is qualified now; every other row reads as the
+person wrote it.
+
+A report chart had six colours and no limit on how many rows it would draw, so a
+seventh account shared the first account's line and the legend said two things at
+once. There are ten, and a test fails if the stylesheet and the code disagree
+about how many.
+
+Every badge in a transaction row sat on a line of its own, doubling the row's
+height. The class holding the payee beside it had never been defined in the
+stylesheet. Six other class names in the browser named nothing at all and are
+gone.
+
+The audit log recorded a template's reminder as having never existed. Three of
+the five paths that write a snapshot took a default of null, and in an
+append-only record null does not read as "nobody asked" — it reads as "there was
+no reminder". A bulk edit therefore claimed to have removed one, and both delete
+paths recorded the reminder as never having been there.
+
+A template saved again re-sent a reminder that had already gone. The row is
+replaced whole, so an edit to the payee replaced the watermark with it and the
+reminder was owed again. A schedule that really did change still starts afresh,
+which is what somebody moving the date is asking for.
+
+The reminder sweep claimed rows on a deployment with no mail server. Every claim
+advanced a watermark past an occurrence nobody was told about, so configuring
+SMTP a month later would have found a schedule that had quietly eaten its own
+backlog — the opposite of what the form promises. It leaves before claiming
+anything now.
+
+The split deployment served the one document that runs the app without seven of
+the headers every other response on the origin carries, including both
+`Cross-Origin-*` policies. nginx repeats the whole set now, the list lives in one
+place, and a test runs a real response through the middleware and fails if the
+two differ by a header or a value. `X-Frame-Options` is `DENY` on both, rather
+than Hono's `SAMEORIGIN` contradicting the `frame-ancestors 'none'` beside it.
+
 The generated first-run setup code belonged to one process. On a web tier running
 more than one replica — which the chart does by default — the code printed in the
 log was rejected by every other pod, so the claim the chart's own notes describe
@@ -245,6 +295,28 @@ said otherwise.
 Thirteen schemas in the shared contracts no longer carry an export nothing
 outside the file used. Six types the browser had hand-written copies of are
 re-exported from the contracts they duplicated.
+
+`set-version` now rewrites the example image tags in the split-deployment
+compose file and the Pulumi README. Six tags a release would have left pinned to
+the previous version, on the two pages somebody copies from.
+
+Four indexes are dropped whose leading column another unique constraint on the
+same table already leads with. No query loses a plan; four tables stop
+maintaining a second copy of their own first column.
+
+Money arithmetic moved out of `components.tsx` into `money.ts`. It was three
+hundred lines of exact decimal comparison filed under a name that says React
+component, which is not where anybody looks for arithmetic. Two report suites
+compared money by casting it to a double, which is the mistake the house rule
+exists to forbid, and two brute-force property tests had unbounded scan loops:
+an implementation that stopped advancing would have hung the file rather than
+failing it.
+
+The README is half the length. Everything it said about how each feature works
+moved to a guide of its own, so the front page answers what this is, what is
+good about it, and how to start, and the walkthrough is one link away rather
+than a hundred and fifty lines down. The architecture notes now cover the mail
+half of the scheduler, which had shipped undocumented.
 
 ## 0.1.4 - 2026-08-14
 

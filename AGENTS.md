@@ -30,9 +30,11 @@
   claim race. The setup code only ever covers an address `ALLOWED_EMAILS` would
   turn away; addresses it admits register without one.
 - Mail is optional and everything that needs it degrades rather than breaks. A
-  deployment with no SMTP_HOST offers no password reset and asks nobody to
-  confirm an address; one with SMTP_HOST does both. Never make an account that
-  was created without a mail server unusable once one is added.
+  deployment with no SMTP_HOST offers no password reset, asks nobody to confirm
+  an address, and sends no scheduled reminder; one with SMTP_HOST does all
+  three. Never make an account that was created without a mail server unusable
+  once one is added, and never refuse to store a notification setting because
+  there is nowhere to send it yet.
 - Decisions made inside a Better Auth database hook must come from configuration
   and the request, never from a query. The hook runs inside the sign-up
   transaction, which on a one-connection pool is holding the only connection.
@@ -137,6 +139,20 @@
   a reference that no longer resolves becomes an issue on that row rather than a
   reason to write nothing. Its provenance columns carry no foreign key, so
   deleting a recurrence leaves every row it proposed alone.
+- A notification watermark records only what was sent. So the reminder sweep
+  does nothing at all when mail is off — advancing past occurrences nobody was
+  told about would let a deployment eat its own backlog — and mail is sent after
+  the transaction that earned it has committed, never inside it, because a
+  message about rows that were then rolled back names a queue with nothing in
+  it. A backlog collapses to one message. Nothing is ever queued for later.
+  A recurrence's watermark is the opposite case and must advance either way: it
+  records a proposal that really happened.
+- Whether it is a given day, or a given time of day, where somebody lives is
+  answered in one place. PostgreSQL reads a bare offset timezone with the POSIX
+  sign convention and `Intl` reads it as ISO, so the two disagree by up to
+  sixteen hours for anyone whose stored timezone is an offset. Ask
+  `calendarDayIn`, `clockTimeIn` or `todayIn` from `src/shared/recurrence-dates.ts`;
+  never ask the database.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
 - Every migration that has shipped is frozen: `0000_initial.sql`,
