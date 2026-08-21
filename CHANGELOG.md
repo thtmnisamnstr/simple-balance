@@ -198,6 +198,19 @@ replaced whole, so an edit to the payee replaced the watermark with it and the
 reminder was owed again. A schedule that really did change still starts afresh,
 which is what somebody moving the date is asking for.
 
+The rows waiting above a committed list were not narrowed by the filters the
+list was. On a category, payee or template page the two read as one list, so
+choosing a type or typing into the search box moved the committed rows and left
+the staged ones standing above a list they had just been excluded from.
+
+The register's link on each posting carried a parameter no list in the product
+accepts, so it was dropped and the row landed on the whole unfiltered
+transactions list. It narrows by account and that one day now.
+
+The application shell described the product differently from the manifest the
+release publishes, and coloured a phone's browser chrome near-black on a
+stylesheet that commits to a light scheme.
+
 A staged mass edit left behind a category the identical edit, done one row at a
 time, would have cleared. The committed side had the same split and was fixed in
 this cycle; the queue had it too. A caller holding only `ledger:stage` still
@@ -301,6 +314,27 @@ said otherwise.
 Thirteen schemas in the shared contracts no longer carry an export nothing
 outside the file used. Six types the browser had hand-written copies of are
 re-exported from the contracts they duplicated.
+
+CI starts the frontend image rather than only building it. Its nginx
+configuration is a template the entrypoint renders at startup, so a malformed
+`add_header` — or a location-scoped directive in an include the main config
+pulls into `http{}` — is a startup error a build never sees, and it would have
+reached a release. The shell and a hashed asset are both asked for, because
+nginx drops inherited `add_header` from any level with one of its own.
+
+The two lockfiles are held to the same resolved versions rather than only the
+same ranges, so installing in one and not the other cannot ship an image running
+a version the suite never saw.
+
+`clockTimeIn` had no test. It is what decides whether a reminder goes out at the
+hour somebody asked for, by string comparison against a stored `HH:MM`. Covered
+now, along with a bare offset read as ISO rather than POSIX, both ends of the
+date line, both daylight-saving boundaries, and an unreadable timezone falling
+back to UTC rather than throwing inside a loop that serves every tenant.
+
+Both `.env.example` files and the chart's values said a mail server buys a
+password reset and address confirmation. It also decides whether any scheduled
+reminder is ever delivered, which was in none of them.
 
 `set-version` now rewrites the example image tags in the split-deployment
 compose file and the Pulumi README. Six tags a release would have left pinned to
