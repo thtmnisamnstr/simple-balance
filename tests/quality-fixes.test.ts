@@ -113,9 +113,6 @@ describe("what a staged bulk selection may filter on", () => {
  */
 describe("every staged filter the schema accepts is one the query applies", () => {
   it("implements each key", async () => {
-    const { bulkStageFilterSchema } = await import(
-      "../src/shared/domain.js"
-    );
     const accepted = Object.keys(bulkStageFilterSchema.shape).sort();
     const source = await readFile(
       new URL("../src/server/services/staging.ts", import.meta.url),
@@ -137,7 +134,6 @@ describe("every staged filter the schema accepts is one the query applies", () =
   // The list query is the same predicate with paging and ordering on top, so a
   // filter it accepts and the predicate ignores is the same silent no-op.
   it("offers no staged listing filter the query ignores", async () => {
-    const { stageListQuerySchema } = await import("../src/shared/domain.js");
     const presentation = new Set([
       "cursor",
       "page",

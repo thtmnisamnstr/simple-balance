@@ -437,6 +437,24 @@ describe("the recurrence form", () => {
     expect(within(rowFor("Salary")).getByText("Email")).toBeInTheDocument();
   });
 
+  it("groups the ones that will email when the column is sorted", async () => {
+    await renderPage([
+      rent,
+      { ...payroll, notifyOnCreate: true },
+    ]);
+    const names = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.querySelector("strong")?.textContent);
+
+    // Leans descending, so one click puts the ones that will email first.
+    fireEvent.click(screen.getByRole("button", { name: /Notifies/ }));
+    expect(names()).toEqual(["Salary", "Rent"]);
+    fireEvent.click(screen.getByRole("button", { name: /Notifies/ }));
+    expect(names()).toEqual(["Rent", "Salary"]);
+  });
+
   it("sends the notification choice, off unless it is asked for", async () => {
     const writes = await renderPage([]);
     await openForm();

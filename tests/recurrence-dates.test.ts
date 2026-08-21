@@ -295,6 +295,30 @@ describe("finding where to resume", () => {
 
 const FREQUENCIES = ["daily", "weekly", "monthly", "yearly"] as const;
 
+/**
+ * How many occurrences a brute-force scan has to walk to pass a date.
+ *
+ * Bounded, and the bound is asserted. An unbounded `while` here would not fail
+ * if the index stopped advancing — the loop would spin until the whole file
+ * timed out, which reports as "this file is slow" rather than "this rule stopped
+ * moving forwards". A daily rule crossing the widest window these tests use
+ * needs well under a thousand steps.
+ */
+const SCAN_CAP = 5000;
+
+const scanPast = (one: RecurrenceRule, after: string) => {
+  let scanned = 0;
+  while (occurrenceAt(one, scanned).occurrenceDate <= after) {
+    scanned += 1;
+    if (scanned > SCAN_CAP) {
+      throw new Error(
+        `scanning ${JSON.stringify(one)} never passed ${after} in ${SCAN_CAP} steps`,
+      );
+    }
+  }
+  return scanned;
+};
+
 describe("properties that must hold for every rule", () => {
   /**
    * A clamp only ever pulls a date back inside its own month, so it can never
@@ -360,8 +384,7 @@ describe("properties that must hold for every rule", () => {
         });
         for (let offset = -20; offset < 200; offset += 1) {
           const after = addDays("2026-01-15", offset * 5);
-          let scanned = 0;
-          while (occurrenceAt(one, scanned).occurrenceDate <= after) scanned += 1;
+          const scanned = scanPast(one, after);
           expect(
             nextOccurrenceAfter(one, after).occurrenceDate,
             `ordinal ${ordinal} weekday ${weekday} after ${after}`,
@@ -387,8 +410,7 @@ describe("properties that must hold for every rule", () => {
           });
           for (let offset = -40; offset < 360; offset += 1) {
             const after = addDays("2026-01-15", offset * 4);
-            let scanned = 0;
-            while (occurrenceAt(one, scanned).occurrenceDate <= after) scanned += 1;
+            const scanned = scanPast(one, after);
             expect(
               nextOccurrenceAfter(one, after).occurrenceDate,
               `${frequency} x${interval} day ${day} after ${after}`,
