@@ -213,6 +213,7 @@ export default function ReportsPage() {
                     {data.accumulation === "historical" ? (
                       <LineChart
                         buckets={data.buckets}
+                        bucket={data.bucket}
                         series={series}
                         currency={currency.currency}
                         title={`${TITLES[report]} over time, in ${currency.currency}`}
@@ -220,6 +221,7 @@ export default function ReportsPage() {
                     ) : (
                       <BarChart
                         buckets={data.buckets}
+                        bucket={data.bucket}
                         series={series}
                         currency={currency.currency}
                         title={`${TITLES[report]} by period, in ${currency.currency}`}

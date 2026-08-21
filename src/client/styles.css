@@ -2818,11 +2818,90 @@ input[type="radio"] {
   margin: 0 0 12px;
 }
 
+/* The value axis beside the drawing and the time axis under it. A grid, because
+   the axis labels are HTML: the viewBox scales to the panel, so text inside it
+   would be four pixels tall on a phone. The label column stretches to the row
+   height, which is the drawing's own height, so a label positioned by
+   percentage lands on the gridline it names at every width. */
+.chart-plot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+}
+
 .chart {
   display: block;
   width: 100%;
   height: auto;
   overflow: visible;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.chart-axis-y {
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.chart-axis-y span {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.chart-axis-value {
+  position: absolute;
+  right: 0;
+  /* The label reads against its line rather than sitting on top of it. */
+  transform: translateY(-50%);
+}
+
+/* In flow and invisible, so the column is exactly as wide as its widest value.
+   Every real label is absolutely positioned and contributes no width. */
+.chart-axis-sizer {
+  display: block;
+  visibility: hidden;
+  height: 0;
+  overflow: hidden;
+}
+
+.chart-axis-x {
+  position: relative;
+  grid-column: 2;
+  grid-row: 2;
+  /* Room for one line of labels, reserved rather than grown into, so adding the
+     axis does not move the chart above it. */
+  height: 20px;
+  margin-top: 4px;
+}
+
+.chart-axis-x span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* The two ends are pinned inside the drawing rather than centred on it, or half
+   of the first date hangs off the left of the panel. */
+.chart-axis-x span.at-start,
+.chart-axis-x span.at-end {
+  transform: none;
+}
+
+.chart-grid {
+  stroke: var(--line);
+  stroke-width: 1px;
+  stroke-dasharray: 3 4;
+  opacity: 0.75;
 }
 
 .chart-zero {
