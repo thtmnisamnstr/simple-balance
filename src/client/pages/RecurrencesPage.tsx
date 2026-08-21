@@ -199,6 +199,7 @@ export default function RecurrencesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
+                  <th scope="col">Notifies</th>
                   <th aria-label="Actions" />
                 </tr>
               </thead>
@@ -259,6 +260,13 @@ export default function RecurrencesPage() {
                           {`${recurrence.committedCount} committed`}
                         </span>
                       ) : null}
+                    </td>
+                    <td>
+                      {recurrence.notifyOnCreate ? (
+                        <Badge tone="blue">Email</Badge>
+                      ) : (
+                        <span className="template-blank">No</span>
+                      )}
                     </td>
                     <td className="row-actions">
                       <RowMenu label={`Actions for ${recurrence.name}`}>

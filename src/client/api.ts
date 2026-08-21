@@ -67,6 +67,8 @@ export type AuthPublicOptions = {
   awaitingFirstAccount: boolean;
   setupTokenRequired: boolean;
   passwordResetAvailable: boolean;
+  /** Whether this deployment can send mail at all, so reminders can arrive. */
+  notificationsAvailable: boolean;
   emailVerificationRequired: boolean;
   minimumPasswordLength: number;
 };
@@ -300,6 +302,28 @@ export type StagedBulkEditPatch = {
  * A saved starting point for the transaction form. The draft is partial on
  * purpose: a key that is not there is a field the person left for later.
  */
+/**
+ * A reminder to make this template's transaction, or null when there is none.
+ *
+ * `repeats` is `frequency !== null` said outright, because the list has to show
+ * single and repeating differently and reading a null as "once" is the kind of
+ * inference a page should not be making.
+ */
+export type TemplateNotification = {
+  frequency: RecurrenceFrequencyName | null;
+  interval: number;
+  anchorDate: string;
+  monthPolicy: RecurrenceSchedule["monthPolicy"];
+  weekendPolicy: RecurrenceSchedule["weekendPolicy"];
+  position: { ordinal: number; weekday: number } | null;
+  /** `HH:MM` on this person's own clock. */
+  time: string;
+  repeats: boolean;
+  lastNotifiedDate: string | null;
+  /** Null when nothing further is owed, which is where a one-off ends up. */
+  nextNotificationDate: string | null;
+};
+
 export type TransactionTemplate = {
   transactionCount?: number;
   stagedTransactionCount?: number;
@@ -307,6 +331,7 @@ export type TransactionTemplate = {
   id: string;
   name: string;
   draft: TransactionTemplateDraft;
+  notification: TemplateNotification | null;
   version: number;
   createdAt: string;
   updatedAt: string;
@@ -333,6 +358,8 @@ export type Recurrence = {
   proposesFrom: string;
   lastOccurrenceDate: string | null;
   nextOccurrenceDate: string;
+  /** Whether proposing from this sends an email saying so. */
+  notifyOnCreate: boolean;
   nextOccurrence: { occurrenceDate: string; postedDate: string | null };
   overdue: boolean;
   proposedCount: number;

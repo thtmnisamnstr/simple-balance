@@ -162,6 +162,32 @@ export function todayIn(timezone: string) {
 }
 
 /**
+ * The wall-clock time some instant fell on where this person lives, as `HH:MM`.
+ *
+ * A notification asked for at half past eight means half past eight where the
+ * person is, so the comparison has to be made in their clock and not the
+ * server's. Answered the same way and in the same place as the date, for the
+ * same reason: two implementations of a timezone are two answers.
+ */
+export function clockTimeIn(instant: Date, timezone: string) {
+  let formatter: Intl.DateTimeFormat;
+  const options: Intl.DateTimeFormatOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  };
+  try {
+    formatter = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, ...options });
+  } catch {
+    formatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...options });
+  }
+  const value = Object.fromEntries(
+    formatter.formatToParts(instant).map((part) => [part.type, part.value]),
+  );
+  return `${value.hour}:${value.minute}`;
+}
+
+/**
  * Occurrence `n` counted from the anchor, never from the occurrence before it.
  *
  * That is what makes the 31st of January follow into the 28th of February and

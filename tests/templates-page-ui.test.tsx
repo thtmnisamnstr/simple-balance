@@ -54,6 +54,7 @@ const rent: TransactionTemplate = {
     categoryId: groceries.id,
     amount: "1450.00",
   },
+  notification: null,
   version: 3,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -63,6 +64,7 @@ const coffee: TransactionTemplate = {
   ...rent,
   id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   name: "Coffee",
+  notification: null,
   version: 7,
   draft: { type: "withdrawal", payee: "Cafe", fromAccountId: checking.id },
 };
@@ -71,6 +73,7 @@ const salary: TransactionTemplate = {
   ...rent,
   id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
   name: "Salary",
+  notification: null,
   version: 2,
   draft: { type: "deposit", payee: "Employer", toAccountId: checking.id },
 };
@@ -79,6 +82,7 @@ const orphaned: TransactionTemplate = {
   ...rent,
   id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
   name: "Old card",
+  notification: null,
   version: 1,
   draft: {
     type: "withdrawal",
@@ -111,6 +115,12 @@ function stubApi(templates: TransactionTemplate[]) {
         return Response.json([groceries]);
       }
       if (url.pathname === "/api/v1/payees/suggestions") return Response.json([]);
+      // The reminder section reads this to say when a deployment has no way to
+      // deliver one. Answered here so the tests exercise the same path a real
+      // page does rather than the query's error branch.
+      if (url.pathname === "/api/auth/methods") {
+        return Response.json({ notificationsAvailable: true });
+      }
       return new Response("Not found", { status: 404 });
     }),
   );
@@ -500,5 +510,188 @@ describe("the templates screen", () => {
     await renderPage([]);
     expect(await screen.findByText("No templates yet")).toBeInTheDocument();
     expect(screen.getByText(/Save as template/)).toBeInTheDocument();
+  });
+
+  it("shows on the list whether a reminder is set, and whether it repeats", async () => {
+    const once: TransactionTemplate = {
+      ...rent,
+      notification: {
+        frequency: null,
+        interval: 1,
+        anchorDate: "2026-06-15",
+        monthPolicy: "last_day",
+        weekendPolicy: "allow",
+        position: null,
+        time: "09:00",
+        repeats: false,
+        lastNotifiedDate: null,
+        nextNotificationDate: "2026-06-15",
+      },
+    };
+    const repeating: TransactionTemplate = {
+      ...coffee,
+      notification: { ...once.notification!, frequency: "monthly", repeats: true },
+    };
+    stubApi([once, repeating, salary]);
+    await renderPage([once, repeating, salary]);
+
+    expect(within(rowFor("Rent")).getByText("Once")).toBeInTheDocument();
+    expect(within(rowFor("Coffee")).getByText("Repeating")).toBeInTheDocument();
+    expect(within(rowFor("Salary")).getByText("none")).toBeInTheDocument();
+  });
+
+  const openEditor = async (name: string) => {
+    fireEvent.click(screen.getByRole("button", { name: `Actions for ${name}` }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    return within(await screen.findByRole("dialog"));
+  };
+
+  it("sends no reminder unless one is asked for", async () => {
+    const posts = stubApi([rent]);
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    expect(dialog.getByLabelText(/Email me to make this/)).not.toBeChecked();
+    fireEvent.click(dialog.getByRole("button", { name: "Save template" }));
+
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]!.body).toMatchObject({ notification: null });
+  });
+
+  it("sends a one-off reminder as a date and a time, and nothing else", async () => {
+    const posts = stubApi([rent]);
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    fireEvent.click(dialog.getByLabelText(/Email me to make this/));
+    fireEvent.change(dialog.getByLabelText(/^Send on/), {
+      target: { value: "2026-07-04" },
+    });
+    fireEvent.change(dialog.getByLabelText(/^Send at/), { target: { value: "18:45" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Save template" }));
+
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]!.body).toMatchObject({
+      notification: { frequency: null, anchorDate: "2026-07-04", time: "18:45" },
+    });
+    // The fields a one-off cannot use are left out rather than sent as defaults,
+    // because the server refuses them outright.
+    const notification = (posts[0]!.body as { notification: Record<string, unknown> })
+      .notification;
+    expect(Object.keys(notification).sort()).toEqual([
+      "anchorDate",
+      "frequency",
+      "time",
+    ]);
+  });
+
+  it("sends a repeating reminder with the schedule it was given", async () => {
+    const posts = stubApi([rent]);
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    fireEvent.click(dialog.getByLabelText(/Email me to make this/));
+    fireEvent.click(dialog.getByLabelText("Repeatedly"));
+    fireEvent.change(dialog.getByLabelText("Repeats"), {
+      target: { value: "monthly" },
+    });
+    fireEvent.change(dialog.getByLabelText(/^Starting/), {
+      target: { value: "2026-07-01" },
+    });
+    fireEvent.change(dialog.getByLabelText(/^Send at/), { target: { value: "07:30" } });
+    fireEvent.click(dialog.getByLabelText(/On a relative day/));
+    fireEvent.change(dialog.getByLabelText(/Which one to remind on/), {
+      target: { value: "-1" },
+    });
+    fireEvent.change(dialog.getByLabelText(/Day to remind on/), {
+      target: { value: "5" },
+    });
+    fireEvent.click(dialog.getByRole("button", { name: "Save template" }));
+
+    await vi.waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]!.body).toMatchObject({
+      notification: {
+        frequency: "monthly",
+        interval: 1,
+        anchorDate: "2026-07-01",
+        time: "07:30",
+        position: { ordinal: -1, weekday: 5 },
+      },
+    });
+  });
+
+  it("seeds the reminder from the template being edited", async () => {
+    const reminded: TransactionTemplate = {
+      ...rent,
+      notification: {
+        frequency: "weekly",
+        interval: 2,
+        anchorDate: "2026-06-15",
+        monthPolicy: "last_day",
+        weekendPolicy: "skip",
+        position: null,
+        time: "21:15",
+        repeats: true,
+        lastNotifiedDate: null,
+        nextNotificationDate: "2026-06-15",
+      },
+    };
+    stubApi([reminded]);
+    await renderPage([reminded]);
+    const dialog = await openEditor("Rent");
+
+    expect(dialog.getByLabelText(/Email me to make this/)).toBeChecked();
+    expect(dialog.getByLabelText("Repeatedly")).toBeChecked();
+    expect(dialog.getByLabelText("Repeats")).toHaveValue("weekly");
+    expect(dialog.getByLabelText(/^Starting/)).toHaveValue("2026-06-15");
+    expect(dialog.getByLabelText(/^Send at/)).toHaveValue("21:15");
+  });
+
+  it("says so when the deployment has no way to send a reminder", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/transaction-templates") {
+          return Response.json([rent]);
+        }
+        if (url.pathname === "/api/v1/accounts") return Response.json([checking]);
+        if (url.pathname === "/api/v1/categories") return Response.json([groceries]);
+        if (url.pathname === "/api/auth/methods") {
+          return Response.json({ notificationsAvailable: false });
+        }
+        return Response.json([]);
+      }),
+    );
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    fireEvent.click(dialog.getByLabelText(/Email me to make this/));
+
+    expect(
+      await screen.findByText(/no mail server configured/),
+    ).toBeInTheDocument();
+  });
+
+  it("says a one-off reminder has been sent once nothing further is owed", async () => {
+    const spent: TransactionTemplate = {
+      ...rent,
+      notification: {
+        frequency: null,
+        interval: 1,
+        anchorDate: "2026-06-15",
+        monthPolicy: "last_day",
+        weekendPolicy: "allow",
+        position: null,
+        time: "09:00",
+        repeats: false,
+        lastNotifiedDate: "2026-06-15",
+        nextNotificationDate: null,
+      },
+    };
+    stubApi([spent]);
+    await renderPage([spent]);
+
+    expect(within(rowFor("Rent")).getByText("sent")).toBeInTheDocument();
   });
 });

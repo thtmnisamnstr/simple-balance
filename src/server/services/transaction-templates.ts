@@ -11,6 +11,7 @@ import {
   type TransactionTemplateBulkPatch,
   type TransactionTemplateBulkResult,
   type TransactionTemplateBulkSelection,
+  type TemplateNotification,
   type TransactionTemplateDraft,
 } from "../../shared/domain.js";
 import {
@@ -22,10 +23,12 @@ import {
   categories,
   ledgerAccounts,
   stagedTransactions,
+  templateNotifications,
   transactionTemplates,
   transactions,
 } from "../db/schema.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
+import { firstNotificationDate } from "./notifications.js";
 import {
   getIdempotent,
   lockIdempotencyKey,
@@ -130,10 +133,103 @@ async function assertReferencesAreOwned(
   }
 }
 
-const templateView = (row: typeof transactionTemplates.$inferSelect) => ({
+type NotificationRow = typeof templateNotifications.$inferSelect;
+
+/**
+ * The reminder as a caller sees it: the rule they set, and when it next goes.
+ *
+ * `nextNotification` is the stored column rather than a recomputed one, unlike a
+ * recurrence's, because for a one-off it is the only thing that says whether it
+ * has already been sent. Null means nothing further is owed.
+ */
+const notificationView = (row: NotificationRow) => ({
+  frequency: row.frequency,
+  interval: row.interval,
+  anchorDate: row.anchorDate,
+  monthPolicy: row.monthPolicy,
+  weekendPolicy: row.weekendPolicy,
+  position:
+    row.positionOrdinal !== null && row.positionWeekday !== null
+      ? { ordinal: row.positionOrdinal, weekday: row.positionWeekday }
+      : null,
+  time: row.notifyAt,
+  repeats: row.frequency !== null,
+  lastNotifiedDate: row.lastNotifiedDate,
+  nextNotificationDate: row.nextNotificationDate,
+});
+
+const templateView = (
+  row: typeof transactionTemplates.$inferSelect,
+  notification: NotificationRow | null = null,
+) => ({
   ...serializeRow(row),
   draft: row.draft as TransactionTemplateDraft,
+  notification: notification ? notificationView(notification) : null,
 });
+
+/**
+ * Write, replace or remove the one reminder a template may have.
+ *
+ * `undefined` leaves whatever is stored alone, which is what an update that says
+ * nothing about the reminder means; `null` removes it. Replacing rather than
+ * patching, because the rule is refused or accepted whole — a stored monthly
+ * rule merged with an incoming null frequency would be a one-off still carrying
+ * a month policy, which the table refuses and nobody asked for.
+ */
+async function writeNotification(
+  tx: DbTransaction,
+  actor: Actor,
+  templateId: string,
+  notification: TemplateNotification | null | undefined,
+) {
+  if (notification === undefined) {
+    const [existing] = await tx
+      .select()
+      .from(templateNotifications)
+      .where(eq(templateNotifications.templateId, templateId))
+      .limit(1);
+    return existing ?? null;
+  }
+  await tx
+    .delete(templateNotifications)
+    .where(
+      and(
+        eq(templateNotifications.templateId, templateId),
+        eq(templateNotifications.userId, actor.userId),
+      ),
+    );
+  if (notification === null) return null;
+  const rule = {
+    frequency: notification.frequency,
+    interval: notification.interval ?? 1,
+    anchorDate: notification.anchorDate,
+    monthPolicy: notification.monthPolicy ?? "last_day",
+    weekendPolicy: notification.weekendPolicy ?? "allow",
+    position: notification.position ?? null,
+  } as const;
+  const [created] = await tx
+    .insert(templateNotifications)
+    .values({
+      userId: actor.userId,
+      templateId,
+      frequency: rule.frequency,
+      interval: rule.interval,
+      anchorDate: rule.anchorDate,
+      monthPolicy: rule.monthPolicy,
+      weekendPolicy: rule.weekendPolicy,
+      positionOrdinal: rule.position?.ordinal ?? null,
+      positionWeekday: rule.position?.weekday ?? null,
+      notifyAt: notification.time,
+      // Deliberately not floored to today. A reminder anchored in the past is
+      // somebody asking to be told about something they have already missed, and
+      // the sweep collapses a backlog to one message, so it costs one mail and
+      // answers the question they were asking.
+      lastNotifiedDate: null,
+      nextNotificationDate: firstNotificationDate(rule),
+    })
+    .returning();
+  return created;
+}
 
 /** Which account side a type reads, so the other one is not worth storing. */
 const accountSides = {
@@ -507,11 +603,20 @@ export async function listTransactionTemplates(actor: Actor) {
     .where(eq(transactionTemplates.userId, actor.userId))
     .orderBy(transactionTemplates.name);
 
+  // A second query rather than a third join. Templates are capped per person, so
+  // this reads a bounded handful of rows once, where joining a fourth table onto
+  // two aggregates for a value most templates do not have costs every list.
+  const notifications = await db
+    .select()
+    .from(templateNotifications)
+    .where(eq(templateNotifications.userId, actor.userId));
+  const byTemplate = new Map(notifications.map((row) => [row.templateId, row]));
+
   return rows.map((row) => {
     const transactionCount = Number(row.transactionCount);
     const stagedTransactionCount = Number(row.stagedTransactionCount);
     return {
-      ...templateView(row),
+      ...templateView(row, byTemplate.get(row.id) ?? null),
       transactionCount,
       stagedTransactionCount,
       totalTransactionCount: transactionCount + stagedTransactionCount,
@@ -531,7 +636,12 @@ export async function getTransactionTemplate(actor: Actor, id: string) {
     )
     .limit(1);
   if (!row) throw notFound("Template not found");
-  return templateView(row);
+  const [notification] = await getDb()
+    .select()
+    .from(templateNotifications)
+    .where(eq(templateNotifications.templateId, row.id))
+    .limit(1);
+  return templateView(row, notification ?? null);
 }
 
 export async function createTransactionTemplate(
@@ -558,13 +668,19 @@ export async function createTransactionTemplate(
       .insert(transactionTemplates)
       .values({ userId: actor.userId, name: parsed.name, draft: parsed.draft })
       .returning();
+    const notification = await writeNotification(
+      tx,
+      actor,
+      created.id,
+      parsed.notification ?? null,
+    );
     await writeAudit(tx, actor, {
       entityType: "transaction_template",
       entityId: created.id,
       operation: "create",
-      after: templateView(created),
+      after: templateView(created, notification),
     });
-    return templateView(created);
+    return templateView(created, notification);
   });
 }
 
@@ -598,6 +714,13 @@ export async function updateTransactionTemplate(
     if (changes.draft !== undefined) {
       await assertReferencesAreOwned(tx, actor, changes.draft);
     }
+    const beforeNotification = await writeNotification(tx, actor, id, undefined);
+    const notification = await writeNotification(
+      tx,
+      actor,
+      id,
+      changes.notification,
+    );
     const [updated] = await tx
       .update(transactionTemplates)
       .set({
@@ -619,10 +742,10 @@ export async function updateTransactionTemplate(
       entityType: "transaction_template",
       entityId: id,
       operation: "update",
-      before: templateView(before),
-      after: templateView(updated),
+      before: templateView(before, beforeNotification),
+      after: templateView(updated, notification),
     });
-    return templateView(updated);
+    return templateView(updated, notification);
   });
 }
 

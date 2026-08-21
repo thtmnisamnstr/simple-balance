@@ -26,6 +26,8 @@ parts without being able to do the dangerous ones.
 - Templates for the transactions you enter over and over
 - Recurring transactions that propose into the review queue on a schedule, and
   post nothing until you commit them
+- Emailed reminders: when a recurrence proposes, and when a template is one you
+  meant to fill in today
 - Mass edit and mass delete, up to 10,000 rows in one request that either wholly
   succeeds or wholly does not
 - One transaction split across several categories, each attributed on its own
@@ -248,6 +250,23 @@ the ledger unattended is a writer nobody watched; a scheduler filling a queue is
 just another thing suggesting work. It also turns the usual failure inside out:
 when the schedule stops running, the Recurring page says a recurrence is past
 due rather than the ledger quietly missing months of rent.
+
+Any recurrence can email you when it proposes, so a queue you check weekly does
+not quietly grow. One message per proposal, however many rows it holds, and the
+Recurring list says which recurrences are set to send one.
+
+### Reminders for templates
+
+A template is filled in by hand, so a schedule cannot make it for you — but it
+can remind you. Any template can carry a reminder: once on a date, or repeating
+on the same schedules a recurrence offers, and either way at a time of day on
+your own clock rather than the server's. The Templates list says which ones have
+a reminder and whether it repeats.
+
+The mail points at the template and records nothing. That is the difference
+between the two: a recurrence proposes a row and asks you to check it, and a
+reminder asks you to make one. Both need a mail server configured; without one
+the setting is saved and nothing is sent.
 
 Public holidays are not modelled. A business day here means Monday to Friday.
 

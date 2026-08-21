@@ -129,6 +129,9 @@ integration("embedded local authentication", () => {
       setupTokenRequired: true,
       passwordResetAvailable: false,
       emailVerificationRequired: false,
+      // Not gated on local auth, unlike the two above, but false here for the
+      // same reason: this deployment has no mail server.
+      notificationsAvailable: false,
       minimumPasswordLength: 12,
     });
   });

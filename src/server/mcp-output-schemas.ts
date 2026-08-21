@@ -434,11 +434,34 @@ export const csvStageResultSchema = z.union([
   }),
 ]);
 
+/**
+ * A reminder to make this template's transaction. Null when there is none.
+ *
+ * `frequency` null is a reminder that happens once, which `repeats` says outright
+ * so a caller does not have to infer it. `nextNotificationDate` null means
+ * nothing further is owed, which for a one-off is how it says it has been sent.
+ */
+export const templateNotificationResultSchema = z.object({
+  frequency: z.enum(recurrenceFrequencies).nullable(),
+  interval: z.number().int().positive(),
+  anchorDate: z.string(),
+  monthPolicy: z.enum(recurrenceMonthPolicies),
+  weekendPolicy: z.enum(recurrenceWeekendPolicies),
+  position: z
+    .object({ ordinal: z.number().int(), weekday: z.number().int() })
+    .nullable(),
+  time: z.string(),
+  repeats: z.boolean(),
+  lastNotifiedDate: nullableStringSchema,
+  nextNotificationDate: nullableStringSchema,
+});
+
 export const transactionTemplateResultSchema = z
   .object({
     ...versionedEntitySchema,
     name: z.string(),
     draft: transactionTemplateDraftSchema,
+    notification: templateNotificationResultSchema.nullable(),
     transactionCount: z.number().int().nonnegative().optional(),
     stagedTransactionCount: z.number().int().nonnegative().optional(),
     totalTransactionCount: z.number().int().nonnegative().optional(),
@@ -619,6 +642,7 @@ export const recurrenceResultSchema = z
     // from one that has nothing to say.
     lastOccurrenceDate: nullableStringSchema,
     nextOccurrenceDate: z.string(),
+    notifyOnCreate: z.boolean(),
   })
   .passthrough();
 

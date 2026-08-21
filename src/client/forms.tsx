@@ -15,6 +15,7 @@ import {
   MAX_TRANSACTION_LEGS,
   recurrenceOrdinals,
   recurrenceScheduleSchema,
+  templateNotificationSchema,
   type RecurrenceFrequencyName,
   type RecurrenceOrdinal,
   type UserAccountType,
@@ -33,6 +34,7 @@ import {
   ApiClientError,
   json,
   type Account,
+  type AuthPublicOptions,
   type Category,
   type Recurrence,
   type StagedTransaction,
@@ -679,8 +681,70 @@ export function TemplateForm({
   initialDraft?: Partial<TransactionTemplateDraft>;
   onDone: () => void;
 }) {
+  const timezone = useTimezone();
   const source = template?.draft ?? initialDraft ?? {};
+  const reminder = template?.notification ?? null;
   const [name, setName] = useState(template?.name ?? "");
+  const [reminding, setReminding] = useState(reminder !== null);
+  const [reminderRepeats, setReminderRepeats] = useState(
+    reminder?.repeats ?? false,
+  );
+  const [reminderFrequency, setReminderFrequency] =
+    useState<RecurrenceFrequencyName>(reminder?.frequency ?? "monthly");
+  const [reminderInterval, setReminderInterval] = useState(
+    String(reminder?.interval ?? 1),
+  );
+  const [reminderDate, setReminderDate] = useState(
+    reminder?.anchorDate ?? calendarDateInTimezone(new Date(), timezone),
+  );
+  const [reminderTime, setReminderTime] = useState(reminder?.time ?? "09:00");
+  const [reminderMonthPolicy, setReminderMonthPolicy] = useState(
+    reminder?.monthPolicy ?? "last_day",
+  );
+  const [reminderWeekendPolicy, setReminderWeekendPolicy] = useState(
+    reminder?.weekendPolicy ?? "allow",
+  );
+  const [reminderByPosition, setReminderByPosition] = useState(
+    reminder?.position != null,
+  );
+  const [reminderOrdinal, setReminderOrdinal] = useState<
+    RecurrencePosition["ordinal"]
+  >((reminder?.position?.ordinal as RecurrencePosition["ordinal"]) ?? 1);
+  const [reminderWeekday, setReminderWeekday] = useState(
+    reminder?.position?.weekday ?? 1,
+  );
+  // Read here rather than passed in, so a reminder cannot be offered as though it
+  // will arrive on a deployment with nowhere to send it. Shares its key with
+  // every other reader, so it costs one request however many forms are open.
+  const authOptions = useQuery({
+    queryKey: ["auth-methods"],
+    queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
+    retry: false,
+  });
+  const reminderPositional =
+    reminderFrequency === "monthly" || reminderFrequency === "yearly";
+  const reminderUsesPosition = reminderPositional && reminderByPosition;
+  // The server's own contract rather than a second copy of it here, the same way
+  // the recurrence form checks its schedule: a form that validates its own
+  // fields is a weaker rule that disagrees at the edges.
+  const parsedReminder = reminding
+    ? templateNotificationSchema.safeParse({
+        frequency: reminderRepeats ? reminderFrequency : null,
+        ...(reminderRepeats
+          ? {
+              interval:
+                reminderInterval.trim() === "" ? 1 : Number(reminderInterval),
+              monthPolicy: reminderMonthPolicy,
+              weekendPolicy: reminderWeekendPolicy,
+              position: reminderUsesPosition
+                ? { ordinal: reminderOrdinal, weekday: reminderWeekday }
+                : null,
+            }
+          : {}),
+        anchorDate: reminderDate,
+        time: reminderTime,
+      })
+    : null;
   const [type, setType] = useState<TransactionType | "">(source.type ?? "");
   const [date, setDate] = useState(source.date ?? "");
   const [payee, setPayee] = useState(source.payee ?? "");
@@ -761,7 +825,25 @@ export function TemplateForm({
       else keep("categoryName", categoryName);
       keep("description", description);
       keep("notes", notes);
-      const body = { name: name.trim(), draft };
+      const notification = reminding
+        ? {
+            frequency: reminderRepeats ? reminderFrequency : null,
+            ...(reminderRepeats
+              ? {
+                  interval:
+                    reminderInterval.trim() === "" ? 1 : Number(reminderInterval),
+                  monthPolicy: reminderMonthPolicy,
+                  weekendPolicy: reminderWeekendPolicy,
+                  position: reminderUsesPosition
+                    ? { ordinal: reminderOrdinal, weekday: reminderWeekday }
+                    : null,
+                }
+              : {}),
+            anchorDate: reminderDate,
+            time: reminderTime,
+          }
+        : null;
+      const body = { name: name.trim(), draft, notification };
       return template
         ? api<TransactionTemplate>(`/api/v1/transaction-templates/${template.id}`, {
             ...json({ ...body, expectedVersion: template.version }),
@@ -917,6 +999,209 @@ export function TemplateForm({
       <Field label="Notes" hint="Optional">
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
+
+      <fieldset aria-label="Reminder">
+        <legend>Reminder</legend>
+        <label className="check-label">
+          <input
+            type="checkbox"
+            checked={reminding}
+            disabled={mutation.isPending}
+            onChange={(event) => setReminding(event.target.checked)}
+          />
+          Email me to make this transaction
+        </label>
+
+        {reminding ? (
+          <>
+            <div className="radio-row" role="radiogroup" aria-label="How often">
+              <label className="check-label">
+                <input
+                  type="radio"
+                  checked={!reminderRepeats}
+                  onChange={() => setReminderRepeats(false)}
+                />
+                Once
+              </label>
+              <label className="check-label">
+                <input
+                  type="radio"
+                  checked={reminderRepeats}
+                  onChange={() => setReminderRepeats(true)}
+                />
+                Repeatedly
+              </label>
+            </div>
+
+            {reminderRepeats ? (
+              <div className="two-columns">
+                <Field label="Repeats">
+                  <Select
+                    value={reminderFrequency}
+                    onChange={(event) =>
+                      setReminderFrequency(
+                        event.target.value as RecurrenceFrequencyName,
+                      )
+                    }
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </Select>
+                </Field>
+                <Field
+                  label={`Every N ${FREQUENCY_UNITS[reminderFrequency]}s`}
+                  hint="1 means every one."
+                >
+                  <Input
+                    type="number"
+                    min={1}
+                    max={366}
+                    value={reminderInterval}
+                    onChange={(event) => setReminderInterval(event.target.value)}
+                  />
+                </Field>
+              </div>
+            ) : null}
+
+            <div className="two-columns">
+              <Field
+                label={reminderRepeats ? "Starting" : "Send on"}
+                hint={
+                  reminderRepeats
+                    ? "The first date, and the one every later date is counted from."
+                    : "The day to send it."
+                }
+              >
+                <Input
+                  type="date"
+                  required
+                  value={reminderDate}
+                  onChange={(event) => setReminderDate(event.target.value)}
+                />
+              </Field>
+              <Field label="Send at" hint="Your own clock, not the server's.">
+                <Input
+                  type="time"
+                  required
+                  value={reminderTime}
+                  onChange={(event) => setReminderTime(event.target.value)}
+                />
+              </Field>
+            </div>
+
+            {reminderRepeats && reminderPositional ? (
+              <>
+                <div
+                  className="radio-row"
+                  role="radiogroup"
+                  aria-label="Day of the month to remind on"
+                >
+                  <label className="check-label">
+                    <input
+                      type="radio"
+                      checked={!reminderByPosition}
+                      onChange={() => setReminderByPosition(false)}
+                    />
+                    On day {Number(reminderDate.slice(8, 10)) || 1} of the month
+                  </label>
+                  <label className="check-label">
+                    <input
+                      type="radio"
+                      checked={reminderByPosition}
+                      onChange={() => setReminderByPosition(true)}
+                    />
+                    On a relative day
+                  </label>
+                </div>
+                {reminderByPosition ? (
+                  <div className="two-columns">
+                    <Field label="Which one to remind on">
+                      <Select
+                        value={String(reminderOrdinal)}
+                        onChange={(event) =>
+                          setReminderOrdinal(
+                            Number(
+                              event.target.value,
+                            ) as RecurrencePosition["ordinal"],
+                          )
+                        }
+                      >
+                        {ORDINAL_NAMES.map((one) => (
+                          <option key={one.value} value={one.value}>
+                            {one.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <Field label="Day to remind on">
+                      <Select
+                        value={String(reminderWeekday)}
+                        onChange={(event) =>
+                          setReminderWeekday(Number(event.target.value))
+                        }
+                      >
+                        {WEEKDAY_NAMES.map((day, index) => (
+                          <option key={day} value={index}>
+                            {day}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                ) : (
+                  <Field label="When the month is too short">
+                    <Select
+                      value={reminderMonthPolicy}
+                      onChange={(event) =>
+                        setReminderMonthPolicy(
+                          event.target.value as Recurrence["monthPolicy"],
+                        )
+                      }
+                    >
+                      <option value="last_day">Use the last day of that month</option>
+                      <option value="skip">Skip that month</option>
+                    </Select>
+                  </Field>
+                )}
+              </>
+            ) : null}
+
+            {reminderRepeats ? (
+              <Field label="When it lands on a weekend">
+                <Select
+                  value={reminderWeekendPolicy}
+                  onChange={(event) =>
+                    setReminderWeekendPolicy(
+                      event.target.value as Recurrence["weekendPolicy"],
+                    )
+                  }
+                >
+                  <option value="allow">Send it on the weekend</option>
+                  <option value="skip">Skip it</option>
+                  <option value="previous_business_day">Send it on the Friday</option>
+                  <option value="next_business_day">Send it on the Monday</option>
+                </Select>
+              </Field>
+            ) : null}
+
+            <p className="settings-note">
+              A reminder only asks. It never records anything, because a template
+              is something you fill in yourself.
+            </p>
+            {parsedReminder && !parsedReminder.success ? (
+              <Alert>{parsedReminder.error.issues[0]!.message}</Alert>
+            ) : null}
+            {authOptions.data && !authOptions.data.notificationsAvailable ? (
+              <Alert kind="info">
+                This deployment has no mail server configured, so the reminder
+                will be saved and nothing will be sent until one is.
+              </Alert>
+            ) : null}
+          </>
+        ) : null}
+      </fieldset>
 
       {categoryName.trim() && !categoryId ? (
         <Alert kind="info">
@@ -1886,6 +2171,9 @@ export function RecurrenceForm({
     (recurrence?.positionOrdinal as RecurrencePosition["ordinal"]) ?? 1,
   );
   const [weekday, setWeekday] = useState(recurrence?.positionWeekday ?? 1);
+  const [notifyOnCreate, setNotifyOnCreate] = useState(
+    recurrence?.notifyOnCreate ?? false,
+  );
   const queryClient = useQueryClient();
 
   const positional = frequency === "monthly" || frequency === "yearly";
@@ -2046,6 +2334,7 @@ export function RecurrenceForm({
           ...(trimmed(notes) ? { notes: trimmed(notes) } : {}),
         },
         schedule: parsedSchedule.data,
+        notifyOnCreate,
       };
       return recurrence
         ? api<Recurrence>(`/api/v1/recurrences/${recurrence.id}`, {
@@ -2383,6 +2672,23 @@ export function RecurrenceForm({
           queue for the amount received.
         </Alert>
       ) : null}
+      <fieldset aria-label="Notifications">
+        <legend>Notifications</legend>
+        <label className="check-label">
+          <input
+            type="checkbox"
+            checked={notifyOnCreate}
+            disabled={mutation.isPending}
+            onChange={(event) => setNotifyOnCreate(event.target.checked)}
+          />
+          Email me when this proposes a transaction
+        </label>
+        <p className="settings-note">
+          Sent when the scheduler adds rows to the review queue, not when you
+          commit them. One message per proposal, however many rows it holds.
+        </p>
+      </fieldset>
+
       <Alert kind="info">
         A recurrence proposes into the review queue and posts nothing. Each
         proposal is an ordinary staged row you check and commit.
