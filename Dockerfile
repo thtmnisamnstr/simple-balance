@@ -23,7 +23,7 @@ ENV PORT=3000
 # version it actually contains.
 ARG APP_VERSION=0.1.4
 LABEL org.opencontainers.image.title="Simple Balance" \
-  org.opencontainers.image.description="Self-hosted personal accounting on real double-entry books, with an MCP server at full feature parity" \
+  org.opencontainers.image.description="Self-hosted personal accounting: every account in one place, statements that import themselves, and reports that add up" \
   org.opencontainers.image.version="${APP_VERSION}" \
   org.opencontainers.image.licenses="AGPL-3.0-only" \
   org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"

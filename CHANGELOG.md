@@ -103,12 +103,19 @@ transactions cannot already see.
 
 ### Changed
 
-How this describes itself. It is personal accounting software that happens to
-carry a full-coverage MCP server, not an AI product that happens to keep books,
-and the front page, the manifest, the container label and the sign-in screen all
-led with the automation rather than with the ledger. The accounting leads now and
-the MCP server is one capability among several — which is also the honest
-ordering, since the books are what the agents are careful with.
+How this describes itself. Every page inside the app already spoke plainly —
+"Where your money sits and how it moved", "Everything you track, from checking
+and cards to cash and crypto wallets", "Rows waiting on you" — and the marketing
+copy was the one place that talked like a spec sheet. It led with the automation,
+then with double-entry, then with privacy, none of which is what somebody wants
+from a personal accounting app; they are how it delivers what somebody wants.
+
+So the front page, the manifest, the container label and the sign-in screen all
+lead with what you get: where your money is and where it went, every account in
+one place, statements that file themselves, bills you set up once, reports that
+add up. The double-entry books and the MCP server follow as the reasons those
+things can be relied on — which is the honest ordering, since the books are what
+the agents are being careful with.
 
 An idempotency key means the same thing over MCP as it does over the HTTP API.
 Ten MCP writes kept a replay record of their own on top of the one the service
