@@ -1,15 +1,21 @@
 # Simple Balance
 
-Personal accounting you host yourself, built so an AI agent can do the tedious
-parts without being able to do the dangerous ones.
+Personal accounting you host yourself, on real double-entry books. Every entry
+balances, nothing is ever typed over, and every figure traces back to the
+postings that made it.
 
-- **Double-entry and append-only.** Every entry balances to zero in each currency
-  it touches, corrections are posted rather than typed over, and deleting
-  something reverses it instead of erasing it.
+- **Real double-entry, append-only.** Every entry balances to zero in each
+  currency it touches, corrections are posted rather than typed over, and
+  deleting something reverses it instead of erasing it.
 - **Staged transactions, a review queue in front of the books.** Bank CSVs are
   read, mapped, and checked first, and nothing counts until you commit it.
-- **Agents that cannot overreach.** MCP clients call the same code the browser
-  does, under separate read, stage, and write scopes.
+- **Reports that add up.** Net worth, income against expense, categories, cash
+  flow, a balance sheet, and a trial balance that totals zero — each per
+  currency, and never added across them.
+- **An MCP server at full feature parity.** Agents can do the tedious parts
+  without being able to do anything dangerous: they call the same code the
+  browser does, under separate read, stage, and write scopes, and cannot get
+  around the review step.
 - **One container and a database.** Any number of people on a deployment, each
   with their own separate books.
 
