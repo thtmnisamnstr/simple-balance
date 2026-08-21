@@ -133,8 +133,8 @@ constraint and the form each fold it back to a plain category.
 **Priority 170. Depends on SB-015. Shipped as migration 0006.**
 
 A recurrence is a saved shape, a schedule, and a policy for the awkward dates.
-On its due date it puts an ordinary transaction into the review queue, where it
-waits with everything else until somebody commits it.
+On its due date it puts an ordinary transaction onto Staged transactions, where
+it waits with everything else until somebody commits it.
 
 It proposes rather than posts, and that is the whole design. A scheduler that
 writes to the ledger unattended is the one thing genuinely in tension with books
@@ -375,8 +375,8 @@ ingestion path to keep correct forever.
 
 **Acceptance criteria**
 
-- Synced rows land in the review queue and are committed the same way imported
-  ones are
+- Synced rows land on Staged transactions and are committed the same way
+  imported ones are
 - Duplicate detection covers rows that arrive by sync and by file, including the
   same row arriving both ways
 - A connection that fails, expires, or is revoked says so plainly and loses
@@ -450,7 +450,7 @@ adjusting entry for whatever is left over.
 
 It fits the ledger exactly. The adjustment is a delta rather than a rewrite,
 which is what corrections and closing entries already do, so it introduces no
-new idea. It is last because the review queue already catches most of what
+new idea. It is last because Staged transactions already catches most of what
 reconciliation is for: a file arrives, gets checked, and gets committed
 deliberately. Reconciliation earns its place for people entering by hand, and
 for the once-a-year case where the books and the statement have quietly drifted.

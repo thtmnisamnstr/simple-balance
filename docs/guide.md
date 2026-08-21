@@ -56,14 +56,17 @@ both sides, so there is no counter-side to divide and a transfer is never split.
 
 ## Importing and exporting
 
-Imports go through the review queue. Simple Balance reads the CSV, works out the
-format, maps the columns, parses whatever date and number conventions your bank
-uses, and creates categories and payees as it goes. You look at the result before
-any of it counts, and committing a batch is all or nothing.
+Imports go through **Staged transactions**, which is the review queue in front
+of the books: nothing on it has been posted and nothing on it counts. Simple
+Balance reads the CSV, works out the format, maps the columns, parses whatever
+date and number conventions your bank uses, and creates categories and payees as
+it goes. You look at the result before any of it counts, and committing a batch
+is all or nothing.
 
-The queue flags a row that repeats something you already have. The check anchors
-on the amount, with the account and the direction to keep two unrelated spends of
-the same size apart, and three days of latitude on the date — because a bank posts
+Staged transactions flags a row that repeats something you already have. The
+check anchors on the amount, with the account and the direction to keep two
+unrelated spends of the same size apart, and three days of latitude on the
+date — because a bank posts
 when a purchase settles and names the merchant its own way, so the same day and
 the same payee is a test a real import fails. Payee and category are ignored for
 exactly that reason. A flagged row opens beside the entry it resembles, both
@@ -103,12 +106,13 @@ happens when a date lands on a weekend.
 A business day here means Monday to Friday. Public holidays are not modelled, so
 a proposal can land on one.
 
-Make one on the Recurring screen, or from the menu on any row, on the transactions
-list or the review queue, the same way you save a template. The row supplies the
-payee, the account, the amount and the category, and its own date becomes the day
-of the month the schedule repeats on. You give it a name and pick how often.
+Make one on the Recurring screen, or from the menu on any row, on the
+transactions list or Staged transactions, the same way you save a template. The
+row supplies the payee, the account, the amount and the category, and its own
+date becomes the day of the month the schedule repeats on. You give it a name
+and pick how often.
 
-On its due date it puts an ordinary row in the review queue, dated its own
+On its due date it puts an ordinary row on Staged transactions, dated its own
 occurrence, and posts nothing. You check it and commit it like anything else.
 Leave the amount out and each proposal waits for a number, which is what the
 electricity bill wants. A split recurrence divides the same way every time, so its
@@ -188,10 +192,10 @@ and after it. It is for finding mistakes rather than for analysis: where a balan
 is wrong, this is the row it went wrong on. Open an account and press **Show
 register**; it is fetched only when you ask, because most visits do not need it.
 
-**Lists**: the transactions list, the review queue, the templates list and the
-recurring list sort by any column they show and page by number. Activity shows the
-hundred most recent events and neither sorts nor pages. Everything the browser or
-an agent did is in the audit log.
+**Lists**: the transactions list, Staged transactions, the templates list and
+the recurring list sort by any column they show and page by number. Activity
+shows the hundred most recent events and neither sorts nor pages. Everything the
+browser or an agent did is in the audit log.
 
 ## Signing in, and leaving
 

@@ -154,8 +154,8 @@ written.
 the reversal rather than erasing anything, so a deleted transaction stops
 counting toward balances and reports while the record of it remains.
 
-`bulk_edit_staged_transactions` does the same job on the review queue, with the
-same two selection shapes and the same fields. What differs is what happens
+`bulk_edit_staged_transactions` does the same job on Staged transactions, with
+the same two selection shapes and the same fields. What differs is what happens
 afterwards, and it is simpler: a staged row is a draft, so nothing posts,
 reverses, or moves a balance. Every row it touches is validated again, so
 filling in the account or category an import could not resolve clears the issues
@@ -335,7 +335,10 @@ wrong, this is the row it went wrong on. An archived account ends at zero and
 the postings that closed it out to equity are in the list, marked `closing` in
 `origin`; an account's first pair is marked `opening`.
 
-## The review queue
+## Staged transactions
+
+The review queue in front of the books. Nothing on it has been posted and nothing
+on it counts, which is what `ledger:stage` exists to reach.
 
 `list_staged_transactions`, `get_staged_transaction`,
 `create_staged_transaction`, `update_staged_transaction`,
@@ -390,8 +393,8 @@ staging anything, which is how you work out the column mapping before calling
 `stage_csv`. A file carrying every column a Simple Balance export writes needs
 no mapping, so `stage_csv` takes one without a `mapping` at all.
 
-`list_import_batches` lists the imports that still have rows waiting in the
-review queue. A batch leaves this list once all its rows are committed or
+`list_import_batches` lists the imports that still have rows waiting on Staged
+transactions. A batch leaves this list once all its rows are committed or
 discarded, so an empty result means the queue is clear rather than that the
 import failed. The id is what scopes a staged listing or a bulk edit to one
 file, which is how a whole import gets corrected in one go.
