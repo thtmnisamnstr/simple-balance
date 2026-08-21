@@ -8,8 +8,15 @@ import { validationError } from "./errors.js";
  * boundary that means something else in the new order.
  */
 const cursorSchema = z.object({
+  /** Which column the ordering is on: "date", "payee", "amount". */
   key: z.string().min(1),
   direction: z.enum(sortDirections),
+  /**
+   * The boundary VALUE in that column — the last row's date, payee or amount —
+   * not the column's name. The two live one line apart and read alike, so they
+   * are named apart here: `key` is what is being ordered by, `sort` is where the
+   * walk got to.
+   */
   sort: z.string(),
   id: z.string().uuid(),
 });

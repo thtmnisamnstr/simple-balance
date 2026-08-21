@@ -506,6 +506,8 @@ export const identityResultSchema = z.object({
   email: z.string(),
   clientId: nullableStringSchema,
   source: z.string(),
+  /** Whether a reminder or a proposal notice can actually be delivered. */
+  notificationsAvailable: z.boolean(),
 });
 
 export const ownDataSummaryResultSchema = z.object({

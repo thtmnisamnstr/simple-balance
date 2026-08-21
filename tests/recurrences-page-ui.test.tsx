@@ -21,6 +21,9 @@ const checking: Account = {
   balancePresentation: { label: "Balance", amount: "0" },
 };
 
+/** Flipped by the one test about a deployment that cannot send mail. */
+let mailAvailable = true;
+
 const groceries: Category = {
   id: "33333333-3333-4333-8333-333333333333",
   name: "Groceries",
@@ -134,6 +137,9 @@ function stubApi(items: Recurrence[]) {
       if (url.pathname === "/api/v1/accounts") return Response.json([checking]);
       if (url.pathname === "/api/v1/categories") return Response.json([groceries]);
       if (url.pathname === "/api/v1/payees/suggestions") return Response.json([]);
+      if (url.pathname === "/api/auth/methods") {
+        return Response.json({ notificationsAvailable: mailAvailable });
+      }
       return new Response("Not found", { status: 404 });
     }),
   );
@@ -457,5 +463,19 @@ describe("the recurrence form", () => {
     expect(
       await screen.findByLabelText(/Email me when this proposes/),
     ).toBeChecked();
+  });
+
+  it("says so when the deployment cannot send the email it is offering", async () => {
+    mailAvailable = false;
+    try {
+      await renderPage([]);
+      await openForm();
+      fireEvent.click(screen.getByLabelText(/Email me when this proposes/));
+      expect(
+        await screen.findByText(/no mail server configured/),
+      ).toBeInTheDocument();
+    } finally {
+      mailAvailable = true;
+    }
   });
 });

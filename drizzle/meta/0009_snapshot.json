@@ -2396,13 +2396,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -2521,10 +2514,6 @@
         "template_notification_once_check": {
           "name": "template_notification_once_check",
           "value": "\"template_notification\".\"frequency\" is not null or (\"template_notification\".\"interval\" = 1 and \"template_notification\".\"position_ordinal\" is null)"
-        },
-        "template_notification_version_check": {
-          "name": "template_notification_version_check",
-          "value": "\"template_notification\".\"version\" >= 1"
         }
       },
       "isRLSEnabled": false

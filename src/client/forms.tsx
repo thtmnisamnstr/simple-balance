@@ -668,6 +668,23 @@ function CategoryLegs({
  * The rule the whole form turns on: a field left blank is not saved. It is
  * filled in when the template is used.
  */
+/**
+ * Whether this deployment can send mail, for the two forms that offer to send
+ * some. Undefined until it is known, so neither claims anything before it is.
+ *
+ * A hook rather than the query written out in both places: the reminder form and
+ * the recurrence form are two halves of one feature, and the first version of
+ * this warned in one of them and not the other.
+ */
+function useNotificationsAvailable() {
+  const options = useQuery({
+    queryKey: ["auth-methods"],
+    queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
+    retry: false,
+  });
+  return options.data ? options.data.notificationsAvailable : undefined;
+}
+
 export function TemplateForm({
   accounts,
   categories,
@@ -713,22 +730,18 @@ export function TemplateForm({
   const [reminderWeekday, setReminderWeekday] = useState(
     reminder?.position?.weekday ?? 1,
   );
-  // Read here rather than passed in, so a reminder cannot be offered as though it
-  // will arrive on a deployment with nowhere to send it. Shares its key with
-  // every other reader, so it costs one request however many forms are open.
-  const authOptions = useQuery({
-    queryKey: ["auth-methods"],
-    queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
-    retry: false,
-  });
+  const notificationsAvailable = useNotificationsAvailable();
   const reminderPositional =
     reminderFrequency === "monthly" || reminderFrequency === "yearly";
   const reminderUsesPosition = reminderPositional && reminderByPosition;
   // The server's own contract rather than a second copy of it here, the same way
   // the recurrence form checks its schedule: a form that validates its own
   // fields is a weaker rule that disagrees at the edges.
-  const parsedReminder = reminding
-    ? templateNotificationSchema.safeParse({
+  // Built once and checked once. It used to be written out twice — once here to
+  // validate and once in the mutation to submit — so the two could drift and what
+  // was sent was never the object that had been checked.
+  const reminderInput = reminding
+    ? {
         frequency: reminderRepeats ? reminderFrequency : null,
         ...(reminderRepeats
           ? {
@@ -743,8 +756,18 @@ export function TemplateForm({
           : {}),
         anchorDate: reminderDate,
         time: reminderTime,
-      })
+      }
     : null;
+  const parsedReminder = reminderInput
+    ? templateNotificationSchema.safeParse(reminderInput)
+    : null;
+  // A daily reminder of one or two days moved on to a business day would land two
+  // occurrences on one date, which the shared contract refuses. The recurrence
+  // form disables the two options rather than letting somebody pick a refusal.
+  const reminderBusinessDayBlocked =
+    reminderRepeats &&
+    reminderFrequency === "daily" &&
+    !(Number.isInteger(Number(reminderInterval)) && Number(reminderInterval) >= 3);
   const [type, setType] = useState<TransactionType | "">(source.type ?? "");
   const [date, setDate] = useState(source.date ?? "");
   const [payee, setPayee] = useState(source.payee ?? "");
@@ -790,6 +813,14 @@ export function TemplateForm({
     }
   }, [categories, categoryId, type]);
 
+  // Clearing the interval to retype it must not leave a now-blocked policy
+  // selected, which would be a refusal nobody could see the cause of.
+  useEffect(() => {
+    if (reminderBusinessDayBlocked && reminderWeekendPolicy.endsWith("business_day")) {
+      setReminderWeekendPolicy("allow");
+    }
+  }, [reminderBusinessDayBlocked, reminderWeekendPolicy]);
+
   const mutation = useMutation({
     mutationFn: () => {
       // Built by leaving out what is blank rather than sending empty strings,
@@ -828,25 +859,7 @@ export function TemplateForm({
       else keep("categoryName", categoryName);
       keep("description", description);
       keep("notes", notes);
-      const notification = reminding
-        ? {
-            frequency: reminderRepeats ? reminderFrequency : null,
-            ...(reminderRepeats
-              ? {
-                  interval:
-                    reminderInterval.trim() === "" ? 1 : Number(reminderInterval),
-                  monthPolicy: reminderMonthPolicy,
-                  weekendPolicy: reminderWeekendPolicy,
-                  position: reminderUsesPosition
-                    ? { ordinal: reminderOrdinal, weekday: reminderWeekday }
-                    : null,
-                }
-              : {}),
-            anchorDate: reminderDate,
-            time: reminderTime,
-          }
-        : null;
-      const body = { name: name.trim(), draft, notification };
+      const body = { name: name.trim(), draft, notification: reminderInput };
       return template
         ? api<TransactionTemplate>(`/api/v1/transaction-templates/${template.id}`, {
             ...json({ ...body, expectedVersion: template.version }),
@@ -866,7 +879,10 @@ export function TemplateForm({
       className="form-grid"
       onSubmit={(event) => {
         event.preventDefault();
-        if (name.trim()) mutation.mutate();
+        // A reminder the shared contract refuses is not submitted, so the
+        // refusal shows beside the field rather than as a server error naming a
+        // rule the form was offering.
+        if (name.trim() && parsedReminder?.success !== false) mutation.mutate();
       }}
     >
       <Field
@@ -1183,10 +1199,21 @@ export function TemplateForm({
                 >
                   <option value="allow">Send it on the weekend</option>
                   <option value="skip">Skip it</option>
-                  <option value="previous_business_day">Send it on the Friday</option>
-                  <option value="next_business_day">Send it on the Monday</option>
+                  <option value="previous_business_day" disabled={reminderBusinessDayBlocked}>
+                    Send it on the Friday
+                  </option>
+                  <option value="next_business_day" disabled={reminderBusinessDayBlocked}>
+                    Send it on the Monday
+                  </option>
                 </Select>
               </Field>
+            ) : null}
+            {reminderBusinessDayBlocked ? (
+              <p className="settings-note">
+                A daily reminder of one or two days moved on to a business day
+                would land two on the same date. Make the interval three days or
+                more to use those two.
+              </p>
             ) : null}
 
             <p className="settings-note">
@@ -1196,7 +1223,7 @@ export function TemplateForm({
             {parsedReminder && !parsedReminder.success ? (
               <Alert>{parsedReminder.error.issues[0]!.message}</Alert>
             ) : null}
-            {authOptions.data && !authOptions.data.notificationsAvailable ? (
+            {notificationsAvailable === false ? (
               <Alert kind="info">
                 This deployment has no mail server configured, so the reminder
                 will be saved and nothing will be sent until one is.
@@ -2177,6 +2204,7 @@ export function RecurrenceForm({
   const [notifyOnCreate, setNotifyOnCreate] = useState(
     recurrence?.notifyOnCreate ?? false,
   );
+  const notificationsAvailable = useNotificationsAvailable();
   const queryClient = useQueryClient();
 
   const positional = frequency === "monthly" || frequency === "yearly";
@@ -2690,6 +2718,12 @@ export function RecurrenceForm({
           Sent when the scheduler adds rows to the review queue, not when you
           commit them. One message per proposal, however many rows it holds.
         </p>
+        {notifyOnCreate && notificationsAvailable === false ? (
+          <Alert kind="info">
+            This deployment has no mail server configured, so the setting will be
+            saved and nothing will be sent until one is.
+          </Alert>
+        ) : null}
       </fieldset>
 
       <Alert kind="info">

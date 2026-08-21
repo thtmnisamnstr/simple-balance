@@ -422,4 +422,47 @@ integration("a category nothing points at any more", () => {
     expect(payees).not.toContain("Only Ever Here");
     expect(payees).toContain("Renamed Instead");
   });
+
+  /**
+   * Recategorising a hundred rows one at a time cleared the category behind
+   * them; doing it in one request left it standing. Two paths, one rule.
+   */
+  it("clears a category a mass edit emptied", async () => {
+    const { bulkEditTransactions } = await import(
+      "../../src/server/services/transactions.js"
+    );
+    const doomed = await createCategory(actor, { name: "Bulk Emptied", kind: "expense" });
+    const keeper = await createCategory(actor, { name: "Bulk Destination", kind: "expense" });
+
+    const rows = [];
+    for (const day of ["2026-04-01", "2026-04-02"]) {
+      rows.push(
+        await createTransaction(
+          actor,
+          {
+            type: "withdrawal",
+            date: day,
+            payee: "Shop",
+            amount: "5",
+            fromAccountId: checkingId,
+            categoryId: doomed.id,
+          } as never,
+          nextKey(),
+        ),
+      );
+    }
+
+    await bulkEditTransactions(actor, {
+      selection: {
+        mode: "ids" as const,
+        items: rows.map((row) => ({ id: row.id, expectedVersion: row.version })),
+      },
+      patch: { categoryId: keeper.id },
+      idempotencyKey: nextKey(),
+    });
+
+    const remaining = await names();
+    expect(remaining).not.toContain("Bulk Emptied");
+    expect(remaining).toContain("Bulk Destination");
+  });
 });

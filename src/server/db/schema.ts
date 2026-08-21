@@ -939,7 +939,9 @@ export const templateNotifications = pgTable(
     lastNotifiedDate: date("last_notified_date"),
     nextNotificationDate: date("next_notification_date"),
 
-    version: integer("version").default(1).notNull(),
+    // No `version` here, unlike every other table. A reminder is replaced whole
+    // rather than patched, and the template it belongs to carries the version an
+    // edit is checked against, so there is nothing for a second one to guard.
     ...timestamps,
   },
   (table) => [
@@ -974,7 +976,6 @@ export const templateNotifications = pgTable(
       "template_notification_once_check",
       sql`${table.frequency} is not null or (${table.interval} = 1 and ${table.positionOrdinal} is null)`,
     ),
-    check("template_notification_version_check", sql`${table.version} >= 1`),
   ],
 );
 

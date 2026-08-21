@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import { user } from "../db/schema.js";
+import { mailEnabled } from "../mail.js";
 import { notFound } from "./errors.js";
 
 /**
@@ -25,5 +26,11 @@ export async function getIdentity(actor: Actor) {
     email: row.email,
     clientId: actor.clientId ?? null,
     source: actor.source,
+    // Whether anything this deployment is asked to send can actually go. An
+    // agent can set a recurrence to email on proposal, or give a template a
+    // reminder, and this is the one fact deciding whether either means anything —
+    // and the only one it cannot work out from the ledger it can read. The
+    // browser has had it all along, on the form beside the checkbox.
+    notificationsAvailable: mailEnabled(),
   };
 }
