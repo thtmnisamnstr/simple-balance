@@ -189,15 +189,6 @@ export type RecurrenceTickOutcome =
   | "claimed_elsewhere";
 
 /**
- * Decide everything this recurrence owes up to `today`, in one transaction.
- *
- * One transaction per recurrence, never one for a whole tick. It keeps the
- * write set bounded on a one-connection deployment, it lets somebody's edit
- * land between two recurrences rather than behind all of them, and it keeps one
- * transaction to one tenant, which the payee canonicalisation cache requires
- * because it is keyed by transaction and normalised name with no user in it.
- */
-/**
  * What was written, for a caller that has to tell somebody about it.
  *
  * Handed out through a callback rather than returned, so the mail is sent by the
@@ -210,6 +201,15 @@ export type ProposedOccurrences = {
   occurrenceDates: string[];
 };
 
+/**
+ * Decide everything this recurrence owes up to `today`, in one transaction.
+ *
+ * One transaction per recurrence, never one for a whole tick. It keeps the
+ * write set bounded on a one-connection deployment, it lets somebody's edit
+ * land between two recurrences rather than behind all of them, and it keeps one
+ * transaction to one tenant, which the payee canonicalisation cache requires
+ * because it is keyed by transaction and normalised name with no user in it.
+ */
 export async function proposeDueOccurrences(
   actor: Actor,
   recurrenceId: string,

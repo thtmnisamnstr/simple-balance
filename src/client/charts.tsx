@@ -1,9 +1,11 @@
 import {
   formatDate,
   formatMoney,
+  isNegativeMoney,
+  isPositiveMoney,
   moneyExtent,
   moneyScalePercent,
-} from "./components.js";
+} from "./money.js";
 
 type Series = {
   key: string;
@@ -33,12 +35,23 @@ const bounds = (series: Series[]) => {
   const extent = moneyExtent(every) ?? { low: "0", high: "0" };
   // A flat line at a non-zero value would otherwise plot on the top edge, and a
   // chart of money is easier to read against zero than against its own minimum.
-  const low = Number(extent.low) > 0 ? "0" : extent.low;
-  const high = Number(extent.high) < 0 ? "0" : extent.high;
+  const low = isPositiveMoney(extent.low) ? "0" : extent.low;
+  const high = isNegativeMoney(extent.high) ? "0" : extent.high;
   return { low, high };
 };
 
 const PADDING = 8;
+
+/**
+ * Which of the stylesheet's series colours this row gets.
+ *
+ * The count lives here as well as in the stylesheet, so a test asserts the two
+ * agree: adding a colour to one and not the other would leave a series either
+ * uncoloured or needlessly sharing.
+ */
+export const SERIES_COLOURS = 10;
+
+const seriesClass = (index: number) => `chart-series-${index % SERIES_COLOURS}`;
 
 const y = (value: string, low: string, high: string) => {
   const plot = VIEW.height - PADDING * 2;
@@ -88,7 +101,7 @@ function ChartFrame({
 export function LineChart({ buckets, series, currency, title }: ChartProps) {
   const { low, high } = bounds(series);
   const zeroAt =
-    Number(low) <= 0 && Number(high) >= 0 ? y("0", low, high) : null;
+    !isPositiveMoney(low) && !isNegativeMoney(high) ? y("0", low, high) : null;
 
   return (
     <figure className="chart-figure">
@@ -96,7 +109,7 @@ export function LineChart({ buckets, series, currency, title }: ChartProps) {
         {series.map((entry, index) => (
           <polyline
             key={entry.key}
-            className={`chart-line chart-series-${index % 6}`}
+            className={`chart-line ${seriesClass(index)}`}
             vectorEffect="non-scaling-stroke"
             points={entry.values
               .map(
@@ -133,7 +146,7 @@ export function BarChart({ buckets, series, currency, title }: ChartProps) {
             return (
               <rect
                 key={`${bucket.start}-${entry.key}`}
-                className={`chart-bar chart-series-${index % 6}`}
+                className={`chart-bar ${seriesClass(index)}`}
                 x={
                   position * groupWidth +
                   groupWidth * 0.15 +
@@ -161,7 +174,7 @@ export function ChartLegend({ series }: { series: Series[] }) {
     <ul className="chart-legend">
       {series.map((entry, index) => (
         <li key={entry.key}>
-          <span className={`chart-swatch chart-series-${index % 6}`} aria-hidden="true" />
+          <span className={`chart-swatch ${seriesClass(index)}`} aria-hidden="true" />
           {entry.label}
         </li>
       ))}

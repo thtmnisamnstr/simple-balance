@@ -21,12 +21,14 @@ import {
   RowMenu,
   SortableHeader,
   compareForSort,
-  compareMoney,
-  formatDate,
-  formatMoney,
   useConfirm,
   type SortState,
 } from "../components.js";
+import {
+  compareMoney,
+  formatDate,
+  formatMoney,
+} from "../money.js";
 import { RecurrenceForm, scheduleSentence } from "../forms.js";
 import { Link } from "../router.js";
 import { transactionTypeLabels } from "./TemplatesPage.js";

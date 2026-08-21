@@ -17,10 +17,12 @@ import {
   EmptyState,
   PageHeader,
   Skeleton,
-  formatDate,
-  formatMoney,
   useConfirm,
 } from "../components.js";
+import {
+  formatDate,
+  formatMoney,
+} from "../money.js";
 import { TransactionForm } from "../forms.js";
 import { summarizeStagedDraft } from "../staged-draft.js";
 import { Link, Navigate, useParams } from "../router.js";

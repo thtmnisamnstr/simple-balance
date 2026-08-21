@@ -272,13 +272,14 @@ export const ledgerAccounts = pgTable(
     ...timestamps,
   },
   (table) => [
-    index("ledger_account_user_idx").on(table.userId),
     // Names are unique among the accounts a person keeps. The server's own
     // counter-accounts are excluded, because naming an account "Expenses (USD)"
     // would otherwise collide with one and leave the ledger unable to open it.
     uniqueIndex("ledger_account_user_name_unique")
       .on(table.userId, table.name)
       .where(sql`${table.systemKind} is null`),
+    // Also the index every "this person's accounts" read uses. A bare
+    // user_id index would be a second copy of this one's leading column.
     unique("ledger_account_user_id_id_unique").on(table.userId, table.id),
     // Lets postings and transactions carry a foreign key that includes the
     // currency, so no row can name an amount in a currency its account does
@@ -313,7 +314,8 @@ export const categories = pgTable(
     ...timestamps,
   },
   (table) => [
-    index("category_user_idx").on(table.userId),
+    // Leads with the tenant, so it is also the index a read of one person's
+    // categories uses. A bare user_id index would duplicate its first column.
     unique("category_user_name_unique").on(table.userId, table.name),
     unique("category_user_id_id_unique").on(table.userId, table.id),
     check("category_version_check", sql`${table.version} >= 1`),
@@ -879,7 +881,8 @@ export const transactionTemplates = pgTable(
     ...timestamps,
   },
   (table) => [
-    index("transaction_template_user_idx").on(table.userId),
+    // Leads with the tenant, so it serves a read of one person's templates
+    // too. A bare user_id index would duplicate its first column.
     unique("transaction_template_user_name_unique").on(table.userId, table.name),
     check(
       "transaction_template_name_check",
@@ -1052,7 +1055,8 @@ export const recurrences = pgTable(
     ...timestamps,
   },
   (table) => [
-    index("recurrence_user_idx").on(table.userId),
+    // Leads with the tenant, so it serves a read of one person's recurrences
+    // too. A bare user_id index would duplicate its first column.
     unique("recurrence_user_name_unique").on(table.userId, table.name),
     // The one index here that does not lead with the tenant, for the one query
     // that cannot: the scheduler has to find work across every ledger before it

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { largestMoney, moneyRatioPercent } from "../src/client/components.js";
+import {
+  largestMoney,
+  moneyRatioPercent,
+} from "../src/client/money.js";
 
 /**
  * Uncategorised spending is pinned to the bottom of the list, so the first row

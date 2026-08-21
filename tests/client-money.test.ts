@@ -4,7 +4,7 @@ import {
   isNegativeMoney,
   isPositiveMoney,
   moneyRatioPercent,
-} from "../src/client/components.js";
+} from "../src/client/money.js";
 
 describe("exact client money rendering", () => {
   it("keeps every integer digit exact without converting through Number", () => {

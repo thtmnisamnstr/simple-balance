@@ -9,6 +9,7 @@ import {
   setAccountArchived,
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
+import { canonicalDecimal, decimal } from "../../src/server/services/helpers.js";
 import { balanceStatement, getReport } from "../../src/server/services/reports.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
@@ -44,6 +45,19 @@ const usdSummary = (summary: Summary) =>
 
 const row = (report: Report, key: string) =>
   usd(report)?.rows.find((entry) => entry.key === key);
+
+/**
+ * Money summed exactly. `sum + Number(value)` reads as harmless in a test and
+ * is the same mistake the house rule forbids in the application: a figure the
+ * database stores to eighteen places is compared as a double, so a test can
+ * pass on a number the code never produced.
+ */
+const sumMoney = (values: readonly string[]) =>
+  canonicalDecimal(
+    values.reduce((total, value) => total.plus(value), decimal("0")),
+  );
+
+const negated = (value: string) => canonicalDecimal(decimal(value).negated());
 
 const rowsByLabel = (report: Report) =>
   Object.fromEntries(
@@ -243,8 +257,7 @@ integration("reports", () => {
       bucket: "month",
     });
     for (const entry of usd(flow)!.rows) {
-      const summed = entry.values.reduce((total, value) => total + Number(value), 0);
-      expect(Number(entry.total)).toBe(summed);
+      expect(canonicalDecimal(entry.total)).toBe(sumMoney(entry.values));
     }
   });
 
@@ -380,9 +393,10 @@ integration("reports", () => {
     });
     const figures = usdSummary(summary)!;
     expect(row(report, "income")!.total).toBe(figures.deposits);
-    expect(Number(row(report, "expense")!.total)).toBe(-Number(figures.withdrawals));
-    const net = usd(report)!.totals.reduce((sum, value) => sum + Number(value), 0);
-    expect(net).toBe(Number(figures.netCashFlow));
+    expect(canonicalDecimal(row(report, "expense")!.total)).toBe(
+      negated(figures.withdrawals),
+    );
+    expect(sumMoney(usd(report)!.totals)).toBe(canonicalDecimal(figures.netCashFlow));
   });
 
   /**
@@ -445,10 +459,10 @@ integration("reports", () => {
       start: "2026-03-01",
       end: "2026-03-31",
     });
-    const total = usd(report)!
+    const expenses = usd(report)!
       .rows.filter((entry) => entry.kind === "expense")
-      .reduce((sum, entry) => sum + Number(entry.total), 0);
-    expect(total).toBe(150);
+      .map((entry) => entry.total);
+    expect(sumMoney(expenses)).toBe("150");
   });
 
   it("offers no total across currencies", async () => {
@@ -572,9 +586,11 @@ integration("reports", () => {
       group by p.currency
       order by p.currency
     `);
-    expect(result.rows.map((entry) => `${entry.currency}=${Number(entry.total)}`)).toEqual(
-      ["EUR=0", "USD=0"],
-    );
+    expect(
+      result.rows.map(
+        (entry) => `${entry.currency}=${canonicalDecimal(String(entry.total))}`,
+      ),
+    ).toEqual(["EUR=0", "USD=0"]);
   });
 
   /**

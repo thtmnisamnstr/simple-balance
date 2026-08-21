@@ -681,6 +681,14 @@ input[type="radio"] {
 .badge-amber { color: #866018; background: #fff1d4; }
 .badge-blue { color: #345c87; background: #e7eff9; }
 
+/* A payee or a category with a badge beside it. Without this the badge is a
+   block sibling and drops onto its own line, doubling the row's height. */
+.transaction-payee {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .empty-state {
   display: grid;
   min-height: 250px;
@@ -2847,19 +2855,32 @@ input[type="radio"] {
   border-radius: 3px;
 }
 
+/* Ten hues, kept apart from each other rather than swept round a wheel, so a
+   ledger with ten accounts still has a readable legend. There were six, and a
+   seventh account shared a colour with the first. Beyond ten they do wrap; the
+   table under the chart is what carries the exact figures. SERIES_COLOURS in
+   charts.tsx counts these, and a test fails if the two disagree. */
 .chart-series-0 { stroke: #207153; fill: #207153; }
 .chart-series-1 { stroke: #af3a35; fill: #af3a35; }
 .chart-series-2 { stroke: #315d92; fill: #315d92; }
 .chart-series-3 { stroke: #966415; fill: #966415; }
 .chart-series-4 { stroke: #6b4b9b; fill: #6b4b9b; }
-.chart-series-5 { stroke: #4b9b78; fill: #4b9b78; }
+.chart-series-5 { stroke: #0f7d86; fill: #0f7d86; }
+.chart-series-6 { stroke: #c2560f; fill: #c2560f; }
+.chart-series-7 { stroke: #a6265c; fill: #a6265c; }
+.chart-series-8 { stroke: #4b6b1f; fill: #4b6b1f; }
+.chart-series-9 { stroke: #4c5a70; fill: #4c5a70; }
 
 .chart-swatch.chart-series-0 { background: #207153; }
 .chart-swatch.chart-series-1 { background: #af3a35; }
 .chart-swatch.chart-series-2 { background: #315d92; }
 .chart-swatch.chart-series-3 { background: #966415; }
 .chart-swatch.chart-series-4 { background: #6b4b9b; }
-.chart-swatch.chart-series-5 { background: #4b9b78; }
+.chart-swatch.chart-series-5 { background: #0f7d86; }
+.chart-swatch.chart-series-6 { background: #c2560f; }
+.chart-swatch.chart-series-7 { background: #a6265c; }
+.chart-swatch.chart-series-8 { background: #4b6b1f; }
+.chart-swatch.chart-series-9 { background: #4c5a70; }
 
 .chart-figure figcaption {
   margin-top: 6px;

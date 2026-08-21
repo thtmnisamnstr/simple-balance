@@ -39,11 +39,8 @@ import {
   BulkEditToggle,
   Badge,
   Button,
-  compareMoney,
   DateRangeBar,
   EmptyState,
-  formatDate,
-  formatMoney,
   Input,
   Modal,
   PageHeader,
@@ -56,6 +53,11 @@ import {
   type SortState,
   useConfirm,
 } from "../components.js";
+import {
+  compareMoney,
+  formatDate,
+  formatMoney,
+} from "../money.js";
 import { RecurrenceForm, TemplateForm, TransactionForm } from "../forms.js";
 import {
   MAX_BULK_SELECTION_ENTRIES,
@@ -682,7 +684,7 @@ export default function StagingPage() {
               Clear selection
             </Button>
             {duplicateSelected || duplicateCommitError ? (
-              <label className="check-label duplicate-override">
+              <label className="check-label">
                 <input
                   type="checkbox"
                   checked={allowDuplicates}

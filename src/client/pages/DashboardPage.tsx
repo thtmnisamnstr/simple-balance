@@ -16,14 +16,16 @@ import {
   Button,
   DateRangeBar,
   EmptyState,
-  formatMoney,
-  isNegativeMoney,
   Modal,
-  largestMoney,
-  moneyRatioPercent,
   PageHeader,
   Skeleton,
 } from "../components.js";
+import {
+  formatMoney,
+  isNegativeMoney,
+  largestMoney,
+  moneyRatioPercent,
+} from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { TransactionForm } from "../forms.js";
 
@@ -80,7 +82,7 @@ export default function DashboardPage() {
       ) : (
         <div className="currency-sections">
           {summary.data?.currencies.map((currency) => (
-            <section className="currency-section" key={currency.currency}>
+            <section key={currency.currency}>
               <div className="currency-heading">
                 <div>
                   <span className="currency-code">{currency.currency}</span>
@@ -126,7 +128,7 @@ export default function DashboardPage() {
                     <h3>Accounts</h3>
                     <span>As of {summary.data?.asOf ?? end ?? "today"}</span>
                   </header>
-                  <div className="account-mini-list">
+                  <div>
                     {groupAccountsByType(currency.accounts).map((group) => (
                       <div className="account-mini-group" key={group.type}>
                         <h4 className="account-mini-heading">{group.label}</h4>
@@ -148,7 +150,7 @@ export default function DashboardPage() {
                     <span>Transfers excluded</span>
                   </header>
                   {currency.spendingByCategory.length ? (
-                    <div className="spending-list">
+                    <div>
                       {(() => {
                         // Uncategorised arrives last from the server and stays
                         // last here, but it is kept rather than cut: it is the

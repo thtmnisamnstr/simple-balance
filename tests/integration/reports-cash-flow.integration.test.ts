@@ -9,6 +9,7 @@ import {
   setAccountArchived,
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
+import { canonicalDecimal, decimal } from "../../src/server/services/helpers.js";
 import {
   cashFlowStatement,
   getReport,
@@ -44,6 +45,17 @@ const usd = (report: Report) =>
 
 const segments = (report: Report) =>
   Object.fromEntries((usd(report)?.rows ?? []).map((row) => [row.key, row.total]));
+
+/**
+ * Money summed exactly. `sum + Number(value)` reads as harmless in a test and
+ * is the same mistake the house rule forbids in the application: a figure the
+ * database stores to eighteen places is compared as a double, so a test can
+ * pass on a number the code never produced.
+ */
+const sumMoney = (values: readonly string[]) =>
+  canonicalDecimal(
+    values.reduce((total, value) => total.plus(value), decimal("0")),
+  );
 
 integration("the cash flow statement", () => {
   beforeAll(async () => {
@@ -276,16 +288,9 @@ integration("the cash flow statement", () => {
         and p.closing_account_id is null
         and p.date between ${year.start}::date and ${year.end}::date
     `);
-    const acrossBuckets = usd(report)!.totals.reduce(
-      (sum, value) => sum + Number(value),
-      0,
-    );
-    const acrossSegments = usd(report)!.rows.reduce(
-      (sum, entry) => sum + Number(entry.total),
-      0,
-    );
-    expect(acrossBuckets).toBe(Number(moved.rows[0]!.net));
-    expect(acrossSegments).toBe(Number(moved.rows[0]!.net));
+    const net = canonicalDecimal(String(moved.rows[0]!.net));
+    expect(sumMoney(usd(report)!.totals)).toBe(net);
+    expect(sumMoney(usd(report)!.rows.map((entry) => entry.total))).toBe(net);
   });
 
   it("puts no movement in the catch-all segment", async () => {
@@ -469,11 +474,9 @@ integration("the cash flow statement", () => {
         and p.closing_account_id is null
         and p.date between ${window.start}::date and ${window.end}::date
     `);
-    const summed = usd(report)!.rows.reduce(
-      (total, row) => total + Number(row.total),
-      0,
+    expect(sumMoney(usd(report)!.rows.map((row) => row.total))).toBe(
+      canonicalDecimal(String(moved_.rows[0]!.net)),
     );
-    expect(summed).toBe(Number(moved_.rows[0]!.net));
   });
 
   /**
