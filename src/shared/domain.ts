@@ -786,15 +786,6 @@ export type ReportAccumulation = (typeof reportAccumulations)[number];
  */
 export const cashAccountTypes = ["checking", "savings", "cash"] as const;
 
-export const cashFlowSegments = [
-  "operating",
-  "investing",
-  "financing",
-  "internal",
-  "exchange",
-  "opening",
-] as const;
-export type CashFlowSegment = (typeof cashFlowSegments)[number];
 
 /**
  * A ledger with a long history asked for weekly buckets is a request for
@@ -1558,8 +1549,25 @@ export const templateNotificationSchema = z
     weekendPolicy: z.enum(recurrenceWeekendPolicies).optional(),
     position: recurrencePositionSchema.nullable().optional(),
     time: clockTimeSchema,
+    /**
+     * The three fields a read reports and a write cannot set, accepted and then
+     * ignored so a reminder can be sent back the way it came.
+     *
+     * `.strict()` below refuses anything else, which is what catches a typo. But
+     * it also refused a caller its own output: an agent reads a template, changes
+     * the time, and sends the object back — the only way it can, having no form
+     * to fill in — and was told `repeats` was an unrecognised key. `repeats` is
+     * `frequency !== null` restated, and the two dates are watermarks the
+     * scheduler owns, so there is nothing here worth refusing.
+     */
+    repeats: z.boolean().optional(),
+    lastNotifiedDate: z.string().nullable().optional(),
+    nextNotificationDate: z.string().nullable().optional(),
   })
   .strict()
+  .describe(
+    'An emailed reminder to make this transaction, or null for none. `frequency` null is a single reminder on `anchorDate`; a frequency repeats it on the same schedules a recurrence offers. `time` is "HH:MM" on this person\'s own clock. A reminder that happens once refuses `interval`, both policies and `position` rather than ignoring them. On an update, leaving this out keeps whatever is stored and null removes it; a value replaces the whole rule. Needs a deployment with SMTP configured, which `whoami` reports.',
+  )
   .superRefine((notification, context) => {
     if (notification.frequency === null) {
       for (const field of ["interval", "monthPolicy", "weekendPolicy", "position"] as const) {

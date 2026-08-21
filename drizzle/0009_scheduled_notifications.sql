@@ -12,7 +12,6 @@ CREATE TABLE "template_notification" (
 	"notify_at" text NOT NULL,
 	"last_notified_date" date,
 	"next_notification_date" date,
-	"version" integer DEFAULT 1 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "template_notification_template_id_unique" UNIQUE("template_id"),
@@ -20,8 +19,7 @@ CREATE TABLE "template_notification" (
 	CONSTRAINT "template_notification_notify_at_check" CHECK ("template_notification"."notify_at" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'),
 	CONSTRAINT "template_notification_position_check" CHECK (("template_notification"."position_ordinal" is null) = ("template_notification"."position_weekday" is null)),
 	CONSTRAINT "template_notification_position_frequency_check" CHECK ("template_notification"."position_ordinal" is null or "template_notification"."frequency" in ('monthly', 'yearly')),
-	CONSTRAINT "template_notification_once_check" CHECK ("template_notification"."frequency" is not null or ("template_notification"."interval" = 1 and "template_notification"."position_ordinal" is null)),
-	CONSTRAINT "template_notification_version_check" CHECK ("template_notification"."version" >= 1)
+	CONSTRAINT "template_notification_once_check" CHECK ("template_notification"."frequency" is not null or ("template_notification"."interval" = 1 and "template_notification"."position_ordinal" is null))
 );
 --> statement-breakpoint
 ALTER TABLE "recurrence" ADD COLUMN "notify_on_create" boolean DEFAULT false NOT NULL;--> statement-breakpoint

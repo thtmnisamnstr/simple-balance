@@ -205,9 +205,16 @@ export async function runDueNotifications(
     id: string;
     user_id: string;
     timezone: string;
+    next_notification_date: string;
+    notify_at: string;
   }>(sql`
     select n.id,
            n.user_id,
+           -- Read here so a row the prefilter over-selected can be passed over
+           -- without opening a transaction and taking a row lock for it. The
+           -- recurrence sweep does the same with its own next date.
+           n.next_notification_date,
+           n.notify_at,
            coalesce(p.timezone, 'UTC') as timezone
       from ${templateNotifications} n
       left join user_preferences p on p.user_id = n.user_id
@@ -228,12 +235,29 @@ export async function runDueNotifications(
     // connection for.
     const now = new Date();
     const timezone = String(row.timezone);
+    const today = calendarDayIn(now, timezone);
+    const nowTime = clockTimeIn(now, timezone);
+    // The prefilter deliberately over-selects by a day, because a calendar date
+    // is "today" somewhere from UTC-12 to UTC+14, and it knows nothing about the
+    // hour asked for. Deciding here costs a comparison; deciding inside the
+    // claim cost a transaction and a row lock on every tick for a reminder that
+    // was hours away.
+    if (
+      !notificationIsDue(
+        String(row.next_notification_date),
+        String(row.notify_at),
+        today,
+        nowTime,
+      )
+    ) {
+      continue;
+    }
     try {
       const owed = await claimDueNotification(
         String(row.id),
         String(row.user_id),
-        calendarDayIn(now, timezone),
-        clockTimeIn(now, timezone),
+        today,
+        nowTime,
       );
       if (owed && (await deliver(String(row.user_id), owed))) sent += 1;
     } catch (error) {
@@ -313,9 +337,6 @@ async function claimDueNotification(
       .set({
         lastNotifiedDate: owed.occurrenceDate,
         nextNotificationDate: following?.sendDate ?? null,
-        // Not the version. A watermark moving is not a change to what somebody
-        // configured, and bumping it would make every open form stale for a
-        // reason nobody can see.
         updatedAt: new Date(),
       })
       .where(eq(templateNotifications.id, row.notification.id));

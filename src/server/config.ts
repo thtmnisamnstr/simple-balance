@@ -172,7 +172,13 @@ export function getConfig(): AppConfig {
     .parse((process.env.AUTH_MODE ?? "local").toLowerCase());
   const localAuthEnabled = authMode === "local" || authMode === "both";
   const googleAuthEnabled = authMode === "google" || authMode === "both";
-  const port = z.coerce.number().int().min(1).max(65535).parse(process.env.PORT ?? 3000);
+  const portRule = "PORT must be a whole number between 1 and 65535";
+  const port = z.coerce
+    .number({ error: () => portRule })
+    .int({ error: () => portRule })
+    .min(1, { error: () => portRule })
+    .max(65535, { error: () => portRule })
+    .parse(process.env.PORT ?? 3000);
   const logLevel = z
     .enum(["debug", "info", "warn", "error"], {
       error: () => "LOG_LEVEL must be debug, info, warn or error",

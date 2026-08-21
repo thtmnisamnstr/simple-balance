@@ -1062,8 +1062,14 @@ input[type="radio"] {
   line-height: 1.35;
 }
 
-.account-transactions > .section-title {
+.account-transactions > .section-title,
+.account-register > .section-title {
   margin-bottom: 12px;
+}
+
+/* Its own band under the transactions, so the two do not read as one list. */
+.account-register {
+  margin-top: 28px;
 }
 
 .transaction-browser-actions {

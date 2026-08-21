@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { ArrowLeft, Landmark } from "lucide-react";
 import { Link, useParams } from "../router.js";
 import {
@@ -6,13 +7,18 @@ import {
   queryString,
   type Account,
   type AccountBalanceSnapshot,
+  type AccountRegister,
 } from "../api.js";
 import {
   Alert,
   Badge,
+  Button,
   DateRangeBar,
+  formatDate,
   formatMoney,
+  isNegativeMoney,
   PageHeader,
+  Skeleton,
 } from "../components.js";
 import { useDateRange } from "../date-range.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
@@ -54,6 +60,19 @@ export default function AccountDetailPage() {
         })}`,
       ),
     enabled: Boolean(accountId),
+  });
+
+  // Loaded only when asked for. It is the row-by-row view somebody opens when a
+  // balance is wrong, not something to fetch on every visit — and on a busy
+  // account it is thousands of rows.
+  const [showRegister, setShowRegister] = useState(false);
+  const register = useQuery({
+    queryKey: ["accounts", accountId, "register", start, end],
+    queryFn: () =>
+      api<AccountRegister>(
+        `/api/v1/accounts/${accountId}/register?${queryString({ start, end })}`,
+      ),
+    enabled: Boolean(accountId) && showRegister,
   });
 
   if (account.error) return <Alert>{account.error.message}</Alert>;
@@ -125,6 +144,101 @@ export default function AccountDetailPage() {
           allowCreate={!account.data.archivedAt}
           showDateRange={false}
         />
+      </section>
+
+      <section className="account-register">
+        <div className="section-title">
+          <div>
+            <h2>Register</h2>
+            <p>
+              Every posting in date order with the balance before and after it,
+              for when a balance is wrong and you need the row it went wrong on.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setShowRegister(!showRegister)}
+          >
+            {showRegister ? "Hide register" : "Show register"}
+          </Button>
+        </div>
+
+        {showRegister ? (
+          register.error ? (
+            <Alert>{register.error.message}</Alert>
+          ) : register.isPending || !register.data ? (
+            <Skeleton height={220} />
+          ) : (
+            <>
+              <p className="settings-note">
+                Opening {formatMoney(register.data.openingBalance, register.data.currency)},
+                closing {formatMoney(register.data.closingBalance, register.data.currency)}
+                , as of {formatDate(register.data.asOf)}.
+              </p>
+              {register.data.entries.length ? (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <caption className="sr-only">
+                      Postings on {register.data.accountName} in date order
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Date</th>
+                        <th scope="col">Origin</th>
+                        <th scope="col" className="align-right">Amount</th>
+                        <th scope="col" className="align-right">Before</th>
+                        <th scope="col" className="align-right">After</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {register.data.entries.map((entry) => (
+                        <tr key={entry.postingId}>
+                          <th scope="row">{formatDate(entry.date)}</th>
+                          <td>
+                            {entry.origin === "transaction" ? (
+                              entry.transactionId ? (
+                                <Link
+                                  to={{
+                                    pathname: "/transactions",
+                                    search: `transactionId=${entry.transactionId}`,
+                                  }}
+                                >
+                                  Transaction
+                                </Link>
+                              ) : (
+                                "Transaction"
+                              )
+                            ) : entry.origin === "opening" ? (
+                              "Opening balance"
+                            ) : (
+                              "Closing balance"
+                            )}
+                          </td>
+                          <td
+                            className={`align-right${isNegativeMoney(entry.amount) ? " money-negative" : ""}`}
+                          >
+                            {formatMoney(entry.amount, register.data.currency)}
+                          </td>
+                          <td className="align-right">
+                            {formatMoney(entry.balanceBefore, register.data.currency)}
+                          </td>
+                          <td className="align-right">
+                            {formatMoney(entry.balanceAfter, register.data.currency)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="settings-note">
+                  No postings in this range.
+                </p>
+              )}
+            </>
+          )
+        ) : null}
       </section>
     </>
   );

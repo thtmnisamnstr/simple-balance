@@ -620,6 +620,35 @@ describe("the templates screen", () => {
     });
   });
 
+  /**
+   * The two business-day policies would put two reminders on one date for a daily
+   * rule of one or two days, which the shared contract refuses. Offering them and
+   * then submitting the refusal is how somebody gets a server error about a rule
+   * the form told them was available.
+   */
+  it("disables the reminder policies that would land two on one date, and says why", async () => {
+    stubApi([rent]);
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    fireEvent.click(dialog.getByLabelText(/Email me to make this/));
+    fireEvent.click(dialog.getByLabelText("Repeatedly"));
+    fireEvent.change(dialog.getByLabelText("Repeats"), {
+      target: { value: "daily" },
+    });
+    fireEvent.change(dialog.getByLabelText(/^Every N days/), {
+      target: { value: "1" },
+    });
+
+    expect(
+      await screen.findByText(/would land two on the same date/),
+    ).toBeInTheDocument();
+    expect(
+      dialog.getByRole("option", { name: "Send it on the Friday" }),
+    ).toBeDisabled();
+
+  });
+
   it("seeds the reminder from the template being edited", async () => {
     const reminded: TransactionTemplate = {
       ...rent,

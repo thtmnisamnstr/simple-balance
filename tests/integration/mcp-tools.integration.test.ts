@@ -432,4 +432,58 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     expect(dropped).toEqual([]);
   });
 
+
+  /**
+   * The one fact about a reminder an agent cannot work out from the ledger: can
+   * anything be delivered at all. The browser has had it beside the checkbox
+   * since the feature shipped; nothing on this surface carried it, so an agent
+   * could set a reminder, be told it saved, and have nothing ever sent.
+   */
+  it("tells an agent whether a reminder can be delivered", async () => {
+    const identity = await call("whoami");
+    expect(identity).toMatchObject({ userId: actor.userId });
+    expect(
+      typeof (identity as { notificationsAvailable?: unknown }).notificationsAvailable,
+    ).toBe("boolean");
+  });
+
+  /**
+   * An agent's only way to change a reminder is to read one, edit a field and
+   * send it back — it has no form to fill in. The object it reads carries three
+   * fields the scheduler owns, and sending them back was refused as unrecognised
+   * keys, so the natural edit failed and the workaround was to guess which
+   * fields were safe to strip.
+   */
+  it("takes back the reminder it just handed out", async () => {
+    const created = await call("create_transaction_template", {
+      name: "Round trip",
+      draft: { type: "withdrawal", payee: "Utility" },
+      notification: {
+        frequency: "monthly",
+        interval: 1,
+        anchorDate: "2026-09-01",
+        time: "07:30",
+      },
+      idempotencyKey: "reminder-round-trip-create",
+    });
+    const template = created as {
+      id: string;
+      version: number;
+      notification: Record<string, unknown>;
+    };
+    expect(template.notification).toMatchObject({ repeats: true });
+
+    const saved = await call("update_transaction_template", {
+      id: template.id,
+      input: {
+        // Its own output, with the one field a person would change.
+        notification: { ...template.notification, time: "20:00" },
+        expectedVersion: template.version,
+      },
+      idempotencyKey: "reminder-round-trip-update",
+    });
+    expect(saved).toMatchObject({
+      notification: { time: "20:00", frequency: "monthly", repeats: true },
+    });
+  });
 });

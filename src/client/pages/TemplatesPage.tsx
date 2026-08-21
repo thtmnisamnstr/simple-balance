@@ -642,7 +642,12 @@ export default function TemplatesPage() {
                             <span className="table-subtitle">
                               {template.notification.nextNotificationDate
                                 ? `${formatDate(template.notification.nextNotificationDate)} at ${template.notification.time}`
-                                : "sent"}
+                                : template.notification.repeats
+                                  ? // A repeating rule owing nothing is not a
+                                    // rule that has finished: every occurrence
+                                    // it would have is one its policies skip.
+                                    "never — every date is skipped"
+                                  : "sent"}
                             </span>
                           </div>
                         ) : (

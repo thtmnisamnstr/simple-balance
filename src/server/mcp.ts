@@ -421,7 +421,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Who this ledger belongs to",
         description:
-          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in list_connected_agents. It reports nothing about how they sign in.",
+          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in list_connected_agents. It reports nothing about how they sign in. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive.",
         inputSchema: z.object({}),
         outputSchema: mcpOutputSchema(identityResultSchema),
         annotations: readAnnotations,

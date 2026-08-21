@@ -2157,6 +2157,27 @@ export async function bulkEditTransactions(
       });
     }
 
+    // The same rule the single-row edit applies, which this path did not: a
+    // category every one of these rows has just moved off, and that nothing else
+    // uses, goes with the edit. Recategorising a hundred rows one at a time
+    // cleared the category behind them; doing it in one request left it standing.
+    await pruneOrphanedCategories(
+      tx,
+      actor,
+      plans.flatMap((plan, index) =>
+        categoriesReleasedBy(
+          {
+            categoryId: plan.before.categoryId,
+            legs: lockedLegs.get(plan.before.id) ?? [],
+          },
+          {
+            categoryId: updatedRows[index]!.categoryId,
+            legs: editedLegs.get(plan.before.id) ?? [],
+          },
+        ),
+      ),
+    );
+
     const result = bulkTransactionEditResultSchema.parse({
       ...baseResult,
       dryRun: false,
