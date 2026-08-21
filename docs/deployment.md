@@ -418,9 +418,11 @@ believe.
 The scheduler image runs the whole schedule — proposing recurring transactions
 and sending the reminders and proposal notices — and serves nothing but its own
 health checks, so a Service pointed at it by mistake cannot answer an API
-request. Give it the `SMTP_*` and `MAIL_FROM` settings as well: without them it
+request. It needs the `SMTP_*` and `MAIL_FROM` settings as well: without them it
 proposes rows and sends nothing, and there is no error to see, because a
-deployment with no mail server is a supported one. It runs one entrypoint of its own and always ticks: the
+deployment with no mail server is a supported one. The chart and the compose
+file both hand it the same configuration the API gets, so neither needs anything
+extra; a deployment assembled by hand does. It runs one entrypoint of its own and always ticks: the
 `RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
 whose only job is this one would be pointless with it off.
 

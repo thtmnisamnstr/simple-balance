@@ -111,8 +111,11 @@ config:
     clientId: ""
 
   # Mail is optional and everything needing it degrades rather than breaks: with
-  # no host there is no password reset and nobody is asked to confirm an
-  # address. host and from are set together or not at all.
+  # no host there is no password reset, nobody is asked to confirm an address,
+  # and no scheduled reminder is sent — the setting is still stored and starts
+  # arriving once a host is set, but nothing queues in the meantime. host and
+  # from are set together or not at all. The scheduler Deployment reads this
+  # block from the same ConfigMap the API does, so it needs nothing extra.
   mail:
     host: ""
     from: ""
