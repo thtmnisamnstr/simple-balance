@@ -62,6 +62,12 @@ The Reminder and Notifies columns sort, ranked by what they are going to tell
 you rather than alphabetically by the badge text: a reminder still to come above
 one already sent above none at all.
 
+Reports sits after Recurring in the sidebar rather than after Transactions. The
+sidebar reads in order: where the money is and what moved it, then the work
+waiting on you, then the things that file and repeat it, then what it all adds up
+to. A test holds the order, because an ordering nothing asserts is one a later
+edit reorders by accident.
+
 Each account on the overview opens that account. The whole row rather than the
 name, because the balance is what somebody is looking at when they decide to go
 in, and the date range travels with them, so the account page opens on the
@@ -96,6 +102,13 @@ that always differ, and colouring them says nothing a person reading two
 transactions cannot already see.
 
 ### Changed
+
+How this describes itself. It is personal accounting software that happens to
+carry a full-coverage MCP server, not an AI product that happens to keep books,
+and the front page, the manifest, the container label and the sign-in screen all
+led with the automation rather than with the ledger. The accounting leads now and
+the MCP server is one capability among several — which is also the honest
+ordering, since the books are what the agents are careful with.
 
 An idempotency key means the same thing over MCP as it does over the HTTP API.
 Ten MCP writes kept a replay record of their own on top of the one the service

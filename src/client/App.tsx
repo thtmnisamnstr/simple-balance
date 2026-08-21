@@ -56,16 +56,23 @@ import TransactionsPage from "./pages/TransactionsPage.js";
 import { detectedCurrency, detectedTimezone } from "./locale.js";
 import { TimezoneProvider } from "./timezone.js";
 
+/**
+ * Reading order rather than alphabetical: where the money is and what moved it,
+ * then the work waiting on you, then the things that file and repeat it, then
+ * what it all adds up to. Reports sits after Recurring because it answers a
+ * question about a ledger somebody has already been keeping, not something they
+ * do to it.
+ */
 const nav = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/accounts", label: "Accounts", icon: Landmark },
   { to: "/transactions", label: "Transactions", icon: ReceiptText },
-  { to: "/reports", label: "Reports", icon: ChartColumn },
   { to: "/staged", label: "Staged", icon: Sparkles },
   { to: "/categories", label: "Categories", icon: Tags },
   { to: "/payees", label: "Payees", icon: UserRound },
   { to: "/templates", label: "Templates", icon: LayoutTemplate },
   { to: "/recurrences", label: "Recurring", icon: Repeat },
+  { to: "/reports", label: "Reports", icon: ChartColumn },
   { to: "/import", label: "Import CSV", icon: FileUp },
   { to: "/activity", label: "Activity", icon: History },
   { to: "/settings", label: "Settings", icon: Settings },
@@ -195,10 +202,11 @@ function SignIn({ error }: { error?: Error }) {
       <section className="auth-card">
         <div className="brand-mark large"><CircleDollarSign size={31} /></div>
         <span className="eyebrow">Private by design</span>
-        <h1>Personal accounting with safe AI automation.</h1>
+        <h1>Personal accounting on books that balance.</h1>
         <p>
-          Track accounts and transactions, import statements with a review
-          step, and give AI agents only the access you choose.
+          Every entry double-entered, nothing ever typed over, and imported
+          statements checked before they count. Agents get only the access you
+          choose.
         </p>
         {error && !(error instanceof ApiClientError && error.code === "UNAUTHORIZED") ? (
           <Alert>{error.message}</Alert>
