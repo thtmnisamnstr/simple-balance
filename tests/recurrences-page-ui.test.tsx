@@ -250,16 +250,33 @@ describe("the recurrence form", () => {
     await renderPage([]);
     await openForm();
 
+    // Derived rather than written down. The occurrence under test has to be in
+    // the future for the preview to list it at all, so a fixed date passes
+    // until that date goes by and then fails for a reason that has nothing to
+    // do with what is being tested.
+    const year = new Date().getUTCFullYear() + 1;
+    const firstMonday = new Date(Date.UTC(year, 7, 1));
+    const shift = (8 - firstMonday.getUTCDay()) % 7;
+    const thirdMonday = new Date(Date.UTC(year, 7, 1 + shift + 14));
+    const lastOfAugust = new Date(Date.UTC(year, 7, 31));
+
     fireEvent.change(screen.getByLabelText(/^Starting/), {
-      target: { value: "2026-08-31" },
+      target: { value: lastOfAugust.toISOString().slice(0, 10) },
     });
     fireEvent.click(screen.getByLabelText(/relative day/i));
     fireEvent.change(screen.getByLabelText(/^Which one/), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText(/^Day$/), { target: { value: "1" } });
 
     const preview = screen.getByText("Next five").parentElement!;
-    // The third Monday of August 2026, which is before the anchor's own day.
-    expect(within(preview).getByText("Aug 17, 2026")).toBeInTheDocument();
+    // The third Monday of that August, which is before the anchor's own day.
+    expect(thirdMonday.getUTCDate()).toBeLessThan(31);
+    const label = new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(thirdMonday);
+    expect(within(preview).getByText(label)).toBeInTheDocument();
   });
 
   it("previews nothing and refuses to save an interval the schedule rule rejects", async () => {
