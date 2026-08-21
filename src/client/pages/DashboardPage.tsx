@@ -1,4 +1,4 @@
-import { Link } from "../router.js";
+import { Link, useLocation } from "../router.js";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
@@ -31,6 +31,7 @@ import { TransactionForm } from "../forms.js";
 
 export default function DashboardPage() {
   const { start, end } = useDateRange();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const summary = useQuery({
     queryKey: ["summary", start, end],
@@ -133,12 +134,23 @@ export default function DashboardPage() {
                       <div className="account-mini-group" key={group.type}>
                         <h4 className="account-mini-heading">{group.label}</h4>
                         {group.accounts.map((account) => (
-                          <div key={account.id} className="account-mini-row">
+                          // The whole row, not just the name: the balance is
+                          // what somebody is looking at when they decide to open
+                          // an account. The date range travels with them, so the
+                          // account page opens on the same period.
+                          <Link
+                            key={account.id}
+                            className="account-mini-row"
+                            to={{
+                              pathname: `/accounts/${account.id}`,
+                              search: location.search,
+                            }}
+                          >
                             <strong>{account.name}</strong>
                             <span className={isNegativeMoney(account.balance) ? "money-negative" : ""}>
                               {formatMoney(account.balance, currency.currency)}
                             </span>
-                          </div>
+                          </Link>
                         ))}
                       </div>
                     ))}
