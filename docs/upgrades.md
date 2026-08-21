@@ -109,8 +109,11 @@ This is the reason step 2 is not optional.
    forgets fails the suite rather than shipping.
 2. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
    for you and the upgrade notes above send people there to read it.
-3. Commit and push that on the default branch.
-4. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
+3. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
+   image has run one against somebody's data it can never be edited again, and
+   the list is what says so.
+4. Commit and push that on the default branch.
+5. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
    `gh release create v0.2.0`.
 
 Publishing keys off the release itself, not off the tag push, so it runs once

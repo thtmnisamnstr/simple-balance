@@ -215,7 +215,11 @@ from.
 
 `whoami` reports whose books these are and the client id this call is authorized
 under, which is how a client picks itself out of `list_connected_agents`. It
-says nothing about how the person signs in.
+says nothing about how the person signs in. It does say whether this deployment
+can send mail at all, as `notificationsAvailable`: reminders and proposal notices
+are stored whether or not it can, so this is how to tell somebody that the
+reminder they just asked for will not arrive until an operator configures SMTP,
+rather than leaving them to notice the silence.
 
 `get_preferences` reports their timezone and default currency, and reading it
 matters more than it sounds. What counts as today is decided by their timezone
@@ -311,6 +315,9 @@ means an account typed `checking`, `savings` or `cash`.
 
 `get_account_register` lists one account's postings in date order with the
 balance before and after each, plus the balance the window opens and closes on.
+At most ten thousand postings; a wider window is refused rather than truncated,
+because a register cut short would close on a balance its own last row does not
+reach.
 It is built for finding mistakes rather than for analysis: where a balance goes
 wrong, this is the row it went wrong on. An archived account ends at zero and
 the postings that closed it out to equity are in the list, marked `closing` in

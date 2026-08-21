@@ -3,9 +3,9 @@
 Personal accounting you host yourself, built so an AI agent can do the tedious
 parts without being able to do the dangerous ones.
 
-- **Double-entry and append-only.** Every entry balances to zero in each
-  currency it touches, corrections are posted rather than typed over, and
-  deleting something reverses it instead of erasing it.
+- **Double-entry and append-only.** Every entry balances to zero in each currency
+  it touches, corrections are posted rather than typed over, and deleting
+  something reverses it instead of erasing it.
 - **A review queue in front of the books.** Bank CSVs are read, mapped, and
   checked first, and nothing counts until you commit it.
 - **Agents that cannot overreach.** MCP clients call the same code the browser
@@ -21,6 +21,7 @@ parts without being able to do the dangerous ones.
   crypto wallets, each in its own currency
 - Deposits, withdrawals, and transfers, including conversions that keep the sent
   and received amounts apart
+- One transaction split across several categories, each attributed on its own
 - CSV import through a review queue that flags a row repeating one you already
   have, and opens the two side by side to sort out
 - Templates for the transactions you enter over and over
@@ -30,14 +31,15 @@ parts without being able to do the dangerous ones.
   meant to fill in today
 - Mass edit and mass delete, up to 10,000 rows in one request that either wholly
   succeeds or wholly does not
-- One transaction split across several categories, each attributed on its own
-- Balances, cash flow, and spending by category over any date range
-- Net worth, income against expense, categories, cash flow, a balance sheet and
-  a trial balance, each per currency and over any range
+- Six reports — net worth, income against expense, categories, cash flow, a
+  balance sheet and a trial balance — each per currency and over any date range
+- A per-account register: every posting with the balance before and after it
 - Categories and payees that match case-insensitively, flag near-duplicates, and
   merge
 - An audit log of everything the browser or an agent did
 - Email and password, Google, or both, and OAuth for agents
+
+There is a walkthrough of all of it in [the guide](docs/guide.md).
 
 ## Run it locally
 
@@ -81,18 +83,16 @@ TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/simple_balance_
 
 ## Host it
 
-Pull a published image:
-
 ```sh
 docker pull ghcr.io/thtmnisamnstr/simple-balance:latest
 ```
 
-`latest` follows the newest final release. A prerelease tag publishes only its
-own version. To build it yourself instead, `docker build -t simple-balance .`
-from a clone.
+`latest` follows the newest final release. A prerelease tag publishes only its own
+version. To build it yourself instead, `docker build -t simple-balance .` from a
+clone.
 
-Everything is configured through environment variables. Copy the example and
-fill it in:
+Everything is configured through environment variables. Copy the example and fill
+it in:
 
 ```sh
 cp .env.example .env
@@ -103,8 +103,7 @@ public HTTPS origin in production. Point `DATABASE_URL` at a PostgreSQL 15 or
 newer server and Simple Balance sorts the rest out on startup: it creates the
 database if the server does not have it, builds the schema if the database is
 empty, and does nothing if it is already current. Generate the secret with
-`openssl rand -base64 32` and keep it: changing it signs everyone out. Google
-settings are only needed if you turn Google sign-in on.
+`openssl rand -base64 32` and keep it — changing it signs everyone out.
 
 ```sh
 docker run -d --name simple-balance --restart unless-stopped \
@@ -114,32 +113,35 @@ docker run -d --name simple-balance --restart unless-stopped \
 ```
 
 The container runs as a non-root user and never writes to its own filesystem.
-Everything it keeps is in PostgreSQL. Leave it bound to loopback and put a
-reverse proxy or a private network in front, rather than publishing the port.
+Everything it keeps is in PostgreSQL. Leave it bound to loopback and put a reverse
+proxy or a private network in front, rather than publishing the port.
 
 Watch it come up with `docker logs -f simple-balance`, and check
 `curl -f http://127.0.0.1:3000/health/ready`. Readiness stays closed until
 configuration, the database connection, and the migrations have all succeeded.
 
-The logs print a one-time setup code on first run. Enter it on the
-account-creation screen to claim the instance. Set `SETUP_TOKEN` yourself if you
-would rather choose it. Either way the code stops working once an account
-exists, so nobody can claim an instance just because they found it.
+**Claim the instance.** The logs print a one-time setup code on first run. Enter
+it on the account-creation screen. Set `SETUP_TOKEN` yourself if you would rather
+choose it. Either way the code stops working once an account exists, so nobody can
+claim an instance just because they found it.
 
-Give it a mail server with `SMTP_HOST` and `MAIL_FROM` and people can reset a
-forgotten password, and a new account has to confirm its address before it
-works. Without one, neither happens and a lost password means editing the
-database, so put it in a password manager.
+**Give it a mail server.** With `SMTP_HOST` and `MAIL_FROM`, people can reset a
+forgotten password, a new account has to confirm its address, and the scheduled
+reminders can be delivered. Without one, none of that happens and a lost password
+means editing the database, so put it in a password manager.
 
-After that, who else may register is up to `ALLOWED_EMAILS`. Leave it unset and
-nobody can, which keeps the deployment yours alone. List addresses
-(`you@example.com`), whole domains (`example.com`), or `*` for anybody, and
-those people get accounts of their own. They cannot see yours and you cannot see
-theirs.
+**Decide who else may register**, with `ALLOWED_EMAILS`. Leave it unset and nobody
+can, which keeps the deployment yours alone. List addresses (`you@example.com`),
+whole domains (`example.com`), or `*` for anybody, and those people get accounts of
+their own. They cannot see yours and you cannot see theirs.
 
 To move to a newer image, pull it, stop and remove the container, and start it
 again with the same command. Your database is untouched, and migrations run at
 startup. See [upgrades](docs/upgrades.md).
+
+Every setting, reverse proxies, TLS to the database, mail providers, backups, and
+running the pieces as separate containers are all in
+[deployment](docs/deployment.md).
 
 ### Sign-in modes
 
@@ -150,180 +152,36 @@ startup. See [upgrades](docs/upgrades.md).
 | `both` | Either, and both on one account | The same three |
 
 With Google enabled, register the callback as
-`https://YOUR-DOMAIN/api/auth/callback/google`. Full settings and reverse-proxy
-guidance are in [deployment](docs/deployment.md).
+`https://YOUR-DOMAIN/api/auth/callback/google`.
 
 ## Connect an agent
 
-The MCP endpoint is `/mcp`, protected by OAuth. Point a client at your origin
-and it discovers the rest. Grant `ledger:read` to let an agent look, add
+The MCP endpoint is `/mcp`, protected by OAuth. Point a client at your origin and
+it discovers the rest. Grant `ledger:read` to let an agent look, add
 `ledger:stage` to let it queue work for your review, and add `ledger:write` only
 if you want it to commit. Settings lists what you have approved, and revoking an
-agent there cuts it off on its next call rather than whenever its token happens
-to expire. See [MCP](docs/mcp.md).
+agent there cuts it off on its next call rather than whenever its token happens to
+expire.
 
 An agent can do everything you can: the whole ledger, imports, templates,
 recurrences, mass edits, and your own settings. Two things stay yours alone,
 deleting the account and setting a password, because they are account management
 rather than bookkeeping. An agent cannot get around your sign-in, the scopes you
-granted it, the duplicate checks, or the commit step.
+granted it, the duplicate checks, or the commit step. See [MCP](docs/mcp.md).
 
-## In detail
+## Not built yet
 
-### Accounts and transactions
-
-Accounts hold anything you file as an asset or a liability, each in its own
-currency. Crypto wallets track native quantities; nothing here quotes a market
-price. Retiring an account archives it, which posts whatever it still holds out
-to equity so the account closes at zero and stops counting toward your totals
-without the books going out of balance; restoring it puts the balance back, and
-its history stays readable throughout. Transactions are deposits, withdrawals,
-and transfers, same-currency or converted. A date, an account, an amount and a
-payee are required; the category, description and notes are not.
-
-### Importing and exporting
-
-Imports go through a review queue. Simple Balance reads the CSV, works out the
-format, maps the columns, parses whatever date and number conventions your bank
-uses, and creates categories and payees as it goes. You look at the result
-before any of it counts. Committing a batch is all or nothing.
-
-One of its own exports needs no mapping at all: pick the account and stage it.
-The account is that choice and nothing else, so a file exported from one ledger
-imports into another, or into somebody else's, or into a fresh install. A
-transfer names a second account, which is a choice the import screen cannot
-make, so those rows arrive in the queue asking for it.
-
-### Splitting one receipt across categories
-
-A grocery run that is partly food, partly household and partly something for the
-dog is one transaction with three category legs. Press Split on the category
-field, give each row its own amount, and the form tells you what is left to
-assign until it comes to nothing.
-
-Each leg is attributed to its own category everywhere the money is reported: the
-dashboard, the category pages, and over the MCP. Nothing is counted twice — the
-categories add up to exactly what left the account, because a split cuts the
-entry's existing counter-side into pieces rather than recording the money again.
-Splits work on staged rows and on templates too, where the categories are stored
-and the amounts left for you. An export carries a split by category name and
-reads back as the same split in another ledger.
-
-### Templates
-
-A transaction you enter often can be saved as a template from any row and picked
-from a dropdown next time. It fills the form in and then gets out of the way:
-what you change afterwards is yours alone, and the template is not touched.
-
-Only the name is required. A template holds whatever subset of a transaction's
-fields you give it, and applying one fills in those fields and leaves the rest
-as they were, so you can apply a template to an entry that already exists as
-well as to a new one. Each template also reports how many transactions have come
-from it, and links to them.
-
-Templates have a screen of their own, where you can make one, change one, or
-change many at once. A mass edit there can also clear a field rather than set
-it, which is how a template stops carrying an amount and starts asking for one
-each time you use it.
-
-### Recurring transactions
-
-Rent, a salary, a subscription: anything that arrives on a schedule can be set
-up once and left. Daily, weekly, monthly or yearly, every N of those, on a day
-of the month or on a relative day such as the second Tuesday or the last Friday.
-You choose what happens when the month is too short for the day you picked, and
-what happens when a date lands on a weekend.
-
-Make one on the Recurring screen, or from the menu on any row, on the
-transactions list or the review queue, the same way you save a template. The row
-supplies the payee, the account, the amount and the category, and its own date
-becomes the day of the month the schedule repeats on. You give it a name and
-pick how often.
-
-On its due date it puts an ordinary row in the review queue, dated its own
-occurrence, and posts nothing. You check it and commit it like anything else.
-Leave the amount out and each proposal waits for a number, which is what the
-electricity bill wants.
-
-That it proposes rather than posts is the whole design. A scheduler writing to
-the ledger unattended is a writer nobody watched; a scheduler filling a queue is
-just another thing suggesting work. It also turns the usual failure inside out:
-when the schedule stops running, the Recurring page says a recurrence is past
-due rather than the ledger quietly missing months of rent.
-
-Any recurrence can email you when it proposes, so a queue you check weekly does
-not quietly grow. One message per proposal, however many rows it holds, and the
-Recurring list says which recurrences are set to send one.
-
-### Reminders for templates
-
-A template is filled in by hand, so a schedule cannot make it for you — but it
-can remind you. Any template can carry a reminder: once on a date, or repeating
-on the same schedules a recurrence offers, and either way at a time of day on
-your own clock rather than the server's. The Templates list says which ones have
-a reminder and whether it repeats.
-
-The mail points at the template and records nothing. That is the difference
-between the two: a recurrence proposes a row and asks you to check it, and a
-reminder asks you to make one. Both need a mail server configured; without one
-the setting is saved and nothing is sent.
-
-Public holidays are not modelled. A business day here means Monday to Friday.
-
-A split recurrence divides the same way every time, so its legs have to add up
-to the amount before it is saved rather than each proposal being refused later.
-
-### Changing many rows at once
-
-You can change or delete up to 10,000 rows in one request that either wholly
-succeeds or wholly does not, from any view, after seeing what it will touch.
-That works on the queue as well as on committed rows, which is how you fix a
-file whose account or category column meant nothing to the importer: one edit
-over the whole batch, and the rows it repairs come back ready to commit.
-Categories and payees match case-insensitively, flag their own near-duplicates,
-and merge by rewriting every reference at once.
-
-### Reading it back
-
-The dashboard covers balances, cash flow, and spending by category over any date
-range, and the range is in the URL, so you can link to it. It stops at today
-whatever range you pick, because money dated next month is not money you have.
-
-Reports go further: net worth and a balance sheet for what the accounts hold,
-income against expense and categories for what moved, a cash flow statement for
-where the money you can spend came from and went to, and a trial balance that
-totals zero when the books are whole. Group by week, month, quarter or year, or
-not at all. Every figure is per currency and none is ever added across them,
-because there are no exchange rates here to add them with. Over the API and MCP, any account also
-has a register: every posting in date order with the balance before and after
-it, for when a balance is wrong and you need the row it went wrong on.
-The transactions list, the review queue and the templates list sort by any
-column they show and page by number. Activity shows the hundred most recent
-events and neither sorts nor pages. Everything the
-browser or an agent did is in the audit log.
-
-### Signing in, and leaving
-
-Sign in with an email and password, with Google, or with both on the same
-account. One deployment can hold any number of people, each with their own
-separate books, and `ALLOWED_EMAILS` decides who may join. The MCP server runs
-over OAuth with separate read, stage, and write scopes.
-
-Leaving is yours to do. Settings deletes the account and everything in it, after
-counting what that is and asking you to type your address. Nothing is kept, and
-no agent can do it for you.
-
-### Not built yet
-
-Budgets, bank sync, account sharing, attachments, and reconciliation. What is planned, in what
-order, and the evidence behind each is in the [roadmap](docs/roadmap.md), which
-also says what is deliberately not planned and why, market prices among it. Tags
-are neither built nor planned.
+Budgets, bank sync, account sharing, attachments, and reconciliation. What is
+planned, in what order, and the evidence behind each is in the
+[roadmap](docs/roadmap.md), which also says what is deliberately not planned and
+why, market prices among it. Tags are neither built nor planned.
 
 ## More
 
-- [Architecture](docs/architecture.md): how it fits together, and what the
-  ledger guarantees
+- [Guide](docs/guide.md): every feature, and the decisions behind the ones that
+  are not obvious
+- [Architecture](docs/architecture.md): how it fits together, and what the ledger
+  guarantees
 - [Deployment](docs/deployment.md): every setting, reverse proxies, backups
 - [Upgrades](docs/upgrades.md): moving between versions
 - [MCP](docs/mcp.md): scopes, tools, and what an agent can do
@@ -335,17 +193,17 @@ are neither built nor planned.
 ## Built with
 
 One TypeScript package: React and Vite in the browser, Hono on Node for the API,
-auth, MCP, and static files, Better Auth for local and Google sign-in and for
-MCP OAuth, Drizzle for PostgreSQL and its migrations, and Zod contracts shared
-by both sides of every boundary.
+auth, MCP, and static files, Better Auth for local and Google sign-in and for MCP
+OAuth, Drizzle for PostgreSQL and its migrations, and Zod contracts shared by both
+sides of every boundary.
 
 ## License
 
 [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
 
-Run it, change it, and share it freely. What the Affero clause adds to the GPL
-is section 13: offer a modified version to people over a network, and those
-people are entitled to that version's source. Self-hosting it for yourself, your
+Run it, change it, and share it freely. What the Affero clause adds to the GPL is
+section 13: offer a modified version to people over a network, and those people
+are entitled to that version's source. Self-hosting it for yourself, your
 household, or your company changes nothing about how you use it.
 
 Every version up to and including 0.1.3 was published under the LGPL and stays

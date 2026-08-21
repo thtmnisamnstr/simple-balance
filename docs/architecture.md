@@ -12,16 +12,16 @@ flowchart LR
   OAuth --> MCP["Streamable HTTP /mcp"]
   API --> Services["Ledger services"]
   MCP --> Services
-  Scheduler["Recurrence scheduler"] --> Services
+  Scheduler["Scheduler: proposals and reminders"] --> Services
   Services --> DB[("PostgreSQL 15+")]
   Auth["Local or Google sign-in"] --> OAuth
   OAuth --> DB
 ```
 
-Three writers, then, and the third is the one worth knowing about: it writes
-without anybody asking, and what it writes is a proposal into the review queue
-rather than a posting. The [scheduler](#the-scheduler) section says how that
-stays true.
+Three callers, then, and the third is the one worth knowing about: it acts
+without anybody asking. What it writes is a proposal into the review queue
+rather than a posting, and what it sends is mail about work waiting to be done.
+The [scheduler](#the-scheduler) section says how that stays true.
 
 `/api/v1` versions the HTTP contract, not the product. It changes when the
 contract breaks, which is not the same as when the app does.
@@ -34,7 +34,9 @@ contract breaks, which is not the same as when the app does.
 | `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
 | `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
 | `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |
-| `src/server/recurrence-scheduler.ts` | The loop that sweeps for recurrences that have come due. Replicas divide the sweep by claiming rows, so there is no leader. |
+| `src/server/recurrence-scheduler.ts` | The loop, and the only thing that acts unasked. One tick sweeps twice: for recurrences that have come due, and for reminders and proposal notices that are owed. Replicas divide both sweeps by claiming rows, so there is no leader. |
+| `src/server/scheduler.ts` | That loop as an entrypoint of its own, for a deployment that has split the single container up. It serves nothing but its own health checks. |
+| `src/server/mail.ts` | The one place mail is sent from, and the one place that decides whether this deployment can send any. |
 | `src/server/db` | Drizzle schema, migration runner, connection pool. |
 | `src/client` | The browser app. Renders what the server computed. |
 | `drizzle` | Generated SQL migrations and their snapshots. |
@@ -232,15 +234,23 @@ that is a new migration. See [upgrades](upgrades.md).
 
 ## The scheduler
 
-One thing in this system writes without anybody asking it to, and what it writes
-is a proposal. On a recurrence's due date it puts an ordinary staged row in the
-review queue and posts nothing, which is what keeps "every posting was made by
-somebody who was there" true with a scheduler in the picture.
+One thing in this system acts without anybody asking it to, and it does two
+jobs. On a recurrence's due date it puts an ordinary staged row in the review
+queue and posts nothing, which is what keeps "every posting was made by somebody
+who was there" true with a scheduler in the picture. And it sends the mail that
+says work is waiting: a notice when a recurrence has proposed, and a reminder
+about a template somebody meant to fill in today.
 
 It lives inside the server process and is on by default, so the single container
 this is documented as needs nothing extra. `RECURRENCE_SCHEDULER=false` switches
 it off, which is how a Kubernetes deployment hands the job to a container of its
-own.
+own — one that needs the mail settings as well, since it is the process that
+sends.
+
+The two jobs share one tick, and deliberately: a second loop would be a second
+thing to configure, a second thing to notice had stopped, and a second sweep of
+the same tables. Proposals go first, so a notice about what a tick proposed is
+sent in the same tick that proposed it.
 
 Two independent things stop the same occurrence being proposed twice. Every
 replica sweeps the same due list and claims each recurrence with `for update
@@ -271,6 +281,31 @@ first every time, and stopping on it would take every other account's schedule
 down with it for good. Its own transaction has already rolled back, watermark
 included, so nothing is half done. What is left is a recurrence sitting past due
 with nothing proposed, which is what the Recurring page reports.
+
+### Mail on the same tick
+
+A reminder is due when its own date has arrived and the wall clock where that
+person lives has passed the time they asked for. Both halves matter: the date
+alone would send at whatever hour the tick happened to run, and the clock alone
+would send every tick for the rest of the day. The same watermark discipline
+applies as to a recurrence — `last_notified_date` records what has gone,
+`next_notification_date` what is owed, a null next means nothing is — and the
+same `for update skip locked` claim divides the work between replicas.
+
+Mail is sent after the transaction that earned it has committed, never inside
+it. A message about rows that were then rolled back is worse than no message: it
+names a queue with nothing in it. So a proposal hands what it wrote to the tick
+through a callback, and the tick sends once the write is durable. The cost of
+that ordering is the one thing it cannot promise: a process killed between the
+commit and the send loses that message, and the watermark has moved, so it is
+not sent later. A missed notice about work sitting in a queue is recoverable by
+opening the queue; a notice about work that was never written is not.
+
+Nothing queues, either. A deployment with no mail server stores every reminder
+setting and sends none, and the sweep leaves early rather than claiming rows it
+cannot deliver — claiming them would advance watermarks past dates nobody was
+ever told about. A backlog collapses to one message per rule rather than one per
+missed occurrence, so a week of downtime brings one reminder instead of seven.
 
 ## MCP tokens
 
