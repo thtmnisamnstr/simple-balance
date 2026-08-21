@@ -811,7 +811,10 @@ export function TemplateForm({
       const kept = legs.filter(
         (leg) => leg.categoryId || leg.categoryName.trim() || leg.amount.trim(),
       );
-      if (kept.length >= 2) {
+      // Never for a transfer, so legs left behind by switching type are not sent
+      // for a type that cannot hold them. A template with no type at all keeps
+      // them, because it has not said it is a transfer.
+      if (type !== "transfer" && kept.length >= 2) {
         draft.legs = kept.map((leg) => ({
           ...(leg.categoryId
             ? { categoryId: leg.categoryId }

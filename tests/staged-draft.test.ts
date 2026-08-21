@@ -86,6 +86,33 @@ describe("saving a split as a template", () => {
     expect(template.categoryId).toBeUndefined();
   });
 
+  /**
+   * A transfer files nothing under a category, so legs left behind by switching
+   * type must not travel with it. The shape converter twenty lines below has
+   * always guarded this; the template converter did not, and the server would
+   * have refused the template with a message about a field the form hides.
+   */
+  it("never carries a split on to a transfer template", () => {
+    const template = templateDraftFromDraft({
+      type: "transfer",
+      payee: "Monthly sweep",
+      fromAccountId: "11111111-1111-4111-8111-111111111111",
+      toAccountId: "22222222-2222-4222-8222-222222222222",
+      amount: "250",
+      categoryId: "33333333-3333-4333-8333-333333333333",
+      legs: [
+        leg("33333333-3333-4333-8333-333333333333", "150"),
+        leg("44444444-4444-4444-8444-444444444444", "100"),
+      ],
+    });
+    expect(template.legs).toBeUndefined();
+    expect(template).toMatchObject({
+      type: "transfer",
+      fromAccountId: "11111111-1111-4111-8111-111111111111",
+      toAccountId: "22222222-2222-4222-8222-222222222222",
+    });
+  });
+
   it("keeps the single category when there is no split", () => {
     const template = templateDraftFromDraft({
       type: "withdrawal",

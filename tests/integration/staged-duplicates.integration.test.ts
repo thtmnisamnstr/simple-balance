@@ -338,4 +338,72 @@ integration("a staged row that looks like a committed transaction", () => {
     const page = await listStages(actor, { limit: 100, sort: "amount" });
     expect(page.items.map((item) => item.id)).toContain(row.id);
   });
+
+  /**
+   * The badge, the `duplicate` filter and the Status ordering are three readings
+   * of one question, and they disagreed: a row flagged only because something
+   * already committed looks like the same money sorted in among the rows that are
+   * ready to go, so ordering by Status put the very rows the badge was drawing
+   * attention to at the bottom.
+   */
+  it("sorts a row the badge calls a possible repeat above the ready ones", async () => {
+    const page = await listStages(actor, {
+      limit: 100,
+      sort: "status",
+      direction: "asc",
+    });
+    const ranked = (row: (typeof page.items)[number]) =>
+      row.duplicateOfId !== null ||
+      row.repeatsStagedRow === true ||
+      row.likelyDuplicateOfId !== null;
+
+    // The fixture has at least one of each, or this proves nothing.
+    expect(page.items.some(ranked)).toBe(true);
+    expect(page.items.some((row) => !ranked(row) && !row.validationIssues.length)).toBe(
+      true,
+    );
+
+    const rank = page.items.map((row) =>
+      row.validationIssues.length ? 0 : ranked(row) ? 1 : 2,
+    );
+    expect(rank).toEqual([...rank].sort((left, right) => left - right));
+  });
+
+  /**
+   * A transfer states its amount as `sourceAmount`, which is what the queue
+   * shows for one, so ordering on `amount` alone left every transfer with no
+   * value to sort by and sent them all to one end.
+   */
+  it("orders a transfer by the amount the queue shows for it", async () => {
+    await stage({
+      type: "transfer",
+      date: "2026-06-01",
+      payee: "Sweep",
+      fromAccountId: checkingId,
+      toAccountId: cardId,
+      sourceAmount: "77.00",
+    });
+
+    const page = await listStages(actor, {
+      limit: 100,
+      sort: "amount",
+      direction: "asc",
+    });
+    const shown = page.items
+      .map((row) => {
+        const draft = row.draft as {
+          type?: string;
+          amount?: string;
+          sourceAmount?: string;
+        };
+        return draft.type === "transfer" ? draft.sourceAmount : draft.amount;
+      })
+      .filter(
+        (value): value is string => typeof value === "string" && Number.isFinite(Number(value)),
+      )
+      .map(Number);
+
+    expect(shown).toEqual([...shown].sort((left, right) => left - right));
+    expect(shown).toContain(77);
+  });
 });

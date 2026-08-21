@@ -311,14 +311,23 @@ function rankCategories(currency: CurrencyReport): CurrencyReport {
  * correlated aggregate per column, which on five years of monthly buckets is
  * fifty times slower and gets worse as the series lengthens.
  */
-async function balanceCells(
-  actor: Actor,
+/**
+ * The statement, apart from running it, so a test can plan the SQL that ships.
+ *
+ * Every plan assertion here used to `explain` a copy of this query retyped
+ * inside the test, and the copies had drifted: one still filtered archived
+ * accounts this no longer filters, and another lacked the bound that makes the
+ * cash-flow counterpart lookup cheap. A test that plans a paraphrase reports on
+ * the paraphrase.
+ */
+export function balanceStatement(
+  userId: string,
   report: ReportName,
   bucket: ReportBucket,
   start: string,
   asOf: string,
-): Promise<Cell[]> {
-  const result = await getDb().execute(sql`
+): SQL {
+  return sql`
     with accounts as (
       select
         a.id,
@@ -328,7 +337,7 @@ async function balanceCells(
         a.system_kind,
         a.archived_at is not null as archived
       from ledger_account a
-      where a.user_id = ${actor.userId}
+      where a.user_id = ${userId}
         ${accountScope(report)}
     ),
     changes as (
@@ -338,7 +347,7 @@ async function balanceCells(
         sum(p.amount) as amount
       from posting p
       join accounts acc on acc.id = p.account_id
-      where p.user_id = ${actor.userId}
+      where p.user_id = ${userId}
         and p.date <= ${asOf}::date
       group by 1, 2
     ),
@@ -360,7 +369,19 @@ async function balanceCells(
     left join changes ch on ch.bucket = g.bucket_start and ch.account_id = acc.id
     left join changes o on o.bucket is null and o.account_id = acc.id
     order by acc.currency, lower(acc.name), g.bucket_start
-  `);
+  `;
+}
+
+async function balanceCells(
+  actor: Actor,
+  report: ReportName,
+  bucket: ReportBucket,
+  start: string,
+  asOf: string,
+): Promise<Cell[]> {
+  const result = await getDb().execute(
+    balanceStatement(actor.userId, report, bucket, start, asOf),
+  );
 
   return result.rows.map((row) => ({
     bucketStart: String(row.bucket_start),
@@ -468,18 +489,19 @@ async function flowCells(
  * movement, closing an account would report its whole balance as money spent on
  * the day it was closed.
  */
-async function cashFlowCells(
-  actor: Actor,
+/** The cash-flow statement, apart from running it. Same reason as above. */
+export function cashFlowStatement(
+  userId: string,
   bucket: ReportBucket,
   start: string,
   asOf: string,
   includeArchived: boolean,
-): Promise<Cell[]> {
-  const result = await getDb().execute(sql`
+): SQL {
+  return sql`
     with cash as (
       select a.id
       from ledger_account a
-      where a.user_id = ${actor.userId}
+      where a.user_id = ${userId}
         and a.system_kind is null
         and a.type in (${cashTypeList()})
         and (${includeArchived} or a.archived_at is null)
@@ -494,7 +516,7 @@ async function cashFlowCells(
         sum(p.amount) as amount
       from posting p
       join cash on cash.id = p.account_id
-      where p.user_id = ${actor.userId}
+      where p.user_id = ${userId}
         and p.closing_account_id is null
         and p.date between ${start}::date and ${asOf}::date
       group by p.transaction_id, p.date, p.currency, p.account_id
@@ -513,7 +535,7 @@ async function cashFlowCells(
       select p.transaction_id, p.currency, p.account_id, a.system_kind, a.type
       from posting p
       join ledger_account a on a.user_id = p.user_id and a.id = p.account_id
-      where p.user_id = ${actor.userId}
+      where p.user_id = ${userId}
         and p.transaction_id is not null
         and p.transaction_id in (select m.transaction_id from moves m)
       group by 1, 2, 3, a.system_kind, a.type
@@ -542,7 +564,19 @@ async function cashFlowCells(
       and s.account_id <> m.account_id
     group by 1, 2, 3
     order by m.currency, 1
-  `);
+  `;
+}
+
+async function cashFlowCells(
+  actor: Actor,
+  bucket: ReportBucket,
+  start: string,
+  asOf: string,
+  includeArchived: boolean,
+): Promise<Cell[]> {
+  const result = await getDb().execute(
+    cashFlowStatement(actor.userId, bucket, start, asOf, includeArchived),
+  );
 
   return result.rows.map((row) => ({
     bucketStart: String(row.bucket),

@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { StagedDuplicateReview } from "../src/client/api.js";
 import DuplicateReviewPage from "../src/client/pages/DuplicateReviewPage.js";
@@ -148,6 +148,24 @@ describe("reviewing two records of one payment", () => {
     expect(
       screen.getAllByRole("button", { name: /drop this staged row/i }),
     ).toHaveLength(2);
+  });
+
+  /**
+   * The page is about one staged row. Dropping it used to leave the page asking
+   * for a review of a row that no longer exists, so a successful drop ended on a
+   * red "Staged transaction not found" — the success looking exactly like a
+   * failure.
+   */
+  it("returns to the queue when the row it is about is dropped", async () => {
+    stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview);
+    renderReview();
+    await screen.findByLabelText("Staged row under review");
+
+    fireEvent.click(screen.getByRole("button", { name: /drop this staged row/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
+
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/staged"));
+    expect(screen.queryByText(/not found/i)).toBeNull();
   });
 
   it("says so when nothing repeats the row any more", async () => {

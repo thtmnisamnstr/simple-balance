@@ -353,6 +353,36 @@ integration("scheduled notifications", () => {
     expect(sent).toHaveLength(1);
   });
 
+  /**
+   * The reminder watermark records what has been sent and nothing else, so a
+   * sweep with nowhere to send must not move it. The form tells people a reminder
+   * is saved and waits for a mail server; this is that promise.
+   */
+  it("leaves the schedule alone when the deployment cannot send mail", async () => {
+    at("2026-05-10T09:00:00Z");
+    const created = await template("Waiting on SMTP", {
+      anchorDate: "2026-05-10",
+      time: "08:00",
+    });
+
+    const mail = await import("../../src/server/mail.js");
+    const enabled = vi.spyOn(mail, "mailEnabled").mockReturnValue(false);
+    try {
+      expect(await runDueNotifications()).toMatchObject({ examined: 0, sent: 0 });
+      expect(sent).toHaveLength(0);
+      expect(await reminderRow(created.id)).toMatchObject({
+        lastNotifiedDate: null,
+        nextNotificationDate: "2026-05-10",
+      });
+    } finally {
+      enabled.mockRestore();
+    }
+
+    // Still owed once there is somewhere to send it.
+    expect(await runDueNotifications()).toMatchObject({ sent: 1 });
+    expect(sent).toHaveLength(1);
+  });
+
   describe("whose clock it runs on", () => {
     it("uses the person's timezone rather than the server's", async () => {
       await setPreferences(actor, { timezone: "Asia/Tokyo" });
@@ -396,6 +426,73 @@ integration("scheduled notifications", () => {
         nextNotificationDate: "2026-06-15",
       });
       expect(await getDb().select().from(templateNotifications)).toHaveLength(1);
+    });
+
+    /**
+     * The row is replaced whole on every save, so without carrying the watermark
+     * a reminder already sent is owed again the moment somebody edits the payee.
+     */
+    it("does not re-send what has gone when the template is saved again", async () => {
+      at("2026-05-01T09:00:00Z");
+      const created = await template("Rent notice", {
+        frequency: "monthly",
+        interval: 1,
+        anchorDate: "2026-05-01",
+        time: "08:00",
+      });
+      expect(await runDueNotifications()).toMatchObject({ sent: 1 });
+      sent.length = 0;
+
+      // The same reminder, sent back unchanged alongside an edit to the draft.
+      const saved = await updateTransactionTemplate(actor, created.id, {
+        draft: { type: "withdrawal", payee: "New landlord", amount: "1300" },
+        notification: {
+          frequency: "monthly",
+          interval: 1,
+          anchorDate: "2026-05-01",
+          time: "08:00",
+        },
+        expectedVersion: created.version,
+      });
+
+      expect(saved.notification).toMatchObject({
+        lastNotifiedDate: "2026-05-01",
+        nextNotificationDate: "2026-06-01",
+      });
+      expect(await runDueNotifications()).toMatchObject({ sent: 0 });
+      expect(sent).toHaveLength(0);
+    });
+
+    it("starts afresh when the schedule itself changes", async () => {
+      at("2026-05-01T09:00:00Z");
+      const created = await template("Moved", {
+        frequency: "monthly",
+        interval: 1,
+        anchorDate: "2026-05-01",
+        time: "08:00",
+      });
+      await runDueNotifications();
+      sent.length = 0;
+
+      const moved = await updateTransactionTemplate(actor, created.id, {
+        notification: {
+          frequency: "monthly",
+          interval: 1,
+          anchorDate: "2026-05-01",
+          // The one thing that changed, and enough to mean a different schedule.
+          time: "21:00",
+        },
+        expectedVersion: created.version,
+      });
+
+      expect(moved.notification).toMatchObject({
+        lastNotifiedDate: null,
+        nextNotificationDate: "2026-05-01",
+      });
+      // Owed again, but at the new hour rather than the old one.
+      expect(await runDueNotifications()).toMatchObject({ sent: 0 });
+      at("2026-05-01T21:00:00Z");
+      expect(await runDueNotifications()).toMatchObject({ sent: 1 });
     });
 
     it("is kept by an update that says nothing about it", async () => {

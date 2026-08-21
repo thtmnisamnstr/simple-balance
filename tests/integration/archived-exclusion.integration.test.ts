@@ -14,6 +14,10 @@ import {
   createTransaction,
   updateTransaction,
 } from "../../src/server/services/transactions.js";
+import {
+  archivedEntriesCte,
+  withClause,
+} from "../../src/server/services/report-sql.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -181,29 +185,17 @@ integration("the archived-account exclusion, hoisted", () => {
    * execution per candidate row. A `SubPlan` node is what asking per row looks
    * like, and it appears whatever the row count, because the grouped `having`
    * inside the subquery is what stops the planner flattening it to an anti-join.
+   *
+   * Plans the shipped fragment rather than a copy of it: `archivedEntriesCte` is
+   * what the reports and the summary both build this from, so a change there is
+   * a change here.
    */
   it("answers the exclusion once rather than once per posting", async () => {
     const text = await getDb().transaction(async (tx) => {
       await tx.execute(sql`set local enable_seqscan = off`);
       const plan = await tx.execute(sql`
         explain
-        with archived_entries as (
-          select transaction_id
-          from (
-            select sibling.transaction_id, sibling.account_id
-            from posting sibling
-            join ledger_account side
-              on side.user_id = sibling.user_id
-              and side.id = sibling.account_id
-            where sibling.user_id = ${actor.userId}
-              and sibling.transaction_id is not null
-              and side.system_kind is null
-              and side.archived_at is not null
-            group by 1, 2
-            having sum(sibling.amount) <> 0
-          ) touched
-          group by transaction_id
-        )
+        ${withClause(archivedEntriesCte(actor.userId))}
         select p.currency, sum(p.amount)
         from posting p
         join ledger_account a

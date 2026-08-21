@@ -28,7 +28,11 @@ import {
   transactions,
 } from "../db/schema.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
-import { firstNotificationDate } from "./notifications.js";
+import {
+  firstNotificationDate,
+  notificationRuleOf,
+  type NotificationRule,
+} from "./notifications.js";
 import {
   getIdempotent,
   lockIdempotencyKey,
@@ -182,14 +186,12 @@ async function writeNotification(
   templateId: string,
   notification: TemplateNotification | null | undefined,
 ) {
-  if (notification === undefined) {
-    const [existing] = await tx
-      .select()
-      .from(templateNotifications)
-      .where(eq(templateNotifications.templateId, templateId))
-      .limit(1);
-    return existing ?? null;
-  }
+  const [existing] = await tx
+    .select()
+    .from(templateNotifications)
+    .where(eq(templateNotifications.templateId, templateId))
+    .limit(1);
+  if (notification === undefined) return existing ?? null;
   await tx
     .delete(templateNotifications)
     .where(
@@ -207,6 +209,18 @@ async function writeNotification(
     weekendPolicy: notification.weekendPolicy ?? "allow",
     position: notification.position ?? null,
   } as const;
+  // Saving the template again must not re-send what has already gone. The row is
+  // replaced whole, so without this the watermark is replaced too and a reminder
+  // sent last week is owed again the moment somebody edits the payee.
+  //
+  // Compared after defaults are applied, never against the incoming object: a
+  // one-off legitimately omits the interval and both policies, so the raw shapes
+  // differ every time even when nothing changed. A schedule that really did
+  // change starts afresh, which is what somebody moving the date is asking for.
+  const unchanged =
+    existing !== undefined &&
+    existing.notifyAt === notification.time &&
+    sameRule(notificationRuleOf(existing), rule);
   const [created] = await tx
     .insert(templateNotifications)
     .values({
@@ -220,15 +234,30 @@ async function writeNotification(
       positionOrdinal: rule.position?.ordinal ?? null,
       positionWeekday: rule.position?.weekday ?? null,
       notifyAt: notification.time,
-      // Deliberately not floored to today. A reminder anchored in the past is
-      // somebody asking to be told about something they have already missed, and
-      // the sweep collapses a backlog to one message, so it costs one mail and
-      // answers the question they were asking.
-      lastNotifiedDate: null,
-      nextNotificationDate: firstNotificationDate(rule),
+      // A new schedule is deliberately not floored to today. A reminder anchored
+      // in the past is somebody asking to be told about something they have
+      // already missed, and the sweep collapses a backlog to one message, so it
+      // costs one mail and answers the question they were asking.
+      lastNotifiedDate: unchanged ? existing.lastNotifiedDate : null,
+      nextNotificationDate: unchanged
+        ? existing.nextNotificationDate
+        : firstNotificationDate(rule),
     })
     .returning();
   return created;
+}
+
+/** Two reminder rules, compared field by field with the position flattened. */
+function sameRule(left: NotificationRule, right: NotificationRule) {
+  return (
+    left.frequency === right.frequency &&
+    left.interval === right.interval &&
+    left.anchorDate === right.anchorDate &&
+    left.monthPolicy === right.monthPolicy &&
+    left.weekendPolicy === right.weekendPolicy &&
+    (left.position?.ordinal ?? null) === (right.position?.ordinal ?? null) &&
+    (left.position?.weekday ?? null) === (right.position?.weekday ?? null)
+  );
 }
 
 /** Which account side a type reads, so the other one is not worth storing. */

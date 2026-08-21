@@ -216,7 +216,10 @@ export function templateDraftFromDraft(
   const legs = (draft.legs ?? []).filter(
     (leg) => keep(leg.categoryId) ?? keep(leg.categoryName) ?? keep(leg.amount),
   );
-  if (legs.length >= 2) {
+  // A transfer moves money between two accounts and files nothing under a
+  // category, so its legs are never carried — the same guard the shape converter
+  // below applies, and the same one both forms apply.
+  if (type !== "transfer" && legs.length >= 2) {
     template.legs = legs.map((leg) => ({
       ...(keep(leg.categoryId) ? { categoryId: keep(leg.categoryId) } : {}),
       ...(!keep(leg.categoryId) && keep(leg.categoryName)
