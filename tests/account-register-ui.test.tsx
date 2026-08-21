@@ -171,6 +171,32 @@ describe("an account's register", () => {
     expect(screen.getByText(/as of Aug 21, 2026/)).toBeInTheDocument();
   });
 
+  /**
+   * The link used to carry `transactionId`, which is not a filter the
+   * transactions list has: it was silently ignored and the row landed on the
+   * unfiltered list, one click away from being no help at all. Account and a
+   * one-day range are filters that exist.
+   */
+  it("links a posting to a list that is actually narrowed to it", async () => {
+    stub();
+    renderPage();
+    await screen.findByRole("heading", { name: "Register" });
+    fireEvent.click(screen.getByRole("button", { name: "Show register" }));
+
+    const link = await screen.findByRole("link", {
+      name: /Transactions on Feb 1, 2026 in Checking/,
+    });
+    const href = link.getAttribute("href")!;
+    const asked = new URL(href, window.location.origin).searchParams;
+    expect(asked.get("accountId")).toBe(accountId);
+    expect(asked.get("start")).toBe("2026-02-01");
+    expect(asked.get("end")).toBe("2026-02-01");
+    // Without this the range bar recomputes the month from its preset and
+    // widens the range straight back out.
+    expect(asked.get("preset")).toBe("custom");
+    expect(href).not.toContain("transactionId");
+  });
+
   it("hides again without losing the page", async () => {
     stub();
     renderPage();

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   addDays,
+  calendarDayIn,
+  clockTimeIn,
   daysInMonth,
   laterOf,
   nextOccurrenceAfter,
@@ -290,6 +292,83 @@ describe("finding where to resume", () => {
     expect(nextOccurrenceAfter(rule(), "2026-03-01").occurrenceDate).toBe(
       "2026-03-31",
     );
+  });
+});
+
+/**
+ * The two questions everything scheduled turns on: what day is it where this
+ * person lives, and what time is it there. They live in one place because two
+ * implementations gave two answers — PostgreSQL reads a bare offset with the
+ * POSIX sign convention and `Intl` reads it as ISO, sixteen hours apart — and a
+ * reminder is the first thing here that needs the second question at all.
+ */
+describe("what day and what time it is where somebody lives", () => {
+  const at = (iso: string) => new Date(iso);
+
+  it("reads a bare offset the way ISO does, not the way POSIX does", () => {
+    // POSIX would put this at 08:00 on the 15th. ISO puts it eight hours
+    // earlier, which is the previous day.
+    expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "-08:00")).toBe("2026-06-14");
+    expect(clockTimeIn(at("2026-06-15T00:00:00Z"), "-08:00")).toBe("16:00");
+    expect(clockTimeIn(at("2026-06-15T00:00:00Z"), "+05:30")).toBe("05:30");
+  });
+
+  it("crosses the date line in both directions", () => {
+    // UTC+14 and UTC-11, the two ends of the range of dates that are "today"
+    // somewhere, which is why the scheduler's prefilter over-selects by a day.
+    expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "Pacific/Kiritimati")).toBe(
+      "2026-06-15",
+    );
+    expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "Pacific/Niue")).toBe(
+      "2026-06-14",
+    );
+  });
+
+  /**
+   * Zero-padded, 24-hour, and never "24:00". The reminder check is a string
+   * comparison against a stored `HH:MM`, so `9:30` or `24:00` would order
+   * wrongly against every other time of day rather than failing outright.
+   */
+  it("answers the time as a string that sorts", () => {
+    expect(clockTimeIn(at("2026-06-15T00:00:00Z"), "UTC")).toBe("00:00");
+    expect(clockTimeIn(at("2026-06-15T09:05:00Z"), "UTC")).toBe("09:05");
+    expect(clockTimeIn(at("2026-06-15T23:59:00Z"), "UTC")).toBe("23:59");
+    for (const hour of [0, 1, 9, 12, 13, 23]) {
+      const value = clockTimeIn(
+        at(`2026-06-15T${String(hour).padStart(2, "0")}:30:00Z`),
+        "UTC",
+      );
+      expect(value).toMatch(/^([01][0-9]|2[0-3]):[0-5][0-9]$/);
+    }
+  });
+
+  /**
+   * Spring forward skips 02:00 to 02:59 entirely, so a reminder asked for at
+   * half past two on that day has no half past two to be sent at. It goes late
+   * rather than not at all, because the check is "the clock has passed it".
+   */
+  it("moves the clock across a daylight-saving boundary", () => {
+    // 2026-03-08 is when the United States springs forward.
+    expect(clockTimeIn(at("2026-03-08T06:59:00Z"), "America/New_York")).toBe("01:59");
+    expect(clockTimeIn(at("2026-03-08T07:00:00Z"), "America/New_York")).toBe("03:00");
+    expect(clockTimeIn(at("2026-03-08T07:00:00Z"), "America/New_York") >= "02:30").toBe(
+      true,
+    );
+    // And back again in November, where 01:30 happens twice. Either pass sends
+    // it; the watermark is what stops the second one.
+    expect(clockTimeIn(at("2026-11-01T05:30:00Z"), "America/New_York")).toBe("01:30");
+    expect(clockTimeIn(at("2026-11-01T06:30:00Z"), "America/New_York")).toBe("01:30");
+  });
+
+  /**
+   * A stored timezone is free text, checked when it was written and never
+   * again, so an ICU update or a hand-edited row can leave one unreadable years
+   * later. Inside a loop that serves every tenant, one such row must not throw.
+   */
+  it("falls back to UTC rather than throwing on a zone it cannot read", () => {
+    expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "Not/AZone")).toBe("2026-06-15");
+    expect(clockTimeIn(at("2026-06-15T07:00:00Z"), "Not/AZone")).toBe("07:00");
+    expect(() => todayIn("also not a zone")).not.toThrow();
   });
 });
 

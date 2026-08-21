@@ -200,11 +200,21 @@ export default function AccountDetailPage() {
                           <td>
                             {entry.origin === "transaction" ? (
                               entry.transactionId ? (
+                                // The list narrowed to this account on this one
+                                // day, which is a filter it actually has. An
+                                // id in the query string would have been
+                                // ignored and landed on the whole list.
                                 <Link
                                   to={{
                                     pathname: "/transactions",
-                                    search: `transactionId=${entry.transactionId}`,
+                                    search: queryString({
+                                      accountId: register.data.accountId,
+                                      start: entry.date,
+                                      end: entry.date,
+                                      preset: "custom",
+                                    }),
                                   }}
+                                  aria-label={`Transactions on ${formatDate(entry.date)} in ${register.data.accountName}`}
                                 >
                                   Transaction
                                 </Link>
