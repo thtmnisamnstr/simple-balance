@@ -9,7 +9,10 @@ import {
   setAccountArchived,
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
-import { getReport } from "../../src/server/services/reports.js";
+import {
+  cashFlowStatement,
+  getReport,
+} from "../../src/server/services/reports.js";
 import {
   createTransaction,
   updateTransaction,
@@ -215,6 +218,12 @@ integration("the cash flow statement", () => {
    * currency match gives a conversion three counterparts; dropping the group by
    * in `sides` gives a three-leg split three. Both multiply silently, so the
    * distribution is asserted rather than a total that could be wrong twice.
+   *
+   * Deliberately re-derived rather than built from `cashFlowStatement`, unlike
+   * the plan test below. What is being checked is a property of the ledger — that
+   * every movement on a spendable account has exactly one counterpart in its own
+   * currency — which the report relies on and does not establish. Asking the
+   * shipped query about it would be asking it to agree with itself.
    */
   it("resolves every movement to exactly one counterpart", async () => {
     const result = await getDb().execute(sql`
@@ -467,36 +476,18 @@ integration("the cash flow statement", () => {
     expect(summed).toBe(Number(moved_.rows[0]!.net));
   });
 
+  /**
+   * Plans the statement the service issues rather than a copy of it. The copy
+   * this replaced had drifted: it lacked the bound that ties the counterpart
+   * lookup to the movements in the window, which is the whole reason this query
+   * is not ten times slower than its siblings.
+   */
   it("answers the counterpart without a query per movement", async () => {
     const text = await getDb().transaction(async (tx) => {
       await tx.execute(sql`set local enable_seqscan = off`);
-      const plan = await tx.execute(sql`
-        explain
-        with cash as (
-          select a.id from ledger_account a
-          where a.user_id = ${actor.userId} and a.system_kind is null
-            and a.type in ('checking', 'savings', 'cash') and a.archived_at is null
-        ),
-        sides as (
-          select p.transaction_id, p.currency, p.account_id, a.system_kind, a.type
-          from posting p
-          join ledger_account a on a.user_id = p.user_id and a.id = p.account_id
-          where p.user_id = ${actor.userId} and p.transaction_id is not null
-          group by 1, 2, 3, a.system_kind, a.type
-        ),
-        moves as (
-          select p.transaction_id, p.date, p.currency, p.account_id, p.amount
-          from posting p join cash on cash.id = p.account_id
-          where p.user_id = ${actor.userId} and p.closing_account_id is null
-        )
-        select m.currency, s.system_kind, sum(m.amount)
-        from moves m
-        left join sides s
-          on s.transaction_id = m.transaction_id
-          and s.currency = m.currency
-          and s.account_id <> m.account_id
-        group by 1, 2
-      `);
+      const plan = await tx.execute(
+        sql`explain ${cashFlowStatement(actor.userId, "month", "2026-05-01", "2026-05-31", false)}`,
+      );
       return plan.rows.map((row) => Object.values(row)[0]).join("\n");
     });
 

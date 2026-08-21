@@ -9,7 +9,7 @@ import {
   setAccountArchived,
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
-import { getReport } from "../../src/server/services/reports.js";
+import { balanceStatement, getReport } from "../../src/server/services/reports.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
@@ -582,44 +582,18 @@ integration("reports", () => {
    * is the same answer recomputed from scratch every month. The window form
    * reads the postings once, and a `SubPlan` in the plan is what the other
    * shape looks like whatever the row count.
+   *
+   * Plans the statement the service issues, not a copy of it. This test used to
+   * retype the query, and the copy had drifted: it still filtered archived
+   * accounts that the shipped query deliberately keeps, so it was reporting on a
+   * shape nothing runs.
    */
   it("builds the series from one pass rather than one query per bucket", async () => {
     const text = await getDb().transaction(async (tx) => {
       await tx.execute(sql`set local enable_seqscan = off`);
-      const plan = await tx.execute(sql`
-        explain
-        with accounts as (
-          select a.id, a.currency from ledger_account a
-          where a.user_id = ${actor.userId} and a.system_kind is null
-            and a.archived_at is null
-        ),
-        changes as (
-          select
-            case when p.date < '2026-01-01'::date then null
-                 else date_trunc('month', p.date)::date end as bucket,
-            p.account_id, sum(p.amount) as amount
-          from posting p
-          join accounts acc on acc.id = p.account_id
-          where p.user_id = ${actor.userId} and p.date <= '2026-12-31'::date
-          group by 1, 2
-        ),
-        grid as (
-          select b.bucket::date as bucket_start
-          from generate_series(
-            date_trunc('month', '2026-01-01'::date),
-            date_trunc('month', '2026-12-31'::date),
-            interval '1 month'
-          ) as b(bucket)
-        )
-        select g.bucket_start, acc.id,
-          (coalesce(o.amount, 0) + sum(coalesce(ch.amount, 0)) over (
-            partition by acc.id order by g.bucket_start
-            rows between unbounded preceding and current row))::text
-        from grid g
-        cross join accounts acc
-        left join changes ch on ch.bucket = g.bucket_start and ch.account_id = acc.id
-        left join changes o on o.bucket is null and o.account_id = acc.id
-      `);
+      const plan = await tx.execute(
+        sql`explain ${balanceStatement(actor.userId, "net-worth", "month", "2026-01-01", "2026-12-31")}`,
+      );
       return plan.rows.map((entry) => Object.values(entry)[0]).join("\n");
     });
 

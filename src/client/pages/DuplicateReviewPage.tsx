@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import {
   api,
@@ -22,7 +23,7 @@ import {
 } from "../components.js";
 import { TransactionForm } from "../forms.js";
 import { summarizeStagedDraft } from "../staged-draft.js";
-import { Link, useParams } from "../router.js";
+import { Link, Navigate, useParams } from "../router.js";
 
 /**
  * Two records of what might be one payment, open for editing side by side.
@@ -53,21 +54,35 @@ export default function DuplicateReviewPage() {
     queryFn: () => api<Category[]>("/api/v1/categories"),
   });
 
+  // Dropping the row this page is about ends the page. Refetching instead asks
+  // for a review of a row that no longer exists, and the answer is a red "Staged
+  // transaction not found" over an empty screen — the failure looking exactly
+  // like the success.
+  const [subjectDropped, setSubjectDropped] = useState(false);
+
   const deletion = useMutation({
     mutationFn: async (side: DuplicateReviewSide) => {
       const staged = side.staged!;
-      return api("/api/v1/staged-transactions/delete", {
+      await api("/api/v1/staged-transactions/delete", {
         ...json({
           stagedIds: [staged.id],
           expectedVersions: { [staged.id]: staged.version },
         }),
       });
+      return staged.id;
     },
-    onSuccess: async () => {
+    onSuccess: async (deletedId) => {
+      const wasSubject = review.data?.first.staged?.id === deletedId;
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["staged"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["staged"],
+          // The review itself is not worth refetching when its subject is gone.
+          predicate: (entry) =>
+            !(wasSubject && entry.queryKey[2] === "duplicate"),
+        }),
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
       ]);
+      if (wasSubject) setSubjectDropped(true);
     },
   });
 
@@ -77,6 +92,10 @@ export default function DuplicateReviewPage() {
 
   const ready = accounts.data && categories.data;
   const error = review.error ?? accounts.error ?? categories.error;
+
+  // Back to the queue, which is where the work continues and where the row that
+  // is left now sits without a badge.
+  if (subjectDropped) return <Navigate to="/staged" replace />;
 
   return (
     <>

@@ -190,6 +190,17 @@ export type NotificationTickSummary = {
 export async function runDueNotifications(
   stopped: () => boolean = () => false,
 ): Promise<NotificationTickSummary> {
+  // Nothing at all when there is nowhere to send, because the watermark here
+  // exists only to record what has been sent. Sweeping without a mail server
+  // would move it past every occurrence and call them done, so configuring SMTP
+  // a month later would find a schedule that had quietly eaten its own backlog —
+  // and the form promises the opposite, that a reminder is kept until there is
+  // somewhere to send it.
+  //
+  // Unlike a recurrence, whose watermark records a proposal that really happened
+  // and must advance whether or not anybody was told.
+  if (!mailEnabled()) return { examined: 0, sent: 0, failed: 0 };
+
   const due = await getDb().execute<{
     id: string;
     user_id: string;

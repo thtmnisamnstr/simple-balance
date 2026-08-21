@@ -55,12 +55,18 @@ export default function ReportsPage() {
   const { start, end } = useDateRange();
   const [params, setParams] = useSearchParams();
   const bucket = params.get("bucket") ?? "";
+  const includeArchived = params.get("archived") === "1";
 
   const query = useQuery({
-    queryKey: ["report", report, start, end, bucket],
+    queryKey: ["report", report, start, end, bucket, includeArchived],
     queryFn: () =>
       api<Report>(
-        `/api/v1/reports/${report}?${queryString({ start, end, bucket })}`,
+        `/api/v1/reports/${report}?${queryString({
+          start,
+          end,
+          bucket,
+          ...(includeArchived ? { includeArchived: "true" } : {}),
+        })}`,
       ),
     // Every figure here is derived from transactions edited on other pages, and
     // none of those mutations knows to invalidate a report. Refetching on mount
@@ -74,6 +80,15 @@ export default function ReportsPage() {
     const updated = new URLSearchParams(params);
     if (next) updated.set("bucket", next);
     else updated.delete("bucket");
+    setParams(updated, { replace: true });
+  };
+
+  // In the URL, like the range and the grouping, so a report somebody sends
+  // somebody else is the report they were looking at.
+  const setIncludeArchived = (next: boolean) => {
+    const updated = new URLSearchParams(params);
+    if (next) updated.set("archived", "1");
+    else updated.delete("archived");
     setParams(updated, { replace: true });
   };
 
@@ -123,8 +138,33 @@ export default function ReportsPage() {
             </option>
           ))}
         </Select>
+        <label className="check-label">
+          <input
+            type="checkbox"
+            checked={includeArchived}
+            onChange={(event) => setIncludeArchived(event.target.checked)}
+          />
+          Include closed accounts
+        </label>
       </div>
       <DateRangeBar />
+
+      {/* The flag cannot mean one thing on both kinds of report, so the page says
+          which. On a balance it changes no figure — a closed account holds
+          nothing, and its history is reported either way — it only decides
+          whether a row flat at zero is listed. On a movement report it decides
+          whether a closed account's activity is counted at all. */}
+      {data ? (
+        <p className="settings-note">
+          {data.accumulation === "historical"
+            ? includeArchived
+              ? "Closed accounts are listed. What they held before they closed is in these figures either way."
+              : "Closed accounts are left out of the list. What they held before they closed is still in these figures."
+            : includeArchived
+              ? "What was earned and spent through closed accounts is counted here."
+              : "What was earned and spent through closed accounts is left out."}
+        </p>
+      ) : null}
 
       {report === "cash-flow" ? (
         <Alert kind="info">

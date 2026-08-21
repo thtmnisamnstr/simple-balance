@@ -214,6 +214,14 @@ export type NormalizedCsvRow = {
   draft: TransactionDraft | null;
   issues: { field: string; message: string }[];
   rawData: Record<string, string>;
+  /**
+   * What was read from a row that could not be assembled into a draft.
+   *
+   * The queue exists to fix rows like this, and fixing one is much easier when
+   * the six fields that did parse are already in it. Only ever set beside a null
+   * draft; `stageCsv` stores whichever of the two is present.
+   */
+  partial?: Record<string, unknown>;
 };
 
 /**
@@ -342,7 +350,29 @@ export function normalizeCsvRows(
     }
 
     if (issues.length || !date || !amount || !payee) {
-      return { draft: null, issues, rawData: row };
+      // Everything that did parse travels with the row. Returning nothing threw
+      // away five good fields because a sixth was unreadable, leaving somebody to
+      // retype a date and a payee the importer had already understood — and the
+      // app-export reader beside this one has always refused to do that.
+      return {
+        draft: null,
+        issues,
+        rawData: row,
+        partial: {
+          type,
+          ...(date ? { date } : {}),
+          ...(payee ? { payee } : {}),
+          ...(amount ? { amount } : {}),
+          ...(description ? { description } : {}),
+          ...(csvCell(row, mapping.notes) ? { notes: csvCell(row, mapping.notes) } : {}),
+          ...(csvCell(row, mapping.externalId)
+            ? { externalId: csvCell(row, mapping.externalId) }
+            : {}),
+          ...(type === "deposit"
+            ? { toAccountId: options.defaultAccountId }
+            : { fromAccountId: options.defaultAccountId }),
+        },
+      };
     }
 
     const common = {

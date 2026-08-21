@@ -274,6 +274,37 @@ describe("the reports page", () => {
     expect(screen.queryByRole("rowheader", { name: "Net" })).toBeNull();
   });
 
+  it("asks for closed accounts through the URL, and says what that changed", async () => {
+    stub();
+    renderReports("/reports/net-worth");
+    await screen.findByRole("rowheader", { name: "Checking" });
+
+    // A balance report: the figures are the same either way, and the page says so.
+    expect(
+      screen.getByText(/still in these figures/),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Include closed accounts"));
+
+    await vi.waitFor(() => {
+      expect(window.location.search).toContain("archived=1");
+    });
+    const urls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map(
+      (call) => String(call[0]),
+    );
+    expect(urls.some((url) => url.includes("includeArchived=true"))).toBe(true);
+  });
+
+  it("says a movement report counts closed accounts only when asked", async () => {
+    stub({ ...report, report: "income-expense", accumulation: "change" });
+    renderReports("/reports/income-expense");
+    await screen.findByRole("rowheader", { name: "Checking" });
+
+    expect(screen.getByText(/is left out/)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Include closed accounts"));
+    expect(await screen.findByText(/is counted here/)).toBeInTheDocument();
+  });
+
   it("does not tell a ledger it is empty when the report failed", async () => {
     vi.stubGlobal(
       "fetch",

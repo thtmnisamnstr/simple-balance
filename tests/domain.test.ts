@@ -268,6 +268,39 @@ describe("CSV normalization", () => {
   });
 
   /**
+   * A row the importer could not finish is exactly the row somebody is in the
+   * queue to fix, so what it did read has to arrive with it. Throwing it away
+   * meant retyping a date and a payee the importer had already understood.
+   */
+  it("keeps what it read from a row it could not finish", () => {
+    const [row] = normalizeCsvRows(
+      [{ Date: "07/30/2026", Memo: "Corner shop", Amount: "not a number" }],
+      {
+        mapping: {
+          date: "Date",
+          payee: "Memo",
+          description: "Memo",
+          amount: "Amount",
+        },
+        defaultAccountId: accountId,
+        dateFormat: "MDY",
+        decimalSeparator: ".",
+      },
+    );
+
+    expect(row.draft).toBeNull();
+    expect(row.issues.map((issue) => issue.field)).toContain("amount");
+    expect(row.partial).toMatchObject({
+      date: "2026-07-30",
+      payee: "Corner shop",
+      description: "Corner shop",
+      fromAccountId: accountId,
+    });
+    // The one field it could not read is absent rather than guessed at.
+    expect(row.partial).not.toHaveProperty("amount");
+  });
+
+  /**
    * A negative in a debit or credit column is direction stated twice and
    * disagreeing. Reading it either way silently reverses half of real bank
    * files, so the row is refused with the sign still legible rather than

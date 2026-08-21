@@ -486,15 +486,23 @@ function stageSortPlan(
     case "status":
       // The order the queue reads in: what needs a person, then what might be a
       // repeat, then what is ready to go.
+      //
+      // "Might be a repeat" is the same three ways the badge and the filter mean
+      // it — a strict match, another row still waiting, or something already
+      // committed that looks like the same money. Asking only about the strict
+      // match sorted a badged row in among the ready ones.
       return paged(sql`case
         when jsonb_array_length(${stagedTransactions.validationIssues}) > 0 then 0
-        when ${stagedTransactions.duplicateOfId} is not null then 1
+        when ${possiblyDuplicate} then 1
         else 2
       end`);
     case "amount":
+      // A transfer states its amount as `sourceAmount`, which is what the queue
+      // shows for one, so sorting on `amount` alone left every transfer with no
+      // value to sort by and sent them all to one end.
       return paged(sql`case
-        when ${draft} ->> 'amount' ~ ${DRAFT_DECIMAL}
-          then (${draft} ->> 'amount')::numeric
+        when ${draft} ->> 'type' = 'transfer' then ${draftAmount("sourceAmount")}
+        else ${draftAmount("amount")}
       end`);
     default: {
       // ISO dates sort the same as text, so this ordering can be resumed.
