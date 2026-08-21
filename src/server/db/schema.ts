@@ -187,6 +187,9 @@ export const ownerSetupTokens = pgTable("auth_owner_setup_token", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// Exported although nothing outside this file names them: drizzle-kit discovers
+// enums by enumerating this module's exports, and un-exporting one makes it
+// generate a `DROP TYPE` for a type every column of that kind still uses.
 export const accountTypeEnum = pgEnum("ledger_account_type", accountTypes);
 export const systemAccountKindEnum = pgEnum(
   "system_account_kind",

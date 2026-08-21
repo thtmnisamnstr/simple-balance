@@ -167,6 +167,38 @@ describe("Docker runtime", () => {
       Object.values(runtimeLock.packages).some((entry) => entry.dev),
     ).toBe(false);
   });
+
+  /**
+   * The two manifests carry the same ranges, which is already asserted, and a
+   * range is not a version: `^1.2.0` resolves to whatever was newest when each
+   * lockfile was written. Install in one and not the other and the image ships
+   * a version the suite never ran, with nothing to say so — the ranges still
+   * agree and both lockfiles are internally valid.
+   */
+  it("ships the versions the tests ran against", () => {
+    const resolved = (relative: string) =>
+      (
+        JSON.parse(
+          readFileSync(new URL(relative, import.meta.url), "utf8"),
+        ) as { packages: Record<string, { version?: string }> }
+      ).packages;
+    const root = resolved("../package-lock.json");
+    const runtime = resolved("../runtime/package-lock.json");
+    const shared = Object.keys(
+      (
+        JSON.parse(
+          readFileSync(new URL("../runtime/package.json", import.meta.url), "utf8"),
+        ) as { dependencies: Record<string, string> }
+      ).dependencies,
+    );
+
+    for (const name of shared) {
+      expect(
+        runtime[`node_modules/${name}`]?.version,
+        `${name} resolves differently in the two lockfiles`,
+      ).toBe(root[`node_modules/${name}`]?.version);
+    }
+  });
 });
 
 /**

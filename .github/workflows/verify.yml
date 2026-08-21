@@ -215,3 +215,55 @@ jobs:
           IMAGE: ${{ matrix.image }}
           DOCKERFILE: ${{ matrix.dockerfile }}
         run: docker build -f "$DOCKERFILE" -t "$IMAGE:test" .
+
+      # Building the frontend image proves nothing about its nginx
+      # configuration: the config is a template rendered by the entrypoint, and
+      # a malformed `add_header` or a location-scoped directive in the wrong
+      # include is a startup error rather than a build error. So this one image
+      # is started and asked for a page. `tests/security-header-parity.test.ts`
+      # checks the include against the API's middleware; this checks that nginx
+      # accepts it and that the headers reach a real response.
+      - name: The frontend image serves the shell with its policy on it
+        if: matrix.image == 'simple-balance-frontend'
+        run: |
+          set -euo pipefail
+          # nginx's own reason for refusing is the useful output here, and every
+          # check below exits on failure, so the logs are printed on the way out
+          # rather than after the last assertion.
+          trap 'docker logs frontend-probe || true; docker rm -f frontend-probe || true' EXIT
+          # A resolvable upstream, because nginx refuses to start on a proxy_pass
+          # host it cannot resolve. Nothing answers on it and nothing needs to:
+          # only files nginx serves itself are being asked for.
+          docker run -d --name frontend-probe \
+            -e SB_API_ORIGIN=http://127.0.0.1:3000 \
+            -p 127.0.0.1:8099:8080 simple-balance-frontend:test
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8099/; then break; fi
+            sleep 1
+          done
+          shell_headers=$(curl -fsS -D - -o /dev/null http://127.0.0.1:8099/)
+          asset=$(curl -fsS http://127.0.0.1:8099/ | grep -oE '/assets/[^"]+\.js' | head -1)
+          test -n "$asset"
+          asset_headers=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$asset")
+          for header in \
+            "content-security-policy" \
+            "x-content-type-options" \
+            "x-frame-options" \
+            "referrer-policy" \
+            "cross-origin-opener-policy" \
+            "cross-origin-resource-policy" \
+            "origin-agent-cluster" \
+            "x-dns-prefetch-control" \
+            "x-download-options" \
+            "x-permitted-cross-domain-policies" \
+            "x-xss-protection" \
+            "strict-transport-security"; do
+            # Both, because the include is repeated per static location and
+            # nginx drops inherited add_header from any level with one of its
+            # own. Losing it from the assets location alone would be silent.
+            printf '%s' "$shell_headers" | grep -qi "^$header:" \
+              || { echo "::error::the shell is missing $header"; exit 1; }
+            printf '%s' "$asset_headers" | grep -qi "^$header:" \
+              || { echo "::error::a hashed asset is missing $header"; exit 1; }
+          done
+          echo "the shell and a hashed asset both carry all twelve headers"
