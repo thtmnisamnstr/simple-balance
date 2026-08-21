@@ -201,12 +201,12 @@ function SignIn({ error }: { error?: Error }) {
     <main className="auth-shell">
       <section className="auth-card">
         <div className="brand-mark large"><CircleDollarSign size={31} /></div>
-        <span className="eyebrow">Private by design</span>
-        <h1>Double-entry books for your own money.</h1>
+        <span className="eyebrow">Personal accounting</span>
+        <h1>Where your money is, and where it went.</h1>
         <p>
-          Nothing is ever typed over &mdash; corrections post and deletions
-          reverse &mdash; and imported statements are checked before they count.
-          Agents get only the access you choose.
+          Every account in one place, bank statements that import and file
+          themselves, and the bills and paychecks you only set up once. Nothing
+          counts until you say so.
         </p>
         {error && !(error instanceof ApiClientError && error.code === "UNAUTHORIZED") ? (
           <Alert>{error.message}</Alert>

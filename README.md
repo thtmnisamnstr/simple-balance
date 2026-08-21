@@ -1,49 +1,49 @@
 # Simple Balance
 
-Personal accounting you host yourself, on real double-entry books. Every entry
-balances, nothing is ever typed over, and every figure traces back to the
-postings that made it.
+Know where your money is, and where it went. Every account in one place, bank
+statements that import and file themselves, the bills and paychecks you only set
+up once, and reports that go back as far as your books do — on a server you run
+yourself.
 
-- **Real double-entry, append-only.** Every entry balances to zero in each
-  currency it touches, corrections are posted rather than typed over, and
-  deleting something reverses it instead of erasing it.
-- **Staged transactions, a review queue in front of the books.** Bank CSVs are
-  read, mapped, and checked first, and nothing counts until you commit it.
-- **Reports that add up.** Net worth, income against expense, categories, cash
-  flow, a balance sheet, and a trial balance that totals zero — each per
-  currency, and never added across them.
-- **An MCP server at full feature parity.** Agents can do the tedious parts
-  without being able to do anything dangerous: they call the same code the
-  browser does, under separate read, stage, and write scopes, and cannot get
-  around the review step.
-- **One container and a database.** Any number of people on a deployment, each
-  with their own separate books.
+- **Every account, one page.** Checking, savings, credit cards, cash, loans,
+  investments and crypto wallets, each in its own currency, with balances as of
+  any date you ask for.
+- **Statements that file themselves.** Point it at a bank CSV and it works out
+  the format, maps the columns, and sorts the categories and payees. It flags
+  anything that looks like a transaction you already have, and nothing counts
+  until you say so.
+- **Nothing to remember.** Rent, a salary, a subscription: set it up once and it
+  proposes itself on the day, with an email if you want one.
+- **Reports that add up.** Net worth, income against expense, spending by
+  category, cash flow, a balance sheet and a trial balance — over any range, and
+  never added across currencies, because there are no exchange rates here to add
+  them with.
+
+Underneath it is real double-entry bookkeeping, which is what lets every figure
+on every page trace back to the entries that made it. And it ships a full MCP
+server, so an AI agent can do the filing and the tidying for you without being
+able to do anything dangerous, or get around the step where you check its work.
 
 ![The Simple Balance overview: balance, deposits, withdrawals and net cash flow for a month, then accounts and spending by category, reported separately for each currency the ledger holds](docs/images/dashboard.png)
 
-## What it does
+## Everything else it does
 
-- Accounts for checking, savings, credit cards, cash, loans, investments, and
-  crypto wallets, each in its own currency
-- Deposits, withdrawals, and transfers, including conversions that keep the sent
-  and received amounts apart
-- One transaction split across several categories, each attributed on its own
-- CSV import through Staged transactions, which flags a row repeating one you
-  already have and opens the two side by side to sort out
-- Templates for the transactions you enter over and over
-- Recurring transactions that propose into Staged transactions on a schedule,
-  and post nothing until you commit them
-- Emailed reminders: when a recurrence proposes, and when a template is one you
-  meant to fill in today
-- Mass edit and mass delete, up to 10,000 rows in one request that either wholly
-  succeeds or wholly does not
-- Six reports — net worth, income against expense, categories, cash flow, a
-  balance sheet and a trial balance — each per currency and over any date range
-- A per-account register: every posting with the balance before and after it
+- Deposits, withdrawals, and transfers, including conversions between currencies
+  that keep the sent and received amounts apart
+- One receipt split across several categories, each attributed on its own
+- A duplicate opened beside the entry it resembles, so you can fix either side
+  and drop the spare
+- Templates for the transactions you enter over and over, with a reminder on any
+  of them
+- Change or delete up to 10,000 rows in one go, from any view, after seeing what
+  it will touch
+- A register for any account: every posting with the balance before and after it,
+  for when a figure is wrong and you need the row it went wrong on
 - Categories and payees that match case-insensitively, flag near-duplicates, and
   merge
-- An audit log of everything the browser or an agent did
-- Email and password, Google, or both, and OAuth for agents
+- An audit log of everything you or an agent did
+- Email and password, Google, or both, and any number of people on one
+  deployment, each with their own separate books
 
 There is a walkthrough of all of it in [the guide](docs/guide.md).
 
