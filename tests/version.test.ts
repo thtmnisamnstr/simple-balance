@@ -70,6 +70,24 @@ describe("the release version", () => {
     );
   });
 
+  /**
+   * Examples a reader copies. Pinned rather than `:latest` on purpose — an
+   * upgrade moves the schema and should be a decision — which is exactly why a
+   * release that leaves them behind hands somebody the previous release's
+   * images while the page around them describes this one.
+   */
+  it("is the tag on every example image", () => {
+    const pinned = /ghcr\.io\/thtmnisamnstr\/simple-balance(?:-[a-z]+)?:(\S+)/g;
+    for (const relative of [
+      "deploy/compose/compose.distributed.yml",
+      "deploy/pulumi/README.md",
+    ]) {
+      const tags = [...read(relative).matchAll(pinned)].map((match) => match[1]);
+      expect(tags.length, relative).toBeGreaterThan(0);
+      for (const tag of tags) expect(tag, relative).toBe(version);
+    }
+  });
+
   it("is the version the product backlog says it describes", () => {
     expect(manifestVersion("tasks/product.prd.json")).toBe(version);
   });
@@ -90,6 +108,8 @@ describe("the release version", () => {
       "deploy/helm/simple-balance/Chart.yaml",
       "deploy/pulumi/package.json",
       "deploy/pulumi/package-lock.json",
+      "deploy/compose/compose.distributed.yml",
+      "deploy/pulumi/README.md",
       "src/shared/version.ts",
       "tasks/product.prd.json",
     ]) {

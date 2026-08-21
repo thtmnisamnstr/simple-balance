@@ -2,12 +2,14 @@
 /**
  * Set the release version everywhere it is written down.
  *
- * The version appears in the application manifest, the runtime manifest that
- * ships inside the image, every lockfile, the four Dockerfiles' default build
- * argument, the chart's appVersion, the Pulumi project's manifest, and the
- * constant the MCP server announces to its clients. `npm run verify` checks that the two manifests agree, and the
- * release workflow refuses to publish when the tag and the manifest disagree,
- * so changing one by hand and missing another fails late and confusingly.
+ * The version appears in three manifests and their three lockfiles, the four
+ * Dockerfiles' default build argument, the chart's appVersion, the constant the
+ * MCP server announces to its clients, the product backlog, and the example
+ * image tags in the split-deployment compose file and the Pulumi README.
+ * `tests/version.test.ts` checks every one of them against `package.json`, and
+ * the release workflow refuses to publish when the tag and the manifest
+ * disagree, so changing one by hand and missing another fails late and
+ * confusingly.
  *
  *   npm run set-version 0.1.0
  *
@@ -97,6 +99,42 @@ rewriteLine(
   `appVersion: "${version}"`,
   "chart appVersion",
 );
+
+/**
+ * Rewrite every occurrence of a pattern, and fail when there are none.
+ *
+ * `rewriteLine` above takes a non-global pattern and stops at the first match,
+ * which is right for a single declaration and wrong for a file naming all three
+ * images. These are examples a reader copies, so a release that leaves them
+ * behind hands somebody the previous release's images.
+ */
+function rewriteEvery(relative, pattern, replacement, describe) {
+  const file = path.join(root, relative);
+  const before = readFileSync(file, "utf8");
+  const matches = before.match(pattern);
+  if (!matches) {
+    console.error(`Could not find ${describe} in ${relative}.`);
+    process.exit(1);
+  }
+  const after = before.replace(pattern, replacement);
+  if (after !== before) writeFileSync(file, after);
+  console.log(`  ${relative} -> ${version} (${matches.length})`);
+}
+
+// The example image tags. Pinned rather than :latest on purpose — an upgrade
+// moves the schema and should be a decision — which is exactly why they have to
+// name the release somebody is reading about.
+for (const relative of [
+  "deploy/compose/compose.distributed.yml",
+  "deploy/pulumi/README.md",
+]) {
+  rewriteEvery(
+    relative,
+    /(ghcr\.io\/thtmnisamnstr\/simple-balance(?:-[a-z]+)?):\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g,
+    `$1:${version}`,
+    "a pinned image tag",
+  );
+}
 
 // The MCP server announces this to every client that connects.
 rewriteLine(

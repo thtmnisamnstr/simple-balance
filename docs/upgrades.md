@@ -3,6 +3,32 @@
 Everything persistent is in PostgreSQL. The container holds nothing you need to
 keep, so upgrading is swapping it for a newer one.
 
+## Before you upgrade to 0.1.5
+
+Nothing refuses to start that 0.1.4 accepted, and nothing about an existing
+configuration has to change. Three things are worth knowing.
+
+**Two migrations run at startup.** One adds the reminders table and one column
+on `recurrence`, defaulting to off, so no recurrence you already have starts
+emailing you. The other drops four indexes whose leading column another unique
+constraint on the same table already leads with; no query loses a plan, and the
+statements are `if exists`, so a database restored from a dump that never had
+them upgrades cleanly.
+
+**Emailed reminders need a mail server and the scheduler.** Setting a recurrence
+to write when it proposes, or giving a template a reminder, is saved either way,
+and starts sending once `SMTP_HOST` and `MAIL_FROM` are configured. Nothing
+queues in the meantime: a reminder whose moment passed while there was nowhere
+to send it is not sent later. On a split deployment, give the scheduler
+container those settings too — it is the process that sends them, and without
+them it proposes rows and sends nothing, with no error to see.
+
+**The duplicate check in the review queue got looser, and only as advice.** It
+now anchors on the amount with three days of latitude on the date rather than
+demanding the same day and the same payee, so an import will flag rows it would
+have let past before. What refuses a commit is unchanged. Nothing already in the
+queue is re-examined until it is listed again.
+
 ## Before you upgrade to 0.1.4
 
 0.1.4 refuses to start on three configurations 0.1.3 accepted. Each refusal is
@@ -75,8 +101,12 @@ This is the reason step 2 is not optional.
 ## Cutting a release
 
 1. `npm run set-version 0.2.0`, which sets the version everywhere it has to
-   agree: both manifests, both lockfiles, all four Dockerfiles, the constant the
-   MCP server reports, and the backlog.
+   agree: the three manifests and their three lockfiles, all four Dockerfiles'
+   default build argument, the chart's `appVersion`, the constant the MCP server
+   reports, the product backlog, and the example image tags in the
+   split-deployment compose file and the Pulumi README. `tests/version.test.ts`
+   checks every one of those against `package.json`, so a location the script
+   forgets fails the suite rather than shipping.
 2. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
    for you and the upgrade notes above send people there to read it.
 3. Commit and push that on the default branch.

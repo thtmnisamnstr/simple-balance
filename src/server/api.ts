@@ -46,6 +46,7 @@ import {
   protectBrowserMutation,
   rejectRequestBody,
   requestBodyLimit,
+  securityHeaderOptions,
   withCountableClientAddress,
 } from "./http-security.js";
 import { handleMcpRequest } from "./mcp.js";
@@ -156,40 +157,7 @@ const app = new Hono<{ Variables: Variables }>();
 
 app.use(
   "*",
-  secureHeaders({
-    contentSecurityPolicy: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      // No 'unsafe-inline'. The few inline styles here are React `style` props,
-      // which are applied through the CSSOM rather than written as a style
-      // attribute, and CSP does not govern those. Vite emits the stylesheet as
-      // a file. Checked in a browser across the sign-in, overview, and
-      // transaction pages with no violation reported.
-      styleSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      connectSrc: ["'self'"],
-      // None of these four fall back to default-src, so leaving them out left
-      // real gaps. base-uri stops an injected <base> quietly repointing every
-      // relative URL on the page, including the one the sign-in form posts to.
-      // form-action stops a form being aimed somewhere else. frame-ancestors
-      // is the modern half of the clickjacking defence that X-Frame-Options
-      // covers for older browsers. object-src closes plugin embedding.
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
-      frameAncestors: ["'none'"],
-      objectSrc: ["'none'"],
-    },
-    // Not the `no-referrer` this defaults to. Under that policy a browser sends
-    // `Origin: null` on a form submission, including the sign-in form posting to
-    // this very server, and protectAuthMutation rightly refuses an origin it
-    // cannot recognise. That broke MCP authorization, where the sign-in form is
-    // submitted natively so the OAuth redirect stays a top-level navigation.
-    // `same-origin` still sends nothing at all to anybody else.
-    referrerPolicy: "same-origin",
-    strictTransportSecurity: getConfig().isProduction
-      ? "max-age=31536000; includeSubDomains"
-      : false,
-  }),
+  secureHeaders(securityHeaderOptions(getConfig().isProduction)),
 );
 
 const globalBodyLimit = boundRequestBody({
