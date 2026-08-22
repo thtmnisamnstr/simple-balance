@@ -24,6 +24,7 @@ import {
   type TransactionType,
 } from "../shared/domain.js";
 import {
+  addDays,
   nextOccurrenceAfter,
   scheduleCursor,
   weekdayOf,
@@ -823,6 +824,49 @@ export function TemplateForm({
     }
   }, [reminderBusinessDayBlocked, reminderWeekendPolicy]);
 
+  /**
+   * The dates this reminder will actually send on, the way the schedule section
+   * of a recurrence previews its own.
+   *
+   * Seeded from the day before the anchor, which is what the scheduler does, so
+   * the anchor itself is the first thing owed and the list starts where somebody
+   * expects. Unlike a recurrence there is no floor: a reminder anchored in the
+   * past is somebody asking to be told about something they have already missed,
+   * and the sweep collapses that backlog into one message.
+   */
+  const reminderPreview = useMemo(() => {
+    if (!parsedReminder?.success) return [];
+    const rule = parsedReminder.data;
+    // A one-off owes exactly one, on its anchor, and refuses the policies that
+    // could move it.
+    if (rule.frequency === null) {
+      return [{ occurrenceDate: rule.anchorDate, postedDate: rule.anchorDate }];
+    }
+    // Built out rather than spread: the contract leaves these optional, and the
+    // defaults here are the ones the stored row carries, so the preview walks
+    // exactly the schedule the scheduler will.
+    const repeating = {
+      frequency: rule.frequency,
+      interval: rule.interval ?? 1,
+      anchorDate: rule.anchorDate,
+      monthPolicy: rule.monthPolicy ?? "last_day",
+      weekendPolicy: rule.weekendPolicy ?? "allow",
+      position: rule.position ?? null,
+    };
+    const dates: { occurrenceDate: string; postedDate: string | null }[] = [];
+    let cursor = addDays(rule.anchorDate, -1);
+    try {
+      for (let attempts = 0; dates.length < 5 && attempts < 60; attempts += 1) {
+        const next = nextOccurrenceAfter(repeating, cursor);
+        cursor = next.occurrenceDate;
+        dates.push(next);
+      }
+    } catch {
+      return [];
+    }
+    return dates;
+  }, [parsedReminder?.success, JSON.stringify(parsedReminder?.data ?? null)]);
+
   const mutation = useMutation({
     mutationFn: () => {
       // Built by leaving out what is blank rather than sending empty strings,
@@ -1008,20 +1052,18 @@ export function TemplateForm({
           />
         </Field>
       )}
-      <div className="two-columns">
-        <Field label="Description" hint="Optional">
-          <Input
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            placeholder="Additional details"
-          />
-        </Field>
-      </div>
+      <Field label="Description" hint="Optional">
+        <Input
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          placeholder="Additional details"
+        />
+      </Field>
       <Field label="Notes" hint="Optional">
         <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </Field>
 
-      <fieldset aria-label="Reminder">
+      <fieldset className="form-fieldset">
         <legend>Reminder</legend>
         <label className="check-label">
           <input
@@ -1032,6 +1074,13 @@ export function TemplateForm({
           />
           Email me to make this transaction
         </label>
+        {/* Directly under the checkbox it explains. It used to sit at the very
+            bottom, after every schedule field, where it read as a footnote to
+            the weekend policy rather than as what the setting above does. */}
+        <p className="settings-note">
+          A reminder only asks. It never records anything, because a template is
+          something you fill in yourself.
+        </p>
 
         {reminding ? (
           <>
@@ -1190,7 +1239,10 @@ export function TemplateForm({
             ) : null}
 
             {reminderRepeats ? (
-              <Field label="When it lands on a weekend">
+              <Field
+                label="When it lands on a weekend"
+                hint="A business day here means Monday to Friday. Public holidays are not modelled."
+              >
                 <Select
                   value={reminderWeekendPolicy}
                   onChange={(event) =>
@@ -1218,10 +1270,29 @@ export function TemplateForm({
               </p>
             ) : null}
 
-            <p className="settings-note">
-              A reminder only asks. It never records anything, because a template
-              is something you fill in yourself.
-            </p>
+            {reminderPreview.length ? (
+              <div className="recurrence-preview">
+                <span className="recurrence-preview-label">
+                  {reminderRepeats ? "Next five" : "Sends on"}
+                </span>
+                <ul>
+                  {reminderPreview.map((one) => (
+                    <li key={one.occurrenceDate}>
+                      {one.postedDate ? (
+                        <>
+                          {formatDate(one.postedDate)} at {reminderTime}
+                          {one.postedDate === one.occurrenceDate ? null : (
+                            <small> moved from {formatDate(one.occurrenceDate)}</small>
+                          )}
+                        </>
+                      ) : (
+                        <small>{formatDate(one.occurrenceDate)} skipped</small>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {parsedReminder && !parsedReminder.success ? (
               <Alert>{parsedReminder.error.issues[0]!.message}</Alert>
             ) : null}
@@ -2705,7 +2776,7 @@ export function RecurrenceForm({
           queue for the amount received.
         </Alert>
       ) : null}
-      <fieldset aria-label="Notifications">
+      <fieldset className="form-fieldset">
         <legend>Notifications</legend>
         <label className="check-label">
           <input

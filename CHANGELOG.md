@@ -62,6 +62,20 @@ The Reminder and Notifies columns sort, ranked by what they are going to tell
 you rather than alphabetically by the badge text: a reminder still to come above
 one already sent above none at all.
 
+The reminder section of the template form is laid out like the schedule section
+of the recurrence form, which is the same kind of thing and did not look like it.
+It was a bare fieldset, so it took the browser's own `padding-inline` and its
+heading sat indented from every other label on the screen, with eleven controls
+stacked against each other for want of a gap. It is the same card now, with the
+same small-caps heading, and it ends the way schedule ends: with the next five
+dates it will actually send on, and the time each goes at. The note explaining
+what a reminder does moved up under the checkbox it explains, from the bottom
+where it read as a footnote to the weekend policy.
+
+The notifications section of the recurrence form had the same bare fieldset, one
+section below the schedule it was supposed to match. And the template form's
+description field was half a row wide, alone inside a two-column grid.
+
 Axes on the report charts, which shipped without any. A line that ended higher
 than it started was all either chart actually said: there was no value scale
 beside it and no date under it, only a caption naming the range. Both now carry
