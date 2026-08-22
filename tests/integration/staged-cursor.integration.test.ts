@@ -50,7 +50,7 @@ integration("paging the queue by date", () => {
           id: `00000000-0000-4000-8000-00000000000${index}`,
           draft,
           status: "staged" as const,
-          issues: [],
+          validationIssues: [],
         })),
       );
   });
@@ -107,5 +107,32 @@ integration("paging the queue by date", () => {
       }
       expect(walked, direction).toEqual(whole.items.map((item) => item.id));
     }
+  });
+
+  it("finds a payee whose spelling NFKC folds", async () => {
+    // The filter compares against a value normalised in JavaScript, which folds
+    // NFKC. The SQL side did not, so a payee holding a ligature — or a full-width
+    // letter, or any of the presentation forms NFKC collapses — never matched and
+    // the queue came back empty rather than saying why.
+    const stored = "Caf\u00e9 \ufb01ne";
+    await getDb()
+      .insert(stagedTransactions)
+      .values([
+        {
+          userId: actor.userId,
+          id: "00000000-0000-4000-8000-0000000000ff",
+          draft: { date: "2026-02-01", payee: stored },
+          status: "staged" as const,
+          validationIssues: [],
+        },
+      ]);
+    const found = await listStages(actor, { payee: stored, limit: 50 });
+    expect(
+      found.items.map((item) => (item.draft as { payee?: string }).payee),
+    ).toContain(stored);
+    // And the folded spelling finds it too, which is the same rule from the
+    // other side.
+    const folded = await listStages(actor, { payee: "Caf\u00e9 fine", limit: 50 });
+    expect(folded.items.length, "the folded spelling matches as well").toBeGreaterThan(0);
   });
 });

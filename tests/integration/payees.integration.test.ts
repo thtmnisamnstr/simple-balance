@@ -557,5 +557,54 @@ integration("derived payee management", () => {
       );
     });
   });
+
+  it("keeps a staged row's fingerprint describing the payee it now has", async () => {
+    // The queue flags a row as repeating another by comparing stored
+    // fingerprints, and the heuristic fingerprint includes the payee. A merge
+    // rewrites the payee, so without recomputing the key the fingerprint goes on
+    // describing a name the draft no longer has — and two rows that have just
+    // become identical stop being reported as repeating each other.
+    const account = await createAccount(primary, {
+      name: "Rekey account",
+      type: "checking",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "0",
+    });
+    const draft = {
+      type: "withdrawal" as const,
+      date: "2026-06-01",
+      description: "Rekey me",
+      fromAccountId: account.id,
+      amount: "9.99",
+    };
+    const one = await createStage(primary, {
+      draft: { ...draft, payee: "Rekey Spelling One" },
+      idempotencyKey: "rekey-one",
+    });
+    const two = await createStage(primary, {
+      draft: { ...draft, payee: "Rekey Spelling Two" },
+      idempotencyKey: "rekey-two",
+    });
+    const keyOf = async (id: string) => {
+      const [row] = await getDb()
+        .select({ key: stagedTransactions.duplicateKey })
+        .from(stagedTransactions)
+        .where(eq(stagedTransactions.id, id));
+      return row!.key;
+    };
+    // Two spellings, so two different fingerprints to begin with.
+    expect(await keyOf(one.id)).not.toBe(await keyOf(two.id));
+
+    await mergePayees(primary, {
+      sourcePayees: ["Rekey Spelling Two"],
+      targetPayee: "Rekey Spelling One",
+      idempotencyKey: "rekey-merge",
+    });
+
+    // One payee now, so one fingerprint — and the queue can see they repeat.
+    expect(await keyOf(two.id)).toBe(await keyOf(one.id));
+    expect(await keyOf(two.id)).toContain("Rekey Spelling One".toLowerCase());
+  });
 });
 

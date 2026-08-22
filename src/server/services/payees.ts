@@ -11,6 +11,7 @@ import {
   payeeMergeSchema,
   payeeNameSchema,
   payeeSummarySchema,
+  transactionDraftSchema,
 } from "../../shared/domain.js";
 import {
   getDb,
@@ -22,6 +23,7 @@ import {
   transactions,
 } from "../db/schema.js";
 import { notFound, validationError } from "./errors.js";
+import { stagedDuplicateKey } from "./transactions.js";
 import {
   getIdempotent,
   lockIdempotencyKey,
@@ -440,6 +442,35 @@ export async function mergePayees(
         after: serializeRow(updated),
       });
     }
+    // The fingerprint the queue flags repeats by includes the payee, so renaming
+    // one leaves it describing a payee the draft no longer has: two rows that
+     // have just become identical stop being reported as repeating each other.
+    // Only rows whose key is the heuristic one move — a row carrying a bank
+    // reference is keyed on that and does not care what the payee is called.
+    const rekeyed = updatedStages
+      .map((row) => {
+        const parsed = transactionDraftSchema.safeParse(row.draft);
+        if (!parsed.success) return null;
+        const key = stagedDuplicateKey(parsed.data);
+        return key === row.duplicateKey ? null : { id: row.id, key };
+      })
+      .filter((entry): entry is { id: string; key: string | null } => entry !== null);
+    if (rekeyed.length) {
+      // One statement over a values list rather than one per row: a merge can
+      // cover the whole queue.
+      await tx.execute(sql`
+        update staged_transaction as s
+        set duplicate_key = v.key
+        from (values ${sql.join(
+          rekeyed.map(
+            (entry) => sql`(${entry.id}::uuid, ${entry.key}::text)`,
+          ),
+          sql`, `,
+        )}) as v(id, key)
+        where s.id = v.id and s.user_id = ${actor.userId}
+      `);
+    }
+
     const stagedBeforeById = new Map(
       stagedRowsBefore.map((row) => [row.id, row]),
     );

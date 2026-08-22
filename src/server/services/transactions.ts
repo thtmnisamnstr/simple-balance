@@ -2668,6 +2668,23 @@ export function transactionDuplicateKeys(draft: TransactionDraft) {
   return [...new Set(keys)].sort();
 }
 
+/**
+ * The one key a staged row stores, chosen from the keys its draft produces.
+ *
+ * The external reference wins when there is one: it is an identity rather than a
+ * guess, so two rows carrying it are the same transaction whatever else differs.
+ * Only the heuristic key depends on the payee, which is why renaming a payee
+ * changes the fingerprint of some staged rows and not others.
+ *
+ * Here rather than beside the column it fills, because two callers need it — the
+ * write that records it and the payee merge that has to recompute it — and the
+ * rule choosing between the keys is not one to state twice.
+ */
+export function stagedDuplicateKey(draft: TransactionDraft): string | null {
+  const keys = transactionDuplicateKeys(draft);
+  return keys.find((key) => key.startsWith("external:")) ?? keys[0] ?? null;
+}
+
 export async function lockTransactionDuplicateKeys(
   tx: DbTransaction,
   actor: Actor,
