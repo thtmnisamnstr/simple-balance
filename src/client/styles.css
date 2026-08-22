@@ -132,7 +132,7 @@ a {
   --shadow-overlay: rgb(20 34 26 / 30%);
   --accent-glow: rgb(23 107 75 / 17%);
   --focus-ring: #1f7d58;
-  --focus-inner: rgb(34 126 88 / 11%);
+  --focus-inner: rgb(34 126 88 / 22%);
   --scrim: rgb(25 35 29 / 45%);
   --ambient: rgb(207 233 217 / 45%);
   --brand-from: #257a59;
@@ -197,7 +197,7 @@ a {
     --shadow-overlay: rgb(0 0 0 / 62%);
     --accent-glow: rgb(28 124 88 / 34%);
     --focus-ring: #7ad9ae;
-    --focus-inner: rgb(122 217 174 / 22%);
+    --focus-inner: rgb(122 217 174 / 30%);
     --scrim: rgb(2 5 4 / 68%);
     --ambient: rgb(31 122 87 / 20%);
     --brand-from: #2b8060;
@@ -259,7 +259,7 @@ a {
   --shadow-overlay: rgb(0 0 0 / 62%);
   --accent-glow: rgb(28 124 88 / 34%);
   --focus-ring: #7ad9ae;
-  --focus-inner: rgb(122 217 174 / 22%);
+  --focus-inner: rgb(122 217 174 / 30%);
   --scrim: rgb(2 5 4 / 68%);
   --ambient: rgb(31 122 87 / 20%);
   --brand-from: #2b8060;
@@ -720,7 +720,11 @@ a {
   width: 100%;
   min-height: 40px;
   padding: 8px 11px;
-  border: 1px solid var(--line);
+  /* --line-strong, not --line. A field's edge is a control boundary, which needs
+     3:1 to be seen at all; the decorative hairline is 1.29:1 against the field it
+     was edging, so there was effectively no edge. This is the token's stated job
+     and it was simply never wired to it. */
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   outline: none;
   color: var(--ink);
@@ -736,7 +740,12 @@ a {
 }
 
 .input:focus {
-  border-color: var(--green-line-strong);
+  /* --focus-ring, not --green-line-strong. Now that a resting edge holds 3:1, the
+     old focus colour sat at the same lightness as it — 1.05:1 between the two —
+     so focusing a field changed its hue and almost nothing else. This is the
+     token named for the job, and it is darker than the resting edge as well as
+     greener. */
+  border-color: var(--focus-ring);
   box-shadow: 0 0 0 3px var(--focus-inner);
 }
 

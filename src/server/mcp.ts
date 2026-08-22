@@ -431,9 +431,9 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
     server.registerTool(
       "get_preferences",
       {
-        title: "Get regional preferences",
+        title: "Get preferences",
         description:
-          "This person's timezone and default currency. Read it before dating anything: what counts as today is decided by their timezone, not the server's, and a transaction dated by the wrong one lands on the wrong day.",
+          "This person's timezone, default currency and colour theme. Read it before dating anything: what counts as today is decided by their timezone, not the server's, and a transaction dated by the wrong one lands on the wrong day. `theme` is `system`, `light` or `dark`, where `system` means they follow whatever their own machine is set to; it affects nothing but what their screen looks like. `chosen` is false until somebody has actually picked these rather than been given them.",
         inputSchema: z.object({}),
         outputSchema: mcpOutputSchema(preferencesResultSchema),
         annotations: readAnnotations,

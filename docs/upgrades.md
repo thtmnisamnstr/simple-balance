@@ -43,12 +43,17 @@ so it follows somebody to another device, and there is a third state — Light a
 Dark, which stay put, and Follow my system, which is the default and changes when
 the machine does.
 
-Two things change in the light theme as a consequence, both of them repairs. Six
+Three things change in the light theme as a consequence, all of them repairs. Six
 greys carrying real text were below the contrast a person needs to read them —
 the input placeholder was the worst at 2.65:1 — and they now sit on one three-step
-ramp that clears it. And the border on an input was 1.29:1 against the field it
-edges, which is not a boundary; controls now hold the 3:1 that makes an edge
-visible. Inputs and captions therefore look slightly more defined than they did.
+ramp that clears it. The border on an input was 1.39:1 against the field it edges,
+which is not a boundary — and an input here is white on a white card, so that
+border is the only thing telling you where the field is; a field's edge now holds
+the 3:1 that makes it visible, and a focused field is darker again rather than
+only greener.
+And the focus ring was semi-transparent, so how well it showed depended on
+whatever happened to be behind it; it is opaque now and the same everywhere.
+Inputs, captions and the focus ring therefore look more defined than they did.
 
 **The duplicate check on Staged transactions got looser, and only as advice.** It
 now anchors on the amount with three days of latitude on the date rather than

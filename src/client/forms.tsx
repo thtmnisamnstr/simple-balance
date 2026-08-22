@@ -424,6 +424,32 @@ const transactionTypeOptions: {
  * told to expect arrow keys that did nothing and the tab key walked through every
  * option on the way past.
  */
+/**
+ * The accounts a select may offer.
+ *
+ * Live ones, plus any archived account this record already points at, and both
+ * halves matter. Offering every archived account lets somebody choose one the
+ * write will refuse: the rule on the server is that an archived reference is
+ * kept, never newly made, so rerouting to a closed account fails on save with
+ * "One or more accounts are unavailable". Offering none of them hides the account
+ * an existing record already uses, and a select whose value matches no option
+ * renders blank while still holding the id — which reads as an empty required
+ * field that somehow submits.
+ *
+ * One rule in one place because there were three, and they had already drifted:
+ * two filtered archived accounts out and the third did not, so the same closed
+ * account was offered on one screen and hidden on another.
+ */
+function selectableAccounts(
+  accounts: Account[],
+  ...referenced: (string | undefined)[]
+) {
+  const kept = new Set(referenced.filter((id): id is string => Boolean(id)));
+  return accounts.filter(
+    (account) => !account.archivedAt || kept.has(account.id),
+  );
+}
+
 type TransactionTypeChoiceProps =
   // Only the shape that permits no type can report one, so the two are separate
   // rather than one signature widened to fit both. A caller whose state cannot
@@ -1038,7 +1064,7 @@ export function TemplateForm({
     },
   });
 
-  const accountOptions = accounts.filter((account) => !account.archivedAt);
+  const accountOptions = selectableAccounts(accounts, fromAccountId, toAccountId);
   return (
     <form
       className="form-grid"
@@ -1528,6 +1554,11 @@ export function TransactionForm({
   const [repeatNotice, setRepeatNotice] = useState("");
   const payeeListId = useId();
   const modeGroup = useId();
+  // Every account except a closed one, and a closed one this transaction already
+  // points at — which an edit must keep offering or saving it would reroute the
+  // entry somewhere else. This select used to offer all of them, including closed
+  // accounts nothing referenced, and the write refuses those.
+  const accountOptions = selectableAccounts(accounts, fromAccountId, toAccountId);
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   // What the form held before any template was picked, so applying one can put
@@ -2048,7 +2079,7 @@ export function TransactionForm({
             }}
           >
             <option value="">Choose an account</option>
-            {accounts.map((account) => (
+            {accountOptions.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name} · {account.currency}
               </option>
@@ -2067,7 +2098,7 @@ export function TransactionForm({
             }}
           >
             <option value="">Choose an account</option>
-            {accounts.map((account) => (
+            {accountOptions.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name} · {account.currency}
               </option>
@@ -2543,7 +2574,7 @@ export function RecurrenceForm({
     },
   });
 
-  const accountOptions = accounts.filter((account) => !account.archivedAt);
+  const accountOptions = selectableAccounts(accounts, fromAccountId, toAccountId);
   const accountReady = type === "deposit" ? toAccountId : fromAccountId;
   const transferReady = type !== "transfer" || (fromAccountId && toAccountId);
   // A rate belongs to the day it was got, so a recurrence does not keep one.

@@ -53,9 +53,13 @@ first has to lift while the second stays dark enough to carry white.
 
 Three repairs to the light theme came out of writing the second one down. Six
 greys carrying real text were under the contrast a person needs, the input
-placeholder worst at 2.65:1. An input's border was 1.29:1 against the field it
-edges, which is not a boundary. And the focus ring took its contrast from whatever
-happened to be behind it, because it was semi-transparent; it is opaque now.
+placeholder worst at 2.65:1. An input's border was 1.39:1 against the field it
+edges, which is not a boundary — and an input here is white on a white card, so
+that border is the only thing saying where the field is. It holds 3:1 now, and a
+focused field is darker again rather than only greener, which is what it had
+briefly become once the resting edge moved up to meet it. And the focus ring took
+its contrast from whatever happened to be behind it, because it was
+semi-transparent; it is opaque now.
 
 The report palette was worse than it looked. Under simulated deuteranopia its
 green and its pink were 1.78 apart as CIEDE2000 measures it, which is to say they
@@ -269,6 +273,24 @@ the rows that name them, so a payee nothing references has already stopped
 existing.
 
 ### Fixed
+
+The keyboard could not work the choices these forms offer. Six sets of radio
+buttons had no shared `name`, which is the attribute that makes a set of radios
+one group rather than several unrelated controls — so the arrow keys did nothing
+and every option was its own tab stop, putting four presses between a four-option
+group and the field after it. React enforces one-of-many through its own state
+regardless, which is why it survived: it looked right, it clicked right, and only
+the keyboard was wrong. The names are per instance now, so two of the same form on
+one page do not share a group and clear each other.
+
+The three transaction type grids are one control, and it now does what it always
+claimed. All three declared themselves radio groups with radio children and
+implemented none of what that promises, so a screen reader was told to expect a
+keyboard interface that was not there. The group is one tab stop, the arrows move
+the choice and wrap, and Home and End go to the ends. One of the three was not a
+radio group at all: on a template, clicking the chosen type again is how somebody
+says there is no type, and a radio has no way to become unset — that one says what
+it is, a set of toggles.
 
 Staged transactions died on a single row it exists to show. A draft date matching
 the shape of a date but naming no real day — `2026-02-30`, `2026-13-01` — was

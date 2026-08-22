@@ -1582,12 +1582,33 @@ export const templateNotificationSchema = z
   })
   .strict()
   .describe(
-    'An emailed reminder to make this transaction, or null for none. `frequency` null is a single reminder on `anchorDate`; a frequency repeats it on the same schedules a recurrence offers. `time` is "HH:MM" on this person\'s own clock. A reminder that happens once refuses `interval`, both policies and `position` rather than ignoring them. On an update, leaving this out keeps whatever is stored and null removes it; a value replaces the whole rule. Needs a deployment with SMTP configured, which `whoami` reports.',
+    'An emailed reminder to make this transaction, or null for none. `frequency` null is a single reminder on `anchorDate`; a frequency repeats it on the same schedules a recurrence offers. `time` is "HH:MM" on this person\'s own clock. A reminder that happens once refuses an `interval`, a policy or a `position` that asks for a repeat, rather than ignoring it; sending back the stored defaults it reads is fine, so a read-modify-write of a one-off works. On an update, leaving this out keeps whatever is stored and null removes it; a value replaces the whole rule. Needs a deployment with SMTP configured, which `whoami` reports.',
   )
   .superRefine((notification, context) => {
     if (notification.frequency === null) {
+      // What is refused is a value that CONTRADICTS happening once, not the
+      // presence of the field. The stored columns are all NOT NULL with
+      // defaults, so a reminder read back always carries interval 1, `last_day`
+      // and `allow` — and refusing those made the object this very schema
+      // returns unsendable. An agent that read a template, changed the time and
+      // sent it back got three 422 issues about fields it never touched; the
+      // browser was spared only because it rebuilds the object and omits them.
+      //
+      // A default carries no meaning, so it is accepted and ignored. Anything
+      // else is somebody asking for a repeat without saying so.
+      const MEANINGLESS: Record<string, unknown> = {
+        interval: 1,
+        monthPolicy: "last_day",
+        weekendPolicy: "allow",
+        position: null,
+      };
       for (const field of ["interval", "monthPolicy", "weekendPolicy", "position"] as const) {
-        if (notification[field] !== undefined && notification[field] !== null) {
+        const value = notification[field];
+        if (
+          value !== undefined &&
+          value !== null &&
+          value !== MEANINGLESS[field]
+        ) {
           context.addIssue({
             code: "custom",
             path: [field],

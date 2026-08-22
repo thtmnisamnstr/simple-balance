@@ -72,7 +72,7 @@ describe("painting the theme before first paint", () => {
   });
 
   it("stamps nothing when nobody has overridden their machine", () => {
-    setCache(JSON.stringify({ userId: "u1", theme: "system" }));
+    setCache(JSON.stringify({ theme: "system" }));
     runBoot();
     // Not "light" and not "dark": leaving the attribute off is what hands the
     // decision to the stylesheet's media query, which is the only way the page
@@ -87,7 +87,7 @@ describe("painting the theme before first paint", () => {
 
   for (const theme of ["light", "dark"] as const) {
     it(`stamps ${theme} when that is the choice on record`, () => {
-      setCache(JSON.stringify({ userId: "u1", theme }));
+      setCache(JSON.stringify({ theme }));
       runBoot();
       expect(stamped()).toBe(theme);
     });
@@ -95,7 +95,7 @@ describe("painting the theme before first paint", () => {
 
   it("clears a stale stamp rather than leaving it standing", () => {
     document.documentElement.setAttribute("data-theme", "dark");
-    setCache(JSON.stringify({ userId: "u1", theme: "system" }));
+    setCache(JSON.stringify({ theme: "system" }));
     runBoot();
     expect(stamped()).toBeNull();
   });
@@ -107,7 +107,7 @@ describe("painting the theme before first paint", () => {
     for (const [name, value] of [
       ["not JSON at all", "{oh no"],
       ["JSON that is not an object", '"dark"'],
-      ["an object with no theme", '{"userId":"u1"}'],
+      ["an object with no theme", '{"nothing":"useful"}'],
       ["a theme that is not one of the three", '{"theme":"midnight"}'],
       ["a theme of the wrong type", '{"theme":true}'],
       ["null", "null"],
@@ -151,7 +151,7 @@ describe("painting the theme before first paint", () => {
     });
 
     it("leaves both scoped to the machine while following it", () => {
-      setCache(JSON.stringify({ userId: "u1", theme: "system" }));
+      setCache(JSON.stringify({ theme: "system" }));
       runBoot();
       expect(metas()).toEqual([
         { for: "light", media: "(prefers-color-scheme: light)" },
@@ -161,7 +161,7 @@ describe("painting the theme before first paint", () => {
 
     for (const theme of ["light", "dark"] as const) {
       it(`unscopes the ${theme} one and disables the other on an override`, () => {
-        setCache(JSON.stringify({ userId: "u1", theme }));
+        setCache(JSON.stringify({ theme }));
         runBoot();
         // `media` keys off the machine and an override is precisely the case the
         // machine disagrees with, so the winning meta cannot stay scoped or a
@@ -183,7 +183,7 @@ describe("painting the theme before first paint", () => {
           <meta name="theme-color" data-theme-for="light" media="(prefers-color-scheme: light)" content="#ffffff" />
           <meta name="theme-color" data-theme-for="dark" media="(prefers-color-scheme: dark)" content="#000000" />
         `;
-        setCache(JSON.stringify({ userId: "u1", theme }));
+        setCache(JSON.stringify({ theme }));
         runBoot();
         const afterBoot = document.documentElement.outerHTML;
 

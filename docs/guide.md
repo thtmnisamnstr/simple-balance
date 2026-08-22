@@ -11,6 +11,7 @@ are not obvious. Read it end to end once, or jump to what you are doing.
 - [Reminders](#reminders)
 - [Changing many rows at once](#changing-many-rows-at-once)
 - [Reading it back](#reading-it-back)
+- [How it looks](#how-it-looks)
 - [Signing in, and leaving](#signing-in-and-leaving)
 
 ## Accounts and transactions
@@ -197,9 +198,11 @@ and after it. It is for finding mistakes rather than for analysis: where a balan
 is wrong, this is the row it went wrong on. Open an account and press **Show
 register**; it is fetched only when you ask, because most visits do not need it.
 
-**Lists**: the transactions list, Staged transactions, the templates list and
-the recurring list sort by any column they show and page by number. Activity
-shows the hundred most recent events and neither sorts nor pages. Everything the
+**Lists**: the transactions list, Staged transactions and the templates list sort
+by any column they show and page by number. The recurring list sorts but does not
+page, because it shows every recurrence you have — there are never enough of them
+for a second page. Activity shows the hundred most recent events and neither sorts
+nor pages. Everything the
 browser or an agent did is in the audit log.
 
 ## How it looks

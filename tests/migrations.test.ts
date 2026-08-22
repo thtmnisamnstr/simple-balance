@@ -264,6 +264,36 @@ describe("migration baseline", () => {
   });
 
   /**
+   * The theme column, and the promise the upgrade notes make about it to
+   * operators: that it is metadata-only, so no table is rewritten and nobody
+   * waits. That holds only while the default is a constant and the column is
+   * added rather than backfilled — a NOT NULL add with a constant default is
+   * filled by PostgreSQL without touching a row, and an UPDATE afterwards would
+   * quietly take that away on a large table.
+   */
+  it("adds the theme without rewriting a row", async () => {
+    const sql = await readFile(
+      path.join(migrationDirectory, "0011_user_theme.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(
+      /CREATE TYPE "public"\."user_theme" AS ENUM\('system', 'light', 'dark'\)/,
+    );
+    // `system` first is not cosmetic: it is the default, and it means "follow
+    // the machine", which is the only honest thing to fill an existing row with.
+    expect(sql).toMatch(
+      /ADD COLUMN "theme" "user_theme" DEFAULT 'system' NOT NULL/,
+    );
+    // A constant default, so the add is metadata-only. A volatile one would
+    // rewrite the table.
+    expect(sql).not.toMatch(/DEFAULT\s+[a-z_]+\s*\(/i);
+    for (const forbidden of [/^\s*UPDATE\s/im, /^\s*DELETE\s/im, /\bDROP\b/i]) {
+      expect(sql, forbidden.source).not.toMatch(forbidden);
+    }
+  });
+
+  /**
    * The one migration here that removes something. It drops four indexes whose
    * leading column is already the leading column of a unique constraint on the
    * same table, so nothing loses a plan. Dropping anything else — a column, a

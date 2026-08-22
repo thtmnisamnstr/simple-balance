@@ -100,6 +100,19 @@ rewriteLine(
   "chart appVersion",
 );
 
+// The chart's own version, which Helm keeps separate from appVersion so a chart
+// can be revised without the application moving. Here they move together: the
+// chart ships from this repository on this repository's releases and is never
+// published on its own, so a second cadence would only ever be a number nobody
+// updated. It sat at 0.1.0 through four releases of chart changes, which is what
+// happens to a version no step writes.
+rewriteLine(
+  "deploy/helm/simple-balance/Chart.yaml",
+  /^version: .*$/m,
+  `version: ${version}`,
+  "chart version",
+);
+
 /**
  * Rewrite every occurrence of a pattern, and fail when there are none.
  *

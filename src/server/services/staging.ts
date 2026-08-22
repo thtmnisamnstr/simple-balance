@@ -518,10 +518,16 @@ function stageSortPlan(
       return {
         orderBy: [ordered(expression, direction), tie],
         keyset: keysetAfter(expression, id, direction),
-        cursorValue: (row) => {
-          const value = (row.draft as { date?: unknown }).date;
-          return typeof value === "string" ? value : "";
-        },
+        // Selected alongside the row, for the reason SortPlan's own docblock
+        // gives: recomputing it here looked equivalent and was not. A draft's
+        // `date` is unvalidated JSON — the schema types it `unknown`, because a
+        // CSV import stores what it read — so `->>` renders a number 20260101 as
+        // "20260101" where this returned "" for anything not a string. The cursor
+        // then remembered a boundary the ordering had never used, and the next
+        // page skipped rows or repeated one, quietly, with the count still right.
+        sortValue: expression,
+        cursorValue: (row: StagedTransactionRow & { cursorSort?: unknown }) =>
+          String(row.cursorSort ?? ""),
       };
     }
   }
@@ -797,6 +803,9 @@ export async function listStages(
       // Which committed transaction it looks like, so the review can open the
       // pair without asking again.
       likelyDuplicateOfId: sql<string | null>`${likelyDuplicateOfId}`,
+      // The ordering expression itself, so a cursor carries the value the
+      // comparison was actually made against.
+      cursorSort: plan.sortValue ?? sql`null`,
     })
     .from(stagedTransactions)
     .where(and(...conditions))
