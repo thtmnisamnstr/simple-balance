@@ -587,6 +587,83 @@ describe("the templates screen", () => {
     return within(await screen.findByRole("dialog"));
   };
 
+  /**
+   * The section was a bare fieldset, so it took the browser's own
+   * `padding-inline` and its legend sat indented from every other label on the
+   * screen, with eleven controls stacked against each other for want of a gap.
+   * `.form-fieldset` is what the recurrence form's schedule section uses, and
+   * the two are the same kind of thing.
+   */
+  it("is laid out like the schedule section it mirrors", async () => {
+    stubApi([rent]);
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    const legend = dialog.getByText("Reminder");
+    const section = legend.closest("fieldset")!;
+    expect(section).toHaveClass("form-fieldset");
+    // A legend already names a fieldset, so an aria-label saying the same thing
+    // was only overriding it with itself.
+    expect(section).not.toHaveAttribute("aria-label");
+  });
+
+  /**
+   * What the schedule section has that made it read as finished: the dates it
+   * will actually fire on. A reminder can answer the same question, and "when
+   * will this email me" is the one thing the settings above do not say outright.
+   */
+  it("previews the dates a one-off reminder will send on", async () => {
+    stubApi([rent]);
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    fireEvent.click(dialog.getByLabelText(/Email me to make this/));
+    fireEvent.change(dialog.getByLabelText(/^Send on/), {
+      target: { value: "2026-07-04" },
+    });
+    fireEvent.change(dialog.getByLabelText(/^Send at/), { target: { value: "18:45" } });
+
+    expect(dialog.getByText("Sends on")).toBeInTheDocument();
+    const preview = dialog.getByText("Sends on").parentElement!;
+    // One date, because a one-off owes exactly one, and the hour it goes at.
+    expect(within(preview).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(preview).getByText(/Jul 4, 2026 at 18:45/)).toBeInTheDocument();
+  });
+
+  it("previews five dates for a repeating reminder", async () => {
+    stubApi([rent]);
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    fireEvent.click(dialog.getByLabelText(/Email me to make this/));
+    fireEvent.click(dialog.getByLabelText("Repeatedly"));
+    fireEvent.change(dialog.getByLabelText(/^Starting/), {
+      target: { value: "2026-07-04" },
+    });
+
+    expect(dialog.getByText("Next five")).toBeInTheDocument();
+    const preview = dialog.getByText("Next five").parentElement!;
+    expect(within(preview).getAllByRole("listitem")).toHaveLength(5);
+    // Monthly by default, counted from the anchor rather than from each other.
+    expect(within(preview).getByText(/Jul 4, 2026/)).toBeInTheDocument();
+    expect(within(preview).getByText(/Aug 4, 2026/)).toBeInTheDocument();
+  });
+
+  it("explains what a reminder does beside the box that turns it on", async () => {
+    stubApi([rent]);
+    await renderPage([rent]);
+    const dialog = await openEditor("Rent");
+
+    // Before the schedule fields, not stranded under them: it describes the
+    // checkbox, and it is shown whether or not the box is ticked.
+    const note = dialog.getByText(/A reminder only asks/);
+    const checkbox = dialog.getByLabelText(/Email me to make this/);
+    expect(
+      checkbox.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(checkbox).not.toBeChecked();
+  });
+
   it("sends no reminder unless one is asked for", async () => {
     const posts = stubApi([rent]);
     await renderPage([rent]);

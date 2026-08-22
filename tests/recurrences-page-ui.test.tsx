@@ -455,6 +455,24 @@ describe("the recurrence form", () => {
     expect(names()).toEqual(["Rent", "Salary"]);
   });
 
+  /**
+   * It sits directly under Schedule, which is a card with a small-caps legend,
+   * and it was a bare fieldset taking the browser's own border and a legend
+   * indented from everything else. Two sections of one form that look like two
+   * different forms.
+   */
+  it("is laid out like the schedule section above it", async () => {
+    await renderPage([]);
+    fireEvent.click(screen.getByRole("button", { name: /New recurrence/ }));
+    const dialog = within(await screen.findByRole("dialog"));
+
+    for (const name of ["Schedule", "Notifications"]) {
+      expect(dialog.getByText(name).closest("fieldset")).toHaveClass(
+        "form-fieldset",
+      );
+    }
+  });
+
   it("sends the notification choice, off unless it is asked for", async () => {
     const writes = await renderPage([]);
     await openForm();
