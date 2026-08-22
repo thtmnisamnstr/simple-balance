@@ -1,6 +1,6 @@
 apiVersion: v2
 name: simple-balance
-description: Self-hosted double-entry ledger with an MCP endpoint, split into an API, an nginx frontend and a recurrence scheduler
+description: Self-hosted personal accounting - every account in one place, statements that import themselves, and reports that add up - split into an API, an nginx frontend and a recurrence scheduler
 type: application
 version: 0.1.0
 appVersion: "0.1.4"

@@ -464,7 +464,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List import batches",
         description:
-          "CSV imports that still have rows waiting in the review queue. The id is what scopes a staged listing or a bulk edit to one file, which is how a whole import is corrected in one go.",
+          "CSV imports that still have rows waiting on Staged transactions. The id is what scopes a staged listing or a bulk edit to one file, which is how a whole import is corrected in one go.",
         inputSchema: importBatchListQuerySchema,
         outputSchema: mcpOutputSchema(
           cursorPageResultSchema(importBatchResultSchema),
@@ -504,7 +504,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List recurring transactions",
         description:
-          "List the standing instructions that propose transactions on a schedule. A recurrence never posts anything: on its due date it puts an ordinary row in the review queue for somebody to commit. `lastOccurrenceDate` of null means it has never run, `overdue` means its next occurrence has passed and nothing was proposed, and the three counts say what became of what it did propose. There is no holiday calendar: a business day is Monday to Friday.",
+          "List the standing instructions that propose transactions on a schedule. A recurrence never posts anything: on its due date it puts an ordinary row on Staged transactions for somebody to commit. `lastOccurrenceDate` of null means it has never run, `overdue` means its next occurrence has passed and nothing was proposed, and the three counts say what became of what it did propose. There is no holiday calendar: a business day is Monday to Friday.",
         inputSchema: z.object({}),
         outputSchema: mcpOutputSchema(recurrenceListResultSchema),
         annotations: readAnnotations,

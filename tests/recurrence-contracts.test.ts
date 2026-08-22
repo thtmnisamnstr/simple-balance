@@ -147,7 +147,7 @@ describe("the schedule", () => {
           schedule({ frequency: "daily", interval, weekendPolicy }),
         );
         expect(result.success, `${interval} ${weekendPolicy}`).toBe(false);
-        expect(messages(result)).toContain("review queue refuses");
+        expect(messages(result)).toContain("Staged transactions refuses");
       }
     }
   });

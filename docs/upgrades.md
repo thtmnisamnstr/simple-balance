@@ -6,14 +6,15 @@ keep, so upgrading is swapping it for a newer one.
 ## Before you upgrade to 0.1.5
 
 Nothing refuses to start that 0.1.4 accepted, and nothing about an existing
-configuration has to change. Three things are worth knowing.
+configuration has to change. Four things are worth knowing.
 
-**Two migrations run at startup.** One adds the reminders table and one column
+**Three migrations run at startup.** One adds the reminders table and one column
 on `recurrence`, defaulting to off, so no recurrence you already have starts
-emailing you. The other drops four indexes whose leading column another unique
-constraint on the same table already leads with; no query loses a plan, and the
-statements are `if exists`, so a database restored from a dump that never had
-them upgrades cleanly.
+emailing you. One adds a one-row table holding the first-run setup code, which
+matters only on a deployment that has never been set up. The third drops four
+indexes whose leading column another unique constraint on the same table already
+leads with; no query loses a plan, and the statements are `if exists`, so a
+database restored from a dump that never had them upgrades cleanly.
 
 **Emailed reminders need a mail server and the scheduler.** Setting a recurrence
 to write when it proposes, or giving a template a reminder, is saved either way,
@@ -22,6 +23,15 @@ queues in the meantime: a reminder whose moment passed while there was nowhere
 to send it is not sent later. On a split deployment, give the scheduler
 container those settings too — it is the process that sends them, and without
 them it proposes rows and sends nothing, with no error to see.
+
+**The first-run setup code now works on more than one replica.** It used to be
+generated per process and held in memory, so on a web tier running two or more
+pods — which the chart does by default — the code printed in the log was rejected
+by every other pod, and first-run setup failed about half the time. It is stored
+now, so every replica agrees on it. This affects only a deployment whose owner
+account has not been created yet; an existing one has nothing to do. An
+operator-chosen `SETUP_TOKEN` still never touches the database and still takes
+precedence.
 
 **The duplicate check on Staged transactions got looser, and only as advice.** It
 now anchors on the amount with three days of latitude on the date rather than

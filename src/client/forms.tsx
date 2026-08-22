@@ -2571,7 +2571,7 @@ export function RecurrenceForm({
 
       <Field
         label="Amount"
-        hint="Leave blank when it differs every time. Each proposal then waits in the review queue for a number."
+        hint="Leave blank when it differs every time. Each proposal then waits on Staged transactions for a number."
       >
         <Input
           inputMode="decimal"
@@ -2729,7 +2729,7 @@ export function RecurrenceForm({
         {businessDayBlocked ? (
           <p className="settings-note">
             A daily schedule of one or two days moved onto a business day puts
-            two occurrences on the same date, and the review queue refuses to
+            two occurrences on the same date, and Staged transactions refuses to
             commit rows that alike. Make the interval three days or more to use
             those two.
           </p>
@@ -2788,7 +2788,7 @@ export function RecurrenceForm({
           Email me when this proposes a transaction
         </label>
         <p className="settings-note">
-          Sent when the scheduler adds rows to the review queue, not when you
+          Sent when the scheduler adds rows to Staged transactions, not when you
           commit them. One message per proposal, however many rows it holds.
         </p>
         {notifyOnCreate && notificationsAvailable === false ? (
@@ -2800,7 +2800,7 @@ export function RecurrenceForm({
       </fieldset>
 
       <Alert kind="info">
-        A recurrence proposes into the review queue and posts nothing. Each
+        A recurrence adds a row to Staged transactions and posts nothing. Each
         proposal is an ordinary staged row you check and commit.
       </Alert>
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}

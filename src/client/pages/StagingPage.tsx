@@ -1005,7 +1005,7 @@ export default function StagingPage() {
         open={Boolean(savingRecurrence)}
         onClose={() => setSavingRecurrence(null)}
         title="Save as recurring transaction"
-        description="The same entry on a schedule. It proposes into the review queue on each due date and posts nothing until you commit it."
+        description="The same entry on a schedule. It adds a row to Staged transactions on each due date and posts nothing until you commit it."
       >
         {recurrenceSeed ? (
           <RecurrenceForm
@@ -1217,7 +1217,7 @@ export default function StagingPage() {
         title="Delete these staged rows?"
         description={
           bulkRemoval.value
-            ? `${bulkRemoval.value} row${bulkRemoval.value === 1 ? "" : "s"} will be removed from the review queue. Nothing has been committed yet, so no balance changes.`
+            ? `${bulkRemoval.value} row${bulkRemoval.value === 1 ? "" : "s"} will be removed from the queue. Nothing has been committed yet, so no balance changes.`
             : undefined
         }
         onConfirm={bulkRemoval.confirm}
@@ -1227,7 +1227,7 @@ export default function StagingPage() {
       <ConfirmDialog
         open={rowRemoval.open}
         title="Delete this staged row?"
-        description="It is removed from the review queue. Nothing has been committed, so no balance changes."
+        description="It is removed from the queue. Nothing has been committed, so no balance changes."
         onConfirm={rowRemoval.confirm}
         onCancel={rowRemoval.cancel}
       />

@@ -133,7 +133,7 @@ export default function RecurrencesPage() {
       <PageHeader
         eyebrow="Ledger"
         title="Recurring"
-        description="Standing instructions that propose a transaction into the review queue on a schedule. Nothing is posted until you commit it."
+        description="Standing instructions that add a row to Staged transactions on a schedule. Nothing is posted until you commit it."
         actions={
           <Button type="button" onClick={() => setCreating(true)}>
             <Plus size={16} /> New recurrence
@@ -174,7 +174,7 @@ export default function RecurrencesPage() {
           body={
             recurrences.data?.items.length
               ? "Nothing here matches that search."
-              : "Set one up for anything that arrives on a schedule: rent, a salary, a subscription. Make one here, or open the menu on any transaction and choose “Save as recurring transaction”. Each due date puts a row in the review queue for you to check."
+              : "Set one up for anything that arrives on a schedule: rent, a salary, a subscription. Make one here, or open the menu on any transaction and choose “Save as recurring transaction”. Each due date puts a row on Staged transactions for you to check."
           }
         />
       ) : (
@@ -314,7 +314,7 @@ export default function RecurrencesPage() {
       <Modal
         open={creating}
         title="New recurrence"
-        description="It proposes into the review queue on each due date. Nothing is posted until you commit it."
+        description="It adds a row to Staged transactions on each due date. Nothing is posted until you commit it."
         onClose={() => setCreating(false)}
       >
         {creating ? (
