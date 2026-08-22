@@ -66,11 +66,16 @@ is all or nothing.
 Staged transactions flags a row that repeats something you already have. The
 check anchors on the amount, with the account and the direction to keep two
 unrelated spends of the same size apart, and three days of latitude on the
-date — because a bank posts
-when a purchase settles and names the merchant its own way, so the same day and
-the same payee is a test a real import fails. Payee and category are ignored for
-exactly that reason. A flagged row opens beside the entry it resembles, both
-editable, and you drop whichever copy is the spare.
+date — because a bank posts when a purchase settles and names the merchant its
+own way, so the same day and the same payee is a test a real import fails. Payee
+and category are ignored for exactly that reason.
+
+A flagged row opens beside the entry it resembles, both editable, and you drop
+whichever copy is the spare. Press **Review N possible duplicates** at the top of
+Staged transactions to work through all of them in one run: each comparison has
+Previous and Next, and dropping a copy lands you on the next pair rather than back
+at the list. The badge on any single row still opens that pair directly, for when
+you only care about one.
 
 One of Simple Balance's own exports needs no mapping at all: pick the account and
 stage it. The account is that choice and nothing else, so a file exported from one

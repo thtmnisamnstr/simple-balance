@@ -3033,6 +3033,16 @@ input[type="radio"] {
   text-align: right;
 }
 
+/* Previous, Next and the way out, in one row in the page header. Wraps rather
+   than shrinking, because a comparison is reached on a phone as often as a
+   desktop and a squashed "Previous" is worse than a second line. */
+.duplicate-queue-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .duplicate-badge-link {
   text-decoration: none;
 }
