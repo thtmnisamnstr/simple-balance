@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Actor } from "../../shared/domain.js";
-import { currencyCodeSchema } from "../../shared/domain.js";
+import { currencyCodeSchema, themes } from "../../shared/domain.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import { userPreferences } from "../db/schema.js";
 import { validationError } from "./errors.js";
@@ -21,6 +21,7 @@ export const preferenceSchema = z.object({
       }
     }, "Timezone is not recognized"),
   defaultCurrency: currencyCodeSchema,
+  theme: z.enum(themes),
 });
 
 /**
@@ -28,7 +29,11 @@ export const preferenceSchema = z.object({
  * read synthesises them for a missing row and a partial write has to insert
  * the same ones for the field it was not given.
  */
-const unchosenPreferences = { timezone: "UTC", defaultCurrency: "USD" } as const;
+const unchosenPreferences = {
+  timezone: "UTC",
+  defaultCurrency: "USD",
+  theme: "system",
+} as const;
 
 /**
  * Takes an executor because a caller inside a transaction must not reach into
@@ -126,6 +131,7 @@ export async function setPreferences(
     const inserted = preferenceSchema.parse({
       timezone: patch.timezone ?? unchosenPreferences.timezone,
       defaultCurrency: patch.defaultCurrency ?? unchosenPreferences.defaultCurrency,
+      theme: patch.theme ?? unchosenPreferences.theme,
     });
 
     if (ifUnchosen) {

@@ -1079,9 +1079,9 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
     server.registerTool(
       "set_preferences",
       {
-        title: "Set regional preferences",
+        title: "Set preferences",
         description:
-          "Set the timezone or the default currency. What you leave out keeps its current value. The timezone decides what today means everywhere a date is worked out, so changing it changes which day an open-ended range stops at and which day an entry dated \"today\" lands on. Confirm it with the person before changing it; there is no version to check and no undo beyond setting it back.",
+          "Set the timezone, the default currency, or the colour theme. What you leave out keeps its current value. The timezone decides what today means everywhere a date is worked out, so changing it changes which day an open-ended range stops at and which day an entry dated \"today\" lands on. Confirm it with the person before changing it; there is no version to check and no undo beyond setting it back. The theme is `system`, `light` or `dark`, where `system` follows whatever the person's own machine is set to and is the only one of the three that keeps following it when they change it. Set the theme only when asked to: it is what their screen looks like, and you cannot see it.",
         // Every field of the patch is optional, so without this an agent is
         // told `{ idempotencyKey }` alone is a valid call and finds out
         // otherwise from a runtime refusal. The service checks it too; this is
@@ -1090,7 +1090,9 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           .extend({ idempotencyKey: idempotencyKeySchema })
           .refine(
             (patch) =>
-              patch.timezone !== undefined || patch.defaultCurrency !== undefined,
+              patch.timezone !== undefined ||
+              patch.defaultCurrency !== undefined ||
+              patch.theme !== undefined,
             { message: "Choose at least one preference to change" },
           ),
         outputSchema: mcpOutputSchema(preferencesResultSchema),

@@ -186,35 +186,27 @@ describe("static files at the root of the client bundle", () => {
     expect(html).toContain(manifest.description);
   });
 
-  /**
-   * A phone paints its browser chrome with `theme-color`. The stylesheet commits
-   * to `color-scheme: light`, so a dark value here frames a light page in
-   * near-black.
-   */
-  it("colours the browser chrome the same as the page", () => {
-    const html = readFileSync(
-      path.join(import.meta.dirname, "..", "index.html"),
-      "utf8",
-    );
-    const css = readFileSync(
-      path.join(import.meta.dirname, "..", "src/client/styles.css"),
-      "utf8",
-    );
-    const themeColor = /<meta name="theme-color" content="(#[0-9a-f]{6})"/.exec(html);
-    expect(themeColor, "index.html declares a theme-color").not.toBeNull();
-    expect(css).toContain("color-scheme: light");
-    expect(css).toContain(`background: ${themeColor![1]}`);
-  });
+  // Whether the phone's browser chrome matches the page is now
+  // tests/theme-tokens.test.ts, which checks it per theme. There are two grounds
+  // and two metas, and the check here was `expect(css).toContain(...)` over the
+  // whole file — with two palettes that passes when the colour turns up in the
+  // wrong block, so doubling it would have kept the words and lost the meaning.
 
   it("keeps the icon the document asks for in the bundle", () => {
     const html = readFileSync(
       path.join(import.meta.dirname, "..", "index.html"),
       "utf8",
     );
-    for (const match of html.matchAll(/<link[^>]+href="\/([^"]+)"/g)) {
+    for (const match of html.matchAll(
+      /<(?:link[^>]+href|script[^>]+src)="\/([^"]+)"/g,
+    )) {
       const file = match[1];
-      // Hashed assets are emitted by the build; these are the ones copied
-      // verbatim out of public/, so they have to be there to be copied.
+      // Hashed assets are emitted by the build, as is the module entry it
+      // rewrites; these are the ones copied verbatim out of public/, so they
+      // have to be there to be copied. Scripts are matched as well as links
+      // because <head> now loads one, and a src pointing at a file nobody
+      // copied would have shipped a 404 that blocks the first paint.
+      if (file!.startsWith("src/")) continue;
       if (file.startsWith("assets/")) continue;
       expect(
         existsSync(path.join(import.meta.dirname, "..", "public", file)),

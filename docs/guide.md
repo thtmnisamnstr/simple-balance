@@ -202,6 +202,23 @@ the recurring list sort by any column they show and page by number. Activity
 shows the hundred most recent events and neither sorts nor pages. Everything the
 browser or an agent did is in the audit log.
 
+## How it looks
+
+There is a light theme and a dark one, and by default the app takes whichever the
+machine is set to — so it goes dark with the rest of the screen at sunset without
+being told. The moon in the bottom corner of the sidebar switches it, and Settings
+has all three choices: **Light** and **Dark**, which stay where you put them, and
+**Follow my system**, which is the default.
+
+The choice is saved to the account rather than to the browser, so signing in on a
+different device brings it along. It is applied before the page draws, so there is
+no flash of the wrong theme on the way in.
+
+Every figure means the same thing in both themes. Money out is red and money in is
+green in each of them, and the report charts keep each account on the same colour
+family when the theme changes, so a chart you have learned to read still reads the
+same way.
+
 ## Signing in, and leaving
 
 Sign in with an email and password, with Google, or with both on the same account.

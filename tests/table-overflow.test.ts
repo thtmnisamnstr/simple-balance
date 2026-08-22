@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { ruleFor } from "./support/css.js";
 
 /**
  * Every wide table sits in something that scrolls.
@@ -66,12 +67,17 @@ describe("wide tables", () => {
    */
   it("keep the panel wrapper free of a second card's chrome", async () => {
     const styles = await readFile(new URL("../src/client/styles.css", import.meta.url), "utf8");
-    const cardChrome = styles
-      .split("\n")
-      .findIndex((line) => line.trim() === ".table-card,");
-    expect(cardChrome).toBeGreaterThan(-1);
+    // Asked for by selector. Finding the group by the exact line text
+    // `.table-card,` made this fail if anybody reordered or resplit the selector
+    // list, which is not what the test is about.
+    expect(
+      ruleFor(styles, ".table-card").length,
+      ".table-card carries the card chrome",
+    ).toBeGreaterThan(0);
 
-    const wrapRule = /^\.table-wrap\s*\{([^}]*)\}/ms.exec(styles)?.[1] ?? "";
+    const wrapRule = ruleFor(styles, ".table-wrap")
+      .map((rule) => rule.body)
+      .join("\n");
     expect(wrapRule).toContain("overflow-x: auto");
     expect(wrapRule).not.toContain("border");
     expect(wrapRule).not.toContain("background");

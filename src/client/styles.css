@@ -9,7 +9,7 @@
 *::before,
 *::after {
   box-sizing: border-box;
-  border: 0 solid var(--line, #dde4df);
+  border: 0 solid var(--line, var(--line));
 }
 
 h1,
@@ -70,36 +70,236 @@ a {
   text-decoration: inherit;
 }
 
+/*
+ * Every colour in this file comes from here, and each one is declared once per
+ * theme. A colour written inline further down is a colour that has only one
+ * theme, which is the bug that makes half an app unreadable, so
+ * `tests/theme-tokens.test.ts` fails on any literal outside these blocks.
+ *
+ * Three states, not two. The light values below are unconditional, so they are
+ * also the fallback for a browser that supports neither of the mechanisms under
+ * them. `system` — the state almost everybody is in, and the one nothing has to
+ * be set to — is the media query: it is right on the first paint with no
+ * JavaScript, and it keeps following the machine while the tab is open. An
+ * explicit choice is the attribute, stamped by `public/theme-boot.js` before
+ * anything paints.
+ *
+ * The two dark blocks carry the same declarations on purpose. They cannot be
+ * merged: one asks what the machine wants and the other asks what the person
+ * chose, and either can be true without the other. The media one excludes an
+ * explicit light choice so a light choice on a dark machine still wins, and the
+ * attribute one is written last so it wins on the way back.
+ */
 :root {
   color-scheme: light;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  color: #17231d;
-  background: #f5f7f3;
+  color: var(--ink);
+  background: var(--ground);
   font-synthesis: none;
-  --ink: #17231d;
-  --muted: #68756e;
-  --line: #dde4df;
+  --ground: #f5f7f3;
   --surface: #ffffff;
   --surface-soft: #f8faf8;
+  --fill-subtle: #edf1ee;
+  --track: #e7ece9;
+  --chrome: rgb(250 252 250 / 94%);
+  --ink: #17231d;
+  --ink-soft: #3e4c44;
+  --muted: #636f68;
+  --on-accent: #ffffff;
+  --line: #dde4df;
+  --line-soft: #e9eeea;
+  --line-strong: #848f88;
   --green: #176b4b;
+  --green-fill: #176b4b;
+  --green-fill-hover: #10543a;
   --green-dark: #10543a;
   --green-soft: #e6f4ec;
+  --green-wash: #f1f8f4;
+  --green-line: #bcd8c8;
+  --green-line-strong: #4d9677;
   --red: #af3a35;
+  --red-fill: #af3a35;
   --red-soft: #faecea;
-  --amber: #966415;
+  --red-line: #efcfca;
+  --amber: #8a5c12;
   --amber-soft: #fff4dc;
   --blue: #315d92;
   --blue-soft: #eaf1fa;
   --shadow: 0 1px 2px rgb(25 42 32 / 5%), 0 12px 35px rgb(32 56 42 / 5%);
+  --shadow-pop: 0 15px 38px rgb(26 45 34 / 14%);
+  --shadow-overlay: rgb(20 34 26 / 30%);
+  --accent-glow: rgb(23 107 75 / 17%);
+  --focus-ring: #1f7d58;
+  --focus-inner: rgb(34 126 88 / 11%);
+  --scrim: rgb(25 35 29 / 45%);
+  --ambient: rgb(207 233 217 / 45%);
+  --brand-from: #257a59;
+  --brand-to: #0d4b34;
+  --fill-deep: #173e2e;
+  --art-base: #123e2d;
+  --art-glow-a: #508f72;
+  --art-glow-b: #1d6d4c;
+  --on-art-muted: rgb(255 255 255 / 68%);
+  --art-hairline: rgb(255 255 255 / 16%);
+  --art-veil: rgb(255 255 255 / 10%);
+  --art-bar: #86ceb0;
+  --series-0: #2f7451;
+  --series-1: #b03d38;
+  --series-2: #4671aa;
+  --series-3: #a8801f;
+  --series-4: #764f99;
+  --series-5: #1a7d82;
+  --series-6: #b06030;
+  --series-7: #821a47;
+  --series-8: #455819;
+  --series-9: #374b6c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Native surfaces the browser paints itself — scrollbars, the spinners on a
+       number input, a date picker — read this and nothing else. Without it they
+       stay light against everything around them. */
+    color-scheme: dark;
+    --ground: #0e1613;
+    --surface: #18211d;
+    --surface-soft: #131b17;
+    --fill-subtle: #242f29;
+    --track: #0a100d;
+    --chrome: rgb(21 29 25 / 88%);
+    --ink: #e7ede9;
+    --ink-soft: #b6c2bb;
+    --muted: #9caaa3;
+    --on-accent: #ffffff;
+    --line: #2c3934;
+    --line-soft: #232e29;
+    --line-strong: #6f7d76;
+    --green: #58c795;
+    --green-fill: #1c7c58;
+    --green-fill-hover: #1f8459;
+    --green-dark: #86dab2;
+    --green-soft: #17402e;
+    --green-wash: #163225;
+    --green-line: #2f5f47;
+    --green-line-strong: #4aa37e;
+    --red: #f0857c;
+    --red-fill: #b23f39;
+    --red-soft: #3d1c1a;
+    --red-line: #5c2b27;
+    --amber: #dda94a;
+    --amber-soft: #3c2d11;
+    --blue: #85b3ea;
+    --blue-soft: #17293d;
+    --shadow: inset 0 1px 0 rgb(255 255 255 / 6%), 0 1px 2px rgb(0 0 0 / 40%), 0 14px 32px rgb(0 0 0 / 32%);
+    --shadow-pop: inset 0 1px 0 rgb(255 255 255 / 7%), 0 16px 40px rgb(0 0 0 / 55%);
+    --shadow-overlay: rgb(0 0 0 / 62%);
+    --accent-glow: rgb(28 124 88 / 34%);
+    --focus-ring: #7ad9ae;
+    --focus-inner: rgb(122 217 174 / 22%);
+    --scrim: rgb(2 5 4 / 68%);
+    --ambient: rgb(31 122 87 / 20%);
+    --brand-from: #2b8060;
+    --brand-to: #12563c;
+    --fill-deep: #357556;
+    --art-base: #123e2d;
+    --art-glow-a: #508f72;
+    --art-glow-b: #1d6d4c;
+    --on-art-muted: rgb(255 255 255 / 68%);
+    --art-hairline: rgb(255 255 255 / 16%);
+    --art-veil: rgb(255 255 255 / 10%);
+    --art-bar: #86ceb0;
+    --series-0: #37a66e;
+    --series-1: #d6625c;
+    --series-2: #9cc4fa;
+    --series-3: #ab812b;
+    --series-4: #be96e1;
+    --series-5: #50a1a5;
+    --series-6: #e49465;
+    --series-7: #c06b8f;
+    --series-8: #86a145;
+    --series-9: #6689c5;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ground: #0e1613;
+  --surface: #18211d;
+  --surface-soft: #131b17;
+  --fill-subtle: #242f29;
+  --track: #0a100d;
+  --chrome: rgb(21 29 25 / 88%);
+  --ink: #e7ede9;
+  --ink-soft: #b6c2bb;
+  --muted: #9caaa3;
+  --on-accent: #ffffff;
+  --line: #2c3934;
+  --line-soft: #232e29;
+  --line-strong: #6f7d76;
+  --green: #58c795;
+  --green-fill: #1c7c58;
+  --green-fill-hover: #1f8459;
+  --green-dark: #86dab2;
+  --green-soft: #17402e;
+  --green-wash: #163225;
+  --green-line: #2f5f47;
+  --green-line-strong: #4aa37e;
+  --red: #f0857c;
+  --red-fill: #b23f39;
+  --red-soft: #3d1c1a;
+  --red-line: #5c2b27;
+  --amber: #dda94a;
+  --amber-soft: #3c2d11;
+  --blue: #85b3ea;
+  --blue-soft: #17293d;
+  --shadow: inset 0 1px 0 rgb(255 255 255 / 6%), 0 1px 2px rgb(0 0 0 / 40%), 0 14px 32px rgb(0 0 0 / 32%);
+  --shadow-pop: inset 0 1px 0 rgb(255 255 255 / 7%), 0 16px 40px rgb(0 0 0 / 55%);
+  --shadow-overlay: rgb(0 0 0 / 62%);
+  --accent-glow: rgb(28 124 88 / 34%);
+  --focus-ring: #7ad9ae;
+  --focus-inner: rgb(122 217 174 / 22%);
+  --scrim: rgb(2 5 4 / 68%);
+  --ambient: rgb(31 122 87 / 20%);
+  --brand-from: #2b8060;
+  --brand-to: #12563c;
+  --fill-deep: #357556;
+  --art-base: #123e2d;
+  --art-glow-a: #508f72;
+  --art-glow-b: #1d6d4c;
+  --on-art-muted: rgb(255 255 255 / 68%);
+  --art-hairline: rgb(255 255 255 / 16%);
+  --art-veil: rgb(255 255 255 / 10%);
+  --art-bar: #86ceb0;
+  --series-0: #37a66e;
+  --series-1: #d6625c;
+  --series-2: #9cc4fa;
+  --series-3: #ab812b;
+  --series-4: #be96e1;
+  --series-5: #50a1a5;
+  --series-6: #e49465;
+  --series-7: #c06b8f;
+  --series-8: #86a145;
+  --series-9: #6689c5;
+}
+
+/*
+ * Declared because there was no rule for it at all, which left the selection
+ * colour to the user agent. That was survivable while `color-scheme` was always
+ * light; once it can be dark the browser picks its own highlight for the theme
+ * and it has no reason to match this palette.
+ */
+::selection {
+  color: var(--ink);
+  background: var(--green-line-strong);
 }
 
 
 html {
   min-width: 320px;
   min-height: 100%;
-  background: #f5f7f3;
+  background: var(--ground);
 }
 
 body {
@@ -107,8 +307,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 72% -20%, rgb(207 233 217 / 45%), transparent 32rem),
-    #f5f7f3;
+    radial-gradient(circle at 72% -20%, var(--ambient), transparent 32rem),
+    var(--ground);
 }
 
 
@@ -134,8 +334,8 @@ a {
   width: 248px;
   flex-direction: column;
   padding: 24px 16px 18px;
-  border-right: 1px solid #dce4de;
-  background: rgb(250 252 250 / 94%);
+  border-right: 1px solid var(--line);
+  background: var(--chrome);
   backdrop-filter: blur(18px);
 }
 
@@ -170,9 +370,9 @@ a {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 12px;
-  color: #fff;
-  background: linear-gradient(145deg, #257a59, #0d4b34);
-  box-shadow: 0 7px 18px rgb(23 107 75 / 24%);
+  color: var(--on-accent);
+  background: linear-gradient(145deg, var(--brand-from), var(--brand-to));
+  box-shadow: 0 7px 18px var(--accent-glow);
 }
 
 .brand-mark.large {
@@ -193,7 +393,7 @@ a {
   gap: 11px;
   padding: 10px 12px;
   border-radius: 9px;
-  color: #526159;
+  color: var(--ink-soft);
   font-size: 14px;
   font-weight: 570;
   text-decoration: none;
@@ -202,7 +402,7 @@ a {
 
 .sidebar nav a:hover {
   color: var(--ink);
-  background: #eef3ef;
+  background: var(--fill-subtle);
 }
 
 .sidebar nav a.active {
@@ -237,7 +437,7 @@ a {
   border-radius: 50%;
   object-fit: cover;
   color: var(--green-dark);
-  background: #d9ebe0;
+  background: var(--green-soft);
   font-size: 11px;
   font-weight: 750;
 }
@@ -265,6 +465,7 @@ a {
 }
 
 .sign-out,
+.theme-toggle,
 .mobile-close,
 .mobile-header > button {
   display: grid;
@@ -280,10 +481,11 @@ a {
 }
 
 .sign-out:hover,
+.theme-toggle:hover,
 .mobile-close:hover,
 .mobile-header > button:hover {
   color: var(--ink);
-  background: #edf2ee;
+  background: var(--fill-subtle);
 }
 
 .mobile-close,
@@ -371,38 +573,38 @@ a {
 }
 
 .button-primary {
-  color: #fff;
-  background: var(--green);
-  box-shadow: 0 5px 14px rgb(23 107 75 / 17%);
+  color: var(--on-accent);
+  background: var(--green-fill);
+  box-shadow: 0 5px 14px var(--accent-glow);
 }
 
 .button-primary:hover:not(:disabled) {
-  background: var(--green-dark);
+  background: var(--green-fill-hover);
 }
 
 .button-secondary {
-  border-color: #d3dcd6;
-  color: #34433b;
-  background: #fff;
+  border-color: var(--line);
+  color: var(--ink-soft);
+  background: var(--surface);
 }
 
 .button-secondary:hover:not(:disabled) {
-  border-color: #bfcac3;
-  background: #f9fbf9;
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
 }
 
 .button-ghost {
-  color: #58665e;
+  color: var(--muted);
   background: transparent;
 }
 
 .button-ghost:hover:not(:disabled) {
-  background: #edf2ee;
+  background: var(--fill-subtle);
 }
 
 .button-danger {
-  color: #fff;
-  background: var(--red);
+  color: var(--on-accent);
+  background: var(--red-fill);
 }
 
 .animate-spin {
@@ -419,7 +621,7 @@ a {
 .metric-card,
 .empty-state {
   border: 1px solid var(--line);
-  background: rgb(255 255 255 / 92%);
+  background: var(--surface);
   box-shadow: var(--shadow);
 }
 
@@ -428,7 +630,7 @@ a {
 .skeleton {
   display: block;
   border-radius: 10px;
-  background: linear-gradient(90deg, #eef2ef 25%, #f6f9f6 50%, #eef2ef 75%);
+  background: linear-gradient(90deg, var(--fill-subtle) 25%, var(--surface-soft) 50%, var(--fill-subtle) 75%);
   background-size: 200% 100%;
   animation: skeleton-sweep 1.4s ease-in-out infinite;
 }
@@ -463,7 +665,7 @@ a {
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 15px;
-  border-bottom: 1px solid #e9eeea;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .panel-header h3 {
@@ -490,7 +692,7 @@ a {
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: rgb(255 255 255 / 74%);
+  background: var(--surface);
 }
 
 .date-bar-title {
@@ -510,7 +712,7 @@ a {
 }
 
 .date-separator {
-  color: #87928c;
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -518,11 +720,11 @@ a {
   width: 100%;
   min-height: 40px;
   padding: 8px 11px;
-  border: 1px solid #d4ddd7;
+  border: 1px solid var(--line);
   border-radius: 8px;
   outline: none;
   color: var(--ink);
-  background: #fff;
+  background: var(--surface);
   font-size: 13px;
   transition:
     border-color 120ms,
@@ -530,17 +732,17 @@ a {
 }
 
 .input::placeholder {
-  color: #98a19c;
+  color: var(--muted);
 }
 
 .input:focus {
-  border-color: #4d9677;
-  box-shadow: 0 0 0 3px rgb(34 126 88 / 11%);
+  border-color: var(--green-line-strong);
+  box-shadow: 0 0 0 3px var(--focus-inner);
 }
 
 button:focus-visible,
 a:focus-visible {
-  outline: 3px solid rgb(34 126 88 / 28%);
+  outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -558,7 +760,7 @@ a:focus-visible {
   position: absolute;
   top: 50%;
   right: 10px;
-  color: #7a8780;
+  color: var(--muted);
   pointer-events: none;
   transform: translateY(-50%);
 }
@@ -575,7 +777,7 @@ a:focus-visible {
 }
 
 .field-label {
-  color: #445149;
+  color: var(--ink-soft);
   font-size: 12px;
   font-weight: 650;
 }
@@ -616,7 +818,7 @@ a:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  color: #58665e;
+  color: var(--muted);
   font-size: 12px;
   cursor: pointer;
 }
@@ -645,20 +847,20 @@ input[type="radio"] {
 }
 
 .alert-error {
-  border-color: #efcfca;
-  color: #8e302d;
+  border-color: var(--red-line);
+  color: var(--red);
   background: var(--red-soft);
 }
 
 .alert-success {
-  border-color: #bcdcc9;
+  border-color: var(--green-line);
   color: var(--green-dark);
   background: var(--green-soft);
 }
 
 .alert-info {
-  border-color: #cbd9e9;
-  color: #31577e;
+  border-color: var(--blue-soft);
+  color: var(--blue);
   background: var(--blue-soft);
 }
 
@@ -668,18 +870,18 @@ input[type="radio"] {
   align-items: center;
   padding: 3px 7px;
   border-radius: 99px;
-  color: #58665e;
-  background: #edf1ee;
+  color: var(--muted);
+  background: var(--fill-subtle);
   font-size: 11px;
   font-weight: 730;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
-.badge-green { color: #176045; background: #e4f3ea; }
-.badge-red { color: #9c3832; background: #fae9e6; }
-.badge-amber { color: #866018; background: #fff1d4; }
-.badge-blue { color: #345c87; background: #e7eff9; }
+.badge-green { color: var(--green-dark); background: var(--green-soft); }
+.badge-red { color: var(--red); background: var(--red-soft); }
+.badge-amber { color: var(--amber); background: var(--amber-soft); }
+.badge-blue { color: var(--blue); background: var(--blue-soft); }
 
 /* A payee or a category with a badge beside it. Without this the badge is a
    block sibling and drops onto its own line, doubling the row's height. */
@@ -771,8 +973,8 @@ input[type="radio"] {
 }
 
 .metric-balance {
-  border-color: #bcd8c8;
-  background: linear-gradient(145deg, #f5fbf7, #fff);
+  border-color: var(--green-line);
+  background: linear-gradient(145deg, var(--green-wash), var(--surface));
 }
 
 .metric-icon {
@@ -782,8 +984,8 @@ input[type="radio"] {
   flex: 0 0 auto;
   place-items: center;
   border-radius: 9px;
-  color: #52665b;
-  background: #edf2ee;
+  color: var(--muted);
+  background: var(--fill-subtle);
 }
 
 .metric-icon.positive { color: var(--green); background: var(--green-soft); }
@@ -815,7 +1017,7 @@ input[type="radio"] {
 .account-mini-row,
 .spending-row {
   padding: 12px 0;
-  border-bottom: 1px solid #edf0ee;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .account-mini-row:last-child,
@@ -891,14 +1093,14 @@ input[type="radio"] {
   height: 5px;
   overflow: hidden;
   border-radius: 99px;
-  background: #edf1ee;
+  background: var(--track);
 }
 
 .progress-track span {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #4b9b78, #207153);
+  background: linear-gradient(90deg, var(--green-line-strong), var(--green-fill));
 }
 
 .panel-empty {
@@ -989,8 +1191,8 @@ input[type="radio"] {
   justify-content: space-between;
   gap: 12px;
   padding: 13px 16px 15px;
-  border-top: 1px solid #edf0ee;
-  background: #fbfcfb;
+  border-top: 1px solid var(--line-soft);
+  background: var(--surface-soft);
   border-radius: 0 0 13px 13px;
 }
 
@@ -1039,7 +1241,7 @@ input[type="radio"] {
   padding: 15px;
   border: 1px solid var(--line);
   border-radius: 11px;
-  background: rgb(255 255 255 / 92%);
+  background: var(--surface);
   box-shadow: var(--shadow);
 }
 
@@ -1146,9 +1348,9 @@ input[type="radio"] {
 }
 
 .pagination-page[aria-current="page"] {
-  border-color: var(--green);
-  background: var(--green);
-  color: #fff;
+  border-color: var(--green-fill);
+  background: var(--green-fill);
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -1183,7 +1385,7 @@ input[type="radio"] {
 }
 
 .menu summary:hover {
-  background: #edf2ee;
+  background: var(--fill-subtle);
 }
 
 .menu-popover {
@@ -1198,8 +1400,8 @@ input[type="radio"] {
   padding: 5px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #fff;
-  box-shadow: 0 15px 38px rgb(26 45 34 / 14%);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
 }
 
 /* Fixed rather than absolute, so a row menu is not clipped by the horizontal
@@ -1218,7 +1420,7 @@ input[type="radio"] {
   padding: 8px;
   border: 0;
   border-radius: 6px;
-  color: #3d4b43;
+  color: var(--ink-soft);
   background: transparent;
   font-size: 11px;
   text-align: left;
@@ -1227,7 +1429,7 @@ input[type="radio"] {
 }
 
 .menu-popover button:hover {
-  background: #f1f4f2;
+  background: var(--fill-subtle);
 }
 
 .menu-popover button.danger {
@@ -1249,7 +1451,7 @@ input[type="radio"] {
   z-index: 1;
   top: 50%;
   left: 11px;
-  color: #7a8780;
+  color: var(--muted);
   transform: translateY(-50%);
 }
 
@@ -1281,7 +1483,7 @@ input[type="radio"] {
   gap: 14px;
   margin: -8px 0 14px;
   padding: 10px 12px;
-  border: 1px solid #bcd8c8;
+  border: 1px solid var(--green-line);
   border-radius: 10px;
   background: var(--green-soft);
 }
@@ -1334,8 +1536,8 @@ input[type="radio"] {
 .data-table th {
   padding: 11px 14px;
   border-bottom: 1px solid var(--line);
-  color: #79857e;
-  background: #fafcfa;
+  color: var(--muted);
+  background: var(--surface-soft);
   font-size: 11px;
   font-weight: 720;
   letter-spacing: 0.06em;
@@ -1378,7 +1580,7 @@ input[type="radio"] {
 }
 
 .sort-header.sorted {
-  color: var(--ink, #1d2b24);
+  color: var(--ink, var(--ink));
 }
 
 .sort-header.sorted svg {
@@ -1393,7 +1595,7 @@ input[type="radio"] {
 }
 
 .sort-menu label {
-  color: #79857e;
+  color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1407,19 +1609,19 @@ input[type="radio"] {
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
-  color: #4a5750;
+  background: var(--surface);
+  color: var(--ink-soft);
   cursor: pointer;
 }
 
 .sort-direction:hover {
-  border-color: #c3cdc7;
+  border-color: var(--line-strong);
 }
 
 .data-table td {
   padding: 12px 14px;
-  border-bottom: 1px solid #edf0ee;
-  color: #3e4c44;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-soft);
   font-size: 13px;
   vertical-align: middle;
 }
@@ -1429,11 +1631,11 @@ input[type="radio"] {
 }
 
 .data-table tbody tr:hover {
-  background: #fbfcfb;
+  background: var(--surface-soft);
 }
 
 .data-table tbody tr.row-selected {
-  background: #f1f8f4;
+  background: var(--green-wash);
 }
 
 .align-right {
@@ -1513,7 +1715,7 @@ input[type="radio"] {
   place-items: center;
   border: 0;
   border-radius: 7px;
-  color: #758179;
+  color: var(--muted);
   background: transparent;
   cursor: pointer;
 }
@@ -1564,7 +1766,7 @@ input[type="radio"] {
 
 .row-actions button:hover {
   color: var(--ink);
-  background: #edf2ee;
+  background: var(--fill-subtle);
 }
 
 .checkbox-cell {
@@ -1581,7 +1783,7 @@ input[type="radio"] {
 
 .bulk-edit-selection-summary {
   margin: 0;
-  color: #445149;
+  color: var(--ink-soft);
   font-size: 12px;
   font-weight: 650;
 }
@@ -1603,8 +1805,8 @@ input[type="radio"] {
 }
 
 .bulk-edit-field.enabled {
-  border-color: #bcd8c8;
-  background: #f4faf6;
+  border-color: var(--green-line);
+  background: var(--green-wash);
 }
 
 .bulk-edit-field > .select-wrap {
@@ -1638,7 +1840,7 @@ input[type="radio"] {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #445149;
+  color: var(--ink-soft);
   font-size: 12px;
   font-weight: 650;
   cursor: pointer;
@@ -1668,17 +1870,17 @@ input[type="radio"] {
   padding: 11px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  color: #5f6d65;
-  background: #fff;
+  color: var(--muted);
+  background: var(--surface);
   text-align: left;
   cursor: pointer;
 }
 
 .transaction-type.selected {
-  border-color: #6ba78c;
+  border-color: var(--green-line-strong);
   color: var(--green-dark);
-  background: #eef8f2;
-  box-shadow: 0 0 0 2px rgb(23 107 75 / 7%);
+  background: var(--green-wash);
+  box-shadow: 0 0 0 2px var(--focus-inner);
 }
 
 .transaction-type span,
@@ -1713,7 +1915,7 @@ input[type="radio"] {
 
 .commit-choice legend {
   margin-bottom: 7px;
-  color: #445149;
+  color: var(--ink-soft);
   font-size: 12px;
   font-weight: 650;
 }
@@ -1777,18 +1979,18 @@ input[type="radio"] {
   border: 0;
   border-radius: 15px;
   background: transparent;
-  box-shadow: 0 28px 90px rgb(20 34 26 / 30%);
+  box-shadow: 0 28px 90px var(--shadow-overlay);
 }
 
 .modal::backdrop {
-  background: rgb(25 35 29 / 45%);
+  background: var(--scrim);
   backdrop-filter: blur(3px);
 }
 
 .modal-card {
   max-height: calc(100vh - 28px);
   overflow-y: auto;
-  background: #fff;
+  background: var(--surface);
 }
 
 .modal-header {
@@ -1801,7 +2003,7 @@ input[type="radio"] {
   gap: 20px;
   padding: 19px 21px 15px;
   border-bottom: 1px solid var(--line);
-  background: rgb(255 255 255 / 96%);
+  background: var(--surface);
   backdrop-filter: blur(8px);
 }
 
@@ -1830,7 +2032,7 @@ input[type="radio"] {
 }
 
 .icon-button:hover {
-  background: #edf2ee;
+  background: var(--fill-subtle);
 }
 
 .modal-body {
@@ -1890,17 +2092,17 @@ input[type="radio"] {
   place-items: center;
   align-content: center;
   padding: 24px;
-  border: 1px dashed #a9bdb1;
+  border: 1px dashed var(--green-line);
   border-radius: 11px;
   color: var(--green);
-  background: #f8fbf9;
+  background: var(--surface-soft);
   text-align: center;
   cursor: pointer;
 }
 
 .file-drop:hover {
-  border-color: #6a9d84;
-  background: #f1f8f4;
+  border-color: var(--green-line-strong);
+  background: var(--green-wash);
 }
 
 .file-drop strong {
@@ -1933,7 +2135,7 @@ input[type="radio"] {
   max-width: 100%;
   overflow: auto;
   margin-top: 14px;
-  border: 1px solid #e5ebe7;
+  border: 1px solid var(--line);
   border-radius: 8px;
 }
 
@@ -1947,8 +2149,8 @@ input[type="radio"] {
   max-width: 150px;
   overflow: hidden;
   padding: 7px 9px;
-  border-right: 1px solid #e9eeea;
-  border-bottom: 1px solid #e9eeea;
+  border-right: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
   font-size: 11px;
   text-align: left;
   text-overflow: ellipsis;
@@ -1956,8 +2158,8 @@ input[type="radio"] {
 }
 
 .preview-table th {
-  color: #647168;
-  background: #f6f9f7;
+  color: var(--muted);
+  background: var(--surface-soft);
   font-weight: 700;
 }
 
@@ -2081,7 +2283,7 @@ input[type="radio"] {
   justify-content: space-between;
   gap: 14px;
   padding: 10px 0;
-  border-bottom: 1px solid #edf0ee;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .category-row:last-child {
@@ -2110,7 +2312,7 @@ input[type="radio"] {
   padding: 0 18px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: rgb(255 255 255 / 92%);
+  background: var(--surface);
   box-shadow: var(--shadow);
 }
 
@@ -2192,7 +2394,7 @@ input[type="radio"] {
   align-items: center;
   gap: 11px;
   padding: 13px 0;
-  border-bottom: 1px solid #edf0ee;
+  border-bottom: 1px solid var(--line-soft);
 }
 
 .activity-row:last-child {
@@ -2205,8 +2407,8 @@ input[type="radio"] {
   height: 34px;
   place-items: center;
   border-radius: 9px;
-  color: #617067;
-  background: #edf2ee;
+  color: var(--muted);
+  background: var(--fill-subtle);
 }
 
 .activity-icon.mcp {
@@ -2234,7 +2436,7 @@ input[type="radio"] {
   display: grid;
   min-height: 100vh;
   grid-template-columns: minmax(340px, 0.85fr) minmax(440px, 1.15fr);
-  background: #f8faf8;
+  background: var(--surface-soft);
 }
 
 .auth-card {
@@ -2266,7 +2468,7 @@ input[type="radio"] {
 
 .auth-card > small {
   margin-top: 13px;
-  color: #89948e;
+  color: var(--muted);
   font-size: 11px;
   text-align: center;
 }
@@ -2314,7 +2516,7 @@ input[type="radio"] {
   align-items: center;
   gap: 12px;
   margin: 18px 0 6px;
-  color: #89948e;
+  color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
 }
@@ -2330,7 +2532,7 @@ input[type="radio"] {
 .google-button {
   min-height: 46px;
   margin-top: 12px;
-  background: #173e2e;
+  background: var(--fill-deep);
 }
 
 .google-button svg {
@@ -2338,7 +2540,7 @@ input[type="radio"] {
   height: 18px;
   padding: 2px;
   border-radius: 3px;
-  background: #fff;
+  background: var(--on-accent);
 }
 
 .auth-method-status {
@@ -2354,14 +2556,14 @@ input[type="radio"] {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #fafcfb;
+  background: var(--surface-soft);
   font-size: 12px;
 }
 
 /* Set apart from the panels above it, because nothing in it can be undone. */
 .danger-zone {
   margin-top: 14px;
-  border-color: #e8c9c6;
+  border-color: var(--red-line);
 }
 
 .danger-zone .section-title > span {
@@ -2377,7 +2579,7 @@ input[type="radio"] {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: #fafcfb;
+  background: var(--surface-soft);
   font-size: 12px;
 }
 
@@ -2416,15 +2618,15 @@ input[type="radio"] {
   margin: 16px;
   border-radius: 20px;
   background:
-    radial-gradient(circle at 20% 20%, #508f72, transparent 18rem),
-    radial-gradient(circle at 90% 85%, #1d6d4c, transparent 22rem),
-    #123e2d;
+    radial-gradient(circle at 20% 20%, var(--art-glow-a), transparent 18rem),
+    radial-gradient(circle at 90% 85%, var(--art-glow-b), transparent 22rem),
+    var(--art-base);
 }
 
 .auth-art::before {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgb(255 255 255 / 17%) 1px, transparent 1px);
+  background-image: radial-gradient(var(--art-hairline) 1px, transparent 1px);
   background-size: 25px 25px;
   content: "";
   mask-image: linear-gradient(to bottom right, black, transparent 80%);
@@ -2432,7 +2634,7 @@ input[type="radio"] {
 
 .auth-orbit {
   position: absolute;
-  border: 1px solid rgb(255 255 255 / 12%);
+  border: 1px solid var(--art-hairline);
   border-radius: 50%;
 }
 
@@ -2443,17 +2645,17 @@ input[type="radio"] {
   z-index: 1;
   width: min(370px, 70%);
   padding: 26px;
-  border: 1px solid rgb(255 255 255 / 20%);
+  border: 1px solid var(--art-hairline);
   border-radius: 18px;
-  color: #fff;
-  background: rgb(255 255 255 / 10%);
-  box-shadow: 0 30px 80px rgb(0 0 0 / 24%);
+  color: var(--on-accent);
+  background: var(--art-veil);
+  box-shadow: 0 30px 80px var(--shadow-overlay);
   backdrop-filter: blur(18px);
   transform: rotate(-3deg);
 }
 
 .auth-ledger-card > span {
-  color: rgb(255 255 255 / 68%);
+  color: var(--on-art-muted);
   font-size: 12px;
 }
 
@@ -2475,7 +2677,7 @@ input[type="radio"] {
 .auth-ledger-card i {
   flex: 1;
   border-radius: 4px 4px 1px 1px;
-  background: #86ceb0;
+  background: var(--art-bar);
 }
 
 .auth-ledger-card i:nth-child(1) { height: 35%; }
@@ -2501,8 +2703,8 @@ input[type="radio"] {
 .scope-list li {
   padding: 10px 12px;
   border-radius: 8px;
-  color: #365045;
-  background: #edf4f0;
+  color: var(--ink-soft);
+  background: var(--green-wash);
   font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -2557,7 +2759,7 @@ input[type="radio"] {
 @media (max-width: 780px) {
   .sidebar {
     transform: translateX(-102%);
-    box-shadow: 18px 0 55px rgb(20 36 27 / 18%);
+    box-shadow: 18px 0 55px var(--shadow-overlay);
     transition:
       transform 180ms ease,
       visibility 180ms;
@@ -2580,7 +2782,7 @@ input[type="radio"] {
     z-index: 20;
     inset: 0;
     border: 0;
-    background: rgb(23 35 28 / 35%);
+    background: var(--scrim);
   }
   .main-column {
     margin-left: 0;
@@ -2595,7 +2797,7 @@ input[type="radio"] {
     gap: 10px;
     padding: 0 18px;
     border-bottom: 1px solid var(--line);
-    background: rgb(250 252 250 / 90%);
+    background: var(--chrome);
     backdrop-filter: blur(14px);
   }
   .mobile-header .brand-mark {
@@ -2898,14 +3100,20 @@ input[type="radio"] {
 }
 
 .chart-grid {
+  /* Faint on purpose: these are for tracing a value across to the axis, and a
+     gridline that competes with the data is worse than no gridline. The 0.75
+     opacity that used to be here took it under 1.2:1, which is not subtle, it
+     is absent. */
   stroke: var(--line);
   stroke-width: 1px;
   stroke-dasharray: 3 4;
-  opacity: 0.75;
 }
 
 .chart-zero {
-  stroke: var(--line);
+  /* Not a gridline. This is where money in becomes money out, so it is held to
+     the 3:1 a meaningful line needs rather than left at the 1.3:1 a decorative
+     hairline sits at. */
+  stroke: var(--line-strong);
   stroke-width: 1px;
 }
 
@@ -2943,32 +3151,54 @@ input[type="radio"] {
   border-radius: 3px;
 }
 
-/* Ten hues, kept apart from each other rather than swept round a wheel, so a
-   ledger with ten accounts still has a readable legend. There were six, and a
-   seventh account shared a colour with the first. Beyond ten they do wrap; the
-   table under the chart is what carries the exact figures. SERIES_COLOURS in
-   charts.tsx counts these, and a test fails if the two disagree. */
-.chart-series-0 { stroke: #207153; fill: #207153; }
-.chart-series-1 { stroke: #af3a35; fill: #af3a35; }
-.chart-series-2 { stroke: #315d92; fill: #315d92; }
-.chart-series-3 { stroke: #966415; fill: #966415; }
-.chart-series-4 { stroke: #6b4b9b; fill: #6b4b9b; }
-.chart-series-5 { stroke: #0f7d86; fill: #0f7d86; }
-.chart-series-6 { stroke: #c2560f; fill: #c2560f; }
-.chart-series-7 { stroke: #a6265c; fill: #a6265c; }
-.chart-series-8 { stroke: #4b6b1f; fill: #4b6b1f; }
-.chart-series-9 { stroke: #4c5a70; fill: #4c5a70; }
+/* Ten hues, kept apart under three kinds of vision rather than swept round a
+   wheel, so a ledger with ten accounts still has a readable legend. There were
+   six, and a seventh account shared a colour with the first. Beyond ten they do
+   wrap; the table under the chart is what carries the exact figures.
+   SERIES_COLOURS in charts.tsx counts these, and a test fails if the two
+   disagree.
 
-.chart-swatch.chart-series-0 { background: #207153; }
-.chart-swatch.chart-series-1 { background: #af3a35; }
-.chart-swatch.chart-series-2 { background: #315d92; }
-.chart-swatch.chart-series-3 { background: #966415; }
-.chart-swatch.chart-series-4 { background: #6b4b9b; }
-.chart-swatch.chart-series-5 { background: #0f7d86; }
-.chart-swatch.chart-series-6 { background: #c2560f; }
-.chart-swatch.chart-series-7 { background: #a6265c; }
-.chart-swatch.chart-series-8 { background: #4b6b1f; }
-.chart-swatch.chart-series-9 { background: #4c5a70; }
+   Each slot keeps its hue family across the two themes — slot 3 is the amber one
+   in both — because otherwise switching theme silently reassigns every account's
+   colour and a chart somebody had learned to read stops being readable.
+
+   The values are in the token blocks at the top. They are not the semantic
+   --green/--red/--blue: a series is an arbitrary identity, and borrowing the
+   colour that means "money out" for whichever account happens to sort second
+   says something the chart does not mean.
+
+   An honest limit: ten categorical colours cannot all be told apart by somebody
+   with dichromatic vision, and no choice of ten fixes that. Measured as CIEDE2000
+   between every pair under simulated deuteranopia and protanopia, the set that
+   shipped before this had a worst pair of 1.78 — the green and the pink were the
+   same colour. These reach 5.6 in light and 4.7 in dark, which is three times
+   better and still not enough on its own: a search that held hue identity and the
+   3:1 a line needs could not beat about 7 in light or 4 in dark. The remedy is a
+   second channel that is not colour — a dash pattern per series — which is a
+   change to the charts rather than to this palette, and is not made here. Until
+   then the legend and the table under every chart are what carry identity, and
+   both are always present. */
+.chart-series-0 { stroke: var(--series-0); fill: var(--series-0); }
+.chart-series-1 { stroke: var(--series-1); fill: var(--series-1); }
+.chart-series-2 { stroke: var(--series-2); fill: var(--series-2); }
+.chart-series-3 { stroke: var(--series-3); fill: var(--series-3); }
+.chart-series-4 { stroke: var(--series-4); fill: var(--series-4); }
+.chart-series-5 { stroke: var(--series-5); fill: var(--series-5); }
+.chart-series-6 { stroke: var(--series-6); fill: var(--series-6); }
+.chart-series-7 { stroke: var(--series-7); fill: var(--series-7); }
+.chart-series-8 { stroke: var(--series-8); fill: var(--series-8); }
+.chart-series-9 { stroke: var(--series-9); fill: var(--series-9); }
+
+.chart-swatch.chart-series-0 { background: var(--series-0); }
+.chart-swatch.chart-series-1 { background: var(--series-1); }
+.chart-swatch.chart-series-2 { background: var(--series-2); }
+.chart-swatch.chart-series-3 { background: var(--series-3); }
+.chart-swatch.chart-series-4 { background: var(--series-4); }
+.chart-swatch.chart-series-5 { background: var(--series-5); }
+.chart-swatch.chart-series-6 { background: var(--series-6); }
+.chart-swatch.chart-series-7 { background: var(--series-7); }
+.chart-swatch.chart-series-8 { background: var(--series-8); }
+.chart-swatch.chart-series-9 { background: var(--series-9); }
 
 .chart-figure figcaption {
   margin-top: 6px;

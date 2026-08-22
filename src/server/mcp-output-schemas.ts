@@ -476,6 +476,7 @@ export const preferencesResultSchema = z
     userId: z.string(),
     timezone: z.string(),
     defaultCurrency: z.string(),
+    theme: z.string(),
     chosen: z.boolean(),
   })
   .passthrough();

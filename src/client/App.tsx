@@ -8,12 +8,14 @@ import {
   LayoutDashboard,
   LayoutTemplate,
   LogOut,
+  Moon,
   Menu,
   ReceiptText,
   ChartColumn,
   Repeat,
   Settings,
   Sparkles,
+  Sun,
   Tags,
   UserRound,
   X,
@@ -54,6 +56,7 @@ import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
 import TransactionsPage from "./pages/TransactionsPage.js";
 import { detectedCurrency, detectedTimezone } from "./locale.js";
+import { clearCachedTheme, useThemeSetting } from "./theme.js";
 import { TimezoneProvider } from "./timezone.js";
 
 /**
@@ -627,6 +630,7 @@ function Shell({ session }: { session: Session }) {
   const [mobileNav, setMobileNav] = useState(false);
   const location = useLocation();
   useAdoptBrowserRegion(session);
+  const theme = useThemeSetting(session);
   const initials = session.user.name
     .split(/\s+/)
     .map((word) => word[0])
@@ -668,10 +672,34 @@ function Shell({ session }: { session: Session }) {
             )}
             <div><strong>{session.user.name}</strong><small>{session.user.email}</small></div>
           </div>
+          {/* A plain button rather than a switch, and never `aria-pressed`: a
+              two-state control cannot honestly report a three-valued setting,
+              and this one says what it will do rather than what is on. The icon
+              names the destination the same way the label does. Pressing it
+              while the setting is "Follow my system" resolves the machine and
+              sets the opposite explicitly, which is what somebody reaching for
+              a toggle is asking for. */}
+          <button
+            type="button"
+            className="theme-toggle"
+            aria-label={
+              theme.resolved === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            }
+            onClick={() => theme.setTheme(theme.resolved === "dark" ? "light" : "dark")}
+          >
+            {theme.resolved === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+          </button>
           <button
             className="sign-out"
             aria-label="Sign out"
-            onClick={() => authClient.signOut({ fetchOptions: { onSuccess: () => window.location.reload() } })}
+            onClick={() => {
+              // Before the reload, so the boot script does not paint the next
+              // person's sign-in screen in this person's theme.
+              clearCachedTheme();
+              authClient.signOut({
+                fetchOptions: { onSuccess: () => window.location.reload() },
+              });
+            }}
           >
             <LogOut size={17} />
           </button>

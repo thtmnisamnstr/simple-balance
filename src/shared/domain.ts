@@ -108,6 +108,22 @@ export const transactionTypes = ["deposit", "withdrawal", "transfer"] as const;
 export type TransactionType = (typeof transactionTypes)[number];
 
 /**
+ * Which palette to paint, where `system` is a standing instruction rather than a
+ * value: it means "whatever this machine is set to, including when that changes
+ * at sunset", and it is what somebody has before they have chosen anything.
+ *
+ * The alternative was to detect the machine's setting once and store the answer,
+ * which cannot work here and would have been worse if it could. It cannot work
+ * because `chosen` is true for anybody who has ever saved a timezone, so the
+ * detection would never fire for a single existing account — everyone already
+ * using this would upgrade into a light app on a dark machine. And it would be
+ * worse because a stored answer cannot be told apart from a decision, so the
+ * app could either follow the machine or remember a choice, never both.
+ */
+export const themes = ["system", "light", "dark"] as const;
+export type Theme = (typeof themes)[number];
+
+/**
  * Who did it. A scheduler write is not a person at a screen, and saying it was
  * would be a false statement in an audit trail.
  */

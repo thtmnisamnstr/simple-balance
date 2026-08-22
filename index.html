@@ -4,9 +4,28 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- The page's own ground, so a phone's browser chrome matches the app
-         rather than framing a light page in near-black. `color-scheme` in the
-         stylesheet is `light`, and this has to agree with it. -->
-    <meta name="theme-color" content="#f5f7f3" />
+         rather than framing the page in a colour it never uses. One per theme,
+         because a single meta cannot answer for two, and `media` is what picks
+         between them for everybody who has not overridden their machine. These
+         values are `--ground` from the stylesheet's two token blocks, and a test
+         fails if they drift apart.
+
+         `data-theme-for` is not a browser attribute. It is how theme-boot.js
+         below tells the two apart when somebody HAS overridden their machine,
+         which is the one case `media` cannot express: it keys off the machine
+         and not off this app. -->
+    <meta
+      name="theme-color"
+      data-theme-for="light"
+      media="(prefers-color-scheme: light)"
+      content="#f5f7f3"
+    />
+    <meta
+      name="theme-color"
+      data-theme-for="dark"
+      media="(prefers-color-scheme: dark)"
+      content="#0e1613"
+    />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <!-- iOS will not take an SVG here, so this one is a raster of the same mark. -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
@@ -15,6 +34,15 @@
       content="Self-hosted personal accounting: every account in one place, statements that import themselves, and reports that add up."
     />
     <title>Simple Balance</title>
+    <!-- Paints the chosen theme before the page paints. Last in <head> so the
+         metas above already exist, and still ahead of <body> so nothing has been
+         drawn yet. A classic script with no `type`, `defer` or `async`: a module
+         is deferred by definition and would run after the document is parsed,
+         which is exactly too late. It is a separate file rather than inline
+         because the Content-Security-Policy is `script-src 'self'` and refuses
+         an inline script — silently, since nothing declares a report endpoint,
+         and only in production, since neither dev server applies the policy. -->
+    <script src="/theme-boot.js"></script>
   </head>
   <body>
     <div id="root"></div>

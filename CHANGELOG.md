@@ -6,6 +6,68 @@ Notable changes, newest first.
 
 ### Added
 
+A dark theme, and a light one, either chosen or left to the machine.
+
+The default is to follow the machine, and that is a standing instruction rather
+than a value somebody was assigned: it keeps following, so a screen that goes dark
+in the evening takes the app with it. Nothing detects the setting once and stores
+the answer, which sounds like the same thing and is not. A stored answer cannot be
+told apart from a decision, so the app could either follow the machine or remember
+a choice, never both — and the mechanism that would have written it only fires for
+an account that has never chosen anything, which no existing account qualifies as,
+because saving a timezone counts. Every one of them would have upgraded into a
+light app on a dark machine.
+
+So there are three states, not two. Light and Dark stay where you put them.
+Follow my system is the default and is the media query, which means it is right on
+the first paint with no JavaScript at all. The choice is on the account rather than
+in the browser, so it travels to another device, and a `theme` column defaulting to
+`system` lands every existing account on the honest answer with no backfill to
+guess at.
+
+The moon in the sidebar switches it, next to Sign out — the only part of the shell
+that already holds controls about this session rather than about the ledger. It is
+a plain button that says what it will do, not a switch reporting what is on: a
+two-state control cannot honestly report a three-valued setting. Pressing it while
+the setting is Follow my system resolves the machine and sets the opposite
+explicitly. Settings has the three-way choice, applying as you pick it rather than
+on a Save button, because it is the one preference whose result is visible while
+you are choosing it and two controls for one value must not be able to disagree.
+
+Painting it before the page paints took a file rather than the usual inline script,
+because the Content-Security-Policy here is `script-src 'self'` with no nonce and
+no hash. An inline script would have been refused, reported nowhere — nothing
+declares a report endpoint — and would have looked perfect locally, since neither
+dev server applies the policy and one of them never serves the shell at all. It
+would have reached a release as a flash of the wrong theme on every load.
+
+The stylesheet had one palette written into it in 189 places. It now has two, in
+one place each: 57 tokens, every one declared in both themes, with a test that
+fails on a colour written anywhere else and on a token given a value in only one
+theme — which is the bug that makes half an app unreadable while looking fine to
+whoever wrote it. Four literals turned out to be two colours sharing a spelling:
+white is both a card and the text on a green button, and only one of those is
+still white in the dark. The same split runs through the accent, where the green
+that reads as a link is not the green a button is filled with, and in dark the
+first has to lift while the second stays dark enough to carry white.
+
+Three repairs to the light theme came out of writing the second one down. Six
+greys carrying real text were under the contrast a person needs, the input
+placeholder worst at 2.65:1. An input's border was 1.29:1 against the field it
+edges, which is not a boundary. And the focus ring took its contrast from whatever
+happened to be behind it, because it was semi-transparent; it is opaque now.
+
+The report palette was worse than it looked. Under simulated deuteranopia its
+green and its pink were 1.78 apart as CIEDE2000 measures it, which is to say they
+were the same colour, and that shipped in 0.1.4 when six colours became ten. The
+two palettes now reach 5.6 and 4.7 by keeping each slot's hue family across both
+themes and varying lightness, which is the channel that survives. An honest limit
+on that: ten categorical colours cannot all be told apart by somebody with
+dichromatic vision, and a search that held hue identity and the contrast a line
+needs could not beat about 7 and 4. The remedy is a second channel that is not
+colour, which is a change to the charts rather than to the palette. Until then the
+legend and the table under every chart carry identity, and both are always there.
+
 Emailed notifications, on a schedule, in two kinds.
 
 A recurrence can say to write when it proposes. One message per proposal however
