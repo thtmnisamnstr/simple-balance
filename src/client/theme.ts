@@ -45,33 +45,23 @@ export function resolveTheme(preference: Theme): Resolved {
 }
 
 /**
- * The cached copy, for the boot script to read before anything else runs.
+ * The cached copy, which exists for one reader: the boot script, which runs
+ * before this bundle and cannot ask the server what the account is set to.
  *
- * Holds the user it belongs to so the app can tell that the cache describes
- * somebody else and correct it. The boot script cannot make that check itself:
- * the session cookie is HttpOnly, so before the session answers there is no way
- * to know who is about to be signed in. It therefore paints the last theme this
- * browser used, which is right for the one person who normally uses it and is a
- * wrong background colour for a moment for anybody else. A background colour is
- * not somebody's data, so that is a fair trade for never flashing.
+ * It records what this BROWSER last painted, not whose it is. Nothing here can
+ * know who is about to be signed in — the session cookie is HttpOnly — so on a
+ * browser two people share, the second one sees the first one's theme until the
+ * session answers a moment later and this overwrites it. A background colour is
+ * not somebody's data, so that is a fair trade for never flashing; and sign-out
+ * clears it, so the sign-in screen does not keep it either.
+ *
+ * There is deliberately no reader here. Nothing needs to know the cached value:
+ * the account's setting is what gets applied on mount, and this is written from
+ * it rather than consulted.
  */
-export function readCachedTheme(): { userId: string; theme: Theme } | null {
+export function writeCachedTheme(theme: Theme) {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const value = JSON.parse(raw) as { userId?: unknown; theme?: unknown };
-    const theme = value?.theme;
-    if (theme !== "light" && theme !== "dark" && theme !== "system") return null;
-    return { userId: typeof value.userId === "string" ? value.userId : "", theme };
-  } catch {
-    // Private browsing throws on access rather than answering.
-    return null;
-  }
-}
-
-export function writeCachedTheme(userId: string, theme: Theme) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ userId, theme }));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme }));
   } catch {
     // A browser that will not store it still renders correctly; it just flashes
     // once on the next load. Not worth failing a save somebody asked for.
@@ -173,12 +163,12 @@ export function useThemeSetting(session: Session) {
 
   useEffect(() => {
     applyTheme(preference);
-    // The cache the boot script reads on the next load. Written with the account
-    // it belongs to so a different person signing in on this browser can be told
-    // apart from this one.
-    writeCachedTheme(session.user.id, preference);
+    // The cache the boot script reads on the next load.
+    writeCachedTheme(preference);
     setResolved(resolveTheme(preference));
-  }, [preference, session.user.id]);
+    // Only the preference: the cache no longer records whose it is, so a change
+    // of signed-in person shows up here as a change of preference or not at all.
+  }, [preference]);
 
   useEffect(() => {
     // Only while following the machine. The stylesheet re-paints itself either
@@ -193,14 +183,14 @@ export function useThemeSetting(session: Session) {
       api("/api/v1/preferences", { ...json({ theme }), method: "PUT" }),
     onMutate: (theme: Theme) => {
       applyTheme(theme);
-      writeCachedTheme(session.user.id, theme);
+      writeCachedTheme(theme);
       setResolved(resolveTheme(theme));
     },
     onError: () => {
       // Back to what the account says, rather than leaving the screen showing a
       // setting that was not saved.
       applyTheme(preference);
-      writeCachedTheme(session.user.id, preference);
+      writeCachedTheme(preference);
       setResolved(resolveTheme(preference));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["session"] }),

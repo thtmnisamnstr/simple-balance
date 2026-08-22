@@ -2,7 +2,7 @@ apiVersion: v2
 name: simple-balance
 description: Self-hosted personal accounting - every account in one place, statements that import themselves, and reports that add up - split into an API, an nginx frontend and a recurrence scheduler
 type: application
-version: 0.1.0
+version: 0.1.4
 appVersion: "0.1.4"
 # autoscaling/v2 is GA from 1.23; policy/v1 PodDisruptionBudget from 1.21.
 kubeVersion: ">=1.23.0-0"

@@ -65,6 +65,12 @@ describe("the release version", () => {
   // the previous release's images while reporting the new version everywhere
   // else. It was also the one location nothing checked.
   it("is the image tag the chart installs", () => {
+    // Both of the chart's version fields. appVersion is the images it installs;
+    // `version` is the chart itself, and they move together here because the
+    // chart is only ever published on this repository's releases.
+    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(
+      `version: ${version}`,
+    );
     expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(
       `appVersion: "${version}"`,
     );

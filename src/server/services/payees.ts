@@ -230,15 +230,27 @@ export async function listPayeeSuggestions(
     else grouped.set(summary.normalizedName, [summary]);
   }
 
-  return [...grouped.values()]
-    .map((payees) => preferredPayee(payees)!)
+  // Ranked by how often each spelling is actually used, then alphabetically to
+  // break a tie. It sorted alphabetically alone, which contradicted what both
+  // the browser and the MCP tool say this returns — and mattered rather than
+  // reading badly: the list is capped at a hundred, so above a hundred payees a
+  // name late in the alphabet was never suggested at all, however often it was
+  // used. The group's total is the sum of its spellings, since they are one payee.
+  const groups = [...grouped.values()].map((payees) => ({
+    preferred: preferredPayee(payees)!,
+    total: payees.reduce((sum, payee) => sum + payee.totalCount, 0),
+  }));
+  return groups
     .sort(
       (left, right) =>
-        left.normalizedName.localeCompare(right.normalizedName) ||
-        left.name.localeCompare(right.name),
+        right.total - left.total ||
+        left.preferred.normalizedName.localeCompare(
+          right.preferred.normalizedName,
+        ) ||
+        left.preferred.name.localeCompare(right.preferred.name),
     )
     .slice(0, 100)
-    .map((summary) => cleanHumanName(summary.name));
+    .map((group) => cleanHumanName(group.preferred.name));
 }
 
 /**

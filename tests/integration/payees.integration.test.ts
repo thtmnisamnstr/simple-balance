@@ -252,6 +252,34 @@ integration("derived payee management", () => {
     expect(await listPayeeSuggestions(primary, "ACME")).toEqual([
       "Acme Market",
     ]);
+    // Ranked by use, not by name. It sorted alphabetically, which contradicted
+    // what the browser and the MCP tool both say it returns — and with the list
+    // capped at a hundred that meant a frequently used payee late in the alphabet
+    // was never offered at all.
+    //
+    // The name matters to the test: "AAA" sorts before "Acme", so under the old
+    // ordering it came first despite being used once against Acme's three. An
+    // assertion that does not name something sorting earlier cannot tell the two
+    // orderings apart.
+    await createTransaction(
+      primary,
+      {
+        type: "deposit",
+        date: "2026-07-09",
+        payee: "AAA Used Once",
+        description: null,
+        toAccountId: primaryAccountId,
+        amount: "3",
+      },
+      "payee-ranking-rare",
+    );
+    const ranked = await listPayeeSuggestions(primary, "");
+    expect(ranked, "both are offered").toContain("AAA Used Once");
+    expect(ranked.indexOf("Acme Market")).toBeGreaterThan(-1);
+    expect(
+      ranked.indexOf("Acme Market"),
+      "three uses beat one, whatever the names sort like",
+    ).toBeLessThan(ranked.indexOf("AAA Used Once"));
     const duplicates = await listDuplicatePayees(primary);
     expect(duplicates).toEqual(
       expect.arrayContaining([

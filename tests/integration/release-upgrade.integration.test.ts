@@ -48,7 +48,12 @@ async function rowsOf(table: string, columns: string) {
   return JSON.stringify(result.rows);
 }
 
-integration("upgrading a 0.1.3 ledger to 0.1.4", () => {
+// Named for what it does rather than for two version numbers. It stops at the
+// migrations 0.1.3 shipped and then runs every one that exists, so the
+// destination is whatever the current release is — and the name went stale on
+// each of them, having said 0.1.4 while carrying a ledger through 0.1.5's four
+// new migrations as well.
+integration("upgrading a ledger from the oldest supported state to this one", () => {
   let admin: PgClient;
   let preFolder: string;
   const previousDatabaseUrl = process.env.DATABASE_URL;

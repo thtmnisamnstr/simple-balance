@@ -75,6 +75,7 @@ import {
   serializeRow,
   setIdempotent,
   writeAudit,
+  writeAuditMany,
 } from "./helpers.js";
 import {
   type SortPlan,
@@ -2143,9 +2144,13 @@ export async function bulkEditTransactions(
       actor,
       plans.map((plan) => plan.before.id),
     );
-    for (let index = 0; index < plans.length; index += 1) {
-      const before = plans[index]!.before;
-      await writeAudit(tx, actor, {
+    // One insert for the whole edit rather than one per row. They land in this
+    // transaction either way, so a round trip each bought nothing — and a mass
+    // edit covers up to ten thousand rows.
+    await writeAuditMany(
+      tx,
+      actor,
+      plans.map(({ before }, index) => ({
         entityType: "transaction",
         entityId: before.id,
         operation: "bulk_update",
@@ -2154,8 +2159,8 @@ export async function bulkEditTransactions(
           updatedRows[index]!,
           editedLegs.get(before.id) ?? [],
         ),
-      });
-    }
+      })),
+    );
 
     // The same rule the single-row edit applies, which this path did not: a
     // category every one of these rows has just moved off, and that nothing else
@@ -2304,6 +2309,7 @@ export async function bulkDeleteTransactions(
     }
 
     const now = new Date();
+    const deleted: { before: (typeof deletable)[number]; after: unknown }[] = [];
     for (const before of deletable) {
       const [updated] = await tx
         .update(transactions)
@@ -2322,14 +2328,20 @@ export async function bulkDeleteTransactions(
         .returning();
       if (!updated) throw staleVersion({ id: before.id });
       await repostTransaction(tx, actor, before.id, []);
-      await writeAudit(tx, actor, {
+      deleted.push({ before, after: serializeRow(updated) });
+    }
+    // Collected rather than sent per row, for the same reason as the edit above.
+    await writeAuditMany(
+      tx,
+      actor,
+      deleted.map(({ before, after }) => ({
         entityType: "transaction",
         entityId: before.id,
         operation: "bulk_delete",
         before: serializeRow(before),
-        after: serializeRow(updated),
-      });
-    }
+        after,
+      })),
+    );
 
     const result = bulkTransactionEditResultSchema.parse({
       ...baseResult,
@@ -2668,11 +2680,28 @@ export async function lockTransactionDuplicateKeys(
       ),
     ),
   ].sort();
-  for (const fingerprint of fingerprints) {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${fingerprint}, 0))`,
-    );
-  }
+  if (!fingerprints.length) return;
+  // One statement, not one per key. A mass commit carries up to ten thousand
+  // drafts and each can contribute two fingerprints, so this was up to twenty
+  // thousand round trips taken inside an open transaction — measured at 346ms
+  // for two thousand keys on a local socket, and about a second per thousand
+  // over a network link, all of it latency.
+  //
+  // Sorted before it is sent, and that still matters: two transactions taking
+  // the same locks in different orders deadlock, and PostgreSQL resolves that by
+  // aborting one of them. `unnest` emits in array order and the lock is taken as
+  // each row is projected, so the order the array arrives in is the order the
+  // locks are taken in — checked against a deliberately unsorted array and
+  // against five hundred keys, both of which came back in exactly the order they
+  // were given.
+  // `sql.param` because a bare array in a template is expanded into one
+  // placeholder per element, which is what `in (...)` wants and not what this
+  // does: it bound the first key alone and PostgreSQL rejected it as a malformed
+  // array literal.
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(key, 0))
+        from unnest(${sql.param(fingerprints)}::text[]) as keys(key)`,
+  );
 }
 
 async function assertDuplicateAllowed(

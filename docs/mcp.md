@@ -233,15 +233,21 @@ are stored whether or not it can, so this is how to tell somebody that the
 reminder they just asked for will not arrive until an operator configures SMTP,
 rather than leaving them to notice the silence.
 
-`get_preferences` reports their timezone and default currency, and reading it
-matters more than it sounds. What counts as today is decided by their timezone
-rather than the server's, and `get_financial_summary`, `list_accounts`, and
-`get_account_balances` all resolve "today" through it. Without reading it an
-agent cannot explain the `asOf` it was given or predict which day an entry dated
-today will land on. `chosen: false` means nobody has picked yet rather than that
-they chose UTC.
+`get_preferences` reports their timezone, default currency and colour theme, and
+reading the first of those matters more than it sounds. What counts as today is
+decided by their timezone rather than the server's, and `get_financial_summary`
+and `get_account_balances` resolve "today" through it. Without reading it an agent
+cannot explain the `asOf` it was given or predict which day an entry dated today
+will land on. `chosen: false` means nobody has picked yet rather than that they
+chose UTC.
 
-`set_preferences` changes either one; what you leave out keeps its current
+`theme` is `system`, `light` or `dark`. `system` is not a colour but a standing
+instruction — follow whatever this person's own machine is set to, and keep
+following it when it changes — which is why it is the default and why nothing
+detects a theme and stores the answer. It affects nothing but what their screen
+looks like, so set it when asked and not otherwise.
+
+`set_preferences` changes any of the three; what you leave out keeps its current
 value. There is no version to check on this record and no undo beyond setting it
 back, so confirm it with the person first.
 
