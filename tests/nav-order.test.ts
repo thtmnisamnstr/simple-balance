@@ -58,11 +58,17 @@ describe("the sidebar", () => {
     const served = [...source.matchAll(/<Route path="([^"]+)"/g)]
       .map((match) => match[1])
       .filter((route) => !route.includes(":") && route !== "*" && route !== "/");
-    // Reached from a row rather than from the sidebar, which is for the twelve
-    // places somebody goes on purpose. A payee has no id of its own — it is text
-    // on a transaction — so its detail page carries the name in the query string
-    // and sits under a static path instead of a parameterised one.
-    const reachedFromElsewhere = new Set(["/payees/transactions"]);
+    // Reached from a row or from the queue rather than from the sidebar, which
+    // is for the twelve places somebody goes on purpose.
+    const reachedFromElsewhere = new Set([
+      // A payee has no id of its own — it is text on a transaction — so its
+      // detail page carries the name in the query string and sits under a
+      // static path instead of a parameterised one.
+      "/payees/transactions",
+      // The run through the flagged rows, started from Staged transactions.
+      // It is a job you do to the queue, not a place alongside it.
+      "/staged/duplicates",
+    ]);
     for (const route of served) {
       if (reachedFromElsewhere.has(route)) continue;
       expect(routes, `${route} is served but not in the sidebar`).toContain(route);

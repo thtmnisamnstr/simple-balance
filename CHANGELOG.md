@@ -121,6 +121,13 @@ That looser test is advisory. What refuses a commit is unchanged and still
 strict, because loosening it would start turning down two genuine coffees bought
 on one card in one week.
 
+A run through every flagged row, from **Review N possible duplicates** at the
+top of Staged transactions. Each comparison says which one of how many it is and
+carries Previous and Next, and dropping a copy lands on the next pair rather than
+back at the list, so a dozen duplicates are a dozen decisions instead of a dozen
+round trips through the queue to find the next badge. The badge on a single row
+still opens that pair directly.
+
 A side-by-side review, reached from the badge on any flagged row. Both records
 are open to edit and each saves on its own; a staged row saves rather than
 commits. The one already in the books sits second — on the right, or underneath

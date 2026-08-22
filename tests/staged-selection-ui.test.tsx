@@ -60,7 +60,7 @@ const pageOne = [
 const pageTwo = [staged("55555555-5555-4555-8555-555555555555", "Offscreen")];
 
 /** Serves a two-page staged queue and records which pages were fetched. */
-function stubStagedQueue() {
+function stubStagedQueue(duplicates: string[] = []) {
   const stageCursors: (string | null)[] = [];
   vi.stubGlobal(
     "fetch",
@@ -71,6 +71,19 @@ function stubStagedQueue() {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
+      if (
+        url.pathname === "/api/v1/staged-transactions" &&
+        url.searchParams.get("validity") === "duplicate"
+      ) {
+        return json({
+          items: duplicates.map((id) => ({ ...pageOne[0]!, id })),
+          nextCursor: null,
+          page: 1,
+          pageSize: 200,
+          totalCount: duplicates.length,
+          totalPages: 1,
+        } satisfies PaginatedPage<StagedTransaction>);
+      }
       if (url.pathname === "/api/v1/staged-transactions") {
         const requested = url.searchParams.get("page");
         stageCursors.push(requested);
@@ -125,6 +138,45 @@ const selectAllMatching = () =>
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+/**
+ * A comparison was reachable only by clicking the badge on one flagged row, so
+ * working through a dozen of them meant going back to the list and finding the
+ * next badge every time. The list offers the whole run instead.
+ */
+describe("getting to the duplicate comparisons", () => {
+  it("offers the run, and says how much of it there is", async () => {
+    stubStagedQueue(["dup-1", "dup-2", "dup-3", "dup-4"]);
+    renderStaging();
+    await screen.findByText("Visible one");
+
+    const start = await screen.findByRole("link", {
+      name: /review 4 possible duplicates/i,
+    });
+    // No row named, so the run starts at the first one that needs looking at.
+    expect(start).toHaveAttribute("href", "/staged/duplicates");
+  });
+
+  it("says one duplicate rather than one duplicates", async () => {
+    stubStagedQueue(["dup-1"]);
+    renderStaging();
+    await screen.findByText("Visible one");
+
+    expect(
+      await screen.findByRole("link", { name: /review 1 possible duplicate$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers nothing when nothing looks like a copy", async () => {
+    stubStagedQueue([]);
+    renderStaging();
+    await screen.findByText("Visible one");
+
+    await vi.waitFor(() =>
+      expect(screen.queryByRole("link", { name: /possible duplicate/i })).toBeNull(),
+    );
+  });
 });
 
 describe("staged transaction selection", () => {

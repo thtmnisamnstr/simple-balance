@@ -65,12 +65,41 @@ const committedSide = {
   },
 };
 
-function stub(review: StagedDuplicateReview) {
+/**
+ * The rows the queue holds, in the order it walks them. Served as a real page
+ * because the review screen reads its own position out of it: without it there
+ * is no "3 of 11" and nowhere for Next to go.
+ */
+function stub(
+  review: StagedDuplicateReview | null,
+  queueIds: string[] = ["staged-1"],
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), window.location.origin);
-      if (url.pathname.endsWith("/duplicate")) return Response.json(review);
+      if (url.pathname.endsWith("/duplicate")) {
+        return review
+          ? Response.json(review)
+          : Response.json({ error: { code: "NOT_FOUND", message: "gone" } }, { status: 404 });
+      }
+      if (url.pathname === "/api/v1/staged-transactions") {
+        // Only the duplicate listing is the queue. Anything else asking this
+        // path is a different question and gets nothing.
+        if (url.searchParams.get("validity") !== "duplicate") {
+          return Response.json({
+            items: [], page: 1, pageSize: 50, totalCount: 0, totalPages: 0, nextCursor: null,
+          });
+        }
+        return Response.json({
+          items: queueIds.map((id) => ({ ...stagedSide.staged, id })),
+          page: 1,
+          pageSize: 200,
+          totalCount: queueIds.length,
+          totalPages: 1,
+          nextCursor: null,
+        });
+      }
       if (url.pathname === "/api/v1/accounts") return Response.json(accounts);
       if (url.pathname === "/api/v1/categories") return Response.json(categories);
       return Response.json([]);
@@ -78,8 +107,8 @@ function stub(review: StagedDuplicateReview) {
   );
 }
 
-function renderReview() {
-  window.history.replaceState(null, "", "/staged/duplicates/staged-1");
+function renderReview(path = "/staged/duplicates/staged-1") {
+  window.history.replaceState(null, "", path);
   return render(
     <QueryClientProvider
       client={
@@ -91,10 +120,12 @@ function renderReview() {
       <TimezoneProvider timezone="UTC">
         <BrowserRouter>
           <Routes>
+            <Route path="/staged/duplicates" element={<DuplicateReviewPage />} />
             <Route
               path="/staged/duplicates/:id"
               element={<DuplicateReviewPage />}
             />
+            <Route path="/staged" element={<p>The queue itself</p>} />
           </Routes>
         </BrowserRouter>
       </TimezoneProvider>
@@ -154,9 +185,35 @@ describe("reviewing two records of one payment", () => {
    * The page is about one staged row. Dropping it used to leave the page asking
    * for a review of a row that no longer exists, so a successful drop ended on a
    * red "Staged transaction not found" — the success looking exactly like a
-   * failure.
+   * failure. It now moves on instead, which is also the whole point of a queue.
    */
-  it("returns to the queue when the row it is about is dropped", async () => {
+  it("moves to the next one when the row it is about is dropped", async () => {
+    stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview, [
+      "staged-1",
+      "staged-2",
+      "staged-3",
+    ]);
+    renderReview();
+    await screen.findByLabelText("Staged row under review");
+
+    fireEvent.click(screen.getByRole("button", { name: /drop this staged row/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
+
+    await vi.waitFor(() =>
+      expect(window.location.pathname).toBe("/staged/duplicates/staged-2"),
+    );
+    expect(screen.queryByText(/not found/i)).toBeNull();
+    // The next comparison is actually on screen. Checking only the address let a
+    // blank page through: the instruction to move on was held as a bare path, so
+    // on arriving it was still set and sent the page to the same place again,
+    // rendering nothing at all.
+    expect(
+      await screen.findByLabelText("Staged row under review"),
+    ).toBeInTheDocument();
+    expect(await screen.findByText(/possible duplicate 2 of 3/i)).toBeInTheDocument();
+  });
+
+  it("says the run is finished when the last one is dropped", async () => {
     stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview);
     renderReview();
     await screen.findByLabelText("Staged row under review");
@@ -164,8 +221,98 @@ describe("reviewing two records of one payment", () => {
     fireEvent.click(screen.getByRole("button", { name: /drop this staged row/i }));
     fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
 
-    await vi.waitFor(() => expect(window.location.pathname).toBe("/staged"));
+    // Not bounced silently back to the list: the run ended, and it says so.
+    expect(
+      await screen.findByText(/no duplicates left to review/i),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/not found/i)).toBeNull();
+  });
+
+  it("says which one of how many is on screen", async () => {
+    stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview, [
+      "staged-0",
+      "staged-1",
+      "staged-2",
+    ]);
+    renderReview();
+    expect(
+      await screen.findByText(/possible duplicate 2 of 3/i),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * The badge on one row is still there, but it is not the only way in. Walking
+   * the whole list is what turns this from a screen you land on into a queue you
+   * work through.
+   */
+  it("walks the queue forwards and back", async () => {
+    stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview, [
+      "staged-0",
+      "staged-1",
+      "staged-2",
+    ]);
+    renderReview();
+    await screen.findByLabelText("Staged row under review");
+
+    fireEvent.click(screen.getByRole("link", { name: /next/i }));
+    await vi.waitFor(() =>
+      expect(window.location.pathname).toBe("/staged/duplicates/staged-2"),
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: /previous/i }));
+    await vi.waitFor(() =>
+      expect(window.location.pathname).toBe("/staged/duplicates/staged-1"),
+    );
+  });
+
+  it("stops offering a step past either end", async () => {
+    stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview);
+    renderReview();
+    await screen.findByLabelText("Staged row under review");
+
+    // The only one in the queue, so neither step exists. Rendered disabled
+    // rather than as a link to nowhere, which would still take focus.
+    expect(screen.queryByRole("link", { name: /^next/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^previous/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^next/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^previous/i })).toBeDisabled();
+  });
+
+  it("starts at the first one when it is entered without naming a row", async () => {
+    stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview, [
+      "staged-7",
+      "staged-8",
+    ]);
+    renderReview("/staged/duplicates");
+
+    await vi.waitFor(() =>
+      expect(window.location.pathname).toBe("/staged/duplicates/staged-7"),
+    );
+  });
+
+  it("says so when there is nothing to review at all", async () => {
+    stub(null, []);
+    renderReview("/staged/duplicates");
+
+    expect(
+      await screen.findByText(/no duplicates left to review/i),
+    ).toBeInTheDocument();
+    // It did not send anybody to a comparison of nothing.
+    expect(window.location.pathname).toBe("/staged/duplicates");
+  });
+
+  it("offers the next one when this row has stopped repeating anything", async () => {
+    stub({ first: stagedSide, second: null } as StagedDuplicateReview, [
+      "staged-1",
+      "staged-2",
+    ]);
+    renderReview();
+
+    await screen.findByText(/nothing repeats this any more/i);
+    fireEvent.click(screen.getByRole("link", { name: /next duplicate/i }));
+    await vi.waitFor(() =>
+      expect(window.location.pathname).toBe("/staged/duplicates/staged-2"),
+    );
   });
 
   it("says so when nothing repeats the row any more", async () => {

@@ -9,6 +9,7 @@ import {
   CheckCheck,
   CircleAlert,
   ClipboardList,
+  CopyCheck,
   Pencil,
   Plus,
   Search,
@@ -205,6 +206,23 @@ export default function StagingPage() {
     end,
     limit: String(STAGE_PAGE_SIZE),
   };
+  /**
+   * How many rows look like copies of something, whatever this list is filtered
+   * to. Its own count rather than a read of the page on screen, because the
+   * offer to work through them is about the whole queue and should not appear
+   * and vanish as somebody narrows the view.
+   */
+  const duplicateCount = useQuery({
+    queryKey: ["staged", "duplicates", "count"],
+    queryFn: () =>
+      api<PaginatedPage<StagedTransaction>>(
+        `/api/v1/staged-transactions?${queryString({
+          validity: "duplicate",
+          limit: "1",
+        })}`,
+      ).then((page) => page.totalCount),
+  });
+
   const stagePages = useQuery({
     queryKey: ["staged", stageQuery, page, sort],
     queryFn: ({ signal }) =>
@@ -569,9 +587,20 @@ export default function StagingPage() {
         title="Staged transactions"
         description="Rows waiting on you. Nothing here counts until you commit it."
         actions={
-          <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
-            <Plus size={16} /> Stage transaction
-          </Button>
+          <>
+            {/* Only when there is something to work through. A run of side-by-side
+                comparisons is the slow, careful way through the queue, so it is
+                offered rather than assumed, and it says how much of it there is. */}
+            {duplicateCount.data ? (
+              <Link className="button button-secondary" to="/staged/duplicates">
+                <CopyCheck size={16} /> Review {duplicateCount.data} possible
+                {duplicateCount.data === 1 ? " duplicate" : " duplicates"}
+              </Link>
+            ) : null}
+            <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
+              <Plus size={16} /> Stage transaction
+            </Button>
+          </>
         }
       />
       <DateRangeBar />

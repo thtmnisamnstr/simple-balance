@@ -693,6 +693,9 @@ function Shell({ session }: { session: Session }) {
               <Route path="/reports/:report" element={<ReportsPage />} />
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/staged" element={<StagingPage />} />
+              {/* Without an id it starts the run at the first flagged row,
+                  which is how the queue is entered from the list. */}
+              <Route path="/staged/duplicates" element={<DuplicateReviewPage />} />
               <Route
                 path="/staged/duplicates/:id"
                 element={<DuplicateReviewPage />}
