@@ -157,8 +157,8 @@ export function recurrenceProposedMessage(
   const one = occurrenceDates.length === 1;
   return {
     subject: one
-      ? `${recurrenceName} is waiting in your review queue`
-      : `${recurrenceName} has ${occurrenceDates.length} rows waiting in your review queue`,
+      ? `${recurrenceName} is waiting on Staged transactions`
+      : `${recurrenceName} has ${occurrenceDates.length} rows waiting on Staged transactions`,
     body:
       `Simple Balance proposed ${one ? "a transaction" : `${occurrenceDates.length} transactions`} ` +
       `from your recurring transaction "${recurrenceName}":\n\n` +

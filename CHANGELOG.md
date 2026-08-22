@@ -9,7 +9,7 @@ Notable changes, newest first.
 Emailed notifications, on a schedule, in two kinds.
 
 A recurrence can say to write when it proposes. One message per proposal however
-many rows it holds, naming the dates and pointing at the review queue, sent to
+many rows it holds, naming the dates and pointing at Staged transactions, sent to
 the address on the account. It says nothing on a tick that proposes nothing, so a
 schedule that has caught up goes quiet rather than arriving every five minutes.
 The Recurring list says which recurrences are set to send one.
@@ -108,7 +108,7 @@ card is swiped, while the cash leaves when the bill is paid, in a different
 period and as borrowing rather than spending. Both figures are right. The report
 says so on the page rather than leaving it to be discovered.
 
-The review queue finds a staged row that repeats something already recorded,
+Staged transactions finds a row that repeats something already recorded,
 not just one that repeats another row still waiting. The check it had wanted the
 same day and the same payee, which a real import has neither of: the bank posts
 when it settles and names the merchant its own way. So the amount is the anchor
@@ -151,7 +151,23 @@ lead with what you get: where your money is and where it went, every account in
 one place, statements that file themselves, bills you set up once, reports that
 add up. The double-entry books and the MCP server follow as the reasons those
 things can be relied on — which is the honest ordering, since the books are what
-the agents are being careful with.
+the agents are being careful with. The Helm chart's own description and the
+scheduler image's label had been left on the old framing and now match: those are
+what `helm search` and a registry listing show, so they are the front page for
+anybody who arrives that way.
+
+The queue in front of the books is called Staged transactions, everywhere. Twenty
+places in the app called it "the review queue" instead, which is what it is and
+has never been what it is called — so a recurrence promising to propose "into the
+review queue" was naming a screen that is not in the sidebar under that name, and
+a person who went looking for it would not find it. The name is used wherever
+somebody has to go and find it, including the notification mail's subject line;
+the description is kept where the sentence is explaining what the screen is for.
+One verb phrase covers it throughout — a recurrence adds a row to Staged
+transactions — rather than five ways of saying the same thing. The two dialogs on
+the page itself say "the queue", because you are already standing on it, and the
+consent screen describes what the agent can do rather than where the rows land,
+which is what the three scopes beside it do.
 
 An idempotency key means the same thing over MCP as it does over the HTTP API.
 Ten MCP writes kept a replay record of their own on top of the one the service
@@ -192,7 +208,7 @@ existing.
 
 ### Fixed
 
-The review queue died on a single row it exists to show. A draft date matching
+Staged transactions died on a single row it exists to show. A draft date matching
 the shape of a date but naming no real day — `2026-02-30`, `2026-13-01` — was
 accepted, filed with a "Date is not valid" issue, and from then on every attempt
 to list the queue failed on the cast. The queue was the only place that row could
@@ -340,7 +356,7 @@ cleaned form. So three equally used spellings of one shop offered
 target, so this was the wrong answer rather than a cosmetic ordering. One rule
 now, used by the group and by the write.
 
-Sorting the review queue by amount could fail on a row whose amount a CSV left
+Sorting Staged transactions by amount could fail on a row whose amount a CSV left
 unreadable. The guard meant to catch that admitted anything with a digit either
 side of any character, so `42x50` passed it and then raised on the cast — a
 backslash lost to a template literal, in a regex that has been there since the

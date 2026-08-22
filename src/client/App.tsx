@@ -488,7 +488,7 @@ function SignIn({ error }: { error?: Error }) {
 
 const scopeDescriptions: Record<string, string> = {
   "ledger:read": "Read your accounts, transactions, and reports",
-  "ledger:stage": "Propose transactions into your review queue",
+  "ledger:stage": "Propose transactions for you to review, without recording them",
   "ledger:write": "Create, edit, and delete transactions and accounts",
   offline_access: "Keep working without asking you again",
   openid: "Confirm who you are",

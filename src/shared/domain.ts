@@ -1462,7 +1462,7 @@ function checkSchedule(
       code: "custom",
       path: ["weekendPolicy"],
       message:
-        "A daily schedule of one or two days moved onto a business day puts two occurrences on the same date, and the review queue refuses to commit rows that alike. Use allow or skip, or make the interval three days or more.",
+        "A daily schedule of one or two days moved onto a business day puts two occurrences on the same date, and Staged transactions refuses to commit rows that alike. Use allow or skip, or make the interval three days or more.",
     });
   }
   // A weekly rule's relative day is already the weekday of its anchor, and a
@@ -1621,7 +1621,7 @@ export const transactionTemplateUpdateSchema = transactionTemplateCreateSchema
 const recurrenceNotifySchema = z
   .boolean()
   .describe(
-    "Email when this recurrence proposes a row into the review queue. The mail names what was proposed and links to the queue; it never commits anything. Needs a deployment with SMTP configured.",
+    "Email when this recurrence adds a row to Staged transactions. The mail names what was proposed and links to the queue; it never commits anything. Needs a deployment with SMTP configured.",
   );
 
 export const recurrenceCreateSchema = z

@@ -1205,7 +1205,7 @@ export function TransactionBrowser({
         open={Boolean(savingRecurrence)}
         onClose={() => setSavingRecurrence(null)}
         title="Save as recurring transaction"
-        description="The same entry on a schedule. It proposes into the review queue on each due date and posts nothing until you commit it."
+        description="The same entry on a schedule. It adds a row to Staged transactions on each due date and posts nothing until you commit it."
       >
         {savingRecurrence ? (
           <RecurrenceForm
