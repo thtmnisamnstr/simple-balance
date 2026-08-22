@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight } from "lucide-react";
 import {
   type FormEvent,
+  type KeyboardEvent,
   useEffect,
   useId,
   useMemo,
@@ -409,6 +410,117 @@ const transactionTypeOptions: {
 ];
 
 /**
+ * The transaction type, as one control rather than three copies of it.
+ *
+ * Two shapes, because there are two behaviours. A template may hold no type at
+ * all, and clicking the chosen one again is how somebody says so — which a radio
+ * cannot express, since a radio has no way to become unset. That shape is a group
+ * of toggles reporting `aria-pressed`.
+ *
+ * Where a type is always set it is a real radio group, and a real radio group
+ * owes the keyboard more than a row of buttons does: the group is one tab stop
+ * rather than three, and the arrows move the choice inside it. These were three
+ * buttons each claiming `role="radio"` with none of that, so a screen reader was
+ * told to expect arrow keys that did nothing and the tab key walked through every
+ * option on the way past.
+ */
+type TransactionTypeChoiceProps =
+  // Only the shape that permits no type can report one, so the two are separate
+  // rather than one signature widened to fit both. A caller whose state cannot
+  // hold "" is then not asked to handle it.
+  | {
+      allowNone: true;
+      value: TransactionType | "";
+      onChange: (type: TransactionType | "") => void;
+    }
+  | {
+      allowNone?: false;
+      value: TransactionType;
+      onChange: (type: TransactionType) => void;
+    };
+
+function TransactionTypeChoice(props: TransactionTypeChoiceProps) {
+  const { value, allowNone = false } = props;
+  const onChange = props.onChange as (type: TransactionType | "") => void;
+  const buttons = useRef<(HTMLButtonElement | null)[]>([]);
+  const chosenIndex = transactionTypeOptions.findIndex(
+    (option) => option.type === value,
+  );
+
+  const moveTo = (index: number) => {
+    const count = transactionTypeOptions.length;
+    const next = ((index % count) + count) % count;
+    onChange(transactionTypeOptions[next]!.type);
+    // Selection follows focus, which is what a radio group does, so the focus has
+    // to travel with it or the next arrow press starts from where it was.
+    buttons.current[next]?.focus();
+  };
+
+  const STEPS: Record<string, number> = {
+    ArrowRight: 1,
+    ArrowDown: 1,
+    ArrowLeft: -1,
+    ArrowUp: -1,
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = STEPS[event.key];
+    if (step) {
+      event.preventDefault();
+      moveTo((chosenIndex < 0 ? 0 : chosenIndex) + step);
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      moveTo(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      moveTo(transactionTypeOptions.length - 1);
+    }
+  };
+
+  return (
+    <div
+      className="transaction-type-grid"
+      role={allowNone ? "group" : "radiogroup"}
+      aria-label="Transaction type"
+      onKeyDown={allowNone ? undefined : onKeyDown}
+    >
+      {transactionTypeOptions.map((option, index) => {
+        const Icon = option.icon;
+        const chosen = value === option.type;
+        return (
+          <button
+            type="button"
+            key={option.type}
+            ref={(node) => {
+              buttons.current[index] = node;
+            }}
+            className={`transaction-type ${chosen ? "selected" : ""}`}
+            {...(allowNone
+              ? { "aria-pressed": chosen }
+              : {
+                  role: "radio",
+                  "aria-checked": chosen,
+                  // One tab stop for the whole group: the chosen option, or the
+                  // first when nothing is chosen yet.
+                  tabIndex: chosen || (chosenIndex < 0 && index === 0) ? 0 : -1,
+                })}
+            onClick={() => onChange(allowNone && chosen ? "" : option.type)}
+          >
+            <Icon size={19} />
+            <span>
+              <strong>{option.label}</strong>
+              <small>{option.description}</small>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * Naming a category rather than creating one first.
  *
  * There is no button here. What the person typed travels with the transaction
@@ -702,6 +814,13 @@ export function TemplateForm({
   onDone: () => void;
 }) {
   const timezone = useTimezone();
+  // A shared `name` is what makes a set of radios one group to the browser: the
+  // arrows move between them and the group is one tab stop rather than several.
+  // It comes from useId so two instances of this form on one page stay separate
+  // groups — a constant would merge them and choosing in one would clear the
+  // other.
+  const repeatGroup = useId();
+  const monthDayGroup = useId();
   const source = template?.draft ?? initialDraft ?? {};
   const reminder = template?.notification ?? null;
   const [name, setName] = useState(template?.name ?? "");
@@ -944,29 +1063,9 @@ export function TemplateForm({
         />
       </Field>
 
-      <div className="transaction-type-grid" role="radiogroup" aria-label="Transaction type">
-        {transactionTypeOptions.map((option) => {
-          const Icon = option.icon;
-          return (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={type === option.type}
-              key={option.type}
-              className={`transaction-type ${type === option.type ? "selected" : ""}`}
-              // Clicking the chosen one again unsaves it, which is how a
-              // template holds no type at all.
-              onClick={() => setType(type === option.type ? "" : option.type)}
-            >
-              <Icon size={19} />
-              <span>
-                <strong>{option.label}</strong>
-                <small>{option.description}</small>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Clicking the chosen one again unsaves it, which is how a template holds
+          no type at all — so these are toggles, not radios. */}
+      <TransactionTypeChoice allowNone value={type} onChange={setType} />
       {type ? (
         <p className="settings-note">
           Chosen again to leave the type out, so it is picked each time.
@@ -1088,6 +1187,7 @@ export function TemplateForm({
               <label className="check-label">
                 <input
                   type="radio"
+                  name={repeatGroup}
                   checked={!reminderRepeats}
                   onChange={() => setReminderRepeats(false)}
                 />
@@ -1096,6 +1196,7 @@ export function TemplateForm({
               <label className="check-label">
                 <input
                   type="radio"
+                  name={repeatGroup}
                   checked={reminderRepeats}
                   onChange={() => setReminderRepeats(true)}
                 />
@@ -1171,6 +1272,7 @@ export function TemplateForm({
                   <label className="check-label">
                     <input
                       type="radio"
+                      name={monthDayGroup}
                       checked={!reminderByPosition}
                       onChange={() => setReminderByPosition(false)}
                     />
@@ -1179,6 +1281,7 @@ export function TemplateForm({
                   <label className="check-label">
                     <input
                       type="radio"
+                      name={monthDayGroup}
                       checked={reminderByPosition}
                       onChange={() => setReminderByPosition(true)}
                     />
@@ -1424,6 +1527,7 @@ export function TransactionForm({
   const [categoryPickerVersion, setCategoryPickerVersion] = useState(0);
   const [repeatNotice, setRepeatNotice] = useState("");
   const payeeListId = useId();
+  const modeGroup = useId();
   const submissionIdempotencyKey = useRef(newIdempotencyKey());
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   // What the form held before any template was picked, so applying one can put
@@ -1878,44 +1982,24 @@ export function TransactionForm({
         </Field>
       ) : null}
       {templateNotice ? <Alert kind="info">{templateNotice}</Alert> : null}
-      <div className="transaction-type-grid" role="radiogroup" aria-label="Transaction type">
-          {transactionTypeOptions.map((option) => {
-            const Icon = option.icon;
-            return (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={type === option.type}
-                key={option.type}
-                className={`transaction-type ${type === option.type ? "selected" : ""}`}
-                onClick={() => {
-                  setType(option.type);
-                  if (transaction || staged) return;
-                  const primaryAccountId =
-                    initialAccountId ?? accounts[0]?.id ?? "";
-                  if (option.type === "withdrawal") {
-                    setFromAccountId(primaryAccountId);
-                  } else if (option.type === "deposit") {
-                    setToAccountId(primaryAccountId);
-                  } else {
-                    setFromAccountId(primaryAccountId);
-                    setToAccountId(
-                      accounts.find(
-                        (account) => account.id !== primaryAccountId,
-                      )?.id ?? "",
-                    );
-                  }
-                }}
-              >
-                <Icon size={19} />
-                <span>
-                  <strong>{option.label}</strong>
-                  <small>{option.description}</small>
-                </span>
-              </button>
+      <TransactionTypeChoice
+        value={type}
+        onChange={(next) => {
+          setType(next);
+          if (transaction || staged || !next) return;
+          const primaryAccountId = initialAccountId ?? accounts[0]?.id ?? "";
+          if (next === "withdrawal") {
+            setFromAccountId(primaryAccountId);
+          } else if (next === "deposit") {
+            setToAccountId(primaryAccountId);
+          } else {
+            setFromAccountId(primaryAccountId);
+            setToAccountId(
+              accounts.find((account) => account.id !== primaryAccountId)?.id ?? "",
             );
-          })}
-      </div>
+          }
+        }}
+      />
       <div className="two-columns">
         <Field label="Date">
           <Input type="date" required value={date} onChange={(event) => setDate(event.target.value)} />
@@ -2065,7 +2149,7 @@ export function TransactionForm({
             <label>
               <input
                 type="radio"
-                name="mode"
+                name={modeGroup}
                 checked={mode === "commit"}
                 onChange={() => setMode("commit")}
               />
@@ -2077,7 +2161,7 @@ export function TransactionForm({
             <label>
               <input
                 type="radio"
-                name="mode"
+                name={modeGroup}
                 checked={mode === "stage"}
                 onChange={() => setMode("stage")}
               />
@@ -2215,6 +2299,12 @@ export function RecurrenceForm({
   onDone: () => void;
 }) {
   const timezone = useTimezone();
+  // A shared `name` is what makes a set of radios one group to the browser: the
+  // arrows move between them and the group is one tab stop rather than several.
+  // It comes from useId so two instances of this form on one page stay separate
+  // groups — a constant would merge them and choosing in one would clear the
+  // other.
+  const monthDayGroup = useId();
   const today = calendarDateInTimezone(new Date(), timezone);
   const shape = recurrence?.shape ?? initialShape;
   const [name, setName] = useState(recurrence?.name ?? "");
@@ -2510,27 +2600,7 @@ export function RecurrenceForm({
         />
       </Field>
 
-      <div className="transaction-type-grid" role="radiogroup" aria-label="Transaction type">
-        {transactionTypeOptions.map((option) => {
-          const Icon = option.icon;
-          return (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={type === option.type}
-              key={option.type}
-              className={`transaction-type ${type === option.type ? "selected" : ""}`}
-              onClick={() => setType(option.type)}
-            >
-              <Icon size={19} />
-              <span>
-                <strong>{option.label}</strong>
-                <small>{option.description}</small>
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      <TransactionTypeChoice value={type} onChange={setType} />
 
       <Field label="Payee">
         <PayeeInput value={payee} onChange={setPayee} />
@@ -2645,6 +2715,7 @@ export function RecurrenceForm({
               <label className="check-label">
                 <input
                   type="radio"
+                  name={monthDayGroup}
                   checked={!byPosition}
                   onChange={() => setByPosition(false)}
                 />
@@ -2653,6 +2724,7 @@ export function RecurrenceForm({
               <label className="check-label">
                 <input
                   type="radio"
+                  name={monthDayGroup}
                   checked={byPosition}
                   onChange={() => setByPosition(true)}
                 />
