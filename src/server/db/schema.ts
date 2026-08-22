@@ -29,6 +29,7 @@ import {
   recurrenceFrequencies,
   recurrenceMonthPolicies,
   recurrenceWeekendPolicies,
+  themes,
   transactionTypes,
 } from "../../shared/domain.js";
 
@@ -211,6 +212,7 @@ export const recurrenceWeekendPolicyEnum = pgEnum(
   "recurrence_weekend_policy",
   recurrenceWeekendPolicies,
 );
+export const userThemeEnum = pgEnum("user_theme", themes);
 
 export const userPreferences = pgTable("user_preferences", {
   userId: text("user_id")
@@ -218,6 +220,11 @@ export const userPreferences = pgTable("user_preferences", {
     .references(() => user.id, { onDelete: "cascade" }),
   timezone: text("timezone").default("UTC").notNull(),
   defaultCurrency: text("default_currency").default("USD").notNull(),
+  // Defaults to following the machine, which is also what every row that
+  // existed before this column lands on. A NOT NULL add with a constant default
+  // is metadata-only on PostgreSQL 11 and later, so there is no backfill to
+  // write and no table rewrite to wait for.
+  theme: userThemeEnum("theme").default("system").notNull(),
   ...timestamps,
 }, (table) => [
   check(

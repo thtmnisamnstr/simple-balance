@@ -81,10 +81,19 @@ export type UserAuthState = {
   googleLinked: boolean;
 };
 
+export type Theme = "system" | "light" | "dark";
+
 export type Preferences = {
   userId: string;
   timezone: string;
   defaultCurrency: string;
+  /**
+   * `system` is a standing instruction rather than a value: it follows the
+   * machine, including when the machine changes at sunset. It is what everybody
+   * has until they say otherwise, which is why nothing detects a theme and
+   * stores the answer.
+   */
+  theme: Theme;
   /** False until somebody has actually picked these, rather than been given them. */
   chosen: boolean;
 };

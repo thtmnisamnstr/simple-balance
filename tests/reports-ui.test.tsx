@@ -4,15 +4,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import type { Report } from "../src/client/api.js";
 import {
   bucketLabel,
   labelBudget,
   labelledBuckets,
   niceTicks,
-  SERIES_COLOURS,
 } from "../src/client/charts.js";
 import {
   moneyExtent,
@@ -244,34 +241,10 @@ describe("the axis a chart is read against", () => {
   });
 });
 
-describe("the chart palette", () => {
-  // jsdom gives `import.meta.url` an http origin, so the path is joined from
-  // the test directory rather than resolved as a file URL.
-  const css = readFileSync(
-    path.join(import.meta.dirname, "..", "src/client/styles.css"),
-    "utf8",
-  );
-
-  /**
-   * The count lives in two files, so it can drift. It did: there were six
-   * colours, and a seventh account on a report silently shared the first
-   * account's colour, which makes a legend say two things at once.
-   */
-  it("has a colour in the stylesheet for every series the code will ask for", () => {
-    const strokes = new Set(css.match(/^\.chart-series-\d+ \{/gm) ?? []);
-    const swatches = new Set(css.match(/^\.chart-swatch\.chart-series-\d+ \{/gm) ?? []);
-    expect(strokes.size).toBe(SERIES_COLOURS);
-    expect(swatches.size).toBe(SERIES_COLOURS);
-  });
-
-  it("gives each of those colours a different value", () => {
-    const hues = (css.match(/^\.chart-series-\d+ \{ stroke: (#[0-9a-f]{6})/gm) ?? []).map(
-      (line) => line.slice(line.indexOf("#")),
-    );
-    expect(hues).toHaveLength(SERIES_COLOURS);
-    expect(new Set(hues).size).toBe(SERIES_COLOURS);
-  });
-});
+// The chart palette moved to tests/theme-tokens.test.ts, which checks it in both
+// themes. Counting the rules here could not survive that: a colour set matched
+// with `new Set` collapses a duplicated dark palette back to ten and passes while
+// two definitions of the palette exist, which is the drift that mattered.
 
 describe("the reports page", () => {
   it("draws every figure as text as well as in the chart", async () => {

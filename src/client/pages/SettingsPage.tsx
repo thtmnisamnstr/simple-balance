@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useThemeSetting } from "../theme.js";
 import {
   Bot,
   KeyRound,
   Link,
   Settings2,
+  SunMoon,
   TriangleAlert,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useId } from "react";
 import { useSearchParams } from "../router.js";
 import {
   api,
@@ -33,6 +35,17 @@ import {
   timezoneOptions,
 } from "../select-options.js";
 
+/**
+ * Named for what each one does rather than for the value it stores. "Follow my
+ * system" is a standing instruction, not a colour, and calling it "System"
+ * leaves somebody guessing whose system and when.
+ */
+const THEME_CHOICES = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "Follow my system" },
+] as const;
+
 export default function SettingsPage({ session }: { session: Session }) {
   const queryClient = useQueryClient();
   // Whether a forgotten password can be recovered is a property of the
@@ -44,6 +57,10 @@ export default function SettingsPage({ session }: { session: Session }) {
     retry: false,
   });
   const [searchParams] = useSearchParams();
+  const theme = useThemeSetting(session);
+  // Two instances of this page would otherwise share one radio group and fight
+  // over which is checked.
+  const themeGroup = useId();
   const [timezone, setTimezone] = useState(session.preferences.timezone);
   const [currency, setCurrency] = useState(session.preferences.defaultCurrency);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -104,7 +121,7 @@ export default function SettingsPage({ session }: { session: Session }) {
       <PageHeader
         eyebrow="Preferences"
         title="Settings"
-        description="Choose how dates and amounts are shown, and manage how you sign in."
+        description="Choose how the app looks, how dates and amounts are shown, and how you sign in."
       />
       <div className="settings-grid">
         {/* Two columns of independent cards rather than a grid of rows. Sharing
@@ -112,6 +129,50 @@ export default function SettingsPage({ session }: { session: Session }) {
             leaving a stretch of nothing between this card and the next one
             under it. */}
         <div className="settings-column">
+        <section className="panel settings-section">
+          <header className="section-title">
+            <span><SunMoon size={19} /></span>
+            <div>
+              <h2>Appearance</h2>
+              <p>How the app is coloured. Nothing here changes a figure.</p>
+            </div>
+          </header>
+          {/* Outside a form and with no Save button, unlike everything else on
+              this page. This is the one preference whose result is visible while
+              you are choosing it, so it applies as you pick — and a Save button
+              would let this and the toggle in the sidebar disagree about one
+              value until somebody pressed it.
+
+              Not wrapped in `form-fieldset`: that legend renders as a section
+              label and would repeat the heading directly above it, announcing
+              "Appearance" twice. The `aria-label` is kept identical to the
+              heading so what is seen and what is announced agree. */}
+          <div className="radio-row" role="radiogroup" aria-label="Appearance">
+            {THEME_CHOICES.map(({ value, label }) => (
+              <label className="check-label" key={value}>
+                <input
+                  type="radio"
+                  // A shared name is what makes these one group to the browser,
+                  // so the arrow keys move between them and the three are one
+                  // tab stop rather than three.
+                  name={themeGroup}
+                  value={value}
+                  checked={theme.preference === value}
+                  onChange={() => theme.setTheme(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <p className="settings-note">
+            Follow my system takes whatever this device is set to, and changes
+            when it does. Light and Dark stay where you put them. Whichever you
+            choose is saved to your account, so it comes back on any browser you
+            sign in from.
+          </p>
+          {theme.error ? <Alert>{theme.error.message}</Alert> : null}
+        </section>
+
         <section className="panel settings-section">
           <header className="section-title">
             <span><Settings2 size={19} /></span>

@@ -6,15 +6,18 @@ keep, so upgrading is swapping it for a newer one.
 ## Before you upgrade to 0.1.5
 
 Nothing refuses to start that 0.1.4 accepted, and nothing about an existing
-configuration has to change. Four things are worth knowing.
+configuration has to change. Five things are worth knowing.
 
-**Three migrations run at startup.** One adds the reminders table and one column
+**Four migrations run at startup.** One adds the reminders table and one column
 on `recurrence`, defaulting to off, so no recurrence you already have starts
 emailing you. One adds a one-row table holding the first-run setup code, which
-matters only on a deployment that has never been set up. The third drops four
-indexes whose leading column another unique constraint on the same table already
-leads with; no query loses a plan, and the statements are `if exists`, so a
-database restored from a dump that never had them upgrades cleanly.
+matters only on a deployment that has never been set up. One adds a `theme`
+column defaulting to `system`, which is a constant default and therefore
+metadata-only — no table rewrite, and every existing account lands on "follow the
+machine", which is what it should be. The fourth drops four indexes whose leading
+column another unique constraint on the same table already leads with; no query
+loses a plan, and the statements are `if exists`, so a database restored from a
+dump that never had them upgrades cleanly.
 
 **Emailed reminders need a mail server and the scheduler.** Setting a recurrence
 to write when it proposes, or giving a template a reminder, is saved either way,
@@ -32,6 +35,20 @@ now, so every replica agrees on it. This affects only a deployment whose owner
 account has not been created yet; an existing one has nothing to do. An
 operator-chosen `SETUP_TOKEN` still never touches the database and still takes
 precedence.
+
+**Dark mode arrives set to follow the machine.** Nobody has to do anything: an
+existing account keeps looking exactly as it did on a light machine, and starts
+dark on a dark one. The setting lives on the account rather than in the browser,
+so it follows somebody to another device, and there is a third state — Light and
+Dark, which stay put, and Follow my system, which is the default and changes when
+the machine does.
+
+Two things change in the light theme as a consequence, both of them repairs. Six
+greys carrying real text were below the contrast a person needs to read them —
+the input placeholder was the worst at 2.65:1 — and they now sit on one three-step
+ramp that clears it. And the border on an input was 1.29:1 against the field it
+edges, which is not a boundary; controls now hold the 3:1 that makes an edge
+visible. Inputs and captions therefore look slightly more defined than they did.
 
 **The duplicate check on Staged transactions got looser, and only as advice.** It
 now anchors on the amount with three days of latitude on the date rather than
