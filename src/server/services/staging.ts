@@ -70,6 +70,7 @@ import {
   findDuplicate,
   getTransaction,
   lockTransactionDuplicateKeys,
+  stagedDuplicateKey,
   prepareTransaction,
   transactionDuplicateKeys,
 } from "./transactions.js";
@@ -203,9 +204,7 @@ async function validateDraft(
   // every selected row against every other (commitStages), so a pair this
   // misses - one row with a reference and one without, alike enough to share a
   // heuristic key - is still refused at the point it would matter.
-  const stagedKeys = transactionDuplicateKeys(parsed.data);
-  const duplicateKey =
-    stagedKeys.find((key) => key.startsWith("external:")) ?? stagedKeys[0] ?? null;
+  const duplicateKey = stagedDuplicateKey(parsed.data);
   try {
     // Lookup rather than ensure: validating a draft answers whether it would
     // balance, and a question about the books should not add to them.
@@ -732,10 +731,14 @@ export function stageFilterConditions(
     );
   }
   if (query.payee) {
-    // Match the same way payees are compared elsewhere: trimmed, whitespace
-    // collapsed, case-insensitive.
+    // The same rule as everywhere else, which this did not quite have: it
+    // trimmed, collapsed whitespace and lowered, and did not apply NFKC. The
+    // value it compares against does — `normalizeHumanName` normalizes first —
+    // so a payee holding anything NFKC folds, a ligature or a full-width letter,
+    // never matched and the filter returned nothing at all rather than saying
+    // why.
     conditions.push(
-      sql`lower(regexp_replace(btrim(${stagedTransactions.draft}->>'payee'), '\\s+', ' ', 'g')) = ${normalizeHumanName(query.payee)}`,
+      sql`lower(regexp_replace(trim(normalize(${stagedTransactions.draft}->>'payee', NFKC)), '\\s+', ' ', 'g')) = ${normalizeHumanName(query.payee)}`,
     );
   }
   if (query.start) {

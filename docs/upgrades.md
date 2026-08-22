@@ -8,16 +8,19 @@ keep, so upgrading is swapping it for a newer one.
 Nothing refuses to start that 0.1.4 accepted, and nothing about an existing
 configuration has to change. Five things are worth knowing.
 
-**Four migrations run at startup.** One adds the reminders table and one column
+**Five migrations run at startup.** One adds the reminders table and one column
 on `recurrence`, defaulting to off, so no recurrence you already have starts
 emailing you. One adds a one-row table holding the first-run setup code, which
 matters only on a deployment that has never been set up. One adds a `theme`
 column defaulting to `system`, which is a constant default and therefore
 metadata-only — no table rewrite, and every existing account lands on "follow the
-machine", which is what it should be. The fourth drops four indexes whose leading
-column another unique constraint on the same table already leads with; no query
-loses a plan, and the statements are `if exists`, so a database restored from a
-dump that never had them upgrades cleanly.
+machine", which is what it should be. One drops four indexes whose leading column
+another unique constraint on the same table already leads with; no query loses a
+plan, and the statements are `if exists`, so a database restored from a dump that
+never had them upgrades cleanly. The fifth adds two indexes on the expression
+payee names are compared by, which is what stops every transaction write scanning
+your own rows to find the spelling already on file — on a large ledger that one
+takes a moment to build while the container starts, before it opens readiness.
 
 **Emailed reminders need a mail server and the scheduler.** Setting a recurrence
 to write when it proposes, or giving a template a reminder, is saved either way,

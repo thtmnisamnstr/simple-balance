@@ -292,6 +292,27 @@ radio group at all: on a template, clicking the chosen type again is how somebod
 says there is no type, and a radio has no way to become unset — that one says what
 it is, a set of toggles.
 
+Filtering Staged transactions by a payee could return nothing at all. The
+comparison folds Unicode presentation forms on the way in — that is what makes
+"ﬁ" and "fi" the same payee everywhere else — and this one place did not, so a
+payee holding a ligature or a full-width letter never matched anything and the
+queue came back empty rather than saying why. The rule is now spelled the same
+way in all six places it appears in SQL, and a test fails when they diverge,
+because a spelling that differs does not raise: it silently fails to match.
+
+Merging payees left a staged row's fingerprint describing the payee it used to
+have. The queue flags a row as repeating another by comparing those fingerprints,
+so two rows that had just been made identical stopped being reported as repeats
+of each other. Rows keyed on a bank's own reference were never affected, which is
+why this was easy to miss.
+
+Resolving a payee to the spelling the ledger already keeps stopped reading the
+whole ledger. It runs on every single transaction write, and the expression it
+matched on — the same Unicode folding as above — was one no index could serve, so
+each save scanned the account's own rows. Both sides of it are indexed now: on
+five thousand transactions that is 6.3ms and two hundred buffers becoming 0.02ms
+and three.
+
 Staged transactions died on a single row it exists to show. A draft date matching
 the shape of a date but naming no real day — `2026-02-30`, `2026-13-01` — was
 accepted, filed with a "Date is not valid" issue, and from then on every attempt

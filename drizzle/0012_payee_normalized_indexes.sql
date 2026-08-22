@@ -1,0 +1,2 @@
+CREATE INDEX "staged_user_payee_normalized_idx" ON "staged_transaction" USING btree ("user_id",lower(regexp_replace(trim(normalize("draft" ->> 'payee', NFKC)), '\s+', ' ', 'g')));--> statement-breakpoint
+CREATE INDEX "transaction_user_payee_normalized_idx" ON "ledger_transaction" USING btree ("user_id",lower(regexp_replace(trim(normalize("payee", NFKC)), '\s+', ' ', 'g')));
