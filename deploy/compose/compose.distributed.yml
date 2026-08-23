@@ -117,7 +117,7 @@ services:
     # All three publish alongside the single container, on the same tags. Pinned
     # rather than :latest, because an upgrade moves the schema and should be a
     # decision rather than whatever a restart happened to pull.
-    # image: ghcr.io/thtmnisamnstr/simple-balance-server:0.1.4
+    # image: ghcr.io/thtmnisamnstr/simple-balance-server:0.1.5
     restart: unless-stopped
     depends_on:
       postgres:
@@ -164,7 +164,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/frontend.Dockerfile
-    # image: ghcr.io/thtmnisamnstr/simple-balance-frontend:0.1.4
+    # image: ghcr.io/thtmnisamnstr/simple-balance-frontend:0.1.5
     restart: unless-stopped
     depends_on:
       server:
@@ -224,7 +224,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/scheduler.Dockerfile
-    # image: ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.1.4
+    # image: ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.1.5
     restart: unless-stopped
     depends_on:
       # The database and not the server: this entrypoint runs the migrations

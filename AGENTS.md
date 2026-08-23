@@ -160,7 +160,9 @@
   in 0.1.0, `0003_transaction_templates.sql` and
   `0004_template_provenance.sql` in 0.1.3, `0005_split_transaction_legs.sql`
   `0006_recurring_transactions.sql` and `0007_shared_rate_limit.sql` in
-  0.1.4.
+  0.1.4, and `0008_owner_setup_token.sql`,
+  `0009_scheduled_notifications.sql`, `0010_drop_covered_user_indexes.sql`,
+  `0011_user_theme.sql` and `0012_payee_normalized_indexes.sql` in 0.1.5.
   Never edit or regenerate one: someone's database has already run it, and
   changing it would leave their schema and its recorded history disagreeing.
   Every schema
