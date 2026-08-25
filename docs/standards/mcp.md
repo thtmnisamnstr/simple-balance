@@ -574,7 +574,8 @@ envelope and the worked sentences.
   neither caller is told to do something it cannot. The agent sentence names
   `details.currentVersion` only where the throw site actually carried it;
   thirteen of the fifty do not, and a refusal pointing at a field that is not
-  there is the same defect one level down. `notFound` (`:42`) no longer has a
+  there is the same defect one level down. `notFound`
+  (`src/server/services/errors.ts:42`) no longer has a
   default message at all: all forty call sites name what was not found, and
   removing the default makes the compiler keep it that way.
 - **House.** Where there is no recovery, the message says so and stops. Setting

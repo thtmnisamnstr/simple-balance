@@ -18,11 +18,11 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 108 pass, 51 skip | **1,032 pass, 582 skip** |
-| `npm test`, database set | 159 pass | **1,614 pass** |
+| `npm test`, no database | 108 pass, 51 skip | **1,033 pass, 582 skip** |
+| `npm test`, database set | 159 pass | **1,615 pass** |
 | `npm run test:integration` | 52 pass | 583 pass |
 
-The first row is what CI and `npm run verify` see, and 1,032 is the number that
+The first row is what CI and `npm run verify` see, and 1,033 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -227,18 +227,36 @@ prefixed citations and left **120 bare and 104 continuation citations stale**,
 with the test green throughout. Six checked by hand were all wrong.
 
 A continuation's antecedent is genuine ambiguity, not a limitation of the test:
-where a reader could not tell which file `:93` follows either, the citation is
+where a reader could not tell which file a bare `:NNN` follows either, the
+citation is
 now written out in full. Five were rewritten that way rather than guessed at.
 
 ### 6.2 What the citation test still cannot do
 
-**Stated so nobody trusts it too far.** It proves a cited file exists and the
-line is inside it. It cannot prove the line still holds what the sentence
-claims. The relocation left a handful pointing at a closing brace, and that was
-found by a separate one-off check for meaningless target lines, not by the test.
+**Stated so nobody trusts it too far.** It proves a cited file exists, that the
+line is inside it, and that the line has something on it. It cannot prove the
+line still holds what the sentence claims.
 
-Line numbers in prose are evidence that rots. The test slows the rot; it does
-not stop it.
+That third check earns its place. A one-off scan for citations landing on a
+closing brace found seven, and every one of the seven was pointing at the wrong
+thing entirely — so "landed on a fragment" is a cheap proxy for "drifted", and
+it is now part of the test rather than something somebody remembered to run. It
+went in beside a fix to how a continuation finds its antecedent: a `*Checked
+by:* ` line names its file without a line number, and until this the walk moved
+its antecedent only on a citation that carried one, so three continuations under
+one such line were being checked against a stylesheet named three paragraphs
+above.
+
+What is left is a citation that drifted onto a plausible line, and that is a
+person's read. Line numbers in prose are evidence that rots. The test slows the
+rot; it does not stop it.
+
+**A renumbering pass matches content, not position.** Two passes here shifted
+citations by the amount the file had moved, which is right for a citation whose
+target moved by that amount and silently wrong for every other. 154 of 506 were
+aiming at something else by the time anybody looked. If code moves under a
+citation, find what the sentence names and cite where it is now; a pass that
+cannot do that should leave the number alone and fail loudly instead.
 
 ## 7. What is not enforced
 

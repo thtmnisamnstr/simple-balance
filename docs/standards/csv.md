@@ -285,7 +285,7 @@ import. Importing a EUR export into a USD account produces USD rows, and the
 file cannot stop it, because the alternative is a ledger inventing an account it
 was not given.
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:613` for the
+*Checked by:* `tests/integration/import-export.integration.test.ts:582` for the
 account half. The currency half follows from it and has no test of its own.
 
 ### Empty and zero
@@ -338,7 +338,7 @@ install resolves none of. `transaction_id` is the same, and the comment at
 not treated that way, which is that the duplicate check keyed on a foreign
 ledger's primary key.
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:613`, which
+*Checked by:* `tests/integration/import-export.integration.test.ts:582`, which
 imports an export into a different account and asserts the rows land there
 rather than in the account the file names.
 
@@ -587,8 +587,8 @@ we can use to avoid importing duplicates". We read that id when the file has
 one: map it to `externalId`, or let one of our own exports carry it.
 
 *Checked by:* `tests/integration/duplicates.integration.test.ts` (the heuristic
-guard at `:61`, the staged-against-staged case at `:284`, and rows that repeat
-each other at `:581`) and
+guard at `:62`, the staged-against-staged case at `:279`, and rows that repeat
+each other at `:639`) and
 `tests/integration/csv-roundtrip-fidelity.integration.test.ts:75-123` for the
 external reference surviving a round trip.
 
@@ -898,7 +898,7 @@ Checked:
 | External reference, transfer category, formula-named category, same-ledger reimport | `tests/integration/csv-roundtrip-fidelity.integration.test.ts` |
 | Splits across a round trip, and the always-present column | `tests/integration/splits-roundtrip.integration.test.ts` |
 | Cross-tenant import, idempotent replay, deleted rows never exported | `tests/integration/import-export.integration.test.ts` |
-| Scope deferral on a `ledger:stage` import | `tests/integration/mcp-scope-boundaries.integration.test.ts:120-149` |
+| Scope deferral on a `ledger:stage` import | `tests/integration/mcp-scope-boundaries.integration.test.ts:113-154` |
 | Duplicate guard, staged against staged, and the all-or-nothing commit | `tests/integration/duplicates.integration.test.ts` |
 | The recognised file hides its mapping controls | `tests/import-ui.test.tsx` |
 | A row number is the file's own line, whichever fault it came from | `tests/domain.test.ts` |

@@ -59,6 +59,97 @@ const lineCount = (path: string): number | null => {
   }
 };
 
+/**
+ * Every citation in every guide, in all three shapes, resolved to a file.
+ *
+ * Walking the document in document order is what makes a continuation
+ * resolvable: `:558` means whatever file was named last, so the events have to
+ * be visited in the order a reader meets them.
+ */
+type Cited = {
+  guide: string;
+  /** The file as the guide spells it, which may be a bare basename. */
+  target: string;
+  /** The repository path it resolves to, or null if nothing resolves. */
+  path: string | null;
+  from: number;
+  to: number;
+  token: string;
+};
+
+const NAMED =
+  /`?((?:[A-Za-z0-9_./-]+\/)?[A-Za-z0-9_.-]+\.(?:ts|tsx|css|sql|json|mjs|js|md|sh|yaml|yml|example|toml)):(\d+)(?:[-–](\d+))?/g;
+const CONTINUATION = /`:(\d+)(?:[-–](\d+))?`/g;
+/**
+ * A filename with no line number still names the file a continuation follows.
+ *
+ * A `*Checked by:* `tests/theme-tokens.test.ts`` line followed by `(`:46`)` is
+ * unambiguous to a reader and was not to this test, which moved its antecedent
+ * only on a citation that carried a line. It read those continuations against
+ * whatever file had last been cited with one — three paragraphs up, in one
+ * case — and checked them against the wrong file.
+ */
+const BARE_FILE =
+  /`((?:[A-Za-z0-9_./-]+\/)?[A-Za-z0-9_.-]+\.(?:ts|tsx|css|sql|json|mjs|js|md|sh|yaml|yml|example|toml))`/g;
+
+const everyCitation = (): Cited[] => {
+  // Built once. Globbing per citation turned an instant test into an
+  // eighteen-second one.
+  const byBasename = new Map<string, string[]>();
+  for (const path of globSync("{src,tests,docs,scripts,deploy}/**/*")) {
+    const base = path.slice(path.lastIndexOf("/") + 1);
+    byBasename.set(base, [...(byBasename.get(base) ?? []), path]);
+  }
+  const resolve = (name: string): string | null => {
+    // A dependency's own type declarations are cited by their path inside the
+    // package. They are real references and they are not in this repository.
+    if (name.startsWith("dist/")) return null;
+    if (lineCount(name) !== null) return name;
+    const matches = byBasename.get(name) ?? [];
+    return matches.length === 1 ? matches[0]! : null;
+  };
+
+  const found: Cited[] = [];
+  for (const guide of globSync("docs/standards/**/*.md")) {
+    const text = readFileSync(guide, "utf8");
+    const events = [
+      ...[...text.matchAll(NAMED)].map((m) => ({
+        at: m.index,
+        file: m[1]!,
+        from: Number(m[2]),
+        to: m[3] ? Number(m[3]) : Number(m[2]),
+        token: m[0],
+      })),
+      ...[...text.matchAll(CONTINUATION)].map((m) => ({
+        at: m.index,
+        from: Number(m[1]),
+        to: m[2] ? Number(m[2]) : Number(m[1]),
+        token: m[0],
+      })),
+      ...[...text.matchAll(BARE_FILE)].map((m) => ({ at: m.index, file: m[1]!, token: m[0] })),
+    ].sort((a, b) => a.at - b.at);
+
+    let current: string | null = null;
+    for (const event of events) {
+      const named = "file" in event ? (event as { file: string }).file : null;
+      if (named) current = named;
+      // A bare filename moves the antecedent and is not itself a citation:
+      // there is no line to check.
+      if (!("from" in event)) continue;
+      const target = named ?? current;
+      found.push({
+        guide,
+        target: target ?? "",
+        path: target === null ? null : resolve(target),
+        from: event.from,
+        to: event.to,
+        token: event.token,
+      });
+    }
+  }
+  return found;
+};
+
 describe("what the standards guides cite", () => {
   const all = citations();
 
@@ -256,6 +347,38 @@ describe("what the standards guides cite", () => {
         });
     }
     expect(leftovers).toEqual([]);
+  });
+
+  /**
+   * A citation has to land on something, not between two things.
+   *
+   * The existence and range checks above pass on a line that holds `});`, and
+   * that turned out to be the shape of the failure rather than a corner of it:
+   * two passes had renumbered citations by shifting them rather than by finding
+   * what they named, so a citation whose target had moved further than the
+   * shift landed on whatever now sat at the new number. Seven had come to rest
+   * on a closing brace, a bare `items,` or a blank line, and every one of the
+   * seven turned out to be pointing at the wrong thing entirely.
+   *
+   * So this is a proxy, and a good one: a closing bracket is never what a
+   * sentence is citing, and a citation that has landed on one is a citation
+   * that has drifted. It cannot see a citation that drifted onto a plausible
+   * line, which is why the aim of a citation is still read by a person — but it
+   * makes the cheap half of that reading unnecessary.
+   */
+  it("lands on a line with something on it", () => {
+    const fragment = /^(?:[)}\]>;,]+|<\/\w+>|\w+,|\.\.\.\w+|\{\.\.\.\w+\}|)$/;
+    const landed: string[] = [];
+    for (const citation of everyCitation()) {
+      if (citation.path === null) continue;
+      const lines = readFileSync(citation.path, "utf8").split("\n");
+      const line = lines[citation.from - 1];
+      if (line === undefined) continue;
+      if (fragment.test(line.trim())) {
+        landed.push(`${citation.guide} -> ${citation.token} is «${line.trim() || "a blank line"}»`);
+      }
+    }
+    expect(landed).toEqual([]);
   });
 
   it("never cites a range backwards", () => {

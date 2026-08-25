@@ -705,7 +705,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   inference.
 - **House, and an overload to fix.** `nextCursor: null` currently means two
   things: the collection has ended, and this ordering issues no cursors at all
-  (`src/server/services/transactions.ts:1387-1394`). A client cannot tell them
+  (`src/server/services/transactions.ts:1388-1405`). A client cannot tell them
   apart. The list response should say whether the ordering is cursor-resumable,
   as a separate boolean, rather than making a null carry two meanings.
 - **Binding.** A cursor binds the ordering it was issued for and is refused
@@ -915,7 +915,7 @@ so a second submit fails rather than duplicating."
   postings require idempotency, and this guide extends that to every create,
   because a public client retrying a `POST` after a timeout should not get two
   rows. Today `POST /transactions` and `POST /staged-transactions` take a key
-  (`src/shared/domain.ts:845-850` and `:890-895`) and `POST /accounts`,
+  (`src/shared/domain.ts:846-850` and `:890-895`) and `POST /accounts`,
   `POST /categories`, `POST /recurrences`, `POST /transaction-templates` and
   `POST /categories/merge` do not (`src/shared/domain.ts:718`, `:752`, `:2173`,
   `:2135`, `:767`). The MCP tools for the same operations all require one.
@@ -954,7 +954,7 @@ edit, a mass delete, a commit, and a CSV import."
 
 - **House, scoped to what the invariant above covers: transaction and staged
   mass edits.** Two selection shapes and no third for those
-  (`src/shared/domain.ts:1349-1352`):
+  (`src/shared/domain.ts:1346-1349`):
   - `{"mode": "ids", "items": [{"id", "expectedVersion"}]}` for rows the caller
     can see.
   - `{"mode": "filter", "filter", "excludedIds", "expectedCount",
