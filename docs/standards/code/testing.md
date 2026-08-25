@@ -71,6 +71,15 @@ works, so it covers a path per capability rather than a case per branch.
 Everything it asserts that a cheaper tier could assert is a test in the wrong
 place.
 
+**It has to survive being run twice.** It signs up a fresh person per run, and
+on an empty database that person is the first account and lands on the sign-up
+form; on every run after, the same database already has one and the form starts
+at sign-in. The helper used to ask whether the toggle between them was visible
+without waiting, which is a question asked before the options query answers: it
+passed on an empty database and failed on every subsequent run against the same
+one. A browser spec that only passes once is a spec that will be declared flaky
+and deleted.
+
 ## 2. What makes a test worth keeping
 
 ### 2.1 A test name is a sentence about behaviour

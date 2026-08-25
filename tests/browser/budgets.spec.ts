@@ -34,11 +34,21 @@ const person = {
 
 async function signUp(page: Page) {
   await page.goto("/");
-  // The first account on an empty deployment lands on the sign-up form
-  // already: the toggle only exists once somebody can sign in instead.
+  // The first account on an empty deployment lands on the sign-up form already:
+  // the toggle only exists once somebody can sign in instead. Which of the two
+  // this run gets depends on whether the database already holds an account, so
+  // both are waited for and whichever arrives decides.
+  //
+  // Asking the toggle whether it is visible without waiting is what this used
+  // to do, and it passed on an empty database and failed on every run after:
+  // the sign-in form renders before the options query answers, so the question
+  // was asked while neither the toggle nor the heading existed, answered no,
+  // and left the run waiting for a heading nothing was going to show.
   const toggle = page.getByRole("button", { name: "Create an account" });
-  if (await toggle.isVisible().catch(() => false)) await toggle.click();
-  await expect(page.getByRole("heading", { name: "Create your account" })).toBeVisible();
+  const heading = page.getByRole("heading", { name: "Create your account" });
+  await expect(heading.or(toggle)).toBeVisible();
+  if (await toggle.isVisible()) await toggle.click();
+  await expect(heading).toBeVisible();
   await page.getByLabel("Your name").fill(person.name);
   await page.getByLabel("Email address").fill(person.email);
   // Not an exact match: `Field` wraps its control in a label that includes
