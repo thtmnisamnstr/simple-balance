@@ -14,10 +14,11 @@ environment can show it.
 
 Set one of `NAME` and `NAME_FILE`, never both. Both set refuses to start and
 names the variable, because a precedence rule is a rule somebody eventually
-changes the wrong half of. **This is the one thing to check before upgrading:**
-those `_FILE` names did nothing at all in 0.1.5, so a deployment already setting
-one beside its plain variable — out of habit from the PostgreSQL official
-image — starts refusing on this release and has to drop one of the two first.
+changes the wrong half of. **One of two things to check before upgrading, and
+the other is under Changed:** those `_FILE` names did nothing at all in 0.1.5,
+so a deployment already setting one beside its plain variable — out of habit
+from the PostgreSQL official image — starts refusing on this release, and has
+to drop one of the two first.
 
 The bundled Helm chart and compose file still pass all six as environment
 variables; `docs/deployment.md` says what using the file form on either takes.
@@ -53,6 +54,46 @@ Deleting a budget leaves the books exactly as they were, because it never
 touched them.
 
 ### Changed
+
+A numeric setting outside its range refuses to start instead of falling back to
+the default. `CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `RECURRENCE_TICK_SECONDS`,
+`RECURRENCE_CATCH_UP_LIMIT` and `RECURRENCE_CLAIM_LIMIT` used to take anything
+they could not read as a whole number in range — a word, a zero, a negative,
+something past the ceiling — and quietly use the default, which is the failure
+with no symptom: `CSV_MAX_ROWS=1O000`, typed with a letter O, imported ten
+thousand rows for somebody who asked for a thousand and told them nothing.
+`DATABASE_POOL_SIZE` always refused, and the other five now do what it did. All
+six are read once at startup by `getConfig()`, before anything is served, rather
+than at the moment each happens to be wanted — inside an import, inside a
+scheduler tick — so the refusal names the variable in front of whoever just
+deployed rather than arriving hours later, or on a deployment that never imports
+a CSV, never. Leaving one unset is still how you ask for its default; setting it
+to nothing at all is a value somebody typed, and it is not a number.
+
+**The other thing to check before upgrading:** a value above one of these
+ceilings used to be reduced silently, so `CSV_MAX_ROWS=50000` ran on ten
+thousand rows and said so nowhere. It now refuses to start and has to be brought
+inside the range first, as does any of the six carrying a typo nobody has
+noticed — which, until this release, nothing gave them a way to notice.
+
+The scheduler container checks its mail server at startup, which the API already
+did. It is the process that sends every reminder and proposal notice, and nobody
+is waiting for one of those, so a relay refusing it failed silently and
+indefinitely; it now logs the address it will be sending as, or logs the refusal
+and goes on proposing. A scheduler with no mail configured says that in one line
+too, because a container that was never handed the SMTP settings and one whose
+relay answers look identical in a log that says nothing, and a split deployment
+assembled by hand is exactly where that happens. Neither line stops it starting:
+mail is optional and the schedule is not.
+
+All four images now record the digest of the base they were built on, not only
+its tag. `org.opencontainers.image.base.digest` sits beside `base.name`, and
+every `FROM` naming a registry image is pinned by digest as well as tag, so the
+build is reproducible and the label cannot name a base the image was not built
+on. Dependabot watches the bases now, so a pin is raised deliberately rather
+than freezing on whatever patches its base had the day it was typed. The runtime
+stages still apply the distribution's own updates on every build, so pinned is
+not the same as unpatched.
 
 A refund now lowers the category it came back from, instead of raising income.
 

@@ -75,7 +75,9 @@ describe("Docker runtime", () => {
 
   it("applies available Alpine security updates to the final runtime stage", () => {
     const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
-    const runtimeStage = dockerfile.slice(dockerfile.indexOf("FROM node:24-alpine AS runtime"));
+    // Found by shape rather than by name: the base carries a digest now, and a
+    // literal would have gone looking for a stage that is still there.
+    const runtimeStage = dockerfile.slice(dockerfile.search(/^FROM (?:--\S+ )*\S+ AS runtime$/m));
 
     expect(runtimeStage).toContain("RUN apk upgrade --no-cache");
     expect(runtimeStage.indexOf("RUN apk upgrade --no-cache")).toBeLessThan(
@@ -277,15 +279,42 @@ describe("the labels on every image", () => {
     }
   });
 
-  it("records the base it was actually built on", () => {
+  it("records the base it was actually built on, by name and by digest", () => {
     for (const path of dockerfiles) {
       const dockerfile = read(path);
       // Read out of the file rather than written down here, so bumping a base
       // and forgetting the label fails instead of shipping an image that lies
-      // about what it contains.
-      const runtime = [...dockerfile.matchAll(/^FROM (\S+) AS runtime$/gm)].at(-1);
-      expect(runtime, `${path} must have a runtime stage`).toBeDefined();
+      // about what it contains. Dependabot moves the `FROM` line and cannot
+      // move a label, so this is what catches half a bump: the pull request
+      // stays red until the digest below it is the digest above it.
+      const runtime = [
+        ...dockerfile.matchAll(/^FROM (?:--\S+ )*(\S+?)@(sha256:[0-9a-f]{64}) AS runtime$/gm),
+      ].at(-1);
+      expect(runtime, `${path} must pin its runtime base by digest`).toBeDefined();
       expect(dockerfile, path).toContain(`org.opencontainers.image.base.name="${runtime![1]!}"`);
+      expect(dockerfile, `${path} labels a digest its runtime FROM does not name`).toContain(
+        `org.opencontainers.image.base.digest="${runtime![2]!}"`,
+      );
+    }
+  });
+
+  /**
+   * The shipped stage is the one the label describes, and every other stage
+   * still decides what is in it. A build stage on a moving tag compiles the
+   * application against whatever `node:24-alpine` meant this morning, which is
+   * the half of reproducibility a label cannot record.
+   */
+  it("pins every base it builds on, not only the one it ships", () => {
+    for (const path of dockerfiles) {
+      // `--platform=...` and any other flag is skipped rather than left to make
+      // the line stop matching, because a regex that no longer matches is a
+      // check that reports nothing and passes.
+      const floating = [...read(path).matchAll(/^FROM (?:--\S+ )*(\S+) AS \S+$/gm)]
+        .map((match) => match[1]!)
+        // A stage naming an earlier stage carries no tag and needs no digest.
+        .filter((image) => image.includes(":") && !image.includes("@sha256:"));
+
+      expect(floating, `${path} builds on a tag that can move`).toEqual([]);
     }
   });
 

@@ -18,16 +18,16 @@ ones that matter.
 | `DATABASE_URL` | PostgreSQL 15+ connection string. Encrypt it when the database is not on the same host; see TLS below for which `sslmode` to use. The database it names is created if the server does not have it yet. |
 | `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. A value published in this project's own files, including whatever `.env.example` carried, is refused by name. |
 | `APP_BASE_URL` | Your canonical public origin, exactly as the browser sees it. HTTPS anywhere but localhost. |
+| `NODE_ENV` | `production`. Every image sets it for you; a host running `npm start` does not, and unset reads as development. See below for what that costs. |
 
 `APP_BASE_URL` is load-bearing beyond cosmetics: secure cookies, the OAuth
 issuer metadata, redirect validation, and the audience on MCP tokens are all
 derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 
-So is `NODE_ENV`, which the images set to `production` for you and which you
-have to set yourself if you run the built server directly with `npm start`.
-Outside production the first-run setup code is not demanded, sign-in attempts
-are not rate limited, and cookies are not marked secure: those three together
-are the difference between a deployment and a development machine.
+So is `NODE_ENV`. Outside production the first-run setup code is not demanded,
+sign-in attempts are not rate limited, and cookies are not marked secure: those
+three together are the difference between a deployment and a development
+machine.
 
 It is parsed against `production`, `development` and `test` and refuses anything
 else, because comparing to one string turned every other spelling into
@@ -55,21 +55,29 @@ than warning about.
 | `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. Ceiling 500. |
 | `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. Ceiling 5000. |
 
-`CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `RECURRENCE_TICK_SECONDS`,
-`RECURRENCE_CATCH_UP_LIMIT` and `RECURRENCE_CLAIM_LIMIT` are each a whole number
-between 1 and the ceiling shown. Anything else, whether a word, a zero, a
-negative or something past the ceiling, falls back to the default rather than
-being clamped or refused, so a typo gets you the default rather than a value you
-did not intend.
+`CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `DATABASE_POOL_SIZE`,
+`RECURRENCE_TICK_SECONDS`, `RECURRENCE_CATCH_UP_LIMIT` and
+`RECURRENCE_CLAIM_LIMIT` are each a whole number between 1 and the ceiling
+shown. Anything else refuses to start and names the variable: a word, a zero, a
+negative, something past the ceiling, or the name set to nothing at all.
+Leaving one out is the only way to ask for its default.
 
-The rest refuse to start instead, because a wrong value there is not something
-to discover later. `NODE_ENV`, `AUTH_MODE`, `LOG_LEVEL`, `TRUST_PROXY` and
-`RECURRENCE_SCHEDULER` are each parsed against the values they accept and
-nothing else: comparing to one string is what turns every other spelling into
-the default with no symptom at all, and for `RECURRENCE_SCHEDULER` that default
-would be a schedule quietly not running. `PORT` has to be a port, and
-`DATABASE_POOL_SIZE` a size, because too many connections takes the database
-down rather than this process.
+All six are read at startup, before anything is served, so a wrong one stops the
+container in front of whoever just deployed it. They used to fall back to the
+default instead, and be read at the moment they were wanted, which is a
+combination with no symptom: `CSV_MAX_ROWS=1O000`, typed with a letter O, ran
+happily on ten thousand rows and told nobody the number set was not the number
+in force. If you are carrying a value above one of these ceilings, it was being
+quietly reduced already and now has to be brought inside the range before the
+container will start.
+
+The rest refuse to start for the same reason. `NODE_ENV`, `AUTH_MODE`,
+`LOG_LEVEL`, `TRUST_PROXY` and `RECURRENCE_SCHEDULER` are each parsed against
+the values they accept and nothing else: comparing to one string is what turns
+every other spelling into the default with no symptom at all, and for
+`RECURRENCE_SCHEDULER` that default would be a schedule quietly not running.
+`PORT` has to be a port. `DATABASE_POOL_SIZE` has a ceiling of its own because
+too many connections takes the database down rather than this process.
 
 ### Limits you cannot change
 
@@ -90,9 +98,13 @@ a refusal is explainable rather than surprising.
 
 ### Only for Google sign-in
 
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Google modes refuse to start
-without them, and without an `ALLOWED_EMAILS` that admits somebody, rather than
-silently letting everyone in.
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `GOOGLE_CLIENT_ID` | unset | The OAuth client this deployment signs people in with. Required when `AUTH_MODE` is `google` or `both`, and ignored otherwise. |
+| `GOOGLE_CLIENT_SECRET` | unset | That client's secret. Required alongside the ID. It is a secret, so it also takes a `GOOGLE_CLIENT_SECRET_FILE`; see below. |
+
+Google modes refuse to start without both, and without an `ALLOWED_EMAILS` that
+admits somebody, rather than silently letting everyone in.
 
 ### Keeping a secret out of the environment
 
@@ -517,6 +529,15 @@ port. Three settings, all with working defaults:
 | `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
 | `SB_MAX_UPLOAD_SIZE` | `61m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
 
+These three are the only settings in this document that appear in no
+`.env.example`, and that is the reason rather than an omission: they belong to
+the nginx container, and neither example file configures it. The root file
+serves the single container, which has no nginx in it. The compose file sets all
+three on the frontend service itself, where the value can carry the reason it is
+what it is, and the defaults above are baked into
+`deploy/docker/frontend.Dockerfile`, so a deployment changing none of them has
+nothing to set. Everything the Node processes read appears in both places.
+
 nginx repeats every response header the API sets — the content security policy,
 `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS, the two
 `Cross-Origin-*` policies, `Origin-Agent-Cluster` and the legacy four — on the
@@ -532,10 +553,14 @@ The scheduler image runs the whole schedule — proposing recurring transactions
 and sending the reminders and proposal notices — and serves nothing but its own
 health checks, so a Service pointed at it by mistake cannot answer an API
 request. It needs the `SMTP_*` and `MAIL_FROM` settings as well: without them it
-proposes rows and sends nothing, and there is no error to see, because a
-deployment with no mail server is a supported one. The chart and the compose
-file both hand it the same configuration the API gets, so neither needs anything
-extra; a deployment assembled by hand does. It runs one entrypoint of its own and always ticks: the
+proposes rows and sends nothing, which is a supported deployment rather than an
+error, so it says so in one line at startup instead. Given them, it opens a
+connection to the relay at startup and logs the address it will be sending as,
+or logs the refusal and carries on proposing. Those two lines are the difference
+between a scheduler that is working and one that was never handed the settings,
+which otherwise look identical. The chart and the compose file both hand it the
+same configuration the API gets, so neither needs anything extra; a deployment
+assembled by hand does. It runs one entrypoint of its own and always ticks: the
 `RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
 whose only job is this one would be pointless with it off.
 

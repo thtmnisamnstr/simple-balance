@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { getConfig } from "./config.js";
 import { closeDb, getDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
+import { checkMailTransport, closeMail, mailEnabled } from "./mail.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 
@@ -27,6 +28,20 @@ health.get("/health/ready", async (c) => {
   }
 });
 
+/**
+ * What this entrypoint deliberately does not do, said here because an omission
+ * reads as an oversight.
+ *
+ * `reconcileArchivedAccountClosings()` stays with the API process. It is a
+ * repair of somebody's postings rather than anything the schedule needs, the
+ * API image runs in every split deployment that runs this one, and running it
+ * from every scheduler replica would multiply a write none of them is about.
+ * The `TRUST_PROXY` notice and the first-run setup code are the sign-in
+ * process's, and this one serves no sign-in: it answers two health routes and
+ * nothing else, so it counts no rate limit, sets no cookie, and has no sign-up
+ * form for a code to be typed into. Printing the code from here would put it in
+ * a second log for a claim nobody can make against this port.
+ */
 async function main() {
   const config = getConfig();
   // Also run from here, and not only from the API process, so a scheduler pod
@@ -34,6 +49,28 @@ async function main() {
   // yet. One advisory lock means whichever process arrives first does the work
   // and the other waits for it.
   await runMigrations();
+  if (mailEnabled()) {
+    // The API checks the transport so a wrong address is found by the operator
+    // rather than by somebody locked out. This process has the stronger claim
+    // on the same check: it is the one that sends every scheduled message, and
+    // nobody is waiting on a reminder, so a relay refusing it fails silently
+    // and indefinitely. It still only logs, because mail is optional and the
+    // schedule is not: proposing rows works whether or not the relay answers.
+    await checkMailTransport();
+  } else {
+    // Said out loud for the same reason the API says RECURRENCE_SCHEDULER is
+    // off. A scheduler with no mail server proposes rows and sends nothing,
+    // which is a supported deployment and also exactly what a hand-assembled
+    // one looks like when the SMTP settings were given to the API container and
+    // not to this one. The two are indistinguishable in a log that says
+    // nothing.
+    console.info(
+      "No mail server is configured, so this scheduler proposes recurring " +
+        "transactions and sends none of the reminders or proposal notices. " +
+        "They are still stored, and start arriving once SMTP_HOST and " +
+        "MAIL_FROM are set on this container as well as on the API.",
+    );
+  }
   const server = serve({
     fetch: health.fetch,
     port: config.port,
@@ -50,7 +87,12 @@ async function main() {
   const shutdown = createGracefulShutdown({
     server,
     closeResources: async () => {
+      // First, because the loop holds a connection from a pool closeDb() is
+      // about to end. Mail in between: the transport is pooled and this process
+      // opened one by checking it at startup, so leaving it behind would hold
+      // sockets open past the drain the deadline is measured against.
       await scheduler.stop();
+      closeMail();
       await closeDb();
     },
     exit: (code) => process.exit(code),

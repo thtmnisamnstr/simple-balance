@@ -721,7 +721,7 @@ number everywhere: a mass edit, a mass delete, a commit, and a CSV import. An
 import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
-than by coincidence (`src/server/config-limits.ts:12`,
+than by coincidence (`src/server/config-limits.ts:13`,
 `src/shared/domain.ts:912`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { readSecret, resolveFileBackedSecrets } from "./config-files.js";
+import { assertConfiguredLimits } from "./config-limits.js";
 
 function isLoopbackHostname(hostname: string) {
   if (hostname === "localhost" || hostname === "[::1]") return true;
@@ -158,6 +159,12 @@ export function getConfig(): AppConfig {
   // first query. That is what the "Validating at startup" rule in
   // `docs/standards/operations.md` asks of every other setting here.
   resolveFileBackedSecrets();
+  // The bounded integers are read here rather than left to the code that wants
+  // them, for the same reason. `CSV_MAX_ROWS` is otherwise read inside an
+  // import and the recurrence limits inside a tick, so a typo in one was found
+  // by nobody: it fell back to the default and the deployment ran on a number
+  // its operator had not chosen. Both entrypoints call this function first.
+  assertConfiguredLimits();
   // Parsed strictly, and against a closed set, because comparing to the string
   // "production" turns every other spelling into development silently: the
   // setup code is not demanded, sign-in attempts are not rate limited, and

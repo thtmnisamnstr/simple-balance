@@ -17,6 +17,14 @@ const keys = [
   "RECURRENCE_SCHEDULER",
   "TRUST_PROXY",
   "LOG_LEVEL",
+  // The bounded integers. getConfig() reads all six, so one left over from
+  // another file's case would refuse to start here and say nothing about why.
+  "CSV_MAX_BYTES",
+  "CSV_MAX_ROWS",
+  "DATABASE_POOL_SIZE",
+  "RECURRENCE_TICK_SECONDS",
+  "RECURRENCE_CATCH_UP_LIMIT",
+  "RECURRENCE_CLAIM_LIMIT",
   // The rest of what a file-backed secret touches. `vitest.config.ts` sets
   // `fileParallelism: false`, so a `_FILE` variable left behind by one case
   // follows every later test file in the run and points it at a temporary
@@ -156,6 +164,35 @@ describe("authentication configuration", () => {
       expect(() => getConfig()).toThrow(expected);
     },
   );
+
+  /**
+   * The bounded integers used to fall back to their defaults, and were read at
+   * the moment they were wanted: `CSV_MAX_ROWS` inside an import, the
+   * recurrence limits inside a tick. A typo therefore had no symptom at all,
+   * and the operator's number was silently not the one in force. Startup is
+   * where an orchestrator is still watching, so this asserts the refusal
+   * happens there rather than at the first import.
+   */
+  it.each([
+    ["CSV_MAX_ROWS", "1O000", /CSV_MAX_ROWS must be an integer between 1 and 10000/],
+    ["CSV_MAX_BYTES", "10 MB", /CSV_MAX_BYTES must be an integer between 1 and 104857600/],
+    ["RECURRENCE_TICK_SECONDS", "0", /RECURRENCE_TICK_SECONDS must be an integer/],
+    ["RECURRENCE_CATCH_UP_LIMIT", "5000", /RECURRENCE_CATCH_UP_LIMIT must be an integer/],
+    ["RECURRENCE_CLAIM_LIMIT", "-1", /RECURRENCE_CLAIM_LIMIT must be an integer/],
+    ["DATABASE_POOL_SIZE", "many", /DATABASE_POOL_SIZE must be an integer/],
+  ])("refuses to start when %s is not a whole number in range", async (name, value, expected) => {
+    setEnvironment({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://simple_balance:secret@database.example/simple_balance",
+      APP_BASE_URL: "https://simple-balance.example.com",
+      AUTH_SECRET: "a-production-secret-that-is-at-least-32-characters",
+      AUTH_MODE: "local",
+      [name]: value,
+    });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+    expect(() => getConfig()).toThrow(expected);
+  });
 
   it("accepts and normalizes an optional trailing slash on the production origin", async () => {
     setEnvironment({

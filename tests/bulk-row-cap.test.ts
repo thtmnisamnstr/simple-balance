@@ -46,9 +46,15 @@ describe("the row cap every bulk path shares", () => {
     expect(MAX_CSV_CONFIGURATION_ROWS).toBe(MAX_BULK_SELECTION_ENTRIES);
   });
 
+  // It used to be reduced to the cap, which meant a deployment asking for a
+  // hundred thousand rows ran on ten thousand and was told nothing. The number
+  // it can have is unchanged; what changed is that asking for more is a refusal
+  // naming the variable, at startup, rather than a limit nobody chose.
   it("cannot be configured above the cap", () => {
     process.env.CSV_MAX_ROWS = String(MAX_BULK_SELECTION_ENTRIES * 10);
-    expect(configuredCsvMaxRows()).toBe(MAX_BULK_SELECTION_ENTRIES);
+    expect(() => configuredCsvMaxRows()).toThrow(
+      new RegExp(`CSV_MAX_ROWS must be an integer between 1 and ${MAX_BULK_SELECTION_ENTRIES}`),
+    );
   });
 
   it("can still be lowered by a deployment", () => {

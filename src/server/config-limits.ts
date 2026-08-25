@@ -6,8 +6,9 @@ export const MAX_CSV_CONFIGURATION_BYTES = 100 * 1024 * 1024;
  * One import stages at most what one mass action can then commit, edit or
  * delete. A larger import produced a queue that could only be cleared a
  * selection at a time, which is a cap doing damage rather than protecting
- * anything. Lowering it with CSV_MAX_ROWS is a deployment's business; raising
- * it past the bulk cap only moves the refusal further along.
+ * anything. Lowering it with CSV_MAX_ROWS is a deployment's business; asking
+ * for more than the bulk cap refuses to start, because the extra rows could
+ * only ever have staged a queue no single action clears.
  */
 export const DEFAULT_CSV_MAX_ROWS = MAX_BULK_SELECTION_ENTRIES;
 export const MAX_CSV_CONFIGURATION_ROWS = MAX_BULK_SELECTION_ENTRIES;
@@ -36,11 +37,26 @@ export const MAX_RECURRENCE_CATCH_UP_LIMIT = 500;
 export const DEFAULT_RECURRENCE_CLAIM_LIMIT = 500;
 export const MAX_RECURRENCE_CLAIM_LIMIT = 5_000;
 
+/**
+ * A bounded integer refuses rather than falling back, and names itself when it
+ * does.
+ *
+ * Falling back was the failure with no symptom, which is the argument
+ * `config.ts` already makes about `RECURRENCE_SCHEDULER`: a deployment that
+ * meant `CSV_MAX_ROWS=1000` and typed `1O00` imported ten thousand rows and
+ * said nothing, and the operator learned the number they set was never the
+ * number in force only if they went looking. Unset is the one thing that means
+ * "the default"; an empty value is a value somebody wrote, and it is not a
+ * number.
+ */
 function boundedEnvironmentInteger(name: string, fallback: number, maximum: number) {
-  const configured = Number(process.env[name] ?? fallback);
-  return Number.isSafeInteger(configured) && configured >= 1 && configured <= maximum
-    ? configured
-    : fallback;
+  const value = process.env[name];
+  if (value === undefined) return fallback;
+  const configured = Number(value);
+  if (!Number.isSafeInteger(configured) || configured < 1 || configured > maximum) {
+    throw new Error(`${name} must be an integer between 1 and ${maximum}`);
+  }
+  return configured;
 }
 
 export function configuredCsvMaxBytes() {
@@ -60,13 +76,11 @@ export function configuredCsvMaxRows() {
 }
 
 export function configuredDatabasePoolSize() {
-  const configured = Number(process.env.DATABASE_POOL_SIZE ?? DEFAULT_DATABASE_POOL_SIZE);
-  if (!Number.isSafeInteger(configured) || configured < 1 || configured > MAX_DATABASE_POOL_SIZE) {
-    throw new Error(
-      `DATABASE_POOL_SIZE must be an integer between 1 and ${MAX_DATABASE_POOL_SIZE}`,
-    );
-  }
-  return configured;
+  return boundedEnvironmentInteger(
+    "DATABASE_POOL_SIZE",
+    DEFAULT_DATABASE_POOL_SIZE,
+    MAX_DATABASE_POOL_SIZE,
+  );
 }
 
 export function configuredRecurrenceTickSeconds() {
@@ -99,4 +113,25 @@ export function configuredRecurrenceClaimLimit() {
     DEFAULT_RECURRENCE_CLAIM_LIMIT,
     MAX_RECURRENCE_CLAIM_LIMIT,
   );
+}
+
+/**
+ * Reads every bounded integer once, at startup, so a wrong one is a process
+ * that will not start rather than a limit nobody ever sees.
+ *
+ * Refusing is only half the rule: each of these is otherwise read at the moment
+ * it is wanted — `CSV_MAX_ROWS` inside an import, the recurrence limits inside a
+ * tick — which is hours or days after the operator who set it stopped watching,
+ * and for a variable nothing on the deployment happens to exercise, never.
+ * `getConfig()` calls this, so every entrypoint reaches it before it serves
+ * anything, the way `DATABASE_POOL_SIZE` was only reached by the accident of a
+ * query running before the listener opened.
+ */
+export function assertConfiguredLimits() {
+  configuredCsvMaxBytes();
+  configuredCsvMaxRows();
+  configuredDatabasePoolSize();
+  configuredRecurrenceTickSeconds();
+  configuredRecurrenceCatchUpLimit();
+  configuredRecurrenceClaimLimit();
 }
