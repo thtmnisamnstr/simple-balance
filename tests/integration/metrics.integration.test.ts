@@ -1,9 +1,12 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { user } from "../../src/server/db/schema.js";
+import { createMcpServer } from "../../src/server/mcp.js";
 import { registry } from "../../src/server/metrics.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
@@ -174,6 +177,37 @@ integration("what a write adds to the metrics", () => {
         operation: "transaction.create",
       }),
     ).toBe(replays + 1);
+  });
+
+  it("counts an MCP tool that could be served as a call that worked", async () => {
+    const server = createMcpServer(
+      { userId: actor.userId, source: "mcp", clientId: "metrics-test" },
+      new Set(["ledger:read"]),
+    );
+    const client = new Client({ name: "metrics", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    try {
+      const before = await counterValue("simple_balance_mcp_tool_calls_total", {
+        tool: "whoami",
+        outcome: "ok",
+      });
+      await client.callTool({ name: "whoami", arguments: {} });
+      // The half the unit tier cannot show. Without a database `whoami` cannot
+      // answer at all, so `outcome="ok"` is only reachable where there is a
+      // ledger to answer from — and a counter that only ever recorded failures
+      // would look identical up there.
+      expect(
+        await counterValue("simple_balance_mcp_tool_calls_total", {
+          tool: "whoami",
+          outcome: "ok",
+        }),
+      ).toBe(before + 1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 
   it("times the transaction it opened, and not the one it was handed", async () => {

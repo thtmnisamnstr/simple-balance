@@ -1,4 +1,7 @@
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMcpServer } from "../src/server/mcp.js";
 import app from "../src/server/api.js";
 import { httpRequests, registry, resetMetrics } from "../src/server/metrics.js";
 
@@ -131,6 +134,67 @@ describe("the HTTP middleware", () => {
     const text = await registry.metrics();
     expect(text).toContain('route="unmatched"');
     expect(text).not.toContain("no-such-path-at-all");
+  });
+});
+
+describe("an MCP tool call", () => {
+  const resources: { client?: Client; server?: ReturnType<typeof createMcpServer> } = {};
+
+  afterEach(async () => {
+    await resources.client?.close();
+    await resources.server?.close();
+    resources.client = undefined;
+    resources.server = undefined;
+    resetMetrics();
+  });
+
+  /** A connected client and server over the in-memory pair, as a real one is. */
+  async function connect() {
+    resources.server = createMcpServer(
+      { userId: "metrics-agent", source: "mcp", clientId: "metrics-test" },
+      new Set(["ledger:read"]),
+    );
+    resources.client = new Client({ name: "metrics", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await resources.server.connect(serverTransport);
+    await resources.client.connect(clientTransport);
+    return resources.client;
+  }
+
+  it("is counted under the tool that was called", async () => {
+    const client = await connect();
+    // There is no database in this tier, so this call cannot be served and
+    // comes back as a refusal. That is the useful half here: the label is the
+    // thing being checked, and a failing call proves the counter is in the
+    // `finally` rather than on the happy path. The successful case is in
+    // `tests/integration/metrics.integration.test.ts`, where there is a ledger
+    // to answer from.
+    await client.callTool({ name: "whoami", arguments: {} });
+    const text = await registry.metrics();
+    // The label the registration knows and `runTool` never sees. Wrapping
+    // `registerTool` is what makes it available, and the failure it prevents is
+    // silent: without it every tool call lands in one unlabelled series and
+    // "which tool is slow" cannot be asked at all.
+    expect(text).toMatch(
+      /simple_balance_mcp_tool_calls_total\{[^}]*tool="whoami"[^}]*outcome="error"[^}]*\} 1/,
+    );
+    expect(text).toContain("simple_balance_mcp_tool_duration_seconds_count{");
+  });
+
+  it("counts a refusal as an error rather than as a call that worked", async () => {
+    const client = await connect();
+    // A tool this connection holds, called with an argument its schema refuses,
+    // so the refusal comes from the tool rather than from the protocol.
+    await client
+      .callTool({ name: "list_transactions", arguments: { limit: -1 } })
+      .catch(() => undefined);
+    const text = await registry.metrics();
+    // Either the protocol refused it before the tool ran, in which case nothing
+    // is counted, or the tool refused it, in which case the outcome is `error`.
+    // What must not happen is a refusal counted as `ok`.
+    expect(text).not.toMatch(
+      /simple_balance_mcp_tool_calls_total\{[^}]*tool="list_transactions"[^}]*outcome="ok"/,
+    );
   });
 });
 
