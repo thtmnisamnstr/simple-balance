@@ -41,7 +41,7 @@ a constructor tells you what it assigns.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:928`, `src/server/http-security.ts:159` and `:550`),
+(`src/server/api.ts:929`, `src/server/http-security.ts:160` and `:551`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -89,7 +89,7 @@ assertions across 33 files**. Neither number is zero and neither should be: a
 `!` after a lookup that a database constraint guarantees is honest, and the
 alternative is a branch that cannot be reached and cannot be tested.
 
-The single `as unknown as` is at `accounts.ts:511`, building the row an
+The single `as unknown as` is at `accounts.ts:512`, building the row an
 archived account would have had so the caller sees the shape it expects; the
 alternative was making every field optional for one call site. It was three when
 this was written and two of the three went while the code was being brought to
@@ -143,7 +143,7 @@ export const budgetPeriodUnits = [
 a bucket the report engine can group by. Annotating the constant
 `readonly ReportBucket[]` instead would have done the check and thrown the
 literals away, and the budget code needs them. The other use is the security
-header options (src/server/http-security.ts:57),
+header options (src/server/http-security.ts:58),
 which checks a literal against a library's parameter type without freezing it
 into that type.
 

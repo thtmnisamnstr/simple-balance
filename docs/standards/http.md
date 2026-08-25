@@ -38,14 +38,14 @@ writing down why it has no tool.
 Three facts, all currently true, combine into that:
 
 1. Every `/api/v1` request resolves its user with `getWebIdentity`, which reads
-   a session cookie and nothing else (`src/server/api.ts:925-940`). There is no
+   a session cookie and nothing else (`src/server/api.ts:926-941`). There is no
    bearer path.
 2. Every state-changing `/api/v1` request must present an `Origin` (or failing
    that a `Referer`) equal to the configured base URL
-   (`src/server/http-security.ts:157-191`, mounted at `src/server/api.ts:933-936`).
+   (`src/server/http-security.ts:158-192`, mounted at `src/server/api.ts:934-937`).
 3. Every state-changing `/api/v1` request must declare
    `Content-Type: application/json`, including the ones with no body at all
-   (`requireContentType: true`, `src/server/api.ts:925`).
+   (`requireContentType: true`, `src/server/api.ts:926`).
 
 So `curl` can read nothing and write nothing, and the answer for programmatic
 access has been MCP. Story SB-030 in [`docs/roadmap.md`](../roadmap.md) removes
@@ -69,7 +69,7 @@ not found, not as forbidden."
 [`common.md`](common.md#errors) settles the rule. What HTTP adds is the
 transport argument: 403 would confirm the row exists, so
 `GET /api/v1/accounts/{id}` for a stranger's account is a 404 with the same body
-as an id that was never issued (`src/server/services/accounts.ts:532`). This is
+as an id that was never issued (`src/server/services/accounts.ts:533`). This is
 deliberate, it is not a missing feature, and it applies to every resource.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts:165-202`
@@ -84,7 +84,7 @@ message.
 Seventy-three routes under `/api/v1`, generated from `src/server/api.ts`. The
 scope column is the scope the equivalent MCP tool needs today, and therefore the
 scope a bearer token will need once SB-030 lands; `ledger:read` is implied by
-both of the others (`src/server/mcp.ts:273-278`). Routes marked session only are
+both of the others (`src/server/mcp.ts:274-279`). Routes marked session only are
 named exceptions in `tests/mcp-parity.test.ts:17-26`, each carrying its reason.
 
 **House.** This table is the published list. Adding a route means adding a row
@@ -115,7 +115,7 @@ without a route survives the suite.
 
 A read-only token can list grants and cannot revoke them, so a stolen
 `ledger:read` token cannot spend its last minutes locking out the agents it was
-stolen from (`src/server/api.ts:1044-1047`).
+stolen from (`src/server/api.ts:1045-1048`).
 
 ### Accounts
 
@@ -242,9 +242,9 @@ Unversioned, and each for a reason.
 
 | Route | What it is |
 | --- | --- |
-| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:261-276`). |
+| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:262-277`). |
 | `/api/auth/*` | Better Auth, plus this product's own sign-up, consent and MCP token routes. |
-| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:822-830`). |
+| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:823-831`). |
 | `/mcp`, `/mcp/` | The MCP transport. Governed by [`mcp.md`](mcp.md). |
 | `GET /metrics` | Prometheus text format, and registered only when `METRICS_ENABLED=true`, so a deployment that did not ask for it has no such route rather than a route that refuses. A `METRICS_TOKEN` makes it demand a bearer token. Not proxied by the bundled frontend. |
 
@@ -273,7 +273,7 @@ add it.
   `/accounts/{id}/register` are the deepest paths here. Zalando's guideline is
   three; two is enough for a ledger with eleven resources.
 - **House.** Every path id is a UUID and is parsed at the boundary before it
-  reaches a query, through `pathId` (`src/server/api.ts:965-967`). Nothing in a
+  reaches a query, through `pathId` (`src/server/api.ts:966-968`). Nothing in a
   specification or in `AGENTS.md` requires it; the failure it prevents does. Two
   names are exempt and both are checked another way: `clientId`, which is an
   OAuth client id and not a UUID, and `report`, which is parsed against a closed
@@ -307,13 +307,13 @@ add it.
   than simply make them.
 - **House, and the three inconsistencies that were here are gone.** The paths
   read the way the rules above say now:
-  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1368`)
+  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1369`)
   rather than a `staged` collection that existed nowhere else;
-  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:1331`)
+  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:1332`)
   rather than a `delete` that spelled the same operation as
-  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:1271`)
+  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:1272`)
   differently; and `POST /api/v1/accounts/{id}/archived` and
-  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1128`, `:1244`),
+  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1129`, `:1245`),
   which take `{"archived": boolean}` and are therefore the state sub-resource
   pattern, matching `POST /api/v1/transactions/{id}/deleted`.
 
@@ -349,7 +349,7 @@ add it.
 - **House.** JSON in, JSON out. `Content-Type: application/json` is required
   on every state-changing request, with no body-present exception, and a request
   that omits it is refused with 415 before anything reads the body
-  (`src/server/http-security.ts:177-186`). The consequence is real and the
+  (`src/server/http-security.ts:178-187`). The consequence is real and the
   browser client lives with it: revoking an agent is a `DELETE` that sends `{}`
   purely so it can declare a content type
   (`src/client/pages/SettingsPage.tsx:538-546`).
@@ -357,7 +357,7 @@ add it.
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,
   not a 500. Every mutation reads its body through one helper for this reason
-  (`src/server/api.ts:937-975`); before it existed a truncated body arrived as a
+  (`src/server/api.ts:938-976`); before it existed a truncated body arrived as a
   500 with a stack trace in the log.
 - **House.** Request bodies are bounded, and the bound is derived from a
   documented cap rather than chosen. The two figures come from this repository
@@ -366,7 +366,7 @@ add it.
   ordinary `/api/v1`, a CSV-derived limit for `/csv/preview`, `/csv/stage` and
   `/mcp`, and a selection-derived limit for any route whose last segment is
   `bulk-edit`, `bulk-delete`, `bulk-selection`, `commit` or `delete`
-  (`src/server/http-security.ts:59-97`, `:638-661`). A limit is derived, not
+  (`src/server/http-security.ts:60-98`, `:639-662`). A limit is derived, not
   guessed: the template mass edit and mass delete were once sized as ordinary
   requests, so a selection their own schemas accepted came back 413. Recognising
   a bulk route by shape rather than by a hand-kept list is what stops that
@@ -399,8 +399,8 @@ add it.
   routes used to compare `c.req.query("includeArchived") === "true"` by hand, so
   `?includeArchived=yes` silently meant false: the caller asked for something,
   was not refused, and got the opposite. All five now go through
-  `includeArchivedFlag` (`src/server/api.ts:989`), which parses with the shared
-  schema, so a value that is neither is refused rather than quietly inverted. `queryWithFlags` (`src/server/api.ts:984-993`) is the
+  `includeArchivedFlag` (`src/server/api.ts:990`), which parses with the shared
+  schema, so a value that is neither is refused rather than quietly inverted. `queryWithFlags` (`src/server/api.ts:985-994`) is the
   bridge for routes that pass a whole query object to a Zod schema.
 - **House.** A repeated query parameter is not supported. Hono's `c.req.query()`
   keeps the first occurrence, so `?accountId=a&accountId=b` silently drops `b`.
@@ -488,7 +488,7 @@ or that the two patch schemas agree with each other.
   output schema fails the call".
 - **House.** `GET /api/v1/csv/export` is the only route that answers with
   something other than JSON: `text/csv; charset=utf-8; header=present` with a
-  `Content-Disposition` filename (`src/server/api.ts:1349-1363`). Its format is
+  `Content-Disposition` filename (`src/server/api.ts:1350-1364`). Its format is
   governed by [`csv.md`](csv.md).
 
 *Checked by:* `tests/http-security.test.ts` for headers and body limits,
@@ -514,7 +514,7 @@ code.
 | 413 | Body over the derived limit for that path |
 | 415 | Missing or unacceptable `Content-Type` on a state change |
 | 422 | The body is valid JSON and valid against no rule the ledger will accept |
-| 429 | Rate limited. Today only the setup-code limiter (`src/server/api.ts:352-381`) |
+| 429 | Rate limited. Today only the setup-code limiter (`src/server/api.ts:353-382`) |
 | 500 | Anything unhandled, with no detail |
 | 503 | `GET /health/ready` when the database is unreachable |
 
@@ -529,23 +529,23 @@ code.
   neither but can explain only the second.
 - **House, and a live inconsistency.** One code must map to one status.
   `VALIDATION_ERROR` is 422 from a service (`src/server/services/errors.ts:73-74`)
-  and 400 from the malformed-body guard (`src/server/api.ts:956`), so on that
+  and 400 from the malformed-body guard (`src/server/api.ts:957`), so on that
   code the status carries information the code does not, which is backwards.
   Give the malformed body its own code.
 - **House, and a gap.** A missing `expectedVersion` should be `428 Precondition
   Required` (RFC 6585), which says exactly what happened and which Zalando rates
   `use`. Today it is a Zod failure and a 422
-  (`src/shared/domain.ts:226-236`, `src/server/api.ts:235-242`).
+  (`src/shared/domain.ts:226-236`, `src/server/api.ts:236-243`).
 - **House, and a mismatch.** A path id that is not a UUID can never name a row,
   so the answer is 404, for the same reason a stranger's id is 404: what the
   caller asked for is not there. Today `pathId` raises a Zod failure
-  (`src/server/api.ts:965-966`) which the global handler renders as a 422
-  (`src/server/api.ts:232-241`), so a mistyped URL and a rejected body look the
+  (`src/server/api.ts:966-967`) which the global handler renders as a 422
+  (`src/server/api.ts:233-242`), so a mistyped URL and a rejected body look the
   same to a client. The 404 catch-all already answers a mistyped *path* this
   way; a mistyped *id* should match it.
 - **House, and a gap.** A wrong method on an existing path should be 405 with
   `Allow`. Today it falls to the catch-all and is a 404
-  (`src/server/api.ts:1406-1410`). OWASP's REST guidance is to allowlist methods
+  (`src/server/api.ts:1407-1411`). OWASP's REST guidance is to allowlist methods
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Today the one 429 the process emits
   carries nothing. `Retry-After` is standard in RFC 9110; the `RateLimit-*`
@@ -566,7 +566,7 @@ which `tests/http-security.test.ts` already does for body limits.
 **Binding for the shape.** [`common.md`](common.md#errors) fixes it:
 `{ error: { code, message, details? } }`, one enumeration, published. Over MCP
 it is the `result` member; over HTTP it is the body today
-(`src/server/api.ts:219-242`).
+(`src/server/api.ts:220-243`).
 
 **Contested, and this is the live decision.** The conformance target in
 [`index.md`](index.md#conformance-targets) is RFC 9457 problem details, and this
@@ -623,10 +623,10 @@ and for the code each of those refusals names being a member of `apiErrorCodes`.
   `apiErrorCodes` (`src/shared/domain.ts:1720-1755`) is the sum of two lists
   held apart on purpose: `serviceErrorCodes`, the nine an `AppError` can carry,
   and `transportErrorCodes`, the five the middleware refuses with before a route
-  runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:170`, `:234`),
-  `UNSUPPORTED_MEDIA_TYPE` (`:179`, `:218`), `PAYLOAD_TOO_LARGE` (`:572`,
-  `:617`), `INVALID_CONTENT_LENGTH` (`:561`) and `REQUEST_BODY_NOT_ALLOWED`
-  (`:587`). All fourteen reach a caller from `/api/v1` in this guide's own
+  runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:171`, `:235`),
+  `UNSUPPORTED_MEDIA_TYPE` (`:180`, `:219`), `PAYLOAD_TOO_LARGE` (`:573`,
+  `:618`), `INVALID_CONTENT_LENGTH` (`:562`) and `REQUEST_BODY_NOT_ALLOWED`
+  (`:588`). All fourteen reach a caller from `/api/v1` in this guide's own
   envelope, so all fourteen are published; the split is what stops a service
   raising a transport code, because `AppError`
   (`src/server/services/errors.ts:10-40`) takes `ServiceErrorCode`, and a code
@@ -644,18 +644,18 @@ and for the code each of those refusals names being a member of `apiErrorCodes`.
   holds the transport half the way it already holds the service half.
 - **House, and violated in fourteen places.** One envelope on every route this
   process serves. `/api/v1` uses the envelope; the auth, consent and setup
-  routes return a flat `{code, message}` at `src/server/api.ts:314`, `:342`,
-  `:359`, `:368`, `:380`, `:399`, `:410`, `:447`, `:604`, `:683`, `:690`,
-  `:699`, `:732` and `:740`. The browser can only read one of the two shapes.
+  routes return a flat `{code, message}` at `src/server/api.ts:315`, `:343`,
+  `:360`, `:369`, `:381`, `:400`, `:411`, `:448`, `:605`, `:684`, `:691`,
+  `:700`, `:733` and `:741`. The browser can only read one of the two shapes.
   Fix those fourteen.
   **One named exception:** the `/.well-known` catch-all returns
-  `{error, error_description}` (`src/server/api.ts:845-853`). That is the OAuth
+  `{error, error_description}` (`src/server/api.ts:846-854`). That is the OAuth
   error shape, its reader is an OAuth client, and it is correct there.
 - **House.** Field errors are `{field, message}` with `field` a dotted path.
   `zodIssues()` already produces exactly that
   (`src/server/services/errors.ts:76-81`) and MCP uses it
-  (`src/server/mcp.ts:273`), but the global HTTP handler does not: it ships
-  `error.issues` straight from Zod (`src/server/api.ts:238`), putting the
+  (`src/server/mcp.ts:274`), but the global HTTP handler does not: it ships
+  `error.issues` straight from Zod (`src/server/api.ts:239`), putting the
   validator's own discriminators on the wire as public contract. Route it
   through `zodIssues()`. Under problem details this array becomes `errors`.
 - **House, following AIP-193 and the Azure guidelines.** Any number in a message
@@ -663,12 +663,12 @@ and for the code each of those refusals names being a member of `apiErrorCodes`.
   limit, the count in a stale bulk selection. A client should never have to
   parse a sentence to learn a number.
 - **House.** No stack traces, no SQL, no bound parameters, ever. The comment at
-  `src/server/api.ts:244-250` says why, and it is not boilerplate: "Drizzle
+  `src/server/api.ts:245-251` says why, and it is not boilerplate: "Drizzle
   builds its message out of the failing SQL and its bound parameters, and one of
   those parameters is the OAuth access token the MCP token endpoint looks a
   grant up by, so logging it whole would write a live credential into the log on
   any database hiccup." The 500 body is a fixed sentence with no detail
-  (`src/server/api.ts:251-254`).
+  (`src/server/api.ts:256-259`).
   **The gap:** that redaction is applied on one of the five paths in this
   process that can log a database error. The other four are
   `src/server/index.ts`, `src/server/scheduler.ts`, `src/server/db/migrate.ts`
@@ -780,7 +780,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   (`src/shared/domain.ts:1045`). A server may return fewer rows than asked for.
 - **House, and an outlier.** `GET /api/v1/audit-events` parses its own query by
   hand rather than through a published schema
-  (`src/server/api.ts:1391-1398`), so its parameters are the one list contract
+  (`src/server/api.ts:1392-1399`), so its parameters are the one list contract
   not expressed in Zod. The service defends itself against the resulting `NaN`
   (`src/server/services/audit.ts:11-15`), which is the right defence in the
   wrong place. Give it a schema.
@@ -846,7 +846,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   grounds that the other exists.
 - **House, and the objection is open on HTTP today.** Over MCP every mutation is
   wrapped in an idempotency record by the transport itself
-  (`runIdempotentMcpMutation`, `src/server/mcp.ts:283-306`, used on twenty-six
+  (`runIdempotentMcpMutation`, `src/server/mcp.ts:284-307`, used on twenty-six
   tools), so the Azure objection does not bite there. Over HTTP only the writes
   whose schema declares an `idempotencyKey` are protected, and no update or
   delete does: `transactionUpdateSchema` and `versionedMutationSchema` carry a
@@ -930,10 +930,10 @@ so a second submit fails rather than duplicating."
 - **House.** No `GET` or `DELETE` accepts a key. A safe method needs none, and a
   delete on this API is a versioned mutation, which is idempotent by
   construction, with one exception:
-  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1071-1075`)
+  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1072-1076`)
   reads no body and takes no `expectedVersion`, where the other six versioned
-  deletes parse `versionedMutationSchema` (`src/server/api.ts:1135`, `:1123`,
-  `:1135`, `:1145`, `:1175`, `:1214`). Revoking a grant is idempotent anyway,
+  deletes parse `versionedMutationSchema` (`src/server/api.ts:1136`, `:1124`,
+  `:1136`, `:1146`, `:1176`, `:1215`). Revoking a grant is idempotent anyway,
   since the second call finds nothing to revoke, but the premise does not hold
   for it and the carve-out is named here rather than left to be discovered.
 
@@ -1014,7 +1014,7 @@ edit, a mass delete, a commit, and a CSV import."
   that catches the tool handing a strict schema the key it added.
 - **House.** A filter selection is resolved first by the matching
   `bulk-selection` route, which returns the count and the fingerprint the write
-  must send back (`src/server/api.ts:1258-1261`, `:1321-1324`). The fingerprint
+  must send back (`src/server/api.ts:1259-1262`, `:1322-1325`). The fingerprint
   is a SHA-256 over the sorted `id:version` pairs, computed by one function so
   the transaction and staged paths cannot drift into accepting different sets
   (`src/server/services/helpers.ts:230-245`).
@@ -1066,7 +1066,7 @@ fingerprint (`:544`).
 
 - **House.** Everything under `/api/v1` is `Cache-Control: no-store`, without
   exception, set once in middleware rather than on seventy-three routes
-  (`src/server/api.ts:925-931`). RFC 9111's shared-cache protection keys off the
+  (`src/server/api.ts:926-932`). RFC 9111's shared-cache protection keys off the
   `Authorization` header, and `/api/v1` authenticates with a cookie, so that
   protection does not apply and `no-store` is doing the whole job. When SB-030
   adds bearer tokens, `no-store` stays: two mechanisms for one guarantee is
@@ -1075,12 +1075,12 @@ fingerprint (`:544`).
   is cacheable. The invariant to preserve: no cacheable response depends on a
   request header without naming it in `Vary`.
 - **House.** The security headers are one exported function of `isProduction`
-  (`src/server/http-security.ts:19-57`) and no route overrides one of the
+  (`src/server/http-security.ts:20-58`) and no route overrides one of the
   headers in the table below. Two other headers are set by hand outside
   `/api/v1` and are documented under CORS: `Access-Control-Allow-Origin` on the
-  JWKS route (`src/server/api.ts:585`) and on discovery (`:804`), and
-  `Cache-Control` on those two (`:586`, `:805`) and on `/api/v1` itself
-  (`:882`). The
+  JWKS route (`src/server/api.ts:586`) and on discovery (`:805`), and
+  `Cache-Control` on those two (`:587`, `:806`) and on `/api/v1` itself
+  (`:883`). The
   split deployment's nginx repeats them for the files it serves, and the two are
   compared character for character. Every response from this process carries:
 
@@ -1105,7 +1105,7 @@ fingerprint (`:544`).
   under `no-referrer` a browser sends `Origin: null` on a native form
   submission, including the sign-in form posting to this very server, and the
   origin check rightly refuses an origin it cannot recognise
-  (`src/server/http-security.ts:43-49`).
+  (`src/server/http-security.ts:44-50`).
 - **House, and the two halves are one rule.** Same-origin and JSON content type
   are presented together and neither is relaxed on the grounds that the other
   exists. OWASP files origin checking under defence in depth rather than as a
@@ -1124,8 +1124,8 @@ fingerprint (`:544`).
     same risk. Whether it should be is a deployment decision and belongs in
     configuration, not in code.
   - **Two exceptions exist today and are correct**, both outside `/api/v1`:
-    `GET /api/auth/mcp/jwks` (`src/server/api.ts:584`) and the OAuth discovery
-    endpoints (`discoveryHeaders`, `src/server/api.ts:800-808`) both send
+    `GET /api/auth/mcp/jwks` (`src/server/api.ts:585`) and the OAuth discovery
+    endpoints (`discoveryHeaders`, `src/server/api.ts:801-809`) both send
     `Access-Control-Allow-Origin: *`. They are deliberately public and read by
     clients that are not browsers and have no origin to speak of. A rule saying
     "this process never emits ACAO" would be contradicted by grep on the day it
@@ -1134,8 +1134,8 @@ fingerprint (`:544`).
     and gets a 404 with no CORS headers, which is the correct answer to a
     preflight for something that is not allowed.
 - **House.** The single-page app never answers an API path. JSON 404 catch-alls
-  sit under `/api/v1/*` (`src/server/api.ts:1406-1410`) and `/.well-known/*`
-  (`src/server/api.ts:845-849`), below every route those prefixes own and above
+  sit under `/api/v1/*` (`src/server/api.ts:1407-1411`) and `/.well-known/*`
+  (`src/server/api.ts:846-850`), below every route those prefixes own and above
   the shell. Without them a mistyped path came back as 200 `text/html`, which an
   API client parses as a syntax error and a person debugging reads as a working
   page.
@@ -1154,17 +1154,17 @@ way.
   token carries `error="insufficient_scope"` and names the scope required.
 - **House, a deliberate absence.** A 401 on a cookie-authenticated `/api/v1`
   request carries no `WWW-Authenticate`
-  (`src/server/api.ts:924-946`). A Bearer challenge there would invite an agent
+  (`src/server/api.ts:925-947`). A Bearer challenge there would invite an agent
   to present a token that will never be accepted. When SB-030 lands, the
   challenge appears on the routes that can actually accept one.
 - **Binding**, RFC 9728. Protected resource metadata is served at the root and
   at every `/mcp` path spelling, because a client told the resource is
   `<origin>/mcp` looks under the well-known suffix with the resource path
-  appended (`src/server/api.ts:822-830`). Answering only at the root left the
+  appended (`src/server/api.ts:823-831`). Answering only at the root left the
   single-page app returning HTML with a 200, which a client cannot parse and
   will not retry.
 - **Binding.** The scopes are `ledger:read`, `ledger:stage` and `ledger:write`,
-  published in the discovery documents (`src/server/api.ts:782-791`), and the
+  published in the discovery documents (`src/server/api.ts:783-792`), and the
   route table above says which each route needs. `AGENTS.md`: "`ledger:stage`
   proposes and never decides."
 - **Binding.** Two routes stay session-only whatever the token. `AGENTS.md`:

@@ -48,6 +48,15 @@ turning it on in production without a token says so once in the log.
 The Helm chart carries `config.metrics.enabled` and `secret.metricsToken`, and
 `docs/deployment.md` has a scrape config for the two containers.
 
+`LOG_LEVEL` now governs this product's own log lines. It reached exactly one
+consumer before — Better Auth's logger — while the thirty-one `console` calls in
+`src/server` ignored it, so a deployment asking for `error` still got the
+startup banner, the mail notice and the scheduler's warnings. `error` is quiet
+now, and is never itself silenced. The three places that warn about
+configuration keep writing directly, because the gate has to read the
+configuration to know the level and a warning about a setting cannot be gated by
+one.
+
 
 Six secrets can be read from a file instead of the environment: `AUTH_SECRET`,
 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`

@@ -90,12 +90,12 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
 
 `withTransaction` joins the caller's transaction when it is given one and opens
 its own when it is not
-(src/server/db/client.ts:108). 38 service
+(src/server/db/client.ts:109). 38 service
 mutations take that parameter and every one of them goes through the helper;
 only six places in this directory reach for `getDb().transaction` directly.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:290-300`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:291-301`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -121,7 +121,7 @@ mutation that delegates its writes to a helper still satisfies it.
 **Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, src/server/services/accounts.ts:644).
+(`updateAccount`, src/server/services/accounts.ts:645).
 
 Two windows have to be closed, not one. Comparing before the update leaves a
 gap between the read and the write, so the update itself also filters on the

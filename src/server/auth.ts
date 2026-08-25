@@ -16,6 +16,7 @@ import { revokeAllConnectedApps } from "./services/connected-apps.js";
 import { getDb } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { user } from "./db/schema.js";
+import { log } from "./log.js";
 
 function createAuthInstance() {
   const config = getConfig();
@@ -62,7 +63,7 @@ function createAuthInstance() {
       backgroundTasks: {
         handler: (promise: Promise<unknown>) => {
           void promise.catch((error) => {
-            console.error("A background auth task failed", error);
+            log.error("A background auth task failed", error);
           });
         },
       },

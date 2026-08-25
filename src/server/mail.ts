@@ -1,6 +1,7 @@
 import { createTransport, type Transporter } from "nodemailer";
 import { getConfig, type MailSettings } from "./config.js";
 import { mailMessages } from "./metrics.js";
+import { log } from "./log.js";
 
 /**
  * Outbound mail, and only when a deployment has somewhere to send it.
@@ -70,10 +71,10 @@ export async function checkMailTransport() {
   if (!sender) return true;
   try {
     await sender.verify();
-    console.info(`Mail is configured. Sending as ${getConfig().mail!.from}`);
+    log.info(`Mail is configured. Sending as ${getConfig().mail!.from}`);
     return true;
   } catch (error) {
-    console.error(
+    log.error(
       "SMTP_HOST is set but the mail server refused the connection. " +
         "Password resets and address verification will not work, and because " +
         "verification is required whenever mail is configured, nobody will be " +
@@ -170,7 +171,7 @@ export async function sendMail(message: Message) {
   } catch (error) {
     // Not the subject, which is a name somebody wrote, and not the error whole,
     // which carries `envelope` and `rejected` holding the address.
-    console.error(
+    log.error(
       `Could not send ${message.about}. Check SMTP_HOST and MAIL_FROM.`,
       smtpFailure(error),
     );

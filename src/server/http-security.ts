@@ -3,6 +3,7 @@ import type { TransportErrorCode } from "../shared/domain.js";
 import { secureHeaders } from "hono/secure-headers";
 import { MAX_BULK_SELECTION_ENTRIES } from "../shared/domain.js";
 import { configuredCsvMaxBytes } from "./config-limits.js";
+import { log } from "./log.js";
 
 /**
  * What every response from this process carries, and the one place it is
@@ -364,7 +365,7 @@ export function createAttemptLimiter(options: {
         // than the shared one by the replica count, and it is a great deal
         // better than the alternative here, which is refusing every sign-in on
         // a deployment whose database is having a bad minute.
-        console.error("The shared attempt limiter could not be reached", error);
+        log.error("The shared attempt limiter could not be reached", error);
         return true;
       }
     },
@@ -374,7 +375,7 @@ export function createAttemptLimiter(options: {
       try {
         await store.clear(key);
       } catch (error) {
-        console.error("The shared attempt limiter could not be cleared", error);
+        log.error("The shared attempt limiter could not be cleared", error);
       }
     },
   };

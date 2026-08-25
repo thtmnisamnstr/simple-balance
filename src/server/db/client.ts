@@ -4,6 +4,7 @@ import { readSecret } from "../config-files.js";
 import { configuredDatabasePoolSize } from "../config-limits.js";
 import { databaseTransactionDuration, trackDatabasePool } from "../metrics.js";
 import * as schema from "./schema.js";
+import { log } from "../log.js";
 
 let pool: Pool | undefined;
 let authBootstrapLockPool: Pool | undefined;
@@ -29,7 +30,7 @@ export function getPool() {
     // the next query. pg has already removed and destroyed the client by the
     // time this runs; there is nothing to do but say so.
     pool.on("error", (error) => {
-      console.error("Idle database client error", error);
+      log.error("Idle database client error", error);
     });
     // Handed to the metrics registry rather than read from it, because a scrape
     // must never be the thing that opens a database connection: reading

@@ -31,6 +31,7 @@ import {
 } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { calendarDayIn, todayIn } from "../../shared/recurrence-dates.js";
+import { log } from "../log.js";
 
 function stagedAccountReference(accountId: string) {
   return sql`(
@@ -301,7 +302,7 @@ export async function reconcileArchivedAccountClosings() {
       // even though Intl did, and this runs before the server starts serving.
       // Letting that reach the caller takes the whole deployment down, for
       // everybody, on every boot.
-      console.error(
+      log.error(
         `Could not re-close archived account ${account.id}. Its balance may be ` +
           "missing from that person's totals until it is archived again.",
         error,

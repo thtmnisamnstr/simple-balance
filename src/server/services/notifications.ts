@@ -16,6 +16,7 @@ import {
 } from "../config-limits.js";
 import { getDb } from "../db/client.js";
 import { templateNotifications, transactionTemplates, user } from "../db/schema.js";
+import { log } from "../log.js";
 import {
   mailEnabled,
   recurrenceProposedMessage,
@@ -258,7 +259,7 @@ export async function runDueNotifications(
       // recurrence must not: this loop serves every tenant at once and runs the
       // most overdue first, so a row that throws every time is first every time.
       failed += 1;
-      console.error(`Template reminder ${row.id} could not be sent`, error);
+      log.error(`Template reminder ${row.id} could not be sent`, error);
     }
   }
   return { examined, sent, failed };

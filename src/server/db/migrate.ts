@@ -4,6 +4,7 @@ import { Client } from "pg";
 import { MIGRATION_LOCK } from "./advisory-locks.js";
 import { closeDb, directConnectionString } from "./client.js";
 import { migrationDuration, migrationRuns } from "../metrics.js";
+import { log } from "../log.js";
 
 /**
  * PostgreSQL's code for "that database does not exist". The driver reports it
@@ -49,7 +50,7 @@ async function createDatabaseIfMissing(connectionString: string) {
     // The name comes from the operator's own connection string, and an
     // identifier cannot be parameterised, so it is quoted rather than bound.
     await client.query(`create database "${name.replaceAll('"', '""')}"`);
-    console.info(`Created database "${name}".`);
+    log.info(`Created database "${name}".`);
   } catch (error) {
     // Another container starting at the same moment may have won the race,
     // which is a success for our purposes.
@@ -159,7 +160,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   runMigrations()
     .then(() => closeDb())
     .catch(async (error) => {
-      console.error(error);
+      log.error(error);
       await closeDb();
       process.exitCode = 1;
     });

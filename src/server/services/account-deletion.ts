@@ -14,6 +14,7 @@ import {
   verification,
 } from "../db/schema.js";
 import { notFound, validationError } from "./errors.js";
+import { log } from "../log.js";
 
 /**
  * Deleting an account, and everything that was in it.
@@ -179,7 +180,7 @@ export async function deleteOwnAccount(
   // say it happened. Deliberately without the address: they asked to be gone.
   const count = (value: number, one: string, many = `${one}s`) =>
     `${value} ${value === 1 ? one : many}`;
-  console.info(
+  log.info(
     `An account was deleted, with ${count(removed.transactions, "transaction")} ` +
       `across ${count(removed.accounts, "account")}.`,
   );

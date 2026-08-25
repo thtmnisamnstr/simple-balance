@@ -31,6 +31,7 @@ import { notifyRecurrenceProposed } from "./notifications.js";
 import { lockRecurrenceNamespace, serializeRow, writeAudit } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { insertRecurringStages } from "./staging.js";
+import { log } from "../log.js";
 
 /** The schedule as the date arithmetic wants it. */
 export function ruleOf(row: RecurrenceRow): RecurrenceRule {
@@ -408,7 +409,7 @@ export async function runDueRecurrences(
       // skipping it loses nothing. The recurrence stays past due with nothing
       // proposed, which is exactly what the Recurring page reports.
       failed += 1;
-      console.error(`Recurrence ${row.id} could not be proposed`, error);
+      log.error(`Recurrence ${row.id} could not be proposed`, error);
     }
   }
   return { examined, proposed, failed, notified, capped };

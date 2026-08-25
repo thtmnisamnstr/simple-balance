@@ -9,6 +9,7 @@ import { setMetricsComponent, startDefaultMetrics } from "./metrics.js";
 import { serveMetrics } from "./metrics-route.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
+import { log } from "./log.js";
 
 /**
  * The scheduler on its own, for a deployment that has split the single
@@ -79,7 +80,7 @@ async function main() {
     // one looks like when the SMTP settings were given to the API container and
     // not to this one. The two are indistinguishable in a log that says
     // nothing.
-    console.info(
+    log.info(
       "No mail server is configured, so this scheduler proposes recurring " +
         "transactions and sends none of the reminders or proposal notices. " +
         "They are still stored, and start arriving once SMTP_HOST and " +
@@ -91,7 +92,7 @@ async function main() {
     port: config.port,
     hostname: "0.0.0.0",
   });
-  console.info(`Simple Balance scheduler listening on port ${config.port} for health checks only`);
+  log.info(`Simple Balance scheduler listening on port ${config.port} for health checks only`);
 
   // Forced on rather than read from RECURRENCE_SCHEDULER. That flag exists to
   // turn the tick off on replicas that serve the API; a pod running this
@@ -117,7 +118,7 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  console.error(error);
+  log.error(error);
   await closeDb();
   process.exitCode = 1;
 });

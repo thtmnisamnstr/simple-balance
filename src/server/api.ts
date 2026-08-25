@@ -70,6 +70,7 @@ import {
   updateAccount,
 } from "./services/accounts.js";
 import { listAuditEvents } from "./services/audit.js";
+import { log } from "./log.js";
 import {
   createCategory,
   deleteCategory,
@@ -248,9 +249,9 @@ app.onError((error, c) => {
   // what an operator needs; the values are not.
   const query = (error as { query?: unknown }).query;
   if (typeof query === "string") {
-    console.error(`Query failed: ${query}`, (error as { cause?: unknown }).cause ?? error.name);
+    log.error(`Query failed: ${query}`, (error as { cause?: unknown }).cause ?? error.name);
   } else {
-    console.error(error);
+    log.error(error);
   }
   return c.json(
     { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } },
@@ -537,7 +538,7 @@ app.post("/api/auth/mcp/register", async (c) => {
   if (now - lastPruneAt >= PRUNE_INTERVAL_MS) {
     lastPruneAt = now;
     void pruneAbandonedClients().catch((error) => {
-      console.error("Could not prune abandoned OAuth clients", error);
+      log.error("Could not prune abandoned OAuth clients", error);
     });
   }
   const body = await c.req.raw

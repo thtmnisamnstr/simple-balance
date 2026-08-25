@@ -54,6 +54,7 @@ import {
   updateAccount,
 } from "./services/accounts.js";
 import { listAuditEvents } from "./services/audit.js";
+import { log } from "./log.js";
 import {
   createCategory,
   deleteCategory,
@@ -249,7 +250,7 @@ async function runTool(fn: () => Promise<unknown>) {
     return toolResult(await fn());
   } catch (error) {
     if (!(error instanceof AppError) && !(error instanceof ZodError)) {
-      console.error("Unexpected MCP tool error", error);
+      log.error("Unexpected MCP tool error", error);
     }
     // An agent can only correct a call it can see the fault in. A schema
     // failure names the field and what was wrong with it; reporting it as an

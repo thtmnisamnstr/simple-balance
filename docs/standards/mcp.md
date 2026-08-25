@@ -23,7 +23,7 @@ contract. Anything in this guide that contradicts it loses.
   stateless protocol: all the information needed to process a request is
   contained in the request itself." This surface holds by construction rather
   than by discipline: `handleMcpRequest` builds a server and a transport per
-  request (`src/server/mcp.ts:1951-1960`), so there is no connection to carry
+  request (`src/server/mcp.ts:1952-1961`), so there is no connection to carry
   state in.
 - **Where the target is not met, say so rather than claiming it.** The installed
   SDK, `@modelcontextprotocol/sdk` 1.30.0, declares
@@ -70,7 +70,7 @@ able to explicitly select them for use".
 features... should focus on information that helps the model use the server
 effectively and should not duplicate information already in tool descriptions."
 
-`new McpServer({ name, version })` at `src/server/mcp.ts:480-484` passes none.
+`new McpServer({ name, version })` at `src/server/mcp.ts:481-485` passes none.
 
 `instructions` predates `server/discover` and is carried on the initialize
 result, so it is reachable today: the installed SDK accepts it in
@@ -117,7 +117,7 @@ usually the polite option, and that a refund is not income.
   the sentence `commit_staged_transactions` owns: a person approving that dialog
   could believe they were releasing a row they had already reviewed rather than
   writing one they had never seen. It is titled "Write a new transaction
-  straight into the books" (`src/server/mcp.ts:1744-1750`), and "Commit" now
+  straight into the books" (`src/server/mcp.ts:1745-1751`), and "Commit" now
   appears in exactly one title on this surface, on the tool that commits.
 - **Contested, decided 2026-08-23: no namespace prefix.** The specification puts
   disambiguation on the client: aggregating clients "SHOULD implement a
@@ -400,7 +400,7 @@ The rules:
   a two-member `anyOf` by `mcpOutputSchema`
   (`src/server/mcp-output-schemas.ts:96-100`) and returned as both
   `structuredContent` and a JSON text mirror built from one serialisation
-  (`src/server/mcp.ts:231-245`), which is what the specification
+  (`src/server/mcp.ts:232-246`), which is what the specification
   recommends: a tool returning structured content "SHOULD also return the
   serialized JSON in a TextContent block".
 - **House, and worth stating because a client author will assume otherwise.**
@@ -531,7 +531,7 @@ envelope and the worked sentences.
 - **Binding.** A tool fault is a result with `isError: true`, not a protocol
   error, because "otherwise, the LLM would not be able to see that an error
   occurred and self-correct". Unknown tool and malformed request are protocol
-  errors. `runTool` (`src/server/mcp.ts:247-281`) does this and its comment says
+  errors. `runTool` (`src/server/mcp.ts:248-282`) does this and its comment says
   why.
 - **House, and a correction owed to the documentation.** There are two error
   envelopes and only one is this project's. The SDK validates `inputSchema`
@@ -570,7 +570,7 @@ envelope and the worked sentences.
   agent has nothing to refresh. It now carries both of `common.md`'s worked
   sentences — the diagnosis is the same for everyone and only the advice differs
   — as `message` and an optional `agentMessage` that only the MCP transport
-  reads (`src/server/mcp.ts:266`), so the browser keeps its own words and
+  reads (`src/server/mcp.ts:267`), so the browser keeps its own words and
   neither caller is told to do something it cannot. The agent sentence names
   `details.currentVersion` only where the throw site actually carried it;
   thirteen of the fifty do not, and a refusal pointing at a field that is not
@@ -612,7 +612,7 @@ claim, and a false claim is a defect.
 
 - **House.** Three shared constants, so a tool's class is one word at the call
   site: `readAnnotations`, `additiveAnnotations`, `destructiveAnnotations`
-  (`src/server/mcp.ts:306-323`). Measured: 35 read, 9 additive, 27 destructive.
+  (`src/server/mcp.ts:307-324`). Measured: 35 read, 9 additive, 27 destructive.
 - **Binding.** `readOnlyHint: true` is a claim the implementation must
   satisfy, not a category label. The specification's rule is addressed to
   clients; for a server an annotation is an assertion, and a false assertion is
@@ -661,7 +661,7 @@ requiring it, so this is a decision and not an obligation; it is argued at
 length because it is the one that decides the tool count.
 
 A tool is gated by which of three registration blocks it sits in
-(`src/server/mcp.ts:563`, `:1069` and `:1172`), and scope is enforced by
+(`src/server/mcp.ts:564`, `:1070` and `:1173`), and scope is enforced by
 non-registration, so a tool the caller cannot use is **absent from discovery**
 rather than present and refusing. Measured: 35 tools at `ledger:read`, 40 at
 `ledger:stage`, 71 at `ledger:write`, and a token with no ledger scope gets a
@@ -694,7 +694,7 @@ it means choosing which half to defer to anyway.
   may carry are changes to the ledger's own records and need `ledger:write`,
   wherever they are reached from, including a CSV import." `stage_csv` is the
   worked case and its description is the model for saying so
-  (`src/server/mcp.ts:1153-1161`).
+  (`src/server/mcp.ts:1154-1162`).
 - **House.** Read, propose, write are three tiers answering three questions.
   `dryRun: true` asks "what would this do", synchronously, leaving nothing
   behind; it is on 7 tools. `ledger:stage` says "do this when a person agrees",
@@ -718,19 +718,19 @@ it means choosing which half to defer to anyway.
   document's Common Mistakes list names "Publishing all possible scopes in
   `scopes_supported`". The two documents answer two different questions and now
   say two different things. The authorization-server document lists all seven
-  (`src/server/api.ts:782`), because RFC 8414's field is what the server
+  (`src/server/api.ts:783`), because RFC 8414's field is what the server
   supports and Better Auth's accept-list at `/authorize` is the union of its
   four defaults with our three
   (`node_modules/better-auth/dist/plugins/oidc-provider/authorize.mjs:23-33`).
   The protected-resource document is the one a client builds its scope request
   from — the SDK joins `scopes_supported` verbatim, ahead of the client's own
   configured scope, in `client/auth.js`'s `resolvedScope` — and it lists
-  `openid profile email offline_access ledger:read` (`src/server/api.ts:791`):
+  `openid profile email offline_access ledger:read` (`src/server/api.ts:792`):
   the default grant plus the refresh a long-lived client cannot work without,
   since Better Auth issues a refresh token only when `offline_access` was
   requested. It is narrowed on every path the document is
   reachable from, including `/api/auth/.well-known/oauth-protected-resource`
-  (`src/server/api.ts:760`), which is where `withMcpAuth`'s own 401 sends a
+  (`src/server/api.ts:761`), which is where `withMcpAuth`'s own 401 sends a
   client on first contact; narrowing only the RFC 9728 paths would have left the
   advertisement everybody reads untouched and the one nobody reads correct. The
   two wider tiers are still accepted at `/authorize`, still named on the consent
@@ -776,7 +776,7 @@ it means choosing which half to defer to anyway.
   only caller who could read it already holds the scope. The three tools where
   scope changes behaviour rather than access are the real case and already say
   so in their own words.
-- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:434-439`) implements
+- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:435-440`) implements
   the scope hierarchy the specification requires servers to account for: stage
   and write both satisfy read.
 - **House, and its reason is an absence of evidence.** Whether 71 tightly
@@ -906,7 +906,7 @@ what stops `idempotentHint` becoming a lie.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:885-936`).
+  (`src/server/api.ts:886-937`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's
