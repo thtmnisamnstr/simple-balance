@@ -195,6 +195,14 @@
   Every schema
   change from here is its own forward-only migration, generated with
   `npm run db:generate`, carrying whatever backfill it needs.
+- A release upgrades cleanly from the one before it. A deployment running the
+  previous release starts on this one with the configuration it already has, and
+  every client that worked against it still works. A setting that was accepted
+  stays accepted — warn and carry on rather than refusing. A precedence that
+  existed is kept. A renamed route stays registered under its old spelling with
+  `Deprecation` and `Sunset` headers. A capability a client had does not narrow.
+  Removing any of those is a later release's job, after the deprecation has been
+  in the field. `docs/standards/writing.md` has the reasoning.
 - Startup must remain the only production migration path. Keep migrations safe
   under the advisory lock and fail readiness on migration failure.
 

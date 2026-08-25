@@ -151,16 +151,21 @@ integration("what an MCP client can discover before it has a token", () => {
   });
 
   /**
-   * One resource and one set of endpoints, and deliberately two different scope
-   * lists. RFC 8414's field is what this server accepts; RFC 9728's is what a
-   * client copies into its authorization request, and the SDK prefers it to the
-   * client's own configured scope. So the resource document is the default
-   * grant, and the two wider tiers are reached from the `insufficient_scope`
-   * challenge instead. `tests/mcp-discovery-scopes.test.ts` holds every path
-   * the document answers on, including Better Auth's own under `/api/auth`,
-   * which is the one its 401 challenge sends a first contact to.
+   * One resource, one set of endpoints, and the same scope list in both
+   * documents.
+   *
+   * RFC 8414's field is what this server accepts; RFC 9728's is what a client
+   * copies into its authorization request, and the SDK prefers it to the
+   * client's own configured scope. Narrowing the second to the read tier would
+   * be least privilege and is deliberately not done: it would mean anybody
+   * re-authorising after an upgrade comes back read-only, regaining write only
+   * if their client implements the RFC 6750 step-up. What did land is the
+   * challenge itself, so a client that asks for too little has a way back up.
+   * `tests/mcp-discovery-scopes.test.ts` holds every path the document answers
+   * on, including Better Auth's own under `/api/auth`, which is the one its 401
+   * challenge sends a first contact to.
    */
-  it("names one resource and one set of endpoints, and two scope lists on purpose", async () => {
+  it("names one resource, one set of endpoints, and one scope list", async () => {
     const resource = (await (
       await app.request(`${BASE}/.well-known/oauth-protected-resource`)
     ).json()) as Record<string, unknown>;
@@ -179,13 +184,10 @@ integration("what an MCP client can discover before it has a token", () => {
     for (const scope of ["ledger:read", "ledger:stage", "ledger:write"]) {
       expect(server.scopes_supported, scope).toContain(scope);
     }
-    expect(resource.scopes_supported).toEqual([
-      "openid",
-      "profile",
-      "email",
-      "offline_access",
-      "ledger:read",
-    ]);
+    expect(resource.scopes_supported).toEqual(server.scopes_supported);
+    for (const scope of ["ledger:read", "ledger:stage", "ledger:write"]) {
+      expect(resource.scopes_supported, scope).toContain(scope);
+    }
   });
 
   // The JWT wrapper exists so that the opaque token Better Auth stores is never

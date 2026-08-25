@@ -51,6 +51,19 @@ let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
  * entrypoint is added next. Resolving on first read removes the ordering
  * entirely, and `db/migrate.ts` needs no knowledge of this file.
  */
+/**
+ * Said once per process. `resolveFileBackedSecrets` memoises, so this only
+ * repeats across a `vi.resetModules()` in tests, but the set costs nothing and
+ * makes the intent plain.
+ */
+const warned = new Set<string>();
+
+function warnOnce(message: string) {
+  if (warned.has(message)) return;
+  warned.add(message);
+  console.warn(message);
+}
+
 export function resolveFileBackedSecrets(): ReadonlyMap<FileBackedSecret, string> {
   if (resolved) return resolved;
   const found = new Map<FileBackedSecret, string>();
@@ -60,13 +73,29 @@ export function resolveFileBackedSecrets(): ReadonlyMap<FileBackedSecret, string
     const direct = process.env[name];
     // Non-empty rather than truthy. `.env.example` ships `AUTH_SECRET=` and
     // `deploy/compose/compose.distributed.yml` ships `SETUP_TOKEN: ${SETUP_TOKEN:-}`,
-    // so a truthiness check here would refuse a working deployment for setting
-    // a blank it has always set.
+    // so a truthiness check here would treat a blank a deployment has always set
+    // as a value it meant.
     if (typeof direct === "string" && direct !== "") {
-      throw new Error(
-        `${name} and ${name}_FILE are both set. Set one: a precedence rule means ` +
-          "somebody eventually changes a value that has no effect.",
+      // The environment wins, and it warns rather than refusing.
+      //
+      // A precedence rule really does mean somebody eventually changes the value
+      // that has no effect, and refusing is the clean answer to that — but not
+      // here, and not on this release. These `_FILE` names did nothing at all in
+      // 0.1.5, so a deployment that set one out of habit from the PostgreSQL
+      // official image has been running with the environment variable in force
+      // all along. Refusing would stop that deployment on upgrade, over a
+      // variable that has never once been read.
+      //
+      // So the environment keeps winning, which is exactly what happened before,
+      // and the warning names the file being ignored. That turns a silent
+      // precedence rule into a loud one without taking anybody's ledger down for
+      // it.
+      warnOnce(
+        `${name} and ${name}_FILE are both set. ${name} is being used and the file is ignored, ` +
+          `which is what happened before ${name}_FILE did anything. Remove one of the two: ` +
+          "keeping both means a change to the file will look like it worked and will not have.",
       );
+      continue;
     }
     let contents: string;
     try {

@@ -42,10 +42,33 @@ const resourcePaths = [
 ];
 
 describe("what a client is told to ask for", () => {
-  it("advertises the default grant to the resource, on every path it answers on", async () => {
+  /**
+   * All seven, on every path — the same answer 0.1.5 gave.
+   *
+   * Narrowing this to the read tier is a real improvement and is deliberately
+   * not made here. The RFC 9728 document is what a client builds its scope
+   * request from, so narrowing it means anybody who re-authorises after
+   * upgrading comes back read-only, and regains write only if their client
+   * implements the RFC 6750 step-up. The MCP SDK does. A client written by hand
+   * or against an older SDK may not, and would lose the ability to write with
+   * nothing on screen saying why.
+   *
+   * This test is therefore the guard on an upgrade rather than on a preference:
+   * it fails if somebody narrows the advertisement without a release that can
+   * carry the change.
+   */
+  it("advertises every tier it accepts, on every path it answers on", async () => {
     for (const path of resourcePaths) {
       const scopes = (await document(path)).scopes_supported;
-      expect(scopes, path).toEqual(["openid", "profile", "email", "offline_access", "ledger:read"]);
+      expect(scopes, path).toEqual([
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "ledger:read",
+        "ledger:stage",
+        "ledger:write",
+      ]);
     }
   });
 
@@ -60,12 +83,14 @@ describe("what a client is told to ask for", () => {
     }
   });
 
-  it("names neither of the wider tiers where a client would copy them", async () => {
-    for (const path of resourcePaths) {
-      const scopes = (await document(path)).scopes_supported as string[];
-      expect(scopes, path).not.toContain("ledger:stage");
-      expect(scopes, path).not.toContain("ledger:write");
-    }
+  /**
+   * The half of the narrowing that did land, and costs nobody anything: a
+   * client that asks for less than it needs is told which tier to come back
+   * with, rather than being told the tool does not exist.
+   */
+  it("gives a client that asked for too little a way back up", () => {
+    const source = readFileSync(new URL("../src/server/mcp.ts", import.meta.url), "utf8");
+    expect(source).toContain("insufficient_scope");
   });
 });
 

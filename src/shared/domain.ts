@@ -923,71 +923,68 @@ export const stageUpdateSchema = z.object({
  * unrecognised key that MCP refused by name, and this is the route that puts
  * money in the books.
  */
-export const commitStageSchema = z
-  .object({
-    stagedIds: z
-      .array(z.string().uuid())
-      .min(1)
-      .max(MAX_BULK_SELECTION_ENTRIES)
-      .describe(
-        "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
-      ),
-    expectedVersions: z
-      .record(z.string(), z.number().int().positive())
-      .describe(
-        "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
-      ),
-    idempotencyKey: idempotencyKeySchema,
-    allowDuplicates: z
-      .boolean()
-      .default(false)
-      .describe(
-        "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what stops the same statement landing twice.",
-      ),
-    dryRun: z
-      .boolean()
-      .default(false)
-      .describe(
-        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
-      ),
-  })
-  .strict();
+export const commitStageSchema = z.object({
+  stagedIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(MAX_BULK_SELECTION_ENTRIES)
+    .describe(
+      "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
+    ),
+  expectedVersions: z
+    .record(z.string(), z.number().int().positive())
+    .describe(
+      "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
+    ),
+  idempotencyKey: idempotencyKeySchema,
+  allowDuplicates: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what stops the same statement landing twice.",
+    ),
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+    ),
+});
 
 /**
- * Strict, like the tool boundary in front of it has always been.
+ * Open, like every other shared schema, and strict only at the tool boundary.
  *
- * The MCP schema is `.strict()` at registration, so an agent naming
- * `expectedVersion` where the field is `expectedVersions` was refused with the
- * field named, while the same body over HTTP had the key dropped and the
- * request read as one that named no versions at all. Same defect one level
- * down from the parity rule: not a route missing, a field one caller may send
- * and the other may not.
+ * An agent naming `expectedVersion` where the field is `expectedVersions` is
+ * refused with the field named, because the MCP registration wraps this in
+ * `.strict()`. Over HTTP the key is dropped and the request reads as one that
+ * named no versions — worse, and deliberately left that way for now: making the
+ * shared schema strict narrows what an existing caller may send, and a release
+ * does not take something away from a client that had it. It goes in a release
+ * that can carry the change, which `AGENTS.md` describes.
  */
-export const bulkDeleteStageSchema = z
-  .object({
-    stagedIds: z
-      .array(z.string().uuid())
-      .min(1)
-      .max(MAX_BULK_SELECTION_ENTRIES)
-      .describe(
-        "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
-      ),
-    expectedVersions: z
-      .record(z.string(), z.number().int().positive())
-      .describe(
-        "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
-      ),
-    // The last bulk route to get one. Every other bulk write lets a caller ask
-    // what would happen before doing it; this one made you find out by doing it,
-    // which is the wrong way round for the operation that removes rows.
-    dryRun: z
-      .boolean()
-      .default(false)
-      .describe(
-        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
-      ),
-  })
-  .strict();
+export const bulkDeleteStageSchema = z.object({
+  stagedIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(MAX_BULK_SELECTION_ENTRIES)
+    .describe(
+      "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
+    ),
+  expectedVersions: z
+    .record(z.string(), z.number().int().positive())
+    .describe(
+      "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
+    ),
+  // The last bulk route to get one. Every other bulk write lets a caller ask
+  // what would happen before doing it; this one made you find out by doing it,
+  // which is the wrong way round for the operation that removes rows.
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+    ),
+});
 
 export const dateRangeSchema = z.object({
   start: isoDateSchema.optional(),

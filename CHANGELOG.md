@@ -4,6 +4,24 @@ Notable changes, newest first.
 
 ## Unreleased
 
+**This release upgrades cleanly from 0.1.5.** A deployment starts on the
+configuration it already has, every path that answered still answers, and no
+client loses a capability it had. Five changes in an earlier draft broke that
+and were reverted to warnings, kept precedences and deprecated aliases;
+`AGENTS.md` now carries the rule so the next release does not have to
+rediscover it.
+
+One change is a judgement call rather than a clean pass, and it is named here
+rather than left to be discovered. Every MCP tool now declares a closed argument
+object, where 57 of the 71 were open. An agent sending an argument nobody
+declared used to have it dropped in silence and now gets an error naming it.
+Nothing an agent could successfully do before is impossible now — the dropped
+argument never had any effect — but a call that returned success will return a
+failure, and that is worth knowing before upgrading. It is the whole point of
+the change: an open object accepts a hallucinated argument, answers success, and
+teaches the model that the argument works.
+
+
 ### Added
 
 Six secrets can be read from a file instead of the environment: `AUTH_SECRET`,
@@ -12,13 +30,10 @@ and `SETUP_TOKEN`. Point `NAME_FILE` at a file whose contents are the value, and
 the value never enters the process environment, so nothing that dumps an
 environment can show it.
 
-Set one of `NAME` and `NAME_FILE`, never both. Both set refuses to start and
-names the variable, because a precedence rule is a rule somebody eventually
-changes the wrong half of. **One of two things to check before upgrading, and
-the other is under Changed:** those `_FILE` names did nothing at all in 0.1.5,
-so a deployment already setting one beside its plain variable — out of habit
-from the PostgreSQL official image — starts refusing on this release, and has
-to drop one of the two first.
+Set one of `NAME` and `NAME_FILE`. Both set is not an error — the environment
+variable wins, which is what happened when `NAME_FILE` did nothing at all — but
+it warns and names the file being ignored, because a change to that file will
+look like it worked and will not have.
 
 The bundled Helm chart and compose file still pass all six as environment
 variables; `docs/deployment.md` says what using the file form on either takes.
@@ -55,26 +70,20 @@ touched them.
 
 ### Changed
 
-A numeric setting outside its range refuses to start instead of falling back to
-the default. `CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `RECURRENCE_TICK_SECONDS`,
-`RECURRENCE_CATCH_UP_LIMIT` and `RECURRENCE_CLAIM_LIMIT` used to take anything
-they could not read as a whole number in range — a word, a zero, a negative,
-something past the ceiling — and quietly use the default, which is the failure
-with no symptom: `CSV_MAX_ROWS=1O000`, typed with a letter O, imported ten
-thousand rows for somebody who asked for a thousand and told them nothing.
-`DATABASE_POOL_SIZE` always refused, and the other five now do what it did. All
-six are read once at startup by `getConfig()`, before anything is served, rather
-than at the moment each happens to be wanted — inside an import, inside a
-scheduler tick — so the refusal names the variable in front of whoever just
-deployed rather than arriving hours later, or on a deployment that never imports
-a CSV, never. Leaving one unset is still how you ask for its default; setting it
-to nothing at all is a value somebody typed, and it is not a number.
+A numeric setting outside its range says so at startup instead of falling back
+in silence. `CSV_MAX_ROWS`, `CSV_MAX_BYTES`, `RECURRENCE_TICK_SECONDS`,
+`RECURRENCE_CATCH_UP_LIMIT`, `RECURRENCE_CLAIM_LIMIT` and `DATABASE_POOL_SIZE`
+are all read once as the process comes up, and one that cannot be used is named
+in the log with the value it could not use and the number in force instead.
 
-**The other thing to check before upgrading:** a value above one of these
-ceilings used to be reduced silently, so `CSV_MAX_ROWS=50000` ran on ten
-thousand rows and said so nowhere. It now refuses to start and has to be brought
-inside the range first, as does any of the six carrying a typo nobody has
-noticed — which, until this release, nothing gave them a way to notice.
+They still fall back. A deployment that meant `CSV_MAX_ROWS=1000` and typed
+`1O00` was importing ten thousand rows and being told nothing, and the silence
+was the defect — not the fallback. Refusing would have meant a typo in a tuning
+knob taking a ledger offline, on a value the previous release accepted, and
+nobody types a cap wrong and wants their accounts down for it.
+
+`DATABASE_POOL_SIZE` used to refuse on its own and now falls back with the rest,
+which accepts strictly more than before.
 
 The scheduler container checks its mail server at startup, which the API already
 did. It is the process that sends every reminder and proposal notice, and nobody
@@ -150,11 +159,15 @@ has always been spelled; the two remain two routes, because one voids entries by
 posting their reversal and the other removes rows that never posted.
 `GET /api/v1/staged/{id}/duplicate` is now
 `GET /api/v1/staged-transactions/{id}/duplicate`, since there is no `staged`
-collection anywhere else. They were renamed rather than deprecated because
-`/api/v1` is cookie-only and same-origin, so the only client that could have
-been calling them ships in this image and was changed in the same commit. The
-MCP tools keep their names. A browser tab left open across the upgrade will get
-a 404 from the old paths until it is reloaded.
+collection anywhere else. The MCP tools keep their names.
+
+**All four old paths still answer**, on the same handlers, marked `Deprecation`
+with a `Sunset` date. The first version of this renamed them outright, on the
+argument that `/api/v1` is cookie-only and same-origin so the only client that
+could be calling them ships in this image — which is true of this image and not
+of the one already running. A browser tab left open across the upgrade is
+serving the previous build, and would have met a 404 on the first archive
+somebody attempted, with nothing to tell it apart from a bug.
 
 Committing or deleting staged transactions now refuses a selection that leaves
 out the version for one of its own rows, and says which row, instead of

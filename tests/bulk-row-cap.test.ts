@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CSV_EXPORT_MAX_ROWS,
   DEFAULT_CSV_MAX_ROWS,
@@ -46,15 +46,21 @@ describe("the row cap every bulk path shares", () => {
     expect(MAX_CSV_CONFIGURATION_ROWS).toBe(MAX_BULK_SELECTION_ENTRIES);
   });
 
-  // It used to be reduced to the cap, which meant a deployment asking for a
-  // hundred thousand rows ran on ten thousand and was told nothing. The number
-  // it can have is unchanged; what changed is that asking for more is a refusal
-  // naming the variable, at startup, rather than a limit nobody chose.
-  it("cannot be configured above the cap", () => {
+  // Asking for more than the cap used to be reduced to it in silence, so a
+  // deployment asking for a hundred thousand rows ran on ten thousand and was
+  // told nothing. The number it can have is unchanged; what changed is that
+  // asking for more says so by name, at startup, rather than being a limit
+  // nobody chose. It still runs on the cap: a tuning knob is not worth an
+  // outage, and refusing here would have stopped a deployment on upgrade over a
+  // value the previous release accepted.
+  it("is held to the cap, and says so, when a deployment asks for more", async () => {
+    vi.resetModules();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     process.env.CSV_MAX_ROWS = String(MAX_BULK_SELECTION_ENTRIES * 10);
-    expect(() => configuredCsvMaxRows()).toThrow(
-      new RegExp(`CSV_MAX_ROWS must be an integer between 1 and ${MAX_BULK_SELECTION_ENTRIES}`),
-    );
+    const limits = await import("../src/server/config-limits.js");
+    expect(limits.configuredCsvMaxRows()).toBe(limits.DEFAULT_CSV_MAX_ROWS);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("CSV_MAX_ROWS"));
+    warn.mockRestore();
   });
 
   it("can still be lowered by a deployment", () => {

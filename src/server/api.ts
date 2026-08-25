@@ -6,7 +6,7 @@ import {
   withMcpAuth,
 } from "better-auth/plugins";
 import { eq, sql } from "drizzle-orm";
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
 import type { PoolClient } from "pg";
@@ -162,7 +162,8 @@ type Variables = {
   sessionCreatedAt: Date;
 };
 
-const app = new Hono<{ Variables: Variables }>();
+type AppEnv = { Variables: Variables };
+const app = new Hono<AppEnv>();
 
 app.use("*", secureHeaders(securityHeaderOptions(getConfig().isProduction)));
 
@@ -735,16 +736,23 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)))
  *
  * RFC 9728's is the one a client builds its scope request from — the MCP SDK
  * joins `scopes_supported` verbatim and prefers it to the client's own
- * configured scope — so publishing every tier there is the mistake the security
- * document names by hand: every fresh connection would ask for write access it
- * has no use for. It advertises the default grant plus `offline_access`, which
- * a long-lived client cannot work without because Better Auth issues a refresh
- * token only when it was asked for.
+ * configured scope — so publishing every tier there means a fresh connection
+ * asks for write access it may have no use for, which the security document
+ * names by hand as a thing worth fixing.
  *
- * The two wider tiers stay accepted at `/authorize`, stay named on the consent
- * screen, and stay reachable from the `insufficient_scope` challenge an
- * under-scoped tool call answers with, which is what makes this narrowing a
- * smaller first ask rather than a ceiling.
+ * **It is not fixed here, and that is deliberate.** Narrowing this to
+ * `ledger:read` is a behaviour change for anybody who re-authorises after
+ * upgrading: they would come back read-only and regain write only if their
+ * client implements the RFC 6750 step-up. The MCP SDK does; a client written
+ * against an older SDK, or by hand, may not, and would lose the ability to
+ * write with nothing on screen saying why. An upgrade that quietly takes a
+ * capability away is the kind this project does not ship.
+ *
+ * So both documents name all seven, as they did before. What did land is the
+ * half that costs nobody anything: an under-scoped tool call now answers with
+ * an `insufficient_scope` challenge naming the tier it needs, so a client that
+ * *does* ask for less has a way back up. Narrowing the first ask belongs in a
+ * release that can carry the change, with the step-up already in the field.
  */
 const authorizationServerScopes = [
   "openid",
@@ -755,7 +763,7 @@ const authorizationServerScopes = [
   "ledger:stage",
   "ledger:write",
 ];
-const resourceScopes = ["openid", "profile", "email", "offline_access", "ledger:read"];
+const resourceScopes = authorizationServerScopes;
 const discoveryHeaders = (c: Context) => {
   // Discovery is read by clients that are not browsers and have no origin to
   // speak of, which is why the library marks it public. Re-wrapping the body
@@ -1053,12 +1061,43 @@ app.post("/api/v1/accounts", async (c) =>
 app.put("/api/v1/accounts/:id", async (c) =>
   c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),
 );
-app.post("/api/v1/accounts/:id/archived", async (c) => {
+/**
+ * The four paths renamed in 0.1.6, still answering on their old spelling.
+ *
+ * `/api/v1` is cookie-only and same-origin, so the argument for renaming rather
+ * than deprecating was that the only client which could be calling the old ones
+ * ships in this image. That is true of *this* image and not of the one already
+ * running: a browser tab left open across the upgrade would have met a 404 on
+ * the first archive or bulk delete somebody tried, indistinguishable from a bug.
+ *
+ * Each old path is registered against the same handler as its replacement, and
+ * marks itself deprecated with the date it goes. Not a redirect — an old tab
+ * cannot rewrite its own URLs, so a 307 would cost a round trip to say something
+ * it cannot act on.
+ */
+const RENAMED_PATH_SUNSET = "Sat, 01 Aug 2026 00:00:00 GMT";
+
+function deprecated(successor: string): MiddlewareHandler {
+  return async (c, next) => {
+    c.header("Deprecation", "true");
+    c.header("Sunset", RENAMED_PATH_SUNSET);
+    c.header("Link", `<${successor}>; rel="successor-version"`);
+    await next();
+  };
+}
+
+const archiveAccount: Handler<AppEnv> = async (c) => {
   const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
     await setAccountArchived(c.get("actor"), pathId(c), parsed.expectedVersion, parsed.archived),
   );
-});
+};
+app.post("/api/v1/accounts/:id/archived", archiveAccount);
+app.post(
+  "/api/v1/accounts/:id/archive",
+  deprecated("/api/v1/accounts/{id}/archived"),
+  archiveAccount,
+);
 app.delete("/api/v1/accounts/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
   return c.json(await deleteAccount(c.get("actor"), pathId(c), parsed.expectedVersion));
@@ -1163,12 +1202,18 @@ app.post("/api/v1/categories", async (c) =>
 app.put("/api/v1/categories/:id", async (c) =>
   c.json(await updateCategory(c.get("actor"), pathId(c), await body(c))),
 );
-app.post("/api/v1/categories/:id/archived", async (c) => {
+const archiveCategory: Handler<AppEnv> = async (c) => {
   const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
     await setCategoryArchived(c.get("actor"), pathId(c), parsed.expectedVersion, parsed.archived),
   );
-});
+};
+app.post("/api/v1/categories/:id/archived", archiveCategory);
+app.post(
+  "/api/v1/categories/:id/archive",
+  deprecated("/api/v1/categories/{id}/archived"),
+  archiveCategory,
+);
 app.delete("/api/v1/categories/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
   return c.json(await deleteCategory(c.get("actor"), pathId(c), parsed.expectedVersion));
@@ -1248,8 +1293,13 @@ app.post("/api/v1/staged-transactions/bulk-edit", async (c) =>
   c.json(await bulkEditStages(c.get("actor"), await body(c))),
 );
 
-app.post("/api/v1/staged-transactions/bulk-delete", async (c) =>
-  c.json(await deleteStages(c.get("actor"), bulkDeleteStageSchema.parse(await body(c)))),
+const bulkDeleteStaged: Handler<AppEnv> = async (c) =>
+  c.json(await deleteStages(c.get("actor"), bulkDeleteStageSchema.parse(await body(c))));
+app.post("/api/v1/staged-transactions/bulk-delete", bulkDeleteStaged);
+app.post(
+  "/api/v1/staged-transactions/delete",
+  deprecated("/api/v1/staged-transactions/bulk-delete"),
+  bulkDeleteStaged,
 );
 app.post("/api/v1/staged-transactions/commit", async (c) =>
   c.json(await commitStages(c.get("actor"), commitStageSchema.parse(await body(c)))),
@@ -1280,8 +1330,13 @@ app.get("/api/v1/csv/export", async (c) => {
 app.get("/api/v1/summary", async (c) =>
   c.json(await getSummary(c.get("actor"), query(c), includeArchivedFlag(c))),
 );
-app.get("/api/v1/staged-transactions/:id/duplicate", async (c) =>
-  c.json(await getStagedDuplicateReview(c.get("actor"), pathId(c))),
+const stagedDuplicate: Handler<AppEnv> = async (c) =>
+  c.json(await getStagedDuplicateReview(c.get("actor"), pathId(c)));
+app.get("/api/v1/staged-transactions/:id/duplicate", stagedDuplicate);
+app.get(
+  "/api/v1/staged/:id/duplicate",
+  deprecated("/api/v1/staged-transactions/{id}/duplicate"),
+  stagedDuplicate,
 );
 app.get("/api/v1/reports/:report", async (c) =>
   c.json(

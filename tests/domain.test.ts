@@ -181,11 +181,17 @@ describe("boundary schemas", () => {
   /**
    * The staged selection encodes its versions as a map beside the ids rather
    * than as a list of pairs, which leaves `expectedVersion` a plausible thing
-   * to type. MCP refused it by name at the tool boundary from the start; HTTP
-   * dropped it and read the request as one naming no versions at all, which is
-   * the same field being accepted from one caller and not the other.
+   * to type. MCP refuses it by name at the tool boundary; HTTP drops it and
+   * reads the request as one naming no versions at all, which then fails the
+   * version check with a worse sentence.
+   *
+   * That asymmetry is a real defect and is deliberately still here. Closing the
+   * shared schema would refuse a body an existing caller may be sending, and a
+   * release does not take something away from a client that had it — see
+   * `AGENTS.md`. This pins the two halves as they are, so the day somebody
+   * closes it they do it on purpose and in a release that says so.
    */
-  it("refuses an unrecognised key on either staged selection", () => {
+  it("keeps the shared staged selections open, and strict only at the tool boundary", () => {
     const selection = {
       stagedIds: [accountId],
       expectedVersions: { [accountId]: 1 },
@@ -195,16 +201,27 @@ describe("boundary schemas", () => {
     );
     expect(bulkDeleteStageSchema.safeParse(selection).success).toBe(true);
 
+    // The shared schema drops it, as it did before.
     expect(
       commitStageSchema.safeParse({
         ...selection,
         idempotencyKey: "commit-2",
         expectedVersion: 1,
       }).success,
-    ).toBe(false);
+    ).toBe(true);
     expect(bulkDeleteStageSchema.safeParse({ ...selection, expectedVersion: 1 }).success).toBe(
-      false,
+      true,
     );
+
+    // The tool boundary refuses it, naming the field, which is where an agent
+    // meets it and where the teaching belongs.
+    expect(
+      commitStageSchema.strict().safeParse({
+        ...selection,
+        idempotencyKey: "commit-3",
+        expectedVersion: 1,
+      }).success,
+    ).toBe(false);
   });
 });
 

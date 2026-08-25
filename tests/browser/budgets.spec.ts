@@ -396,4 +396,57 @@ test.describe("the budgets page in a browser", () => {
     await expect(page.getByRole("heading", { name: /^budgets$/i })).toBeVisible();
     expect(problems).toEqual([]);
   });
+
+  /**
+   * The four paths 0.1.6 renamed still answer under their old spelling.
+   *
+   * `/api/v1` is cookie-only and same-origin, so the argument for renaming
+   * rather than deprecating was that the only client which could be calling the
+   * old ones ships in this image. That holds for this image and not for the one
+   * already running: a browser tab left open across the upgrade is serving the
+   * previous build, and would meet a 404 on the first archive somebody
+   * attempted, with nothing to tell it apart from a bug.
+   *
+   * Proved here rather than in a unit test because the session gate answers
+   * `401` for every `/api/v1` path before routing happens, registered or not,
+   * so without a real session there is nothing to tell the two apart.
+   */
+  test("archives an account through the path the previous release used", async () => {
+    const name = `Renamed ${Date.now()}`;
+    const created = await page.request.post("/api/v1/accounts", {
+      data: {
+        name,
+        type: "checking",
+        currency: "GBP",
+        openingDate: "2026-01-01",
+        openingBalance: "0",
+      },
+      headers: { Origin: "http://localhost:5173" },
+    });
+    expect(created.ok(), await created.text()).toBe(true);
+    const account = (await created.json()) as { id: string; version: number };
+
+    const archived = await page.request.post(`/api/v1/accounts/${account.id}/archive`, {
+      data: { archived: true, expectedVersion: account.version },
+      headers: { Origin: "http://localhost:5173" },
+    });
+
+    expect(archived.status(), await archived.text()).toBe(200);
+    // It works, and it says it is going away, and when.
+    expect(archived.headers()["deprecation"]).toBe("true");
+    expect(archived.headers()["sunset"]).toBeTruthy();
+    expect(archived.headers()["link"]).toContain("successor-version");
+  });
+
+  test("reads a staged duplicate through the path the previous release used", async () => {
+    // No staged row is needed. A refusal carrying `NOT_FOUND` came from the
+    // handler, which means the route reached it; a path the router no longer
+    // serves would answer from the catch-all instead.
+    const response = await page.request.get(
+      "/api/v1/staged/00000000-0000-4000-8000-000000000000/duplicate",
+    );
+    const body = await response.text();
+    expect(body, body).toContain("NOT_FOUND");
+    expect(response.headers()["deprecation"]).toBe("true");
+  });
 });

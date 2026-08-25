@@ -101,7 +101,15 @@ const COVERED_BY: Record<string, string> = {
 async function registeredRoutes() {
   const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
   const routes = new Set<string>();
-  for (const match of source.matchAll(/app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/g)) {
+  for (const match of source.matchAll(
+    /app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)",\s*(deprecated\()?/g,
+  )) {
+    // A path kept alive across a rename is the same capability under its old
+    // spelling, registered against the same handler. Counting it here would ask
+    // for a second tool and a second browser call for one thing, which is the
+    // opposite of what parity is about. `tests/http-route-table.test.ts` holds
+    // these to naming a successor that exists.
+    if (match[3]) continue;
     routes.add(`${match[1]!.toUpperCase()} ${match[2]}`);
   }
   return routes;
@@ -119,20 +127,39 @@ async function registeredRoutes() {
  * are one-liners and some span lines, and a regex trying to find the closing
  * bracket swallows every route after a one-liner. That is not hypothetical — it
  * is how the first version of this silently compared half of them.
+ *
+ * A handler shared between two paths is written as a named `const` instead of
+ * inline, because a renamed path is registered against the same handler as its
+ * replacement. Those are collected first and spliced in wherever a route names
+ * one, so a route does not read as calling no service at all.
  */
 async function servicesByRoute() {
   const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
+  const named = new Map<string, Set<string>>();
+  const declarations = [...source.matchAll(/^const (\w+): Handler<AppEnv> =/gm)];
+  declarations.forEach((declaration, index) => {
+    const next = declarations[index + 1];
+    const body = source.slice(declaration.index!, next ? next.index! : source.length);
+    named.set(
+      declaration[1]!,
+      new Set(
+        [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map((call) => call[1]!),
+      ),
+    );
+  });
+
   const starts = [...source.matchAll(/^app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/gm)];
   const byRoute = new Map<string, Set<string>>();
   starts.forEach((start, index) => {
     const next = starts[index + 1];
     const body = source.slice(start.index!, next ? next.index! : source.length);
-    byRoute.set(
-      `${start[1]!.toUpperCase()} ${start[2]}`,
-      new Set(
-        [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map((call) => call[1]!),
-      ),
+    const services = new Set(
+      [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map((call) => call[1]!),
     );
+    for (const [handler, calls] of named) {
+      if (new RegExp(`\\b${handler}\\b`).test(body)) for (const call of calls) services.add(call);
+    }
+    byRoute.set(`${start[1]!.toUpperCase()} ${start[2]}`, services);
   });
   return byRoute;
 }

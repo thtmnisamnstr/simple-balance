@@ -25,7 +25,13 @@ describe("ids taken out of the URL", () => {
 
   it("routes every uuid path parameter through the same check", async () => {
     const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
-    const idRoutes = [...source.matchAll(/app\.\w+\("(\/api\/v1[^"]*:id[^"]*)"/g)];
+    // A path kept alive across a rename carries no handler of its own — it is
+    // registered against the same one as its replacement, which is where the
+    // check lives — so counting it here would demand a `pathId` call that would
+    // be a second parse of the same id.
+    const idRoutes = [
+      ...source.matchAll(/app\.\w+\(\s*"(\/api\/v1[^"]*:id[^"]*)",\s*(deprecated\()?/g),
+    ].filter((match) => !match[2]);
     expect(idRoutes.length).toBeGreaterThan(10);
     expect(source).toContain("uuidPathSchema");
     expect(source.match(/pathId\(c/g)?.length).toBeGreaterThanOrEqual(idRoutes.length);

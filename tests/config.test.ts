@@ -166,21 +166,28 @@ describe("authentication configuration", () => {
   );
 
   /**
-   * The bounded integers used to fall back to their defaults, and were read at
-   * the moment they were wanted: `CSV_MAX_ROWS` inside an import, the
-   * recurrence limits inside a tick. A typo therefore had no symptom at all,
-   * and the operator's number was silently not the one in force. Startup is
-   * where an orchestrator is still watching, so this asserts the refusal
-   * happens there rather than at the first import.
+   * A typo in a tuning knob warns and falls back; it does not stop the ledger.
+   *
+   * The bounded integers used to fall back silently, and were read at the moment
+   * they were wanted: `CSV_MAX_ROWS` inside an import, the recurrence limits
+   * inside a tick. A typo therefore had no symptom at all, and the operator's
+   * number was silently not the one in force.
+   *
+   * They are read at startup now, where an orchestrator is still watching, and
+   * each one that cannot be used says so by name. What they do not do is refuse:
+   * a mistyped cap would stop a ledger from starting, on a value the previous
+   * release accepted, which is an outage bought for a tuning knob. The warning
+   * is what the operator was missing.
    */
   it.each([
-    ["CSV_MAX_ROWS", "1O000", /CSV_MAX_ROWS must be an integer between 1 and 10000/],
-    ["CSV_MAX_BYTES", "10 MB", /CSV_MAX_BYTES must be an integer between 1 and 104857600/],
-    ["RECURRENCE_TICK_SECONDS", "0", /RECURRENCE_TICK_SECONDS must be an integer/],
-    ["RECURRENCE_CATCH_UP_LIMIT", "5000", /RECURRENCE_CATCH_UP_LIMIT must be an integer/],
-    ["RECURRENCE_CLAIM_LIMIT", "-1", /RECURRENCE_CLAIM_LIMIT must be an integer/],
-    ["DATABASE_POOL_SIZE", "many", /DATABASE_POOL_SIZE must be an integer/],
-  ])("refuses to start when %s is not a whole number in range", async (name, value, expected) => {
+    ["CSV_MAX_ROWS", "1O000", 10_000],
+    ["CSV_MAX_BYTES", "10 MB", 10_485_760],
+    ["RECURRENCE_TICK_SECONDS", "0", 300],
+    ["RECURRENCE_CATCH_UP_LIMIT", "5000", 50],
+    ["RECURRENCE_CLAIM_LIMIT", "-1", 500],
+    ["DATABASE_POOL_SIZE", "many", 10],
+  ])("warns and falls back when %s is not a whole number in range", async (name, value) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     setEnvironment({
       NODE_ENV: "production",
       DATABASE_URL: "postgresql://simple_balance:secret@database.example/simple_balance",
@@ -191,7 +198,41 @@ describe("authentication configuration", () => {
     });
     vi.resetModules();
     const { getConfig } = await import("../src/server/config.js");
-    expect(() => getConfig()).toThrow(expected);
+    expect(() => getConfig()).not.toThrow();
+    // Named, with the value it could not use and the one it fell back to, so an
+    // operator scanning a startup log can act without reading the source.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(name));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(JSON.stringify(value)));
+    warn.mockRestore();
+  });
+
+  /**
+   * The half that matters for an upgrade: 0.1.5 started on every one of these
+   * and 0.1.6 has to as well. `DATABASE_POOL_SIZE` is in the list because it is
+   * the one that used to throw — it now falls back with the rest, which is
+   * strictly more permissive and so cannot break a deployment that worked.
+   */
+  it.each([
+    "CSV_MAX_ROWS",
+    "CSV_MAX_BYTES",
+    "RECURRENCE_TICK_SECONDS",
+    "RECURRENCE_CATCH_UP_LIMIT",
+    "RECURRENCE_CLAIM_LIMIT",
+    "DATABASE_POOL_SIZE",
+  ])("starts with %s set to nonsense, as the release before it did", async (name) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setEnvironment({
+      NODE_ENV: "production",
+      DATABASE_URL: "postgresql://simple_balance:secret@database.example/simple_balance",
+      APP_BASE_URL: "https://simple-balance.example.com",
+      AUTH_SECRET: "a-production-secret-that-is-at-least-32-characters",
+      AUTH_MODE: "local",
+      [name]: "not-a-number",
+    });
+    vi.resetModules();
+    const { getConfig } = await import("../src/server/config.js");
+    expect(() => getConfig()).not.toThrow();
+    warn.mockRestore();
   });
 
   it("accepts and normalizes an optional trailing slash on the production origin", async () => {
@@ -422,14 +463,48 @@ describe("a secret held in a file", () => {
     expect((await configFor()).authSecret).toBe(secret);
   });
 
-  it("refuses to start when a name is set both ways", async () => {
+  /**
+   * Both set: the environment wins and the file is ignored, loudly.
+   *
+   * This refused for a while, which reads better and would have stopped a
+   * deployment on upgrade over a variable that had never once been read — these
+   * `_FILE` names did nothing at all in 0.1.5, so anybody who set one out of
+   * habit from the PostgreSQL official image has been running on the
+   * environment variable all along. Keeping that precedence is what makes the
+   * upgrade clean; the warning is what stops it being a silent rule.
+   */
+  it("uses the environment and warns when a name is set both ways", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     setEnvironment({
       ...production,
       AUTH_SECRET_FILE: secretFile("AUTH_SECRET", "a-second-secret-that-is-at-least-32-characters"),
     });
     vi.resetModules();
 
-    await expect(configFor()).rejects.toThrow(/AUTH_SECRET and AUTH_SECRET_FILE are both set/);
+    // `production` sets AUTH_SECRET, and that is the one in force.
+    expect((await configFor()).authSecret).toBe(production.AUTH_SECRET);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("AUTH_SECRET and AUTH_SECRET_FILE are both set"),
+    );
+    warn.mockRestore();
+  });
+
+  /**
+   * The upgrade case stated on its own, because it is the one somebody actually
+   * has: 0.1.5 ignored `NAME_FILE` entirely, so a deployment carrying both
+   * started. It still starts.
+   */
+  it("starts with both set, as the release before it did", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setEnvironment({
+      ...production,
+      AUTH_SECRET_FILE: secretFile("AUTH_SECRET", "a-second-secret-that-is-at-least-32-characters"),
+      DATABASE_URL_FILE: secretFile("DATABASE_URL", "postgresql://other@example/other"),
+    });
+    vi.resetModules();
+
+    await expect(configFor()).resolves.toBeDefined();
+    warn.mockRestore();
   });
 
   it("does not count an empty assignment as the name being set", async () => {

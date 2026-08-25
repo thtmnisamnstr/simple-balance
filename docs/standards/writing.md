@@ -138,11 +138,39 @@ at startup and every shipped one is frozen. What a migration can break is the
 way back, and that belongs to the upgrade notes rather than to the version
 number.
 
-**0.x does not mean anything may break.** Semantic Versioning grants that
-permission for a zero major and this product declines it: 0.1.4 refused to start
-on three configurations 0.1.3 accepted, and each refusal was documented in
-advance with the fix beside it (`docs/upgrades.md:67-79`). The upgrade note is
-the compatibility contract while the major is 0.
+**Binding: a release upgrades cleanly from the one before it.** Not "breaks
+only where it is documented" — does not break. A deployment running the previous
+release starts on this one, with the configuration it already has, and every
+client that worked against it still works.
+
+That is stricter than this guide used to be, and stricter than Semantic
+Versioning asks for a zero major. It is the rule because the alternative was
+tried: three changes in this release each refused a configuration the release
+before it accepted, each was documented in advance with the fix beside it, and
+each was still a person's ledger failing to start over a setting that had been
+fine yesterday. A documented break is a break somebody reads about *after* the
+container will not come up.
+
+What that rules out, and what it leaves:
+
+- A setting that was accepted must stay accepted. If it was wrong, **warn and
+  carry on** — `config-limits.ts` does exactly this for six bounded integers
+  that used to fall back in silence. The silence was the defect; the fallback
+  never was.
+- A precedence that existed must be kept. When `NAME` and `NAME_FILE` are both
+  set, `NAME` wins, because that is what happened when `NAME_FILE` did nothing.
+  The warning is new; the outcome is not.
+- A path that answered must keep answering. A renamed route stays registered
+  under its old spelling with `Deprecation` and `Sunset` headers, and goes in a
+  later release rather than this one.
+- A capability a client had must not narrow. Advertising a smaller scope in the
+  RFC 9728 document would be least privilege and would also take write access
+  away from anybody who re-authorises without step-up support, so it waits.
+
+None of these is permanent. A break becomes fine once it has been announced for
+a release and the thing being removed has been deprecated in the field — which
+is what `Sunset` dates and `docs/upgrades.md` are for. What is not fine is
+arriving with it.
 
 **What would make it 1.0.0 is not decided.** Recorded as an open question rather
 than answered with something invented here.

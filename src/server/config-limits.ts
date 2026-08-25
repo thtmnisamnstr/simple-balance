@@ -38,23 +38,47 @@ export const DEFAULT_RECURRENCE_CLAIM_LIMIT = 500;
 export const MAX_RECURRENCE_CLAIM_LIMIT = 5_000;
 
 /**
- * A bounded integer refuses rather than falling back, and names itself when it
- * does.
+ * A bounded integer falls back to its default and says so, once, by name.
  *
- * Falling back was the failure with no symptom, which is the argument
- * `config.ts` already makes about `RECURRENCE_SCHEDULER`: a deployment that
- * meant `CSV_MAX_ROWS=1000` and typed `1O00` imported ten thousand rows and
- * said nothing, and the operator learned the number they set was never the
- * number in force only if they went looking. Unset is the one thing that means
- * "the default"; an empty value is a value somebody wrote, and it is not a
- * number.
+ * The defect this fixes was the silence, not the fallback. A deployment that
+ * meant `CSV_MAX_ROWS=1000` and typed `1O00` imported ten thousand rows and said
+ * nothing, so the operator learned the number they set was never the number in
+ * force only if they went looking.
+ *
+ * It warns rather than refusing, and that is a deliberate reversal. Refusing
+ * reads better in a guide and is wrong here: a typo in a tuning knob would stop
+ * a ledger from starting, and it would stop it *on upgrade*, on a value the
+ * previous release accepted. Nobody types a cap wrong and wants their accounts
+ * offline for it. The warning is what the operator needed; the outage was not.
+ *
+ * `DATABASE_POOL_SIZE` used to throw here on its own and now falls back with
+ * the rest. That is strictly more permissive, so nothing that started before
+ * fails to start now, and one rule across six variables is easier to hold than
+ * five and an exception.
+ *
+ * Unset means the default and says nothing. An empty value means the same and
+ * also says nothing, because `.env.example` ships blanks and a compose file
+ * ships `${SETUP_TOKEN:-}`; warning about those would train everybody to ignore
+ * the warning that matters.
  */
+const warned = new Set<string>();
+
 function boundedEnvironmentInteger(name: string, fallback: number, maximum: number) {
   const value = process.env[name];
-  if (value === undefined) return fallback;
+  if (value === undefined || value === "") return fallback;
   const configured = Number(value);
   if (!Number.isSafeInteger(configured) || configured < 1 || configured > maximum) {
-    throw new Error(`${name} must be an integer between 1 and ${maximum}`);
+    // Once per name per process. These are read on a schedule as well as at
+    // startup — `configuredRecurrenceTickSeconds` runs on every scheduler tick —
+    // so warning on every read would fill a log with one mistake.
+    if (!warned.has(name)) {
+      warned.add(name);
+      console.warn(
+        `${name} is set to ${JSON.stringify(value)}, which is not an integer between 1 and ${maximum}. ` +
+          `Using ${fallback} instead. Fix the value or remove it; it is having no effect.`,
+      );
+    }
+    return fallback;
   }
   return configured;
 }
@@ -126,6 +150,14 @@ export function configuredRecurrenceClaimLimit() {
  * `getConfig()` calls this, so every entrypoint reaches it before it serves
  * anything, the way `DATABASE_POOL_SIZE` was only reached by the accident of a
  * query running before the listener opened.
+ */
+/**
+ * Read every bounded integer once, at startup, so a typo is reported in front of
+ * whoever just deployed rather than on the first CSV import or the first
+ * scheduler tick — which for a tick interval could be minutes later and in a
+ * different container's log.
+ *
+ * It reports; it does not refuse. See `boundedEnvironmentInteger`.
  */
 export function assertConfiguredLimits() {
   configuredCsvMaxBytes();
