@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Client as PgClient } from "pg";
@@ -166,6 +167,81 @@ integration("PostgreSQL migrations", () => {
       "staged_transaction_version_check",
       "user_preferences_default_currency_check",
     ]);
+  });
+
+  /**
+   * A database left by the previous release takes this one's migrations.
+   *
+   * Every other case here starts from empty, which is the one shape no real
+   * deployment has. `AGENTS.md` says a release upgrades cleanly from the one
+   * before it, and the schema half of that promise is this: what a previous
+   * release already applied is left alone, and only what is new runs.
+   *
+   * Built faithfully rather than by deleting a journal row: the tables that
+   * migration created would still be there, which is a torn upgrade rather than
+   * a previous release, and re-running the migration against its own objects
+   * fails on `CREATE TYPE`. So this applies every migration but the last by
+   * hand, into a database of its own, recording each one the way the migrator
+   * would — the file's SHA-256, which is what it compares against.
+   */
+  it("applies only what is new to a database left by the release before", async () => {
+    const scratch = `${databaseName}_upgrade`;
+    await adminClient.query(`create database "${scratch}"`);
+    const previousRelease = new PgClient({
+      connectionString: new URL(`/${scratch}`, connection!).toString(),
+    });
+    await previousRelease.connect();
+
+    try {
+      const folder = new URL("../../drizzle/", import.meta.url);
+      const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", folder), "utf8")) as {
+        entries: { tag: string; when: number }[];
+      };
+      const upToPrevious = journal.entries.slice(0, -1);
+      expect(upToPrevious.length).toBeGreaterThan(0);
+
+      await previousRelease.query(`create schema if not exists drizzle`);
+      await previousRelease.query(
+        `create table if not exists drizzle.__drizzle_migrations (
+           id serial primary key,
+           hash text not null,
+           created_at bigint
+         )`,
+      );
+      for (const entry of upToPrevious) {
+        const sql = readFileSync(new URL(`${entry.tag}.sql`, folder), "utf8");
+        for (const statement of sql.split("--> statement-breakpoint")) {
+          if (statement.trim()) await previousRelease.query(statement);
+        }
+        await previousRelease.query(
+          `insert into drizzle.__drizzle_migrations (hash, created_at) values ($1, $2)`,
+          [createHash("sha256").update(sql).digest("hex"), entry.when],
+        );
+      }
+
+      // What a 0.1.5 database looks like: everything but the newest migration.
+      const before = await previousRelease.query<{ count: string }>(
+        `select count(*)::text as count from drizzle.__drizzle_migrations`,
+      );
+      expect(Number(before.rows[0]?.count)).toBe(journal.entries.length - 1);
+
+      const restore = process.env.DATABASE_URL;
+      process.env.DATABASE_URL = new URL(`/${scratch}`, connection!).toString();
+      try {
+        await expect(runMigrations()).resolves.not.toThrow();
+      } finally {
+        process.env.DATABASE_URL = restore;
+        await closeDb();
+      }
+
+      const after = await previousRelease.query<{ count: string }>(
+        `select count(*)::text as count from drizzle.__drizzle_migrations`,
+      );
+      expect(Number(after.rows[0]?.count)).toBe(journal.entries.length);
+    } finally {
+      await previousRelease.end();
+      await adminClient.query(`drop database if exists "${scratch}"`);
+    }
   });
 
   it("can rerun startup migrations without changing the schema history", async () => {
