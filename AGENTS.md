@@ -205,6 +205,13 @@
   in the field. `docs/standards/writing.md` has the reasoning.
 - Startup must remain the only production migration path. Keep migrations safe
   under the advisory lock and fail readiness on migration failure.
+- No metric label carries somebody's identity: not a user id, an email, an
+  account name or an amount. A metric is read by whoever can reach the scrape
+  endpoint, which is not the person whose ledger it counts, and the same rule
+  keeps the cardinality bounded — a path with an id in it is counted under its
+  route pattern, never under the path. `/metrics` is off unless asked for and
+  registered rather than refusing, so a deployment that never set
+  `METRICS_ENABLED` has no such route.
 
 ## Standards
 
