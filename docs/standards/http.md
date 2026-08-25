@@ -38,7 +38,7 @@ writing down why it has no tool.
 Three facts, all currently true, combine into that:
 
 1. Every `/api/v1` request resolves its user with `getWebIdentity`, which reads
-   a session cookie and nothing else (`src/server/api.ts:884-899`). There is no
+   a session cookie and nothing else (`src/server/api.ts:892-907`). There is no
    bearer path.
 2. Every state-changing `/api/v1` request must present an `Origin` (or failing
    that a `Referer`) equal to the configured base URL
@@ -242,9 +242,9 @@ Unversioned, and each for a reason.
 
 | Route | What it is |
 | --- | --- |
-| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:227-242`). |
+| `GET /health/live`, `GET /health/ready` | Liveness, and a `select 1` against the database. `503` when the database is unreachable (`src/server/api.ts:228-243`). |
 | `/api/auth/*` | Better Auth, plus this product's own sign-up, consent and MCP token routes. |
-| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:781-789`). |
+| `/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | RFC 9728 and OAuth discovery, each also served under `/mcp` and `/mcp/` because RFC 9728 puts the resource path after the well-known segment (`src/server/api.ts:789-797`). |
 | `/mcp`, `/mcp/` | The MCP transport. Governed by [`mcp.md`](mcp.md). |
 
 **House.** These stay unversioned. `/api/v1` versions this product's own
@@ -270,7 +270,7 @@ add it.
   `/accounts/{id}/register` are the deepest paths here. Zalando's guideline is
   three; two is enough for a ledger with eleven resources.
 - **House.** Every path id is a UUID and is parsed at the boundary before it
-  reaches a query, through `pathId` (`src/server/api.ts:924-926`). Nothing in a
+  reaches a query, through `pathId` (`src/server/api.ts:932-934`). Nothing in a
   specification or in `AGENTS.md` requires it; the failure it prevents does. Two
   names are exempt and both are checked another way: `clientId`, which is an
   OAuth client id and not a UUID, and `report`, which is parsed against a closed
@@ -310,7 +310,7 @@ add it.
   rather than a `delete` that spelled the same operation as
   `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:1193`)
   differently; and `POST /api/v1/accounts/{id}/archived` and
-  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1056`, `:1166`),
+  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1095`, `:1211`),
   which take `{"archived": boolean}` and are therefore the state sub-resource
   pattern, matching `POST /api/v1/transactions/{id}/deleted`.
 
@@ -383,7 +383,7 @@ add it.
   `listQuerySchema` (`src/shared/domain.ts:1218-1283`) accepts anything, so
   `?sortt=date` returns page one in the default order with a 200, which is the
   wrong answer delivered confidently. The bulk filter schema derived from it
-  **is** strict (`src/shared/domain.ts:1291-1293`), so the two disagree about
+  **is** strict (`src/shared/domain.ts:1288-1290`), so the two disagree about
   the same parameter set. Make `listQuerySchema` strict. The two staged
   selection schemas were the same disagreement between callers rather than
   between schemas, and are strict now; see [the bulk selection
@@ -396,7 +396,7 @@ add it.
   routes used to compare `c.req.query("includeArchived") === "true"` by hand, so
   `?includeArchived=yes` silently meant false: the caller asked for something,
   was not refused, and got the opposite. All five now go through
-  `includeArchivedFlag` (`src/server/api.ts:948`), which parses with the shared
+  `includeArchivedFlag` (`src/server/api.ts:956`), which parses with the shared
   schema, so a value that is neither is refused rather than quietly inverted. `queryWithFlags` (`src/server/api.ts:951-960`) is the
   bridge for routes that pass a whole query object to a Zod schema.
 - **House.** A repeated query parameter is not supported. Hono's `c.req.query()`
@@ -431,7 +431,7 @@ of them read `""` as a clear rather than refusing it. The transaction bulk patch
 carries `.transform((value) => (value === "" ? null : value))` on `description`
 and `notes` (`src/shared/domain.ts:1137-1149`), pinned by
 `tests/domain.test.ts:142-149`, and the staged bulk patch carries the identical
-transform on the same two fields (`src/shared/domain.ts:1315-1365`). The
+transform on the same two fields (`src/shared/domain.ts:1312-1362`). The
 template mass edit (`:593-617`) is the only one of the three that refuses the
 empty string. So fixing only the transaction path leaves the same defect on the
 staged one. There is an argument for the
@@ -532,17 +532,17 @@ code.
 - **House, and a gap.** A missing `expectedVersion` should be `428 Precondition
   Required` (RFC 6585), which says exactly what happened and which Zalando rates
   `use`. Today it is a Zod failure and a 422
-  (`src/shared/domain.ts:803-811`, `src/server/api.ts:198-207`).
+  (`src/shared/domain.ts:803-811`, `src/server/api.ts:199-208`).
 - **House, and a mismatch.** A path id that is not a UUID can never name a row,
   so the answer is 404, for the same reason a stranger's id is 404: what the
   caller asked for is not there. Today `pathId` raises a Zod failure
-  (`src/server/api.ts:924-925`) which the global handler renders as a 422
-  (`src/server/api.ts:198-207`), so a mistyped URL and a rejected body look the
+  (`src/server/api.ts:932-933`) which the global handler renders as a 422
+  (`src/server/api.ts:199-208`), so a mistyped URL and a rejected body look the
   same to a client. The 404 catch-all already answers a mistyped *path* this
   way; a mistyped *id* should match it.
 - **House, and a gap.** A wrong method on an existing path should be 405 with
   `Allow`. Today it falls to the catch-all and is a 404
-  (`src/server/api.ts:1307-1309`). OWASP's REST guidance is to allowlist methods
+  (`src/server/api.ts:1362-1362`). OWASP's REST guidance is to allowlist methods
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Today the one 429 the process emits
   carries nothing. `Retry-After` is standard in RFC 9110; the `RateLimit-*`
@@ -563,7 +563,7 @@ which `tests/http-security.test.ts` already does for body limits.
 **Binding for the shape.** [`common.md`](common.md#errors) fixes it:
 `{ error: { code, message, details? } }`, one enumeration, published. Over MCP
 it is the `result` member; over HTTP it is the body today
-(`src/server/api.ts:185-225`).
+(`src/server/api.ts:186-226`).
 
 **Contested, and this is the live decision.** The conformance target in
 [`index.md`](index.md#conformance-targets) is RFC 9457 problem details, and this
@@ -646,7 +646,7 @@ and for the code each of those refusals names being a member of `apiErrorCodes`.
   `:665`, `:698` and `:706`. The browser can only read one of the two shapes.
   Fix those fourteen.
   **One named exception:** the `/.well-known` catch-all returns
-  `{error, error_description}` (`src/server/api.ts:801-803`). That is the OAuth
+  `{error, error_description}` (`src/server/api.ts:809-811`). That is the OAuth
   error shape, its reader is an OAuth client, and it is correct there.
 - **House.** Field errors are `{field, message}` with `field` a dotted path.
   `zodIssues()` already produces exactly that
@@ -774,7 +774,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
      and PostgreSQL answers a value it cannot read with an error
      (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:49-62`).
 - **House.** `limit` is optional, defaults to 50 and is capped at 200
-  (`src/shared/domain.ts:1048`). A server may return fewer rows than asked for.
+  (`src/shared/domain.ts:1045`). A server may return fewer rows than asked for.
 - **House, and an outlier.** `GET /api/v1/audit-events` parses its own query by
   hand rather than through a published schema
   (`src/server/api.ts:1292-1309`), so its parameters are the one list contract
@@ -927,10 +927,10 @@ so a second submit fails rather than duplicating."
 - **House.** No `GET` or `DELETE` accepts a key. A safe method needs none, and a
   delete on this API is a versioned mutation, which is idempotent by
   construction, with one exception:
-  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1017-1053`)
+  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1025-1061`)
   reads no body and takes no `expectedVersion`, where the other six versioned
-  deletes parse `versionedMutationSchema` (`src/server/api.ts:1063`, `:1090`,
-  `:1104`, `:1112`, `:1142`, `:1173`). Revoking a grant is idempotent anyway,
+  deletes parse `versionedMutationSchema` (`src/server/api.ts:1102`, `:1090`,
+  `:1102`, `:1112`, `:1142`, `:1181`). Revoking a grant is idempotent anyway,
   since the second call finds nothing to revoke, but the premise does not hold
   for it and the carve-out is named here rather than left to be discovered.
 
@@ -1063,7 +1063,7 @@ fingerprint (`:544`).
 
 - **House.** Everything under `/api/v1` is `Cache-Control: no-store`, without
   exception, set once in middleware rather than on seventy-three routes
-  (`src/server/api.ts:884-890`). RFC 9111's shared-cache protection keys off the
+  (`src/server/api.ts:892-898`). RFC 9111's shared-cache protection keys off the
   `Authorization` header, and `/api/v1` authenticates with a cookie, so that
   protection does not apply and `no-store` is doing the whole job. When SB-030
   adds bearer tokens, `no-store` stays: two mechanisms for one guarantee is
@@ -1075,7 +1075,7 @@ fingerprint (`:544`).
   (`src/server/http-security.ts:19-57`) and no route overrides one of the
   headers in the table below. Two other headers are set by hand outside
   `/api/v1` and are documented under CORS: `Access-Control-Allow-Origin` on the
-  JWKS route (`src/server/api.ts:550`) and on discovery (`:720`), and
+  JWKS route (`src/server/api.ts:551`) and on discovery (`:720`), and
   `Cache-Control` on those two (`:543`, `:721`) and on `/api/v1` itself
   (`:849`). The
   split deployment's nginx repeats them for the files it serves, and the two are
@@ -1121,7 +1121,7 @@ fingerprint (`:544`).
     same risk. Whether it should be is a deployment decision and belongs in
     configuration, not in code.
   - **Two exceptions exist today and are correct**, both outside `/api/v1`:
-    `GET /api/auth/mcp/jwks` (`src/server/api.ts:550`) and the OAuth discovery
+    `GET /api/auth/mcp/jwks` (`src/server/api.ts:551`) and the OAuth discovery
     endpoints (`discoveryHeaders`, `src/server/api.ts:755-776`) both send
     `Access-Control-Allow-Origin: *`. They are deliberately public and read by
     clients that are not browsers and have no origin to speak of. A rule saying
@@ -1131,8 +1131,8 @@ fingerprint (`:544`).
     and gets a 404 with no CORS headers, which is the correct answer to a
     preflight for something that is not allowed.
 - **House.** The single-page app never answers an API path. JSON 404 catch-alls
-  sit under `/api/v1/*` (`src/server/api.ts:1307-1309`) and `/.well-known/*`
-  (`src/server/api.ts:801-803`), below every route those prefixes own and above
+  sit under `/api/v1/*` (`src/server/api.ts:1362-1362`) and `/.well-known/*`
+  (`src/server/api.ts:809-811`), below every route those prefixes own and above
   the shell. Without them a mistyped path came back as 200 `text/html`, which an
   API client parses as a syntax error and a person debugging reads as a working
   page.
@@ -1157,7 +1157,7 @@ way.
 - **Binding**, RFC 9728. Protected resource metadata is served at the root and
   at every `/mcp` path spelling, because a client told the resource is
   `<origin>/mcp` looks under the well-known suffix with the resource path
-  appended (`src/server/api.ts:781-789`). Answering only at the root left the
+  appended (`src/server/api.ts:789-797`). Answering only at the root left the
   single-page app returning HTML with a 200, which a client cannot parse and
   will not retry.
 - **Binding.** The scopes are `ledger:read`, `ledger:stage` and `ledger:write`,

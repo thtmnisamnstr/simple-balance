@@ -636,7 +636,7 @@ claim, and a false claim is a defect.
   acting on one. The annotations are set because they are true, not because
   something is known to read them.
 
-*Checked by:* `tests/mcp-parity.test.ts:292-299`, which derives what a read-only
+*Checked by:* `tests/mcp-parity.test.ts:319-326`, which derives what a read-only
 token may see from `readOnlyHint` rather than from a roster, "because three
 recurrence write tools were added to the file in the read block and nobody had to
 remember" a list. *Testable and not built:* that a tool carrying
@@ -790,7 +790,7 @@ it means choosing which half to defer to anyway.
   precedent, with the honest note that the protocol does not standardise how a
   client opts in.
 
-*Checked by:* `tests/mcp-parity.test.ts:292-299` and `:302-333`;
+*Checked by:* `tests/mcp-parity.test.ts:319-326` and `:302-333`;
 `tests/mcp-output.test.ts:118-127`, which asserts that a token holding no ledger
 scope gets no tools at all rather than merely missing the two the test was
 written for, "because naming them left the branch accepting any other tool
@@ -836,7 +836,7 @@ human witness.
 *Checked by:* `tests/mcp-parity.test.ts`, both directions. Forward at `:199-216`
 (every route reachable through a named tool) and `:230-258`, which extracts which
 service each route and each tool calls and compares them, with a `compared` floor
-at `:256` guarding the regex from silently matching nothing. Backward at
+at `:283` guarding the regex from silently matching nothing. Backward at
 `:477-491`, which greps `src/client` for a call to each route. Exceptions are
 policed at `:218-222` and `:493-497`, the second failing any reason under forty
 characters. The two forbidden capabilities are pinned by name at `:273-281`.
@@ -905,7 +905,7 @@ what stops `idempotentHint` becoming a lie.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:844-895`).
+  (`src/server/api.ts:852-903`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's
@@ -1000,7 +1000,7 @@ which is an evaluation rather than a test.
 | No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:477-491` |
 | Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:273-281` |
 | Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:266-270` |
-| A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:292-299` |
+| A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:319-326` |
 | A listing declares the schema its service parses | `tests/mcp-parity.test.ts:424-439` |
 | Every tool publishes a concrete two-member output schema | `tests/mcp-output.test.ts:26-52` |
 | A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:118-127` |

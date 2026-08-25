@@ -195,7 +195,7 @@ deliberately answers identically either way. `smtpFailure`
 refusing their credentials, or refusing this one message. `response` is the
 relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
-hand. `src/server/api.ts:210-216` narrows a Drizzle error the same way for a
+hand. `src/server/api.ts:211-217` narrows a Drizzle error the same way for a
 harder reason: its message is built from the failing SQL and its bound
 parameters, one of which is an OAuth access token.
 
@@ -507,7 +507,7 @@ supports it everywhere; the two orchestrated paths this section argues from do
 not, and marking this settled without saying so would credit the guide with a
 capability neither of them can reach.
 
-*Checked by:* `tests/config.test.ts:322-509`, over all six by the consumer that
+*Checked by:* `tests/config.test.ts:363-560`, over all six by the consumer that
 has to end up holding the value, including that a resolved `DATABASE_URL`
 reaches `directConnectionString` without reaching `process.env`, and that it
 does so in a process that never calls `getConfig` at all.
@@ -777,7 +777,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:227-242`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:228-243`, and the same pair on the
 scheduler at `src/server/scheduler.ts:20-29`). Both are registered above every
 auth middleware and neither is authenticated.
 
