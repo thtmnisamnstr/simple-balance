@@ -186,10 +186,12 @@ integration("recurring transactions", () => {
     expect(proposed.proposedCount).toBe(1);
 
     const rows = await stagedFor(created.id);
+    // No idempotency key: a versioned delete is idempotent by construction, so
+    // the schema has never had the field, and it refuses one now rather than
+    // dropping it.
     await deleteStages(actor, {
       stagedIds: rows.map((row) => row.id),
       expectedVersions: Object.fromEntries(rows.map((row) => [row.id, row.version])),
-      idempotencyKey: "c3-discard",
     });
     const after = await getRecurrence(actor, created.id);
     expect(after.lastOccurrenceDate).toBe(inDays(1));

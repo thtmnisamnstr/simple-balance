@@ -271,7 +271,7 @@ test.describe("the budgets page in a browser", () => {
     const closing = accounts.find(
       (entry: { name: string; id: string; version: number }) => entry.name === card,
     );
-    const archived = await page.request.post(`/api/v1/accounts/${closing.id}/archive`, {
+    const archived = await page.request.post(`/api/v1/accounts/${closing.id}/archived`, {
       data: { archived: true, expectedVersion: closing.version },
       // Every state-changing request must be same-origin and declare JSON.
       // Playwright's request context sends no Origin of its own, and the

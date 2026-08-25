@@ -255,7 +255,16 @@ async function runTool(fn: () => Promise<unknown>) {
     // unexpected error would leave the agent to guess and retry blind.
     const body =
       error instanceof AppError
-        ? { code: error.code, message: error.message, details: error.details }
+        ? // The diagnosis is single-sourced and only the advice differs: a
+          // browser is told to reload, and there is nothing here to reload.
+          // Most throw sites set no agent sentence and fall through to the one
+          // message, which is right — the difference is worth spelling out only
+          // where the two callers' next moves actually differ.
+          {
+            code: error.code,
+            message: error.agentMessage ?? error.message,
+            details: error.details,
+          }
         : error instanceof ZodError
           ? {
               code: "VALIDATION_ERROR",
@@ -1072,12 +1081,20 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         outputSchema: mcpOutputSchema(deletedStagesResultSchema),
         annotations: destructiveAnnotations,
       },
-      (input) =>
-        runTool(() =>
-          runIdempotentMcpMutation(actor, "stage.delete", input.idempotencyKey, input, (tx) =>
-            deleteStages(actor, input, tx),
+      (input) => {
+        // The tool adds `idempotencyKey`, which the service's own schema does
+        // not have and, now that it is strict, refuses rather than drops. So
+        // the selection is handed on without it — and the recorded payload is
+        // deliberately still the whole input, because that is what every stored
+        // `mcp.stage.delete` record was hashed from: narrowing it here would
+        // turn a retry across the deploy into a CONFLICT.
+        const { idempotencyKey, ...selection } = input;
+        return runTool(() =>
+          runIdempotentMcpMutation(actor, "stage.delete", idempotencyKey, input, (tx) =>
+            deleteStages(actor, selection, tx),
           ),
-        ),
+        );
+      },
     );
     server.registerTool(
       "bulk_edit_staged_transactions",

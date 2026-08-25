@@ -607,6 +607,89 @@ integration("changing many staged rows at once", () => {
       ).rejects.toThrow();
     });
 
+    /**
+     * Two structures describing one set, and the map is the half that can be
+     * short. An id with no entry used to compare `undefined` against the row's
+     * version and come back as a version conflict — safe, and the wrong fault
+     * named: nothing had gone stale, and a caller told to read the row again
+     * and retry sends the same incomplete payload straight back.
+     */
+    it("names the row whose version is missing rather than calling it stale", async () => {
+      const named = await stage({
+        type: "withdrawal",
+        date: "2026-02-07",
+        payee: "Missing version",
+        amount: "8.00",
+        fromAccountId: accountId,
+      });
+      const other = await stage({
+        type: "withdrawal",
+        date: "2026-02-07",
+        payee: "Has a version",
+        amount: "9.00",
+        fromAccountId: accountId,
+      });
+      await expect(
+        deleteStages(actor, {
+          stagedIds: [other.id, named.id],
+          expectedVersions: { [other.id]: other.version },
+        }),
+      ).rejects.toMatchObject({
+        code: "VALIDATION_ERROR",
+        details: { stagedId: named.id },
+      });
+      expect((await rowsById()).get(named.id)?.status).toBe("staged");
+    });
+
+    // A superset is not a disagreement: naming a version for a row the caller
+    // did not select harms nothing, and refusing it would break a request that
+    // works today for no gain. `mergeCategories` accepts one too.
+    it("accepts versions for rows it was not asked to delete", async () => {
+      const row = await stage({
+        type: "withdrawal",
+        date: "2026-02-08",
+        payee: "Superset map",
+        amount: "10.00",
+        fromAccountId: accountId,
+      });
+      const spare = await stage({
+        type: "withdrawal",
+        date: "2026-02-08",
+        payee: "Not selected",
+        amount: "11.00",
+        fromAccountId: accountId,
+      });
+      const result = await deleteStages(actor, {
+        stagedIds: [row.id],
+        expectedVersions: { [row.id]: row.version, [spare.id]: spare.version },
+      });
+      expect(result).toMatchObject({ deletedIds: [row.id] });
+      expect((await rowsById()).get(spare.id)?.status).toBe("staged");
+    });
+
+    // The same id twice used to arrive as one row short of the count and be
+    // reported as a row that could not be found, which sends the caller looking
+    // for a row that is there.
+    it("refuses a repeated id as a duplicate rather than as a missing row", async () => {
+      const row = await stage({
+        type: "withdrawal",
+        date: "2026-02-09",
+        payee: "Named twice",
+        amount: "12.00",
+        fromAccountId: accountId,
+      });
+      await expect(
+        deleteStages(actor, {
+          stagedIds: [row.id, row.id],
+          expectedVersions: { [row.id]: row.version },
+        }),
+      ).rejects.toMatchObject({
+        code: "VALIDATION_ERROR",
+        details: { stagedId: row.id },
+      });
+      expect((await rowsById()).get(row.id)?.status).toBe("staged");
+    });
+
     it("still deletes when the dry run is not asked for", async () => {
       const row = await stage({
         type: "withdrawal",

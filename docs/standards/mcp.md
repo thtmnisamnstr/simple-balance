@@ -23,7 +23,7 @@ contract. Anything in this guide that contradicts it loses.
   stateless protocol: all the information needed to process a request is
   contained in the request itself." This surface holds by construction rather
   than by discipline: `handleMcpRequest` builds a server and a transport per
-  request (`src/server/mcp.ts:1898-1907`), so there is no connection to carry
+  request (`src/server/mcp.ts:1915-1924`), so there is no connection to carry
   state in.
 - **Where the target is not met, say so rather than claiming it.** The installed
   SDK, `@modelcontextprotocol/sdk` 1.30.0, declares
@@ -70,7 +70,7 @@ able to explicitly select them for use".
 features... should focus on information that helps the model use the server
 effectively and should not duplicate information already in tool descriptions."
 
-`new McpServer({ name, version })` at `src/server/mcp.ts:470-474` passes none.
+`new McpServer({ name, version })` at `src/server/mcp.ts:479-483` passes none.
 
 `instructions` predates `server/discover` and is carried on the initialize
 result, so it is reachable today: the installed SDK accepts it in
@@ -117,7 +117,7 @@ usually the polite option, and that a refund is not income.
   the sentence `commit_staged_transactions` owns: a person approving that dialog
   could believe they were releasing a row they had already reviewed rather than
   writing one they had never seen. It is titled "Write a new transaction
-  straight into the books" (`src/server/mcp.ts:1691-1697`), and "Commit" now
+  straight into the books" (`src/server/mcp.ts:1708-1714`), and "Commit" now
   appears in exactly one title on this surface, on the tool that commits.
 - **Contested, decided 2026-08-23: no namespace prefix.** The specification puts
   disambiguation on the client: aggregating clients "SHOULD implement a
@@ -225,7 +225,7 @@ Further rules:
   "normalised".
 - **House, and this guide owns it for the whole set.** Any convention an agent
   must obey appears in a tool or field description, not only in `docs/mcp.md`.
-  An agent never reads the prose. `docs/mcp.md:68` states the principle
+  An agent never reads the prose. `docs/mcp.md:78` states the principle
   already, "Fields carry descriptions, so an agent reading the schema learns the
   conventions that matter"; what makes it a rule is that a convention written
   only in the guide is a convention that has not shipped.
@@ -271,9 +271,18 @@ unrepresentable, so the model's own sampling cannot produce it.
   Anthropic's finding that "resolving
   arbitrary alphanumeric UUIDs to more semantically meaningful and interpretable
   language... significantly improves Claude's precision" applied at the schema
-  rather than in a preamble. **Work to do:** accounts have no equivalent
-  (`accountName` appears nowhere in `src/shared/domain.ts`), and the account is
-  the entity an agent names most.
+  rather than in a preamble. **Considered for accounts and declined.** An
+  `accountName` looks like the same idea and is not, because what `categoryName`
+  actually buys is the creation half: a name matching nothing becomes a
+  category. An account can never be created by being named — it carries a
+  currency, a type and an opening balance, and inventing one from a transaction
+  would post money into an account nobody opened. So `accountName` could only
+  resolve or refuse, and refusing would be the common case: the only safe match
+  is exact ignoring case and space, so "amex" finds "Amex" and "amex gold" does
+  not find "Amex Gold Card" — failing in exactly the situation where a name was
+  all the agent had. It would also widen every account field on the surface from
+  a uuid to a union, to save a `list_accounts` call the agent usually has to
+  make anyway.
 - **Money is a decimal string with a pattern, and dates are `YYYY-MM-DD` with
   one.** Both from `common.md`. **Binding.** `AGENTS.md`: "Never represent money
   with JavaScript/JSON floating-point numbers." A tool argument is a boundary
@@ -522,7 +531,7 @@ envelope and the worked sentences.
 - **Binding.** A tool fault is a result with `isError: true`, not a protocol
   error, because "otherwise, the LLM would not be able to see that an error
   occurred and self-correct". Unknown tool and malformed request are protocol
-  errors. `runTool` (`src/server/mcp.ts:246-271`) does this and its comment says
+  errors. `runTool` (`src/server/mcp.ts:246-280`) does this and its comment says
   why.
 - **House, and a correction owed to the documentation.** There are two error
   envelopes and only one is this project's. The SDK validates `inputSchema`
@@ -541,7 +550,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (`src/shared/domain.ts:1696`) is a `const` array rather than a bare TypeScript
+  (`src/shared/domain.ts:1720`) is a `const` array rather than a bare TypeScript
   union precisely so `toolErrorSchema` can publish it as an enum
   (`src/server/mcp-output-schemas.ts:88-94`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
@@ -556,18 +565,18 @@ envelope and the worked sentences.
 - **House.** A message names what was wrong and the next call, by name. The
   specification's own worked example is a sentence, not a code: "Invalid
   departure date: must be in the future. Current date is 08/08/2025."
-  `staleVersion` (`src/server/services/errors.ts:30-36`) says "This record
-  changed since it was loaded. Refresh and try again", which is browser copy; an
-  agent has nothing to refresh. `common.md` already carries the agent sentence.
-  `notFound` (`:24-25`) has a default message, "The requested record was not
-  found", which teaches nothing; all forty call sites already pass their own, so
-  what is owed is to drop the default and let the compiler keep it that way.
-  **Work to do**, and the shape it should take is an optional `agentMessage` on
-  `AppError` that only the MCP transport reads, so the diagnosis stays
-  single-sourced and the browser keeps its own words. It names
-  `details.currentVersion` only where the throw site carried one: thirteen do
-  not, and a refusal pointing at a field that is not there is this same rule
-  failing one level down.
+  `staleVersion` (`src/server/services/errors.ts:59`) used to say "This record
+  changed since it was loaded. Refresh and try again", which is browser copy: an
+  agent has nothing to refresh. It now carries both of `common.md`'s worked
+  sentences — the diagnosis is the same for everyone and only the advice differs
+  — as `message` and an optional `agentMessage` that only the MCP transport
+  reads (`src/server/mcp.ts:265`), so the browser keeps its own words and
+  neither caller is told to do something it cannot. The agent sentence names
+  `details.currentVersion` only where the throw site actually carried it;
+  thirteen of the fifty do not, and a refusal pointing at a field that is not
+  there is the same defect one level down. `notFound` (`:42`) no longer has a
+  default message at all: all forty call sites name what was not found, and
+  removing the default makes the compiler keep it that way.
 - **House.** Where there is no recovery, the message says so and stops. Setting
   preferences has no undo. Do not invent one.
 - **Binding.** Do not emit `-32002` or `-32042`; a missing resource is `-32602`.
@@ -577,8 +586,12 @@ envelope and the worked sentences.
 *Checked by:* `tests/mcp-output.test.ts` for the envelope shape, for the
 published code enum on every tool, and for the `-32602` refusal that never
 reaches one; `tests/api-security.test.ts` for the HTTP half, where a live
-refusal's code is held to the published enumeration. *Not checked:* that a
-message names the next call, which is prose and stays a reviewer's job.
+refusal's code is held to the published enumeration;
+`tests/error-messages.test.ts` for the two version-conflict sentences and for
+the agent one naming `details.currentVersion` only where the details carry it,
+and `tests/integration/mcp-tools.integration.test.ts` for the sentence and that
+field arriving together over a real connection. *Not checked:* that a message
+names the next call, which is prose and stays a reviewer's job.
 
 ## Annotations, and what each one promises
 
@@ -598,7 +611,7 @@ claim, and a false claim is a defect.
 
 - **House.** Three shared constants, so a tool's class is one word at the call
   site: `readAnnotations`, `additiveAnnotations`, `destructiveAnnotations`
-  (`src/server/mcp.ts:296-313`). Measured: 35 read, 9 additive, 27 destructive.
+  (`src/server/mcp.ts:305-322`). Measured: 35 read, 9 additive, 27 destructive.
 - **Binding.** `readOnlyHint: true` is a claim the implementation must
   satisfy, not a category label. The specification's rule is addressed to
   clients; for a server an annotation is an assertion, and a false assertion is
@@ -647,7 +660,7 @@ requiring it, so this is a decision and not an obligation; it is argued at
 length because it is the one that decides the tool count.
 
 A tool is gated by which of three registration blocks it sits in
-(`src/server/mcp.ts:518`, `:1024`, `:1119`), and scope is enforced by
+(`src/server/mcp.ts:527`, `:1024`, `:1119`), and scope is enforced by
 non-registration, so a tool the caller cannot use is **absent from discovery**
 rather than present and refusing. Measured: 35 tools at `ledger:read`, 40 at
 `ledger:stage`, 71 at `ledger:write`, and a token with no ledger scope gets a
@@ -680,7 +693,7 @@ it means choosing which half to defer to anyway.
   may carry are changes to the ledger's own records and need `ledger:write`,
   wherever they are reached from, including a CSV import." `stage_csv` is the
   worked case and its description is the model for saying so
-  (`src/server/mcp.ts:1104`).
+  (`src/server/mcp.ts:1121`).
 - **House.** Read, propose, write are three tiers answering three questions.
   `dryRun: true` asks "what would this do", synchronously, leaving nothing
   behind; it is on 7 tools. `ledger:stage` says "do this when a person agrees",
@@ -699,13 +712,40 @@ it means choosing which half to defer to anyway.
   setting or a boolean the agent supplies. This guide is writing that rule
   rather than citing it, and the provenance is recorded so nobody looks for the
   source later.
-- **Binding (SHOULD), unmet.** `scopes_supported` "is intended to represent the
+- **Binding (SHOULD), met.** `scopes_supported` "is intended to represent the
   minimal set of scopes necessary for basic functionality", and the security
   document's Common Mistakes list names "Publishing all possible scopes in
-  `scopes_supported`". This deployment publishes all seven
-  (`src/server/api.ts:727-738`). The default grant is already right,
-  `openid profile email ledger:read` (`src/server/auth.ts:203`); the
-  advertisement is wider than the default. **Work to do.**
+  `scopes_supported`". The two documents answer two different questions and now
+  say two different things. The authorization-server document lists all seven
+  (`src/server/api.ts:749`), because RFC 8414's field is what the server
+  supports and Better Auth's accept-list at `/authorize` is the union of its
+  four defaults with our three
+  (`node_modules/better-auth/dist/plugins/oidc-provider/authorize.mjs:23-33`).
+  The protected-resource document is the one a client builds its scope request
+  from — the SDK joins `scopes_supported` verbatim, ahead of the client's own
+  configured scope, in `client/auth.js`'s `resolvedScope` — and it lists
+  `openid profile email offline_access ledger:read` (`src/server/api.ts:758`):
+  the default grant plus the refresh a long-lived client cannot work without,
+  since Better Auth issues a refresh token only when `offline_access` was
+  requested. It is narrowed on every path the document is
+  reachable from, including `/api/auth/.well-known/oauth-protected-resource`
+  (`src/server/api.ts:726`), which is where `withMcpAuth`'s own 401 sends a
+  client on first contact; narrowing only the RFC 9728 paths would have left the
+  advertisement everybody reads untouched and the one nobody reads correct. The
+  two wider tiers are still accepted at `/authorize`, still named on the consent
+  screen, and discoverable from the refusal itself, which is the next bullet:
+  that challenge is what makes this narrowing safe rather than merely quieter,
+  and narrowing without it would have stranded every fresh client on read.
+  Narrowing both documents was considered and rejected: the consent screen
+  offers Allow or Deny and no third answer, so a client asking for
+  `ledger:write` cannot be trimmed to read at approval, and leaving no
+  machine-readable trace of the write tier anywhere would make a three-tier
+  product a one-tier one. The costs are recorded rather than hidden: a client
+  deliberately configured with a wider scope is narrowed by our advertisement
+  until its first refusal, and a grant re-authorized from scratch starts at read
+  again. If a client that matters turns out not to implement the step-up, this
+  is wrong, and the answer is an "authorize an agent" URL builder on the
+  Settings page rather than a wider advertisement.
 - **Binding (SHOULD), met, and it is the one an agent feels.** An authenticated
   but under-scoped call is a 403 carrying
   `WWW-Authenticate: Bearer error="insufficient_scope"`, the full scope string
@@ -735,7 +775,7 @@ it means choosing which half to defer to anyway.
   only caller who could read it already holds the scope. The three tools where
   scope changes behaviour rather than access are the real case and already say
   so in their own words.
-- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:424-429`) implements
+- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:433-438`) implements
   the scope hierarchy the specification requires servers to account for: stage
   and write both satisfy read.
 - **House, and its reason is an absence of evidence.** Whether 71 tightly
@@ -756,8 +796,13 @@ scope gets no tools at all rather than merely missing the two the test was
 written for, "because naming them left the branch accepting any other tool
 reaching a token with no ledger scope"; `tests/mcp-scope-challenge.test.ts` for
 the 403 and for the write token that must not be challenged at the staging tier;
-and `tests/mcp-parity.test.ts` for which descriptions may name a scope at all.
-*Not checked:* that `scopes_supported` stays minimal.
+and `tests/mcp-parity.test.ts` for which descriptions may name a scope at all; and
+`tests/mcp-discovery-scopes.test.ts` for the two documents disagreeing on
+purpose — the resource one narrow on all four paths it answers on, the
+authorization-server one still naming every tier — plus a source guard on the
+`/authorize` accept-list, which no document reports and which an
+unauthenticated authorization cannot reach, because Better Auth checks the
+session first.
 
 ## The agent surface never runs ahead of the browser
 
@@ -849,9 +894,9 @@ what stops `idempotentHint` becoming a lie.
   and a place on the transactions page for a person to see it — all to buy a
   label that still does not stop an injected instruction being read. This is a
   marking for a model already reading the text, not a control, and the control
-  remains the blast radius above it. **Still open:** the shared input schema's
-  `externalId` (`src/shared/domain.ts`) carries no description of its own, so an
-  agent sending one reads the sentence only on the way back.
+  remains the blast radius above it. The input side says it too: the shared
+  `externalId` now carries the same warning, so an agent reads it on the way in
+  rather than only on the way back.
 - **House, framing an existing behaviour so it is not optimised away.** Routing
   every authorization request through the consent screen, including for
   signed-in users and clients that omit `prompt=consent`, is the confused-deputy
@@ -860,7 +905,7 @@ what stops `idempotentHint` becoming a lie.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:804-855`).
+  (`src/server/api.ts:844-895`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's
@@ -890,11 +935,19 @@ Dynamic client registration is implemented and open, "as RFC 7591 intends"
 in 2026-07-28 with earliest removal on or after 2027-07-28. The specification's
 priority is pre-registration, then Client ID Metadata Documents where the
 authorization server advertises `client_id_metadata_document_supported`, then DCR
-as the fallback. **Binding (SHOULD), unmet.** The specification states that
-registration priority order, and this deployment answers only the last of the
-three. **Work to do:** add CIMD, keep DCR as the fallback, and correct
-`docs/mcp.md` and `docs/roadmap.md`, which both describe DCR as the current
-answer. Three consequences to plan for: CIMD
+as the fallback. **Not unmet, and this label was wrong.** That priority order
+is a rule for a *client* choosing how to obtain a client id, and its conditional
+clause gives it away: a client uses CIMD *where the authorization server
+advertises support*. A server advertising nothing moves the client to the
+fallback, which this deployment implements. The only server-side obligation in
+that sentence is that a server supporting CIMD must advertise it.
+
+**Declined on cost, separately.** Better Auth resolves `client_id` by looking it
+up in `oauthApplication`, so a URL-shaped id fails there; CIMD means forking the
+authorize endpoint and adding a server-side fetch of a URL the caller supplies,
+to a self-hosted deployment sitting inside somebody's home network. That is an
+SSRF surface bought for portability across authorization servers that a
+single-tenant personal ledger does not need. Three consequences to plan for: CIMD
 needs an SSRF story on the authorization server, CIMD client ids are portable
 across authorization servers where DCR credentials are not, and the day-old sweep
 of unapproved registrations has no CIMD analogue because there is no stored

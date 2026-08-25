@@ -60,3 +60,35 @@ describe("the published route table", () => {
     expect(twice).toEqual([]);
   });
 });
+
+/**
+ * The three conventions the four renamed paths had drifted from.
+ *
+ * Each was found by somebody reading both files rather than by anything that
+ * fails, and the cost of fixing them was only small because `/api/v1` is
+ * cookie-only and same-origin: no client outside this image could have been
+ * calling them. That window closes when bearer tokens land, so the point of
+ * these three lines is that the drift cannot come back while it is still free
+ * to correct.
+ */
+describe("the conventions the paths follow", () => {
+  it("keeps the staged queue under one collection name", async () => {
+    const strays = (await registeredRoutes()).filter((route) => /\/staged(\/|$)/.test(route));
+    expect(strays).toEqual([]);
+  });
+
+  // A route taking `{"archived": boolean}` is a state, and a state gets a state
+  // sub-resource rather than a verb, the way `/transactions/{id}/deleted` does.
+  it("spells a state change as a state, not as a verb", async () => {
+    const verbs = (await registeredRoutes()).filter((route) => route.endsWith("/archive"));
+    expect(verbs).toEqual([]);
+  });
+
+  // `delete` and `bulk-delete` were the same operation spelled two ways, on two
+  // routes that already differ in scope and in what they do to the books. One
+  // spelling is enough for a reader to have to learn.
+  it("spells an operation over a set as bulk-delete", async () => {
+    const strays = (await registeredRoutes()).filter((route) => route.endsWith("/delete"));
+    expect(strays).toEqual([]);
+  });
+});

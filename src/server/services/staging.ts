@@ -961,8 +961,51 @@ function draftCategoriesReleasedBy(before: unknown, after: unknown) {
   return [...held(before)].filter((id) => !kept.has(id));
 }
 
+/**
+ * The two halves of a staged selection, checked against each other.
+ *
+ * `stagedIds` and `expectedVersions` describe one set twice and can disagree,
+ * and neither Zod nor the database notices: an id with no entry in the map used
+ * to compare `undefined` against the row's version and throw `STALE_VERSION`.
+ * Safe, and the wrong fault named — nothing had gone stale, the request arrived
+ * incomplete, and an agent told to read the row again and retry sends back the
+ * same payload with the same hole in it.
+ *
+ * Only the first offender of each kind is reported. A selection may carry ten
+ * thousand rows and a refusal listing ten thousand issues is a refusal nobody
+ * reads. `mergeCategories` names the same two faults the same way, and, like it,
+ * this deliberately does not refuse a map that names more rows than were
+ * selected: a superset harms nothing, and refusing one would turn a request that
+ * works today into a 422.
+ */
+function requireExpectedVersionForEach(parsed: {
+  stagedIds: string[];
+  expectedVersions: Record<string, number>;
+}) {
+  const seen = new Set<string>();
+  for (const id of parsed.stagedIds) {
+    if (seen.has(id)) {
+      throw validationError("Staged transaction IDs must be unique", { stagedId: id });
+    }
+    seen.add(id);
+  }
+  for (const id of parsed.stagedIds) {
+    // `hasOwn` rather than a lookup against undefined: the ids are validated
+    // UUIDs so nothing inherited can collide, but this says what is meant.
+    if (!Object.hasOwn(parsed.expectedVersions, id)) {
+      throw validationError(
+        "Every selected staged transaction needs the version you last read for it",
+        {
+          stagedId: id,
+        },
+      );
+    }
+  }
+}
+
 export async function deleteStages(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = bulkDeleteStageSchema.parse(input);
+  requireExpectedVersionForEach(parsed);
   return withTransaction(transaction, async (tx) => {
     const rows = await tx
       .select()
@@ -1038,6 +1081,10 @@ export async function deleteStages(actor: Actor, input: unknown, transaction?: D
 
 export async function commitStages(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = commitStageSchema.parse(input);
+  // Before the transaction, because this asks nothing of the database: it is a
+  // request that contradicts itself, and it should not cost a connection or an
+  // advisory lock to say so.
+  requireExpectedVersionForEach(parsed);
   const idempotencyPayload = {
     stagedIds: parsed.stagedIds,
     expectedVersions: parsed.expectedVersions,

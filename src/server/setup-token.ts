@@ -1,5 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
+import { readSecret } from "./config-files.js";
 import { getConfig } from "./config.js";
 import { OWNER_SETUP_TOKEN_LOCK } from "./db/advisory-locks.js";
 import { getDb } from "./db/client.js";
@@ -40,7 +41,12 @@ let cachedToken: string | undefined;
  */
 export async function getOwnerSetupToken() {
   if (!getConfig().isProduction) return undefined;
-  const configured = process.env.SETUP_TOKEN?.trim();
+  // The `.trim()` is older than the `_FILE` resolver and stays. The resolver
+  // strips one trailing newline and no more, because a password may legitimately
+  // end in a space; a setup code is not one of those values, so the surrounding
+  // whitespace an operator's editor leaves in the file goes here instead, and
+  // the length refusal below then applies to what they actually typed.
+  const configured = readSecret("SETUP_TOKEN")?.trim();
   if (configured && configured.length < 16) {
     throw new Error("SETUP_TOKEN must contain at least 16 characters");
   }

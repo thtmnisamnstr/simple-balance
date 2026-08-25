@@ -30,7 +30,7 @@ no constructor parameter properties.
 The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
-(src/server/services/errors.ts:4-14,
+(src/server/services/errors.ts:4-25,
 src/client/api.ts:18-25).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
@@ -41,9 +41,9 @@ a constructor tells you what it assigns.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(src/server/api.ts:849,
-src/server/http-security.ts:152,
-src/server/http-security.ts:544),
+(src/server/api.ts:889,
+src/server/http-security.ts:157,
+src/server/http-security.ts:549),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -131,13 +131,13 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(src/shared/domain.ts:867.)
+(src/shared/domain.ts:872.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
 `readonly ReportBucket[]` instead would have done the check and thrown the
 literals away, and the budget code needs them. The other use is the security
-header options (src/server/http-security.ts:56),
+header options (src/server/http-security.ts:57),
 which checks a literal against a library's parameter type without freezing it
 into that type.
 

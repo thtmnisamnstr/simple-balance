@@ -42,12 +42,12 @@ than warning about.
 | --- | --- | --- |
 | `AUTH_MODE` | `local` | Which sign-in methods are offered. See below. |
 | `ALLOWED_EMAILS` | unset | Who may register. Unset admits nobody but the first account. See below. |
-| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. At least 16 characters if you set it; a shorter one refuses to start. Left unset, one is generated and printed to the startup log. |
+| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. At least 16 characters if you set it; a shorter one refuses to start. Left unset, one is generated and printed to the startup log. It is a secret, so it also takes a `SETUP_TOKEN_FILE`; see below. |
 | `PORT` | `3000` | The port inside the container. Change it and your published port mapping has to follow. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
 | `TRUST_PROXY` | `false` | Turn it on when a reverse proxy sits in front and replaces `X-Forwarded-For`. See the reverse proxy section; getting it wrong costs per-visitor rate limiting. |
 | `DATABASE_POOL_SIZE` | `10` | Connections held open, per process. Ceiling 100. Raise it only if you have measured contention, and see the split-container section for what it means once there is more than one replica. |
-| `DIRECT_DATABASE_URL` | `DATABASE_URL` | A second connection string that bypasses a transaction pooler. Only needed when PgBouncer or similar sits in front; see below. |
+| `DIRECT_DATABASE_URL` | `DATABASE_URL` | A second connection string that bypasses a transaction pooler. Only needed when PgBouncer or similar sits in front; see below. It carries a password, so it also takes a `DIRECT_DATABASE_URL_FILE`. |
 | `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. Ceiling 104857600. |
 | `CSV_MAX_ROWS` | `10000` | Most rows accepted from one CSV. Ceiling 10000, which is also the most rows one mass edit, commit, or delete covers, so an import always fits in a single review-queue action. |
 | `RECURRENCE_SCHEDULER` | `true` | Whether this process runs the schedule at all: proposing recurring transactions, and sending the reminders and proposal notices that go by email. Turn it off on replicas that serve the API when a separate scheduler container owns the job. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
@@ -93,6 +93,80 @@ a refusal is explainable rather than surprising.
 `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Google modes refuse to start
 without them, and without an `ALLOWED_EMAILS` that admits somebody, rather than
 silently letting everyone in.
+
+### Keeping a secret out of the environment
+
+Six variables also answer to a `NAME_FILE` form: `AUTH_SECRET`, `DATABASE_URL`,
+`DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET` and
+`SETUP_TOKEN`. Having the form is the definition of being a secret here, so
+nothing else in either table above has one.
+
+`NAME_FILE` names a file whose contents are the value. Set one of `NAME` and
+`NAME_FILE` and never both: both set refuses to start, naming the variable,
+because a precedence rule means somebody eventually changes a value that has no
+effect. An empty `NAME` does not count as set, so the blank `AUTH_SECRET=` that
+`.env.example` ships is not in the way.
+
+One trailing newline is stripped and nothing further. `printf` and a Kubernetes
+secret volume write none, `echo` and every text editor write one, and a password
+may legitimately end in a space, so trimming further would mean a secret typed
+into a file and the same secret typed into the environment producing different
+values. For `AUTH_SECRET` that difference is a different session-signing key,
+which signs everybody out. A file that is empty, or that this process cannot
+read, refuses to start.
+
+The value is never placed in the environment of the running process, which is
+the point of asking for it this way. Everything that exposes an environment,
+`kubectl describe pod` and `kubectl exec` among them, and a Node diagnostic
+report along with them, can only show what is in it, and none of them can show
+something that was never put there.
+
+```sh
+# Docker, adding these to the run command under "Running it". Compose does the
+# same thing with a secrets: entry, which lands the file under /run/secrets.
+-v /etc/simple-balance/auth_secret:/run/secrets/auth_secret:ro \
+-e AUTH_SECRET_FILE=/run/secrets/auth_secret
+```
+
+```yaml
+# Kubernetes, with the Secret mounted as a volume rather than injected
+env:
+  - name: AUTH_SECRET_FILE
+    value: /etc/simple-balance/auth_secret
+volumeMounts:
+  - name: secrets
+    mountPath: /etc/simple-balance
+    readOnly: true
+```
+
+```ini
+# systemd, where LoadCredential puts the file under $CREDENTIALS_DIRECTORY
+LoadCredential=auth_secret:/etc/simple-balance/auth_secret
+Environment=AUTH_SECRET_FILE=%d/auth_secret
+```
+
+A deployment that uses none of these is unaffected: every variable still works
+exactly as it did, and nothing here is required.
+
+Two things worth knowing before you reach for it. An `SMTP_PASSWORD_FILE` that
+cannot be read stops the whole server rather than only the mail, which is
+consistent with the existing refusal when `SMTP_USERNAME` is set without
+`SMTP_PASSWORD`, but is not what "mail degrades rather than breaks" would lead
+you to expect while rotating a mail secret.
+
+And the shipped deployment paths do not use the form yet, so on both of them it
+takes work you do yourself. The Helm chart in `deploy/helm` writes all six into
+a Secret that reaches both workloads through `envFrom`, and it has no volume or
+volume-mount values of its own, so `secret.create=false` is not enough on its
+own: an existing Secret is still consumed through `envFrom`. Something outside
+the chart has to put the file in the pod, a secrets injector added through
+`server.podAnnotations` and `scheduler.podAnnotations` for instance, with
+`config.extraEnv` naming the `_FILE` variable; otherwise it is a change to the
+chart. On `deploy/compose/compose.distributed.yml`, `DATABASE_URL` is written
+in the file and `AUTH_SECRET` is a required interpolation, so both have to be
+edited out before their `_FILE` forms will do anything, and leaving
+`DATABASE_URL` where it is while adding `DATABASE_URL_FILE` is the both-set
+refusal rather than a fallback.
 
 ## Reaching the database over a network
 
@@ -529,9 +603,14 @@ rather than at the release that needed it.
 
 ## Health and shutdown
 
-`/health/live` says the process is up. `/health/ready` says configuration, the
-database, and the migrations have all succeeded, and stays closed until they
-have. Point your orchestrator at readiness.
+`/health/live` says the process is up. `/health/ready` opens a database
+connection and runs one statement on it, so it says the database is reachable
+and nothing more. What it also gives you is ordering rather than a check:
+migrations run under an advisory lock before the server starts listening, so
+nothing answers at all until they have finished, and a failed migration is a
+process that never came up rather than one answering `503`.
+
+Point your orchestrator at readiness.
 
 A process with the scheduler switched off is not an unhealthy one, so readiness
 says nothing about it. What tells you the scheduler has stopped is the Recurring

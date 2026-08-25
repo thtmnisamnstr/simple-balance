@@ -128,8 +128,9 @@ Everything it keeps is in PostgreSQL. Leave it bound to loopback and put a rever
 proxy or a private network in front, rather than publishing the port.
 
 Watch it come up with `docker logs -f simple-balance`, and check
-`curl -f http://127.0.0.1:3000/health/ready`. Readiness stays closed until
-configuration, the database connection, and the migrations have all succeeded.
+`curl -f http://127.0.0.1:3000/health/ready`. Readiness answers once the
+database is reachable. Nothing is listening until the migrations have finished,
+so a container answering at all is one that got through them.
 
 **Claim the instance.** The logs print a one-time setup code on first run. Enter
 it on the account-creation screen. Set `SETUP_TOKEN` yourself if you would rather
@@ -192,6 +193,27 @@ comes back as not found rather than as forbidden. Put TLS in front of it;
 
 If you find a hole, [SECURITY.md](SECURITY.md) says how to report it privately,
 and asks you not to open a public issue for it.
+
+## Contributing
+
+Whether a change is taken is the owner's call, and there is no promise here that
+one will be. What this section can tell you is what a change has to look like
+before that question is worth asking.
+
+[`AGENTS.md`](AGENTS.md) holds the invariants — what the books guarantee, and
+what breaking one costs. [`docs/standards/`](docs/standards/index.md) holds how
+the interfaces behave and [`docs/standards/code/`](docs/standards/code/index.md)
+how the source is written; read the one for the surface you are touching. Every
+rule in both says how it is checked, so a rule you have not broken is one you
+can prove you have not.
+
+`npm run verify` is typecheck, lint, format, tests and build, and it has to pass.
+Add a test for the behaviour you changed: this repository tests heavily and a
+change with no test is a change nobody can keep. If you touched anything with a
+database behind it, run `npm run test:integration` against a throwaway
+PostgreSQL, and if you touched the browser app, `npm run test:browser`.
+
+Do not cut a version. Releases are the owner's.
 
 ## Not built yet
 

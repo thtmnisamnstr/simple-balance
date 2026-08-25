@@ -322,6 +322,34 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     expect(await call("list_transaction_templates")).toHaveLength(0);
   });
 
+  /**
+   * The advice half of a version conflict, over the transport that reads it.
+   *
+   * The browser is told to reload; an agent has nothing to reload, so the MCP
+   * transport renders `agentMessage` instead. The sentence and the field it
+   * names have to arrive together — a refusal pointing at
+   * `details.currentVersion` when the payload has no such key would be the same
+   * defect one level down — so this asserts both in one call.
+   */
+  it("tells an agent to read the row again, and hands it the version to use", async () => {
+    const out = await client.callTool({
+      name: "update_account",
+      arguments: {
+        id: accountId,
+        input: { name: "Renamed", expectedVersion: 999 },
+        idempotencyKey: "stale-account-1",
+      },
+    });
+    expect(out.isError).toBe(true);
+    const error = (out.structuredContent as { result: { error: Record<string, unknown> } }).result
+      .error;
+    expect(error.code).toBe("STALE_VERSION");
+    expect(error.message).toMatch(/Read it again/);
+    expect(error.message).not.toMatch(/Reload/);
+    const account = (await call("get_account", { id: accountId })) as { version: number };
+    expect((error.details as { currentVersion: number }).currentVersion).toBe(account.version);
+  });
+
   // The one key a template refuses rather than drops, checked through the
   // transport an agent actually uses rather than against the schema directly.
   it("refuses a template carrying an import reference", async () => {

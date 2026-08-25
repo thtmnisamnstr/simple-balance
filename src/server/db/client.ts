@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { readSecret } from "../config-files.js";
 import { configuredDatabasePoolSize } from "../config-limits.js";
 import * as schema from "./schema.js";
 
@@ -9,7 +10,11 @@ let database: ReturnType<typeof drizzle<typeof schema>> | undefined;
 
 export function getPool() {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
+    // Through `readSecret` rather than `process.env`, so a value that arrived
+    // as `DATABASE_URL_FILE` reaches the pool without ever having been assigned
+    // into this process's environment. This is the read that made a resolver
+    // writing back into `process.env` look necessary; it is not.
+    const connectionString = readSecret("DATABASE_URL");
     if (!connectionString) throw new Error("DATABASE_URL is required");
     pool = new Pool({
       connectionString,
@@ -55,8 +60,12 @@ export function getDb() {
  * pooler in the first place.
  */
 export function directConnectionString() {
-  const direct = process.env.DIRECT_DATABASE_URL?.trim();
-  const connectionString = direct || process.env.DATABASE_URL;
+  // Resolving on first read is also what makes `npm run db:migrate` work with a
+  // `_FILE` value: that script calls `runMigrations`, which reaches this
+  // function and never calls `getConfig`, so nothing there has to know a
+  // resolver exists.
+  const direct = readSecret("DIRECT_DATABASE_URL")?.trim();
+  const connectionString = direct || readSecret("DATABASE_URL");
   if (!connectionString) throw new Error("DATABASE_URL is required");
   return connectionString;
 }

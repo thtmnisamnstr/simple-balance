@@ -179,11 +179,12 @@ One policy about personal data in log lines, in one process.
 every `Message` carries `about`, a fixed phrase naming the kind of message
 (`src/server/mail.ts:95-105`), and that phrase is what the log line carries
 (`:165-168`). The phrase comes from the builder, so a caller that spreads one
-gets it without deciding anything. **Work to do, and smaller than it was:** the
-phrase names the kind and not the row. `notifications.ts:254` already logs
-`Template reminder ${row.id} could not be sent` for a reminder that threw, and a
-caller holding that id can set `about` after the spread to put it in this line
-too.
+gets it without deciding anything, and it names the row rather than the kind:
+both scheduled senders set `about` after the spread, to
+`recurrence proposal <id>` and `template reminder <id>`. An id is neither
+private nor ambiguous, where "a recurrence proposal notice could not be sent" is
+no help at all on a deployment with several. The name is deliberately not in it:
+that is somebody's own text and a log line is not the place for it.
 
 The nodemailer error is narrowed rather than passed whole, for the same reason.
 `envelope` and `rejected` each hold the recipient's address, and for a password
@@ -213,7 +214,7 @@ the whole reason `sendMail` returns `false` rather than throwing
 
 **House, and this is the constraint to state as a defence rather than as
 strictness.** The URL in a reset message is built from `APP_BASE_URL`, which
-`config.ts:13-47` validates as an exact HTTP(S) origin with no credentials, path,
+`config.ts:14-48` validates as an exact HTTP(S) origin with no credentials, path,
 query or fragment, HTTPS everywhere but loopback. That is the Host-header
 injection defence: a reset link assembled from the request's `Host` header lets a
 stranger send a real user a real reset link pointing at the stranger's server.
@@ -348,14 +349,14 @@ else refuses to start.
 
 This is the rule most worth stating because the alternative is truthiness, and
 truthiness has no symptom. `RECURRENCE_SCHEDULER` already does it, and
-`config.ts:188-190` gives the reason: "A misspelling here has no symptom: the
+`config.ts:194-196` gives the reason: "A misspelling here has no symptom: the
 process starts, serves, and quietly proposes nothing until somebody notices a
 year of missing rent." `RECURRENCE_SCHEDULER=yes` read as falsy is a deployment
-that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:184-187`) and
-`SMTP_SSL` (`config.ts:314-317`) follow the same pattern.
+that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:190-193`) and
+`SMTP_SSL` (`config.ts:333-336`) follow the same pattern.
 
 The same argument applies to any closed set, not only booleans. `NODE_ENV` is
-parsed against three values and refuses a fourth (`config.ts:159-163`), because
+parsed against three values and refuses a fourth (`config.ts:165-169`), because
 `NODE_ENV=Production` compared against the string `production` had no symptom
 either: no setup code, no rate limiting, no secure cookies.
 
@@ -365,10 +366,10 @@ the database or the process.
 
 **House.** A list is comma-separated, each entry trimmed, and empty entries are
 skipped rather than refused. `parseRegistrationRule`
-(`src/server/config.ts:374-409`) is the model: split, trim, lowercase, drop the
+(`src/server/config.ts:393-428`) is the model: split, trim, lowercase, drop the
 blanks, then validate what is left with a message naming the bad entry.
 
-*Checked by:* `tests/config.test.ts:118-134`, which asserts that
+*Checked by:* `tests/config.test.ts:137-158`, which asserts that
 `RECURRENCE_SCHEDULER=yes`, `TRUST_PROXY=yes`, `LOG_LEVEL=loud`, `AUTH_MODE=sso`
 and `NODE_ENV=Prod` each throw with the variable named.
 `tests/mail-settings.test.ts` covers `SMTP_SSL`.
@@ -387,14 +388,34 @@ contain them.
 
 **What this product picked:** environment variables for everything, with a
 `_FILE` escape hatch for secrets. `NAME_FILE` names a file whose contents are the
-value. It applies to `AUTH_SECRET`, `DATABASE_URL`, `SMTP_PASSWORD` and
-`GOOGLE_CLIENT_SECRET`, and to no setting. **That line is the definition of the
-difference between a secret and a setting**: if it has a `_FILE` form it is a
-secret.
+value. It applies to `AUTH_SECRET`, `DATABASE_URL`, `DIRECT_DATABASE_URL`,
+`SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET` and `SETUP_TOKEN`, and to no setting.
+**That line is the definition of the difference between a secret and a
+setting**: if it has a `_FILE` form it is a secret.
 
-Exactly one of `NAME` and `NAME_FILE` may be set. Both set refuses to start,
-because a precedence rule means somebody eventually changes a value that has no
-effect.
+Exactly one of `NAME` and `NAME_FILE` may be set. Both set refuses to start with
+the variable named, because a precedence rule means somebody eventually changes
+a value that has no effect. A `NAME_FILE` that cannot be read, or
+whose file is empty, refuses to start as well rather than resolving to nothing.
+
+**That includes `SMTP_PASSWORD_FILE`, and it is worth saying why it does not
+break the mail invariant.** `AGENTS.md` says everything needing mail degrades
+rather than breaks, and it says what that means: a deployment with **no**
+`SMTP_HOST` offers no password reset and sends no reminder. Absence degrades.
+This is not absence — it is a deployment that asked for mail and pointed at a
+file that is not there, which is the same class of mistake as setting
+`SMTP_USERNAME` with no `SMTP_PASSWORD`, and that already refuses. A secret that
+silently resolves to the empty string would authenticate to the relay as nobody
+and fail every send at the far end, where the only symptom is a log line.
+
+The cost is real and belongs beside the rule: a mounted secret that fails to
+appear during a rotation takes the process down rather than the mail. That is
+the intended trade, because a ledger that will not start is a problem somebody
+sees within a minute, and mail that silently stops is one nobody sees until they
+needed a password reset. An empty `NAME` does not count as set. `.env.example`
+ships a blank `AUTH_SECRET=` and `deploy/compose/compose.distributed.yml` ships
+a `SETUP_TOKEN` defaulted to the empty string, so refusing those would break a
+deployment that works today.
 
 The `_FILE` suffix is not a cross-image convention. The postgres Docker Official
 Image documents it as a feature of its own entrypoint. Adopting it follows a
@@ -408,10 +429,64 @@ or a systemd credential is read-only and platform-provided. It is not a volume
 this application requires in order to work, and a deployment that sets none of
 them is unaffected.
 
-**Work to do: none of this exists.** The string `_FILE` appears nowhere in `src/`
-or `deploy/`. The rule is written here as the target; the code has one form only.
+**Settled.** `resolveFileBackedSecrets` and `readSecret`
+(`src/server/config-files.ts`) read `NAME_FILE` for those six names.
+`SETUP_TOKEN` and `DIRECT_DATABASE_URL` are on the list because the litmus runs
+both ways: the first is the code that claims an instance and the second carries
+a password, so a set of four would have been this product quietly calling them
+settings.
 
-**House, and stronger than the litmus test.** `config.ts:56-68` holds a
+The resolved values are held in a module-level map and handed out by
+`readSecret`, and are never written back into `process.env`. Two reasons, and
+the second is the load-bearing one. A Node diagnostic report serialises
+`process.env`, so a value that never enters it cannot appear in the dump this
+section exists to worry about. And a resolver that writes into the environment
+has to run before anything reads it, which is an ordering nobody can see:
+`getPool` and `directConnectionString` (`src/server/db/client.ts:11-35`,
+`:62-71`) read the connection string themselves, and `npm run db:migrate` never
+calls `getConfig` at all, so the write-back design needed a second call site
+bolted onto that script and would have needed a third for the next entrypoint.
+Resolving on first read removes the ordering entirely. `getConfig` calls the
+resolver eagerly all the same, for one reason only: an unreadable or
+contradictory secret file then refuses at startup rather than at the first
+query, which is what the next section asks of everything else.
+
+The same argument decided the one line that looks like it should have been left
+alone. `config.ts:259-267` hands `getPool()` the *development default* for
+`DATABASE_URL` and is now guarded so it does that and nothing else, because
+unguarded it would have written a value read from `DATABASE_URL_FILE` straight
+back into the environment the form exists to keep it out of.
+
+One trailing newline is stripped and nothing further: `printf` and a Kubernetes
+secret volume write none, `echo` and every text editor write one, a password may
+legitimately end in a space, and `config.ts` stores `authSecret` untrimmed, so
+the difference between stripping one and calling `trim()` is a different
+session-signing key. An empty file refuses rather than starting with an empty
+secret.
+
+*Not yet:* the Helm chart in `deploy/helm` and
+`deploy/compose/compose.distributed.yml` still hand all six to the container as
+environment variables, so on the two platforms this section argues from, the
+form is reachable only by work outside what the chart and the compose file
+offer. `secret.create=false` is not the escape hatch it looks like: an existing
+Secret is consumed through `envFrom` too
+(`deploy/helm/simple-balance/templates/server-deployment.yaml:62-66`), and the
+chart declares no volume or volume mount on either workload, so the file has to
+be placed by something else and named through `config.extraEnv`. The compose
+file writes `DATABASE_URL` inline and makes `AUTH_SECRET` a required
+interpolation (`deploy/compose/compose.distributed.yml:45`, `:60`), so both have
+to be edited out first. A plain `docker run` reaches the form with a bind mount
+and nothing else, which is the path `README.md` documents. The application
+supports it everywhere; the two orchestrated paths this section argues from do
+not, and marking this settled without saying so would credit the guide with a
+capability neither of them can reach.
+
+*Checked by:* `tests/config.test.ts:276-471`, over all six by the consumer that
+has to end up holding the value, including that a resolved `DATABASE_URL`
+reaches `directConnectionString` without reaching `process.env`, and that it
+does so in a process that never calls `getConfig` at all.
+
+**House, and stronger than the litmus test.** `config.ts:57-69` holds a
 `publicAuthSecrets` set and refuses an `AUTH_SECRET` matching any value this
 project has ever published, including whatever `.env.example` last carried, with
 the message "AUTH_SECRET is a published placeholder. Generate one, for example
@@ -419,7 +494,7 @@ with `openssl rand -base64 32`." Length alone cannot tell a real secret from a
 documented one. This is the twelve-factor litmus test enforced rather than
 stated, and it is the pattern to copy the next time a placeholder ships.
 
-*Checked by:* `tests/config.test.ts:189-215` ("refuses the published placeholder
+*Checked by:* `tests/config.test.ts:221-235` ("refuses the published placeholder
 secret %s in production"), over two of the three entries in the set. *Not
 checked:* that the set covers whatever `.env.example` currently carries, which is
 the half that has to be extended by hand every time the example file changes.
@@ -447,12 +522,12 @@ inside an import (`src/server/services/import-export.ts:686`), so a typo in
 `CSV_MAX_ROWS` is never surfaced at startup and never surfaced at all.
 `DATABASE_POOL_SIZE` is the one to copy: it throws, and because
 `reconcileArchivedAccountClosings()` at `src/server/index.ts:27` queries before
-`serve()`, the first `getPool()` (`src/server/db/client.ts:16`) reaches it during
+`serve()`, the first `getPool()` (`src/server/db/client.ts:21`) reaches it during
 startup, so a bad value throws there rather than on the first import.
 
 The fallback is deliberate and documented (`docs/deployment.md:58-63`), and the
 argument for it is that a typo in a tuning number should not take the ledger
-down. The argument against it is the one `config.ts:188-190` already makes about
+down. The argument against it is the one `config.ts:194-196` already makes about
 `RECURRENCE_SCHEDULER`: the wrong setting is otherwise silent, and
 `CSV_MAX_ROWS=1O000` silently becoming 10,000 is exactly that.
 
@@ -524,9 +599,9 @@ file by name, so an optional variable added uncommented later fails with its own
 name in the message.
 
 The root file is the model for all five. `AUTH_SECRET=` is empty with
-`openssl rand -base64 32` above it (`.env.example:7-10`),
-`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:60-64`),
-and the mail block is commented out as a group (`.env.example:26-43`).
+`openssl rand -base64 32` above it (`.env.example:8-13`),
+`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:75-79`),
+and the mail block is commented out as a group (`.env.example:31-51`).
 
 It also does one thing beyond the rule, worth generalising: it warns about
 `NODE_ENV` (`.env.example:1-4`), a variable the images set and the operator is
@@ -539,7 +614,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:119`, `docs/deployment.md:342`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:119`, `docs/deployment.md:407`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -559,9 +634,9 @@ example file is worse than no example file, because it is believed.
 
 **Six variables break the correspondence today**, which is why this is a rule
 rather than a description. In `.env.example` and in no table: `NODE_ENV`
-(`.env.example:4`), `GOOGLE_CLIENT_ID` (`:23`) and `GOOGLE_CLIENT_SECRET`
-(`:24`), all three of which `docs/deployment.md` mentions only in prose
-(`docs/deployment.md:26`, `:93`). In the table at `docs/deployment.md:442-444`
+(`.env.example:4`), `GOOGLE_CLIENT_ID` (`:27`) and `GOOGLE_CLIENT_SECRET`
+(`:29`), all three of which `docs/deployment.md` mentions only in prose
+(`docs/deployment.md:26`, `:93`). In the table at `docs/deployment.md:507-509`
 and in no `.env.example`:
 `SB_API_ORIGIN`, `SB_FRONTEND_PORT` and `SB_MAX_UPLOAD_SIZE`, which are the
 frontend image's and belong in the compose example if anywhere.
@@ -635,11 +710,11 @@ rather than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:227-235`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:227-242`, and the same pair on the
 scheduler at `src/server/scheduler.ts:19-28`). Both are registered above every
 auth middleware and neither is authenticated.
 
-The rule that generalises best is already written in `docs/deployment.md:536`: "A
+The rule that generalises best is already written in `docs/deployment.md:606`: "A
 process with the scheduler switched off is not an unhealthy one." A readiness
 check that fails because an optional subsystem is off takes a working server out
 of rotation. Readiness must not consult mail, and it must not consult the
@@ -659,15 +734,24 @@ cannot open before they finish. The 0.1.5 notes record that the payee index
 20s (`Dockerfile:48`), plus a Kubernetes startup probe. Not the shutdown
 deadline.
 
-**Where the doc disagrees with the code.** `docs/deployment.md:532-534` says
+**Settled, and the second half declined.** Both documents used to say
 `/health/ready` "says configuration, the database, and the migrations have all
-succeeded, and stays closed until they have". Readiness itself knows nothing
-about configuration or migrations; the guarantee is purely ordering, and nothing
-listens at all until migrations return. The difference matters to an operator
-designing alerting: a migration that succeeded on an older image leaves readiness
-green against a schema this build does not expect. **Work to do:** narrow the
-sentence, or give readiness a real check by comparing the applied migration tag
-against `drizzle/meta/_journal.json`.
+succeeded, and stays closed until they have", and readiness never knew anything
+about configuration or migrations. Both now say what it does:
+`docs/deployment.md:597-602` and `README.md:130-133` describe one statement
+against the database and nothing else, and `src/server/api.ts:228-234` says the
+same beside the route. The difference matters to an operator designing alerting:
+a migration that succeeded on an older image leaves readiness green against a
+schema this build does not expect.
+
+The second half of the proposal was to give readiness a real check, comparing
+the applied migration tag against `drizzle/meta/_journal.json`. Declined:
+`runMigrations()` is awaited before the server listens and nothing migrates
+afterwards, so the guarantee is already ordering rather than a probe. A process
+answering the route at all is past them, and a failed migration is a process
+that never came up rather than one answering `503`. Querying for that on every
+probe, every three seconds in the compose file, would buy nothing and would take
+a working server out of rotation whenever the query was slow.
 
 **House.** A healthcheck reads its port from the environment rather than
 hardcoding one. All four images do: the three Node images read `PORT`, the
@@ -701,7 +785,7 @@ chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:217`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:115-120`, `docs/deployment.md:336-343`). Docker's
+`--stop-timeout 30` (`README.md:115-120`, `docs/deployment.md:401-408`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 
@@ -810,7 +894,7 @@ a renamed variable moved the version.
 
 | Rule | Check |
 | --- | --- |
-| Booleans and closed sets refuse an unrecognised value, naming the variable | `tests/config.test.ts:118-134` |
+| Booleans and closed sets refuse an unrecognised value, naming the variable | `tests/config.test.ts:137-158` |
 | `APP_BASE_URL` is an exact origin, HTTPS off loopback | `tests/config.test.ts` |
 | A non-production process with a real `APP_BASE_URL` refuses to start | `tests/config.test.ts` |
 | Bounded integers accept their range; pool size is validated before the pool exists | `tests/config-limits.test.ts` |
@@ -823,7 +907,7 @@ a renamed variable moved the version.
 | Entrypoints name files the compiler emits; nginx proxies every API prefix | `tests/dockerfile.test.ts` |
 | Drain once, force-exit on deadline, force-exit on a second signal | `tests/server-lifecycle.test.ts` |
 | The version reaches all fifteen places | `tests/version.test.ts` |
-| The published placeholder secrets are refused in production | `tests/config.test.ts:189-215` |
+| The published placeholder secrets are refused in production | `tests/config.test.ts:221-235` |
 | The template reminder's subject is exactly `Reminder: <name>` | `tests/integration/notifications.integration.test.ts:216` |
 | Every message declares itself auto-generated | `tests/mail-headers.test.ts` |
 | A subject leads with its fixed part, and a long name is cut by code point | `tests/mail-subjects.test.ts` |
@@ -872,9 +956,6 @@ for a release, one of them contradicted three lines away by a paragraph marked
 | What | Where |
 | --- | --- |
 | Five bounded integers fall back silently and are read lazily rather than at startup; `DATABASE_POOL_SIZE` throws and is reached during startup | `src/server/config-limits.ts:23-34,52-66`; `src/server/services/import-export.ts:686`; `src/server/index.ts:27`; documented at `docs/deployment.md:58-63` |
-| Six variables break the `.env.example` to `docs/deployment.md` correspondence | `.env.example:4,23,24`; `docs/deployment.md:442-444` |
-| No `_FILE` support for any secret | `src/server/config.ts` |
-| A failed send names the kind of message and not the row it came from, because neither caller passes an id it already holds | `src/server/services/notifications.ts:168`, `:343`, against `src/server/mail.ts:165-168` |
-| Readiness is described as checking configuration and migrations; it runs `select 1` | `docs/deployment.md:532-534` against `src/server/api.ts:227-235` |
+| Six variables break the `.env.example` to `docs/deployment.md` correspondence | `.env.example:4,27,29`; `docs/deployment.md:507-509` |
 | `base.digest` absent from every image, because every base is pinned by tag and nothing watches Docker for updates | `Dockerfile:30-37` and the three in `deploy/docker/`, against `.github/dependabot.yml` |
 | The scheduler entrypoint runs none of the startup checks the API entrypoint runs, including `checkMailTransport`, and it is the process that sends every scheduled message | `src/server/scheduler.ts:30-48` against `src/server/index.ts:13-63` |

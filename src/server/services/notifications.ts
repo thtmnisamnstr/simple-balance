@@ -155,7 +155,7 @@ async function recipientOf(userId: string) {
  */
 export async function notifyRecurrenceProposed(
   userId: string,
-  proposed: { recurrenceName: string; occurrenceDates: string[] },
+  proposed: { recurrenceId: string; recurrenceName: string; occurrenceDates: string[] },
 ) {
   if (!mailEnabled() || !proposed.occurrenceDates.length) return false;
   const recipient = await recipientOf(userId);
@@ -165,7 +165,14 @@ export async function notifyRecurrenceProposed(
     proposed.occurrenceDates,
     getConfig().baseUrl,
   );
-  return sendMail({ to: recipient.email, ...message });
+  return sendMail({
+    to: recipient.email,
+    ...message,
+    // After the spread, so it overrides the kind the message carries. A failed
+    // send names the row rather than "a recurrence proposal notice", which on a
+    // deployment with several recurrences is no help at all.
+    about: `recurrence proposal ${proposed.recurrenceId}`,
+  });
 }
 
 export type NotificationTickSummary = {
@@ -258,6 +265,9 @@ export async function runDueNotifications(
 }
 
 type OwedReminder = {
+  /** Carried for the same reason a recurrence carries its own: a failed send
+   * should name the row, and the template's name is somebody's own text. */
+  templateId: string;
   templateName: string;
   occurrenceDate: string;
   repeats: boolean;
@@ -323,6 +333,7 @@ async function claimDueNotification(
       .where(eq(templateNotifications.id, row.notification.id));
 
     return {
+      templateId: row.notification.templateId,
       templateName: row.templateName,
       occurrenceDate: owed.occurrenceDate,
       repeats: rule.frequency !== null,
@@ -340,7 +351,11 @@ async function deliver(userId: string, owed: OwedReminder) {
     getConfig().baseUrl,
     owed.repeats,
   );
-  return sendMail({ to: recipient.email, ...message });
+  return sendMail({
+    to: recipient.email,
+    ...message,
+    about: `template reminder ${owed.templateId}`,
+  });
 }
 
 /** For a caller writing the row: where the schedule starts from. */

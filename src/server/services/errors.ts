@@ -11,28 +11,60 @@ export class AppError extends Error {
   readonly code: ServiceErrorCode;
   readonly status: number;
   readonly details?: unknown;
+  /**
+   * The same diagnosis, with the move an agent can actually make.
+   *
+   * `common.md` rules that where two callers need different advice it is the
+   * advice that differs and never the diagnosis, so this is not a second error:
+   * it is the second half of the same sentence. Only `src/server/mcp.ts` reads
+   * it. HTTP keeps rendering `message`, which leaves browser copy under the
+   * browser's control and means a throw site that has nothing extra to tell an
+   * agent says nothing extra.
+   */
+  readonly agentMessage?: string;
 
-  constructor(code: ServiceErrorCode, message: string, status: number, details?: unknown) {
+  constructor(
+    code: ServiceErrorCode,
+    message: string,
+    status: number,
+    details?: unknown,
+    agentMessage?: string,
+  ) {
     super(message);
     this.name = "AppError";
     this.code = code;
     this.status = status;
     this.details = details;
+    this.agentMessage = agentMessage;
   }
 }
 
-export const notFound = (message = "The requested record was not found", details?: unknown) =>
+export const notFound = (message: string, details?: unknown) =>
   new AppError("NOT_FOUND", message, 404, details);
 
 export const conflict = (message: string, details?: unknown) =>
   new AppError("CONFLICT", message, 409, details);
 
+/**
+ * Whether this throw site carried the number the agent sentence would name.
+ *
+ * Thirteen of the fifty `staleVersion` sites throw with no details at all, and
+ * pointing an agent at `details.currentVersion` when nothing is there is the
+ * "a refusal offers the move that works" rule failing one level down — the same
+ * fault as telling an agent to refresh, one field deeper.
+ */
+const carriesCurrentVersion = (details: unknown) =>
+  typeof details === "object" && details !== null && "currentVersion" in details;
+
 export const staleVersion = (details?: unknown) =>
   new AppError(
     "STALE_VERSION",
-    "This record changed since it was loaded. Refresh and try again.",
+    "This changed while you were editing it. Reload to see the current version.",
     409,
     details,
+    carriesCurrentVersion(details)
+      ? "This changed since you read it. Read it again and retry with the version in details.currentVersion."
+      : "This changed since you read it. Read it again and retry with the version it reports.",
   );
 
 export const duplicate = (message: string, details?: unknown) =>

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   decimalStringSchema,
   accountCreateSchema,
+  bulkDeleteStageSchema,
   bulkTransactionEditSchema,
+  commitStageSchema,
   isoDateSchema,
   listQuerySchema,
   resolveEntrySide,
@@ -174,6 +176,35 @@ describe("boundary schemas", () => {
         idempotencyKey: "bulk-domain-invalid",
       }).success,
     ).toBe(false);
+  });
+
+  /**
+   * The staged selection encodes its versions as a map beside the ids rather
+   * than as a list of pairs, which leaves `expectedVersion` a plausible thing
+   * to type. MCP refused it by name at the tool boundary from the start; HTTP
+   * dropped it and read the request as one naming no versions at all, which is
+   * the same field being accepted from one caller and not the other.
+   */
+  it("refuses an unrecognised key on either staged selection", () => {
+    const selection = {
+      stagedIds: [accountId],
+      expectedVersions: { [accountId]: 1 },
+    };
+    expect(commitStageSchema.safeParse({ ...selection, idempotencyKey: "commit-1" }).success).toBe(
+      true,
+    );
+    expect(bulkDeleteStageSchema.safeParse(selection).success).toBe(true);
+
+    expect(
+      commitStageSchema.safeParse({
+        ...selection,
+        idempotencyKey: "commit-2",
+        expectedVersion: 1,
+      }).success,
+    ).toBe(false);
+    expect(bulkDeleteStageSchema.safeParse({ ...selection, expectedVersion: 1 }).success).toBe(
+      false,
+    );
   });
 });
 

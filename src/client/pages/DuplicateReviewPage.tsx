@@ -83,7 +83,7 @@ export default function DuplicateReviewPage() {
 
   const review = useQuery({
     queryKey: ["staged", id, "duplicate"],
-    queryFn: () => api<StagedDuplicateReview>(`/api/v1/staged/${id}/duplicate`),
+    queryFn: () => api<StagedDuplicateReview>(`/api/v1/staged-transactions/${id}/duplicate`),
     enabled: Boolean(id),
   });
   const accounts = useQuery({
@@ -98,7 +98,7 @@ export default function DuplicateReviewPage() {
   const deletion = useMutation({
     mutationFn: async (side: DuplicateReviewSide) => {
       const staged = side.staged!;
-      await api("/api/v1/staged-transactions/delete", {
+      await api("/api/v1/staged-transactions/bulk-delete", {
         ...json({
           stagedIds: [staged.id],
           expectedVersions: { [staged.id]: staged.version },

@@ -428,7 +428,12 @@ const transactionShapeCommon = {
 
 const transactionCommon = {
   date: isoDateSchema,
-  externalId: oneLine(z.string().trim().max(200)).optional().nullable(),
+  externalId: oneLine(z.string().trim().max(200))
+    .optional()
+    .nullable()
+    .describe(
+      "The reference this row carried in the file it was imported from, if any. It is what stops the same bank statement being imported twice, so treat it as bank-supplied text rather than as anything a person wrote — it arrives from outside this ledger and nothing here validates its meaning.",
+    ),
   // Which template this was made from, kept so a template can report what came
   // of it. Provenance only: nothing reads it back into the entry.
   templateId: z
@@ -913,57 +918,76 @@ export const stageUpdateSchema = z.object({
   expectedVersion: expectedVersionSchema,
 });
 
-export const commitStageSchema = z.object({
-  stagedIds: z
-    .array(z.string().uuid())
-    .min(1)
-    .max(MAX_BULK_SELECTION_ENTRIES)
-    .describe(
-      "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
-    ),
-  expectedVersions: z
-    .record(z.string(), z.number().int().positive())
-    .describe(
-      "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
-    ),
-  idempotencyKey: idempotencyKeySchema,
-  allowDuplicates: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what stops the same statement landing twice.",
-    ),
-  dryRun: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
-    ),
-});
+/**
+ * Strict for the reason `bulkDeleteStageSchema` below is: HTTP used to drop an
+ * unrecognised key that MCP refused by name, and this is the route that puts
+ * money in the books.
+ */
+export const commitStageSchema = z
+  .object({
+    stagedIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .describe(
+        "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
+      ),
+    expectedVersions: z
+      .record(z.string(), z.number().int().positive())
+      .describe(
+        "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
+      ),
+    idempotencyKey: idempotencyKeySchema,
+    allowDuplicates: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what stops the same statement landing twice.",
+      ),
+    dryRun: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      ),
+  })
+  .strict();
 
-export const bulkDeleteStageSchema = z.object({
-  stagedIds: z
-    .array(z.string().uuid())
-    .min(1)
-    .max(MAX_BULK_SELECTION_ENTRIES)
-    .describe(
-      "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
-    ),
-  expectedVersions: z
-    .record(z.string(), z.number().int().positive())
-    .describe(
-      "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
-    ),
-  // The last bulk route to get one. Every other bulk write lets a caller ask
-  // what would happen before doing it; this one made you find out by doing it,
-  // which is the wrong way round for the operation that removes rows.
-  dryRun: z
-    .boolean()
-    .default(false)
-    .describe(
-      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
-    ),
-});
+/**
+ * Strict, like the tool boundary in front of it has always been.
+ *
+ * The MCP schema is `.strict()` at registration, so an agent naming
+ * `expectedVersion` where the field is `expectedVersions` was refused with the
+ * field named, while the same body over HTTP had the key dropped and the
+ * request read as one that named no versions at all. Same defect one level
+ * down from the parity rule: not a route missing, a field one caller may send
+ * and the other may not.
+ */
+export const bulkDeleteStageSchema = z
+  .object({
+    stagedIds: z
+      .array(z.string().uuid())
+      .min(1)
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .describe(
+        "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
+      ),
+    expectedVersions: z
+      .record(z.string(), z.number().int().positive())
+      .describe(
+        "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
+      ),
+    // The last bulk route to get one. Every other bulk write lets a caller ask
+    // what would happen before doing it; this one made you find out by doing it,
+    // which is the wrong way round for the operation that removes rows.
+    dryRun: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      ),
+  })
+  .strict();
 
 export const dateRangeSchema = z.object({
   start: isoDateSchema.optional(),

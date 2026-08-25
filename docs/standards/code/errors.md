@@ -58,8 +58,13 @@ and it carries `currentVersion` in its details so the client can say what
 happened rather than "something went wrong".
 
 Its message is fixed at the constructor
-(src/server/services/errors.ts:24)
-because there is nothing per-site to add.
+(src/server/services/errors.ts:59)
+because there is nothing per-site to add. Two messages are fixed there now, one
+per audience: `message` tells a browser to reload, and `agentMessage` — read by
+the MCP transport and by nothing else — tells an agent to read the row again and
+retry with the version, naming `details.currentVersion` only where the throw
+site carried one. Same diagnosis, different next move, which is what
+[`common.md`](../common.md#errors) asks for.
 
 ### 2.3 `duplicate` carries the id of what it collided with
 

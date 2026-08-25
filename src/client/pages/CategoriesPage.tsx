@@ -167,7 +167,7 @@ export default function CategoriesPage() {
         });
       }
       if (input.action === "archive") {
-        return api<Category>(`/api/v1/categories/${input.category.id}/archive`, {
+        return api<Category>(`/api/v1/categories/${input.category.id}/archived`, {
           ...json({
             expectedVersion: input.category.version,
             archived: !input.category.archivedAt,

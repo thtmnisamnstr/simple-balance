@@ -203,6 +203,16 @@ function createAuthInstance() {
           defaultScope: "openid profile email ledger:read",
           storeClientSecret: "hashed",
           metadata: {
+            // Not the list a client ends up asking for, and the wrong place
+            // to narrow one. This feeds Better Auth's own protected-resource
+            // document, which `src/server/api.ts` re-serves narrowed on every
+            // path it is reachable from, this plugin's `/api/auth` one
+            // included. Left wide because the plugin's fallback when this is
+            // absent is its four OpenID defaults, which name no ledger scope at
+            // all: a client following that would authorise with nothing it
+            // could call a tool with. `scopes` above is the separate question
+            // of what `/authorize` accepts, and must keep every tier, because
+            // the step-up challenge sends clients back to ask for one.
             scopes_supported: supportedScopes,
           },
         },

@@ -1,4 +1,5 @@
 import type { Context, MiddlewareHandler } from "hono";
+import type { TransportErrorCode } from "../shared/domain.js";
 import { secureHeaders } from "hono/secure-headers";
 import { MAX_BULK_SELECTION_ENTRIES } from "../shared/domain.js";
 import { configuredCsvMaxBytes } from "./config-limits.js";
@@ -109,7 +110,11 @@ type MutationProtectionOptions = {
 function errorResponse(
   context: Context,
   status: 400 | 403 | 413 | 415,
-  code: string,
+  // Typed rather than `string`, which is what made the gap possible: five codes
+  // reached the wire and appeared in no enumeration at all, because nothing
+  // stopped a sixth. An enumeration anything can bypass is not a contract, it
+  // is what somebody remembered.
+  code: TransportErrorCode,
   message: string,
 ) {
   return context.json({ error: { code, message } }, status);

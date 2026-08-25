@@ -76,12 +76,12 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
 
 `withTransaction` joins the caller's transaction when it is given one and opens
 its own when it is not
-(src/server/db/client.ts:93). 38 service
+(src/server/db/client.ts:102). 38 service
 mutations take that parameter and every one of them goes through the helper;
 only six places in this directory reach for `getDb().transaction` directly.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(src/server/mcp.ts:855) so that
+(src/server/mcp.ts:864) so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
 idempotency key and then fail, leaving a key that answers for a transaction that

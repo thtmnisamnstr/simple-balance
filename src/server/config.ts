@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { readSecret, resolveFileBackedSecrets } from "./config-files.js";
 
 function isLoopbackHostname(hostname: string) {
   if (hostname === "localhost" || hostname === "[::1]") return true;
@@ -152,6 +153,11 @@ let cached: AppConfig | undefined;
 
 export function getConfig(): AppConfig {
   if (cached) return cached;
+  // `readSecret` memoises, so this call buys exactly one thing: an unreadable
+  // secret file, or a name set both ways, refuses at startup rather than at the
+  // first query. That is what the "Validating at startup" rule in
+  // `docs/standards/operations.md` asks of every other setting here.
+  resolveFileBackedSecrets();
   // Parsed strictly, and against a closed set, because comparing to the string
   // "production" turns every other spelling into development silently: the
   // setup code is not demanded, sign-in attempts are not rate limited, and
@@ -194,18 +200,23 @@ export function getConfig(): AppConfig {
     })
     .transform((value) => value === "true")
     .parse((process.env.RECURRENCE_SCHEDULER ?? "true").toLowerCase());
+  // The secrets are read through `readSecret` and the settings beside
+  // them straight from the environment. That split is not an oversight: having a
+  // `_FILE` form is what makes a name a secret here, so giving one to
+  // `SMTP_HOST` or `ALLOWED_EMAILS` would erase the distinction the resolver
+  // exists to draw.
   const values = {
-    DATABASE_URL: process.env.DATABASE_URL,
+    DATABASE_URL: readSecret("DATABASE_URL"),
     APP_BASE_URL: process.env.APP_BASE_URL,
-    AUTH_SECRET: process.env.AUTH_SECRET,
+    AUTH_SECRET: readSecret("AUTH_SECRET"),
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_CLIENT_SECRET: readSecret("GOOGLE_CLIENT_SECRET"),
     ALLOWED_EMAILS: process.env.ALLOWED_EMAILS,
     SMTP_HOST: process.env.SMTP_HOST,
     SMTP_PORT: process.env.SMTP_PORT,
     SMTP_SSL: process.env.SMTP_SSL,
     SMTP_USERNAME: process.env.SMTP_USERNAME,
-    SMTP_PASSWORD: process.env.SMTP_PASSWORD,
+    SMTP_PASSWORD: readSecret("SMTP_PASSWORD"),
     MAIL_FROM: process.env.MAIL_FROM,
     MAIL_REPLY_TO: process.env.MAIL_REPLY_TO,
   };
@@ -245,7 +256,15 @@ export function getConfig(): AppConfig {
     recurrenceSchedulerEnabled,
     isProduction,
   };
-  process.env.DATABASE_URL ??= cached.databaseUrl;
+  // Publishes the development default to `getPool()`, and only ever that. A
+  // value read from `DATABASE_URL_FILE` must not travel this way: putting it
+  // into the environment is the one thing the `_FILE` form exists to prevent,
+  // and `getPool()` reaches a configured value through `readSecret` without any
+  // help from here. `??=` stays because nothing above this line sets the
+  // variable, so it is the fallback rather than an overwrite.
+  if (values.DATABASE_URL === undefined) {
+    process.env.DATABASE_URL ??= cached.databaseUrl;
+  }
   return cached;
 }
 

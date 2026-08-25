@@ -77,7 +77,7 @@ value does not qualify: the six inline `style` props in the client
 (`charts.tsx:270`, `charts.tsx:319`, `components.tsx:468`, `components.tsx:713`,
 `BudgetsPage.tsx:533`, `DashboardPage.tsx:194`) are all runtime geometry and are
 correct as they are. The count matters beyond tidiness: it is what
-`src/server/http-security.ts:20-27` reasons about when it declines
+`src/server/http-security.ts:21-28` reasons about when it declines
 `'unsafe-inline'`.
 
 *Not checked mechanically.* Section 3 proposes the ramps; the check that would
@@ -426,7 +426,7 @@ sans-serif` at `styles.css:95-97`. **Inter is never loaded.** There is no
 `apple-touch-icon.png`, `favicon.svg` and `theme-boot.js`), no stylesheet link,
 and the Content-Security-Policy declares no `font-src`, so it falls back to
 `default-src 'self'` and a CDN font would be blocked
-(`src/server/http-security.ts:20-30`,
+(`src/server/http-security.ts:21-31`,
 `deploy/docker/nginx-security-headers.conf:10`).
 
 So the app renders in the system font on every machine that does not happen to

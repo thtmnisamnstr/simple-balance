@@ -316,11 +316,20 @@ walkthrough in a guide and give the README its job back".
   get a fix, what is in scope, and what the server already guarantees, each
   linked to the document that argues it rather than restated.
 
-One gap, real and still work to do: **no Contributing section**, and the `More`
-list no longer stands in for one. It used to link `AGENTS.md` under the label
-Contributing, which answers a different question; the label now says what that
-file is. One line saying whether pull requests are accepted is what is missing,
-and it is a policy the owner makes rather than one this guide can settle.
+**Settled, within what a guide can settle.** The README now carries a
+`## Contributing` section between Security and Not built yet. It does not
+promise that a pull request will be taken — that is the owner's call and no
+guide can make it — and it says so in its first sentence rather than implying
+an answer by silence.
+
+What it does carry is the half that is not a policy question: which documents
+hold the rules, that `npm run verify` has to pass, that a change needs a test,
+which suites need a database, and that releases are not a contributor's to cut.
+Somebody who reads it knows what a serious change looks like before they spend
+an evening on one.
+
+The `More` list no longer labels `AGENTS.md` "Contributing", because that file
+answers a different question and the label now says what it is.
 
 *Checked by:* `tests/docs-conventions.test.ts`, on the presence of the Security
 section, the link behind it, and the `More` list no longer calling `AGENTS.md`
@@ -474,7 +483,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behaviour they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:1229-1236`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:1520-1527`: "`.strict()` is the load-bearing part: a
   filter this cannot honour is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -498,9 +507,22 @@ Three further rules:
   that did not exist, and a comment stating that six SQL expressions matched
   when one of them did not.
 
-Where the convention is absent, and this is work to do rather than an exemption:
-`src/server/services/errors.ts` has zero comment lines in 44, and every service
-depends on it; `src/server/services/audit.ts` has three in 50.
+Two files sit near zero and both are exemptions rather than gaps.
+`src/server/services/errors.ts` carries none in 43 because every choice in it a
+reader could get wrong is argued in [`code/errors.md`](code/errors.md): the six
+constructors and their statuses, why "not yours" is a 404, why `staleVersion` is
+separate and why its message is fixed at the constructor. Repeating that in the
+source would create the restatement `code/comments.md` §2 bans, plus a second
+copy to go stale, which the third rule above calls a defect.
+`src/server/services/audit.ts` carries three in 49, all on its one trap: a limit
+that parsed to `NaN` surviving `Math.min` into the query. The rest is the keyset
+page every list here shares.
+
+`code/comments.md` §3 has already decided this, in "Ordinary CRUD carries almost
+none, and should not", and §8 says why a density floor would be worse than none:
+it is gamed by exactly the restatement comments §2 bans. A density that
+tracks surprise will always leave some files at zero, and listing them proposes
+the threshold this set has argued against.
 
 *Not checked mechanically.* A grep for `TODO` and `FIXME` over `src/` would be
 one line and would hold the third rule above; it does not exist. Nothing else

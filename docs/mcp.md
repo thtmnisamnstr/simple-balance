@@ -58,6 +58,16 @@ and whether the user still has an authentication method enabled by the current
 - `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
 - `ledger:write`: every ledger operation, including direct and staged commits.
 
+The protected-resource discovery document advertises `ledger:read` alone,
+because that is what every connection needs and no more is worth asking somebody
+to approve before there is anything to approve it for. A client that wants
+`ledger:stage` or `ledger:write` asks for it in the authorization request. The
+refusal described below names the whole scope string that would have worked, and
+a client implementing the OAuth step-up turns that into a fresh consent prompt
+without being reconfigured. The wider grant is not sticky across a revoke and
+reconnect: an authorization started from scratch begins at read again, until the
+next refusal asks for more.
+
 Tools an agent has no scope for are left out of discovery entirely, so it never
 sees a tool it cannot call, and calling one anyway comes back as a 403 naming
 the scope that would have worked rather than as a missing name. A call that

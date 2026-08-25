@@ -6,6 +6,22 @@ Notable changes, newest first.
 
 ### Added
 
+Six secrets can be read from a file instead of the environment: `AUTH_SECRET`,
+`DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`
+and `SETUP_TOKEN`. Point `NAME_FILE` at a file whose contents are the value, and
+the value never enters the process environment, so nothing that dumps an
+environment can show it.
+
+Set one of `NAME` and `NAME_FILE`, never both. Both set refuses to start and
+names the variable, because a precedence rule is a rule somebody eventually
+changes the wrong half of. **This is the one thing to check before upgrading:**
+those `_FILE` names did nothing at all in 0.1.5, so a deployment already setting
+one beside its plain variable — out of habit from the PostgreSQL official
+image — starts refusing on this release and has to drop one of the two first.
+
+The bundled Helm chart and compose file still pass all six as environment
+variables; `docs/deployment.md` says what using the file form on either takes.
+
 Budgets. A limit per category per period, compared against what was actually
 spent, with nothing in it that writes a posting.
 
@@ -82,6 +98,48 @@ Nothing in the reports needed changing. Both counter-accounts already segment as
 operating in the cash flow statement, and spending by category already sums
 signed postings, so a refund lands correctly without any figure being taught
 what a refund is.
+
+Four API paths were renamed to the conventions the rest of them follow.
+`POST /api/v1/accounts/{id}/archive` and `POST /api/v1/categories/{id}/archive`
+are now `.../archived`, because they take `{"archived": boolean}` and that is a
+state rather than a verb, the way `POST /api/v1/transactions/{id}/deleted`
+already was. `POST /api/v1/staged-transactions/delete` is now
+`.../bulk-delete`, which is how the same operation over committed transactions
+has always been spelled; the two remain two routes, because one voids entries by
+posting their reversal and the other removes rows that never posted.
+`GET /api/v1/staged/{id}/duplicate` is now
+`GET /api/v1/staged-transactions/{id}/duplicate`, since there is no `staged`
+collection anywhere else. They were renamed rather than deprecated because
+`/api/v1` is cookie-only and same-origin, so the only client that could have
+been calling them ships in this image and was changed in the same commit. The
+MCP tools keep their names. A browser tab left open across the upgrade will get
+a 404 from the old paths until it is reloaded.
+
+Committing or deleting staged transactions now refuses a selection that leaves
+out the version for one of its own rows, and says which row, instead of
+reporting it as a version conflict on a row nothing had changed. A repeated id
+in the same selection is refused as a duplicate rather than reported as a row
+that could not be found. Both requests now refuse an unrecognised field instead
+of dropping it, which is what the same call over MCP already did: a body typing
+`expectedVersion` where the field is `expectedVersions` was refused for an agent
+and silently read as naming no versions at all for the browser.
+
+An MCP client is now told to ask for less. The protected-resource discovery
+document advertises `openid profile email offline_access ledger:read` rather
+than every scope this deployment supports, because a client builds its
+authorization request from that list and every scope in it is one more thing a
+person is asked to approve before there is anything to approve it for. The
+`ledger:stage` and `ledger:write` tiers are unchanged, still named on the
+consent screen, and still reachable: a call needing one comes back as a 403
+naming the whole scope string that would have worked, which a client
+implementing the OAuth step-up turns into a fresh consent prompt. The
+authorization-server document still lists all seven, because that is the
+question it answers.
+
+A version conflict reaching an agent now says to read the record again and retry
+with the version it reports, rather than to refresh and try again. An agent has
+nothing to refresh. The browser keeps its own wording, and the two sentences say
+the same thing happened.
 
 ### Fixed
 

@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1211-1295`, which is the
+which reads and writes files, and `src/server/api.ts:1258-1284`, which is the
 transport.
 
 ## 1. Why CSV, and why no apology
@@ -144,7 +144,7 @@ product has no export whose first record is not a header.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/api.ts:1230-1244`). It used to read the server clock, so somebody
+(`src/server/api.ts:1270-1284`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 
@@ -568,7 +568,7 @@ Three mechanisms, and they are deliberately not the same strictness:
    (`stagedDuplicateKey`, `src/server/services/transactions.ts:2494-2632`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:980`, `src/server/services/staging.ts:532-608`).
+   three (`src/shared/domain.ts:1004`, `src/server/services/staging.ts:532-608`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a
@@ -722,7 +722,7 @@ import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
 than by coincidence (`src/server/config-limits.ts:12`,
-`src/shared/domain.ts:907`). `CSV_MAX_ROWS` may lower it; raising it past the
+`src/shared/domain.ts:912`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.
 
@@ -739,11 +739,25 @@ the same number.
 *Checked by:* `tests/config-limits.test.ts`, `tests/bulk-row-cap.test.ts:44-95`,
 `tests/http-security.test.ts:259-305`.
 
-**Work to do: the two caps do not meet.** An export refuses past 100,000 rows
-(`listAllTransactions`, `src/server/services/transactions.ts:1314-1438`) and an
-import refuses past 10,000. A ledger between those two sizes exports as one file
-that its own importer will not take, and nothing in the product says to split it
-by date range.
+**Settled, and the gap is deliberate.** An export refuses past
+`CSV_EXPORT_MAX_ROWS` — 100,000 — and an import past `configuredCsvMaxRows()`,
+ten thousand by default. They are not made equal, and should not be: the import
+cap is a fact about what one mass action can then clear, so a file that stages
+more rows than a commit can handle is a cap doing damage, while the export is
+the way out and capping the way out at what one import can take would mean a
+forty-thousand-row ledger cannot leave this product whole.
+
+What closes the gap is both refusals naming the remedy rather than either
+number moving. The export says to narrow it with a start and end date; the
+import says a larger export can be filtered by date and taken a range at a
+time. The import page says the same without a figure, because `CSV_MAX_ROWS`
+can lower the server's cap and a browser promising more than the server accepts
+is worse than a browser saying nothing, and `export_transactions_csv` tells an
+agent the same thing.
+
+*Checked by:* `tests/bulk-row-cap.test.ts` ("the export cap against the import
+cap"), which asserts the direction rather than the numbers — an edit that
+quietly makes them equal fails — and that both refusals still name the remedy.
 
 **Settled: an empty export is a header-only file.** `rowsToCsv` used to return
 the empty string for zero rows, which has no header record, so an export

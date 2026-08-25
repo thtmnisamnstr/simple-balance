@@ -277,7 +277,7 @@ describe("bounded request bodies", () => {
       "/api/v1/transactions/bulk-delete",
       "/api/v1/transactions/bulk-selection",
       "/api/v1/staged-transactions/commit",
-      "/api/v1/staged-transactions/delete",
+      "/api/v1/staged-transactions/bulk-delete",
       "/api/v1/staged-transactions/bulk-edit",
       "/api/v1/staged-transactions/bulk-selection",
     ]) {
@@ -593,7 +593,7 @@ describe("which routes are sized for a bulk selection", () => {
     "/api/v1/transactions/bulk-delete",
     "/api/v1/transactions/bulk-selection",
     "/api/v1/staged-transactions/commit",
-    "/api/v1/staged-transactions/delete",
+    "/api/v1/staged-transactions/bulk-delete",
     "/api/v1/staged-transactions/bulk-edit",
     "/api/v1/staged-transactions/bulk-selection",
     "/api/v1/transaction-templates/bulk-edit",

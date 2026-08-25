@@ -258,7 +258,7 @@ export default function StagingPage() {
         selectedRows.map((stage) => [stage.id, stage.version]),
       );
       if (action === "delete") {
-        return api("/api/v1/staged-transactions/delete", {
+        return api("/api/v1/staged-transactions/bulk-delete", {
           ...json({
             stagedIds: selectedRows.map((stage) => stage.id),
             expectedVersions,
@@ -480,7 +480,7 @@ export default function StagingPage() {
   const rowMutation = useMutation({
     mutationFn: ({ stage, action }: { stage: StagedTransaction; action: "commit" | "delete" }) => {
       if (action === "delete") {
-        return api("/api/v1/staged-transactions/delete", {
+        return api("/api/v1/staged-transactions/bulk-delete", {
           ...json({
             stagedIds: [stage.id],
             expectedVersions: { [stage.id]: stage.version },

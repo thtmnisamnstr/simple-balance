@@ -196,6 +196,15 @@ export type RecurrenceTickOutcome =
  * rolled back is worse than no message: it names a queue that has nothing in it.
  */
 export type ProposedOccurrences = {
+  /**
+   * The row's own id, carried so a failed send can name it.
+   *
+   * The log must not carry the recurrence's name — that is somebody's own text
+   * and a log line is not the place for it — but "a recurrence proposal notice
+   * could not be sent" names a kind rather than a row, which is no help at all
+   * on a deployment with several. An id is neither private nor ambiguous.
+   */
+  recurrenceId: string;
   recurrenceName: string;
   notifyOnCreate: boolean;
   occurrenceDates: string[];
@@ -256,6 +265,7 @@ export async function proposeDueOccurrences(
     );
     if (proposable.length) {
       collect?.({
+        recurrenceId: row.id,
         recurrenceName: row.name,
         notifyOnCreate: row.notifyOnCreate,
         occurrenceDates: proposable.map((one) => one.occurrenceDate),

@@ -112,7 +112,7 @@ export default function AccountsPage({ session }: { session: Session }) {
   const mutation = useMutation({
     mutationFn: ({ account, action }: { account: Account; action: "archive" | "delete" }) =>
       action === "archive"
-        ? api<Account>(`/api/v1/accounts/${account.id}/archive`, {
+        ? api<Account>(`/api/v1/accounts/${account.id}/archived`, {
             ...json({
               expectedVersion: account.version,
               archived: !account.archivedAt,

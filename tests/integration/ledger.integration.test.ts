@@ -247,6 +247,21 @@ integration("PostgreSQL ledger integration", () => {
         dryRun: false,
       }),
     ).rejects.toMatchObject({ code: "STALE_VERSION" });
+    // A version left out is not a version that moved. Reporting it as a
+    // conflict sent the caller to reload rows nothing had changed; naming the
+    // row is the only answer either caller can act on.
+    await expect(
+      commitStages(first, {
+        stagedIds: [firstStage.id, secondStage.id],
+        expectedVersions: { [firstStage.id]: firstStage.version },
+        idempotencyKey: "integration-missing-version",
+        allowDuplicates: false,
+        dryRun: false,
+      }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      details: { stagedId: secondStage.id },
+    });
     const preview = await commitStages(first, {
       stagedIds: [firstStage.id, secondStage.id],
       expectedVersions: {

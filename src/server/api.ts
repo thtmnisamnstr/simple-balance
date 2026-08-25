@@ -225,6 +225,13 @@ app.onError((error, c) => {
 });
 
 app.get("/health/live", (c) => c.json({ status: "ok" }));
+// Deliberately one statement against the database, and nothing else.
+//
+// It does not check configuration, the migrations or the scheduler, and adding
+// any of those would take a working server out of rotation for a condition that
+// cannot change while it runs. The migration guarantee is ordering rather than
+// a probe: `runMigrations()` is awaited before the server listens, so a process
+// answering this route at all is a process that got past them.
 app.get("/health/ready", async (c) => {
   try {
     await getDb().execute(sql`select 1`);
@@ -706,8 +713,40 @@ app.post("/api/auth/oauth2/consent", async (c) => {
   return getAuth().handler(authRequest(c));
 });
 
+// Better Auth publishes a protected-resource document of its own under the auth
+// base path, built from `oidcConfig.metadata.scopes_supported`, and that is the
+// one a client reads first: `withMcpAuth`'s 401 challenge names
+// `<baseUrl>/api/auth/.well-known/oauth-protected-resource` as its
+// `resource_metadata`. Narrowing only the RFC 9728 paths below would have left
+// the advertisement everybody follows at seven scopes and corrected the one
+// nobody reads. Registered above the catch-all because Hono runs matching
+// handlers in registration order and the catch-all answers; and through an
+// arrow, because `protectedResourceMetadata` is declared further down and a
+// bare reference here would be read before its initialiser has run.
+app.get("/api/auth/.well-known/oauth-protected-resource", (c) => protectedResourceMetadata(c));
 app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)));
-const mcpScopes = [
+/**
+ * What each discovery document says this deployment supports.
+ *
+ * They answer two different questions and so give two different answers. RFC
+ * 8414's `scopes_supported` is what the authorization server accepts, and
+ * Better Auth's accept-list at `/authorize` really is the union of its four
+ * defaults with our three, so naming all seven there is true.
+ *
+ * RFC 9728's is the one a client builds its scope request from — the MCP SDK
+ * joins `scopes_supported` verbatim and prefers it to the client's own
+ * configured scope — so publishing every tier there is the mistake the security
+ * document names by hand: every fresh connection would ask for write access it
+ * has no use for. It advertises the default grant plus `offline_access`, which
+ * a long-lived client cannot work without because Better Auth issues a refresh
+ * token only when it was asked for.
+ *
+ * The two wider tiers stay accepted at `/authorize`, stay named on the consent
+ * screen, and stay reachable from the `insufficient_scope` challenge an
+ * under-scoped tool call answers with, which is what makes this narrowing a
+ * smaller first ask rather than a ceiling.
+ */
+const authorizationServerScopes = [
   "openid",
   "profile",
   "email",
@@ -716,6 +755,7 @@ const mcpScopes = [
   "ledger:stage",
   "ledger:write",
 ];
+const resourceScopes = ["openid", "profile", "email", "offline_access", "ledger:read"];
 const discoveryHeaders = (c: Context) => {
   // Discovery is read by clients that are not browsers and have no origin to
   // speak of, which is why the library marks it public. Re-wrapping the body
@@ -728,14 +768,14 @@ const authorizationServerMetadata = async (c: Context) => {
   discoveryHeaders(c);
   const response = await oAuthDiscoveryMetadata(getAuth())(c.req.raw);
   const metadata = (await response.json()) as Record<string, unknown>;
-  return c.json({ ...metadata, scopes_supported: mcpScopes });
+  return c.json({ ...metadata, scopes_supported: authorizationServerScopes });
 };
 
 const protectedResourceMetadata = async (c: Context) => {
   discoveryHeaders(c);
   const response = await oAuthProtectedResourceMetadata(getAuth())(c.req.raw);
   const metadata = (await response.json()) as Record<string, unknown>;
-  return c.json({ ...metadata, scopes_supported: mcpScopes });
+  return c.json({ ...metadata, scopes_supported: resourceScopes });
 };
 
 app.get("/.well-known/oauth-authorization-server", authorizationServerMetadata);
@@ -1013,7 +1053,7 @@ app.post("/api/v1/accounts", async (c) =>
 app.put("/api/v1/accounts/:id", async (c) =>
   c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),
 );
-app.post("/api/v1/accounts/:id/archive", async (c) => {
+app.post("/api/v1/accounts/:id/archived", async (c) => {
   const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
     await setAccountArchived(c.get("actor"), pathId(c), parsed.expectedVersion, parsed.archived),
@@ -1123,7 +1163,7 @@ app.post("/api/v1/categories", async (c) =>
 app.put("/api/v1/categories/:id", async (c) =>
   c.json(await updateCategory(c.get("actor"), pathId(c), await body(c))),
 );
-app.post("/api/v1/categories/:id/archive", async (c) => {
+app.post("/api/v1/categories/:id/archived", async (c) => {
   const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
     await setCategoryArchived(c.get("actor"), pathId(c), parsed.expectedVersion, parsed.archived),
@@ -1208,7 +1248,7 @@ app.post("/api/v1/staged-transactions/bulk-edit", async (c) =>
   c.json(await bulkEditStages(c.get("actor"), await body(c))),
 );
 
-app.post("/api/v1/staged-transactions/delete", async (c) =>
+app.post("/api/v1/staged-transactions/bulk-delete", async (c) =>
   c.json(await deleteStages(c.get("actor"), bulkDeleteStageSchema.parse(await body(c)))),
 );
 app.post("/api/v1/staged-transactions/commit", async (c) =>
@@ -1240,7 +1280,7 @@ app.get("/api/v1/csv/export", async (c) => {
 app.get("/api/v1/summary", async (c) =>
   c.json(await getSummary(c.get("actor"), query(c), includeArchivedFlag(c))),
 );
-app.get("/api/v1/staged/:id/duplicate", async (c) =>
+app.get("/api/v1/staged-transactions/:id/duplicate", async (c) =>
   c.json(await getStagedDuplicateReview(c.get("actor"), pathId(c))),
 );
 app.get("/api/v1/reports/:report", async (c) =>

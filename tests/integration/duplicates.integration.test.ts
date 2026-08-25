@@ -474,6 +474,67 @@ integration("transaction duplicate protection", () => {
     ).toHaveLength(1);
   });
 
+  /**
+   * The one tool whose input schema carries a field its service refuses.
+   *
+   * `delete_staged_transactions` adds `idempotencyKey` to a schema that is now
+   * strict, so handing the whole input back to the service would fail every
+   * call. Nothing static catches it — the service takes `unknown` — and
+   * `npm run verify` does not run this suite, so the only thing that can is a
+   * call over a real connection. The replay half matters for the same reason
+   * one level along: the recorded payload is deliberately the un-stripped
+   * input, because that is what every stored record was hashed from.
+   */
+  it("deletes a staged row over a real connection, and replays the same key", async () => {
+    const mcpActor: Actor = {
+      userId: actor.userId,
+      source: "mcp",
+      clientId: "staged-delete-client",
+    };
+    const server = createMcpServer(mcpActor, new Set(["ledger:stage"]));
+    const client = new Client({ name: "staged-delete-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const doomed = await createStage(actor, {
+      draft: {
+        type: "deposit",
+        date: "2026-08-12",
+        payee: "Staged delete over MCP",
+        description: "Staged delete over MCP",
+        toAccountId: stagedAccountId,
+        amount: "7.65",
+      },
+      idempotencyKey: "mcp-staged-delete-stage",
+    });
+    const deleteArguments = {
+      stagedIds: [doomed.id],
+      expectedVersions: { [doomed.id]: doomed.version },
+      idempotencyKey: "mcp-staged-delete",
+    };
+    const first = await client.callTool({
+      name: "delete_staged_transactions",
+      arguments: deleteArguments,
+    });
+    expect(first.isError).not.toBe(true);
+    expect(first.structuredContent).toMatchObject({
+      result: { deletedIds: [doomed.id], dryRun: false },
+    });
+
+    const replay = await client.callTool({
+      name: "delete_staged_transactions",
+      arguments: deleteArguments,
+    });
+    expect(replay.isError).not.toBe(true);
+    expect(replay.structuredContent).toEqual(first.structuredContent);
+
+    await client.close();
+    await server.close();
+
+    expect((await getStage(actor, doomed.id)).status).toBe("deleted");
+  });
+
   it("serializes concurrent direct-service retries before reading idempotency", async () => {
     const draft: TransactionDraft = {
       type: "deposit",
