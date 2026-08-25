@@ -5,8 +5,8 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 48 | `npm test` | nothing |
-| Unit (jsdom) | 33 | `npm test` | nothing |
+| Unit (node) | 69 | `npm test` | nothing |
+| Unit (jsdom) | 36 | `npm test` | nothing |
 | Integration | 52 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
@@ -18,15 +18,21 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 82 pass, 51 skip | **812 pass, 570 skip** |
-| `npm test`, database set | 133 pass | **1,382 pass** |
-| `npm run test:integration` | 52 pass | 571 pass |
+| `npm test`, no database | 106 pass, 51 skip | **1,027 pass, 582 skip** |
+| `npm test`, database set | 157 pass | **1,609 pass** |
+| `npm run test:integration` | 52 pass | 583 pass |
 
-The first row is what CI and `npm run verify` see, and 812 is the number that
+The first row is what CI and `npm run verify` see, and 1,027 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
 because it is easy to make: both commands print a large green number.
+
+The file counts in both tables are held by `tests/testing-guide-counts.test.ts`,
+which counts the files on disk and reads the numbers back out of this page. The
+test counts beside them are not: they move with every test anyone adds, and a
+check that has to be updated by the change it is checking teaches people to
+update it without reading it. Read those four as the ratio they illustrate.
 
 ## 1. Choosing a tier
 

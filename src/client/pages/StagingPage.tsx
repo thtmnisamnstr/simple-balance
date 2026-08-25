@@ -244,6 +244,13 @@ export default function StagingPage() {
   });
 
   useEffect(() => {
+    // A selection is accumulated rather than worked out, so there is nothing to
+    // derive during render; and there is no event to hang this on either. The
+    // search settles on a debounce timer and the date range is shared with the
+    // rest of the app, so neither arrives through a handler on this page.
+    // Watching the filters themselves is what makes every route to a new one
+    // drop the selection, rather than only the ones somebody remembered.
+    // oxlint-disable-next-line react/set-state-in-effect
     setSelected(new Map());
     setAllowDuplicates(false);
     setBulkEditing(false);

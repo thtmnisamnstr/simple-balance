@@ -2,26 +2,27 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 /**
- * A ratchet on the lint warnings this repository has not cleared yet.
+ * A ratchet on lint warnings this repository has not cleared yet, now empty.
  *
  * Every rule in `.oxlintrc.json` is either denied, in which case a violation
  * fails `npm run lint` and never reaches here, or turned off with its reason
- * written down in `docs/standards/code/`. These three are the exception: real
+ * written down in `docs/standards/code/`. Three were neither for a while: real
  * findings, worth fixing, too many to fix in the change that turned the linter
- * on. Left as bare warnings they would be read once and then scrolled past.
+ * on. Left as bare warnings they would have been read once and scrolled past,
+ * so the count was written down and this test refused to let it grow.
  *
- * So the count is written down, and this test refuses to let it grow. Fixing
- * some is expected to break this test; the fix is to lower the number in the
- * same commit, which is the point. Raising a number here is a decision somebody
- * has to make on purpose, in a diff a reviewer can see.
+ * All three are cleared and all three are now `deny`, which is a stronger guard
+ * than a budget of zero — the next one fails `npm run lint` rather than waiting
+ * for the suite. What is left here is the part a lint config cannot do: catch a
+ * rule that starts warning and that nobody has decided about.
  *
- * The budget is per rule rather than a single total, because one rule going
- * down while another goes up is not progress and a total would hide it.
+ * The budget map is deliberately still per rule rather than a single total. One
+ * rule going down while another goes up is not progress, and a total hides it.
  */
 const BUDGET: Record<string, number> = {
-  "react-hooks(exhaustive-deps)": 17,
-  "react(set-state-in-effect)": 13,
-  "react(use-memo)": 1,
+  "react-hooks(exhaustive-deps)": 0,
+  "react(set-state-in-effect)": 0,
+  "react(use-memo)": 0,
 };
 
 type Diagnostic = { code?: string; severity?: string };

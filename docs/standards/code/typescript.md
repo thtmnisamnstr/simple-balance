@@ -248,8 +248,8 @@ One function, two callers, one sentence. See `errors.md`.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
-| 2.1 `any` does not appear | `no-explicit-any` sits outside `correctness`. Turning it on is free today and would hold the zero. |
 | 2.2 Assertions carry a reason | Not mechanisable. |
-| 3.3 `shared` imports nothing upward | A dependency-direction test would catch it; nothing does yet. |
 
-Three `human` rules in this guide.
+One `human` rule in this guide, down from three. Both that went are now
+tests: `tests/no-explicit-any.test.ts` holds the zero in 2.1, and
+`tests/module-boundaries.test.ts` walks the import graph for 3.3.

@@ -698,4 +698,38 @@ describe("transaction mass selection", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(row).not.toBeChecked();
   });
+
+  // The reset that clears a selection keys off the filter fingerprint, and the
+  // function it calls first has to keep the same identity between renders. Were
+  // it rebuilt each time, the effect would read every render as a new filter,
+  // write a fresh empty selection, and go round again — a screen that never
+  // settles and a checkbox that will not stay ticked.
+  it("keeps a selection across renders that leave the filter alone", async () => {
+    vi.stubGlobal("fetch", baseFetch());
+    renderBrowser({ fixedAccountId: checking.id, showDateRange: false });
+
+    const rows = await screen.findAllByRole("checkbox", {
+      name: /Select transaction /,
+    });
+    fireEvent.click(rows[0]!);
+    fireEvent.click(rows[1]!);
+    expect(screen.getByText("2 transactions selected")).toBeInTheDocument();
+
+    // Opening and closing the mass editor renders repeatedly and changes no
+    // filter, so the selection it is about has to survive it.
+    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Mass edit transactions",
+    });
+    expect(screen.getByText("2 transactions selected")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.getByText("2 transactions selected")).toBeInTheDocument();
+
+    // And a filter that really does move still drops it, because a selection
+    // made against one view means nothing against another.
+    fireEvent.change(screen.getByLabelText("Transaction type"), {
+      target: { value: "deposit" },
+    });
+    await waitFor(() => expect(screen.queryByText(/transactions selected/)).toBeNull());
+  });
 });

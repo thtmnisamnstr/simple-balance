@@ -77,6 +77,46 @@ function accountAllowed(field: "fromAccountId" | "toAccountId", type: string) {
   return side === "both" || side === field;
 }
 
+/**
+ * The two column labels a sort can key on, and the lookups behind them. They
+ * take the lists they read rather than closing over them, because `filtered`
+ * sorts by both: a closure built in the component body is a new function every
+ * render, so the memo would have to name a dependency that always differs and
+ * recompute every time, or name the data instead and leave a dependency array
+ * nothing can check. Passed the list, the array says exactly what it recomputes
+ * on and the linter can confirm it.
+ */
+const accountName = (accounts: Account[] | undefined, id: string | undefined) =>
+  id ? accounts?.find((account) => account.id === id)?.name : undefined;
+
+const categoryName = (categories: Category[] | undefined, id: string | undefined) =>
+  id ? categories?.find((category) => category.id === id)?.name : undefined;
+
+/**
+ * What a template's category column says, whether it holds one category or a
+ * split. A template's legs carry no amounts of their own, so the first is as
+ * good a name for the row as any and the badge carries the rest.
+ */
+function categoryLabel(categories: Category[] | undefined, template: TransactionTemplate) {
+  const legs = template.draft.legs;
+  if (!legs?.length) return categoryName(categories, template.draft.categoryId);
+  return categoryName(categories, legs[0]!.categoryId) ?? legs[0]!.categoryName ?? undefined;
+}
+
+function accountLabel(accounts: Account[] | undefined, template: TransactionTemplate) {
+  const { draft } = template;
+  if (draft.type === "transfer" || (!draft.type && draft.fromAccountId && draft.toAccountId)) {
+    const from = accountName(accounts, draft.fromAccountId);
+    const to = accountName(accounts, draft.toAccountId);
+    if (!draft.fromAccountId && !draft.toAccountId) return null;
+    return `${from ?? "Unavailable"} → ${to ?? "Unavailable"}`;
+  }
+  const id =
+    draft.type === "deposit" ? draft.toAccountId : (draft.fromAccountId ?? draft.toAccountId);
+  if (!id) return null;
+  return accountName(accounts, id) ?? "Unavailable";
+}
+
 export default function TemplatesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -123,35 +163,6 @@ export default function TemplatesPage() {
     queryFn: () => api<Category[]>("/api/v1/categories"),
   });
 
-  const accountName = (id: string | undefined) =>
-    id ? accounts.data?.find((account) => account.id === id)?.name : undefined;
-  const categoryName = (id: string | undefined) =>
-    id ? categories.data?.find((category) => category.id === id)?.name : undefined;
-  /**
-   * What a template's category column says, whether it holds one category or a
-   * split. A template's legs carry no amounts of their own, so the first is as
-   * good a name for the row as any and the badge carries the rest.
-   */
-  const categoryLabel = (template: TransactionTemplate) => {
-    const legs = template.draft.legs;
-    if (!legs?.length) return categoryName(template.draft.categoryId);
-    return categoryName(legs[0]!.categoryId) ?? legs[0]!.categoryName ?? undefined;
-  };
-
-  const accountLabel = (template: TransactionTemplate) => {
-    const { draft } = template;
-    if (draft.type === "transfer" || (!draft.type && draft.fromAccountId && draft.toAccountId)) {
-      const from = accountName(draft.fromAccountId);
-      const to = accountName(draft.toAccountId);
-      if (!draft.fromAccountId && !draft.toAccountId) return null;
-      return `${from ?? "Unavailable"} → ${to ?? "Unavailable"}`;
-    }
-    const id =
-      draft.type === "deposit" ? draft.toAccountId : (draft.fromAccountId ?? draft.toAccountId);
-    if (!id) return null;
-    return accountName(id) ?? "Unavailable";
-  };
-
   const currencyFor = (template: TransactionTemplate) => {
     const { draft } = template;
     const id =
@@ -177,7 +188,7 @@ export default function TemplatesPage() {
         case "payee":
           return template.draft.payee ?? null;
         case "account":
-          return accountLabel(template);
+          return accountLabel(accounts.data, template);
         case "used":
           return template.totalTransactionCount ?? 0;
         // Ranked rather than alphabetical: a reminder still to come outranks one
@@ -186,7 +197,7 @@ export default function TemplatesPage() {
         case "reminder":
           return template.notification ? (template.notification.nextNotificationDate ? 2 : 1) : 0;
         default:
-          return categoryLabel(template) ?? null;
+          return categoryLabel(categories.data, template) ?? null;
       }
     };
     return [...rows].sort((left, right) => {
@@ -493,8 +504,8 @@ export default function TemplatesPage() {
               </thead>
               <tbody>
                 {visible.map((template) => {
-                  const account = accountLabel(template);
-                  const category = categoryName(template.draft.categoryId);
+                  const account = accountLabel(accounts.data, template);
+                  const category = categoryName(categories.data, template.draft.categoryId);
                   return (
                     <tr key={template.id}>
                       <td className="checkbox-cell">
@@ -521,7 +532,7 @@ export default function TemplatesPage() {
                       <td>
                         {template.draft.legs?.length ? (
                           <div className="transaction-payee">
-                            <span>{categoryLabel(template) ?? "Unavailable"}</span>
+                            <span>{categoryLabel(categories.data, template) ?? "Unavailable"}</span>
                             <Badge tone="blue">Split · {template.draft.legs.length}</Badge>
                           </div>
                         ) : template.draft.categoryId ? (

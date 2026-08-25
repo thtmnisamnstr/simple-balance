@@ -21,6 +21,8 @@ import {
   type CategoryKind,
   type RecurrenceFrequencyName,
   type RecurrenceOrdinal,
+  type RecurrenceSchedule,
+  type TemplateNotification,
   type UserAccountType,
   type TransactionDraft,
   type TransactionTemplateDraft,
@@ -527,13 +529,11 @@ function TransactionTypeChoice(props: TransactionTypeChoiceProps) {
  */
 function CategoryPicker({
   categories,
-  type,
   categoryId,
   categoryName,
   onChange,
 }: {
   categories: Category[];
-  type: TransactionType | "";
   categoryId: string;
   categoryName: string;
   onChange: (categoryId: string, categoryName: string) => void;
@@ -546,7 +546,7 @@ function CategoryPicker({
       // picker made one impossible to enter. What it costs is that the list is
       // longer; what the filter cost was a whole shape of entry.
       categories.filter((category) => !category.archivedAt || category.id === categoryId),
-    [categories, categoryId, type],
+    [categories, categoryId],
   );
 
   const normalized = normalizeHumanName(categoryName);
@@ -607,7 +607,6 @@ function CategoryPicker({
  */
 function CategoryLegs({
   categories,
-  type,
   categoryId,
   categoryName,
   onCategoryChange,
@@ -617,7 +616,6 @@ function CategoryLegs({
   requireBalance = true,
 }: {
   categories: Category[];
-  type: TransactionType | "";
   categoryId: string;
   categoryName: string;
   onCategoryChange: (categoryId: string, categoryName: string) => void;
@@ -643,7 +641,6 @@ function CategoryLegs({
       <div className="category-legs">
         <CategoryPicker
           categories={categories}
-          type={type}
           categoryId={categoryId}
           categoryName={categoryName}
           onChange={onCategoryChange}
@@ -677,7 +674,6 @@ function CategoryLegs({
         <div className="category-leg" key={leg.id || `new-${index}`}>
           <CategoryPicker
             categories={categories}
-            type={type}
             categoryId={leg.categoryId}
             categoryName={leg.categoryName}
             onChange={(nextId, nextName) =>
@@ -750,19 +746,6 @@ function CategoryLegs({
 }
 
 /**
- * Editing what a template remembers.
- *
- * Its own form rather than the transaction form with pieces switched off,
- * because what it collects genuinely differs: every field may be left blank, no
- * date is recorded at all, and nothing here can be committed or staged. The two
- * pieces that carry real behaviour - the payee suggestions and the category
- * matching - are shared components, so the rules that matter cannot drift
- * between them.
- *
- * The rule the whole form turns on: a field left blank is not saved. It is
- * filled in when the template is used.
- */
-/**
  * Whether this deployment can send mail, for the two forms that offer to send
  * some. Undefined until it is known, so neither claims anything before it is.
  *
@@ -779,6 +762,62 @@ function useNotificationsAvailable() {
   return options.data ? options.data.notificationsAvailable : undefined;
 }
 
+/**
+ * The dates a reminder will actually send on, the way the schedule section of a
+ * recurrence previews its own.
+ *
+ * Seeded from the day before the anchor, which is what the scheduler does, so
+ * the anchor itself is the first thing owed and the list starts where somebody
+ * expects. Unlike a recurrence there is no floor: a reminder anchored in the
+ * past is somebody asking to be told about something they have already missed,
+ * and the sweep collapses that backlog into one message.
+ */
+function reminderSendDates(
+  rule: TemplateNotification,
+): { occurrenceDate: string; postedDate: string | null }[] {
+  // A one-off owes exactly one, on its anchor, and refuses the policies that
+  // could move it.
+  if (rule.frequency === null) {
+    return [{ occurrenceDate: rule.anchorDate, postedDate: rule.anchorDate }];
+  }
+  // Built out rather than spread: the contract leaves these optional, and the
+  // defaults here are the ones the stored row carries, so the preview walks
+  // exactly the schedule the scheduler will.
+  const repeating = {
+    frequency: rule.frequency,
+    interval: rule.interval ?? 1,
+    anchorDate: rule.anchorDate,
+    monthPolicy: rule.monthPolicy ?? "last_day",
+    weekendPolicy: rule.weekendPolicy ?? "allow",
+    position: rule.position ?? null,
+  };
+  const dates: { occurrenceDate: string; postedDate: string | null }[] = [];
+  let cursor = addDays(rule.anchorDate, -1);
+  try {
+    for (let attempts = 0; dates.length < 5 && attempts < 60; attempts += 1) {
+      const next = nextOccurrenceAfter(repeating, cursor);
+      cursor = next.occurrenceDate;
+      dates.push(next);
+    }
+  } catch {
+    return [];
+  }
+  return dates;
+}
+
+/**
+ * Editing what a template remembers.
+ *
+ * Its own form rather than the transaction form with pieces switched off,
+ * because what it collects genuinely differs: every field may be left blank, no
+ * date is recorded at all, and nothing here can be committed or staged. The two
+ * pieces that carry real behaviour - the payee suggestions and the category
+ * matching - are shared components, so the rules that matter cannot drift
+ * between them.
+ *
+ * The rule the whole form turns on: a field left blank is not saved. It is
+ * filled in when the template is used.
+ */
 export function TemplateForm({
   accounts,
   categories,
@@ -892,6 +931,10 @@ export function TemplateForm({
   // refund and clearing it would delete the very thing somebody selected.
   useEffect(() => {
     if (categoryId && type === "transfer") {
+      // A change to what is stored, not a value derived from the type. Derived,
+      // switching to Transfer and back would hand the category back, and the
+      // draft would go on carrying one the form has stopped showing.
+      // oxlint-disable-next-line react/set-state-in-effect
       setCategoryId("");
       setCategoryName("");
     }
@@ -901,52 +944,21 @@ export function TemplateForm({
   // selected, which would be a refusal nobody could see the cause of.
   useEffect(() => {
     if (reminderBusinessDayBlocked && reminderWeekendPolicy.endsWith("business_day")) {
+      // Stored for the same reason. Once the interval that forbade the policy is
+      // gone the choice stays where this put it, which is what makes the note
+      // explaining the reset true; a derivation would quietly restore it.
+      // oxlint-disable-next-line react/set-state-in-effect
       setReminderWeekendPolicy("allow");
     }
   }, [reminderBusinessDayBlocked, reminderWeekendPolicy]);
 
-  /**
-   * The dates this reminder will actually send on, the way the schedule section
-   * of a recurrence previews its own.
-   *
-   * Seeded from the day before the anchor, which is what the scheduler does, so
-   * the anchor itself is the first thing owed and the list starts where somebody
-   * expects. Unlike a recurrence there is no floor: a reminder anchored in the
-   * past is somebody asking to be told about something they have already missed,
-   * and the sweep collapses that backlog into one message.
-   */
-  const reminderPreview = useMemo(() => {
-    if (!parsedReminder?.success) return [];
-    const rule = parsedReminder.data;
-    // A one-off owes exactly one, on its anchor, and refuses the policies that
-    // could move it.
-    if (rule.frequency === null) {
-      return [{ occurrenceDate: rule.anchorDate, postedDate: rule.anchorDate }];
-    }
-    // Built out rather than spread: the contract leaves these optional, and the
-    // defaults here are the ones the stored row carries, so the preview walks
-    // exactly the schedule the scheduler will.
-    const repeating = {
-      frequency: rule.frequency,
-      interval: rule.interval ?? 1,
-      anchorDate: rule.anchorDate,
-      monthPolicy: rule.monthPolicy ?? "last_day",
-      weekendPolicy: rule.weekendPolicy ?? "allow",
-      position: rule.position ?? null,
-    };
-    const dates: { occurrenceDate: string; postedDate: string | null }[] = [];
-    let cursor = addDays(rule.anchorDate, -1);
-    try {
-      for (let attempts = 0; dates.length < 5 && attempts < 60; attempts += 1) {
-        const next = nextOccurrenceAfter(repeating, cursor);
-        cursor = next.occurrenceDate;
-        dates.push(next);
-      }
-    } catch {
-      return [];
-    }
-    return dates;
-  }, [parsedReminder?.success, JSON.stringify(parsedReminder?.data ?? null)]);
+  // Worked out during render rather than memoised. The only honest dependency
+  // is the parse result, which `safeParse` rebuilds every render, so a
+  // `useMemo` keyed on it would never hit - and this one got around that by
+  // stringifying the parsed rule, which costs more than the five dates it was
+  // saving. Keying on the fields instead is the alternative that looks cheaper
+  // and is not: it is what the recurrence preview did, and it went stale.
+  const reminderPreview = parsedReminder?.success ? reminderSendDates(parsedReminder.data) : [];
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -1085,7 +1097,6 @@ export function TemplateForm({
         <Field label="Category" hint="Optional">
           <CategoryLegs
             categories={categories}
-            type={type}
             categoryId={categoryId}
             categoryName={categoryName}
             onCategoryChange={(nextId, nextName) => {
@@ -1515,7 +1526,13 @@ export function TransactionForm({
     placeholderData: (previous) => previous,
   });
 
+  // Seeding state from a query that had not resolved at mount, which is the one
+  // copy `docs/standards/code/client.md` §1.1 allows. The defaults above read
+  // `accounts[0]` while the list is still empty, so without this the form opens
+  // on a fresh session with no account chosen and the select showing nothing.
+  // Only ever fills a blank: from here the field is the person's to change.
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect
     if (!fromAccountId && accounts[0]) setFromAccountId(accounts[0].id);
     if (!toAccountId && accounts[0]) setToAccountId(accounts[0].id);
   }, [accounts, fromAccountId, toAccountId]);
@@ -1524,6 +1541,13 @@ export function TransactionForm({
   // none. Against-the-direction is a refund, not a mismatch.
   useEffect(() => {
     if (categoryId && type === "transfer") {
+      // The template form's twin, and stored for the same reason: derived, the
+      // category would come back on switching away from Transfer, and the save
+      // that followed would file the entry under one the form had already
+      // forgotten. Nothing reads it while the type is Transfer - the picker is
+      // not rendered and the submit carries `initial`'s category through - so
+      // the clear is only ever about what comes back afterwards.
+      // oxlint-disable-next-line react/set-state-in-effect
       setCategoryId("");
       setCategoryName("");
     }
@@ -1534,16 +1558,36 @@ export function TransactionForm({
   // for a withdrawal, and leaving the state set would go on sending expense on
   // an entry whose form never said so.
   useEffect(() => {
+    // Every route into a new type resets it - the picker, a template being
+    // applied, the reset after saving another - so this belongs on the change
+    // rather than in the one handler somebody would remember to update. The
+    // choice itself has to survive every render where the type has not moved,
+    // which is what stops it being derived.
+    // oxlint-disable-next-line react/set-state-in-effect
     setCategoryKind("");
   }, [type]);
 
-  // A category chosen somewhere other than this field - editing an existing
-  // transaction, or a link that prefills one - still has to show its name.
-  useEffect(() => {
-    if (!categoryId) return;
-    const selected = categories.find((category) => category.id === categoryId);
-    if (selected && selected.name !== categoryName) setCategoryName(selected.name);
-  }, [categories, categoryId]);
+  /**
+   * The name the picker shows, for a category chosen somewhere other than this
+   * field - editing an existing transaction, or a link that prefills one.
+   *
+   * Worked out during render rather than copied into the state behind the field,
+   * because an id and a name are not two facts to keep in step: while an id is
+   * set the category list decides the name, and typing clears the id in the same
+   * change, so the typed text takes over the moment there is no id. As state it
+   * was a copy that lagged the categories query by a render, and the effect that
+   * kept it up to date could not name the state it read without re-running on
+   * every keystroke.
+   *
+   * Only the field needs it, and everywhere else the two already agree. The
+   * submit sends a name only when `categoryId` is empty. `namedKinds` below
+   * carries the name alongside the id but resolves by id first, and only falls
+   * back to the name when the id names nothing this list has - which is the
+   * same case this derivation falls back in.
+   */
+  const shownCategoryName =
+    (categoryId ? categories.find((category) => category.id === categoryId)?.name : undefined) ??
+    categoryName;
 
   const source = accounts.find((account) => account.id === fromAccountId);
   const destination = accounts.find((account) => account.id === toAccountId);
@@ -2130,9 +2174,8 @@ export function TransactionForm({
           <CategoryLegs
             key={categoryPickerVersion}
             categories={categories}
-            type={type}
             categoryId={categoryId ?? ""}
-            categoryName={categoryName}
+            categoryName={shownCategoryName}
             onCategoryChange={(nextId, nextName) => {
               setCategoryId(nextId);
               setCategoryName(nextName);
@@ -2313,6 +2356,35 @@ export function scheduleSentence(schedule: {
 }
 
 /**
+ * The next five dates a recurrence will actually propose on.
+ *
+ * The floor is the scheduler's own: it proposes nothing dated before the day the
+ * recurrence may first reach back to, so a policy that moves an occurrence
+ * backwards over that line produces no row. Showing it here would promise a date
+ * no tick will ever write.
+ */
+function recurrenceProposalDates(
+  rule: RecurrenceSchedule,
+  watermark: { proposesFrom: string; lastOccurrenceDate: string | null },
+): { occurrenceDate: string; postedDate: string | null }[] {
+  const dates: { occurrenceDate: string; postedDate: string | null }[] = [];
+  let cursor = scheduleCursor(watermark);
+  try {
+    for (let attempts = 0; dates.length < 5 && attempts < 60; attempts += 1) {
+      const next = nextOccurrenceAfter(rule, cursor);
+      cursor = next.occurrenceDate;
+      // A skipped occurrence stays: the list says so, and "your 31st schedule
+      // skips February" is worth seeing. Only a date the floor will swallow is
+      // dropped, because that one is a promise no tick will keep.
+      if (next.postedDate === null || next.postedDate >= watermark.proposesFrom) dates.push(next);
+    }
+  } catch {
+    return [];
+  }
+  return dates;
+}
+
+/**
  * A standing instruction, and its own form for the reason a template has one.
  *
  * It collects a shape with no date, because the schedule supplies that, and a
@@ -2429,6 +2501,10 @@ export function RecurrenceForm({
 
   useEffect(() => {
     if (businessDayBlocked && weekendPolicy.endsWith("business_day")) {
+      // The reminder form's twin, and stored for the same reason: the reset has
+      // to hold once the interval that forbade the policy is gone, or typing 3
+      // back would silently return a schedule nobody asked for a second time.
+      // oxlint-disable-next-line react/set-state-in-effect
       setWeekendPolicy("allow");
     }
   }, [businessDayBlocked, weekendPolicy]);
@@ -2457,6 +2533,11 @@ export function RecurrenceForm({
     const usable = (category: Category) => !category.archivedAt;
     const selected = categories.find((category) => category.id === categoryId);
     if (selected && !usable(selected)) {
+      // Synchronising with the categories query: archiving happens on another
+      // page and arrives here on a refetch. Cleared rather than derived because
+      // somebody now has to choose again, and a name derived away on render
+      // would leave the field looking merely empty on the next save.
+      // oxlint-disable-next-line react/set-state-in-effect
       setCategoryId("");
       setCategoryName("");
     }
@@ -2471,51 +2552,22 @@ export function RecurrenceForm({
     if (keptLegs.some((leg, index) => leg !== legs[index])) setLegs(keptLegs);
   }, [categories, categoryId, legs, type]);
 
-  const preview = useMemo(() => {
-    if (!parsedSchedule.success) return [];
-    const rule = parsedSchedule.data;
-    const dates = [];
-    // The watermark the scheduler will seek from, not one derived from the
-    // anchor. A positioned rule's first occurrence can fall earlier in the
-    // anchor's month, so seeding from the anchor previewed a first date the
-    // scheduler would skip straight past.
-    let cursor = scheduleCursor(
-      recurrence
-        ? {
-            proposesFrom: recurrence.proposesFrom,
-            lastOccurrenceDate: recurrence.lastOccurrenceDate,
-          }
-        : { proposesFrom: today, lastOccurrenceDate: null },
-    );
-    try {
-      // The floor the scheduler applies too: it proposes nothing dated before
-      // the day the recurrence may first reach back to, so a policy that moves
-      // an occurrence backwards over that line produces no row. Showing it here
-      // promises a date no tick will ever write.
-      const floor = recurrence?.proposesFrom ?? today;
-      for (let attempts = 0; dates.length < 5 && attempts < 60; attempts += 1) {
-        const next = nextOccurrenceAfter(rule, cursor);
-        cursor = next.occurrenceDate;
-        // A skipped occurrence stays: the list says so, and "your 31st schedule
-        // skips February" is worth seeing. Only a date the floor will swallow
-        // is dropped, because that one is a promise no tick will keep.
-        if (next.postedDate === null || next.postedDate >= floor) dates.push(next);
-      }
-    } catch {
-      return [];
-    }
-    return dates;
-  }, [
-    anchorDate,
-    frequency,
-    intervalNumber,
-    monthPolicy,
-    ordinal,
-    today,
-    usesPosition,
-    weekday,
-    weekendPolicy,
-  ]);
+  // The watermark the scheduler will seek from, not one derived from the anchor.
+  // A positioned rule's first occurrence can fall earlier in the anchor's month,
+  // so seeding from the anchor previewed a first date the scheduler would skip
+  // straight past.
+  const previewWatermark = recurrence
+    ? { proposesFrom: recurrence.proposesFrom, lastOccurrenceDate: recurrence.lastOccurrenceDate }
+    : { proposesFrom: today, lastOccurrenceDate: null };
+  // Worked out during render rather than memoised, for the reason the reminder
+  // preview is. The dependency array named the fields the schedule is built from
+  // rather than the parse result it reads, and those are not the same set:
+  // `intervalNumber` is null for an interval of "abc" and null again for a blank
+  // field, while only the blank one parses, so typing over either with the other
+  // left whichever list was already on screen.
+  const preview = parsedSchedule.success
+    ? recurrenceProposalDates(parsedSchedule.data, previewWatermark)
+    : [];
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -2684,7 +2736,6 @@ export function RecurrenceForm({
         <Field label="Category" hint="Optional">
           <CategoryLegs
             categories={categories}
-            type={type}
             categoryId={categoryId}
             categoryName={categoryName}
             onCategoryChange={(nextId, nextName) => {

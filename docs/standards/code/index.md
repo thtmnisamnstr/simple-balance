@@ -56,9 +56,11 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 26 `human` rules across the seven guides** — 21 in the six that
+**There are 20 `human` rules across the seven guides** — 15 in the six that
 enforce something, and five in `comments.md`, which argues rather than enforces
-and says so. That number is in this table so that it embarrasses somebody.
+and says so. It was 26. Six became tests in one pass, which is what this
+number is for: it is written down so that it embarrasses somebody into moving
+it, and it worked. Each of the six names the test that took it over.
 
 ## The toolchain, and what it was chosen over
 
@@ -97,7 +99,7 @@ thing they ever see:
 | `typescript`, `unicorn`, `oxc` | — | On by default, and listed explicitly in `.oxlintrc.json` so that the set is readable from one place rather than being partly implicit. They contribute nothing today; `unicorn` and `oxc` between them found four of the original eight findings. |
 | `import`, `promise`, `node`, `react-perf` | 0 each | On. |
 | `jsx-a11y` | 38 | On, with five rules off. See below. |
-| `react` | 31 | On as warnings, under a budget: `react-hooks/exhaustive-deps` (17), `react/set-state-in-effect` (13) and `react/use-memo` (1). See `client.md`. |
+| `react` | 31 | **Denied**, at zero. It found 31 — `react-hooks/exhaustive-deps` (17), `react/set-state-in-effect` (13), `react/use-memo` (1) — which were carried under a per-rule budget until each had been decided one at a time. See `client.md`. |
 | `vitest` | 231 | **Off.** 163 of the 231 are false against Vitest's own API. See `testing.md`. |
 
 One `eslint` rule is off. **`no-control-regex`** flags a regular expression that

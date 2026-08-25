@@ -21,9 +21,15 @@
     "jsx-a11y/prefer-tag-over-role": "off",
     "jsx-a11y/anchor-has-content": "off",
     "jsx-a11y/no-autofocus": "off",
-    "react-hooks/exhaustive-deps": "warn",
-    "react/set-state-in-effect": "warn",
-    "react/use-memo": "warn"
+    "react-hooks/exhaustive-deps": "deny",
+    "react/set-state-in-effect": "deny",
+    "react/use-memo": "deny"
   },
-  "ignorePatterns": ["dist", "node_modules", "drizzle", "public", "coverage"]
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    "drizzle",
+    "public",
+    "coverage"
+  ]
 }

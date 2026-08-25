@@ -149,7 +149,8 @@ instances starting together must not both migrate.
 | --- | --- |
 | 1.3 Additive by default | A migration linter could catch `drop column`; none exists. |
 | 3.1 One grid query | Nothing stops a second one being written. |
-| 3.4 Counts are cast | Grep-able, not grepped. |
 | 4.1 Locks before name reads | A missing lock produces a rare duplicate, which no test will reliably reproduce. |
 
-Four `human` rules in this guide.
+Three `human` rules in this guide, down from four.
+`tests/count-casts.test.ts` holds 3.4, and it knows the shapes this schema
+actually writes rather than refusing every `count(*)` it sees.

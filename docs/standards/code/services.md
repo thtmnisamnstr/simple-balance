@@ -238,7 +238,9 @@ into a spending category it created itself has to move a budget.
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 1.2 Transports decide nothing | Parity compares the two surfaces, not where logic sits. |
-| 2.1 Mutations take `transaction?` and go through `withTransaction` | Grep-able and not grepped. A new mutation that opens its own transaction directly works fine until an agent tries to compose it, which is the worst kind of latency between cause and symptom. |
 | 3.1 Reads before dependent writes | Only the outcome is testable, and it is: the refund tests are that check wearing a different hat. |
 
-Three `human` rules in this guide.
+Two `human` rules in this guide, down from three.
+`tests/service-transactions.test.ts` now holds 2.1, and it reads the parameter
+list rather than grepping for a name, so a mutation that delegates its writes to
+a helper still counts.

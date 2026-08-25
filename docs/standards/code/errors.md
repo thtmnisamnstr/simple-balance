@@ -136,10 +136,13 @@ sentence must be the same one.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
-| 1 The right error for the situation | A lint rule banning `throw new Error` under `src/server/services` would be **wrong** — it would flag the five correct ones. Which kind a throw is cannot be read off its syntax. |
 | 3.1 Messages say what to do | Editorial. |
 | 3.2 Refusals name the specific case | Editorial. |
 
-Three `human` rules in this guide. The first looked mechanisable and is not,
-which is worth knowing: the check somebody would reach for first is the check
-that would have flagged correct code.
+Two `human` rules in this guide, down from three. The first looked
+unmechanisable and was — a blanket ban on `throw new Error` under
+`src/server/services` would flag the five correct ones, and which kind a throw is
+cannot be read off its syntax. So `tests/service-errors.test.ts` inverts it: it
+holds the list of throws already argued to be impossible, and fails on a new one
+nobody has argued for. A rule that could not be checked became a rule about its
+exceptions, which can be.

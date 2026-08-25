@@ -161,6 +161,13 @@ export function useThemeSetting(session: Session) {
     applyTheme(preference);
     // The cache the boot script reads on the next load.
     writeCachedTheme(preference);
+    // `resolved` is half the machine's answer and half the account's, and the
+    // machine's half arrives through the subscription below, so it has to be
+    // state; this is the write that folds the account's half in, for the times
+    // the account changed somewhere other than the control on this screen.
+    // Working it out during render would not do: `resolveTheme` asks
+    // `matchMedia`, and nothing re-renders when the machine changes at sunset.
+    // oxlint-disable-next-line react/set-state-in-effect
     setResolved(resolveTheme(preference));
     // Only the preference: the cache no longer records whose it is, so a change
     // of signed-in person shows up here as a change of preference or not at all.

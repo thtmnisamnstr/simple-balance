@@ -195,7 +195,30 @@ with the version it reports, rather than to refresh and try again. An agent has
 nothing to refresh. The browser keeps its own wording, and the two sentences say
 the same thing happened.
 
+The repository documents how it is written, in two sets under `docs/standards/`.
+One describes the interfaces — the browser app, the MCP surface, the HTTP API,
+the CSV format and the container — and the other the source. Every rule in the
+second says who enforces it: the compiler, the linter, a named test, or nobody
+at all, and the rules in that last group are counted on the index page so the
+number is visible and can be argued down. Six of them became tests in the pass
+that followed writing them.
+
+`npm run lint` runs oxlint and `npm run format` runs oxfmt, in place of ESLint
+and Prettier. TypeScript 7 forced the linter question — typescript-eslint does
+not run on it — and the formatter was measured rather than assumed: oxfmt
+reflowed no comment prose in a repository whose comments are 14.9% of its
+non-blank source lines. Neither is visible in the running application, and no
+formatting-only change is included here.
+
 ### Fixed
+
+The list of dates on a recurrence form could go on describing a schedule that
+was no longer on screen. It walked the rule the parser produced while its
+dependency array named the raw fields, and those are not the same set: an
+interval of 0 and a blank one both read as no usable number to the fields, and
+only the blank one parses, so typing over either with the other left whichever
+list was already showing. Both previews are worked out during render now, five
+dates being cheaper than the comparison that was avoiding them.
 
 Merging two categories moves the budgets onto the target instead of destroying
 them with the source row, and refuses when both are budgeted for the same period

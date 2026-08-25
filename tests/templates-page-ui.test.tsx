@@ -80,6 +80,20 @@ const orphaned: TransactionTemplate = {
   },
 };
 
+const move: TransactionTemplate = {
+  ...rent,
+  id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  name: "Move",
+  notification: null,
+  version: 4,
+  draft: {
+    type: "transfer",
+    payee: "Between accounts",
+    fromAccountId: checking.id,
+    toAccountId: savings.id,
+  },
+};
+
 function stubApi(templates: TransactionTemplate[]) {
   const posts: { path: string; method: string; body: unknown }[] = [];
   vi.stubGlobal(
@@ -802,5 +816,34 @@ describe("the templates screen", () => {
     await renderPage([spent]);
 
     expect(within(rowFor("Rent")).getByText("sent")).toBeInTheDocument();
+  });
+
+  // Account and category are the two columns a sort has to look up rather than
+  // read off the row, and the lookup is what the sorted list is recomputed on.
+  // Ordering by them is what holds the order and the cell to the same label.
+  it("orders by the looked-up account and category labels", async () => {
+    stubApi([rent, move, orphaned]);
+    await renderPage([rent, move, orphaned]);
+
+    expect(within(rowFor("Move")).getByText("Checking → Savings")).toBeInTheDocument();
+
+    const names = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.querySelector("strong")?.textContent);
+
+    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
+    expect(names()).toEqual(["Rent", "Move", "Old card"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Account/ }));
+    expect(names()).toEqual(["Old card", "Move", "Rent"]);
+
+    // A template with no category has nothing to look up, and a row with
+    // nothing in the sorted column goes last whichever way the column points.
+    fireEvent.click(screen.getByRole("button", { name: /Category/ }));
+    expect(names()).toEqual(["Rent", "Move", "Old card"]);
+    fireEvent.click(screen.getByRole("button", { name: /Category/ }));
+    expect(names()).toEqual(["Rent", "Move", "Old card"]);
   });
 });

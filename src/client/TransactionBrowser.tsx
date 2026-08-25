@@ -13,7 +13,7 @@ import {
   LayoutTemplate,
   Repeat,
 } from "lucide-react";
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link, payeeDetailSearch, useLocation } from "./router.js";
 import {
   api,
@@ -358,10 +358,19 @@ export function TransactionBrowser({
     !accountChangeBlocked &&
     !categoryChangeBlocked &&
     !typeChangeBlocked;
-  const discardBulkSelectionSnapshots = () =>
-    queryClient.removeQueries({
-      queryKey: ["transactions", "bulk-selection"],
-    });
+  // Stable so that the reset below can name it as a dependency and still run
+  // only when the filter changes. Rebuilt on every render it would look like a
+  // new filter on every render, and the reset writes a fresh empty selection
+  // each time, so the two would spin: the screen never settles and the suite
+  // hangs rather than failing. Naming the dependency without this is worse than
+  // leaving it out, which is why the two changes belong together.
+  const discardBulkSelectionSnapshots = useCallback(
+    () =>
+      queryClient.removeQueries({
+        queryKey: ["transactions", "bulk-selection"],
+      }),
+    [queryClient],
+  );
 
   const clearTransactionSelection = () => {
     discardBulkSelectionSnapshots();
@@ -452,13 +461,20 @@ export function TransactionBrowser({
 
   useEffect(() => {
     discardBulkSelectionSnapshots();
+    // A selection is accumulated rather than worked out, so there is nothing to
+    // derive during render; and there is no event to hang this on either. The
+    // filter fingerprint moves when the search debounce settles and when the
+    // shared date range changes, neither of which is a handler on this page.
+    // Keying off the fingerprint is what makes every route to a new filter drop
+    // the selection, rather than only the ones somebody remembered to wire up.
+    // oxlint-disable-next-line react/set-state-in-effect
     setSelection(emptySelection());
     setBulkEditing(false);
     setBulkIdempotencyKey(null);
     setBulkNotice(null);
     // A narrower filter can leave the current page past the end of the results.
     setPage(1);
-  }, [selectionConstraintKey]);
+  }, [selectionConstraintKey, discardBulkSelectionSnapshots]);
 
   useEffect(() => {
     if (!bulkEnabled.payee || !bulkValues.payee.trim()) return;
@@ -466,6 +482,14 @@ export function TransactionBrowser({
       (candidate) => normalizeHumanName(candidate) === normalizeHumanName(bulkValues.payee),
     );
     if (exact && exact !== bulkValues.payee) {
+      // The stored spelling is the server's answer, and it arrives after the
+      // typing that asked for it: the suggestion query is keyed on the term, so
+      // at the moment of the keystroke the list still describes the previous
+      // one. The field does have an `onChange` to correct in, the way the
+      // transaction form does; what it does not have yet is the answer, so a
+      // correction made there matches a list one term behind. This runs when
+      // the reply lands, which is the only moment the answer exists.
+      // oxlint-disable-next-line react/set-state-in-effect
       setBulkValues((current) => ({ ...current, payee: exact }));
     }
   }, [bulkEnabled.payee, bulkValues.payee, payeeSuggestions.data]);

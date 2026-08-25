@@ -63,6 +63,13 @@ function CategoryDialog({
   const [kind, setKind] = useState<CategoryKind>("expense");
   useEffect(() => {
     if (!category) return;
+    // The deliberate copy: a record seeds the fields once and then the fields
+    // are the truth until Save. Nothing here can be worked out during render,
+    // because the whole point is that the person changes it afterwards. The
+    // dialog stays mounted so the modal can close, which is why this is an
+    // effect on the record rather than a fresh mount keyed on its id — a
+    // remount on close would empty the fields while they were still on screen.
+    // oxlint-disable-next-line react/set-state-in-effect
     setName(category.name);
     setKind(category.kind);
   }, [category]);
