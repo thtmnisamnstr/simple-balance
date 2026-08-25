@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 71 | `npm test` | nothing |
+| Unit (node) | 72 | `npm test` | nothing |
 | Unit (jsdom) | 36 | `npm test` | nothing |
-| Integration | 52 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 53 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -18,11 +18,11 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 108 pass, 51 skip | **1,033 pass, 582 skip** |
-| `npm test`, database set | 159 pass | **1,615 pass** |
-| `npm run test:integration` | 52 pass | 583 pass |
+| `npm test`, no database | 109 pass, 52 skip | **1,045 pass, 586 skip** |
+| `npm test`, database set | 161 pass | **1,631 pass** |
+| `npm run test:integration` | 53 pass | 587 pass |
 
-The first row is what CI and `npm run verify` see, and 1,033 is the number that
+The first row is what CI and `npm run verify` see, and 1,045 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming

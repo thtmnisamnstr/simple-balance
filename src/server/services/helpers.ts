@@ -5,6 +5,7 @@ import type { Database, DbTransaction } from "../db/client.js";
 import { auditEvents, idempotencyRecords } from "../db/schema.js";
 import { and, eq, sql } from "drizzle-orm";
 import { conflict } from "./errors.js";
+import { idempotencyReplays } from "../metrics.js";
 
 export type Executor = Database | DbTransaction;
 
@@ -110,6 +111,13 @@ export async function getIdempotent<T>(
   if (record && record.requestHash !== idempotencyRequestHash(requestPayload)) {
     throw conflict("This idempotency key was already used with a different request", { operation });
   }
+  // Counted here rather than at each call site, because this is the one place
+  // that knows a replay happened: every caller above treats a stored response
+  // and a fresh one identically, which is the point of the record and also why
+  // a client retrying every write would otherwise be invisible. Below the
+  // conflict check, so a key reused with a different request counts as the
+  // refusal it is rather than as a replay it is not.
+  if (record) idempotencyReplays.inc({ operation });
   return (record?.response as T | undefined) ?? null;
 }
 

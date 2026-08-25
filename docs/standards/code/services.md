@@ -90,12 +90,12 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
 
 `withTransaction` joins the caller's transaction when it is given one and opens
 its own when it is not
-(src/server/db/client.ts:102). 38 service
+(src/server/db/client.ts:108). 38 service
 mutations take that parameter and every one of them goes through the helper;
 only six places in this directory reach for `getDb().transaction` directly.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:289-299`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:290-300`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -141,14 +141,14 @@ key makes the retry safe.
 
 The mechanism is worth understanding rather than copying. `getIdempotent` looks
 the key up **and hashes the request**
-(src/server/services/helpers.ts:89-113).
+(src/server/services/helpers.ts:90-121).
 Same key and same request returns the stored response. Same key and a
 *different* request is a `conflict`, because the caller has reused a key for
 something else and silently returning the old answer would be worse than
 refusing.
 
 The hash is over a canonicalised payload
-(src/server/services/helpers.ts:116):
+(src/server/services/helpers.ts:124):
 keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
 identical requests whose JSON key order differed would hash differently and the
 retry would be refused.
@@ -164,7 +164,7 @@ now pad the counter rather than the string
 
 **Binding.** Anything that decides "does this name already exist?" takes an
 advisory lock on that namespace first
-(src/server/services/helpers.ts:255,
+(src/server/services/helpers.ts:263,
 and the same for payees, templates and recurrences). Otherwise two concurrent
 requests both read "no", and both create.
 
@@ -220,7 +220,7 @@ never parallelise a loop whose iterations resolve names.
 ### 3.3 Money is summed in the database or in `decimal.js`, never in JavaScript numbers
 
 **Binding.** `AGENTS.md`. On the server that means `decimal()`
-(src/server/services/helpers.ts:20)
+(src/server/services/helpers.ts:21)
 and `canonicalDecimal` on the way out, so every amount that crosses a boundary
 is the same string for the same value.
 

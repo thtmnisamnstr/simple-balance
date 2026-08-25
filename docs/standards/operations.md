@@ -36,10 +36,10 @@ a house rule with reasoning, and anybody arguing with it should argue with the
 reasoning.
 
 The product already follows it. `recurrenceProposedMessage`
-(`src/server/mail.ts:219-240`) names the occurrence dates and stops, and the
+(`src/server/mail.ts:228-249`) names the occurrence dates and stops, and the
 docstring above it says why: "a proposed row is not money that has moved" and "a
 total in a mail reads like a statement". `templateReminderMessage`
-(`src/server/mail.ts:249-268`) names the template and the date and carries no
+(`src/server/mail.ts:258-277`) names the template and the date and carries no
 figure. The two auth messages carry a URL and nothing else.
 
 **Binding.** `AGENTS.md`: "Never represent money with JavaScript/JSON
@@ -65,7 +65,7 @@ the guide does not rely on it; the operational rule stands on its own.
 ### Plain text
 
 **House, and the evidence is unusually strong for a house rule.** Every message
-this product sends is `text` only (`src/server/mail.ts:145-160`). The Email
+this product sends is `text` only (`src/server/mail.ts:152-167`). The Email
 Markup Consortium tested 376,348 messages sent between May 2025 and May 2026 and
 found 99.88% carried Serious or Critical accessibility defects; eight messages,
 from three brands, passed. The top nine defects are all HTML defects: missing
@@ -107,12 +107,12 @@ automatic responses "SHOULD NOT be issued in response to any message which
 contains an Auto-Submitted header field ... where that field has any value other
 than 'no'". Without it a vacation responder or a ticketing system may reply to a
 password reset, and the reply lands on `MAIL_FROM` or `MAIL_REPLY_TO`.
-`sendMail` (`src/server/mail.ts:140-168`) sets it on every message.
+`sendMail` (`src/server/mail.ts:141-176`) sets it on every message.
 
 *Checked by:* `tests/mail-headers.test.ts`.
 
 **House, already correct.** `Reply-To` is set only when replies should go
-somewhere other than `From` (`src/server/mail.ts:147-149`), which is what RFC
+somewhere other than `From` (`src/server/mail.ts:154-156`), which is what RFC
 5322 §3.6.2 assumes when it says replies go to `From` in the header's absence.
 The common mistake is a no-reply `From` with no `Reply-To`, which sends a
 person's question nowhere.
@@ -138,9 +138,9 @@ truncation: a mail client shows the first N characters, so whatever is first is
 what the person reads in the list.
 
 Both message builders follow it. `Reminder: ${templateName}`
-(`src/server/mail.ts:257`) and `Staged: N rows from ${recurrenceName}` (`:230`)
+(`src/server/mail.ts:266`) and `Staged: N rows from ${recurrenceName}` (`:239`)
 each lead with the fixed word, and both pass the name through `forSubject`
-(`src/server/mail.ts:189-196`), which cuts it to 60 code points and appends an
+(`src/server/mail.ts:198-205`), which cuts it to 60 code points and appends an
 ellipsis. A recurrence or template name may be 120 characters
 (`recurrenceCreateSchema` and `transactionTemplateCreateSchema`, both in
 `src/shared/domain.ts`), roughly twice what a client's message list shows, so
@@ -177,8 +177,8 @@ One policy about personal data in log lines, in one process.
 `account-deletion.ts:178-185` logs counts and no address, with the comment
 "Deliberately without the address: they asked to be gone." `sendMail` follows it:
 every `Message` carries `about`, a fixed phrase naming the kind of message
-(`src/server/mail.ts:95-105`), and that phrase is what the log line carries
-(`:165-168`). The phrase comes from the builder, so a caller that spreads one
+(`src/server/mail.ts:96-106`), and that phrase is what the log line carries
+(`:173-176`). The phrase comes from the builder, so a caller that spreads one
 gets it without deciding anything, and it names the row rather than the kind:
 both scheduled senders set `about` after the spread, to
 `recurrence proposal <id>` and `template reminder <id>`. An id is neither
@@ -190,12 +190,12 @@ The nodemailer error is narrowed rather than passed whole, for the same reason.
 `envelope` and `rejected` each hold the recipient's address, and for a password
 reset that address is whatever a stranger typed into a form this product
 deliberately answers identically either way. `smtpFailure`
-(`src/server/mail.ts:121-129`) keeps `code`, `command`, `responseCode` and
+(`src/server/mail.ts:122-130`) keeps `code`, `command`, `responseCode` and
 `response`, which is what tells an operator whether the relay is unreachable,
 refusing their credentials, or refusing this one message. `response` is the
 relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
-hand. `src/server/api.ts:211-217` narrows a Drizzle error the same way for a
+hand. `src/server/api.ts:244-250` narrows a Drizzle error the same way for a
 harder reason: its message is built from the failing SQL and its bound
 parameters, one of which is an OAuth access token.
 
@@ -207,10 +207,10 @@ beside it carries no `envelope` and no `rejected`.
 
 **House, and already met.** The reset satisfies the OWASP Forgot Password
 guidance in the ways that matter here: a single-use token whose one-hour expiry
-is stated in the body (`src/server/mail.ts:200-210`), no password in the
+is stated in the body (`src/server/mail.ts:209-219`), no password in the
 message, and an identical response whether or not the account exists, which is
 the whole reason `sendMail` returns `false` rather than throwing
-(`src/server/mail.ts:131-143`).
+(`src/server/mail.ts:132-140`).
 
 **House, and this is the constraint to state as a defence rather than as
 strictness.** The URL in a reset message is built from `APP_BASE_URL`, which
@@ -252,7 +252,7 @@ alignment, and one-click unsubscribe. A self-hosted ledger is not in the second
 group.
 
 The application does one thing about the transport and does it right.
-`requireTLS: !mail.ssl && authenticated` (`src/server/mail.ts:33`) makes the
+`requireTLS: !mail.ssl && authenticated` (`src/server/mail.ts:34`) makes the
 STARTTLS upgrade compulsory whenever there is a password to protect and optional
 when there is not, so credentials never cross an unencrypted link but a relay on
 a trusted network that speaks no TLS still works.
@@ -300,7 +300,7 @@ they will mark as spam, and at this volume that is the whole of the problem RFC
 8058 exists to solve.
 
 **House.** A refused mail transport logs and continues. `checkMailTransport`
-(`src/server/mail.ts:67-84`) opens a connection at startup so a wrong address is
+(`src/server/mail.ts:68-85`) opens a connection at startup so a wrong address is
 found by the operator rather than by somebody locked out, and returns `false`
 rather than throwing, "because the ledger is the thing people came for, and it
 works whether or not mail does; what must not happen is failing in silence".
@@ -308,19 +308,19 @@ This is the one named exception to fail-fast configuration, below.
 
 **Settled, and the process that sends was the one not doing it.** Both
 entrypoints check the transport at startup now. `src/server/index.ts:34` always
-did; `src/server/scheduler.ts:52-59` does as of this change, and it has the
+did; `src/server/scheduler.ts:67-74` does as of this change, and it has the
 stronger claim on the check: it sends every scheduled message, and nobody is
 waiting for one. A person locked out of a password reset complains within the
 hour, and a reminder that never arrives is noticed by nobody at all. A scheduler
 with no mail configured says that too, in one line
-(`src/server/scheduler.ts:60-73`), because a container that was never handed the
+(`src/server/scheduler.ts:75-88`), because a container that was never handed the
 SMTP settings and one whose relay answers are indistinguishable in a log that
 says nothing — and a split deployment assembled by hand is exactly where that
 happens, since the chart and the compose file both give the scheduler the whole
 of the API's environment and a hand-built one gives it what somebody remembered.
 
 What it deliberately does not copy from the API is written above its own
-`main()` (`src/server/scheduler.ts:31-44`). The archived-account reconciliation
+`main()` (`src/server/scheduler.ts:36-49`). The archived-account reconciliation
 is a repair of somebody's postings rather than anything the schedule needs, and
 the API image runs in every deployment that runs this one; the `TRUST_PROXY`
 notice and the first-run setup code belong to a sign-in this process does not
@@ -375,14 +375,14 @@ else refuses to start.
 
 This is the rule most worth stating because the alternative is truthiness, and
 truthiness has no symptom. `RECURRENCE_SCHEDULER` already does it, and
-`config.ts:201-203` gives the reason: "A misspelling here has no symptom: the
+`config.ts:217-219` gives the reason: "A misspelling here has no symptom: the
 process starts, serves, and quietly proposes nothing until somebody notices a
 year of missing rent." `RECURRENCE_SCHEDULER=yes` read as falsy is a deployment
-that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:197-200`) and
-`SMTP_SSL` (`config.ts:340-343`) follow the same pattern.
+that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:213-216`) and
+`SMTP_SSL` (`config.ts:380-383`) follow the same pattern.
 
 The same argument applies to any closed set, not only booleans. `NODE_ENV` is
-parsed against three values and refuses a fourth (`config.ts:172-176`), because
+parsed against three values and refuses a fourth (`config.ts:188-192`), because
 `NODE_ENV=Production` compared against the string `production` had no symptom
 either: no setup code, no rate limiting, no secure cookies.
 
@@ -392,7 +392,7 @@ the database or the process.
 
 **House.** A list is comma-separated, each entry trimmed, and empty entries are
 skipped rather than refused. `parseRegistrationRule`
-(`src/server/config.ts:400-435`) is the model: split, trim, lowercase, drop the
+(`src/server/config.ts:440-475`) is the model: split, trim, lowercase, drop the
 blanks, then validate what is left with a message naming the bad entry.
 
 *Checked by:* `tests/config.test.ts:145-166`, which asserts that
@@ -468,8 +468,8 @@ the second is the load-bearing one. A Node diagnostic report serialises
 `process.env`, so a value that never enters it cannot appear in the dump this
 section exists to worry about. And a resolver that writes into the environment
 has to run before anything reads it, which is an ordering nobody can see:
-`getPool` and `directConnectionString` (`src/server/db/client.ts:11-35`,
-`:62-71`) read the connection string themselves, and `npm run db:migrate` never
+`getPool` and `directConnectionString` (`src/server/db/client.ts:12-41`,
+`:68-77`) read the connection string themselves, and `npm run db:migrate` never
 calls `getConfig` at all, so the write-back design needed a second call site
 bolted onto that script and would have needed a third for the next entrypoint.
 Resolving on first read removes the ordering entirely. `getConfig` calls the
@@ -478,7 +478,7 @@ contradictory secret file then refuses at startup rather than at the first
 query, which is what the next section asks of everything else.
 
 The same argument decided the one line that looks like it should have been left
-alone. `config.ts:266-274` hands `getPool()` the *development default* for
+alone. `config.ts:306-314` hands `getPool()` the *development default* for
 `DATABASE_URL` and is now guarded so it does that and nothing else, because
 unguarded it would have written a value read from `DATABASE_URL_FILE` straight
 back into the environment the form exists to keep it out of.
@@ -551,22 +551,22 @@ number.
 
 Refusing was half of it. All five were read at the call site rather than at
 startup — `configuredCsvMaxRows()` inside an import
-(`src/server/services/import-export.ts:775`), the recurrence limits inside a
+(`src/server/services/import-export.ts:776`), the recurrence limits inside a
 tick — so a refusal would have arrived hours later in a log nobody was reading,
 or on a deployment that never imported a CSV, not at all.
 `assertConfiguredLimits()` (`src/server/config-limits.ts:162-169`) reads all six
-and `getConfig()` calls it (`src/server/config.ts:162-167`), which is a line
+and `getConfig()` calls it (`src/server/config.ts:178-183`), which is a line
 every entrypoint runs before it serves anything. `DATABASE_POOL_SIZE` reached
 startup only by the accident that `reconcileArchivedAccountClosings()` at
 `src/server/index.ts:27` queries before `serve()`, so the first `getPool()`
-(`src/server/db/client.ts:11`) ran during startup; it no longer rests on that.
+(`src/server/db/client.ts:12`) ran during startup; it no longer rests on that.
 
 The argument for the fallback was that a typo in a tuning number should not take
 the ledger down, and it is answered rather than waved away. The process refuses
 in front of whoever just deployed it, with the variable named, which is the
 moment a mistake costs least — against `CSV_MAX_ROWS=1O000` running for a year
 on a limit its operator never chose, which is exactly what
-`config.ts:201-203` already says about `RECURRENCE_SCHEDULER`.
+`config.ts:217-219` already says about `RECURRENCE_SCHEDULER`.
 `docs/deployment.md:58-72` says the same in an operator's words, including that a
 value above a ceiling used to be quietly reduced and now has to be brought into
 range before the container starts.
@@ -673,7 +673,7 @@ is believed.
 **Settled, and six variables had drifted.** Three were in the root example and
 in no table, because prose was doing the work a table row does: `NODE_ENV` and
 the two Google settings, which are now rows of their own
-(`docs/deployment.md:21`, `:103-104`). Prose is where the reasoning goes and a
+(`docs/deployment.md:21`, `:105-106`). Prose is where the reasoning goes and a
 table is what somebody scans for a name, so a variable mentioned only in a
 sentence is one an operator searching the tables concludes does not exist.
 
@@ -777,8 +777,8 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:228-243`, and the same pair on the
-scheduler at `src/server/scheduler.ts:20-29`). Both are registered above every
+returns 200 or 503 (`src/server/api.ts:261-276`, and the same pair on the
+scheduler at `src/server/scheduler.ts:22-31`). Both are registered above every
 auth middleware and neither is authenticated.
 
 The rule that generalises best is already written in `docs/deployment.md:640`: "A
@@ -794,7 +794,7 @@ failure."
 **House, and this is the interaction most container guides miss: startup, not
 shutdown, is the slow half.** Migrations run at startup under advisory lock
 724202607 and `runMigrations()` is awaited before `serve()`
-(`src/server/index.ts:26,68`; `src/server/scheduler.ts:51,74`), so readiness
+(`src/server/index.ts:26,68`; `src/server/scheduler.ts:66,74`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
 (`docs/upgrades.md:23`). So the generous number is `--start-period`, currently
@@ -806,7 +806,7 @@ deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:631-636` and `README.md:130-133` describe one statement
-against the database and nothing else, and `src/server/api.ts:228-234` says the
+against the database and nothing else, and `src/server/api.ts:261-267` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -830,6 +830,53 @@ healthcheck should not go red because the API did
 *Checked by:* `tests/dockerfile.test.ts` ("uses the configured PORT for its
 readiness healthcheck"). The doc-versus-code readiness claim is checked by
 nothing.
+
+### Metrics
+
+**House, and off unless asked for.** `GET /metrics` answers in the Prometheus
+text format, on the port everything else is served on, and only when
+`METRICS_ENABLED=true` (`src/server/api.ts:201`). Registered rather
+than refused: a deployment that never asked has no such route, which is the same
+answer the MCP surface gives for a tool outside a token's scope.
+
+Both entrypoints mount it, and the reason is worth stating because a split
+deployment gets it wrong by omission: the API reports requests, tool calls,
+ledger writes and its pool, and the scheduler reports ticks, proposals,
+reminders and mail. Scraping only the API watches the process that does none of
+the scheduled work. Every series carries `component="api"` or
+`component="scheduler"` so the two never collide.
+
+**Binding, and the rule the rest of this product already follows.** No label
+carries somebody's identity: not a user id, not an email, not an account name,
+not an amount. A metric is read by whoever can reach the endpoint, which is not
+the person whose ledger it counts, and every query in `src/server/services` is
+scoped by actor for exactly that reason. `tests/metrics.test.ts` holds the list
+of label names that would break it.
+
+The same rule keeps the cardinality bounded, which is the same defect wearing a
+cost rather than a privacy label. A path with an id in it is counted under the
+route pattern — `/api/v1/accounts/:id` is one series, not one per account — and
+a path matching no route at all is counted under a single literal, because a
+mistyped URL is exactly where unbounded labels come from.
+
+**House.** `METRICS_TOKEN` is optional and is a secret in the `_FILE` sense
+(`src/server/config-files.ts:15-24`). Scraping over a private network with a
+NetworkPolicy in front is a real deployment and demanding a token there would be
+ceremony; publishing write rates and queue depths to the open internet is not,
+and the two are indistinguishable from inside the process. So the token is
+offered, the production case without one warns once at startup, and the bundled
+frontend nginx does not proxy `/metrics` at all — a scrape goes to the API
+service directly, so the browser's own hostname never exposes it
+(`tests/dockerfile.test.ts:212-218`).
+
+**House.** Collection is always on; only the endpoint is switched. Every counter
+costs a few nanoseconds and no allocation, so gating them would buy nothing and
+would put a branch in front of every write in the product.
+
+*Checked by:* `tests/metrics.test.ts` for the labels, the route pattern, the
+token and the absence of the route when it was not asked for;
+`tests/dockerfile.test.ts` for the frontend not proxying it and for the runtime
+manifest carrying `prom-client`.
 
 ### Signals and shutdown
 

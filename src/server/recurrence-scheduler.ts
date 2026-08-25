@@ -1,7 +1,13 @@
 import { getConfig } from "./config.js";
 import { configuredRecurrenceTickSeconds } from "./config-limits.js";
-import { runDueNotifications } from "./services/notifications.js";
+import { runDueNotifications, type NotificationTickSummary } from "./services/notifications.js";
 import { runDueRecurrences, type TickSummary } from "./services/recurrences.js";
+import {
+  recurrenceOccurrences,
+  reminderSweeps,
+  schedulerTickDuration,
+  schedulerTicks,
+} from "./metrics.js";
 
 /**
  * How long after the process starts listening the first tick fires.
@@ -42,7 +48,13 @@ export type RecurrenceSchedulerOptions = {
   enabled?: boolean;
   tickSeconds?: number;
   runTick?: (stopped: () => boolean) => Promise<TickSummary>;
-  runReminders?: (stopped: () => boolean) => Promise<unknown>;
+  /**
+   * Typed by what it returns, not as `unknown`, since a tick now counts it.
+   * The three numbers are the sweep's whole report and a caller substituting a
+   * fake has to produce them, which is what stops a test's stub and the real
+   * sweep drifting into meaning different things.
+   */
+  runReminders?: (stopped: () => boolean) => Promise<NotificationTickSummary>;
   schedule?: (callback: () => void, milliseconds: number) => Timer;
   jitter?: () => number;
   logger?: SchedulerLogger;
@@ -81,8 +93,18 @@ export function createRecurrenceScheduler(
 
   const cycle = async () => {
     const running = (async () => {
+      const stopTimer = schedulerTickDuration.startTimer();
       try {
         const summary = await runTick(() => stopping);
+        // The three numbers a tick produces, each as its own outcome rather
+        // than three metrics: examined without proposed is a schedule that is
+        // running and finding nothing due, which is the healthy case and looks
+        // identical to a broken one in a count of proposals alone.
+        recurrenceOccurrences.inc({ outcome: "examined" }, summary.examined);
+        recurrenceOccurrences.inc({ outcome: "proposed" }, summary.proposed);
+        recurrenceOccurrences.inc({ outcome: "failed" }, summary.failed);
+        recurrenceOccurrences.inc({ outcome: "notified" }, summary.notified);
+        if (summary.capped) recurrenceOccurrences.inc({ outcome: "capped" });
         // Reminders ride the same tick rather than a loop of their own. They are
         // due on a schedule of the same shape, read by a query of the same shape,
         // and a second timer would be a second thing to configure, a second
@@ -92,21 +114,29 @@ export function createRecurrenceScheduler(
         // reminds on one day arrive in that order. Its own try, because a
         // reminder that fails must not cost the proposals their catch-up signal.
         try {
-          await runReminders(() => stopping);
+          const reminders = await runReminders(() => stopping);
+          reminderSweeps.inc({ outcome: "examined" }, reminders.examined);
+          reminderSweeps.inc({ outcome: "sent" }, reminders.sent);
+          reminderSweeps.inc({ outcome: "failed" }, reminders.failed);
         } catch (error) {
+          reminderSweeps.inc({ outcome: "swept_failed" });
           logger.error("Template reminder sweep failed", error);
         }
         // A recurrence that filled its catch-up cap has strictly advanced its
         // watermark, so coming straight back drains a backlog at full speed and
         // still terminates. Everything else waits out the interval.
+        schedulerTicks.inc({ outcome: "ok" });
         return summary.capped;
       } catch (error) {
+        schedulerTicks.inc({ outcome: "failed" });
         // A tick that throws must not take the process with it and must not
         // stop the next one. A database that is down comes back; a loop that
         // died does not, and a silently stopped scheduler is the whole failure
         // this feature exists to avoid.
         logger.error("Recurrence scheduler tick failed", error);
         return false;
+      } finally {
+        stopTimer();
       }
     })();
     inFlight = running;

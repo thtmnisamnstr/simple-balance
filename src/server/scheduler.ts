@@ -5,6 +5,8 @@ import { getConfig } from "./config.js";
 import { closeDb, getDb } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { checkMailTransport, closeMail, mailEnabled } from "./mail.js";
+import { setMetricsComponent, startDefaultMetrics } from "./metrics.js";
+import { serveMetrics } from "./metrics-route.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 
@@ -28,6 +30,9 @@ health.get("/health/ready", async (c) => {
   }
 });
 
+setMetricsComponent("scheduler");
+startDefaultMetrics();
+
 /**
  * What this entrypoint deliberately does not do, said here because an omission
  * reads as an oversight.
@@ -44,6 +49,16 @@ health.get("/health/ready", async (c) => {
  */
 async function main() {
   const config = getConfig();
+  // The same endpoint the API mounts, and the reason this process needs one of
+  // its own: proposals, reminders and mail all happen here, so a split
+  // deployment scraping only the API would be watching the process that does
+  // none of the work the schedule exists for.
+  //
+  // Registered here rather than beside the health routes because that is where
+  // the configuration has been read. A module-level `getConfig()` would refuse
+  // an unconfigured environment at import time, which is a worse failure than
+  // the same refusal one line into `main`.
+  if (config.metrics.enabled) health.get("/metrics", serveMetrics);
   // Also run from here, and not only from the API process, so a scheduler pod
   // that starts first works rather than failing on tables that do not exist
   // yet. One advisory lock means whichever process arrives first does the work

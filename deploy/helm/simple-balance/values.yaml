@@ -125,6 +125,16 @@ config:
     # 465. False starts in the clear on 587 and upgrades with STARTTLS.
     ssl: false
 
+  # Prometheus metrics, off unless asked for. Turning this on makes both
+  # workloads answer GET /metrics on their own port, in Prometheus' text format.
+  # Scrape both: the API reports requests, tool calls and ledger writes, and the
+  # scheduler reports ticks, proposals and mail, so scraping only the API
+  # watches the process that does none of the scheduled work. The Service does
+  # not publish a separate port for it and the frontend does not proxy it, so a
+  # scrape reaches the pods directly. The token half is secret.metricsToken.
+  metrics:
+    enabled: false
+
   # Anything else the API and the scheduler should read, as name/value pairs.
   extraEnv: {}
 
@@ -164,6 +174,11 @@ secret:
   # Left empty, one is generated and stored, so every replica agrees on it and
   # the code in the log is the code the form accepts.
   setupToken: ""
+
+  # Demanded by GET /metrics before it answers, as `Authorization: Bearer`.
+  # Optional: leave it empty when a NetworkPolicy already decides who may reach
+  # the pods, and set it when anything you do not control can.
+  metricsToken: ""
   googleClientSecret: ""
   # Set together or not at all.
   smtpUsername: ""

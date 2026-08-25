@@ -56,6 +56,7 @@ import { payeeSummaries, preferredPayee, seedCanonicalPayeeCache } from "./payee
 import { preferredCategory } from "./categories.js";
 import { insertImportedStages } from "./staging.js";
 import { listAllTransactions } from "./transactions.js";
+import { csvRowsStaged } from "../metrics.js";
 
 export const csvStageInputSchema = z.object({
   csv: z
@@ -804,7 +805,7 @@ export async function stageCsv(
     decimalSeparator: parsed.decimalSeparator,
   };
 
-  return withTransaction(transaction, async (tx) => {
+  const outcome = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
       await lockIdempotencyKey(tx, actor, "csv.stage", parsed.idempotencyKey);
       const existing = await getIdempotent<{
@@ -942,6 +943,11 @@ export async function stageCsv(
     );
     return response;
   });
+  // Rows placed in the queue, which is what an import costs this deployment. A
+  // preview stages nothing and is not counted; a file that staged four thousand
+  // rows counts four thousand, for the same reason a mass edit counts rows.
+  if ("stagedIds" in outcome) csvRowsStaged.inc(outcome.stagedIds.length);
+  return outcome;
 }
 
 /**

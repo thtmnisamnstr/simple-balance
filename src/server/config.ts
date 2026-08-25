@@ -147,6 +147,22 @@ export type AppConfig = {
    * row first is the only one that works it.
    */
   recurrenceSchedulerEnabled: boolean;
+  /**
+   * Whether this process answers `GET /metrics`, and what it demands first.
+   *
+   * Off unless asked for. The figures are not somebody's ledger — no label
+   * carries a user, an account or an amount — but they do say how many
+   * transactions a deployment writes and how deep its queues are, and a
+   * self-hosted box is often one port away from the internet. An operator who
+   * wants the endpoint says so; nobody gets it by upgrading.
+   *
+   * `token` is optional because a Kubernetes deployment scraping over a private
+   * network with a NetworkPolicy in front is a real setup and a bearer token
+   * would be ceremony there. Where it is set, the endpoint is the only thing in
+   * this product that authenticates with a static credential, which is why it
+   * is compared in constant time and is a file-backed secret like the rest.
+   */
+  metrics: { enabled: boolean; token?: string };
   isProduction: boolean;
 };
 
@@ -207,6 +223,12 @@ export function getConfig(): AppConfig {
     })
     .transform((value) => value === "true")
     .parse((process.env.RECURRENCE_SCHEDULER ?? "true").toLowerCase());
+  const metricsEnabled = z
+    .enum(["true", "false"], {
+      error: () => "METRICS_ENABLED must be true or false",
+    })
+    .transform((value) => value === "true")
+    .parse((process.env.METRICS_ENABLED ?? "false").toLowerCase());
   // The secrets are read through `readSecret` and the settings beside
   // them straight from the environment. That split is not an oversight: having a
   // `_FILE` form is what makes a name a secret here, so giving one to
@@ -224,6 +246,7 @@ export function getConfig(): AppConfig {
     SMTP_SSL: process.env.SMTP_SSL,
     SMTP_USERNAME: process.env.SMTP_USERNAME,
     SMTP_PASSWORD: readSecret("SMTP_PASSWORD"),
+    METRICS_TOKEN: readSecret("METRICS_TOKEN"),
     MAIL_FROM: process.env.MAIL_FROM,
     MAIL_REPLY_TO: process.env.MAIL_REPLY_TO,
   };
@@ -261,8 +284,25 @@ export function getConfig(): AppConfig {
     logLevel,
     trustProxy,
     recurrenceSchedulerEnabled,
+    metrics: {
+      enabled: metricsEnabled,
+      ...(values.METRICS_TOKEN ? { token: values.METRICS_TOKEN } : {}),
+    },
     isProduction,
   };
+  // Warned rather than refused. Scraping over a private network with nothing in
+  // front of it is a legitimate deployment and demanding a token there would be
+  // ceremony; publishing queue depths and write rates to the open internet is
+  // not, and the two are indistinguishable from in here. So the one that can be
+  // said is said, once, at the moment somebody turns the endpoint on.
+  if (metricsEnabled && !values.METRICS_TOKEN && isProduction) {
+    console.warn(
+      "METRICS_ENABLED is true and METRICS_TOKEN is not set, so /metrics answers " +
+        "anybody who can reach this port. That is fine behind a private network " +
+        "and is not fine on a public one. Set METRICS_TOKEN (or METRICS_TOKEN_FILE) " +
+        "and give the scraper an Authorization: Bearer header.",
+    );
+  }
   // Publishes the development default to `getPool()`, and only ever that. A
   // value read from `DATABASE_URL_FILE` must not travel this way: putting it
   // into the environment is the one thing the `_FILE` form exists to prevent,

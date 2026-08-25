@@ -126,6 +126,7 @@ DATABASE_POOL_SIZE: {{ $c.databasePoolSize | int64 | quote }}
 RECURRENCE_TICK_SECONDS: {{ $c.recurrence.tickSeconds | int64 | quote }}
 RECURRENCE_CATCH_UP_LIMIT: {{ $c.recurrence.catchUpLimit | int64 | quote }}
 RECURRENCE_CLAIM_LIMIT: {{ $c.recurrence.claimLimit | int64 | quote }}
+METRICS_ENABLED: {{ $c.metrics.enabled | quote }}
 {{- with $c.allowedEmails }}
 ALLOWED_EMAILS: {{ . | quote }}
 {{- end }}

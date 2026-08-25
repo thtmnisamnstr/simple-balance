@@ -80,6 +80,7 @@ import { ensureSystemAccount, findSystemAccount, postClosingBalance } from "./ac
 import { pruneOrphanedCategories, resolveDraftCategory } from "./categories.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { resolveCanonicalPayee } from "./payees.js";
+import { ledgerWrites } from "../metrics.js";
 
 /**
  * A leg as it should end up, before it has a row. `id` names an existing leg;
@@ -1043,7 +1044,7 @@ export async function createTransaction(
     draft: parsedDraft,
     allowDuplicate,
   };
-  return withTransaction(transaction, async (tx) => {
+  const written = await withTransaction(transaction, async (tx) => {
     await lockIdempotencyKey(tx, actor, "transaction.create", idempotencyKey);
     const existing = await getIdempotent<TransactionView>(
       tx,
@@ -1064,6 +1065,13 @@ export async function createTransaction(
     await setIdempotent(tx, actor, "transaction.create", idempotencyKey, idempotencyPayload, view);
     return view;
   });
+  // Counted after the transaction has settled rather than inside it, so a write
+  // that rolled back is not reported as a write that happened. A replayed
+  // idempotent call returns here too and is counted once more, which is right:
+  // it is a write this deployment served, and the replay itself is counted
+  // separately in `getIdempotent`.
+  ledgerWrites.inc({ operation: "create" });
+  return written;
 }
 
 /**
@@ -1814,7 +1822,7 @@ export async function bulkEditTransactions(
     allowDuplicates: parsed.allowDuplicates,
   };
 
-  return withTransaction(transaction, async (tx) => {
+  const edited = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
       await lockIdempotencyKey(tx, actor, "transaction.bulk_edit", parsed.idempotencyKey);
       const existing = await getIdempotent<BulkTransactionEditResult>(
@@ -2078,6 +2086,12 @@ export async function bulkEditTransactions(
     );
     return result;
   });
+  // Rows, not calls. One mass edit of four thousand rows and four thousand
+  // single edits are the same amount of ledger changing, and a counter that
+  // said "1" for the first would make the busiest thing this product does look
+  // like the quietest. A dry run changed nothing and counts nothing.
+  if (!edited.dryRun) ledgerWrites.inc({ operation: "bulk_edit" }, edited.updatedCount);
+  return edited;
 }
 
 /**
@@ -2098,7 +2112,7 @@ export async function bulkDeleteTransactions(
     operation: "delete",
   };
 
-  return withTransaction(transaction, async (tx) => {
+  const removed = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
       await lockIdempotencyKey(tx, actor, "transaction.bulk_delete", parsed.idempotencyKey);
       const existing = await getIdempotent<BulkTransactionEditResult>(
@@ -2221,6 +2235,8 @@ export async function bulkDeleteTransactions(
     );
     return result;
   });
+  if (!removed.dryRun) ledgerWrites.inc({ operation: "bulk_delete" }, removed.updatedCount);
+  return removed;
 }
 
 export async function updateTransaction(
@@ -2230,7 +2246,7 @@ export async function updateTransaction(
   transaction?: DbTransaction,
 ) {
   const { draft, expectedVersion, allowDuplicate } = transactionUpdateSchema.parse(input);
-  return withTransaction(transaction, async (tx) => {
+  const updated = await withTransaction(transaction, async (tx) => {
     const [before] = await tx
       .select()
       .from(transactions)
@@ -2308,6 +2324,8 @@ export async function updateTransaction(
     );
     return hydrateTransaction(tx, actor, updated);
   });
+  ledgerWrites.inc({ operation: "update" });
+  return updated;
 }
 
 export async function setTransactionDeleted(
@@ -2318,7 +2336,7 @@ export async function setTransactionDeleted(
   allowDuplicate = false,
   transaction?: DbTransaction,
 ) {
-  return withTransaction(transaction, async (tx) => {
+  const changed = await withTransaction(transaction, async (tx) => {
     const [before] = await tx
       .select()
       .from(transactions)
@@ -2377,6 +2395,11 @@ export async function setTransactionDeleted(
     });
     return hydrateTransaction(tx, actor, updated);
   });
+  // Deleting and restoring are one function with a flag, and they are two
+  // things to watch: a deployment deleting steadily is somebody tidying up, and
+  // one restoring steadily is somebody undoing a mistake being made repeatedly.
+  ledgerWrites.inc({ operation: deleted ? "delete" : "restore" });
+  return changed;
 }
 
 /**

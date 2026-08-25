@@ -209,6 +209,12 @@ describe("the decomposed images", () => {
     const proxied = new Set(["api", "mcp", "health", ".well-known"]);
     // Anything the client bundle is expected to own rather than the API.
     const servedByNginx = new Set(["assets"]);
+    // Answered by the API and deliberately unreachable through the browser's
+    // front door. A scrape goes to the API service directly, which is where a
+    // Prometheus job and a NetworkPolicy can both see it; proxying it here
+    // would put queue depths and write rates on the same public hostname as
+    // the sign-in page, one path away.
+    const deliberatelyNotProxied = new Set(["metrics"]);
     const prefixes = new Set(
       [...api.matchAll(/app\.(?:get|post|put|delete|use|all|on)\(\s*"\/([^/"*]+)/g)].map(
         (match) => match[1],
@@ -219,7 +225,7 @@ describe("the decomposed images", () => {
       "utf8",
     );
     for (const prefix of prefixes) {
-      if (servedByNginx.has(prefix)) continue;
+      if (servedByNginx.has(prefix) || deliberatelyNotProxied.has(prefix)) continue;
       expect(proxied, `/${prefix} is answered by the API but not proxied`).toContain(prefix);
     }
 
@@ -239,7 +245,7 @@ describe("the decomposed images", () => {
     ]) {
       expect(matcher.test(path), `${path} must reach the API`).toBe(true);
     }
-    for (const path of ["/", "/recurrences", "/assets/index-abc.js", "/mcpanel"]) {
+    for (const path of ["/", "/recurrences", "/assets/index-abc.js", "/mcpanel", "/metrics"]) {
       expect(matcher.test(path), `${path} must stay with the bundle`).toBe(false);
     }
   });

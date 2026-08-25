@@ -4,11 +4,13 @@ import { readFileSync } from "node:fs";
  * The variables that also answer to a `NAME_FILE` form.
  *
  * This list is the definition of what this product calls a secret: if a name
- * has a `_FILE` form it is a secret, and if it does not it is a setting. Six
+ * has a `_FILE` form it is a secret, and if it does not it is a setting. Seven
  * rather than the four `docs/standards/operations.md` first named, because the
  * litmus runs both ways. `SETUP_TOKEN` is the code that claims an unclaimed
  * deployment and `DIRECT_DATABASE_URL` carries a password, so a list of four
  * would have been this file quietly calling both of them settings.
+ * `METRICS_TOKEN` is the seventh and joined for the same reason: it is the only
+ * thing standing between a scrape endpoint and anybody who can reach the port.
  */
 export const FILE_BACKED_SECRETS = [
   "AUTH_SECRET",
@@ -17,6 +19,7 @@ export const FILE_BACKED_SECRETS = [
   "SMTP_PASSWORD",
   "GOOGLE_CLIENT_SECRET",
   "SETUP_TOKEN",
+  "METRICS_TOKEN",
 ] as const;
 
 export type FileBackedSecret = (typeof FILE_BACKED_SECRETS)[number];

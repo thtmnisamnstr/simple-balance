@@ -59,6 +59,7 @@ import {
   writeAuditMany,
 } from "./helpers.js";
 import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
+import { stagedRowsCommitted } from "../metrics.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { pruneOrphanedCategories } from "./categories.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
@@ -1091,7 +1092,7 @@ export async function commitStages(actor: Actor, input: unknown, transaction?: D
     allowDuplicates: parsed.allowDuplicates,
     dryRun: parsed.dryRun,
   };
-  return withTransaction(transaction, async (tx) => {
+  const outcome = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
       await lockIdempotencyKey(tx, actor, "stage.commit", parsed.idempotencyKey);
       const existing = await getIdempotent<{
@@ -1228,6 +1229,11 @@ export async function commitStages(actor: Actor, input: unknown, transaction?: D
     );
     return response;
   });
+  // The queue's whole point is that rows wait here until somebody says so, so
+  // the number worth watching is how many made it out, not how many arrived.
+  // A dry run reports what would commit and commits nothing.
+  if ("committed" in outcome) stagedRowsCommitted.inc(outcome.committed.length);
+  return outcome;
 }
 
 function stageSelectionSummary(rows: readonly (typeof stagedTransactions.$inferSelect)[]) {

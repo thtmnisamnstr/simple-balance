@@ -51,6 +51,8 @@ import {
   withCountableClientAddress,
 } from "./http-security.js";
 import { handleMcpRequest } from "./mcp.js";
+import { httpDuration, httpRequests, setMetricsComponent, startDefaultMetrics } from "./metrics.js";
+import { serveMetrics } from "./metrics-route.js";
 import { runAsBootstrapClaim } from "./registration-context.js";
 import {
   getMcpJwks,
@@ -166,6 +168,37 @@ type AppEnv = { Variables: Variables };
 const app = new Hono<AppEnv>();
 
 app.use("*", secureHeaders(securityHeaderOptions(getConfig().isProduction)));
+
+setMetricsComponent("api");
+startDefaultMetrics();
+/**
+ * Timed and counted above everything, including the guards below it.
+ *
+ * A request refused by a body limit or a content-type check took time and
+ * happened; leaving it out would report a system that is fast and idle at
+ * exactly the moment it is being hammered by something it is refusing.
+ *
+ * `routePath` rather than `path`: Hono hands back the pattern that matched,
+ * `/api/v1/accounts/:id`, so a ledger with ten thousand transactions is ten
+ * thousand requests against one series rather than ten thousand series. An
+ * unmatched path has no pattern of its own and is counted under one literal,
+ * because a 404 for a mistyped URL is exactly where unbounded labels come from.
+ */
+app.use("*", async (c, next) => {
+  const stop = httpDuration.startTimer();
+  try {
+    await next();
+  } finally {
+    const route = c.req.routePath === "/*" ? "unmatched" : c.req.routePath;
+    const labels = { method: c.req.method, route };
+    stop(labels);
+    httpRequests.inc({ ...labels, status: String(c.res.status) });
+  }
+});
+
+// Registered only when it was asked for, so a deployment that never set
+// `METRICS_ENABLED` has no such route rather than a route that refuses.
+if (getConfig().metrics.enabled) app.get("/metrics", serveMetrics);
 
 const globalBodyLimit = boundRequestBody({
   maxBytes: (context) => requestBodyLimit(context.req.path),

@@ -54,22 +54,25 @@ than warning about.
 | `RECURRENCE_TICK_SECONDS` | `300` | How often it looks for work that has come due, meaning both a recurrence to propose and a reminder to send. Latency only for a recurrence: whatever a missed tick leaves behind, the next one catches up. A reminder whose moment passed is not sent late, so this is also how close to the requested time a reminder lands. Ceiling 3600. |
 | `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. Ceiling 500. |
 | `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. Ceiling 5000. |
+| `METRICS_ENABLED` | `false` | Whether this process answers `GET /metrics` in Prometheus' text format. Off unless you ask for it. |
+| `METRICS_TOKEN` | unset | A bearer token `GET /metrics` demands before it answers. Optional; unset means anybody who can reach the port can scrape it. It is a secret, so it also takes a `METRICS_TOKEN_FILE`; see below. |
 
 `CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `DATABASE_POOL_SIZE`,
 `RECURRENCE_TICK_SECONDS`, `RECURRENCE_CATCH_UP_LIMIT` and
 `RECURRENCE_CLAIM_LIMIT` are each a whole number between 1 and the ceiling
-shown. Anything else refuses to start and names the variable: a word, a zero, a
-negative, something past the ceiling, or the name set to nothing at all.
-Leaving one out is the only way to ask for its default.
+shown. Anything else — a word, a zero, a negative, something past the ceiling —
+warns at startup, names the variable and the value, and uses the default.
+Leaving one out is the only way to ask for its default without a warning.
 
-All six are read at startup, before anything is served, so a wrong one stops the
-container in front of whoever just deployed it. They used to fall back to the
-default instead, and be read at the moment they were wanted, which is a
-combination with no symptom: `CSV_MAX_ROWS=1O000`, typed with a letter O, ran
-happily on ten thousand rows and told nobody the number set was not the number
-in force. If you are carrying a value above one of these ceilings, it was being
-quietly reduced already and now has to be brought inside the range before the
-container will start.
+All six are read at startup, before anything is served, so the warning is in
+front of whoever just deployed rather than in a log nobody opens until the day
+it matters. They used to be read at the moment they were wanted, which is a
+combination with no symptom at all: `CSV_MAX_ROWS=1O000`, typed with a letter O,
+ran happily on ten thousand rows and told nobody the number set was not the
+number in force. A warning rather than a refusal because a deployment carrying
+one of these values from an earlier release has to keep starting; the release
+that stops accepting it is a later one, after the warning has been in the
+field.
 
 The rest refuse to start for the same reason. `NODE_ENV`, `AUTH_MODE`,
 `LOG_LEVEL`, `TRUST_PROXY` and `RECURRENCE_SCHEDULER` are each parsed against
@@ -108,15 +111,17 @@ admits somebody, rather than silently letting everyone in.
 
 ### Keeping a secret out of the environment
 
-Six variables also answer to a `NAME_FILE` form: `AUTH_SECRET`, `DATABASE_URL`,
-`DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET` and
-`SETUP_TOKEN`. Having the form is the definition of being a secret here, so
-nothing else in either table above has one.
+Seven variables also answer to a `NAME_FILE` form: `AUTH_SECRET`,
+`DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`,
+`SETUP_TOKEN` and `METRICS_TOKEN`. Having the form is the definition of being a
+secret here, so nothing else in either table above has one.
 
 `NAME_FILE` names a file whose contents are the value. Set one of `NAME` and
-`NAME_FILE` and never both: both set refuses to start, naming the variable,
-because a precedence rule means somebody eventually changes a value that has no
-effect. An empty `NAME` does not count as set, so the blank `AUTH_SECRET=` that
+`NAME_FILE` and never both: both set warns and uses `NAME`, naming the file
+being ignored, because a precedence rule means somebody eventually changes a
+value that has no effect. `NAME` winning is what happened before `NAME_FILE`
+did anything at all, so an upgrade cannot change which value a running
+deployment is using. An empty `NAME` does not count as set, so the blank `AUTH_SECRET=` that
 `.env.example` ships is not in the way.
 
 One trailing newline is stripped and nothing further. `printf` and a Kubernetes
@@ -646,6 +651,52 @@ to look for both.
 
 On `SIGTERM` the process stops accepting connections, closes the HTTP server,
 and drains the database pool before exiting.
+
+## Metrics
+
+Off by default. `METRICS_ENABLED=true` makes the process answer `GET /metrics`
+in the Prometheus text format, on the same port everything else is served on.
+With it off there is no such route, so `/metrics` reaches the single-page app
+like any other path the browser owns and a scraper pointed at it gets HTML and
+a parse error — which is what a scrape against a deployment that never turned
+this on looks like.
+Both entrypoints have one, and in a split deployment you want both: the API
+reports requests, MCP tool calls, ledger writes and its connection pool, and the
+scheduler reports ticks, proposals, reminders and mail. Scraping only the API
+watches the process that does none of the scheduled work.
+
+Nothing in a metric names a person. No label carries a user, an email, an
+account or an amount, and a path with an id in it is counted under the route
+pattern rather than the path, so `/api/v1/accounts/{id}` is one series and not
+one per account. What a scrape does say is how much this deployment is doing:
+requests by route and status, writes by kind, queue depths, how long a
+transaction holds a connection. That is not somebody's ledger and it is not for
+the open internet either.
+
+So `METRICS_TOKEN` is there when the port is reachable by anything you do not
+control. Set it, and the endpoint answers only a request carrying
+`Authorization: Bearer <token>`; leave it unset behind a private network and
+`kubernetes-pods` style discovery scrapes it with no configuration at all. Set
+it in production without one and the startup log says so once. The bundled
+frontend nginx does **not** proxy `/metrics`: a scrape goes to the API service
+directly, so the browser's hostname never exposes it.
+
+A Prometheus job for the two containers, with a token:
+
+```yaml
+scrape_configs:
+  - job_name: simple-balance
+    authorization:
+      credentials_file: /etc/prometheus/simple-balance-token
+    static_configs:
+      - targets: ["simple-balance-server:3000", "simple-balance-scheduler:3000"]
+```
+
+The names are `simple_balance_*` for this product's own, and `process_*` and
+`nodejs_*` for the runtime's — heap, event-loop lag, garbage collection — which
+`prom-client` collects. Every series carries `component="api"` or
+`component="scheduler"`, so a split deployment can tell the two apart and a
+single container reports both under `api`.
 
 ## Backups
 

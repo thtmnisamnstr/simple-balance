@@ -79,6 +79,7 @@ import {
   listTransactionTemplates,
   updateTransactionTemplate,
 } from "./services/transaction-templates.js";
+import { mcpToolCalls, mcpToolDuration } from "./metrics.js";
 import { AppError, zodIssues } from "./services/errors.js";
 import { getIdempotent, lockIdempotencyKey, setIdempotent } from "./services/helpers.js";
 import {
@@ -523,6 +524,41 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       ].join("\n"),
     },
   );
+
+  /**
+   * Every tool timed and counted, without touching seventy-one call sites.
+   *
+   * The name is the label worth having and `runTool` never sees it: the
+   * registration knows it, the callback does not. Wrapping the registration is
+   * the one place that has both, and it means a tool added tomorrow is
+   * instrumented by existing rather than by somebody remembering.
+   *
+   * The outcome comes from `isError`, which is what `runTool` sets on a refusal
+   * the caller could act on. A thrown error would be a bug in `runTool` itself
+   * and is counted the same way, in a `finally`, so a tool that blows up is not
+   * quietly missing from the count of calls it received.
+   */
+  const register = server.registerTool.bind(server) as typeof server.registerTool;
+  server.registerTool = function instrumented(name, config, callback) {
+    // `args` is spread back through a callback whose parameter list is a union
+    // of two arities — the SDK's own overloads — which a rest tuple cannot
+    // express. `apply` takes the array as it is and asks nothing about its
+    // shape, which is exactly the guarantee needed here: this wrapper passes
+    // its arguments through untouched and looks at none of them.
+    const measured = async function measure(this: unknown, ...args: unknown[]) {
+      const stop = mcpToolDuration.startTimer({ tool: name });
+      let outcome = "error";
+      try {
+        const result = await Reflect.apply(callback, this, args);
+        outcome = result?.isError ? "error" : "ok";
+        return result;
+      } finally {
+        stop();
+        mcpToolCalls.inc({ tool: name, outcome });
+      }
+    } as typeof callback;
+    return register(name, config, measured);
+  } as typeof server.registerTool;
 
   if (hasScope(scopes, "ledger:read")) {
     server.registerTool(

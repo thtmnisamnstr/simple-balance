@@ -41,7 +41,7 @@ a constructor tells you what it assigns.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:895`, `src/server/http-security.ts:159` and `:550`),
+(`src/server/api.ts:928`, `src/server/http-security.ts:159` and `:550`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -196,7 +196,7 @@ a re-export is caught too.
 floating-point numbers."
 
 The server uses `decimal.js` through one wrapper
-(src/server/services/helpers.ts:20).
+(src/server/services/helpers.ts:21).
 The client uses scaled `bigint` (src/client/money.ts:160,
 src/client/money.ts:175),
 because the browser bundle should not carry a decimal library to render a table.
@@ -223,7 +223,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1034`, `:2226` and `:2313`.)
+(`src/server/services/transactions.ts:1035`, `:2242` and `:2331`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

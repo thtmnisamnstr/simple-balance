@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Client } from "pg";
 import { MIGRATION_LOCK } from "./advisory-locks.js";
 import { closeDb, directConnectionString } from "./client.js";
+import { migrationDuration, migrationRuns } from "../metrics.js";
 
 /**
  * PostgreSQL's code for "that database does not exist". The driver reports it
@@ -67,6 +68,10 @@ async function createDatabaseIfMissing(connectionString: string) {
 }
 
 export async function runMigrations() {
+  // Timed including the wait for the lock, which is the number worth having:
+  // on a rolling deploy the second process spends that whole time doing
+  // nothing, and readiness is what it costs.
+  const stop = migrationDuration.startTimer();
   // Session advisory locks belong to one PostgreSQL connection. Holding a
   // dedicated pool client prevents the lock, migration, and unlock from being
   // dispatched through different pooled sessions.
@@ -76,7 +81,15 @@ export async function runMigrations() {
     await client.query("select pg_advisory_lock($1)", [MIGRATION_LOCK]);
     locked = true;
     await migrate(drizzle(client), { migrationsFolder: "drizzle" });
+    migrationRuns.inc({ outcome: "ok" });
+  } catch (error) {
+    // Counted before it is rethrown. Readiness already fails on this, but a
+    // failed migration and a database that was never reachable look the same
+    // from outside, and only one of the two is fixed by waiting.
+    migrationRuns.inc({ outcome: "failed" });
+    throw error;
   } finally {
+    stop();
     try {
       if (locked) {
         await client.query("select pg_advisory_unlock($1)", [MIGRATION_LOCK]);

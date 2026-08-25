@@ -1,5 +1,6 @@
 import { createTransport, type Transporter } from "nodemailer";
 import { getConfig, type MailSettings } from "./config.js";
+import { mailMessages } from "./metrics.js";
 
 /**
  * Outbound mail, and only when a deployment has somewhere to send it.
@@ -140,7 +141,13 @@ function smtpFailure(error: unknown) {
 export async function sendMail(message: Message) {
   const mail = getConfig().mail;
   const sender = getTransport();
-  if (!mail || !sender) return false;
+  // Counted, not ignored. A deployment with no mail server is a supported one,
+  // and the number that distinguishes it from a broken relay is how many
+  // messages were skipped rather than attempted.
+  if (!mail || !sender) {
+    mailMessages.inc({ outcome: "skipped" });
+    return false;
+  }
   try {
     await sender.sendMail({
       from: mail.from,
@@ -158,6 +165,7 @@ export async function sendMail(message: Message) {
       // reads, holding somebody's reset link.
       headers: { "Auto-Submitted": "auto-generated" },
     });
+    mailMessages.inc({ outcome: "sent" });
     return true;
   } catch (error) {
     // Not the subject, which is a name somebody wrote, and not the error whole,
@@ -166,6 +174,7 @@ export async function sendMail(message: Message) {
       `Could not send ${message.about}. Check SMTP_HOST and MAIL_FROM.`,
       smtpFailure(error),
     );
+    mailMessages.inc({ outcome: "failed" });
     return false;
   }
 }

@@ -151,6 +151,14 @@
             "ssl": { "type": "boolean" }
           }
         },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
         "extraEnv": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }
       }
     },
@@ -165,6 +173,7 @@
         "directDatabaseUrl": { "type": "string" },
         "authSecret": { "type": "string" },
         "setupToken": { "type": "string" },
+        "metricsToken": { "type": "string" },
         "googleClientSecret": { "type": "string" },
         "smtpUsername": { "type": "string" },
         "smtpPassword": { "type": "string" }

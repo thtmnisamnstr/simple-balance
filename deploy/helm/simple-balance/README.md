@@ -84,6 +84,26 @@ and the first-account claim hold session-level advisory locks, and in transactio
 mode those are taken on one connection and released on another, which is to say
 not held at all.
 
+## Metrics
+
+Off unless asked for. `config.metrics.enabled=true` makes both workloads answer
+`GET /metrics` on their own container port, and both are worth scraping: the API
+reports requests, MCP tool calls, ledger writes and its connection pool, the
+scheduler reports ticks, proposals, reminders and mail. Every series carries
+`component="api"` or `component="scheduler"`.
+
+Nothing in a metric names a person, and a path with an id in it is counted under
+its route pattern rather than the path, so a large ledger is not a large number
+of time series. What it does publish is how busy this deployment is, so
+`secret.metricsToken` is there when the pods are reachable by anything the
+NetworkPolicy does not already decide about: set it and the endpoint answers
+only `Authorization: Bearer <token>`.
+
+The Service publishes no separate port for it and the frontend does not proxy
+it, so a scrape reaches the pods directly — `kubernetes-pods` discovery with the
+usual `prometheus.io/scrape` annotations through `server.podAnnotations` and
+`scheduler.podAnnotations`, or a ServiceMonitor pointed at the existing port.
+
 ## Everything else
 
 `values.yaml` documents every value where it is defined, including why the

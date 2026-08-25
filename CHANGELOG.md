@@ -24,6 +24,31 @@ teaches the model that the argument works.
 
 ### Added
 
+The application says what it is doing, in Prometheus' text format, at
+`GET /metrics`. It is off until `METRICS_ENABLED=true`, and then it is
+registered rather than refusing, so a deployment that never asked has no such
+route at all. Both entrypoints answer: the API reports requests by route and
+status, MCP tool calls by tool, ledger writes by kind, idempotent replays, its
+connection pool and how long a transaction holds a connection; the scheduler
+reports ticks, proposals, reminder sweeps and mail. `component="api"` or
+`component="scheduler"` sits on every series, so a split deployment scrapes both
+and the two never collide. Node's own heap, event-loop lag and garbage
+collection come with it.
+
+Nothing in a metric names a person. No label carries a user, an email, an
+account or an amount, and a path with an id in it is counted under its route
+pattern, so a ledger with ten thousand transactions is one time series rather
+than ten thousand. What a scrape does say is how much a deployment is doing,
+which is what `METRICS_TOKEN` is for: set it and the endpoint answers only a
+request carrying `Authorization: Bearer`, leave it unset behind a private
+network and a scraper needs no configuration at all. The bundled frontend does
+not proxy `/metrics`, so the browser's own hostname never exposes it, and
+turning it on in production without a token says so once in the log.
+
+The Helm chart carries `config.metrics.enabled` and `secret.metricsToken`, and
+`docs/deployment.md` has a scrape config for the two containers.
+
+
 Six secrets can be read from a file instead of the environment: `AUTH_SECRET`,
 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`
 and `SETUP_TOKEN`. Point `NAME_FILE` at a file whose contents are the value, and
