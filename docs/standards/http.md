@@ -651,7 +651,7 @@ and for the code each of those refusals names being a member of `apiErrorCodes`.
 - **House.** Field errors are `{field, message}` with `field` a dotted path.
   `zodIssues()` already produces exactly that
   (`src/server/services/errors.ts:76-81`) and MCP uses it
-  (`src/server/mcp.ts:211`), but the global HTTP handler does not: it ships
+  (`src/server/mcp.ts:272`), but the global HTTP handler does not: it ships
   `error.issues` straight from Zod (`src/server/api.ts:205`), putting the
   validator's own discriminators on the wire as public contract. Route it
   through `zodIssues()`. Under problem details this array becomes `errors`.
@@ -1326,7 +1326,7 @@ than rediscovering the disagreement.
 | A cursor round-trips and is refused under a different ordering | `tests/cursor.test.ts` |
 | The browser's idempotency key is a v4 UUID, long enough for the server's minimum | `tests/idempotency-key.test.ts` |
 | A commit replays rather than duplicating, and a bulk write is atomic | `tests/integration/ledger.integration.test.ts`, `tests/integration/bulk-transactions.integration.test.ts` |
-| A leg write bumps the parent transaction's version | `tests/integration/splits-audit.integration.test.ts:218` |
+| A leg write bumps the parent transaction's version | `tests/integration/splits-audit.integration.test.ts:175` |
 | A stranger's id is a 404 and never a 403 | `tests/integration/tenant-isolation.integration.test.ts` |
 | The Hono security headers and the nginx ones are identical | `tests/security-header-parity.test.ts` |
 | Every `/api/v1` route has a tool or a written exception, and every tool has a route | `tests/mcp-parity.test.ts`, both directions |

@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1258-1284`, which is the
+which reads and writes files, and `src/server/api.ts:1308-1330`, which is the
 transport.
 
 ## 1. Why CSV, and why no apology
@@ -154,7 +154,7 @@ a dated filename exists to get right.
 
 Papa Parse guesses the delimiter and the preview reports what it guessed, both
 in the API response (`CsvPreview.delimiter`, `src/shared/csv.ts:122-169`) and on
-screen (`src/client/pages/ImportPage.tsx:323-327`). The import screen says so
+screen (`src/client/pages/ImportPage.tsx:313-317`). The import screen says so
 before a file is chosen: "Comma, semicolon, and tab delimiters are detected
 automatically."
 
@@ -365,7 +365,7 @@ defines format evolution, so this is our own invention. The rules for it:
   does.
 - When it changes, the old reader stays reachable.
 - The token is checked per row, not per file
-  (`src/server/services/import-export.ts:185-197`). A row whose token is missing
+  (`src/server/services/import-export.ts:226-236`). A row whose token is missing
   or unrecognised is staged with one issue and nothing else read from it.
 
 Today the token is `simple-balance-csv-1` (`src/shared/csv.ts:5`).
@@ -414,7 +414,7 @@ threw away a date, payee, amount and account the file had stated perfectly
 clearly.
 
 *Checked by:* `tests/integration/splits-roundtrip.integration.test.ts:105-163`,
-`tests/integration/import-export.integration.test.ts:740` ("stages a row whose
+`tests/integration/import-export.integration.test.ts:704` ("stages a row whose
 split cannot be read, without the split").
 
 **Multi-currency.** A cross-currency transfer exports both amounts and the rate
@@ -428,7 +428,7 @@ right refusal. A rate is a fact about a movement, not a preference.
 **Binding.** `AGENTS.md`: "Preserve audit history, transaction provenance, and
 cross-currency CSV round trips."
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:508` ("marks
+*Checked by:* `tests/integration/import-export.integration.test.ts:516` ("marks
 exports explicitly and asks for both accounts of a transfer"), which exports a
 110 EUR-for-100 transfer and reads it back. Only the export half. Nothing
 commits a restored cross-currency transfer into two accounts of different
@@ -459,7 +459,7 @@ install, then commit the queue. **Preserved:**
 - The split, leg by leg, by category name, with each leg's note.
 
 *Checked by:* `tests/integration/csv-roundtrip-fidelity.integration.test.ts` end
-to end, and `tests/integration/import-export.integration.test.ts:748` ("lets a
+to end, and `tests/integration/import-export.integration.test.ts:757` ("lets a
 different person import an export of someone else's ledger").
 
 **Deliberately not preserved:**
@@ -468,7 +468,7 @@ different person import an export of someone else's ledger").
 | --- | --- |
 | The transaction id | It is a foreign ledger's primary key |
 | Accounts, by id or by name | An import names one account and that is the only thing deciding where rows land |
-| The category id, where this ledger does not own it | It is dropped so the name can resolve instead, rather than importing with no category at all (`src/server/services/import-export.ts:780-881`) |
+| The category id, where this ledger does not own it | It is dropped so the name can resolve instead, rather than importing with no category at all (`src/server/services/import-export.ts:867-880`) |
 | Leg ids | Same reason as category ids |
 | The currency | It comes from the chosen account |
 | `effective_rate` | Recomputed from the two amounts |
@@ -835,7 +835,7 @@ be.
 - **No saved, reusable import configuration.** hledger has a rules file, Firefly
   III has a saved configuration, Actual remembers a mapping. Here the browser
   infers a mapping from header aliases each time
-  (`src/client/pages/ImportPage.tsx:50-112`), and `import_batch.mapping` is
+  (`src/client/pages/ImportPage.tsx:59-95`), and `import_batch.mapping` is
   stored for the record rather than for reuse
   (`src/server/services/import-export.ts:912`). The inference is also
   browser-only: an MCP caller composes the mapping itself.

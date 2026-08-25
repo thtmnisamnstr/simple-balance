@@ -191,7 +191,7 @@ which is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:173-183`:** "Every migration that has shipped is
+**Binding, quoting `AGENTS.md:181-196`:** "Every migration that has shipped is
 frozen" and "Never edit or regenerate one: someone's database has already run
 it, and changing it would leave their schema and its recorded history
 disagreeing." What follows is the documentation the operator is owed for that.
@@ -275,7 +275,7 @@ out.
 - **Nothing is committed to here.** `tasks/product.prd.json` records the product
   as built; the roadmap records intent, and says so in its opening paragraph.
 
-*Not checked mechanically.* `tests/version.test.ts:96-98` checks that the
+*Not checked mechanically.* `tests/version.test.ts:89-91` checks that the
 backlog's version matches the manifest, which is the only mechanical link
 between intent and release.
 
@@ -303,7 +303,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:173-183`, the frozen migration list, which names every migration
+  is `AGENTS.md:181-196`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by

@@ -8,7 +8,7 @@ The wire format — RFC 9457, status codes, the envelope — is
 ## 1. One error type
 
 **Binding, with one named exception.** Anything a caller could act on is an
-`AppError` (`src/server/services/errors.ts:4`). It carries a code, a message, an
+`AppError` (`src/server/services/errors.ts:10`). It carries a code, a message, an
 HTTP status and optional details, and both transports render it: HTTP into a
 problem document, MCP into a tool error.
 
