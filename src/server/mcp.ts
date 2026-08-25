@@ -6,6 +6,10 @@ import { APP_VERSION } from "../shared/version.js";
 import {
   accountCreateSchema,
   accountUpdateSchema,
+  budgetEntrySetSchema,
+  budgetPlanCreateSchema,
+  budgetPlanUpdateSchema,
+  budgetReportQuerySchema,
   bulkDeleteStageSchema,
   bulkStageEditSchema,
   bulkStageFilterSelectionRequestSchema,
@@ -18,27 +22,24 @@ import {
   commitStageSchema,
   dateRangeSchema,
   directTransactionCreateSchema,
-  budgetEntrySetSchema,
-  budgetPlanCreateSchema,
-  budgetPlanUpdateSchema,
-  budgetReportQuerySchema,
+  expectedVersionSchema,
   idempotencyKeySchema,
-  reportQuerySchema,
-  recurrenceCreateSchema,
-  recurrenceUpdateSchema,
+  isoDateSchema,
   listQuerySchema,
   payeeListQuerySchema,
   payeeMergeSchema,
+  recurrenceCreateSchema,
+  recurrenceUpdateSchema,
+  reportQuerySchema,
   stageCreateSchema,
   stageListQuerySchema,
+  stageUpdateSchema,
+  transactionDeletedMutationSchema,
   transactionTemplateBulkDeleteSchema,
   transactionTemplateBulkEditSchema,
   transactionTemplateCreateSchema,
   transactionTemplateUpdateSchema,
-  stageUpdateSchema,
-  transactionDeletedMutationSchema,
   transactionUpdateSchema,
-  isoDateSchema,
 } from "../shared/domain.js";
 import { getDb, type DbTransaction } from "./db/client.js";
 import {
@@ -341,7 +342,12 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             .describe(
               "Report each balance as of this date. Does not change which accounts come back. Left out, a balance includes every posting, future-dated ones included.",
             ),
-          includeArchived: z.boolean().default(false),
+          includeArchived: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Include archived accounts. An archived account holds nothing — its balance was posted out to equity when it closed — so leaving them out is what makes a total right rather than merely tidy.",
+            ),
         }),
         outputSchema: mcpOutputSchema(z.array(accountResultSchema)),
         annotations: readAnnotations,
@@ -365,7 +371,14 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "List categories",
         description:
           "List income and expense categories with how many committed and staged transactions use each one, so an existing category can be reused rather than a second spelling of it created. Counts cover the whole ledger and leave out deleted transactions and staged rows already committed or discarded.",
-        inputSchema: toolInput({ includeArchived: z.boolean().default(false) }),
+        inputSchema: toolInput({
+          includeArchived: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Include archived categories. An archived category still holds everything filed under it, so leaving them out narrows what you are looking at rather than tidying it.",
+            ),
+        }),
         outputSchema: mcpOutputSchema(z.array(categorySummaryResultSchema)),
         annotations: readAnnotations,
       },
@@ -736,8 +749,20 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         description:
           "List append-only ledger activity: every write, whether it came from the browser, an agent, or the recurrence scheduler. actorSource says which.",
         inputSchema: toolInput({
-          cursor: z.string().max(500).optional(),
-          limit: z.number().int().min(1).max(200).default(50),
+          cursor: z
+            .string()
+            .max(500)
+            .optional()
+            .describe(
+              "Resume token from a previous page, taken from `nextCursor`. This log only walks forward.",
+            ),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(200)
+            .default(50)
+            .describe("Rows per page, 1 to 200. Defaults to 50."),
         }),
         outputSchema: mcpOutputSchema(cursorPageResultSchema(auditEventResultSchema)),
         annotations: readAnnotations,
@@ -958,7 +983,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           "Delete a standing budget. It wrote no postings, so removing it leaves the books exactly as they were and changes no balance or report; only the budget page stops comparing against it. Confirm it with the person first. Needs the current version.",
         inputSchema: toolInput({
           id: recordIdSchema,
-          expectedVersion: z.number().int().positive(),
+          expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedBudgetResultSchema),
@@ -1004,7 +1029,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           "Remove a one-period override, so that period falls back to whatever standing budget covers it, or to no budget at all if none does. Writes no postings and changes no balance. Needs the current version. Confirm it with the person first. The period falls back to whatever the standing budget says.",
         inputSchema: toolInput({
           id: recordIdSchema,
-          expectedVersion: z.number().int().positive(),
+          expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedBudgetResultSchema),
@@ -1075,7 +1100,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           "Stop a recurring transaction. Rows it has already proposed are left exactly as they are, whether they are still in the queue or already committed, and they go on reporting which recurrence made them. Confirm it with the person first. Rows it already proposed are left alone; only future occurrences stop.",
         inputSchema: toolInput({
           id: recordIdSchema,
-          expectedVersion: z.number().int().positive(),
+          expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(z.object({ id: recordIdSchema })),
@@ -1168,8 +1193,12 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           "Retire an account, or bring one back. Archiving posts whatever the account still holds out to the Opening Balances equity account, so it closes at zero and drops out of balances and summaries while its history stays readable. Restoring posts the balance back. This moves money in the books, so confirm it with the person first.",
         inputSchema: toolInput({
           id: recordIdSchema,
-          expectedVersion: z.number().int().positive(),
-          archived: z.boolean(),
+          expectedVersion: expectedVersionSchema,
+          archived: z
+            .boolean()
+            .describe(
+              "True to archive, false to bring it back. Archiving posts whatever it still holds out to equity so it closes at zero; restoring posts the balance back. Neither loses history.",
+            ),
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(accountResultSchema),
@@ -1194,7 +1223,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           "Permanently delete an account, only when it is not archived and has no history or staged rows. Unarchive it first if it is archived.",
         inputSchema: toolInput({
           id: recordIdSchema,
-          expectedVersion: z.number().int().positive(),
+          expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedEntityResultSchema),
@@ -1259,8 +1288,12 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         description: "Archive an in-use category or restore an archived category.",
         inputSchema: toolInput({
           id: recordIdSchema,
-          expectedVersion: z.number().int().positive(),
-          archived: z.boolean(),
+          expectedVersion: expectedVersionSchema,
+          archived: z
+            .boolean()
+            .describe(
+              "True to archive, false to bring it back. Archiving posts whatever it still holds out to equity so it closes at zero; restoring posts the balance back. Neither loses history.",
+            ),
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(categoryResultSchema),
@@ -1365,7 +1398,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           "Delete a saved template. Transactions already made from it are untouched, because a template is only a starting point and nothing points back to it. Confirm it with the person first. Transactions already made from it are untouched.",
         inputSchema: toolInput({
           id: recordIdSchema,
-          expectedVersion: z.number().int().positive(),
+          expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedEntityResultSchema),
@@ -1413,7 +1446,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         description: "Permanently delete a category only when it is unused.",
         inputSchema: toolInput({
           id: recordIdSchema,
-          expectedVersion: z.number().int().positive(),
+          expectedVersion: expectedVersionSchema,
           idempotencyKey: idempotencyKeySchema,
         }),
         outputSchema: mcpOutputSchema(deletedEntityResultSchema),

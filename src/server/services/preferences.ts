@@ -19,9 +19,16 @@ export const preferenceSchema = z.object({
       } catch {
         return false;
       }
-    }, "Timezone is not recognized"),
+    }, "Timezone is not recognized")
+    .describe(
+      "An IANA timezone name such as Europe/London. It decides what today means everywhere a date is worked out: which day an open-ended range stops at, and which day an entry dated today lands on.",
+    ),
   defaultCurrency: currencyCodeSchema,
-  theme: z.enum(themes),
+  theme: z
+    .enum(themes)
+    .describe(
+      "system, light or dark. `system` follows the person's own machine and is the only one that keeps following it when they change it. Set it only when asked to: it is what their screen looks like and you cannot see it.",
+    ),
 });
 
 /**

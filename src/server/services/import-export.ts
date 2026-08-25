@@ -53,8 +53,18 @@ import { insertImportedStages } from "./staging.js";
 import { listAllTransactions } from "./transactions.js";
 
 export const csvStageInputSchema = z.object({
-  csv: z.string().min(1),
-  fileName: z.string().trim().min(1).max(240),
+  csv: z
+    .string()
+    .min(1)
+    .describe("The file's text, decoded. Send the whole file; rows are not streamed."),
+  fileName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(240)
+    .describe(
+      "What the file was called. Recorded on the import batch so somebody can tell one import from another later.",
+    ),
   idempotencyKey: idempotencyKeySchema,
   defaultAccountId: z
     .string()
@@ -67,9 +77,24 @@ export const csvStageInputSchema = z.object({
     .describe(
       "Which column holds which field. Not needed for a Simple Balance export, whose columns are already known.",
     ),
-  dateFormat: z.enum(["YMD", "MDY", "DMY"]).default("YMD"),
-  decimalSeparator: z.enum([".", ","]).default("."),
-  dryRun: z.boolean().default(false),
+  dateFormat: z
+    .enum(["YMD", "MDY", "DMY"])
+    .default("YMD")
+    .describe(
+      "How to read an ambiguous date. 03/04/2026 is 3 April under DMY and 4 March under MDY, and nothing in the file says which, so getting this wrong misfiles rows silently rather than failing.",
+    ),
+  decimalSeparator: z
+    .enum([".", ","])
+    .default(".")
+    .describe(
+      "Whether the file writes 1.234,56 or 1,234.56. Wrong, an amount is misread by a factor of a thousand rather than refused.",
+    ),
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Parse and validate the whole file, reporting what would be staged, without staging anything.",
+    ),
 });
 
 /**
@@ -103,8 +128,23 @@ export type ImportBatchSummary = {
 };
 
 export const importBatchListQuerySchema = z.object({
-  cursor: z.string().min(1).max(500).optional(),
-  limit: z.coerce.number().int().min(1).max(100).default(25),
+  cursor: z
+    .string()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe(
+      "Resume token from a previous page, taken from `nextCursor`. This list only walks forward.",
+    ),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(25)
+    .describe(
+      "Batches per page, 1 to 100. Defaults to 25, lower than the other lists because a batch summary is bigger.",
+    ),
 });
 
 export async function listActiveImportBatches(

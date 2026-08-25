@@ -150,12 +150,13 @@ describe("what mcp.md says it measured", () => {
         if (!property?.description) undescribed += 1;
       }
     }
-    expect(undescribed).toBe(
-      claimed(/Measured: (\d+) of the \d+\s+top-level tool parameters carry none/),
-    );
-    expect(total).toBe(
-      claimed(/Measured: \d+ of the (\d+)\s+top-level tool parameters carry none/),
-    );
+    // Held at zero rather than at whatever the guide claims. Every other
+    // measurement here is a fact the guide has to keep up with; this one became
+    // a rule the moment it reached zero, and a rule is worth more than a number
+    // somebody has to remember to lower. A new tool with an undescribed
+    // parameter fails here.
+    expect(undescribed, "every tool parameter carries a description").toBe(0);
+    expect(total).toBe(claimed(/Measured:\s+\*\*0 of (\d+) carry none\*\*/));
   });
 
   it("counts anyOf and oneOf, and how they break down", () => {

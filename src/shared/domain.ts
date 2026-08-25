@@ -657,8 +657,12 @@ export const transactionTemplateBulkPatchSchema = z
 
 export const transactionTemplateBulkEditSchema = z
   .object({
-    selection: transactionTemplateBulkSelectionSchema,
-    patch: transactionTemplateBulkPatchSchema,
+    selection: transactionTemplateBulkSelectionSchema.describe(
+      "Which rows to act on: either an explicit list with the version you read for each, or a filter plus the count and fingerprint a preview handed back. The filter form is refused if the matching set changed since the preview, so a row somebody added in between is never swept up silently.",
+    ),
+    patch: transactionTemplateBulkPatchSchema.describe(
+      "The fields to set on every row in the selection. A key left out is left alone; a key set to null clears it. An empty string is refused rather than read as a clear, because the two mean different things and only one of them is ever what somebody meant.",
+    ),
     idempotencyKey: idempotencyKeySchema,
     dryRun: z
       .boolean()
@@ -671,7 +675,9 @@ export const transactionTemplateBulkEditSchema = z
 
 export const transactionTemplateBulkDeleteSchema = z
   .object({
-    selection: transactionTemplateBulkSelectionSchema,
+    selection: transactionTemplateBulkSelectionSchema.describe(
+      "Which rows to act on: either an explicit list with the version you read for each, or a filter plus the count and fingerprint a preview handed back. The filter form is refused if the matching set changed since the preview, so a row somebody added in between is never swept up silently.",
+    ),
     idempotencyKey: idempotencyKeySchema,
     dryRun: z
       .boolean()
@@ -720,8 +726,18 @@ export const accountCreateSchema = z.object({
   openingBalance: decimalStringSchema.describe(
     'What the account held on its opening date, as a signed decimal string. Positive for money you hold. NEGATIVE for money you owe, so a credit card with 500 outstanding opens at "-500". Use "0" to start from nothing.',
   ),
-  institution: oneLine(z.string().trim().max(160)).optional().nullable(),
-  notes: freeText(z.string().trim().max(2_000)).optional().nullable(),
+  institution: oneLine(z.string().trim().max(160))
+    .optional()
+    .nullable()
+    .describe(
+      "The bank or provider this account is held with. A label for the person; nothing is derived from it.",
+    ),
+  notes: freeText(z.string().trim().max(2_000))
+    .optional()
+    .nullable()
+    .describe(
+      "Anything worth remembering about this account. A label for the person; nothing is derived from it.",
+    ),
 });
 
 export const accountUpdateSchema = accountCreateSchema
@@ -729,8 +745,14 @@ export const accountUpdateSchema = accountCreateSchema
   .extend({ expectedVersion: expectedVersionSchema });
 
 export const categoryCreateSchema = z.object({
-  name: oneLine(z.string().trim().min(1).max(120)),
-  kind: z.enum(categoryKinds),
+  name: oneLine(z.string().trim().min(1).max(120)).describe(
+    "What to call it. Matched against existing categories ignoring case and surrounding space, so a second spelling of one that exists is refused rather than created.",
+  ),
+  kind: z
+    .enum(categoryKinds)
+    .describe(
+      'Whether this category is for money coming in, money going out, or both. It decides which side of the books an entry naming it posts to, and an entry running against it is a refund rather than a mistake. Prefer "income" or "expense": "both" agrees with whichever direction it is handed, which destroys the signal that makes a refund a refund.',
+    ),
 });
 
 export const categoryUpdateSchema = categoryCreateSchema
@@ -738,10 +760,25 @@ export const categoryUpdateSchema = categoryCreateSchema
   .extend({ expectedVersion: expectedVersionSchema });
 
 export const categoryMergeSchema = z.object({
-  sourceCategoryIds: z.array(z.string().uuid()).min(1).max(100),
-  targetCategoryId: z.string().uuid(),
-  expectedVersions: z.record(z.string(), z.number().int().positive()),
-  targetExpectedVersion: z.number().int().positive(),
+  sourceCategoryIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(100)
+    .describe(
+      "The categories to merge away. Their transactions and staged rows move to the target and the sources are removed.",
+    ),
+  targetCategoryId: z
+    .string()
+    .uuid()
+    .describe("The category to keep. Everything filed under the sources ends up here."),
+  expectedVersions: z
+    .record(z.string(), z.number().int().positive())
+    .describe(
+      "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
+    ),
+  targetExpectedVersion: expectedVersionSchema.describe(
+    "The `version` you last read on the category being kept, so a merge into a category somebody else changed is refused rather than applied blind.",
+  ),
 });
 
 // Payees are intentionally derived from transaction text rather than stored in
@@ -753,7 +790,9 @@ export const payeeNameSchema = oneLine(z.string().min(1).max(160)).refine(
 );
 
 export const payeeListQuerySchema = z.object({
-  search: oneLine(z.string().trim().max(160)).optional(),
+  search: oneLine(z.string().trim().max(160))
+    .optional()
+    .describe("Match on the payee's name, ignoring case and surrounding space."),
 });
 
 export const payeeSummarySchema = z.object({
@@ -772,14 +811,24 @@ export const payeeDuplicateGroupSchema = z.object({
 
 export const payeeMergeSchema = z
   .object({
-    sourcePayees: z.array(payeeNameSchema).min(1).max(100),
-    targetPayee: payeeNameSchema,
+    sourcePayees: z
+      .array(payeeNameSchema)
+      .min(1)
+      .max(100)
+      .describe(
+        "The payee spellings to merge away. Every entry naming one is rewritten to the target.",
+      ),
+    targetPayee: payeeNameSchema.describe(
+      "The spelling to keep. Every entry naming one of the sources is rewritten to this.",
+    ),
     idempotencyKey: idempotencyKeySchema,
   })
   .strict();
 
 export const payeeMergeResultSchema = z.object({
-  targetPayee: payeeNameSchema,
+  targetPayee: payeeNameSchema.describe(
+    "The spelling to keep. Every entry naming one of the sources is rewritten to this.",
+  ),
   mergedSourcePayees: z.array(payeeNameSchema).min(1),
   updatedTransactionCount: z.number().int().nonnegative(),
   updatedStagedTransactionCount: z.number().int().nonnegative(),
@@ -790,15 +839,29 @@ export type PayeeDuplicateGroup = z.infer<typeof payeeDuplicateGroupSchema>;
 export type PayeeMergeResult = z.infer<typeof payeeMergeResultSchema>;
 
 export const directTransactionCreateSchema = z.object({
-  draft: transactionDraftSchema,
+  draft: transactionDraftSchema.describe(
+    "The entry itself: what moved, when, between which accounts, and under which category. Amounts are always positive — which way the money went is the draft's `type`.",
+  ),
   idempotencyKey: idempotencyKeySchema,
-  allowDuplicate: z.boolean().default(false),
+  allowDuplicate: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what stops a statement being imported twice.",
+    ),
 });
 
 export const transactionUpdateSchema = z.object({
-  draft: transactionDraftSchema,
+  draft: transactionDraftSchema.describe(
+    "The entry itself: what moved, when, between which accounts, and under which category. Amounts are always positive — which way the money went is the draft's `type`.",
+  ),
   expectedVersion: expectedVersionSchema,
-  allowDuplicate: z.boolean().default(false),
+  allowDuplicate: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what stops a statement being imported twice.",
+    ),
 });
 
 export const versionedMutationSchema = z.object({
@@ -806,15 +869,32 @@ export const versionedMutationSchema = z.object({
 });
 
 export const transactionDeletedMutationSchema = versionedMutationSchema.extend({
-  deleted: z.boolean(),
-  allowDuplicate: z.boolean().default(false),
+  deleted: z
+    .boolean()
+    .describe(
+      "True to delete, false to restore. Deleting posts the entry's reversal rather than erasing it, so it nets to zero and can be put back; restoring posts it again.",
+    ),
+  allowDuplicate: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what stops a statement being imported twice.",
+    ),
 });
 
 export const stageCreateSchema = z
   .object({
-    draft: stagedDraftSchema,
+    draft: stagedDraftSchema.describe(
+      "The proposed entry. Unlike a committed transaction this may be incomplete or unreadable in places — a row imported from a bank file is staged as it arrived, issues and all, because that is the row somebody opened the queue to repair.",
+    ),
     idempotencyKey: idempotencyKeySchema,
-    rawData: z.record(z.string(), z.unknown()).optional().nullable(),
+    rawData: z
+      .record(z.string(), z.unknown())
+      .optional()
+      .nullable()
+      .describe(
+        "The original row this draft was read from, kept beside it so somebody repairing the row can see what actually arrived. Nothing reads it back into the entry.",
+      ),
   })
   .strict();
 
@@ -827,15 +907,32 @@ export const stageCreateSchema = z
 export const MAX_BULK_SELECTION_ENTRIES = 10_000;
 
 export const stageUpdateSchema = z.object({
-  draft: stagedDraftSchema,
+  draft: stagedDraftSchema.describe(
+    "The proposed entry. Unlike a committed transaction this may be incomplete or unreadable in places — a row imported from a bank file is staged as it arrived, issues and all, because that is the row somebody opened the queue to repair.",
+  ),
   expectedVersion: expectedVersionSchema,
 });
 
 export const commitStageSchema = z.object({
-  stagedIds: z.array(z.string().uuid()).min(1).max(MAX_BULK_SELECTION_ENTRIES),
-  expectedVersions: z.record(z.string(), z.number().int().positive()),
+  stagedIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(MAX_BULK_SELECTION_ENTRIES)
+    .describe(
+      "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
+    ),
+  expectedVersions: z
+    .record(z.string(), z.number().int().positive())
+    .describe(
+      "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
+    ),
   idempotencyKey: idempotencyKeySchema,
-  allowDuplicates: z.boolean().default(false),
+  allowDuplicates: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what stops the same statement landing twice.",
+    ),
   dryRun: z
     .boolean()
     .default(false)
@@ -845,8 +942,18 @@ export const commitStageSchema = z.object({
 });
 
 export const bulkDeleteStageSchema = z.object({
-  stagedIds: z.array(z.string().uuid()).min(1).max(MAX_BULK_SELECTION_ENTRIES),
-  expectedVersions: z.record(z.string(), z.number().int().positive()),
+  stagedIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(MAX_BULK_SELECTION_ENTRIES)
+    .describe(
+      "The staged rows to act on, named explicitly. There is no filter form here: this is all-or-nothing, so the caller says exactly which rows.",
+    ),
+  expectedVersions: z
+    .record(z.string(), z.number().int().positive())
+    .describe(
+      "The `version` you last read for each row, keyed by its id, so a row somebody else changed since is refused rather than silently overwritten. Every id in the selection needs an entry.",
+    ),
   // The last bulk route to get one. Every other bulk write lets a caller ask
   // what would happen before doing it; this one made you find out by doing it,
   // which is the wrong way round for the operation that removes rows.
@@ -919,9 +1026,18 @@ const budgetAmountSchema = decimalStringSchema.refine(
 );
 
 const budgetTarget = {
-  categoryId: z.string().uuid(),
+  categoryId: z
+    .string()
+    .uuid()
+    .describe(
+      "The category this budget is about. One budget per category, currency and period length.",
+    ),
   currency: currencyCodeSchema,
-  periodUnit: z.enum(budgetPeriodUnits),
+  periodUnit: z
+    .enum(budgetPeriodUnits)
+    .describe(
+      "The length of one budget period. Both ends of the plan's window snap to the start of a period of this length, so a stored period start is the period's name rather than an arbitrary date.",
+    ),
 };
 
 /**
@@ -937,7 +1053,12 @@ export const budgetPlanCreateSchema = z
     ...budgetTarget,
     amount: budgetAmountSchema,
     activeFrom: isoDateSchema,
-    activeTo: isoDateSchema.nullable().optional(),
+    activeTo: isoDateSchema
+      .nullable()
+      .optional()
+      .describe(
+        "The last day this budget applies, snapped to the end of its period. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
+      ),
   })
   .strict()
   .refine((value) => value.activeTo == null || value.activeTo >= value.activeFrom, {
@@ -951,7 +1072,12 @@ export const budgetPlanUpdateSchema = z
     activeFrom: isoDateSchema.optional(),
     // Present and null ends the plan, absent leaves it alone. The distinction
     // is the one the templates already draw, so it reads the same way here.
-    activeTo: isoDateSchema.nullable().optional(),
+    activeTo: isoDateSchema
+      .nullable()
+      .optional()
+      .describe(
+        "The last day this budget applies, snapped to the end of its period. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
+      ),
     expectedVersion: expectedVersionSchema,
   })
   .strict();
@@ -971,18 +1097,33 @@ export const budgetReportQuerySchema = z
   .object({
     start: isoDateSchema.optional(),
     end: isoDateSchema.optional(),
-    periodUnit: z.enum(budgetPeriodUnits).default("month"),
+    periodUnit: z
+      .enum(budgetPeriodUnits)
+      .default("month")
+      .describe(
+        "Report one row per period of this length. A range picks which periods to show; it never slices one in half, so spending is always counted over whole periods.",
+      ),
     // On, unlike every other report, and deliberately. Elsewhere an archived
     // account's balance is genuinely closed out, so leaving it in would double
     // count. A budget compares spending against a limit that was never scoped
     // to an account, so money spent on a card since closed is money the budget
     // covered: filtering it makes a budget spent to the penny read as underspent.
-    includeArchived: z.boolean().default(true),
+    includeArchived: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Include categories that have been archived. Archived categories still hold the history filed under them, so a report that leaves them out is answering a narrower question than it looks.",
+      ),
     // Spending in categories nobody budgeted. On by default, because the
     // question "where did the rest go" is the one a budget raises, and a page
     // that answered it only when asked would be hiding the gap. Turn it off to
     // see the budget alone.
-    includeUnbudgeted: z.boolean().default(true),
+    includeUnbudgeted: z
+      .boolean()
+      .default(true)
+      .describe(
+        "Include categories with no budget set, so spending that nobody planned for is visible rather than quietly absent. Their limit comes back null.",
+      ),
   })
   .strict();
 
@@ -1015,7 +1156,12 @@ export const reportNameSchema = z.enum(reportNames).describe("Which report to ru
 
 export const reportQuerySchema = dateRangeSchema.extend({
   report: reportNameSchema,
-  bucket: z.enum(reportBuckets).optional(),
+  bucket: z
+    .enum(reportBuckets)
+    .optional()
+    .describe(
+      "Group the report by day, week, month, quarter or year. Defaults to whatever suits the range asked for.",
+    ),
 });
 
 /**
@@ -1102,8 +1248,14 @@ export const listQuerySchema = dateRangeSchema.extend({
     .optional()
     .describe("Only deposits, only withdrawals, or only transfers."),
   currency: currencyCodeSchema.optional(),
-  search: oneLine(z.string().trim().max(200)).optional(),
-  includeDeleted: queryBooleanSchema,
+  search: oneLine(z.string().trim().max(200))
+    .optional()
+    .describe(
+      "Free text matched against the payee, the description and the notes, ignoring case. It narrows the rows; it is not a filter on one named field.",
+    ),
+  includeDeleted: queryBooleanSchema.describe(
+    "Show entries that have been deleted. A deleted entry is not erased — its reversal is posted, so it already nets to zero — and it stays visible here so it can be restored.",
+  ),
 });
 
 // Bulk filter selections deliberately omit pagination. They describe the
@@ -1146,8 +1298,16 @@ const bulkTransactionIdSelectionSchema = z
 const bulkTransactionFilterSelectionSchema = z
   .object({
     mode: z.literal("filter"),
-    filter: bulkTransactionFilterSchema,
-    excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
+    filter: bulkTransactionFilterSchema.describe(
+      "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
+    ),
+    excludedIds: z
+      .array(z.string().uuid())
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .default([])
+      .describe(
+        'Rows to leave out of an otherwise-matching filter, so somebody can say "all of these except those" without listing the rest.',
+      ),
     expectedCount: z.number().int().nonnegative().max(MAX_BULK_SELECTION_ENTRIES),
     expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   })
@@ -1169,8 +1329,16 @@ export const bulkTransactionSelectionSchema = z.discriminatedUnion("mode", [
 
 export const bulkTransactionFilterSelectionRequestSchema = z
   .object({
-    filter: bulkTransactionFilterSchema,
-    excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
+    filter: bulkTransactionFilterSchema.describe(
+      "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
+    ),
+    excludedIds: z
+      .array(z.string().uuid())
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .default([])
+      .describe(
+        'Rows to leave out of an otherwise-matching filter, so somebody can say "all of these except those" without listing the rest.',
+      ),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -1224,10 +1392,19 @@ const bulkTransactionPatchSchema = z
 
 export const bulkTransactionEditSchema = z
   .object({
-    selection: bulkTransactionSelectionSchema,
-    patch: bulkTransactionPatchSchema,
+    selection: bulkTransactionSelectionSchema.describe(
+      "Which rows to act on: either an explicit list with the version you read for each, or a filter plus the count and fingerprint a preview handed back. The filter form is refused if the matching set changed since the preview, so a row somebody added in between is never swept up silently.",
+    ),
+    patch: bulkTransactionPatchSchema.describe(
+      "The fields to set on every row in the selection. A key left out is left alone; a key set to null clears it. An empty string is refused rather than read as a clear, because the two mean different things and only one of them is ever what somebody meant.",
+    ),
     idempotencyKey: idempotencyKeySchema,
-    allowDuplicates: z.boolean().default(false),
+    allowDuplicates: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what stops the same statement landing twice.",
+      ),
     dryRun: z
       .boolean()
       .default(false)
@@ -1240,7 +1417,9 @@ export const bulkTransactionEditSchema = z
 /** Named so an agent can tell the two selection shapes apart without guessing. */
 export const bulkTransactionDeleteSchema = z
   .object({
-    selection: bulkTransactionSelectionSchema,
+    selection: bulkTransactionSelectionSchema.describe(
+      "Which rows to act on: either an explicit list with the version you read for each, or a filter plus the count and fingerprint a preview handed back. The filter form is refused if the matching set changed since the preview, so a row somebody added in between is never swept up silently.",
+    ),
     idempotencyKey: idempotencyKeySchema,
     dryRun: z
       .boolean()
@@ -1362,8 +1541,16 @@ const bulkStageIdSelectionSchema = z
 const bulkStageFilterSelectionSchema = z
   .object({
     mode: z.literal("filter"),
-    filter: bulkStageFilterSchema,
-    excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
+    filter: bulkStageFilterSchema.describe(
+      "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
+    ),
+    excludedIds: z
+      .array(z.string().uuid())
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .default([])
+      .describe(
+        'Rows to leave out of an otherwise-matching filter, so somebody can say "all of these except those" without listing the rest.',
+      ),
     expectedCount: z.number().int().nonnegative().max(MAX_BULK_SELECTION_ENTRIES),
     expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   })
@@ -1385,8 +1572,16 @@ export const bulkStageSelectionSchema = z.discriminatedUnion("mode", [
 
 export const bulkStageFilterSelectionRequestSchema = z
   .object({
-    filter: bulkStageFilterSchema,
-    excludedIds: z.array(z.string().uuid()).max(MAX_BULK_SELECTION_ENTRIES).default([]),
+    filter: bulkStageFilterSchema.describe(
+      "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
+    ),
+    excludedIds: z
+      .array(z.string().uuid())
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .default([])
+      .describe(
+        'Rows to leave out of an otherwise-matching filter, so somebody can say "all of these except those" without listing the rest.',
+      ),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -1454,8 +1649,12 @@ const bulkStagePatchSchema = z
  */
 export const bulkStageEditSchema = z
   .object({
-    selection: bulkStageSelectionSchema,
-    patch: bulkStagePatchSchema,
+    selection: bulkStageSelectionSchema.describe(
+      "Which rows to act on: either an explicit list with the version you read for each, or a filter plus the count and fingerprint a preview handed back. The filter form is refused if the matching set changed since the preview, so a row somebody added in between is never swept up silently.",
+    ),
+    patch: bulkStagePatchSchema.describe(
+      "The fields to set on every row in the selection. A key left out is left alone; a key set to null clears it. An empty string is refused rather than read as a clear, because the two mean different things and only one of them is ever what somebody meant.",
+    ),
     idempotencyKey: idempotencyKeySchema,
     dryRun: z
       .boolean()
@@ -1883,10 +2082,19 @@ export const templateNotificationSchema = z
 export type TemplateNotification = z.infer<typeof templateNotificationSchema>;
 
 export const transactionTemplateCreateSchema = z.object({
-  name: oneLine(z.string().trim().min(1).max(120)),
-  draft: transactionTemplateDraftSchema,
+  name: oneLine(z.string().trim().min(1).max(120)).describe(
+    "What to call this template, so a person can pick it out later. Not shown on the entries made from it.",
+  ),
+  draft: transactionTemplateDraftSchema.describe(
+    "The entry to prefill, with anything that varies left blank — an amount left out is asked for each time the template is used.",
+  ),
   /** A reminder to make this one. Null, or left out, is no reminder. */
-  notification: templateNotificationSchema.nullable().optional(),
+  notification: templateNotificationSchema
+    .nullable()
+    .optional()
+    .describe(
+      "An optional reminder to use this template, by email. Null clears it. A deployment with no mail server stores the setting and sends nothing.",
+    ),
 });
 
 /**
@@ -1913,9 +2121,15 @@ const recurrenceNotifySchema = z
 
 export const recurrenceCreateSchema = z
   .object({
-    name: oneLine(z.string().trim().min(1).max(120)),
-    shape: recurrenceShapeSchema,
-    schedule: recurrenceScheduleSchema,
+    name: oneLine(z.string().trim().min(1).max(120)).describe(
+      "What to call this recurrence, so a person can pick it out of a list later. Not shown on the entries it proposes.",
+    ),
+    shape: recurrenceShapeSchema.describe(
+      "The entry to propose each time, without a date — the occurrence supplies that. Amounts may be left blank for something whose figure changes.",
+    ),
+    schedule: recurrenceScheduleSchema.describe(
+      "When it comes round: how often, from when, and what to do when an occurrence lands on a weekend or in a month too short to hold it.",
+    ),
     notifyOnCreate: recurrenceNotifySchema.default(false),
   })
   .strict();

@@ -267,15 +267,28 @@ unrepresentable, so the model's own sampling cannot produce it.
   a `toolInput` helper or a `.strict()` at the tool boundary rather than by
   closing the schemas they share with `/api/v1`, because what a browser may send
   and what an agent may invent are different questions.
-- **House.** Every parameter carries a description. Measured: 78 of the 226
-  top-level tool parameters carry none, having been 146 of 225. `list_transactions` was
-  the worst case, publishing `sort`, `direction`, `cursor`, `page` and `limit`
-  with nothing on any of them — exactly the five an agent has to guess at — and
-  those five are shared by every list, so describing them once covered the lot.
-  The same trick closed the other three clusters: one described `id`, one
-  described `expectedVersion` and one described `dryRun` between them covered 45
-  parameters across 27 tools. **Work to do** for the remaining 78, which are
-  per-tool rather than shared and have no such lever.
+- **Binding, and now true.** Every parameter carries a description. Measured:
+  **0 of 226 carry none**, having been 146 of 225.
+
+  Most of the distance came from describing a shared thing once rather than at
+  each site that uses it. `list_transactions` was the worst case, publishing
+  `sort`, `direction`, `cursor`, `page` and `limit` with nothing on any of
+  them — exactly the five an agent has to guess at — and those five are shared
+  by every list. One described `id`, one `expectedVersion`, one `dryRun`, one
+  `selection`, one `patch` and one `expectedVersions` covered ninety more
+  across twenty-seven tools. The last thirty-three were genuinely per-tool and
+  were written one at a time.
+
+  A description says what the parameter is *for* and what goes wrong when it is
+  wrong, not what its type is — the schema already carries the type.
+  `decimalSeparator` says that getting it wrong misreads an amount by a factor
+  of a thousand rather than refusing it; `dateFormat` says 03/04/2026 is two
+  different days and nothing in the file says which. That is the half a model
+  cannot infer.
+
+  *Checked by:* `tests/mcp-measurements.test.ts`, which holds this at zero
+  rather than at whatever this sentence claims. A new tool with an undescribed
+  parameter fails the suite.
 - **House.** Where a mutual exclusion cannot be expressed in a schema that stays
   strict-compatible, state it in the parameter description and refuse it with a
   teaching error. The two bulk selection shapes and the leg-versus-category
