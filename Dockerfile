@@ -22,11 +22,19 @@ ENV PORT=3000
 # The release workflow passes the tag being published so the image reports the
 # version it actually contains.
 ARG APP_VERSION=0.1.5
+# `created` and `revision` are deliberately absent. A Dockerfile cannot emit a
+# label conditionally, so a defaulted ARG would give every hand-built image
+# `org.opencontainers.image.revision=""`, which reads to a consumer as known and
+# empty rather than as absent. They belong to the builder that knows them, which
+# is the release workflow.
 LABEL org.opencontainers.image.title="Simple Balance" \
   org.opencontainers.image.description="Self-hosted personal accounting: every account in one place, statements that import themselves, and reports that add up" \
   org.opencontainers.image.version="${APP_VERSION}" \
   org.opencontainers.image.licenses="AGPL-3.0-only" \
-  org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"
+  org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance" \
+  org.opencontainers.image.url="https://github.com/thtmnisamnstr/simple-balance" \
+  org.opencontainers.image.documentation="https://github.com/thtmnisamnstr/simple-balance#readme" \
+  org.opencontainers.image.base.name="node:24-alpine"
 COPY --from=runtime-dependencies --chown=node:node /runtime/package.json ./package.json
 COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist

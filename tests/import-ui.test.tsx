@@ -4,9 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Account, CsvPreview } from "../src/client/api.js";
+import type { Account, Category, CsvPreview, CsvSampleRow } from "../src/client/api.js";
 import { APP_CSV_COLUMNS } from "../src/shared/csv.js";
 import ImportPage from "../src/client/pages/ImportPage.js";
+import { BrowserRouter } from "../src/client/router.js";
 
 const checking: Account = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -32,13 +33,28 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function stubApi(preview: CsvPreview, accounts: Account[] = [checking]) {
+const dining: Category = { id: "cat-dining", name: "Dining", kind: "expense", version: 1 };
+
+/**
+ * The stage reply, in the shape the service returns it.
+ *
+ * `sample` defaults to empty because a header-only file samples nothing, and a
+ * panel that swapped the file's own cells for an empty table would be showing
+ * less than it started with.
+ */
+function stubApi(
+  preview: CsvPreview,
+  accounts: Account[] = [checking],
+  stage: Partial<{ sample: CsvSampleRow[] } & Record<string, unknown>> = {},
+  categories: Category[] = [dining],
+) {
   const bodies: Record<string, unknown>[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin);
       if (url.pathname === "/api/v1/accounts") return Response.json(accounts);
+      if (url.pathname === "/api/v1/categories") return Response.json(categories);
       if (url.pathname === "/api/v1/csv/preview") return Response.json(preview);
       if (url.pathname === "/api/v1/csv/stage") {
         bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
@@ -49,6 +65,7 @@ function stubApi(preview: CsvPreview, accounts: Account[] = [checking]) {
           invalidCount: 0,
           sample: [],
           referenceResolution: { categories: [], payees: [] },
+          ...stage,
         });
       }
       return new Response("Not found", { status: 404 });
@@ -63,7 +80,9 @@ async function chooseFile(csv: string, name: string) {
   });
   const { container } = render(
     <QueryClientProvider client={client}>
-      <ImportPage />
+      <BrowserRouter>
+        <ImportPage />
+      </BrowserRouter>
     </QueryClientProvider>,
   );
   await screen.findByRole("heading", { name: "Choose a CSV file" });
@@ -232,5 +251,168 @@ describe("importing a Simple Balance export", () => {
 
     await screen.findByRole("heading", { name: "Map the columns" });
     expect(screen.getByLabelText("Signed amount")).toBeInTheDocument();
+  });
+});
+
+/**
+ * A right preview and a wrong import is a bug rather than a surprise, so the
+ * panel stops showing the file's own cells once the server has read them and
+ * shows what it read instead.
+ */
+describe("the interpreted preview", () => {
+  const preview: CsvPreview = {
+    delimiter: ",",
+    headers: ["date", "payee", "category", "amount"],
+    rows: [{ date: "2026-07-31", payee: "ACME Market", category: "Dining", amount: "-12.34" }],
+    errors: [],
+  };
+  const csv = ["date,payee,category,amount", "2026-07-31,ACME Market,Dining,-12.34"].join("\n");
+
+  const withdrawal = (extra: Record<string, unknown> = {}): CsvSampleRow => ({
+    draft: {
+      type: "withdrawal",
+      date: "2026-07-31",
+      payee: "ACME Market",
+      fromAccountId: checking.id,
+      amount: "12.34",
+      ...extra,
+    } as CsvSampleRow["draft"],
+    issues: [],
+  });
+
+  const dryRun = async () => {
+    await screen.findByRole("heading", { name: "Map the columns" });
+    fireEvent.click(screen.getByRole("button", { name: "Dry run" }));
+  };
+
+  it("shows the first rows as they will be read", async () => {
+    stubApi(preview, [checking], {
+      rowCount: 2,
+      validCount: 1,
+      invalidCount: 1,
+      sample: [
+        withdrawal({ categoryId: dining.id }),
+        {
+          draft: null,
+          partial: { type: "withdrawal", payee: "Missing a date", fromAccountId: checking.id },
+          issues: [{ field: "date", message: "Date could not be parsed" }],
+        },
+      ],
+    });
+    await chooseFile(csv, "bank.csv");
+    await dryRun();
+
+    await screen.findByRole("heading", { name: "As it will be read" });
+    expect(screen.getByText("Jul 31, 2026")).toBeInTheDocument();
+    expect(screen.getByText("ACME Market")).toBeInTheDocument();
+    expect(screen.getAllByText("Checking")).toHaveLength(2);
+    expect(screen.getByText("Dining")).toBeInTheDocument();
+    expect(screen.getByText("−$12.34")).toBeInTheDocument();
+    expect(screen.getByText("Missing a date")).toBeInTheDocument();
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    expect(screen.getByText("Date could not be parsed")).toBeInTheDocument();
+  });
+
+  it("names a category the file will create", async () => {
+    // The case the dry run used to get wrong in the only direction that
+    // matters: nothing has been created, so there is no id, and the panel
+    // reported "Uncategorized" for exactly the category the real stage was
+    // about to make.
+    stubApi(preview, [checking], {
+      sample: [withdrawal({ categoryName: "Groceries", categoryKind: "expense" })],
+    });
+    await chooseFile(csv, "bank.csv");
+    await dryRun();
+
+    await screen.findByRole("heading", { name: "As it will be read" });
+    expect(screen.getByText("Groceries")).toBeInTheDocument();
+    expect(screen.queryByText("Uncategorized")).toBeNull();
+  });
+
+  it("stops showing an interpretation the controls no longer describe", async () => {
+    stubApi(preview, [checking], { sample: [withdrawal({ categoryId: dining.id })] });
+    await chooseFile(csv, "bank.csv");
+    await dryRun();
+
+    await screen.findByRole("heading", { name: "As it will be read" });
+    fireEvent.change(screen.getByLabelText("Date format"), { target: { value: "DMY" } });
+
+    await screen.findByRole("heading", { name: "File preview" });
+    expect(screen.queryByRole("heading", { name: "As it will be read" })).toBeNull();
+    // The counts went with it: a number somebody acts on is worse than useless
+    // once the settings it was computed under are gone.
+    expect(screen.queryByText(/ready and/)).toBeNull();
+  });
+
+  it("keeps what a completed stage reported when the controls change", async () => {
+    stubApi(preview, [checking], {
+      importBatchId: "44444444-4444-4444-8444-444444444444",
+      sample: [withdrawal({ categoryId: dining.id })],
+    });
+    await chooseFile(csv, "bank.csv");
+    await screen.findByRole("heading", { name: "Map the columns" });
+    fireEvent.click(screen.getByRole("button", { name: "Stage all rows" }));
+
+    await screen.findByRole("link", { name: /Review these 1 rows/ });
+    fireEvent.change(screen.getByLabelText("Date format"), { target: { value: "DMY" } });
+
+    // Rows already written are history, not a prediction, so they never go
+    // stale — but the reading they were written under no longer describes the
+    // controls, so the interpreted table goes.
+    expect(screen.getByRole("link", { name: /Review these 1 rows/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "As it will be read" })).toBeNull();
+  });
+
+  it("stamps an interpretation with the settings it was run under", async () => {
+    // The race nothing else can see: change a control while the request is in
+    // flight and the reply, read at the moment it arrives, would be labelled
+    // with settings it knows nothing about.
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/accounts") return Response.json([checking]);
+        if (url.pathname === "/api/v1/categories") return Response.json([dining]);
+        if (url.pathname === "/api/v1/csv/preview") return Response.json(preview);
+        if (url.pathname === "/api/v1/csv/stage") {
+          await held;
+          return Response.json({
+            fileName: "bank.csv",
+            rowCount: 1,
+            validCount: 1,
+            invalidCount: 0,
+            sample: [withdrawal({ categoryId: dining.id })],
+            referenceResolution: { categories: [], payees: [] },
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      }),
+    );
+    await chooseFile(csv, "bank.csv");
+    await dryRun();
+
+    fireEvent.change(screen.getByLabelText("Date format"), { target: { value: "MDY" } });
+    release!();
+
+    await waitFor(() => expect(screen.queryByText(/ready and/)).toBeNull());
+    expect(screen.queryByRole("heading", { name: "As it will be read" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "File preview" })).toBeInTheDocument();
+  });
+
+  it("shows the parse errors the preview reported", async () => {
+    stubApi({
+      ...preview,
+      errors: ["Row 3: Too few fields: expected 4 fields but parsed 3"],
+    });
+    await chooseFile(csv, "bank.csv");
+
+    expect(
+      await screen.findByText(/Too few fields: expected 4 fields but parsed 3/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Only the first rows of the file are read/)).toBeInTheDocument();
   });
 });

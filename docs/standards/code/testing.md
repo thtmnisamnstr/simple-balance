@@ -211,8 +211,8 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:285` `` |
-| Bare filename | `` `forms.tsx:285` `` — resolved by basename |
+| Full path | `` `src/client/forms.tsx:294` `` |
+| Bare filename | `` `forms.tsx:294` `` — resolved by basename |
 | Continuation | `` `:558` `` — inherits the last file the prose named |
 
 The test knew only the first for a while, and that gap was expensive. Adopting

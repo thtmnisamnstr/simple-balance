@@ -209,4 +209,26 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
     const [row] = await categoryNamed("Old Subscriptions");
     expect(row!.archivedAt).toBeNull();
   });
+
+  /**
+   * The other half of the same problem: a tool this token cannot reach is
+   * absent from its list rather than refused, so without this an agent has no
+   * way to tell a capability it was not granted from one that does not exist.
+   * `list_connected_agents` reports the grant, which is a wider and older fact;
+   * this reports what the token in hand may do.
+   *
+   * It needs a database because `getIdentity` reads the person's own row, which
+   * is why this lives here rather than beside the challenge's unit tests.
+   */
+  it("tells an agent which scopes the token it is holding carries", async () => {
+    const { server, client } = await connectWith(["ledger:stage"]);
+    try {
+      const out = await client.callTool({ name: "whoami", arguments: {} });
+      const identity = (out.structuredContent as { result: { scopes?: string[] } })?.result;
+      expect(identity?.scopes).toEqual(["ledger:stage"]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
 });

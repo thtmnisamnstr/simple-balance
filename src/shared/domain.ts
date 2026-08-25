@@ -1689,16 +1689,46 @@ export const bulkStageEditResultSchema = z
 export type BulkStagePatch = z.infer<typeof bulkStagePatchSchema>;
 export type BulkStageEditResult = z.infer<typeof bulkStageEditResultSchema>;
 
-export type ApiErrorCode =
-  | "VALIDATION_ERROR"
-  | "DUPLICATE"
-  | "CONFLICT"
-  | "FORBIDDEN"
-  | "NOT_FOUND"
-  | "STALE_VERSION"
-  | "UNAUTHORIZED"
-  | "REAUTHENTICATION_REQUIRED"
-  | "INTERNAL_ERROR";
+/**
+ * The codes a service raises through `AppError`: the ledger understood what was
+ * asked and refused it.
+ */
+export const serviceErrorCodes = [
+  "VALIDATION_ERROR",
+  "DUPLICATE",
+  "CONFLICT",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "STALE_VERSION",
+  "UNAUTHORIZED",
+  "REAUTHENTICATION_REQUIRED",
+  "INTERNAL_ERROR",
+] as const;
+
+/**
+ * The codes the transport refuses with, before any route runs and before there
+ * is an actor to refuse. Kept as their own list rather than folded into the one
+ * above, because `AppError` is typed on that one alone: a service able to raise
+ * `CROSS_ORIGIN_REQUEST` would be describing something that cannot have
+ * happened to it, and a tool result can never carry one either. Published all
+ * the same — a caller reads these off `/api/v1` in the same envelope as the
+ * rest, and all five sat on the wire in no enumeration at all for a while,
+ * because nothing constrained what a refusal was allowed to name.
+ */
+export const transportErrorCodes = [
+  "CROSS_ORIGIN_REQUEST",
+  "UNSUPPORTED_MEDIA_TYPE",
+  "PAYLOAD_TOO_LARGE",
+  "INVALID_CONTENT_LENGTH",
+  "REQUEST_BODY_NOT_ALLOWED",
+] as const;
+
+/** Every code a caller can be handed, from either half. This is the contract. */
+export const apiErrorCodes = [...serviceErrorCodes, ...transportErrorCodes] as const;
+
+export type ServiceErrorCode = (typeof serviceErrorCodes)[number];
+export type TransportErrorCode = (typeof transportErrorCodes)[number];
+export type ApiErrorCode = (typeof apiErrorCodes)[number];
 
 export type Actor = {
   userId: string;

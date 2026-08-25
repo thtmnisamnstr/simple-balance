@@ -25,6 +25,7 @@ of them unusually, so an unwritten convention is a convention with one holder.
 | `CHANGELOG.md` | Somebody upgrading, and somebody who has just been surprised | Record | Every change a person would notice |
 | `docs/standards/` | Somebody writing code, copy or a schema | Reference | A rule changes, everywhere at once |
 | `AGENTS.md` | An agent, and a contributor | Invariants | An invariant changes, or a migration ships |
+| `SECURITY.md` | Somebody who found a hole in it | How-to | The reporting channel changes, or what is in scope does |
 | `deploy/compose/README.md`, `deploy/helm/simple-balance/README.md`, `deploy/pulumi/README.md` | An operator running that one recipe | How-to | That recipe changes |
 | `scripts/ralph/README.md`, `guardrails.md`, `iteration-prompt.md`, `progress.md` | The build loop and whoever runs it | Reference | The loop changes |
 | `CLAUDE.md` | A Claude Code session | One line, `@AGENTS.md` | Never, by design |
@@ -52,7 +53,7 @@ that the shape is real rather than imposed.
 
 Two deliberate departures, named so nobody tidies them:
 
-- **`docs/deployment.md` mixes all three modes across 539 lines and stays that
+- **`docs/deployment.md` mixes all three modes across 578 lines and stays that
   way.** An operator reads it once and greps it afterwards. Splitting a working
   reference to satisfy a model would cost the grep and buy nothing.
 - **`docs/roadmap.md` and `AGENTS.md` are outside the model.** Neither is user
@@ -95,7 +96,7 @@ convention expects.
 *Not checked mechanically.* Nothing in `tests/`, `scripts/` or `.github/`
 reads `CHANGELOG.md`. In particular nothing checks that the top heading matches
 `package.json`, which is a hand step in the release recipe at
-`docs/upgrades.md:145-146` and has already been the subject of a commit ("Date
+`docs/upgrades.md:151-152` and has already been the subject of a commit ("Date
 0.1.4 the day it is cut").
 
 ## Versioning
@@ -147,15 +148,18 @@ the compatibility contract while the major is 0.
 than answered with something invented here.
 
 *Checked by:* `tests/version.test.ts`, which holds fifteen locations to
-`package.json` and asserts that `scripts/set-version.mjs` knows about every one
-of them. Its own docblock explains why the count is deliberately not written
-down. *Not checked:* the changelog heading, the frozen migration list in
-`AGENTS.md`, and the upgrade-notes section for the new version. Two of the three
-are hand steps in the release recipe at `docs/upgrades.md:136-152`. The third,
-writing the new version's upgrade note, is not a step in that recipe at all,
-which is
-work to do: the guide spends a section specifying a document the release
-procedure never asks anybody to write.
+`package.json`, asserts that `scripts/set-version.mjs` knows about every one of
+them, and refuses a version whose `## Before you upgrade to X.Y.Z` section has
+not been written. Its own docblock explains why the count is deliberately not
+written down. That last check exists because the release recipe used to end
+without it, so this guide specified a document the procedure never asked
+anybody to write, and 0.1.0 through 0.1.3 shipped eight migrations between them
+with no note. The publish runs `npm run verify` first, so an unwritten note now
+stops the release rather than reaching an operator mid-upgrade. *Also checked:*
+the frozen migration list, which `tests/migrations.test.ts` holds to what is on
+disk. *Not checked:* the changelog heading, a hand step in the release recipe at
+`docs/upgrades.md:151-152`, and which release a migration is attributed to,
+which is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
@@ -224,13 +228,18 @@ out.
   item has shipped**; the line under it carries the mechanics.
   `docs/roadmap.md:67-69` reads SB-017, "Split transactions", **done**, then
   "Priority 160. Depends on SB-015. Shipped as migration 0005." Three of the
-  fifteen headings carry the state today (`docs/roadmap.md:67`, `:131`, `:196`) and they are
+  fifteen headings carry the state today (SB-017, SB-016, SB-018) and they are
   the three that have shipped, so the convention holds.
 - **Acceptance criteria before it is built, "How it was met" after.** The second
   is where the decision record lives, along with the list introduced at
   `docs/roadmap.md:114`: "Two decisions worth writing down rather than leaving
-  implied". It appears twice (`:93`, `:209`); SB-016 is marked done at `:119`
-  without one, which is work to do rather than a second convention.
+  implied". It appears under SB-017, SB-016 and SB-018, and the convention held
+  only after SB-016 was given one: it had shipped with a paragraph headed
+  "Shipped as" sitting above its acceptance criteria, which is a second name for
+  the section in the wrong place rather than a second convention.
+  `tests/docs-conventions.test.ts` now requires the heading of every item marked
+  **done**, because that is presence rather than judgement and presence is the
+  half that fell behind.
 - **A "Deliberately not planned" section with the counter-argument in it.** The
   auto-categorisation entry states the case against its own decision and names
   the condition under which to revisit it. That is what makes the section
@@ -294,25 +303,30 @@ walkthrough in a guide and give the README its job back".
   figure on the page and the fact that currencies are reported separately.
 - **A section per question somebody actually asks**, in this order: what it is,
   everything else it does, run it locally, run the tests, host it, connect an
-  agent, not built yet, more, built with, license.
+  agent, security, not built yet, more, built with, license.
 - **The licence is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the licence is a term of use. `README.md:206-216` names it, links it,
+  project the licence is a term of use. `README.md:226-236` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older licence.
 - **No badge wall.** There are none today.
+- **A Security section, and a `SECURITY.md` behind it.** It ships an OAuth
+  authorization server with dynamic client registration and a public MCP
+  endpoint, so where to report a hole is a question somebody asks before they
+  run it. The section is short and links the file; the file holds which versions
+  get a fix, what is in scope, and what the server already guarantees, each
+  linked to the document that argues it rather than restated.
 
-Two gaps, both real and both work to do:
+One gap, real and still work to do: **no Contributing section**, and the `More`
+list no longer stands in for one. It used to link `AGENTS.md` under the label
+Contributing, which answers a different question; the label now says what that
+file is. One line saying whether pull requests are accepted is what is missing,
+and it is a policy the owner makes rather than one this guide can settle.
 
-- **No Security section**, on a product shipping an OAuth authorization server
-  with dynamic client registration and a public MCP endpoint. There is no
-  `SECURITY.md` either. This is the more consequential of the two.
-- **No Contributing section.** `README.md:196` links `AGENTS.md` under "More"
-  and labels it Contributing, which answers a different question. One line
-  saying whether pull requests are accepted would do.
-
-*Not checked mechanically.* Nothing reads `README.md`. The run command it hands
+*Checked by:* `tests/docs-conventions.test.ts`, on the presence of the Security
+section, the link behind it, and the `More` list no longer calling `AGENTS.md`
+Contributing. *Not checked:* everything else, including the run command it hands
 people, which is the thing most likely to be copied and most likely to go stale,
-is not compared against anything.
+and is not compared against anything.
 
 ## Commit messages
 
@@ -575,15 +589,19 @@ edit.
 - **The browser tier is new and thin.** `tests/browser/` covers the budgets
   page and nothing else. Every other page still rests on jsdom, which cannot
   see the class of defect that tier was added for.
-- **No `SECURITY.md` and no `CONTRIBUTING.md`**, on a published AGPL project
-  that accepts dependabot pull requests.
+- **No `CONTRIBUTING.md` and no Contributing section**, on a published AGPL
+  project that accepts dependabot pull requests. Whether pull requests are taken
+  at all is the owner's answer to give, and until it is given there is nothing
+  truthful to write.
 
 ## What is checked, and what is not
 
-Everything in this guide is review except what three test files cover:
+Everything in this guide is review except what four test files cover:
 `tests/version.test.ts` on the version, `tests/migrations.test.ts` on what an
-upgrade note promises about somebody's data, and `tests/mcp-parity.test.ts` on
-whether `docs/mcp.md` names every tool. That is the honest count, and it is the
+upgrade note promises about somebody's data, `tests/mcp-parity.test.ts` on
+whether `docs/mcp.md` names every tool, and `tests/docs-conventions.test.ts` on
+whether the README still points at a reporting channel and every shipped roadmap
+item still says how it was met. That is the honest count, and it is the
 highest ratio in this set, because a document's defects are almost all defects
 of truth rather than of form. The three worth naming, because they are the ones
 that actually go wrong:

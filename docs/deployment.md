@@ -286,6 +286,40 @@ used, so it works once. A verification link is a signed token rather than a
 stored one, so it keeps working for the rest of its hour; opening it only
 confirms the address, and signing in still takes the password.
 
+### Getting mail delivered
+
+Simple Balance hands every message to the relay `SMTP_HOST` names and does
+nothing else about it. Whether a mailbox provider accepts what that relay sends
+is decided outside this application, by four things that live in DNS and on the
+relay itself.
+
+| What | What it is | Who sets it |
+| --- | --- | --- |
+| SPF | A DNS record listing the hosts allowed to send as your domain | You, in DNS |
+| DKIM | A signature the relay adds to each message, checked against a public key published in your DNS | The relay, plus the one record it gives you |
+| DMARC | A DNS record saying what a receiver should do with mail that fails the first two, and where to send reports | You, in DNS |
+| PTR | Reverse DNS for the address the relay connects from, resolving back to the name it announces | Whoever owns that IP address |
+
+A hosted relay (Google Workspace, Fastmail, Postmark, SES, Mailgun) already
+handles DKIM and PTR and hands you the records to publish, so its setup page is
+the one to follow rather than this one. Relaying through a host you own makes
+all four yours, and PTR is the one that catches people out: it belongs to
+whoever owns the address, which on most cloud providers is a support request
+rather than a control panel.
+
+Google asks the same of every sender, however little it sends: SPF or DKIM on
+the sending domain, forward and reverse DNS that agree, TLS on the connection, a
+spam rate under 0.3% in Postmaster Tools, and correctly formatted messages.
+Senders of roughly 5,000 messages or more a day to personal Gmail addresses
+additionally need SPF and DKIM both, DMARC, alignment between them, and
+one-click unsubscribe. A ledger sending password resets and a handful of
+reminders is not in that group, so the first list is the one to satisfy.
+
+When reminders land in spam, check in this order. SPF first, because it is one
+record and the one most often missing. Then DKIM, which the relay signs but your
+DNS has to carry the key for. Then the PTR record on the address the relay sends
+from.
+
 ### With no mail server
 
 Nobody can reset a forgotten password, and recovering one means editing the
@@ -303,13 +337,17 @@ docker run -d --name simple-balance --restart unless-stopped \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --stop-timeout 30 \
+  --cap-drop=ALL --security-opt=no-new-privileges \
   -p 127.0.0.1:3000:3000 \
   --env-file .env \
   ghcr.io/thtmnisamnstr/simple-balance:latest
 ```
 
-The container runs as a non-root user and the filesystem can stay read-only. Bind
-to loopback and put a reverse proxy in front rather than publishing the port.
+The container runs as a non-root user and the filesystem can stay read-only. It
+also drops every Linux capability and cannot gain a privilege it did not start
+with: the process binds port 3000 as a non-root user and no setuid binary is
+involved, so it needs neither. Bind to loopback and put a reverse proxy in front
+rather than publishing the port.
 
 ## Reverse proxy
 

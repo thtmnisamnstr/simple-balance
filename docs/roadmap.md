@@ -164,19 +164,6 @@ defer this.
 The cost is the execution path rather than the schedule arithmetic. There is no
 scheduler here at all today — no cron, no `setInterval`, no worker, nothing.
 
-**Shipped as.** The scheduler runs inside the server process and is on by
-default, so the documented single container keeps working with nothing added to
-it. `RECURRENCE_SCHEDULER=false` turns it off on replicas that serve the API,
-which is what a Kubernetes deployment does when it runs the scheduler container
-from `deploy/docker/scheduler.Dockerfile`. Every replica sweeps the due list and
-claims each recurrence with `for update skip locked`, so they divide the work
-rather than wait on one another, and a per-occurrence unique key refuses a
-second proposal of the same date even if a claim were bypassed entirely.
-
-No holiday calendar. A business day means Monday to Friday, said in the tool
-description and beside the weekend-policy picker, because per-country holiday
-data ageing inside a container nobody updates is worse than not having it.
-
 **Acceptance criteria**
 
 - A recurrence names a shape, its accounts, an optional amount, a schedule, and
@@ -192,6 +179,35 @@ data ageing inside a container nobody updates is worse than not having it.
   the row anyway, flagged, rather than failing silently
 - Deleting a recurrence leaves rows already proposed or committed untouched
 - Reachable over MCP under the same scope rules as everything else
+
+**How it was met**
+
+The scheduler runs inside the server process and is on by default, so the
+documented single container keeps working with nothing added to it.
+`RECURRENCE_SCHEDULER=false` turns it off on replicas that serve the API, which
+is what a Kubernetes deployment does when it runs the scheduler container from
+`deploy/docker/scheduler.Dockerfile`. Every replica sweeps the due list and
+claims each recurrence with `for update skip locked`, so they divide the work
+rather than wait on one another, and a per-occurrence unique key refuses a
+second proposal of the same date even if a claim were bypassed entirely.
+
+A recurrence naming an account that has since been archived or deleted proposes
+its row anyway, with the issue against the field at fault rather than against the
+draft as a whole. Nobody was watching when it fired, so the row itself has to say
+what to fix.
+
+Two decisions worth writing down rather than leaving implied:
+
+- **No holiday calendar.** A business day means Monday to Friday, said in the
+  tool description and beside the weekend-policy picker, because per-country
+  holiday data ageing inside a container nobody updates is worse than not having
+  it.
+- **A proposed row points back at its recurrence and is not owned by it.**
+  `staged_transaction.recurrence_id` carries no foreign key, so deleting a
+  recurrence leaves every row it already proposed alone. Two check constraints
+  keep the provenance honest instead: `recurrence_id` and `occurrence_date` are
+  null together or not at all, and a row may not claim both a recurrence and a
+  bank import batch.
 
 ## SB-018 — Reporting — **done**
 

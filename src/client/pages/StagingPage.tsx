@@ -50,18 +50,18 @@ import {
   type SortState,
   useConfirm,
 } from "../components.js";
-import { compareMoney, formatDate, formatMoney, movementSign } from "../money.js";
+import { formatDate, formatMoney, movementSign } from "../money.js";
 import { RecurrenceForm, TemplateForm, TransactionForm } from "../forms.js";
 import { MAX_BULK_SELECTION_ENTRIES, type StageSortField } from "../../shared/domain.js";
 import { useDateRange } from "../date-range.js";
 import {
   draftForTransactionForm,
+  largestStagedLeg,
   recurrenceShapeFromDraft,
   stagedLegs,
   stagedString,
   summarizeStagedDraft,
   templateDraftFromDraft,
-  type TransactionFormLeg,
 } from "../staged-draft.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import {
@@ -96,10 +96,6 @@ const draftType = (stage: StagedTransaction) => stagedString(stage.draft.type).t
 const isOneSided = (stage: StagedTransaction) =>
   draftType(stage) === "deposit" || draftType(stage) === "withdrawal";
 const stageLegs = (stage: StagedTransaction) => stagedLegs(stage.draft.legs);
-
-/** The share a split is named by in a list: its biggest one. */
-const largestStagedLeg = (legs: TransactionFormLeg[]) =>
-  [...legs].sort((left, right) => compareMoney(right.amount, left.amount))[0];
 
 function retainedIdempotencyKey(keys: Map<string, string>, payload: unknown) {
   const fingerprint = JSON.stringify(payload);

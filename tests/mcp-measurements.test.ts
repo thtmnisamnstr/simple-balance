@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createMcpServer } from "../src/server/mcp.js";
+import { createMcpServer, satisfiesToolScope, TOOL_SCOPES } from "../src/server/mcp.js";
 
 /**
  * The numbers `docs/standards/mcp.md` quotes, checked against the live surface.
@@ -253,4 +253,30 @@ describe("what mcp.md says it measured", () => {
     expect(scopes.stage).toBe(claimed(/tools at `ledger:read`, (\d+) at\s+`ledger:stage`/));
     expect(scopes.write).toBe(claimed(/`ledger:stage`, (\d+) at `ledger:write`/));
   });
+
+  /**
+   * `TOOL_SCOPES` is a second copy of the three registration blocks, written so
+   * an under-scoped call can be answered before dispatch rather than by
+   * registering a tool the caller cannot use. A second copy drifts unless
+   * something holds it to the first, and the failure that matters is silent:
+   * a tool missing from the map is never challenged, and one filed under the
+   * wrong tier is challenged when it should not be — which on a client that
+   * implements the step-up talks the agent into re-authorizing downward.
+   *
+   * Compared tier by tier and by name, so the failure says which tool moved.
+   * `satisfiesToolScope` rather than `hasScope`, or the assertion bakes in the
+   * bug it exists to catch: `hasScope` widens only `ledger:read`.
+   */
+  it.each([["ledger:read"], ["ledger:stage"], ["ledger:write"]])(
+    "offers a %s token exactly the tools the scope map allows it",
+    async (scope) => {
+      const held = new Set([scope]);
+      const allowed = [...TOOL_SCOPES.entries()]
+        .filter(([, required]) => satisfiesToolScope(held, required))
+        .map(([name]) => name)
+        .sort();
+      const offered = (await listTools([scope])).map((tool) => tool.name).sort();
+      expect(offered).toEqual(allowed);
+    },
+  );
 });

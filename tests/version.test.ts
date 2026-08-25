@@ -90,6 +90,43 @@ describe("the release version", () => {
     expect(manifestVersion("tasks/product.prd.json")).toBe(version);
   });
 
+  /**
+   * The one release step nothing can generate. The recipe in
+   * `docs/upgrades.md` did not ask for it at all, so the standards spent a
+   * section specifying a document the procedure never mentioned, and 0.1.0
+   * through 0.1.3 shipped eight migrations between them with no note.
+   *
+   * The release workflow runs `npm run verify` before it publishes, which is
+   * what makes this the step that stops a release rather than one an operator
+   * discovers is missing halfway through an upgrade.
+   */
+  it("is the version the upgrade notes tell an operator about", () => {
+    // A prerelease upgrades on to the same schema as the release it precedes,
+    // so the note is headed with the release rather than with `-rc.1`.
+    const release = version.split("-")[0]!;
+    const heading = `## Before you upgrade to ${release}`;
+    const lines = read("docs/upgrades.md").split("\n");
+    // A whole line rather than a substring, because the release recipe further
+    // down this same file quotes the heading inside step 2 as the thing to
+    // write. A `toContain` over the file would have found that quotation and
+    // passed on the release it exists to stop: the recipe names 0.2.0, so the
+    // check would have gone green the moment the version reached it with no
+    // note written at all.
+    const at = lines.indexOf(heading);
+    expect(at, `docs/upgrades.md needs a line reading exactly "${heading}"`).toBeGreaterThan(-1);
+
+    // A heading with nothing under it is an unwritten note that would satisfy a
+    // check for the heading alone.
+    const body = lines.slice(at + 1);
+    const end = body.findIndex((line) => line.startsWith("## "));
+    expect(
+      body
+        .slice(0, end === -1 ? undefined : end)
+        .join("\n")
+        .trim().length,
+    ).toBeGreaterThan(0);
+  });
+
   // Everything above is only kept true by one script, so it has to know about
   // every one of them.
   it("is covered by set-version", () => {

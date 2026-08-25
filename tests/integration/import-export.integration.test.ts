@@ -334,6 +334,63 @@ integration("CSV import and export identification", () => {
     ).toHaveLength(1);
   });
 
+  /**
+   * A dry run is the only reading of the file anybody sees before committing to
+   * it, and a category the file names and the ledger does not have had nothing
+   * to say for itself in that reading: no id, because nothing was created, and
+   * no name either. The row came back silent, and the import preview reported it
+   * as uncategorized — for precisely the categories the real stage was about to
+   * make. An MCP caller reading the same sample got the same silence.
+   */
+  it("names the category a dry run has not created, without creating it", async () => {
+    const common = {
+      csv: ["date,payee,category,amount", "2026-10-01,Bakery,Baking,-7"].join("\n"),
+      fileName: "deferred-category.csv",
+      defaultAccountId: checkingId,
+      mapping: {
+        date: "date",
+        payee: "payee",
+        category: "category",
+        amount: "amount",
+      },
+      dateFormat: "YMD" as const,
+      decimalSeparator: "." as const,
+    };
+
+    const preview = (await stageCsv(actor, {
+      ...common,
+      idempotencyKey: "csv-deferred-category-preview",
+      dryRun: true,
+    })) as { sample: { draft: Record<string, unknown> | null }[] };
+
+    expect(preview.sample[0]!.draft).toMatchObject({
+      categoryName: "Baking",
+      // The kind travels with the name for the same reason it does on a
+      // `ledger:stage` proposal: the file decided it by reading every row, and
+      // a commit sees one row at a time.
+      categoryKind: "expense",
+    });
+    expect(preview.sample[0]!.draft?.categoryId).toBeFalsy();
+    expect(
+      await getDb()
+        .select()
+        .from(categories)
+        .where(and(eq(categories.userId, actor.userId), eq(categories.name, "Baking"))),
+    ).toHaveLength(0);
+
+    const staged = await stageCsv(actor, {
+      ...common,
+      idempotencyKey: "csv-deferred-category-stage",
+      dryRun: false,
+    });
+    // The real stage answers with an id instead, and drops the name so nothing
+    // downstream carries two ways of saying which category it means.
+    const stagedSample = (staged as { sample: { draft: Record<string, unknown> | null }[] })
+      .sample[0]!.draft;
+    expect(stagedSample?.categoryId).toEqual(expect.any(String));
+    expect(stagedSample?.categoryName).toBeUndefined();
+  });
+
   it("serializes concurrent creation of the same normalized import category", async () => {
     const makeInput = (suffix: string, category: string) => ({
       csv: [

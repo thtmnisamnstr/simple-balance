@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERIES_COLOURS } from "../src/client/charts.js";
-import { blocks, stylesheet, tokensIn, type Block } from "./support/css.js";
+import { blocks, ruleFor, stylesheet, tokensIn, type Block } from "./support/css.js";
 
 /**
  * The stylesheet holds two palettes now, and the ways that goes wrong are all
@@ -139,6 +139,8 @@ describe("what each token is for", () => {
     "--amber-soft",
     "--blue-soft",
     "--fill-deep",
+    "--field",
+    "--field-disabled",
   ]);
 
   it("never paints an area with a text colour, or writes text in a surface colour", () => {
@@ -161,6 +163,39 @@ describe("what each token is for", () => {
       }
     }
     expect(wrong).toEqual([]);
+  });
+});
+
+describe("the field role", () => {
+  // --field and --field-line hold today's --surface and --line-strong values, so
+  // nothing on screen moved when they arrived. That is exactly what makes them
+  // easy to lose again: a later edit reaching for --surface would look right and
+  // would quietly put the field back to having no fill of its own.
+  it("draws a field's fill and edge from the field role rather than the card's", () => {
+    const rule = ruleFor(css, ".input");
+    expect(rule.length, ".input is declared once at the top level").toBe(1);
+    expect(rule[0]!.body).toMatch(/background:\s*var\(--field\)/);
+    expect(rule[0]!.body).toMatch(/border:\s*1px solid var\(--field-line\)/);
+  });
+
+  it("gives a field that cannot be edited a fill of its own", () => {
+    const rule = ruleFor(css, ".input:disabled");
+    expect(rule.length, ".input:disabled is declared").toBe(1);
+    expect(rule[0]!.body).toMatch(/background:\s*var\(--field-disabled\)/);
+  });
+
+  it("makes a disabled field look different from a live one in every theme", () => {
+    // The assertion that holds the behaviour rather than the wiring. Fourteen
+    // fields ship disabled and every one of them was pixel-identical to a live
+    // one; a --field-disabled equal to --field would pass every test above and
+    // leave them that way.
+    for (const [name, tokens] of [
+      ["light", light],
+      ["dark, chosen by the machine", mediaDark],
+      ["dark, chosen explicitly", attributeDark],
+    ] as const) {
+      expect(tokens["--field-disabled"], `${name} disabled fill`).not.toBe(tokens["--field"]);
+    }
   });
 });
 

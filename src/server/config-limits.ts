@@ -11,6 +11,22 @@ export const MAX_CSV_CONFIGURATION_BYTES = 100 * 1024 * 1024;
  */
 export const DEFAULT_CSV_MAX_ROWS = MAX_BULK_SELECTION_ENTRIES;
 export const MAX_CSV_CONFIGURATION_ROWS = MAX_BULK_SELECTION_ENTRIES;
+
+/**
+ * The most rows one export writes, and deliberately not the import cap.
+ *
+ * They are answers to different questions. The import cap is a fact about what
+ * one mass action can then clear — ten thousand rows is the number a commit, a
+ * mass edit and a mass delete all share, so a file that stages more than one
+ * action can clear is a cap doing damage. The export is the exit, and capping
+ * the exit at what one import can take would mean a forty-thousand-row ledger
+ * cannot leave this product whole, which is a worse failure than a file its own
+ * importer asks you to split.
+ *
+ * So the gap stays, and what closes it is both refusals naming the remedy
+ * rather than either number moving.
+ */
+export const CSV_EXPORT_MAX_ROWS = 100_000;
 export const DEFAULT_DATABASE_POOL_SIZE = 10;
 export const MAX_DATABASE_POOL_SIZE = 100;
 export const DEFAULT_RECURRENCE_TICK_SECONDS = 300;

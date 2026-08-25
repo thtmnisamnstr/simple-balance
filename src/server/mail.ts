@@ -92,7 +92,41 @@ type Message = {
   to: string;
   subject: string;
   body: string;
+  /**
+   * What this message is, for the log and nowhere else.
+   *
+   * Never the subject: a subject carries a recurrence or template name somebody
+   * wrote, and `account-deletion.ts` already settled that personal text does not
+   * go in this process's log. A fixed phrase says which message failed without
+   * saying whose it was. Required rather than optional, so a new kind of message
+   * has to decide; every builder below returns one, and a caller holding the row
+   * it is sending for can name it by setting the field after the spread.
+   */
+  about: string;
 };
+
+/**
+ * What a failed send may say: what the relay refused, and nothing about who it
+ * was for.
+ *
+ * Nodemailer's error carries `envelope` and `rejected`, both holding the
+ * recipient's address, and for a password reset that address is whatever a
+ * stranger typed into a form this product deliberately answers the same way
+ * either way. These four fields are what tells an operator whether the relay is
+ * unreachable, refusing their credentials, or refusing this one message.
+ * `response` is the relay's own sentence and may quote the address inside it;
+ * that is the relay talking, and without it a broken relay has to be reproduced
+ * by hand.
+ */
+function smtpFailure(error: unknown) {
+  const { code, command, responseCode, response } = error as {
+    code?: unknown;
+    command?: unknown;
+    responseCode?: unknown;
+    response?: unknown;
+  };
+  return { code, command, responseCode, response };
+}
 
 /**
  * Sends, and reports whether it worked rather than throwing.
@@ -126,15 +160,46 @@ export async function sendMail(message: Message) {
     });
     return true;
   } catch (error) {
-    console.error(`Could not send "${message.subject}". Check SMTP_HOST and MAIL_FROM.`, error);
+    // Not the subject, which is a name somebody wrote, and not the error whole,
+    // which carries `envelope` and `rejected` holding the address.
+    console.error(
+      `Could not send ${message.about}. Check SMTP_HOST and MAIL_FROM.`,
+      smtpFailure(error),
+    );
     return false;
   }
 }
+
+/**
+ * The most of a name a subject line carries.
+ *
+ * A recurrence or template name may be 120 characters (`recurrenceCreateSchema`
+ * and `transactionTemplateCreateSchema`), and a mail client's list shows the
+ * first few dozen. Cutting here rather than at the schema keeps the name whole
+ * everywhere it is shown in full and shortens only the one place that cannot
+ * show it.
+ */
+const SUBJECT_NAME_LIMIT = 60;
+
+/**
+ * Sliced by code point rather than by UTF-16 unit, so the cut never lands
+ * between the halves of a surrogate pair and leaves a subject ending in a
+ * replacement character.
+ */
+const forSubject = (name: string) => {
+  const points = Array.from(name);
+  if (points.length <= SUBJECT_NAME_LIMIT) return name;
+  return `${points
+    .slice(0, SUBJECT_NAME_LIMIT - 1)
+    .join("")
+    .trimEnd()}…`;
+};
 
 const signature = "\n\nIf you were not expecting this, you can ignore it.\n";
 
 export function passwordResetMessage(url: string, appUrl: string) {
   return {
+    about: "a password reset",
     subject: "Reset your Simple Balance password",
     body:
       "Somebody asked to reset the password for this address at " +
@@ -158,9 +223,11 @@ export function recurrenceProposedMessage(
 ) {
   const one = occurrenceDates.length === 1;
   return {
-    subject: one
-      ? `${recurrenceName} is waiting on Staged transactions`
-      : `${recurrenceName} has ${occurrenceDates.length} rows waiting on Staged transactions`,
+    about: "a recurrence proposal notice",
+    // The fixed part first, and the count with it, because both are what a
+    // truncating list still shows. The name goes last and cut, because it is the
+    // only part that can be 120 characters long.
+    subject: `Staged: ${occurrenceDates.length} ${one ? "row" : "rows"} from ${forSubject(recurrenceName)}`,
     body:
       `Simple Balance proposed ${one ? "a transaction" : `${occurrenceDates.length} transactions`} ` +
       `from your recurring transaction "${recurrenceName}":\n\n` +
@@ -186,7 +253,8 @@ export function templateReminderMessage(
   repeats: boolean,
 ) {
   return {
-    subject: `Reminder: ${templateName}`,
+    about: "a template reminder",
+    subject: `Reminder: ${forSubject(templateName)}`,
     body:
       `You asked to be reminded about "${templateName}" on ${occurrenceDate}.\n\n` +
       "The template is ready to fill in here:\n\n" +
@@ -201,6 +269,7 @@ export function templateReminderMessage(
 
 export function verificationMessage(url: string, appUrl: string) {
   return {
+    about: "an address confirmation",
     subject: "Confirm your email address",
     body:
       `Somebody signed up at ${appUrl} with this address.\n\n` +

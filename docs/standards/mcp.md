@@ -23,7 +23,7 @@ contract. Anything in this guide that contradicts it loses.
   stateless protocol: all the information needed to process a request is
   contained in the request itself." This surface holds by construction rather
   than by discipline: `handleMcpRequest` builds a server and a transport per
-  request (`src/server/mcp.ts:1482-1489`), so there is no connection to carry
+  request (`src/server/mcp.ts:1898-1907`), so there is no connection to carry
   state in.
 - **Where the target is not met, say so rather than claiming it.** The installed
   SDK, `@modelcontextprotocol/sdk` 1.30.0, declares
@@ -70,7 +70,7 @@ able to explicitly select them for use".
 features... should focus on information that helps the model use the server
 effectively and should not duplicate information already in tool descriptions."
 
-`new McpServer({ name, version })` at `src/server/mcp.ts:271-274` passes none.
+`new McpServer({ name, version })` at `src/server/mcp.ts:470-474` passes none.
 
 `instructions` predates `server/discover` and is carried on the initialize
 result, so it is reachable today: the installed SDK accepts it in
@@ -112,9 +112,13 @@ usually the polite option, and that a refund is not income.
   a new decision.
 - **House.** `name` is for a machine and `title` is for a person. They do not
   converge, because `title` is what an approval dialog shows and a person acts on
-  what it says. `create_transaction` is titled "Commit a transaction"
-  (`src/server/mcp.ts:1381-1383`), which is the one title on this surface that
-  could get somebody to approve the wrong thing. **Work to do.**
+  what it says, and the rule that follows is that no title may claim another
+  tier's verb. `create_transaction` was titled "Commit a transaction", which is
+  the sentence `commit_staged_transactions` owns: a person approving that dialog
+  could believe they were releasing a row they had already reviewed rather than
+  writing one they had never seen. It is titled "Write a new transaction
+  straight into the books" (`src/server/mcp.ts:1691-1697`), and "Commit" now
+  appears in exactly one title on this surface, on the tool that commits.
 - **Contested, decided 2026-08-23: no namespace prefix.** The specification puts
   disambiguation on the client: aggregating clients "SHOULD implement a
   disambiguation strategy such as prefixing tool names with a server identifier".
@@ -131,9 +135,11 @@ usually the polite option, and that a refund is not income.
 
 *Checked by:* `tests/mcp-parity.test.ts:266-270` fails a registered tool that
 `docs/mcp.md` does not name, because "the guide fell seventeen tools behind
-before anything noticed". *Not checked:* the `verb_noun` shape, the character
-set, or that a title agrees with its tool's verb. One regex over the registered
-names covers all three.
+before anything noticed". *Also checked by:* `tests/mcp-parity.test.ts` for the
+one regex that covers the rest — the character set and the 1-to-128 length, the
+`verb_noun` shape with `whoami` as the single named exception, that no two
+titles read alike, and that no title but `commit_staged_transactions`'s contains
+"commit".
 
 ## Descriptions
 
@@ -163,7 +169,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 71
-  descriptions, 19,453 characters, median 244, range 33 to 1,062, and **15 under
+  descriptions, 20,464 characters, median 246, range 33 to 1,062, and **15 under
   100 characters**. The distribution is bimodal and the terse half covers the
   dangerous tools: `list_transactions` is 54 characters and is the entry point to
   the ledger's largest collection, mentioning none of the ordering and cursor
@@ -180,12 +186,25 @@ Further rules:
   and a payee merge say there is no undo, a bulk write says to show the count
   with `dryRun` first, and a transaction delete says it posts a reversal and can
   be undone.
-- **House.** A tool behind a scope names the scope. Two do today. The model
-  sentence is the last one in `create_budget_plan` (`src/server/mcp.ts:845`):
-  "This is a change to the ledger's own records rather than a proposal about
-  money, so it needs ledger:write." `stage_csv` (`:824`) does the same for the
-  behaviour that differs by scope. **Work to do** for the rest, and see the scope
-  section for why it matters more here than on most servers.
+- **House, narrowed 2026-08-25: only a tool whose behaviour changes with scope
+  names one.** Scope is enforced by non-registration, so a tool the caller
+  cannot use is absent from discovery: "needs ledger:write" on `create_account`
+  is read only by an agent that already holds ledger:write, and never by the one
+  that does not. It cannot mitigate the missing `insufficient_scope` challenge,
+  because the agent that gets "Tool not found" never sees the description.
+  Writing it on all 36 gated tools (31 write-only, 5 stage-tier) would add about
+  3,600 characters of one convention repeated per tool, which is the case "What
+  the whole server says once" exists to refuse. So the tier is said once, in
+  `instructions`, which every connection receives whatever it holds, and which
+  names the grant this connection actually has and says that a tool outside it
+  is absent rather than refused. What a description owes is the *behaviour*:
+  `stage_csv`, `update_staged_transaction` and `bulk_edit_staged_transactions`
+  do different things under `ledger:stage` than under `ledger:write` — a
+  category is matched but not created, and a category emptied by the edit is
+  left standing rather than removed — and each says so. `create_budget_plan`
+  keeps its sentence for a different reason: it answers "why can I not propose
+  this?" for the tier that can write, which is a fact about the propose/decide
+  boundary rather than a scope challenge.
 - **Contested.** A 2026 study of 856 tools found that systematically augmenting
   descriptions improved task success by a median of 5.85 points but increased
   execution steps by 67% and regressed 17% of cases, and that removing worked
@@ -213,13 +232,15 @@ Further rules:
   [`writing.md`](writing.md#keeping-a-document-true) cites this rather than
   restating it.
 
-*Checked by:* `tests/mcp-parity.test.ts:358-375`, which asserts only
-`length > 30`. All 71 pass, including the 23 that say almost nothing. *Testable
-and not built, in order of value:* that a `destructiveHint` tool's description
-contains a warning word; that a tool registered behind a scope names it; that
-every tool name mentioned in a description is a registered tool. The last one is
-green today, which is the right moment to add it. *Review only:* whether a
-description actually teaches, as opposed to being long enough. The only real
+*Checked by:* `tests/mcp-parity.test.ts:336-353`, which asserts only
+`length > 30`. All 71 pass, including the 23 that say almost nothing. The same
+file also holds the set of descriptions allowed to name a scope at all, which is
+the narrowed rule above, and pins the naming and title rules. *Testable and not
+built, in order of value:* that a `destructiveHint` tool's description carries a
+warning word; that every tool name mentioned in a description is a registered
+tool. The second is green today, which is the right moment to add it.
+*Review only:* whether a description actually teaches, as opposed to being long
+enough. The only real
 check for that is the evaluation below, and even that measures the outcome.
 
 ## Inputs a model cannot get wrong
@@ -229,9 +250,11 @@ unrepresentable, so the model's own sampling cannot produce it.
 
 - **Flat over nested, and enums over free text.** A nested object is a shape a
   model has to hold; an enum is a choice it cannot get wrong. Measured: 60
-  enums across the input schemas, and 77 more on the output side, where they
+  enums across the input schemas, and 148 more on the output side, where they
   constrain nothing a model sends but are what
-  `tests/mcp-output.test.ts:147-152` exists to guard. Nesting exists where the
+  `tests/mcp-output.test.ts:151-174` exists to guard. Half of that output figure
+  is the error code, published once per tool for the reason the errors section
+  gives. Nesting exists where the
   domain is nested (`legs`) and nowhere else.
 - **Unambiguous names.** `categoryId`, never `category`. This is `common.md`'s
   naming rule with a reason attached: a parameter named for a concept rather
@@ -304,7 +327,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
 
-*Checked by:* `tests/mcp-parity.test.ts:363-372`, which pins three listings to
+*Checked by:* `tests/mcp-parity.test.ts:424-439`, which pins three listings to
 the schema their service actually parses, `list_transactions`,
 `list_staged_transactions` and `list_import_batches`, because "a tool declaring
 a wider schema than its service parses is worse than a missing filter".
@@ -314,32 +337,40 @@ a number.
 
 ## Outputs, and what the surface costs
 
-Measure before arguing. Counted over a real `tools/list` on 2026-08-23, at
-roughly four characters to the token:
+Measure before arguing. Re-counted over a real `tools/list` on 2026-08-25, at
+roughly four characters to the token. The previous count was 2026-08-23 and had
+gone stale by about a quarter, which is what a measurement nothing pins does:
+the tool-level numbers below the table are checked by
+`tests/mcp-measurements.test.ts` and the table itself is not.
 
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 35 | 121,911 | ~30,000 |
-| `ledger:stage` | 40 | 145,633 | ~36,000 |
-| `ledger:write` | 71 | 307,855 | ~77,000 |
+| `ledger:read` | 35 | 161,976 | ~40,000 |
+| `ledger:stage` | 40 | 195,024 | ~49,000 |
+| `ledger:write` | 71 | 403,381 | ~101,000 |
 
-Composition at the write tier: names 1,353, titles 1,691, descriptions 17,013,
-input schemas 110,679, output schemas 161,842. **Descriptions are 5.5% of what
-an agent loads; names, titles and descriptions together are 6.5%.** Output
-schemas are 52.6%.
+Composition at the write tier: names 1,353, titles 1,718, descriptions 20,464,
+input schemas 150,442, output schemas 214,127. **Descriptions are 5.1% of what
+an agent loads; names, titles and descriptions together are 5.8%.** Output
+schemas are 53.1%.
 
-The largest single contributor is not a tool. It is **346 copies of one
-178-character UUID pattern, 61,588 characters, 20.0% of the whole surface**, and
-the share is the same at every tier (20.1% at read, 20.5% at stage).
+Two changes on 2026-08-25 account for most of the rise and both were bought on
+purpose: describing the output fields whose names mislead, and publishing the
+error-code enum at 151 characters a tool and 10,721 in total, each named in the
+rule it belongs to below. Dropping `userId` from every schema and every payload
+took some of it back.
+
+The largest single contributor is still not a tool. It is **346 copies of one
+178-character UUID pattern, 61,588 characters, 15.3% of the whole surface**, and
+the share is the same at every tier (15.2% at read, 15.3% at stage).
 `"format":"uuid"` is emitted beside every one of them, so the pattern buys
 nothing a client cannot get from the format. Dropping it takes the write tier to
-roughly 246,000 characters and the read tier to roughly 97,000. That is a fifth
-of the context an agent spends on this server, recoverable by changing one
-shared schema.
+341,793 characters and the read tier to 137,412. That is a sixth of the context
+an agent spends on this server, recoverable by changing one shared schema.
 
-After that: `get_staged_duplicate` is 16,951 characters, 15,942 of it output
-schema; `update_transaction` 17,566 and `create_transaction` 17,427, mostly
+After that: `get_staged_duplicate` is 24,207 characters, 23,169 of it output
+schema; `update_transaction` 22,520 and `create_transaction` 21,635, mostly
 input schema.
 
 The rules:
@@ -354,12 +385,13 @@ The rules:
   behaviour that happens to be there. The failure it exists to stop is the quiet
   one: an enum pinned to a subset of the actor sources "makes every page of the
   audit log containing a new source come back empty"
-  (`tests/mcp-output.test.ts:147-152`).
+  (`tests/mcp-output.test.ts:151-174`).
 - **Binding.** One envelope, from `common.md`:
   `{ result: <success> | { error: { code, message, details? } } }`, published as
-  a two-member `anyOf` by `mcpOutputSchema` (`src/server/mcp-output-schemas.ts:33-37`)
-  and returned as both `structuredContent` and a JSON text mirror built from one
-  serialisation (`src/server/mcp.ts:181-192`), which is what the specification
+  a two-member `anyOf` by `mcpOutputSchema`
+  (`src/server/mcp-output-schemas.ts:96-100`) and returned as both
+  `structuredContent` and a JSON text mirror built from one serialisation
+  (`src/server/mcp.ts:230-244`), which is what the specification
   recommends: a tool returning structured content "SHOULD also return the
   serialized JSON in a TextContent block".
 - **House, and worth stating because a client author will assume otherwise.**
@@ -373,19 +405,60 @@ The rules:
   about its next step". This product takes the platform position, because the next
   call requires `id` and `expectedVersion` and an agent that cannot name a row
   cannot correct one.
-- **House.** Include what the next call needs and nothing else. `userId` is on
-  every versioned entity in the output schemas
-  (`src/server/mcp-output-schemas.ts:39-45`) and no agent can do anything with
-  it: `AGENTS.md` says "Never accept a public `userId`", so it is a field this
-  surface publishes and then refuses to read. **Work to do.**
-- **House.** Describe an output field whose meaning its name does not give.
-  Measured: **1,613 output properties, 168 with a description**, having been 52.
-  `decimalSchema` and `timestampSchema` were bare `z.string()`, so an agent
-  reading `list_accounts` learned that `balance` is "a string" — one undescribed
-  primitive repeated across more than a thousand properties. Both now say what
-  they are (`src/server/mcp-output-schemas.ts:20-45`), which is where 111 of the
-  111 new descriptions came from. **Work to do** for the rest, which are
-  per-entity fields whose names mostly do give their meaning.
+- **House.** Include what the next call needs and nothing else. `userId` used to
+  be on every versioned entity in the output schemas — 37 property positions
+  across 34 of the 71 tools, `required` at every one, and every one carrying the
+  same constant: the id of the actor that authorised the connection. No agent
+  could do anything with it. `AGENTS.md` says "Never accept a public `userId`",
+  which is an input rule and does not by itself forbid publishing one; what it
+  means here is that nothing on this surface will ever read one back, so the
+  field failed this section's own rule rather than an invariant. It is gone from
+  both halves. The four declarations that carried it no longer publish it
+  (`src/server/mcp-output-schemas.ts`, the versioned entity block and the audit,
+  preferences and identity results), and `toolResult` drops the key from the
+  payload on the way out (`src/server/mcp.ts`), so the schema and the reply say
+  the same thing. The strip is one walk rather than 71 per-tool mappings, and it
+  stops where the keys are somebody else's rather than this server's: a CSV
+  preview's `rows` are keyed by the uploaded file's own headers, and a staged
+  row's `rawData` is that same record kept beside the draft — on
+  `create_staged_transaction` it is whatever the caller sent, so walking into it
+  would let an agent stage a row and read back a different one. Audit
+  `before`/`after` snapshots do lose it, which is display only — the stored row
+  and the HTTP surface are untouched. `whoami` is not an exception: its own
+  description already points an agent at `clientId` as what tells one caller
+  from another. The two edits had to land together, and it is the client that
+  holds them to each other: the SDK client compiles the published JSON Schema
+  and validates every reply, so a schema still declaring `userId` as `required`
+  would have refused a payload that had lost it, and a payload still carrying
+  one would have broken `identityResultSchema`, the one closed object of the
+  four, which publishes `additionalProperties: false`. The server's own check is
+  the Zod schema rather than the published one, and it is not strict, so it
+  would have stripped a stray key and passed either way — worth knowing before
+  trusting it to catch a schema and a payload that disagree.
+  `tests/mcp-output.test.ts` holds it: no output schema may declare a `userId`
+  property except by named exception.
+- **House.** Describe an output field whose meaning its name does not give — and
+  only those. Measured: **1,577 output properties, 308 with a description**,
+  having been 52. `decimalSchema` and `timestampSchema` were bare `z.string()`,
+  so an agent reading `list_accounts` learned that `balance` is "a string": one
+  undescribed primitive repeated across more than a thousand properties. Both
+  now say what they are, and most of the described count comes from those two
+  plus `versionSchema` (`src/server/mcp-output-schemas.ts:38-53`). The rest of
+  the surface is deliberately bare: nearly every undescribed name is `id`,
+  `name`, `currency`, `date`, `payee` or `notes`, which already give their
+  meaning, and where a sentence would buy nothing and cost the payload budget
+  three bullets down — one 110-character sentence on `version` costs about 4,700
+  characters, because it is emitted 42 times. What was missing was the closed
+  list of fields whose names mislead, and the file already explained most of
+  them in TypeScript comments an agent cannot read. Those are now `.describe()`:
+  `deletedAt` (voided by reversal, still in every balance), `archivedAt` (posted
+  out to equity, and a different sentence on a category), `legs` and `legCount`,
+  `effectiveRate` (audit only, never applied), `templateId` (provenance, no
+  foreign key), `externalId`, `status`, `repeatsStagedRow` (null is "not worked
+  out", not "no"), and `chosen`. `tests/mcp-output.test.ts` holds every
+  published copy of that list to carrying one, so a new result schema spreading
+  an undescribed copy fails rather than passing a total nobody remembers to
+  raise.
 - **House.** "Nothing found" is never an error and never an empty content block.
   It is the empty collection with the shape intact and the filters echoed back.
 - **House, against the vendor skill's advice.** JSON only, with the
@@ -397,13 +470,15 @@ The rules:
   ten-thousand-row cap is. The ceiling is the measured figure above; a change
   that raises it names why in the same commit.
 
-*Checked by:* `tests/mcp-output.test.ts:21-47` for the two-member envelope,
+*Checked by:* `tests/mcp-output.test.ts:26-52` for the two-member envelope,
 which requires every tool to publish an `anyOf` whose success member is concrete
-rather than `{}`, and `:49-79`, which pins eight output schemas and one input
-schema to a distinguishing substring. *Not checked:* the payload
-budget, or that an output field carries a description. The budget test is one
+rather than `{}`, and `:54-84`, which pins eight output schemas and one input
+schema to a distinguishing substring. The same file walks every published schema
+for the two output rules above: that no schema declares a `userId` outside a
+named exception, and that every copy of the closed list of misleading field
+names carries a description. *Not checked:* the payload budget. That test is one
 `JSON.stringify` and a comparison, and it is the highest-value MCP test not yet
-written.
+written — the table above went stale by a quarter in two days for want of it.
 
 ## Paging and ordering
 
@@ -420,7 +495,7 @@ written.
   ordering not keyset-resumable, and nothing in the result says which. An agent
   walking a ledger under `sort: "account"` gets one page and has to infer the
   fallback from `totalPages`, which the result does carry beside `page`,
-  `pageSize` and `totalCount` (`src/server/services/transactions.ts:1395-1398`).
+  `pageSize` and `totalCount` (`src/server/services/transactions.ts:1397-1400`).
   That is the fallback the `AGENTS.md` sentence above prescribes. The page
   envelope now says which world a caller is in: `cursorAvailable` is on every
   page of both listings, and `nextCursor`'s own description says that null means
@@ -447,7 +522,7 @@ envelope and the worked sentences.
 - **Binding.** A tool fault is a result with `isError: true`, not a protocol
   error, because "otherwise, the LLM would not be able to see that an error
   occurred and self-correct". Unknown tool and malformed request are protocol
-  errors. `runTool` (`src/server/mcp.ts:194-217`) does this and its comment says
+  errors. `runTool` (`src/server/mcp.ts:246-271`) does this and its comment says
   why.
 - **House, and a correction owed to the documentation.** There are two error
   envelopes and only one is this project's. The SDK validates `inputSchema`
@@ -458,32 +533,52 @@ envelope and the worked sentences.
   with no `structuredContent`, no `code` and no `details`. The rule: **the
   project envelope covers semantic refusals, `-32602` is the schema-failure
   contract, and anything an agent must branch on is raised as an `AppError`**.
-  `docs/mcp.md:62-63` claims "Every tool returns both `structuredContent.result`
-  and the same thing as JSON text", which is false for the failure an agent hits
-  most. **Work to do.**
-- **House.** The code list is closed and published. `ApiErrorCode`
-  (`src/shared/domain.ts:1355-1364`) has nine members and is a TypeScript type,
-  which no agent can read; `toolErrorSchema` publishes `code: z.string()`
-  (`src/server/mcp-output-schemas.ts:25-31`). Publish the enum in the output
-  schema so an agent can branch on it. **Work to do.**
+  `docs/mcp.md` used to claim "Every tool returns both
+  `structuredContent.result` and the same thing as JSON text", which was false
+  for the failure an agent hits most; it now says which envelope carries which
+  refusal, and the server instructions say it too, because an agent that reads
+  `structuredContent` unconditionally breaks on its first typo.
+  `tests/mcp-output.test.ts` pins the shape of that refusal and holds
+  `docs/mcp.md` to naming it.
+- **House.** The code list is closed and published. `serviceErrorCodes`
+  (`src/shared/domain.ts:1696`) is a `const` array rather than a bare TypeScript
+  union precisely so `toolErrorSchema` can publish it as an enum
+  (`src/server/mcp-output-schemas.ts:88-94`): a closed list exists so a caller
+  can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
+  already saved, `VALIDATION_ERROR` means fix the arguments — and it cannot
+  branch on a type it cannot see. It is the service half of `apiErrorCodes` and
+  not the whole of it, because the five transport codes refuse before any tool
+  runs and can never reach a tool result. It costs 151 characters per tool,
+  10,721 across the write tier, which is the ceiling above being spent on
+  purpose. It gates nothing: the SDK skips output validation whenever `isError`
+  is set, and every error path sets it, so a published enum can never drop a
+  reply.
 - **House.** A message names what was wrong and the next call, by name. The
   specification's own worked example is a sentence, not a code: "Invalid
   departure date: must be in the future. Current date is 08/08/2025."
-  `staleVersion` (`src/server/services/errors.ts:24-29`) says "This record
+  `staleVersion` (`src/server/services/errors.ts:30-36`) says "This record
   changed since it was loaded. Refresh and try again", which is browser copy; an
   agent has nothing to refresh. `common.md` already carries the agent sentence.
-  `notFound` (`:11-14`) says "The requested record was not found", which teaches
-  nothing. **Work to do.**
+  `notFound` (`:24-25`) has a default message, "The requested record was not
+  found", which teaches nothing; all forty call sites already pass their own, so
+  what is owed is to drop the default and let the compiler keep it that way.
+  **Work to do**, and the shape it should take is an optional `agentMessage` on
+  `AppError` that only the MCP transport reads, so the diagnosis stays
+  single-sourced and the browser keeps its own words. It names
+  `details.currentVersion` only where the throw site carried one: thirteen do
+  not, and a refusal pointing at a field that is not there is this same rule
+  failing one level down.
 - **House.** Where there is no recovery, the message says so and stops. Setting
   preferences has no undo. Do not invent one.
 - **Binding.** Do not emit `-32002` or `-32042`; a missing resource is `-32602`.
   New application codes, if any are ever allocated, go outside `-32768` to
   `-32000`.
 
-*Checked by:* `tests/mcp-output.test.ts` for the envelope shape;
-`tests/api-security.test.ts` for the HTTP half. *Not checked:* that every code an
-interface can emit is in the published enumeration, which is the same gap
-`common.md` records.
+*Checked by:* `tests/mcp-output.test.ts` for the envelope shape, for the
+published code enum on every tool, and for the `-32602` refusal that never
+reaches one; `tests/api-security.test.ts` for the HTTP half, where a live
+refusal's code is held to the published enumeration. *Not checked:* that a
+message names the next call, which is prose and stays a reviewer's job.
 
 ## Annotations, and what each one promises
 
@@ -503,7 +598,7 @@ claim, and a false claim is a defect.
 
 - **House.** Three shared constants, so a tool's class is one word at the call
   site: `readAnnotations`, `additiveAnnotations`, `destructiveAnnotations`
-  (`src/server/mcp.ts:244-261`). Measured: 35 read, 9 additive, 27 destructive.
+  (`src/server/mcp.ts:296-313`). Measured: 35 read, 9 additive, 27 destructive.
 - **Binding.** `readOnlyHint: true` is a claim the implementation must
   satisfy, not a category label. The specification's rule is addressed to
   clients; for a server an annotation is an assertion, and a false assertion is
@@ -552,7 +647,7 @@ requiring it, so this is a decision and not an obligation; it is argued at
 length because it is the one that decides the tool count.
 
 A tool is gated by which of three registration blocks it sits in
-(`src/server/mcp.ts:276`, `:750`, `:839`), and scope is enforced by
+(`src/server/mcp.ts:518`, `:1024`, `:1119`), and scope is enforced by
 non-registration, so a tool the caller cannot use is **absent from discovery**
 rather than present and refusing. Measured: 35 tools at `ledger:read`, 40 at
 `ledger:stage`, 71 at `ledger:write`, and a token with no ledger scope gets a
@@ -575,8 +670,9 @@ Anthropic's guidance is not internally consistent on granularity, so deferring t
 it means choosing which half to defer to anyway.
 
 - **House, the exception the rule needs.** Three tools take scope as a
-  *behaviour* switch rather than a gate (`src/server/mcp.ts:815`, `:815`,
-  `:831`), which is how `ledger:stage` proposes without deciding. A tool whose
+  *behaviour* switch rather than a gate — `stage_csv`,
+  `update_staged_transaction` and `bulk_edit_staged_transactions` — which is how
+  `ledger:stage` proposes without deciding. A tool whose
   result differs by scope is still one tool with one scope: the wider scope
   changes what it may create, not whether it may be called.
 - **Binding.** `AGENTS.md`: "`ledger:stage` proposes and never decides. Creating
@@ -584,7 +680,7 @@ it means choosing which half to defer to anyway.
   may carry are changes to the ledger's own records and need `ledger:write`,
   wherever they are reached from, including a CSV import." `stage_csv` is the
   worked case and its description is the model for saying so
-  (`src/server/mcp.ts:824`).
+  (`src/server/mcp.ts:1104`).
 - **House.** Read, propose, write are three tiers answering three questions.
   `dryRun: true` asks "what would this do", synchronously, leaving nothing
   behind; it is on 7 tools. `ledger:stage` says "do this when a person agrees",
@@ -607,19 +703,39 @@ it means choosing which half to defer to anyway.
   minimal set of scopes necessary for basic functionality", and the security
   document's Common Mistakes list names "Publishing all possible scopes in
   `scopes_supported`". This deployment publishes all seven
-  (`src/server/api.ts:726-737`). The default grant is already right,
+  (`src/server/api.ts:727-738`). The default grant is already right,
   `openid profile email ledger:read` (`src/server/auth.ts:203`); the
   advertisement is wider than the default. **Work to do.**
-- **Binding (SHOULD), unmet, and it is the one an agent feels.** An
-  authenticated but under-scoped call should be a 403 carrying
-  `WWW-Authenticate: Bearer error="insufficient_scope"`, the required scope, and
-  `resource_metadata`. Today a read-only token calling `create_transaction` gets
-  `MCP error -32602: Tool create_transaction not found` (verified live), which is
-  character for character what a misspelled tool name returns. Until the
-  challenge exists, the cheap mitigations are to name the required scope in every
-  gated tool's description and to report the token's scopes from `whoami`, which
-  reports the client id and not the grant. **Work to do.**
-- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:263-268`) implements
+- **Binding (SHOULD), met, and it is the one an agent feels.** An authenticated
+  but under-scoped call is a 403 carrying
+  `WWW-Authenticate: Bearer error="insufficient_scope"`, the full scope string
+  that would have worked, and `resource_metadata`. It used to be
+  `MCP error -32602: Tool create_transaction not found`, character for character
+  what a misspelled tool name returns; a name that is not a tool at all still
+  gets exactly that, so the two answers differ, which was the whole complaint.
+  The challenge is raised before dispatch from `TOOL_SCOPES` in
+  `src/server/mcp.ts`, so gating stays by non-registration and a read-only
+  token's tool list is unchanged. Two details are load-bearing and both were
+  nearly got wrong. The tier test is `satisfiesToolScope`, not `hasScope`:
+  `hasScope` widens only `ledger:read`, so testing the staging tier with it
+  refuses a `ledger:write` token a tool it already holds and, on a client
+  implementing the step-up, talks it into re-authorizing downward. And the
+  `scope` parameter carries the whole string to request, not the missing tier
+  alone, because the SDK replaces the entire scope request with it — naming
+  `ledger:write` by itself would mint a token with no `openid` and no
+  `offline_access`, and so no refresh token, which is the failure the previous
+  bullet keeps `offline_access` in the advertisement to avoid. `TOOL_SCOPES` is
+  a second copy of the three registration blocks and
+  `tests/mcp-measurements.test.ts` holds it to them tier by tier.
+  `whoami` reports the scopes on this token, merged in the transport adapter
+  because only it holds them; `list_connected_agents` reports the grant, which
+  is a wider and older fact, and the person's own view of it is the
+  connected-agents list in Settings. Naming the required scope in each gated
+  tool's description was considered and rejected: under non-registration the
+  only caller who could read it already holds the scope. The three tools where
+  scope changes behaviour rather than access are the real case and already say
+  so in their own words.
+- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:424-429`) implements
   the scope hierarchy the specification requires servers to account for: stage
   and write both satisfy read.
 - **House, and its reason is an absence of evidence.** Whether 71 tightly
@@ -635,11 +751,13 @@ it means choosing which half to defer to anyway.
   client opts in.
 
 *Checked by:* `tests/mcp-parity.test.ts:292-299` and `:302-333`;
-`tests/mcp-output.test.ts:113-122`, which asserts that a token holding no ledger
+`tests/mcp-output.test.ts:118-127`, which asserts that a token holding no ledger
 scope gets no tools at all rather than merely missing the two the test was
 written for, "because naming them left the branch accepting any other tool
-reaching a token with no ledger scope". *Not checked:* that `scopes_supported`
-stays minimal, or that a gated tool names its scope.
+reaching a token with no ledger scope"; `tests/mcp-scope-challenge.test.ts` for
+the 403 and for the write token that must not be challenged at the staging tier;
+and `tests/mcp-parity.test.ts` for which descriptions may name a scope at all.
+*Not checked:* that `scopes_supported` stays minimal.
 
 ## The agent surface never runs ahead of the browser
 
@@ -661,7 +779,7 @@ human witness.
   from a session and never from an MCP token."
 - **House.** An exception carries a written reason, not a name on a list. Four
   browser-only exceptions (`tests/mcp-parity.test.ts:17-25`) and one agent-only
-  (`:389-392`) each carry a paragraph.
+  (`:454-457`) each carry a paragraph.
 - **House, and the honest limit.** Parity proves coverage and wiring. It does not
   prove that a tool accepts the same filters or writes the same fields, and only
   three listings are pinned to their service's schema. It proves nothing at all
@@ -674,8 +792,8 @@ human witness.
 (every route reachable through a named tool) and `:230-258`, which extracts which
 service each route and each tool calls and compares them, with a `compared` floor
 at `:256` guarding the regex from silently matching nothing. Backward at
-`:412-425`, which greps `src/client` for a call to each route. Exceptions are
-policed at `:218-222` and `:432-435`, the second failing any reason under forty
+`:477-491`, which greps `src/client` for a call to each route. Exceptions are
+policed at `:218-222` and `:493-497`, the second failing any reason under forty
 characters. The two forbidden capabilities are pinned by name at `:273-281`.
 
 ## Idempotency, versions and state handles
@@ -719,9 +837,21 @@ what stops `idempotentHint` becoming a lie.
   the blast radius, and it does: `ledger:stage` decides nothing, deleting posts a
   reversal, updates carry expected versions, bulk selections carry fingerprints,
   and every write is audited with `actorSource` and `clientId`.
-- **House, the cheap thing not done.** Mark provenance, so an agent can see that
-  a payee string is bank-supplied rather than user-authored. `importBatchId` and
-  `externalId` are already on the row. **Work to do.**
+- **House, and the marking that was actually cheap.** The instructions say once
+  that payee, description, notes and a staged row's `rawData` are free text this
+  person did not necessarily write, that an `externalId` or an `importBatchId`
+  means the row came from a bank's CSV, and that all of it is data and never an
+  instruction. Both provenance fields were already on the wire and now say in
+  their own output descriptions what they mean, `rawData` with them. What was
+  not done, and will not be: a provenance column on `ledger_transaction`, which
+  has `external_id` and no `import_batch_id`. It would need a forward-only
+  migration, a backfill that can only guess from whichever staged rows survived,
+  and a place on the transactions page for a person to see it — all to buy a
+  label that still does not stop an injected instruction being read. This is a
+  marking for a model already reading the text, not a control, and the control
+  remains the blast radius above it. **Still open:** the shared input schema's
+  `externalId` (`src/shared/domain.ts`) carries no description of its own, so an
+  agent sending one reads the sentence only on the way back.
 - **House, framing an existing behaviour so it is not optimised away.** Routing
   every authorization request through the consent screen, including for
   signed-in users and clients that omit `prompt=consent`, is the confused-deputy
@@ -730,7 +860,7 @@ what stops `idempotentHint` becoming a lie.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:803-854`).
+  (`src/server/api.ts:804-855`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's
@@ -814,25 +944,32 @@ which is an evaluation rather than a test.
 | --- | --- |
 | Every `/api/v1` route is reachable through a named tool, or is a named exception with a reason | `tests/mcp-parity.test.ts:199-259` |
 | A tool reaches the same service as its route | `tests/mcp-parity.test.ts:230-258` |
-| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:412-430` |
+| No route exists that no page calls, without a named exception | `tests/mcp-parity.test.ts:477-491` |
 | Deleting an account and setting a password are absent from the tool list | `tests/mcp-parity.test.ts:273-281` |
 | Every registered tool is named in `docs/mcp.md` | `tests/mcp-parity.test.ts:266-270` |
 | A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:292-299` |
-| A listing declares the schema its service parses | `tests/mcp-parity.test.ts:363-372` |
-| Every tool publishes a concrete two-member output schema | `tests/mcp-output.test.ts:21-47` |
-| A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:113-122` |
-| A description is longer than thirty characters | `tests/mcp-parity.test.ts:358-375` |
+| A listing declares the schema its service parses | `tests/mcp-parity.test.ts:424-439` |
+| Every tool publishes a concrete two-member output schema | `tests/mcp-output.test.ts:26-52` |
+| A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:118-127` |
+| A description is longer than thirty characters | `tests/mcp-parity.test.ts:336-353` |
+| A tool name is well formed and no title claims another tier's verb | `tests/mcp-parity.test.ts` |
 | The `tools/list` payload stays under its ceiling | **Not checked.** Highest value of the unwritten tests. |
 | A destructive tool's description warns | **Not checked.** |
-| A gated tool names its scope | **Not checked.** |
+| A tool whose behaviour changes with scope names it, and no other tool does | `tests/mcp-parity.test.ts` |
+| An under-scoped call is a 403 naming the scope, and a misspelled name is not | `tests/mcp-scope-challenge.test.ts` |
+| `TOOL_SCOPES` still agrees with the three registration blocks | `tests/mcp-measurements.test.ts` |
+| No output schema declares a `userId`, outside a named exception | `tests/mcp-output.test.ts` |
+| Every published copy of a misleading output field carries a description | `tests/mcp-output.test.ts` |
 | A tool named in a description exists | **Not checked.** Green today. |
 | A mutating tool takes an idempotency key | **Not checked.** |
 | `readOnlyHint` matches where the tool is registered | **Not checked.** |
 | Tool order is deterministic | **Not checked.** Registration order is the de facto order. |
 | CIMD is offered before DCR, and the documents say which is current | **Not checked.** |
 | A convention an agent must obey appears in a description, not only in `docs/mcp.md` | **Not checked.** Review. |
+| The server instructions name the grant, the two error envelopes and untrusted text | `tests/mcp-instructions.test.ts` |
 | The named revision is the one the SDK negotiates | **Not checked.** |
-| Every parameter and every output field carries a description | **Not checked.** |
+| Every parameter carries a description | `tests/mcp-measurements.test.ts`, held at zero |
+| Every output field carries a description | **Not checked**, and deliberately not a rule. The misleading ones are checked by name above. |
 | Whether a description teaches | **Review only,** and the evaluation above is the nearest thing to a check. |
 
 A rule that appears in neither column is a rule nobody is responsible for, and

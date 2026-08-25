@@ -120,6 +120,7 @@ import {
   revokeAllConnectedApps,
   revokeConnectedApp,
 } from "./services/connected-apps.js";
+import { CSV_MEDIA_TYPE } from "../shared/csv.js";
 import { todayIn } from "../shared/recurrence-dates.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
@@ -1225,7 +1226,7 @@ app.get("/api/v1/import-batches", async (c) =>
 app.get("/api/v1/csv/export", async (c) => {
   const actor = c.get("actor");
   const result = await exportTransactionsCsv(actor, query(c));
-  c.header("Content-Type", "text/csv; charset=utf-8");
+  c.header("Content-Type", CSV_MEDIA_TYPE);
   // Dated in the person's own timezone, not the server's. `common.md` puts
   // every "today" in this product through `todayIn`, and this was the one that
   // went through the server clock instead: somebody at UTC+13 downloading at

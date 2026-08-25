@@ -242,3 +242,67 @@ describe("the decomposed images", () => {
     }
   });
 });
+
+/**
+ * What an image says about itself when nobody published it.
+ *
+ * The release workflow runs `docker/metadata-action`, which adds `created`,
+ * `revision` and more on top, so a published image has always carried more than
+ * a hand-built one. These are the labels every image carries however it was
+ * built, which is what makes them the ones worth guaranteeing.
+ */
+describe("the labels on every image", () => {
+  const dockerfiles = [
+    "Dockerfile",
+    "deploy/docker/server.Dockerfile",
+    "deploy/docker/scheduler.Dockerfile",
+    "deploy/docker/frontend.Dockerfile",
+  ] as const;
+  const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+  it("names the product, its licence and where it came from", () => {
+    for (const path of dockerfiles) {
+      const dockerfile = read(path);
+      for (const label of [
+        "org.opencontainers.image.title=",
+        "org.opencontainers.image.description=",
+        'org.opencontainers.image.version="${APP_VERSION}"',
+        'org.opencontainers.image.licenses="AGPL-3.0-only"',
+        'org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"',
+        'org.opencontainers.image.url="https://github.com/thtmnisamnstr/simple-balance"',
+        "org.opencontainers.image.documentation=",
+      ]) {
+        expect(dockerfile, `${path} must set ${label}`).toContain(label);
+      }
+    }
+  });
+
+  it("records the base it was actually built on", () => {
+    for (const path of dockerfiles) {
+      const dockerfile = read(path);
+      // Read out of the file rather than written down here, so bumping a base
+      // and forgetting the label fails instead of shipping an image that lies
+      // about what it contains.
+      const runtime = [...dockerfile.matchAll(/^FROM (\S+) AS runtime$/gm)].at(-1);
+      expect(runtime, `${path} must have a runtime stage`).toBeDefined();
+      expect(dockerfile, path).toContain(`org.opencontainers.image.base.name="${runtime![1]!}"`);
+    }
+  });
+
+  it("claims no build fact a hand build cannot know", () => {
+    for (const path of dockerfiles) {
+      // Instructions only: the comment above each LABEL names both of these
+      // while explaining why neither is set.
+      const dockerfile = read(path)
+        .split("\n")
+        .filter((line) => !line.startsWith("#"))
+        .join("\n");
+      // A Dockerfile cannot emit a label conditionally, so setting either of
+      // these from a defaulted ARG would label every hand-built image with an
+      // empty string, which a consumer reads as known and empty rather than as
+      // absent. The release workflow supplies both.
+      expect(dockerfile, path).not.toContain("org.opencontainers.image.created");
+      expect(dockerfile, path).not.toContain("org.opencontainers.image.revision");
+    }
+  });
+});

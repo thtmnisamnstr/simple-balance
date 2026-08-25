@@ -37,6 +37,7 @@ describe("outgoing mail", () => {
     const { sendMail } = await import("../src/server/mail.js");
     const delivered = await sendMail({
       to: "person@example.com",
+      about: "a password reset",
       subject: "Reset your password",
       body: "Follow the link.",
     });

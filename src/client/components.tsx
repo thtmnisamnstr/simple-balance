@@ -23,6 +23,7 @@ import {
   useState,
 } from "react";
 import type { SortDirection } from "../shared/domain.js";
+import { errorMessages } from "./api.js";
 import type { DatePreset } from "./date-range.js";
 import { useDateRange } from "./date-range.js";
 
@@ -315,6 +316,74 @@ export function Button({
  */
 export function RequiredNote() {
   return <p className="required-note">Every field is required unless it says otherwise.</p>;
+}
+
+/**
+ * Every sentence a submit failure carried, at the top of the form, with focus.
+ *
+ * Focus is moved with a ref because nothing reloads. GOV.UK's summary works on
+ * the assumption that a page load has already put the person at the top of the
+ * document; a single-page app never does, which is exactly what was missing —
+ * the message was announced by `role="alert"` and then left up to fifty split
+ * rows (`MAX_TRANSACTION_LEGS`) above the button that had just been pressed.
+ *
+ * `role="alert"` sits on an inner div, following GOV.UK Frontend's own markup,
+ * so the live region can mount empty and be populated later while the container
+ * around it is what takes focus.
+ */
+export function ErrorSummary({
+  error,
+  level = 3,
+  children,
+}: {
+  error: unknown;
+  level?: 2 | 3;
+  children?: ReactNode;
+}) {
+  const container = useRef<HTMLDivElement>(null);
+  // The failure itself is the dependency, not the sentences it produced. Two
+  // things rule the sentences out. A repeat of a refusal nobody has yet
+  // satisfied carries the identical wording, so a person who presses the button
+  // again is left at the bottom of the form with nothing having moved; and the
+  // pending render that would otherwise blank the set does not commit, because
+  // React batches the mutation's `pending` and `error` updates into one render —
+  // there is no moment at which the summary is empty. TanStack Query's
+  // `failureCount` is no use either: it is reset to 0 on every `mutate()`, so it
+  // reads 1 after the second failure exactly as it did after the first. A fresh
+  // refusal is a fresh object, which is the one thing that always differs.
+  useEffect(() => {
+    if (!error) return;
+    container.current?.focus();
+  }, [error]);
+  const messages = errorMessages(error);
+  if (!messages.length) return null;
+  // Defaults to 3 rather than GOV.UK's fixed 2 because every call site is inside
+  // `Modal`, whose title is already an `<h2>` and is the dialog's accessible
+  // name; a second `<h2>` in the body reads as a peer section of the dialog
+  // rather than as content in it. Same reasoning as `EmptyState`.
+  const Heading = level === 2 ? "h2" : "h3";
+  // Plain defence against a refusal carrying an unbounded list. No call site
+  // reaches it today.
+  const shown = messages.slice(0, 10);
+  const rest = messages.length - shown.length;
+  return (
+    <div ref={container} tabIndex={-1} className="alert alert-error error-summary">
+      <div role="alert">
+        <Heading className="error-summary-title">There is a problem</Heading>
+        {shown.length === 1 ? (
+          <p>{shown[0]}</p>
+        ) : (
+          <ul>
+            {shown.map((message, index) => (
+              <li key={`${index}-${message}`}>{message}</li>
+            ))}
+          </ul>
+        )}
+        {rest > 0 ? <p>{`And ${rest} more.`}</p> : null}
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export function Field({

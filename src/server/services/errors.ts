@@ -1,12 +1,18 @@
 import { ZodError } from "zod";
-import type { ApiErrorCode, ValidationIssue } from "../../shared/domain.js";
+import type { ServiceErrorCode, ValidationIssue } from "../../shared/domain.js";
 
+/**
+ * Narrower than the published `ApiErrorCode` on purpose. The transport half of
+ * that union is refused before a route runs, so a service raising one would be
+ * reporting something it cannot have seen; typing this on the service half lets
+ * the compiler say so.
+ */
 export class AppError extends Error {
-  readonly code: ApiErrorCode;
+  readonly code: ServiceErrorCode;
   readonly status: number;
   readonly details?: unknown;
 
-  constructor(code: ApiErrorCode, message: string, status: number, details?: unknown) {
+  constructor(code: ServiceErrorCode, message: string, status: number, details?: unknown) {
     super(message);
     this.name = "AppError";
     this.code = code;

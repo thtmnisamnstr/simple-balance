@@ -59,8 +59,16 @@ and whether the user still has an authentication method enabled by the current
 - `ledger:write`: every ledger operation, including direct and staged commits.
 
 Tools an agent has no scope for are left out of discovery entirely, so it never
-sees a tool it cannot call. Every tool returns both `structuredContent.result`
-and the same thing as JSON text.
+sees a tool it cannot call, and calling one anyway comes back as a 403 naming
+the scope that would have worked rather than as a missing name. A call that
+reaches a tool returns both `structuredContent.result` and the same thing as
+JSON text, whether it succeeded or was refused: a refusal comes back as
+`result.error` with a code, a message and sometimes details, and `isError` set.
+An argument that fails a tool's published input schema never reaches the tool.
+The protocol refuses it first, and that refusal is a text block reading
+`MCP error -32602: Input validation error: ...` naming the field, with no
+`structuredContent` and no code. Read the field it names, fix the argument, and
+call again.
 
 Money is always a decimal string, never a JSON number, because binary floating
 point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
@@ -238,6 +246,11 @@ can send mail at all, as `notificationsAvailable`: reminders and proposal notice
 are stored whether or not it can, so this is how to tell somebody that the
 reminder they just asked for will not arrive until an operator configures SMTP,
 rather than leaving them to notice the silence.
+
+It also reports `scopes`, which is what the token in hand may do. A tool outside
+that grant is not in the tool list at all, so this is how to tell a capability
+you were not granted from one that does not exist, and what to name when asking
+somebody to reconnect the client with more.
 
 `get_preferences` reports their timezone, default currency and colour theme, and
 reading the first of those matters more than it sounds. What counts as today is

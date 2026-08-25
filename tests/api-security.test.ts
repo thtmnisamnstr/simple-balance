@@ -8,8 +8,25 @@ import {
   AUTH_REQUEST_BODY_LIMIT_BYTES,
   requestBodyLimit,
 } from "../src/server/http-security.js";
+import { apiErrorCodes } from "../src/shared/domain.js";
 
 const applicationOrigin = new URL(getConfig().baseUrl).origin;
+
+/**
+ * Reads the code off a refusal and holds it to the published enumeration.
+ *
+ * Asserting the envelope shape alone is what let five transport codes sit on
+ * the wire in no list at all: every one of these responses matched
+ * `{ error: { code } }` the whole time. The membership is the part that fails
+ * when a refusal invents a code nobody can look up.
+ */
+async function refusalCode(response: Response) {
+  const payload = (await response.json()) as { error?: { code?: unknown } };
+  expect(payload).toMatchObject({ error: { code: expect.any(String) } });
+  const code = payload.error?.code as string;
+  expect(apiErrorCodes).toContain(code);
+  return code;
+}
 
 describe("API transport security wiring", () => {
   it("rejects a cross-origin finance mutation before session lookup", async () => {
@@ -23,9 +40,7 @@ describe("API transport security wiring", () => {
       body: "{}",
     });
     expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({
-      error: { code: "CROSS_ORIGIN_REQUEST" },
-    });
+    expect(await refusalCode(response)).toBe("CROSS_ORIGIN_REQUEST");
   });
 
   it("rejects a cross-origin auth mutation before Better Auth", async () => {
@@ -55,9 +70,7 @@ describe("API transport security wiring", () => {
       },
     });
     expect(response.status).toBe(415);
-    expect(await response.json()).toMatchObject({
-      error: { code: "UNSUPPORTED_MEDIA_TYPE" },
-    });
+    expect(await refusalCode(response)).toBe("UNSUPPORTED_MEDIA_TYPE");
   });
 
   it("lets a bodyless revoke through the media type gate to authentication", async () => {
@@ -87,9 +100,37 @@ describe("API transport security wiring", () => {
       }),
     });
     expect(response.status).toBe(413);
-    expect(await response.json()).toMatchObject({
-      error: { code: "PAYLOAD_TOO_LARGE" },
+    expect(await refusalCode(response)).toBe("PAYLOAD_TOO_LARGE");
+  });
+
+  // Both of these are framing rather than content: the headers describing the
+  // body contradict the body. They are refused where the 413 is, ahead of
+  // Better Auth, which is why an auth path can reach them without a session.
+  it("refuses a request whose Content-Length is not a number", async () => {
+    const response = await app.request(`${applicationOrigin}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: {
+        origin: applicationOrigin,
+        "content-type": "application/json",
+        "content-length": "twelve",
+      },
+      body: "{}",
     });
+    expect(response.status).toBe(400);
+    expect(await refusalCode(response)).toBe("INVALID_CONTENT_LENGTH");
+  });
+
+  it("refuses a bodyless request that declares bytes it never sends", async () => {
+    const response = await app.request(`${applicationOrigin}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: {
+        origin: applicationOrigin,
+        "content-type": "application/json",
+        "content-length": "12",
+      },
+    });
+    expect(response.status).toBe(400);
+    expect(await refusalCode(response)).toBe("REQUEST_BODY_NOT_ALLOWED");
   });
 
   it("rejects an unauthenticated finance body before granting the upload allowance", async () => {
@@ -104,9 +145,7 @@ describe("API transport security wiring", () => {
       body: "{}",
     });
     expect(response.status).toBe(401);
-    expect(await response.json()).toMatchObject({
-      error: { code: "UNAUTHORIZED" },
-    });
+    expect(await refusalCode(response)).toBe("UNAUTHORIZED");
     expect(response.headers.get("connection")).toBe("close");
   });
 

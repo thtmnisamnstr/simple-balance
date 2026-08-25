@@ -5,6 +5,7 @@ import {
   type TransactionTemplateDraft,
   type TransactionType,
 } from "../shared/domain.js";
+import { compareMoney } from "./money.js";
 
 type StageAccount = {
   id: string;
@@ -130,6 +131,17 @@ export function draftForTransactionForm(input: unknown): TransactionFormDraft {
     externalId: stagedString(draft.externalId),
     templateId: stagedString(draft.templateId),
   };
+}
+
+/**
+ * The share a split is named by in a list: its biggest one.
+ *
+ * Shared rather than repeated so the queue and the import preview name the same
+ * split the same way; a list that named a split by its first leg on one screen
+ * and its largest on another would look like two different rows.
+ */
+export function largestStagedLeg(legs: TransactionFormLeg[]) {
+  return [...legs].sort((left, right) => compareMoney(right.amount, left.amount))[0];
 }
 
 export function summarizeStagedDraft(draft: StagedDraft, accounts: StageAccount[]) {

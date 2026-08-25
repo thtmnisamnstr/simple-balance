@@ -17,11 +17,19 @@ RUN npm run build:client
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine AS runtime
 ARG APP_VERSION=0.1.5
+# `created` and `revision` are deliberately absent. A Dockerfile cannot emit a
+# label conditionally, so a defaulted ARG would give every hand-built image
+# `org.opencontainers.image.revision=""`, which reads to a consumer as known and
+# empty rather than as absent. They belong to the builder that knows them, which
+# is the release workflow.
 LABEL org.opencontainers.image.title="Simple Balance frontend" \
   org.opencontainers.image.description="Simple Balance browser bundle, served by nginx" \
   org.opencontainers.image.version="${APP_VERSION}" \
   org.opencontainers.image.licenses="AGPL-3.0-only" \
-  org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"
+  org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance" \
+  org.opencontainers.image.url="https://github.com/thtmnisamnstr/simple-balance" \
+  org.opencontainers.image.documentation="https://github.com/thtmnisamnstr/simple-balance#readme" \
+  org.opencontainers.image.base.name="nginxinc/nginx-unprivileged:1.29-alpine"
 # The three Node images apply this too. Left out here, the one image that
 # actually terminates traffic was the one shipping whatever its base last built
 # with. Root only for the upgrade: the base image runs as uid 101 and everything

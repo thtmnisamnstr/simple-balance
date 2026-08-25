@@ -114,12 +114,16 @@ empty, and does nothing if it is already current. Generate the secret with
 ```sh
 docker run -d --name simple-balance --restart unless-stopped \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --cap-drop=ALL --security-opt=no-new-privileges \
   --stop-timeout 30 \
   --env-file .env -p 127.0.0.1:3000:3000 \
   ghcr.io/thtmnisamnstr/simple-balance:latest
 ```
 
-The container runs as a non-root user and never writes to its own filesystem.
+The container runs as a non-root user, never writes to its own filesystem, drops
+every Linux capability and cannot gain a privilege it did not start with. A Node
+server binding port 3000 as a non-root user needs none of them, so those two
+flags cost nothing and close the two routes a container escape usually takes.
 Everything it keeps is in PostgreSQL. Leave it bound to loopback and put a reverse
 proxy or a private network in front, rather than publishing the port.
 
@@ -135,7 +139,10 @@ claim an instance just because they found it.
 **Give it a mail server.** With `SMTP_HOST` and `MAIL_FROM`, people can reset a
 forgotten password, a new account has to confirm its address, and the scheduled
 reminders can be delivered. Without one, none of that happens and a lost password
-means editing the database, so put it in a password manager.
+means editing the database, so put it in a password manager. Whether those
+messages arrive also depends on SPF, DKIM, DMARC and a PTR record in your DNS;
+"Getting mail delivered" in [deployment](docs/deployment.md) says what each one
+is and who sets it.
 
 **Decide who else may register**, with `ALLOWED_EMAILS`. Leave it unset and nobody
 can, which keeps the deployment yours alone. List addresses (`you@example.com`),
@@ -176,6 +183,16 @@ deleting the account and setting a password, because they are account management
 rather than bookkeeping. An agent cannot get around your sign-in, the scopes you
 granted it, the duplicate checks, or the commit step. See [MCP](docs/mcp.md).
 
+## Security
+
+One deployment holds many people and none of them can see another's books: every
+read and write is scoped to whoever is signed in, and a record that is not yours
+comes back as not found rather than as forbidden. Put TLS in front of it;
+[deployment](docs/deployment.md) says how.
+
+If you find a hole, [SECURITY.md](SECURITY.md) says how to report it privately,
+and asks you not to open a public issue for it.
+
 ## Not built yet
 
 Budgets, bank sync, account sharing, attachments, and reconciliation. What is
@@ -194,7 +211,9 @@ why, market prices among it. Tags are neither built nor planned.
 - [MCP](docs/mcp.md): scopes, tools, and what an agent can do
 - [Roadmap](docs/roadmap.md): what is planned, in order, and the evidence for it
 - [Changelog](CHANGELOG.md)
-- [Contributing](AGENTS.md): the rules this codebase holds itself to
+- [Security](SECURITY.md): reporting a vulnerability
+- [Agent and contributor guide](AGENTS.md): the rules this codebase holds itself
+  to
 - [Ralph build loop](scripts/ralph/README.md)
 
 ## Built with

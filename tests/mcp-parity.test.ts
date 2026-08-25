@@ -354,6 +354,67 @@ describe("what an agent can reach compared with the browser", () => {
   });
 
   /**
+   * A name is for a machine and a title is for a person, and the two are held
+   * to different rules.
+   *
+   * The name has to be something a model can retype: the specification's own
+   * character set and length, and `verb_noun` in snake_case on top of it, with
+   * `whoami` named as the one exception because it is the name the thing has.
+   * The title is what an approval dialog shows, so it must not claim another
+   * tier's verb — `create_transaction` was once titled "Commit a transaction",
+   * which is the sentence `commit_staged_transactions` owns, and a person
+   * approving it could believe they were releasing a row they had already
+   * reviewed. The adjective is fine: "List committed transactions" says what
+   * the rows already are rather than what the call is about to do.
+   */
+  it("names tools for a machine and titles them so no title claims another tier's verb", async () => {
+    const tools = await toolsWithAnnotations(everyScope);
+    const withTitles = tools as { name: string; title?: string }[];
+
+    const malformed = withTitles
+      .filter((tool) => !/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/.test(tool.name) || tool.name.length > 128)
+      .map((tool) => tool.name);
+    expect(malformed).toEqual([]);
+    const oneWord = withTitles.filter((tool) => !tool.name.includes("_")).map((tool) => tool.name);
+    expect(oneWord).toEqual(["whoami"]);
+
+    // Two dialogs a person cannot tell apart are two chances to approve the
+    // wrong one, so a repeated title fails whichever tools carry it.
+    const titles = withTitles.map((tool) => (tool.title ?? "").toLowerCase());
+    expect(titles.filter((title) => title.length === 0)).toEqual([]);
+    expect(titles.filter((title, index) => titles.indexOf(title) !== index)).toEqual([]);
+
+    const claimingCommit = withTitles
+      .filter((tool) => /\bcommits?\b/i.test(tool.title ?? ""))
+      .map((tool) => tool.name);
+    expect(claimingCommit).toEqual(["commit_staged_transactions"]);
+  });
+
+  /**
+   * Scope gates by non-registration, so "needs ledger:write" in a description
+   * is read only by an agent that already holds ledger:write and never by the
+   * one that does not. Written on all 36 gated tools it would be about 3,600
+   * characters of one convention repeated per tool, for a reader who cannot
+   * benefit. What a description owes is the behaviour that differs by scope,
+   * which is these four and nothing else — so this is set equality rather than
+   * a floor, and it fails both when one of them loses its sentence and when
+   * somebody starts pasting the scope onto the rest.
+   */
+  it("names a scope only where the scope changes what the tool does", async () => {
+    const tools = await toolsWithAnnotations(everyScope);
+    const naming = tools
+      .filter((tool) => /ledger:(read|stage|write)/.test(tool.description ?? ""))
+      .map((tool) => tool.name)
+      .sort();
+    expect(naming).toEqual([
+      "bulk_edit_staged_transactions",
+      "create_budget_plan",
+      "stage_csv",
+      "update_staged_transaction",
+    ]);
+  });
+
+  /**
    * A tool declaring a wider schema than its service parses is worse than a
    * missing filter: the agent is told the parameter exists, sends it, and
    * either has it silently ignored or is refused for a value the tool said was

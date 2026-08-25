@@ -471,7 +471,11 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
    */
   it("tells an agent whether a reminder can be delivered", async () => {
     const identity = await call("whoami");
-    expect(identity).toMatchObject({ userId: actor.userId });
+    expect(identity).toMatchObject({ email: "live@example.com", clientId: "live" });
+    // The owner id is the one constant every row on this surface carries, and
+    // nothing may send it back, so it is published nowhere: schema and payload
+    // both. Pinned here because this is the one place that sees a real reply.
+    expect(identity).not.toHaveProperty("userId");
     expect(typeof (identity as { notificationsAvailable?: unknown }).notificationsAvailable).toBe(
       "boolean",
     );

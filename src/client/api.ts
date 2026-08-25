@@ -18,11 +18,19 @@ import type {
 export class ApiClientError extends Error {
   code: string;
   details?: unknown;
+  /**
+   * Every sentence the refusal carried, in server order, one entry per failing
+   * field rather than one per distinct sentence, with `message` as the first.
+   * Anything rendering a single message is unaffected; anything rendering a
+   * summary gets the whole set.
+   */
+  messages: string[];
 
-  constructor(code: string, message: string, details?: unknown) {
+  constructor(code: string, message: string, details?: unknown, messages?: string[]) {
     super(message);
     this.code = code;
     this.details = details;
+    this.messages = messages?.length ? messages : [message];
   }
 }
 
@@ -38,25 +46,61 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
     const details = payload?.error?.details;
-    // A Zod refusal arrives as "Request validation failed" with the sentence
+    // A Zod refusal arrives as "Request validation failed" with the sentences
     // somebody actually wrote buried in details. Showing the envelope instead
-    // of the message is how "A budget cannot be negative" became
-    // "Request validation failed" on screen.
-    const issue = Array.isArray(details)
-      ? details.find(
-          (entry: unknown): entry is { message: string } =>
-            typeof (entry as { message?: unknown })?.message === "string",
+    // of the messages is how "A budget cannot be negative" became
+    // "Request validation failed" on screen, and taking only the first of them
+    // is how a refusal naming three bad fields showed one, leaving the second to
+    // be found by fixing the first and pressing the button again.
+    //
+    // Discriminated on `path`, not on `message`. A Zod issue always carries a
+    // path; an AppError that happens to hand over an array of its own does not.
+    // The CSV import passes Papa's parser errors — `{ type, code, message, row }`
+    // — so reading those as field messages is how the sentence somebody wrote,
+    // "CSV contains malformed quoted data", showed up on screen as Papa's
+    // "Quoted field unterminated". Guarding on the path lets that one fall
+    // through to the envelope, which is the sentence worth reading.
+    const issues = Array.isArray(details)
+      ? details.filter(
+          (entry: unknown): entry is { path: unknown[]; message: string } =>
+            typeof (entry as { message?: unknown })?.message === "string" &&
+            Array.isArray((entry as { path?: unknown })?.path),
         )
-      : undefined;
+      : [];
+    // Deduplicated on the (path, sentence) pair rather than the sentence, because
+    // Zod gives identical wording to different fields: two blank fields are two
+    // "Invalid input: expected string, received undefined", and three split legs
+    // left at zero are three "Amount must be greater than zero". Collapsing by
+    // wording would say one amount is wrong when three are, which is the case a
+    // summary exists for. Only an exact repeat — the same path refused twice, by
+    // a regex and then a refinement — is dropped.
+    const seen = new Set<string>();
+    const messages: string[] = [];
+    for (const issue of issues) {
+      const key = `${issue.path.join(".")} ${issue.message}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      messages.push(issue.message);
+    }
     throw new ApiClientError(
       payload?.error?.code ?? `HTTP_${response.status}`,
-      issue?.message ?? payload?.error?.message ?? response.statusText,
+      messages[0] ?? payload?.error?.message ?? response.statusText,
       details,
+      messages,
     );
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+/**
+ * Every sentence a failure carried, for the one component that renders them all.
+ *
+ * An `ApiClientError` kept the whole set; anything else — a network failure, a
+ * thrown string — has one sentence and no `details` to have carried more.
+ */
+export const errorMessages = (error: unknown): string[] =>
+  error instanceof ApiClientError ? error.messages : error instanceof Error ? [error.message] : [];
 
 export const json = (value: unknown): RequestInit => ({
   method: "POST",
@@ -492,10 +536,10 @@ export type AuditEvent = {
   createdAt: string;
 };
 
-// The preview the server returns is exactly what the shared parser produces, so
-// the browser reads that type rather than keeping a second copy of it that can
-// drift.
-export type { CsvPreview } from "../shared/csv.js";
+// The preview the server returns is exactly what the shared parser produces, and
+// so is each row of a stage's sample, so the browser reads those types rather
+// than keeping a second copy of either that can drift.
+export type { CsvPreview, CsvSampleRow } from "../shared/csv.js";
 
 export type { PaginatedPage, Page };
 

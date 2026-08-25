@@ -1312,7 +1312,9 @@ export async function listAllTransactions(
         )),
       );
       if (all.length > maxRows) {
-        throw validationError(`Export exceeds ${maxRows.toLocaleString("en-US")} rows`);
+        throw validationError(
+          `Export exceeds ${maxRows.toLocaleString("en-US")} rows. Narrow it with a start and end date and export one range at a time.`,
+        );
       }
       if (rows.length < batchSize) return all;
       const last = rows.at(-1)!;

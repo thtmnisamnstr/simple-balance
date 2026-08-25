@@ -1,5 +1,7 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  CSV_EXPORT_MAX_ROWS,
   DEFAULT_CSV_MAX_ROWS,
   MAX_CSV_CONFIGURATION_ROWS,
   configuredCsvMaxRows,
@@ -94,5 +96,38 @@ describe("the CSV preview", () => {
     const preview = getCsvPreview("date,payee,amount\n2026-01-01,Someone,1.00\n");
     expect(preview.headers).toEqual(["date", "payee", "amount"]);
     expect(preview.rows).toHaveLength(1);
+  });
+});
+
+/**
+ * The exit is never smaller than the entrance.
+ *
+ * Ten thousand rows is the import cap and it is deliberately not the export
+ * cap. They answer different questions: the import cap is a fact about what one
+ * mass action can then clear, so a file that stages more than a commit can
+ * handle is a cap doing damage. The export is the way out, and capping the way
+ * out at what one import can take would mean a forty-thousand-row ledger cannot
+ * leave this product whole — a worse failure than a file its own importer asks
+ * you to split.
+ *
+ * So the gap is intentional, and this asserts the direction rather than the
+ * numbers. An edit that quietly makes them equal fails here.
+ */
+describe("the export cap against the import cap", () => {
+  it("lets more out than one import can take back", () => {
+    expect(CSV_EXPORT_MAX_ROWS).toBeGreaterThan(MAX_BULK_SELECTION_ENTRIES);
+  });
+
+  it("names the remedy on both sides, because the gap is only safe if it is explained", async () => {
+    const exportSide = await readFile(
+      new URL("../src/server/services/transactions.ts", import.meta.url),
+      "utf8",
+    );
+    const importSide = await readFile(
+      new URL("../src/server/services/import-export.ts", import.meta.url),
+      "utf8",
+    );
+    expect(exportSide).toContain("export one range at a time");
+    expect(importSide).toContain("imported one range at a time");
   });
 });

@@ -45,7 +45,16 @@ import {
   type Transaction,
   type TransactionTemplate,
 } from "./api.js";
-import { Alert, Button, Field, Input, RequiredNote, Select, Textarea } from "./components.js";
+import {
+  Alert,
+  Button,
+  ErrorSummary,
+  Field,
+  Input,
+  RequiredNote,
+  Select,
+  Textarea,
+} from "./components.js";
 import {
   compareMoney,
   formatDate,
@@ -160,8 +169,8 @@ export function AccountForm({
         mutation.mutate();
       }}
     >
+      <ErrorSummary error={mutation.error} />
       <RequiredNote />
-      {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
       <Field label="Account name">
         <Input
           autoFocus
@@ -1003,6 +1012,7 @@ export function TemplateForm({
         if (name.trim() && parsedReminder?.success !== false) mutation.mutate();
       }}
     >
+      <ErrorSummary error={mutation.error} />
       <RequiredNote />
       <Field label="Template name" hint="What you will pick it out by later.">
         <Input
@@ -1342,7 +1352,6 @@ export function TemplateForm({
           matched when you use the template. If nothing matches then, it is created.
         </Alert>
       ) : null}
-      {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
 
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
@@ -1940,27 +1949,24 @@ export function TransactionForm({
         mutation.mutate(undefined);
       }}
     >
+      <ErrorSummary error={mutation.error}>
+        {mutation.error instanceof ApiClientError &&
+        mutation.error.code === "DUPLICATE" &&
+        !allowDuplicate &&
+        !staged ? (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setAllowDuplicate(true);
+              mutation.mutate(true);
+            }}
+          >
+            Commit anyway
+          </Button>
+        ) : null}
+      </ErrorSummary>
       <RequiredNote />
-      {mutation.error ? (
-        <Alert>
-          {mutation.error.message}
-          {mutation.error instanceof ApiClientError &&
-          mutation.error.code === "DUPLICATE" &&
-          !allowDuplicate &&
-          !staged ? (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                setAllowDuplicate(true);
-                mutation.mutate(true);
-              }}
-            >
-              Commit anyway
-            </Button>
-          ) : null}
-        </Alert>
-      ) : null}
       {templates.data?.length ? (
         <Field
           label="Start from a template"
@@ -2610,6 +2616,7 @@ export function RecurrenceForm({
         if (ready) mutation.mutate();
       }}
     >
+      <ErrorSummary error={mutation.error} />
       <RequiredNote />
       <Field label="Name" hint="What you will pick it out by later.">
         <Input
@@ -2890,7 +2897,6 @@ export function RecurrenceForm({
         A recurrence adds a row to Staged transactions and posts nothing. Each proposal is an
         ordinary staged row you check and commit.
       </Alert>
-      {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
 
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>

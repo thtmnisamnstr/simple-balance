@@ -16,14 +16,15 @@ import {
   APP_CSV_FORMAT,
   APP_CSV_LEGS_COLUMN,
   csvCell,
+  csvFileLine,
   csvMappingSchema,
   isAppExportCsv,
-  parseExportedLegs,
   normalizeCsvRows,
+  parseExportedLegs,
   previewCsv,
   restoreNeutralizedCell,
   rowsToCsv,
-  type NormalizedCsvRow,
+  type CsvSampleRow,
 } from "../../shared/csv.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
@@ -33,7 +34,11 @@ import {
   stagedTransactions,
   type CategoryRow,
 } from "../db/schema.js";
-import { configuredCsvMaxBytes, configuredCsvMaxRows } from "../config-limits.js";
+import {
+  configuredCsvMaxBytes,
+  configuredCsvMaxRows,
+  CSV_EXPORT_MAX_ROWS,
+} from "../config-limits.js";
 import { validationError } from "./errors.js";
 import {
   getIdempotent,
@@ -377,10 +382,7 @@ function appExportDraft(row: Record<string, string>, accountId: string): CsvStag
   return { draft: parsed.data, issues: legIssues };
 }
 
-type CsvStageRow = Pick<NormalizedCsvRow, "draft" | "issues"> & {
-  rawData?: Record<string, string>;
-  partial?: Record<string, unknown>;
-};
+type CsvStageRow = CsvSampleRow;
 
 export type CsvReferenceResolution = {
   categories: {
@@ -728,7 +730,13 @@ async function resolveImportedCategories(
     }
 
     let categoryId: string | null = null;
-    if (!mayMutateCategories) defer(group);
+    // A dry run creates nothing, so there is no id to assign and the row would
+    // otherwise come back saying nothing about its category at all — which is
+    // how the preview reported "Uncategorized" for exactly the categories the
+    // real stage was about to create. Deferring here states the name and the
+    // kind the stage will use, and writes nothing, because nothing is written
+    // in a dry run.
+    if (!mayMutateCategories || !mutate) defer(group);
     if (mutate && mayMutateCategories) {
       const [created] = await tx
         .insert(categories)
@@ -773,10 +781,18 @@ export async function stageCsv(
     transform: (value) => value.trim(),
   });
   if (parsedCsv.data.length > maxRows) {
-    throw validationError(`CSV exceeds the ${maxRows}-row limit`);
+    throw validationError(
+      `CSV exceeds the ${maxRows}-row limit. A larger export can be filtered by date and imported one range at a time.`,
+    );
   }
   if (parsedCsv.errors.some((error) => error.code === "MissingQuotes")) {
-    throw validationError("CSV contains malformed quoted data", parsedCsv.errors);
+    throw validationError(
+      "CSV contains malformed quoted data",
+      // Through the same helper the preview uses, so an API caller and a person
+      // looking at the preview are given the same line number for the same
+      // fault rather than Papa Parse's two different bases.
+      parsedCsv.errors.map((error) => ({ ...error, row: csvFileLine(error) })),
+    );
   }
   const fileHash = createHash("sha256").update(parsed.csv).digest("hex");
   const idempotencyPayload = {
@@ -978,7 +994,7 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
     // reading the file back would raise the voided amount from the dead.
     includeDeleted: false,
   };
-  const all = await listAllTransactions(actor, window, 100_000);
+  const all = await listAllTransactions(actor, window, CSV_EXPORT_MAX_ROWS);
 
   const rows = all.map((transaction) => ({
     simple_balance_format: APP_CSV_FORMAT,

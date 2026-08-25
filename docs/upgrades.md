@@ -142,13 +142,19 @@ This is the reason step 2 is not optional.
    split-deployment compose file and the Pulumi README. `tests/version.test.ts`
    checks every one of those against `package.json`, so a location the script
    forgets fails the suite rather than shipping.
-2. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
+2. Write this release's `## Before you upgrade to 0.2.0` section at the top of
+   this file: what runs automatically, what an operator has to do by hand, what
+   changed under them, and what to check afterwards. Write it even when the
+   answer is that nothing changed, because a missing heading and an unwritten
+   note look the same from the outside. `tests/version.test.ts` checks the
+   heading is there, so forgetting it fails the suite rather than the operator.
+3. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
    for you and the upgrade notes above send people there to read it.
-3. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
+4. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
    image has run one against somebody's data it can never be edited again, and
    the list is what says so.
-4. Commit and push that on the default branch.
-5. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
+5. Commit and push that on the default branch.
+6. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
    `gh release create v0.2.0`.
 
 Publishing keys off the release itself, not off the tag push, so it runs once

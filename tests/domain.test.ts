@@ -11,6 +11,8 @@ import {
   transactionDraftSchema,
 } from "../src/shared/domain.js";
 import {
+  CSV_MEDIA_TYPE,
+  csvFileLine,
   normalizeCsvRows,
   parseLocalizedAmount,
   previewCsv,
@@ -583,5 +585,61 @@ describe("which side of the books an entry lands on", () => {
     expect(reversesEntry("deposit", "expense")).toBe(true);
     expect(reversesEntry("withdrawal", "income")).toBe(true);
     expect(reversesEntry("deposit", "both")).toBe(false);
+  });
+});
+
+/**
+ * The media type says the first record is a header.
+ *
+ * RFC 4180's registration defines `header` as `present` or `absent`, and it is
+ * the parameter that decides how a reader treats the first record. The export
+ * used to declare only `charset`, which tells a consumer the encoding and
+ * leaves it to guess the thing that actually changes the parse.
+ *
+ * The parameter and the header-only empty file are one claim, so they are
+ * pinned in one test: if an export matching nothing ever goes back to returning
+ * the empty string, `header=present` becomes a lie and this fails.
+ */
+describe("the CSV media type", () => {
+  it("declares a header row, and the export always writes one", () => {
+    expect(CSV_MEDIA_TYPE).toBe("text/csv; charset=utf-8; header=present");
+    expect(rowsToCsv([], [], ["a", "b"])).toBe("a,b");
+    expect(rowsToCsv([{ a: "1", b: "2" }]).split("\r\n")[0]).toBe("a,b");
+  });
+});
+
+/**
+ * One row number, counted the way a person counts.
+ *
+ * Papa Parse reports two different bases for two different faults, and neither
+ * is the line number a spreadsheet shows. A `FieldMismatch` counts data records
+ * with the header already removed; a `Quotes` error counts physical records
+ * with the header among them. So the same file could report "Row 3" for a fault
+ * on line 4 and "Row 2" for a fault on line 3 — both wrong, and wrong by
+ * different amounts, which is worse than being consistently off.
+ *
+ * These cases pin the dependency's behaviour as much as ours: if papaparse ever
+ * changes either base, this fails rather than the numbers quietly shifting.
+ */
+describe("which line of a CSV an error is about", () => {
+  it("reports the file's own line for a row with too few fields", () => {
+    const preview = previewCsv("date,payee,amount\r\n2026-01-01,Shop,1.00\r\n2026-01-02,Shop\r\n");
+    expect(preview.errors.some((error) => error.startsWith("Row 3:"))).toBe(true);
+  });
+
+  it("counts the header as row 1, so the first data row is row 2", () => {
+    const preview = previewCsv("date,payee,amount\r\n2026-01-01,Shop\r\n");
+    expect(preview.errors.some((error) => error.startsWith("Row 2:"))).toBe(true);
+  });
+
+  it("says nothing rather than guessing when the parser gave no row", () => {
+    expect(csvFileLine({ type: "Delimiter" })).toBeNull();
+  });
+
+  // The two bases, stated as the arithmetic, so the reason for the helper
+  // survives even if papaparse's own naming changes.
+  it("shifts a field mismatch by two and a quote fault by one", () => {
+    expect(csvFileLine({ type: "FieldMismatch", row: 0 })).toBe(2);
+    expect(csvFileLine({ type: "Quotes", row: 0 })).toBe(1);
   });
 });

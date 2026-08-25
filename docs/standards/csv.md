@@ -56,7 +56,7 @@ quote "should be enclosed in double-quotes". A guide that writes MUST there is
 asserting a strictness the document does not carry, which matters because three
 of our four departures sit on exactly those two rules.
 
-**The write side conforms.** `rowsToCsv` at `src/shared/csv.ts:402-415` emits
+**The write side conforms.** `rowsToCsv` at `src/shared/csv.ts:453-466` emits
 one header record, CRLF between records, no trailing CRLF, and quotes a field
 only when it contains `"`, `,`, CR or LF, doubling an internal quote. Nothing
 else is quoted, so the file stays readable to a human eye.
@@ -68,8 +68,8 @@ which splits an exported file on `\r\n` to find its header.
 The departures, all on the read side, all deliberate:
 
 1. **We trim.** `previewCsv` and `stageCsv` both hand Papa Parse a `transform`
-   and a `transformHeader` that call `trim()` (`src/shared/csv.ts:115-130`,
-   `src/server/services/import-export.ts:732-733`). Rule 4 says a leading or
+   and a `transformHeader` that call `trim()` (`src/shared/csv.ts:154-169`,
+   `src/server/services/import-export.ts:740-741`). Rule 4 says a leading or
    trailing space is part of the field. A trailing space in a bank's header row
    is common and never meaningful, and a payee cell padded to a column width is
    the same. **House, knowing departure.** Written down so nobody corrects it
@@ -91,10 +91,10 @@ The departures, all on the read side, all deliberate:
 ## 3. Bytes
 
 - **UTF-8, always.** The export is a JavaScript string, served with a
-  `charset=utf-8` media type (`src/server/api.ts:1221`). The import is a string
-  by the time it reaches us: the browser decodes the file with `file.text()`
-  (`src/client/pages/ImportPage.tsx:109`) and an API or MCP caller sends a JSON
-  string, which is UTF-8 by definition. Nothing in this product reads a byte
+  `charset=utf-8` media type (`CSV_MEDIA_TYPE`, `src/shared/csv.ts:19`). The
+  import is a string by the time it reaches us: the browser decodes the file
+  with `file.text()` (`src/client/pages/ImportPage.tsx:136`) and an API or MCP
+  caller sends a JSON string, which is UTF-8 by definition. Nothing in this product reads a byte
   stream, so there is no encoding to guess and no `encoding` directive of the
   kind hledger has. **House.**
 - **The export writes no BOM.** `rowsToCsv` starts with the first header name.
@@ -133,11 +133,14 @@ signature" and warns that it "will interfere with any protocol or file format
 that expects specific ASCII characters at the beginning", says nothing about
 Excel at all. Reproduce the Excel behaviour before reopening this.
 
-**Work to do.** RFC 4180's media type registration defines an optional `header`
-parameter with the values `present` and `absent`. Our export declares only
-`charset` and omits it (`src/server/api.ts:1221`), so a consumer is told
-the encoding and left to guess the thing that actually decides how to read the
-first record.
+**House.** RFC 4180's media type registration defines an optional `header`
+parameter with the values `present` and `absent`, and it is the parameter that
+decides how a reader treats the first record. The export declares it:
+`CSV_MEDIA_TYPE` is `text/csv; charset=utf-8; header=present`
+(`src/shared/csv.ts:19`), served by the export route in `src/server/api.ts`.
+`present` is unconditionally true here because of section 12 — an export
+matching nothing is a header-only file rather than the empty string — so this
+product has no export whose first record is not a header.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
@@ -150,8 +153,8 @@ a dated filename exists to get right.
 **House.** **Import sniffs. Export is always a comma.**
 
 Papa Parse guesses the delimiter and the preview reports what it guessed, both
-in the API response (`CsvPreview.delimiter`, `src/shared/csv.ts:108-130`) and on
-screen (`src/client/pages/ImportPage.tsx:227-231`). The import screen says so
+in the API response (`CsvPreview.delimiter`, `src/shared/csv.ts:122-169`) and on
+screen (`src/client/pages/ImportPage.tsx:323-327`). The import screen says so
 before a file is chosen: "Comma, semicolon, and tab delimiters are detected
 automatically."
 
@@ -169,7 +172,7 @@ in this guide.**
 
 **House.** **The decimal separator is asked, never sniffed.** `decimalSeparator`
 is an explicit `"."` or `","` on the stage call, defaulting to `"."`
-(`src/server/services/import-export.ts:72`), and the import screen offers it as
+(`src/server/services/import-export.ts:77`), and the import screen offers it as
 `1,234.56` or `1.234,56`. Sniffing it would mean deciding whether `12,34` is
 twelve or one thousand two hundred and thirty-four from one cell, and
 `parseLocalizedAmount` refuses that pair outright rather than picking.
@@ -215,7 +218,7 @@ integration tests.
 
 ### Reading an amount out of a bank file
 
-`parseLocalizedAmount` (`src/shared/csv.ts:137-190`) accepts, for a given
+`parseLocalizedAmount` (`src/shared/csv.ts:176-229`) accepts, for a given
 decimal separator: a bare decimal, the configured grouping separator or a space
 as a thousands separator but not both, a leading minus, and a parenthesised
 negative. It refuses a leading `+`, an interior minus, an inconsistent grouping
@@ -259,8 +262,8 @@ credit column", eleven cases including a signed zero, which is left alone.
 **Binding**, deferring to `common.md`. A cell holding a calendar date is
 `YYYY-MM-DD` on export, straight from the transaction. On import the order is
 chosen by the person as `YMD`, `MDY` or `DMY`
-(`src/server/services/import-export.ts:71`) and parsed by `parseCsvDate`
-(`src/shared/csv.ts:172-221`).
+(`src/server/services/import-export.ts:76`) and parsed by `parseCsvDate`
+(`src/shared/csv.ts:211-272`).
 
 **House.** **No two-digit years, and no inferred order.** `parseCsvDate`
 requires a four-digit year and does not attempt to tell `03/04/2026` apart by
@@ -282,7 +285,7 @@ import. Importing a EUR export into a USD account produces USD rows, and the
 file cannot stop it, because the alternative is a ledger inventing an account it
 was not given.
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:556` for the
+*Checked by:* `tests/integration/import-export.integration.test.ts:613` for the
 account half. The currency half follows from it and has no test of its own.
 
 ### Empty and zero
@@ -298,8 +301,8 @@ value.
 
 **House.** An export writes these, in this order. Order is not part of the
 contract: recognition and reading are both by header name (`isAppExportCsv`
-compares a `Set`, `src/shared/csv.ts:53-56`; `appExportDraft` reads every column
-by name, `src/server/services/import-export.ts:180-338`).
+compares a `Set`, `src/shared/csv.ts:67-70`; `appExportDraft` reads every column
+by name, `src/server/services/import-export.ts:185-343`).
 
 *Not checked mechanically.* No test shuffles the columns and re-imports.
 
@@ -331,16 +334,16 @@ by name, `src/server/services/import-export.ts:180-338`).
 account columns are written and none is read: they name accounts in the ledger
 the file came from, which a different account, a different person or a fresh
 install resolves none of. `transaction_id` is the same, and the comment at
-`src/server/services/import-export.ts:259-262` records what happened when it was
+`src/server/services/import-export.ts:264-267` records what happened when it was
 not treated that way, which is that the duplicate check keyed on a foreign
 ledger's primary key.
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:556`, which
+*Checked by:* `tests/integration/import-export.integration.test.ts:613`, which
 imports an export into a different account and asserts the rows land there
 rather than in the account the file names.
 
 **House.** **The recognition set is frozen.** `isAppExportCsv`
-(`src/shared/csv.ts:53-56`) returns true when every name in `APP_CSV_COLUMNS` is
+(`src/shared/csv.ts:67-70`) returns true when every name in `APP_CSV_COLUMNS` is
 present. That list is the recognition test, so adding to it would stop every
 file written by an earlier version from being recognised. `legs_json` and
 `external_id` are deliberately outside it. **New data goes in a column outside
@@ -362,13 +365,13 @@ defines format evolution, so this is our own invention. The rules for it:
   does.
 - When it changes, the old reader stays reachable.
 - The token is checked per row, not per file
-  (`src/server/services/import-export.ts:180-192`). A row whose token is missing
+  (`src/server/services/import-export.ts:185-197`). A row whose token is missing
   or unrecognised is staged with one issue and nothing else read from it.
 
 Today the token is `simple-balance-csv-1` (`src/shared/csv.ts:5`).
 
 *Not checked mechanically.* Nothing pins `APP_CSV_FORMAT` against a change made
-for an additive reason. `tests/integration/import-export.integration.test.ts:479`
+for an additive reason. `tests/integration/import-export.integration.test.ts:536`
 asserts the current literal in passing, and the recognition-set test at
 `tests/integration/csv-roundtrip-fidelity.integration.test.ts:212-237` catches a
 new required column, but neither would notice a token bump the rules above
@@ -396,7 +399,7 @@ and nothing would catch it until an importer did.
 **House, the split contract.** **A split** travels in `legs_json` as an array of
 at least two objects, each with `categoryName`, `amount` and `note`
 (`parseExportedLegs`,
-`src/shared/csv.ts:65-88`). Legs travel by category **name**: a leg id and a
+`src/shared/csv.ts:79-102`). Legs travel by category **name**: a leg id and a
 category id mean nothing in the ledger the file is read into, exactly as an
 account id does not. The key is written on every row, empty for rows that are
 not splits, because the header comes from the first row's keys and a file whose
@@ -411,7 +414,7 @@ threw away a date, payee, amount and account the file had stated perfectly
 clearly.
 
 *Checked by:* `tests/integration/splits-roundtrip.integration.test.ts:105-163`,
-`tests/integration/import-export.integration.test.ts:683` ("stages a row whose
+`tests/integration/import-export.integration.test.ts:740` ("stages a row whose
 split cannot be read, without the split").
 
 **Multi-currency.** A cross-currency transfer exports both amounts and the rate
@@ -425,7 +428,7 @@ right refusal. A rate is a fact about a movement, not a preference.
 **Binding.** `AGENTS.md`: "Preserve audit history, transaction provenance, and
 cross-currency CSV round trips."
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:451` ("marks
+*Checked by:* `tests/integration/import-export.integration.test.ts:508` ("marks
 exports explicitly and asks for both accounts of a transfer"), which exports a
 110 EUR-for-100 transfer and reads it back. Only the export half. Nothing
 commits a restored cross-currency transfer into two accounts of different
@@ -443,7 +446,7 @@ install, then commit the queue. **Preserved:**
 - The payee to within `cleanHumanName`: NFKC, trimmed, internal whitespace
   collapsed, and rewritten to the receiving ledger's canonical spelling where it
   already has one (section 9). `canonicalizeImportedPayees`
-  (`src/server/services/import-export.ts:404-426`) does that on every import, so
+  (`src/server/services/import-export.ts:406-428`) does that on every import, so
   `ACME  Co` comes back as `ACME Co` and a payee the receiving ledger already
   spells its own way comes back in that spelling. Byte-exact payee text is not
   preserved and is not meant to be.
@@ -452,11 +455,11 @@ install, then commit the queue. **Preserved:**
 - The category, by name, matched or created in the receiving ledger. Including
   on a transfer, which stages as a partial rather than a draft and had its
   category silently dropped until the resolver learned to look there
-  (`src/server/services/import-export.ts:447-450`).
+  (`src/server/services/import-export.ts:449-452`).
 - The split, leg by leg, by category name, with each leg's note.
 
 *Checked by:* `tests/integration/csv-roundtrip-fidelity.integration.test.ts` end
-to end, and `tests/integration/import-export.integration.test.ts:691` ("lets a
+to end, and `tests/integration/import-export.integration.test.ts:748` ("lets a
 different person import an export of someone else's ledger").
 
 **Deliberately not preserved:**
@@ -465,11 +468,11 @@ different person import an export of someone else's ledger").
 | --- | --- |
 | The transaction id | It is a foreign ledger's primary key |
 | Accounts, by id or by name | An import names one account and that is the only thing deciding where rows land |
-| The category id, where this ledger does not own it | It is dropped so the name can resolve instead, rather than importing with no category at all (`src/server/services/import-export.ts:772-865`) |
+| The category id, where this ledger does not own it | It is dropped so the name can resolve instead, rather than importing with no category at all (`src/server/services/import-export.ts:780-881`) |
 | Leg ids | Same reason as category ids |
 | The currency | It comes from the chosen account |
 | `effective_rate` | Recomputed from the two amounts |
-| Deleted transactions | Never exported. The format has no column saying an entry is void, so a row indistinguishable from live money would go in front of the importer and reading it back would raise the amount from the dead (`src/server/services/import-export.ts:923-929`) |
+| Deleted transactions | Never exported. The format has no column saying an entry is void, so a row indistinguishable from live money would go in front of the importer and reading it back would raise the amount from the dead (`src/server/services/import-export.ts:939-945`) |
 | Version, timestamps, audit history, template and recurrence provenance | Not in the format. An import is new provenance |
 | Committed status | See below |
 | Byte-exact payee capitalisation and spacing | `cleanHumanName` and the canonical rewrite above |
@@ -523,7 +526,7 @@ preserved on what gets stored and ignored on what gets matched.
 - **Payees.** An imported payee is rewritten to the spelling the payee screen
   already considers canonical, using the same query and the same comparator that
   screen uses (`canonicalizeImportedPayees`,
-  `src/server/services/import-export.ts:404-426`). Two copies of "which spelling
+  `src/server/services/import-export.ts:406-428`). Two copies of "which spelling
   wins" is two places for the answer to drift.
 - **What the caller gets back.** `referenceResolution` reports every category as
   `existing`, `new`, `updated` or `deferred`, and every payee as `existing` or
@@ -539,7 +542,7 @@ came with. The commit, which needs `ledger:write` anyway, is what makes the
 category.
 
 *Checked by:* `tests/integration/import-export.integration.test.ts:136`, `:327`
-(concurrent creation of the same normalized name), `:373` (never resolved
+(concurrent creation of the same normalized name), `:430` (never resolved
 through another tenant), and
 `tests/integration/mcp-scope-boundaries.integration.test.ts`.
 
@@ -565,7 +568,7 @@ Three mechanisms, and they are deliberately not the same strictness:
    (`stagedDuplicateKey`, `src/server/services/transactions.ts:2494-2632`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:813`, `src/server/services/staging.ts:532-608`).
+   three (`src/shared/domain.ts:980`, `src/server/services/staging.ts:532-608`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a
@@ -608,7 +611,7 @@ is all-or-nothing at its own level:
 
 - **The file.** `stageCsv` runs in one transaction. It refuses the whole file
   for a file-level fault: over the byte limit, over the row cap, unterminated
-  quotes (`MissingQuotes`, `src/server/services/import-export.ts:695-697`), an
+  quotes (`MissingQuotes`, `src/server/services/import-export.ts:697-699`), an
   account the caller does not own, or no mapping for a file we do not recognise.
   It never refuses a file for a bad row.
 - **The batch.** One import is one `import_batch`, and the queue can be
@@ -631,35 +634,85 @@ fault (`simple_balance_format`, `legs_json`) and the draft field for a value
 fault (`date`, `amount`, `payee`, `account`).
 
 *Checked by:* `tests/domain.test.ts` ("keeps what it read from a row it could
-not finish"), `tests/integration/import-export.integration.test.ts:451`.
+not finish"), `tests/integration/import-export.integration.test.ts:508`.
 
-**Work to do: row addressing.** Two different numbers describe "the fourth row"
-and neither is published as the convention. `previewCsv` builds
-`Row ${error.row}` from Papa Parse's index, which counts from zero over data
-rows (`src/shared/csv.ts:128`), so the file's fourth data line reaches a person
-as `Row 3`. A person counting in a spreadsheet counts the header as row 1.
-Nothing else numbers a row at all: the queue shows no position
-(`src/client/pages/StagingPage.tsx:673-713`) and a staged row stores no source
-row number (`src/server/db/schema.ts:679-798`), so a queue entry is traceable to
-a line only through its `raw_data`.
+**House. A row number is the file's own line.** Rows count from one with the
+header as row 1, which is RFC 7111's convention, and `csvFileLine`
+(`src/shared/csv.ts:149`) is the single place that says so. It is adopted as a
+convention and labelled that way rather than as conformance, because RFC 7111 is
+an Independent Submission carrying the disclaimer that it is "not endorsed by
+the IETF and has no formal standing in the IETF standards process", and because
+the header-as-row-1 half is our inference from one of its examples rather than
+something it states.
 
-The convention to adopt is RFC 7111's: **rows and columns are counted from
-one**, which that document states verbatim, with the header as row 1. Adopt it
-as a convention and label it that way rather than as conformance, because RFC
-7111 is an Independent Submission carrying the disclaimer that it is "not
-endorsed by the IETF and has no formal standing in the IETF standards process",
-and because the header-as-row-1 half is our inference from one of its examples
-rather than something it states.
+It needed a helper because Papa Parse reports two bases and neither is that one.
+A `FieldMismatch` counts from zero over data records with the header already
+removed; a `Quotes` or `MissingQuotes` error counts from zero over physical
+records with the header among them. So a file whose fourth line had too few
+fields said `Row 3`, and one whose third line opened a quote it never closed
+said `Row 2` — two numbers, both wrong, and wrong by different amounts. The
+preview's `Row N` sentences and the `row` on the parser errors a refused file
+hands back both go through the helper, so an API caller and a person reading the
+panel are given the same number for the same fault.
 
-**Work to do: the preview is not yet the contract.** The rule should be that the
-preview shows the first rows **as they will be interpreted**, so that a right
-preview and a wrong import is a bug. Today the browser's preview panel renders
-raw cells from `previewCsv` (`src/client/pages/ImportPage.tsx:429-452`); the dry
-run's `sample`, which is the first twenty-five interpreted rows with their
-issues (`src/server/services/import-export.ts:804`), reaches the browser and is
-reduced to two counts; and `CsvPreview.errors` is returned by the preview route
-and rendered nowhere. An MCP caller sees all three and a
-person sees the weakest one.
+Blank lines are skipped before anything is counted, so an interior blank leaves
+the number one low; a trailing blank, which is the common case, comes after
+everything it could shift. Nothing else numbers a row at all: the queue shows no
+position (`src/client/pages/StagingPage.tsx:669-709`) and a staged row stores no
+source row number (`src/server/db/schema.ts:679-798`), so a queue entry is
+traceable to a line only through its `raw_data`.
+
+*Checked by:* `tests/domain.test.ts` ("reports the file's own line for a row with
+too few fields", "counts the header as row 1, so the first data row is row 2",
+"says nothing rather than guessing when the parser gave no row", "shifts a field
+mismatch by two and a quote fault by one").
+
+**House. The preview shows the first rows as they will be interpreted**, so a
+right preview and a wrong import is a bug rather than a surprise.
+
+Before a dry run the panel shows the file's own cells. A dry run replaces them
+with the first rows as the server read them — date, payee, account, category,
+amount and the issues each row carries — out of the same `sample` an MCP caller
+receives (`src/server/services/import-export.ts:900`), rendered through
+`summarizeStagedDraft`, which is the queue's own summariser rather than a second
+copy of it. A row that could not be assembled is shown from its `partial`,
+exactly as `stageCsv` will store it.
+
+The category is the part that had to be fixed on the server to be shown at all.
+A dry run creates nothing, so a category the file names but the ledger does not
+have had no id to report and no name either: the row came back saying nothing,
+and the panel would have reported "Uncategorized" for precisely the categories
+the real stage was about to create. A dry run now defers the name and the kind
+onto the draft the same way a `ledger:stage` caller's does, which writes nothing
+and is what makes the sample answerable — by the browser and by an agent alike.
+
+`CsvPreview.errors` is shown too, which it never was. It is reported as the rows
+the parser could not read among those the preview reads, not as a count over the
+file: `previewCsv` takes twenty-five (`src/shared/csv.ts:154`), so a fault past
+that one is not in it. The messages are shown as the parser wrote them, `Row N`
+and all; what N counts is settled by the item above, which is the file's own
+line with the header as row 1.
+
+An interpretation is discarded the moment a control that decides how the file is
+read changes — mapping, date format, decimal separator, account — and it is
+stamped with those settings when the request is sent rather than when it
+returns, because a control touched while a dry run is in flight would otherwise
+label a stale reading as current. The counts go with it. What survives is a
+completed stage: it describes rows already written, so it is history rather than
+a prediction and cannot go stale.
+
+This is the parity rule one level below a route: the dry run's per-row reading
+reached an agent and reached a person as two counts, which is the same defect as
+a request field only an agent ever sets.
+
+*Checked by:* `tests/import-ui.test.tsx` ("shows the first rows as they will be
+read", "names a category the file will create", "stops showing an interpretation
+the controls no longer describe", "keeps what a completed stage reported when
+the controls change", "stamps an interpretation with the settings it was run
+under", "shows the parse errors the preview reported") and
+`tests/integration/import-export.integration.test.ts` ("names the category a dry
+run has not created, without creating it"). Whether the two screens agree in
+substance stays review, and section 16 keeps it there.
 
 ## 12. Limits
 
@@ -669,21 +722,21 @@ import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
 than by coincidence (`src/server/config-limits.ts:12`,
-`src/shared/domain.ts:805`). `CSV_MAX_ROWS` may lower it; raising it past the
+`src/shared/domain.ts:907`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.
 
 - **Bytes.** `CSV_MAX_BYTES`, default 10 MiB, configuration ceiling 100 MiB,
   measured as UTF-8 bytes of the decoded string and enforced at the preview as
   well as at the stage, because a file too large to import should say so before
-  somebody maps its columns (`src/server/services/import-export.ts:86-88`).
+  somebody maps its columns (`src/server/services/import-export.ts:91-93`).
 - **The request envelope.** A CSV route and `/mcp` are sized at six times
   `CSV_MAX_BYTES` plus 64 KiB, the six being the worst case for JSON string
   escaping (`src/server/http-security.ts:60-61,678-687`).
 - **Rows.** Counted after blank lines are skipped, so a trailing newline is not
   a row.
 
-*Checked by:* `tests/config-limits.test.ts`, `tests/bulk-row-cap.test.ts:42-93`,
+*Checked by:* `tests/config-limits.test.ts`, `tests/bulk-row-cap.test.ts:44-95`,
 `tests/http-security.test.ts:259-305`.
 
 **Work to do: the two caps do not meet.** An export refuses past 100,000 rows
@@ -700,7 +753,7 @@ export somebody is most likely to want to open — "did it work, or is my filter
 wrong?" — was the one that could not be opened.
 
 It now takes its columns from a declared list when there are no rows to take
-them from (`src/server/services/import-export.ts:891-916`).
+them from (`src/server/services/import-export.ts:907-932`).
 
 *Checked by:* `tests/integration/import-export.integration.test.ts`, which
 asserts the empty file's header is character-for-character the header a
@@ -718,10 +771,10 @@ not optional for that reason.
 **Neutralise the human-readable column, carry the exact value in a JSON channel,
 and never neutralise the channel.**
 
-- `neutralizeSpreadsheetFormula` (`src/shared/csv.ts:370-391`) prefixes an
+- `neutralizeSpreadsheetFormula` (`src/shared/csv.ts:421-442`) prefixes an
   apostrophe to a triggering value.
 - It is applied to exactly seven columns, named at the call site
-  (`src/server/services/import-export.ts:963-970`): `payee`, `description`,
+  (`src/server/services/import-export.ts:979-986`): `payee`, `description`,
   `category_name`, `external_id`, `notes`, `source_account_name`,
   `destination_account_name`. Free text a person reads, and nothing else.
 - It is **not** applied to an amount, a rate, a date or an id. A negative amount
@@ -730,7 +783,7 @@ and never neutralise the channel.**
 - `roundtrip_text_json` is never neutralised, and it is what the importer reads
   first. A category named `-Reimbursements` grew an apostrophe on every trip and
   became a second category each time, until the exact value got its own channel.
-- `restoreNeutralizedCell` (`src/shared/csv.ts:387-415`) strips the apostrophe
+- `restoreNeutralizedCell` (`src/shared/csv.ts:438-466`) strips the apostrophe
   back off for a file written before that channel existed. It is not injective
   and cannot be: a category genuinely named `'-Reimbursements` and one named
   `-Reimbursements` export identically. It is the best answer available for an
@@ -755,8 +808,8 @@ gap in the visible cell.
 
 *Checked by:* `tests/domain.test.ts` ("neutralizes spreadsheet formulas only in
 designated free-text columns"),
-`tests/integration/csv-roundtrip-fidelity.integration.test.ts:181-208`,
-`tests/integration/import-export.integration.test.ts:794` ("round-trips
+`tests/integration/csv-roundtrip-fidelity.integration.test.ts:164-200`,
+`tests/integration/import-export.integration.test.ts:851` ("round-trips
 formula-like text without exposing formulas or changing data").
 
 ## 14. What the field does, and what we deliberately lack
@@ -768,9 +821,9 @@ be.
 - **No saved, reusable import configuration.** hledger has a rules file, Firefly
   III has a saved configuration, Actual remembers a mapping. Here the browser
   infers a mapping from header aliases each time
-  (`src/client/pages/ImportPage.tsx:32-86`), and `import_batch.mapping` is
+  (`src/client/pages/ImportPage.tsx:50-112`), and `import_batch.mapping` is
   stored for the record rather than for reuse
-  (`src/server/services/import-export.ts:814`). The inference is also
+  (`src/server/services/import-export.ts:912`). The inference is also
   browser-only: an MCP caller composes the mapping itself.
 - **No conditional rules.** No `if` blocks, no auto-categorisation by pattern.
   The roadmap records why, and records the counter-argument: the agent is the
@@ -834,6 +887,9 @@ Checked:
 | Scope deferral on a `ledger:stage` import | `tests/integration/mcp-scope-boundaries.integration.test.ts:120-149` |
 | Duplicate guard, staged against staged, and the all-or-nothing commit | `tests/integration/duplicates.integration.test.ts` |
 | The recognised file hides its mapping controls | `tests/import-ui.test.tsx` |
+| A row number is the file's own line, whichever fault it came from | `tests/domain.test.ts` |
+| The dry run's rows are shown as read, and dropped when the controls change | `tests/import-ui.test.tsx` |
+| A dry run names the category it has not created, and creates nothing | `tests/integration/import-export.integration.test.ts` |
 | Row cap, byte cap, request envelope | `tests/bulk-row-cap.test.ts`, `tests/config-limits.test.ts`, `tests/http-security.test.ts` |
 | The export route is a named MCP-parity exception | `tests/mcp-parity.test.ts` |
 

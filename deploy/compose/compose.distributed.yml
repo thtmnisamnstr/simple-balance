@@ -17,6 +17,16 @@
 # service below when this stops being a trial.
 name: simple-balance-distributed
 
+# Both flags on all three Simple Balance services, with the reason given once.
+# The node processes bind 3000 as the `node` user and nginx binds 8080 as uid
+# 101, all unprivileged ports, and no setuid binary is involved, so dropping
+# every capability costs nothing and no-new-privileges closes the other route a
+# container escape usually takes. The chart says the same in Kubernetes spelling
+# at deploy/helm/simple-balance/values.yaml:206-213.
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 # One block for both node processes, because src/server/scheduler.ts calls the
 # same getConfig() the API does and that validates the entire variable set:
 # APP_BASE_URL, AUTH_SECRET, AUTH_MODE and the Google and SMTP blocks included,
@@ -101,6 +111,12 @@ services:
       POSTGRES_DB: simple_balance
       POSTGRES_USER: simple_balance
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/.env}
+    # No cap_drop here, and this is the exception rather than an oversight: this
+    # entrypoint starts as root, chowns the data directory and drops to the
+    # postgres user, which needs CAP_CHOWN, CAP_FOWNER, CAP_DAC_OVERRIDE and
+    # CAP_SETUID/SETGID. Dropping them breaks the one-command trial this service
+    # exists for, and a real deployment points DATABASE_URL somewhere else.
+    security_opt: ["no-new-privileges:true"]
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -131,6 +147,7 @@ services:
     # No ports. The API is reached through nginx, on the one origin APP_BASE_URL
     # names, and a second way in would be a second origin the cookies do not
     # belong to.
+    <<: *hardening
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m
@@ -181,6 +198,7 @@ services:
       # Under CSV_MAX_BYTES x 6 plus 64 KiB, nginx refuses an import the API
       # behind it would have taken.
       SB_MAX_UPLOAD_SIZE: 61m
+    <<: *hardening
     read_only: true
     tmpfs:
       # The entrypoint renders nginx.conf.template into /etc/nginx/conf.d at
@@ -244,6 +262,7 @@ services:
       # always ticks, because a process whose only job is the schedule would be
       # pointless with the flag off.
       <<: *app-config
+    <<: *hardening
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=16m

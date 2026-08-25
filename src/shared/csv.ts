@@ -5,6 +5,20 @@ import { isoDateSchema, positiveDecimalStringSchema, type TransactionDraft } fro
 export const APP_CSV_FORMAT = "simple-balance-csv-1";
 
 /**
+ * What an export is served as.
+ *
+ * RFC 4180's media type registration defines `header` with the values `present`
+ * and `absent`, and it is the parameter that decides how a reader treats the
+ * first record. Serving only `charset` told a consumer the encoding and left it
+ * to guess the thing that actually changes the parse.
+ *
+ * `present` is unconditionally true here, and section 12 of `csv.md` is why: an
+ * export matching nothing is a header-only file rather than the empty string,
+ * so this product has no export whose first record is not a header.
+ */
+export const CSV_MEDIA_TYPE = "text/csv; charset=utf-8; header=present";
+
+/**
  * The columns an export writes. A file carrying all of them is one of ours.
  *
  * The four account columns are written for a person to read and are never read
@@ -112,6 +126,31 @@ export type CsvPreview = {
   errors: string[];
 };
 
+/**
+ * Which line of the file an error is about, counted the way a person counts.
+ *
+ * Rows from one, with the header as row 1, which is RFC 7111's convention. It
+ * is adopted here as a convention rather than claimed as conformance: nothing
+ * publishes a `#row=` fragment, and the point is only that every number this
+ * product prints means the same thing as the line number a spreadsheet shows.
+ *
+ * Papa Parse reports two different bases and neither is that one. A
+ * `FieldMismatch` carries a 0-based index over data records with the header
+ * already removed; a `Quotes` or `MissingQuotes` error carries a 0-based index
+ * over physical records with the header among them. So a file whose fourth line
+ * has too few fields said "Row 3", and a file whose third line opens an
+ * unterminated quote said "Row 2" — two numbers, both wrong, and wrong by
+ * different amounts.
+ *
+ * Blank lines are skipped before anything is counted, so an interior blank
+ * leaves the number one low. A trailing blank, which is the common case, comes
+ * after everything it could shift.
+ */
+export function csvFileLine(error: { type?: string; row?: number }): number | null {
+  if (typeof error.row !== "number") return null;
+  return error.type === "FieldMismatch" ? error.row + 2 : error.row + 1;
+}
+
 export function previewCsv(csv: string, limit = 25): CsvPreview {
   const parsed = Papa.parse<Record<string, string>>(csv, {
     header: true,
@@ -125,7 +164,7 @@ export function previewCsv(csv: string, limit = 25): CsvPreview {
     delimiter: parsed.meta.delimiter,
     headers: parsed.meta.fields ?? [],
     rows: parsed.data,
-    errors: parsed.errors.map((error) => `Row ${error.row ?? "?"}: ${error.message}`),
+    errors: parsed.errors.map((error) => `Row ${csvFileLine(error) ?? "?"}: ${error.message}`),
   };
 }
 
@@ -202,6 +241,18 @@ export type NormalizedCsvRow = {
    * draft; `stageCsv` stores whichever of the two is present.
    */
   partial?: Record<string, unknown>;
+};
+
+/**
+ * One row of a stage's `sample`, as both the browser and an MCP caller get it.
+ *
+ * Declared here rather than restated in the client, for the reason
+ * `src/client/api.ts` gives twice: a second copy of a shape the server defines
+ * is a copy that drifts, and the browser goes on compiling against a shape the
+ * API stopped sending.
+ */
+export type CsvSampleRow = Pick<NormalizedCsvRow, "draft" | "issues" | "partial"> & {
+  rawData?: Record<string, string>;
 };
 
 /**

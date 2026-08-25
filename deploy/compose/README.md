@@ -27,7 +27,10 @@ cp deploy/compose/.env.example deploy/compose/.env
 
 Fill in the two values that have no sensible default. Compose reads `.env` from
 the directory the compose file lives in, so this one is separate from the
-repository root `.env` the single container uses.
+repository root `.env` the single container uses. Everything else in the file is
+commented out, so uncommenting a line is what turns that setting on, and
+`POSTGRES_PASSWORD` is the database container's own variable rather than one of
+Simple Balance's.
 
 ```sh
 POSTGRES_PASSWORD=   # letters and digits, so nothing needs percent-encoding
