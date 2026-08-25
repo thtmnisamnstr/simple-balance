@@ -5,7 +5,7 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 69 | `npm test` | nothing |
+| Unit (node) | 71 | `npm test` | nothing |
 | Unit (jsdom) | 36 | `npm test` | nothing |
 | Integration | 52 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
@@ -18,11 +18,11 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 106 pass, 51 skip | **1,027 pass, 582 skip** |
-| `npm test`, database set | 157 pass | **1,609 pass** |
+| `npm test`, no database | 108 pass, 51 skip | **1,032 pass, 582 skip** |
+| `npm test`, database set | 159 pass | **1,614 pass** |
 | `npm run test:integration` | 52 pass | 583 pass |
 
-The first row is what CI and `npm run verify` see, and 1,027 is the number that
+The first row is what CI and `npm run verify` see, and 1,032 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -64,7 +64,7 @@ why the browser tier exists at all.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Nine tests, one file, one worker, against a real API and a real
+**House.** Eleven tests, one file, one worker, against a real API and a real
 PostgreSQL. It is slow and it is the only tier that proves the whole stack
 works, so it covers a path per capability rather than a case per branch.
 

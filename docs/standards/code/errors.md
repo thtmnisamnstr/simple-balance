@@ -20,13 +20,18 @@ caller to fix something they did not do.
 
 Five throws in `src/server/services` are that second kind, and all five are
 correct: three `TypeError`s in the idempotency canonicaliser for payload shapes
-that cannot occur
-(src/server/services/helpers.ts:145),
-and two `Error`s for a database count that came back non-numeric
-(src/server/services/categories.ts:486).
+that cannot occur (`src/server/services/helpers.ts:123`, `:139` and `:145`), and
+two `Error`s for a reference count that came back non-numeric after being cast
+to one in SQL (`src/server/services/payees.ts:52` and
+`src/server/services/categories.ts:486`).
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
 something the caller could have got right".
+
+*Checked by:* `tests/service-errors.test.ts`, which is that list rather than a
+ban — each of the five carries the reason it cannot happen, and a sixth throw
+fails until somebody writes down which kind it is. Whether the reason is honest
+is still review; whether the throw was thought about at all is now a test.
 
 ## 2. Six constructors, and choosing between them
 

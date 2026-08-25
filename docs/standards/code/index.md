@@ -56,11 +56,17 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 20 `human` rules across the seven guides** — 15 in the six that
+**There are 19 `human` rules across the seven guides** — 14 in the six that
 enforce something, and five in `comments.md`, which argues rather than enforces
-and says so. It was 26. Six became tests in one pass, which is what this
+and says so. It was 26. Seven became tests in one pass, which is what this
 number is for: it is written down so that it embarrasses somebody into moving
-it, and it worked. Each of the six names the test that took it over.
+it, and it worked. Each of the seven names the test that took it over.
+
+The seventh is the one worth reading, because it looked impossible. A rule about
+where a decision belongs cannot be checked by a program. What can be checked is
+what that rule going wrong leaves behind — a transport reaching for the database
+on its own — and that turned out to be five lines, each with a reason, and a
+sixth now has to be argued for.
 
 ## The toolchain, and what it was chosen over
 

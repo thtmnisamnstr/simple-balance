@@ -3,10 +3,18 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**14.9% of the non-blank lines in `src` are comments** — 5,413 of 36,343. That
+**16.8% of the non-blank lines in `src` are comments** — 6,503 of 38,660. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
+
+It was 14.9% when this page was written, which is the reason
+`tests/comment-density.test.ts` exists: a percentage quoted in prose goes stale
+without anybody noticing, and this one is quoted in `AGENTS.md` too. The test
+holds a floor of 14%, because the failure the rule is written against is
+somebody tidying the comments away, and it holds the two quotations to within a
+point and a half of the truth and to each other. Not to an exact figure: a
+number every commit has to update is a number people update without reading.
 
 ## 1. What a comment is for here
 

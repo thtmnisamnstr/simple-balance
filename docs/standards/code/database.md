@@ -120,6 +120,11 @@ does not fit a JS number. Where the count is genuinely small — rows a user own
 cast it in SQL (`sql<number>\`count(*)::int\``) rather than parsing it in
 JavaScript. Where it might not be small, keep it a string.
 
+*Checked by:* `tests/count-casts.test.ts`, which knows which of the two each
+count in this schema is rather than refusing every `count(*)` it finds, and
+reads the SQL with comments blanked, because `count(*)` appears in three of them
+as prose.
+
 ### 3.5 Nothing computes money from `ledger_transaction`
 
 **Binding.** `AGENTS.md`: "Never compute a monetary figure from

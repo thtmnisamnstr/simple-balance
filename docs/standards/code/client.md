@@ -29,6 +29,11 @@ invalidating `["payees"]` invalidates every suggestion list under it.
 A key holding an object is a key that will not match. Keep them arrays of
 strings and primitives.
 
+*Checked by:* `tests/query-keys.test.ts`, which holds the shape and also the
+half nobody had written down: a key something files a query under is a key
+something else invalidates. A query nothing invalidates goes stale after a write
+and shows the person the row they just changed, unchanged.
+
 ### 1.3 Derived values are computed, not stored
 
 **Binding, mostly.** If it can be worked out from what is already in state, work

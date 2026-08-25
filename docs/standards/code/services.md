@@ -49,6 +49,20 @@ This is why `tests/mcp-parity.test.ts` can compare the two transports service by
 service at all — there is something to compare because neither transport holds
 logic of its own.
 
+Five lines in the two transports do reach the database, and none of them is
+bookkeeping: the readiness probe's `select 1`, the first-account claim's
+advisory lock — which `AGENTS.md` requires to be taken outside the application
+pool — two reads of Better Auth's own tables behind the consent screen, which is
+reachable from a session and has no MCP counterpart, and the transaction an MCP
+tool call is made idempotent inside. Each is named in the test below with its
+reason, so a sixth has to be argued for rather than merely added.
+
+*Checked by:* `tests/transport-database-access.test.ts`. It cannot ask the
+question this rule asks — would both surfaces need this line? — so it asks the
+one a program can: is a transport querying the database at all. Every ledger
+read and write goes through a service, so anything else here is either on the
+list or is a decision that has left the layer both surfaces share.
+
 ### 1.3 One public function per intent, not per table
 
 **House.** `setTransactionDeleted(actor, id, expectedVersion, deleted)` rather
@@ -97,8 +111,9 @@ Two rules fall out, and they are the ones to follow:
   shape exists to prevent, because it commits independently of the caller that
   is about to fail.
 
-*Checked by:* `human`. A new mutation that forgets the parameter is invisible
-until an agent needs to compose it.
+*Checked by:* `tests/service-transactions.test.ts`, which reads each
+mutation's parameter list rather than grepping for `withTransaction`, so a
+mutation that delegates its writes to a helper still satisfies it.
 
 ### 2.2 A write that changes something takes the version it expects
 
@@ -157,7 +172,8 @@ has to be serialised.
 
 ### 2.5 Every write is audited
 
-**Binding.** 67 `writeAudit` calls. The audit row carries the entity, the
+**Binding.** 42 `writeAudit` calls, nine `writeAuditMany`, and seven
+`auditedTransaction`. The audit row carries the entity, the
 operation, and the row before and after, serialised through `serializeRow` so a
 `Date` does not end up in JSON as something unparseable.
 
@@ -237,10 +253,12 @@ into a spending category it created itself has to move a budget.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
-| 1.2 Transports decide nothing | Parity compares the two surfaces, not where logic sits. |
 | 3.1 Reads before dependent writes | Only the outcome is testable, and it is: the refund tests are that check wearing a different hat. |
 
-Two `human` rules in this guide, down from three.
-`tests/service-transactions.test.ts` now holds 2.1, and it reads the parameter
-list rather than grepping for a name, so a mutation that delegates its writes to
-a helper still counts.
+One `human` rule in this guide, down from three.
+`tests/service-transactions.test.ts` holds 2.1, reading the parameter list
+rather than grepping for a name, so a mutation that delegates its writes to a
+helper still counts. `tests/transport-database-access.test.ts` holds as much of
+1.2 as a program can be asked: not "does this line belong here", which is
+judgement, but "is a transport querying the database", which is what that
+judgement going wrong looks like.

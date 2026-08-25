@@ -79,15 +79,23 @@ is a Zod parse rather than a cast. `AppError.details` is `unknown`
 (src/server/services/errors.ts:7) because it
 carries whatever the thrower had, and every reader narrows before use.
 
-*Checked by:* `human`. `no-explicit-any` is a `typescript` plugin rule outside
-`correctness`, and the count is currently held by nothing but this sentence.
+*Checked by:* `tests/no-explicit-any.test.ts`. `no-explicit-any` is a
+`typescript` plugin rule outside `correctness`, so the linter does not run it;
+the test greps for the type instead, in code with the comments blanked, so the
+several comments that discuss `any` do not read as uses of it.
 
 ### 2.2 Assertions are rare and each has a reason
 
-**House.** Three `as unknown as` in the whole of `src`, and **136 non-null
+**House.** One `as unknown as` in the whole of `src`, and **136 non-null
 assertions across 33 files**. Neither number is zero and neither should be: a
 `!` after a lookup that a database constraint guarantees is honest, and the
 alternative is a branch that cannot be reached and cannot be tested.
+
+The single `as unknown as` is at `accounts.ts:511`, building the row an
+archived account would have had so the caller sees the shape it expects; the
+alternative was making every field optional for one call site. It was three when
+this was written and two of the three went while the code was being brought to
+this guide, which is the number moving the right way.
 
 136 is higher than it looks like it should be, and 1.4 explains most of it —
 without `noUncheckedIndexedAccess`, indexing an array gives a non-optional type,
@@ -180,8 +188,9 @@ import there ends up in the client or fails the build.
 The direction is `shared ← server` and `shared ← client`, never the reverse and
 never `server ↔ client`.
 
-*Checked by:* `human`. A test walking the import graph is worth building and is
-listed in `testing.md`.
+*Checked by:* `tests/module-boundaries.test.ts`, which walks the import graph
+rather than grepping for a path, so an import that reaches `src/server` through
+a re-export is caught too.
 
 ### 3.4 Money is exact on both sides, by two different means
 
