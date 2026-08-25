@@ -95,8 +95,7 @@ carry a paragraph:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-(src/client/forms.tsx:467,
-and src/client/components.tsx:401.)
+(`src/client/forms.tsx:479`, and `src/client/components.tsx:497`.)
 
 A bare disable is a claim that the rule is wrong, made without argument. Rules
 turned off across the whole repository carry their reason in

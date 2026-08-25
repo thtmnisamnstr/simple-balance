@@ -333,7 +333,7 @@ walkthrough in a guide and give the README its job back".
   everything else it does, run it locally, run the tests, host it, connect an
   agent, security, not built yet, more, built with, license.
 - **The licence is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the licence is a term of use. `README.md:226-236` names it, links it,
+  project the licence is a term of use. `README.md:250-254` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older licence.
 - **No badge wall.** There are none today.
@@ -506,7 +506,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:326-340`:
+- **The trade named, not only the choice.** `src/client/components.tsx:421-436`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behaviour they imply are worse than none."
@@ -569,7 +569,7 @@ What is checked:
 | --- | --- |
 | Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:266-300`, by name rather than by count, "so the failure says which" |
 | Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:80-91` |
-| The product backlog's version matches the manifest | `tests/version.test.ts:96-98` |
+| The product backlog's version matches the manifest | `tests/version.test.ts:89-91` |
 
 What is not, in the order they are likely to drift:
 

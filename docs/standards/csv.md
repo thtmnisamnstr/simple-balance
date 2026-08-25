@@ -69,7 +69,7 @@ The departures, all on the read side, all deliberate:
 
 1. **We trim.** `previewCsv` and `stageCsv` both hand Papa Parse a `transform`
    and a `transformHeader` that call `trim()` (`src/shared/csv.ts:154-169`,
-   `src/server/services/import-export.ts:740-741`). Rule 4 says a leading or
+   `src/server/services/import-export.ts:780-781`). Rule 4 says a leading or
    trailing space is part of the field. A trailing space in a bank's header row
    is common and never meaningful, and a payee cell padded to a column width is
    the same. **House, knowing departure.** Written down so nobody corrects it
@@ -93,7 +93,7 @@ The departures, all on the read side, all deliberate:
 - **UTF-8, always.** The export is a JavaScript string, served with a
   `charset=utf-8` media type (`CSV_MEDIA_TYPE`, `src/shared/csv.ts:19`). The
   import is a string by the time it reaches us: the browser decodes the file
-  with `file.text()` (`src/client/pages/ImportPage.tsx:136`) and an API or MCP
+  with `file.text()` (`src/client/pages/ImportPage.tsx:172`) and an API or MCP
   caller sends a JSON string, which is UTF-8 by definition. Nothing in this product reads a byte
   stream, so there is no encoding to guess and no `encoding` directive of the
   kind hledger has. **House.**
@@ -144,7 +144,7 @@ product has no export whose first record is not a header.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/api.ts:1270-1284`). It used to read the server clock, so somebody
+(`src/server/api.ts:1320-1329`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 
@@ -172,7 +172,7 @@ in this guide.**
 
 **House.** **The decimal separator is asked, never sniffed.** `decimalSeparator`
 is an explicit `"."` or `","` on the stage call, defaulting to `"."`
-(`src/server/services/import-export.ts:77`), and the import screen offers it as
+(`src/server/services/import-export.ts:91-99`), and the import screen offers it as
 `1,234.56` or `1.234,56`. Sniffing it would mean deciding whether `12,34` is
 twelve or one thousand two hundred and thirty-four from one cell, and
 `parseLocalizedAmount` refuses that pair outright rather than picking.
@@ -218,7 +218,7 @@ integration tests.
 
 ### Reading an amount out of a bank file
 
-`parseLocalizedAmount` (`src/shared/csv.ts:176-229`) accepts, for a given
+`parseLocalizedAmount` (`src/shared/csv.ts:171-209`) accepts, for a given
 decimal separator: a bare decimal, the configured grouping separator or a space
 as a thousands separator but not both, a leading minus, and a parenthesised
 negative. It refuses a leading `+`, an interior minus, an inconsistent grouping
@@ -262,7 +262,7 @@ credit column", eleven cases including a signed zero, which is left alone.
 **Binding**, deferring to `common.md`. A cell holding a calendar date is
 `YYYY-MM-DD` on export, straight from the transaction. On import the order is
 chosen by the person as `YMD`, `MDY` or `DMY`
-(`src/server/services/import-export.ts:76`) and parsed by `parseCsvDate`
+(`src/server/services/import-export.ts:85-90`) and parsed by `parseCsvDate`
 (`src/shared/csv.ts:211-272`).
 
 **House.** **No two-digit years, and no inferred order.** `parseCsvDate`
@@ -334,7 +334,7 @@ by name, `src/server/services/import-export.ts:185-343`).
 account columns are written and none is read: they name accounts in the ledger
 the file came from, which a different account, a different person or a fresh
 install resolves none of. `transaction_id` is the same, and the comment at
-`src/server/services/import-export.ts:264-267` records what happened when it was
+`src/server/services/import-export.ts:304-305` records what happened when it was
 not treated that way, which is that the duplicate check keyed on a foreign
 ledger's primary key.
 
@@ -371,9 +371,9 @@ defines format evolution, so this is our own invention. The rules for it:
 Today the token is `simple-balance-csv-1` (`src/shared/csv.ts:5`).
 
 *Not checked mechanically.* Nothing pins `APP_CSV_FORMAT` against a change made
-for an additive reason. `tests/integration/import-export.integration.test.ts:536`
+for an additive reason. `tests/integration/import-export.integration.test.ts:545`
 asserts the current literal in passing, and the recognition-set test at
-`tests/integration/csv-roundtrip-fidelity.integration.test.ts:212-237` catches a
+`tests/integration/csv-roundtrip-fidelity.integration.test.ts:217-237` catches a
 new required column, but neither would notice a token bump the rules above
 forbid.
 
@@ -455,7 +455,7 @@ install, then commit the queue. **Preserved:**
 - The category, by name, matched or created in the receiving ledger. Including
   on a transfer, which stages as a partial rather than a draft and had its
   category silently dropped until the resolver learned to look there
-  (`src/server/services/import-export.ts:449-452`).
+  (`src/server/services/import-export.ts:445-454`).
 - The split, leg by leg, by category name, with each leg's note.
 
 *Checked by:* `tests/integration/csv-roundtrip-fidelity.integration.test.ts` end
@@ -611,7 +611,7 @@ is all-or-nothing at its own level:
 
 - **The file.** `stageCsv` runs in one transaction. It refuses the whole file
   for a file-level fault: over the byte limit, over the row cap, unterminated
-  quotes (`MissingQuotes`, `src/server/services/import-export.ts:697-699`), an
+  quotes (`MissingQuotes`, `src/server/services/import-export.ts:788-793`), an
   account the caller does not own, or no mapping for a file we do not recognise.
   It never refuses a file for a bad row.
 - **The batch.** One import is one `import_batch`, and the queue can be
@@ -658,7 +658,7 @@ panel are given the same number for the same fault.
 Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
-position (`src/client/pages/StagingPage.tsx:669-709`) and a staged row stores no
+position (`src/client/pages/StagingPage.tsx:719-731`) and a staged row stores no
 source row number (`src/server/db/schema.ts:679-798`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
@@ -729,10 +729,10 @@ the same number.
 - **Bytes.** `CSV_MAX_BYTES`, default 10 MiB, configuration ceiling 100 MiB,
   measured as UTF-8 bytes of the decoded string and enforced at the preview as
   well as at the stage, because a file too large to import should say so before
-  somebody maps its columns (`src/server/services/import-export.ts:91-93`).
+  somebody maps its columns (`src/server/services/import-export.ts:116-124`).
 - **The request envelope.** A CSV route and `/mcp` are sized at six times
   `CSV_MAX_BYTES` plus 64 KiB, the six being the worst case for JSON string
-  escaping (`src/server/http-security.ts:60-61,678-687`).
+  escaping (`src/server/http-security.ts:61-62`, `:653-656`).
 - **Rows.** Counted after blank lines are skipped, so a trailing newline is not
   a row.
 
@@ -788,7 +788,7 @@ and never neutralise the channel.**
 - `neutralizeSpreadsheetFormula` (`src/shared/csv.ts:421-442`) prefixes an
   apostrophe to a triggering value.
 - It is applied to exactly seven columns, named at the call site
-  (`src/server/services/import-export.ts:979-986`): `payee`, `description`,
+  (`src/server/services/import-export.ts:1050-1060`): `payee`, `description`,
   `category_name`, `external_id`, `notes`, `source_account_name`,
   `destination_account_name`. Free text a person reads, and nothing else.
 - It is **not** applied to an amount, a rate, a date or an id. A negative amount

@@ -63,7 +63,7 @@ and it carries `currentVersion` in its details so the client can say what
 happened rather than "something went wrong".
 
 Its message is fixed at the constructor
-(src/server/services/errors.ts:59)
+(`src/server/services/errors.ts:59-68`)
 because there is nothing per-site to add. Two messages are fixed there now, one
 per audience: `message` tells a browser to reload, and `agentMessage` — read by
 the MCP transport and by nothing else — tells an agent to read the row again and
@@ -111,8 +111,8 @@ failed" and the sentence somebody actually wrote is buried in the details
 array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
-The client digs the first real message out
-(src/client/api.ts:45) and shows that
+The client digs the messages out of the details
+(`src/client/api.ts:63-72`) and shows those
 in preference to the envelope. Which means schema messages are user-facing:
 write them that way.
 

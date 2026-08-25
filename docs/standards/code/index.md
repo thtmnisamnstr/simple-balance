@@ -110,9 +110,8 @@ thing they ever see:
 
 One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all three sites here exist *to reject* them: two
-sanitise user input (src/shared/domain.ts:235)
-and one is the CSV-injection defence
-(`src/shared/csv.ts:370`).
+sanitise user input (`src/shared/domain.ts:251-252`) and one is the
+CSV-injection defence (`src/shared/csv.ts:421`).
 The rule exists to catch a control character written by accident; every one of
 these was written on purpose, and the code that strips control characters is
 necessarily code that names them.
@@ -122,7 +121,7 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:293`). Every site it flagged was correctly labelled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:389`). Every site it flagged was correctly labelled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
 | `jsx-a11y/prefer-tag-over-role` | Flags `<svg role="img">`, which is the recommended way to expose an SVG, and a `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:394`). |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
@@ -130,8 +129,8 @@ codebase rather than about accessibility:
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
-`src/client/forms.tsx:467`, and both that and `click-events-have-key-events` at
-`src/client/components.tsx:399`. Both are elements catching events that bubble
+`src/client/forms.tsx:479`, and both that and `click-events-have-key-events` at
+`src/client/components.tsx:497`. Both are elements catching events that bubble
 from real controls inside them.
 
 *Checked by:* `npm run lint`, in `npm run verify`.
@@ -170,9 +169,9 @@ five sites and is on. Three were measured and declined:
 | `noImplicitOverride`, `noFallthroughCasesInSwitch`, `allowUnreachableCode: false`, `allowUnusedLabels: false`, `verbatimModuleSyntax` | 0 | On. |
 | `erasableSyntaxOnly` | 5 | On. Two classes lost their constructor parameter properties. |
 | `noImplicitReturns` | 3 | **Declined.** All three are Hono middleware, where returning nothing is the contract. See `typescript.md`. |
-| `exactOptionalPropertyTypes` | 63 | Declined for now. |
+| `exactOptionalPropertyTypes` | 71 | Declined for now. |
 | `noUncheckedIndexedAccess` | 440 | Declined for now, and it is the one most worth coming back to. See `typescript.md`. |
-| `noPropertyAccessFromIndexSignature` | 670 | Declined. |
+| `noPropertyAccessFromIndexSignature` | 666 | Declined. |
 
 *Checked by:* `npm run typecheck`, in `npm run verify`.
 

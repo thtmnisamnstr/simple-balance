@@ -41,9 +41,7 @@ a constructor tells you what it assigns.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(src/server/api.ts:889,
-src/server/http-security.ts:157,
-src/server/http-security.ts:549),
+(`src/server/api.ts:895`, `src/server/http-security.ts:159` and `:550`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -64,7 +62,7 @@ mechanically silencing them with `!` would convert a real check into a
 formality — the same defect the flag exists to catch, now written down. If it is
 ever adopted it should be one directory at a time.
 
-`exactOptionalPropertyTypes` (63) and `noPropertyAccessFromIndexSignature` (670)
+`exactOptionalPropertyTypes` (71) and `noPropertyAccessFromIndexSignature` (666)
 are declined outright.
 
 ## 2. Types
@@ -76,7 +74,7 @@ hold is zero.
 
 `unknown` is the type for a value that has not been checked yet, and the check
 is a Zod parse rather than a cast. `AppError.details` is `unknown`
-(src/server/services/errors.ts:7) because it
+(`src/server/services/errors.ts:13`) because it
 carries whatever the thrower had, and every reader narrows before use.
 
 *Checked by:* `tests/no-explicit-any.test.ts`. `no-explicit-any` is a
@@ -123,7 +121,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (src/server/db/schema.ts:194),
-and the UI iterates it (src/client/pages/CategoriesPage.tsx:103).
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:111`).
 Adding a member is one edit, and every one of those follows.
 
 ### 2.4 `satisfies` where a value must stay inside a type without losing its own
@@ -139,7 +137,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(src/shared/domain.ts:872.)
+(`src/shared/domain.ts:1035`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -154,7 +152,7 @@ into that type.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (src/shared/domain.ts:429). Every
+as a literal (`src/shared/domain.ts:452`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -225,9 +223,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(src/server/services/transactions.ts:1034,
-src/server/services/transactions.ts:2215,
-src/server/services/transactions.ts:2302.)
+(`src/server/services/transactions.ts:1034`, `:2226` and `:2313`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

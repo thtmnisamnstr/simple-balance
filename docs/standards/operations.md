@@ -520,7 +520,7 @@ with `openssl rand -base64 32`." Length alone cannot tell a real secret from a
 documented one. This is the twelve-factor litmus test enforced rather than
 stated, and it is the pattern to copy the next time a placeholder ships.
 
-*Checked by:* `tests/config.test.ts:258-272` ("refuses the published placeholder
+*Checked by:* `tests/config.test.ts:299-313` ("refuses the published placeholder
 secret %s in production"), over two of the three entries in the set. *Not
 checked:* that the set covers whatever `.env.example` currently carries, which is
 the half that has to be extended by hand every time the example file changes.
@@ -554,12 +554,12 @@ startup — `configuredCsvMaxRows()` inside an import
 (`src/server/services/import-export.ts:775`), the recurrence limits inside a
 tick — so a refusal would have arrived hours later in a log nobody was reading,
 or on a deployment that never imported a CSV, not at all.
-`assertConfiguredLimits()` (`src/server/config-limits.ts:130-137`) reads all six
+`assertConfiguredLimits()` (`src/server/config-limits.ts:162-169`) reads all six
 and `getConfig()` calls it (`src/server/config.ts:162-167`), which is a line
 every entrypoint runs before it serves anything. `DATABASE_POOL_SIZE` reached
 startup only by the accident that `reconcileArchivedAccountClosings()` at
 `src/server/index.ts:27` queries before `serve()`, so the first `getPool()`
-(`src/server/db/client.ts:21`) ran during startup; it no longer rests on that.
+(`src/server/db/client.ts:11`) ran during startup; it no longer rests on that.
 
 The argument for the fallback was that a typo in a tuning number should not take
 the ledger down, and it is answered rather than waved away. The process refuses
@@ -975,7 +975,7 @@ a renamed variable moved the version.
 | Entrypoints name files the compiler emits; nginx proxies every API prefix | `tests/dockerfile.test.ts` |
 | Drain once, force-exit on deadline, force-exit on a second signal | `tests/server-lifecycle.test.ts` |
 | The version reaches all fifteen places | `tests/version.test.ts` |
-| The published placeholder secrets are refused in production | `tests/config.test.ts:258-272` |
+| The published placeholder secrets are refused in production | `tests/config.test.ts:299-313` |
 | The template reminder's subject is exactly `Reminder: <name>` | `tests/integration/notifications.integration.test.ts:216` |
 | Every message declares itself auto-generated | `tests/mail-headers.test.ts` |
 | A subject leads with its fixed part, and a long name is cut by code point | `tests/mail-subjects.test.ts` |

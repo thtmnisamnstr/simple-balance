@@ -95,7 +95,8 @@ mutations take that parameter and every one of them goes through the helper;
 only six places in this directory reach for `getDb().transaction` directly.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(src/server/mcp.ts:864) so that
+(`src/server/mcp.ts:289-299`, and every `runIdempotentMcpMutation` call under it)
+so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
 idempotency key and then fail, leaving a key that answers for a transaction that

@@ -39,8 +39,8 @@ and shows the person the row they just changed, unchanged.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(src/client/forms.tsx:1549),
-and every one of them would be a synchronisation bug as state.
+(`src/client/forms.tsx:1598-1605` and `:1666`), and every one of them would be a
+synchronisation bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
 decided. Some were derived values pretending to be state and were moved into
@@ -96,8 +96,8 @@ to exactly one group and that two forms on one page stay separate.
 
 ### 2.1 The client has its own exact money, and uses it for decisions
 
-**Binding.** `src/client/money.ts` works in scaled `bigint`
-(src/client/money.ts:160). Use
+**Binding.** `src/client/money.ts` works in scaled `bigint`, through
+`moneyUnits` (`src/client/money.ts:160`). Use
 `compareMoney`, `isNegativeMoney` and `sumMoney` for anything that decides
 something.
 
@@ -129,7 +129,7 @@ split the server refused with a 422 nobody could predict from the screen.
 ### 3.1 `Field` wraps every labelled control
 
 **House.** Layout, label and hint in one place
-(src/client/components.tsx:293). Two consequences worth
+(`src/client/components.tsx:389`). Two consequences worth
 knowing:
 
 - The accessible name of a control includes its hint. A test looking for a
