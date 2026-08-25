@@ -12,11 +12,7 @@ import {
   type SystemAccountKind,
   type UserAccountType,
 } from "../../shared/domain.js";
-import {
-  getDb,
-  type DbTransaction,
-  withTransaction,
-} from "../db/client.js";
+import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
   ledgerAccounts,
   postings,
@@ -61,7 +57,6 @@ async function activeStagedAccountReferenceCount(
   return count;
 }
 
-
 const systemAccountNames: Record<SystemAccountKind, string> = {
   income: "Income",
   expense: "Expenses",
@@ -77,10 +72,7 @@ const systemAccountNames: Record<SystemAccountKind, string> = {
  * remove one, so the second lookup can only return what the first did. On a
  * CSV import that repeated select ran for every row staged.
  */
-const systemAccountsByTx = new WeakMap<
-  object,
-  Map<string, typeof ledgerAccounts.$inferSelect>
->();
+const systemAccountsByTx = new WeakMap<object, Map<string, typeof ledgerAccounts.$inferSelect>>();
 
 export async function ensureSystemAccount(
   tx: DbTransaction,
@@ -213,12 +205,7 @@ export async function postOpeningBalance(
   const existing = await tx
     .select()
     .from(postings)
-    .where(
-      and(
-        eq(postings.userId, actor.userId),
-        eq(postings.openingAccountId, account.id),
-      ),
-    );
+    .where(and(eq(postings.userId, actor.userId), eq(postings.openingAccountId, account.id)));
 
   const opening = decimal(account.openingBalance);
   const desired = opening.isZero()
@@ -279,12 +266,7 @@ export async function reconcileArchivedAccountClosings() {
       archivedAt: ledgerAccounts.archivedAt,
     })
     .from(ledgerAccounts)
-    .where(
-      and(
-        isNotNull(ledgerAccounts.archivedAt),
-        isNull(ledgerAccounts.systemKind),
-      ),
-    );
+    .where(and(isNotNull(ledgerAccounts.archivedAt), isNull(ledgerAccounts.systemKind)));
   let repaired = 0;
   for (const account of archived) {
     const actor: Actor = { userId: account.userId, source: "web" };
@@ -374,12 +356,7 @@ export async function postClosingBalance(
   const existing = await tx
     .select()
     .from(postings)
-    .where(
-      and(
-        eq(postings.userId, actor.userId),
-        eq(postings.closingAccountId, account.id),
-      ),
-    );
+    .where(and(eq(postings.userId, actor.userId), eq(postings.closingAccountId, account.id)));
 
   // What the account holds, by the date it holds it on, so the close can mirror
   // it day for day. A closing pair already posted is left out of the sum rather
@@ -406,9 +383,7 @@ export async function postClosingBalance(
       having sum(p.amount) <> 0
     `);
     if (measured.rows.length) {
-      const equityId = (
-        await ensureSystemAccount(tx, actor, "equity", account.currency)
-      ).id;
+      const equityId = (await ensureSystemAccount(tx, actor, "equity", account.currency)).id;
       for (const row of measured.rows as { date: string; amount: string }[]) {
         const amount = decimal(row.amount);
         desired.push({ accountId: account.id, date: row.date, amount: amount.negated() });
@@ -467,11 +442,7 @@ export function presentAccountBalance(type: AccountType, balance: string) {
  * balance in its place would report a figure that stopped being true the moment
  * the first transaction landed.
  */
-async function currentBalance(
-  tx: Pick<DbTransaction, "execute">,
-  actor: Actor,
-  accountId: string,
-) {
+async function currentBalance(tx: Pick<DbTransaction, "execute">, actor: Actor, accountId: string) {
   const result = await tx.execute(sql`
     select coalesce(sum(p.amount), 0)::text as balance
     from posting p
@@ -481,16 +452,10 @@ async function currentBalance(
   return String((result.rows[0] as { balance: string }).balance);
 }
 
-function accountView(
-  account: typeof ledgerAccounts.$inferSelect,
-  balance?: string,
-) {
+function accountView(account: typeof ledgerAccounts.$inferSelect, balance?: string) {
   return {
     ...serializeRow(account),
-    ...presentAccountBalance(
-      account.type as AccountType,
-      balance ?? account.openingBalance,
-    ),
+    ...presentAccountBalance(account.type as AccountType, balance ?? account.openingBalance),
   };
 }
 
@@ -656,11 +621,7 @@ async function assertAccountNameAvailable(
   }
 }
 
-export async function createAccount(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
+export async function createAccount(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = accountCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await assertAccountNameAvailable(tx, actor, parsed.name);
@@ -707,11 +668,7 @@ export async function updateAccount(
         .select({ count: sql<number>`count(*)::int` })
         .from(postings)
         .where(and(eq(postings.userId, actor.userId), eq(postings.accountId, id)));
-      const stageCount = await activeStagedAccountReferenceCount(
-        tx,
-        actor,
-        id,
-      );
+      const stageCount = await activeStagedAccountReferenceCount(tx, actor, id);
       if (decimal(before.openingBalance).isZero() === false || postingCount > 0 || stageCount > 0) {
         throw conflict("Currency cannot change after the account is in use");
       }
@@ -763,10 +720,7 @@ export async function setAccountArchived(
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
-    if (
-      archived &&
-      (await activeStagedAccountReferenceCount(tx, actor, id)) > 0
-    ) {
+    if (archived && (await activeStagedAccountReferenceCount(tx, actor, id)) > 0) {
       throw conflict(
         "Resolve staged transactions that reference this account before archiving it.",
       );
@@ -829,11 +783,7 @@ export async function deleteAccount(
           sql`(${transactions.sourceAccountId} = ${id}::uuid or ${transactions.destinationAccountId} = ${id}::uuid)`,
         ),
       );
-    const stageCount = await activeStagedAccountReferenceCount(
-      tx,
-      actor,
-      id,
-    );
+    const stageCount = await activeStagedAccountReferenceCount(tx, actor, id);
     // Ledger history outlives the transaction that made it. Moving a
     // transaction to another account leaves the adjusting postings behind here,
     // so the account is still part of the books even though nothing points at
@@ -854,19 +804,11 @@ export async function deleteAccount(
     // outlives its account proposes a flagged row on every occurrence from here
     // on, for as long as nobody notices; a template becomes unusable.
     const jsonNamesAccount = (column: PgColumn) =>
-      or(
-        sql`${column} ->> 'fromAccountId' = ${id}`,
-        sql`${column} ->> 'toAccountId' = ${id}`,
-      )!;
+      or(sql`${column} ->> 'fromAccountId' = ${id}`, sql`${column} ->> 'toAccountId' = ${id}`)!;
     const [{ count: recurrenceCount }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(recurrences)
-      .where(
-        and(
-          eq(recurrences.userId, actor.userId),
-          jsonNamesAccount(recurrences.shape),
-        ),
-      );
+      .where(and(eq(recurrences.userId, actor.userId), jsonNamesAccount(recurrences.shape)));
     const [{ count: templateCount }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(transactionTemplates)
@@ -876,13 +818,7 @@ export async function deleteAccount(
           jsonNamesAccount(transactionTemplates.draft),
         ),
       );
-    if (
-      transactionCount ||
-      stageCount ||
-      postingCount ||
-      recurrenceCount ||
-      templateCount
-    ) {
+    if (transactionCount || stageCount || postingCount || recurrenceCount || templateCount) {
       throw conflict("This account is in use. Archive it instead of deleting it.", {
         transactionCount,
         stagedTransactionCount: stageCount,
@@ -897,15 +833,13 @@ export async function deleteAccount(
     // leaving them behind made the delete fail on a foreign key with a raw
     // database error rather than an answer. Both halves of each pair name this
     // account, so they come out together and no equity side is stranded.
-    await tx
-      .delete(postings)
-      .where(
-        and(
-          eq(postings.userId, actor.userId),
-          sql`(${postings.openingAccountId} = ${id}::uuid
+    await tx.delete(postings).where(
+      and(
+        eq(postings.userId, actor.userId),
+        sql`(${postings.openingAccountId} = ${id}::uuid
             or ${postings.closingAccountId} = ${id}::uuid)`,
-        ),
-      );
+      ),
+    );
 
     const [deleted] = await tx
       .delete(ledgerAccounts)

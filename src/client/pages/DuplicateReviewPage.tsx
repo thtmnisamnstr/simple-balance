@@ -22,10 +22,7 @@ import {
   Skeleton,
   useConfirm,
 } from "../components.js";
-import {
-  formatDate,
-  formatMoney,
-} from "../money.js";
+import { formatDate, formatMoney } from "../money.js";
 import { TransactionForm } from "../forms.js";
 import { summarizeStagedDraft } from "../staged-draft.js";
 import { Link, Navigate, useParams } from "../router.js";
@@ -68,8 +65,7 @@ export default function DuplicateReviewPage() {
   const queue = duplicates.data?.items.map((stage) => stage.id) ?? [];
   const position = id ? queue.indexOf(id) : -1;
   const total = duplicates.data?.totalCount ?? 0;
-  const at = (index: number) =>
-    queue[index] ? `/staged/duplicates/${queue[index]}` : null;
+  const at = (index: number) => (queue[index] ? `/staged/duplicates/${queue[index]}` : null);
 
   /**
    * Where to go once the row on screen has been dealt with: the one after it, or
@@ -82,15 +78,12 @@ export default function DuplicateReviewPage() {
    * next row the instruction was still set and sent it to the same place again,
    * which renders nothing at all.
    */
-  const [handled, setHandled] = useState<{ from: string; to: string | "done" } | null>(
-    null,
-  );
+  const [handled, setHandled] = useState<{ from: string; to: string | "done" } | null>(null);
   const advanceTo = handled && handled.from === id ? handled.to : null;
 
   const review = useQuery({
     queryKey: ["staged", id, "duplicate"],
-    queryFn: () =>
-      api<StagedDuplicateReview>(`/api/v1/staged/${id}/duplicate`),
+    queryFn: () => api<StagedDuplicateReview>(`/api/v1/staged/${id}/duplicate`),
     enabled: Boolean(id),
   });
   const accounts = useQuery({
@@ -129,8 +122,7 @@ export default function DuplicateReviewPage() {
           // The review itself is not worth refetching when its subject is gone:
           // the answer would be a red "Staged transaction not found" over an
           // empty screen, the failure looking exactly like the success.
-          predicate: (entry) =>
-            !(wasSubject && entry.queryKey[2] === "duplicate"),
+          predicate: (entry) => !(wasSubject && entry.queryKey[2] === "duplicate"),
         }),
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
       ]);
@@ -142,8 +134,7 @@ export default function DuplicateReviewPage() {
   };
 
   const ready = accounts.data && categories.data;
-  const error =
-    review.error ?? duplicates.error ?? accounts.error ?? categories.error;
+  const error = review.error ?? duplicates.error ?? accounts.error ?? categories.error;
 
   const caughtUp = (
     <EmptyState
@@ -198,9 +189,7 @@ export default function DuplicateReviewPage() {
     <>
       <PageHeader
         eyebrow={
-          position >= 0 && total
-            ? `Possible duplicate ${position + 1} of ${total}`
-            : "Review queue"
+          position >= 0 && total ? `Possible duplicate ${position + 1} of ${total}` : "Review queue"
         }
         title="Two records of one payment"
         description="Correct either side and save it, or drop the copy that should not be there. Only a staged row can be dropped: a committed transaction is already in the books."
@@ -267,9 +256,7 @@ export default function DuplicateReviewPage() {
           {[review.data.first, review.data.second].map((side, index) => {
             const staged = side.staged;
             const committed = side.committed;
-            const summary = staged
-              ? summarizeStagedDraft(staged.draft, accounts.data!)
-              : null;
+            const summary = staged ? summarizeStagedDraft(staged.draft, accounts.data!) : null;
             return (
               <section
                 className="panel duplicate-side"
@@ -293,14 +280,10 @@ export default function DuplicateReviewPage() {
                   <span>
                     {committed
                       ? `${formatDate(committed.date)} · ${
-                          committed.sourceAmount ?? committed.destinationAmount
+                          (committed.sourceAmount ?? committed.destinationAmount)
                             ? formatMoney(
-                                committed.sourceAmount ??
-                                  committed.destinationAmount ??
-                                  "0",
-                                committed.sourceCurrency ??
-                                  committed.destinationCurrency ??
-                                  "",
+                                committed.sourceAmount ?? committed.destinationAmount ?? "0",
+                                committed.sourceCurrency ?? committed.destinationCurrency ?? "",
                               )
                             : ""
                         }`
@@ -323,18 +306,15 @@ export default function DuplicateReviewPage() {
                     <Button
                       variant="danger"
                       loading={deletion.isPending}
-                      onClick={() =>
-                        drop.ask(staged.id, () => deletion.mutate(side))
-                      }
+                      onClick={() => drop.ask(staged.id, () => deletion.mutate(side))}
                     >
                       <Trash2 size={15} />
                       Drop this staged row
                     </Button>
                   ) : (
                     <p className="panel-empty">
-                      Committed transactions are not dropped from here. If this
-                      is the copy to remove, delete it from the transactions
-                      list.
+                      Committed transactions are not dropped from here. If this is the copy to
+                      remove, delete it from the transactions list.
                     </p>
                   )}
                 </div>

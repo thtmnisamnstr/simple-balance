@@ -4,10 +4,7 @@ import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { user } from "../../src/server/db/schema.js";
-import {
-  createAccount,
-  setAccountArchived,
-} from "../../src/server/services/accounts.js";
+import { createAccount, setAccountArchived } from "../../src/server/services/accounts.js";
 import { createRecurrence } from "../../src/server/services/recurrences.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import { createTransaction } from "../../src/server/services/transactions.js";

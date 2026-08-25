@@ -35,16 +35,14 @@ const year = { start: "2026-01-01", end: "2026-12-31" };
 
 type Report = Awaited<ReturnType<typeof getReport>>;
 
-const usd = (report: Report) =>
-  report.currencies.find((entry) => entry.currency === "USD");
+const usd = (report: Report) => report.currencies.find((entry) => entry.currency === "USD");
 
 type Summary = Awaited<ReturnType<typeof getSummary>>;
 
 const usdSummary = (summary: Summary) =>
   summary.currencies.find((entry) => entry.currency === "USD");
 
-const row = (report: Report, key: string) =>
-  usd(report)?.rows.find((entry) => entry.key === key);
+const row = (report: Report, key: string) => usd(report)?.rows.find((entry) => entry.key === key);
 
 /**
  * Money summed exactly. `sum + Number(value)` reads as harmless in a test and
@@ -53,16 +51,12 @@ const row = (report: Report, key: string) =>
  * pass on a number the code never produced.
  */
 const sumMoney = (values: readonly string[]) =>
-  canonicalDecimal(
-    values.reduce((total, value) => total.plus(value), decimal("0")),
-  );
+  canonicalDecimal(values.reduce((total, value) => total.plus(value), decimal("0")));
 
 const negated = (value: string) => canonicalDecimal(decimal(value).negated());
 
 const rowsByLabel = (report: Report) =>
-  Object.fromEntries(
-    (usd(report)?.rows ?? []).map((entry) => [entry.label, entry.total]),
-  );
+  Object.fromEntries((usd(report)?.rows ?? []).map((entry) => [entry.label, entry.total]));
 
 integration("reports", () => {
   beforeAll(async () => {
@@ -110,11 +104,8 @@ integration("reports", () => {
       })
     ).id;
     foodId = (await createCategory(actor, { name: "Food", kind: "expense" })).id;
-    householdId = (
-      await createCategory(actor, { name: "Household", kind: "expense" })
-    ).id;
-    salaryId = (await createCategory(actor, { name: "Salary", kind: "income" }))
-      .id;
+    householdId = (await createCategory(actor, { name: "Household", kind: "expense" })).id;
+    salaryId = (await createCategory(actor, { name: "Salary", kind: "income" })).id;
 
     await createTransaction(
       actor,
@@ -214,12 +205,8 @@ integration("reports", () => {
   it("lists the server's own counter-accounts only in the trial balance", async () => {
     const trial = await getReport(actor, { report: "trial-balance", ...year });
     const sheet = await getReport(actor, { report: "balance-sheet", ...year });
-    expect(
-      usd(trial)!.rows.some((entry) => entry.kind?.startsWith("system:")),
-    ).toBe(true);
-    expect(
-      usd(sheet)!.rows.some((entry) => entry.kind?.startsWith("system:")),
-    ).toBe(false);
+    expect(usd(trial)!.rows.some((entry) => entry.kind?.startsWith("system:"))).toBe(true);
+    expect(usd(sheet)!.rows.some((entry) => entry.kind?.startsWith("system:"))).toBe(false);
   });
 
   it("ignores postings after the date a balance sheet is drawn for", async () => {
@@ -331,9 +318,7 @@ integration("reports", () => {
     });
     const sheet = await getReport(actor, { report: "balance-sheet", ...year });
     const last = usd(series)!.rows.find((entry) => entry.key === checkingId)!;
-    expect(last.values[last.values.length - 1]).toBe(
-      row(sheet, checkingId)!.total,
-    );
+    expect(last.values[last.values.length - 1]).toBe(row(sheet, checkingId)!.total);
   });
 
   /**
@@ -349,11 +334,7 @@ integration("reports", () => {
     });
     const checking = usd(series)!.rows.find((entry) => entry.key === checkingId)!;
     const months = series.buckets.map((entry) => entry.start);
-    expect(months.slice(0, 3)).toEqual([
-      "2026-01-01",
-      "2026-02-01",
-      "2026-03-01",
-    ]);
+    expect(months.slice(0, 3)).toEqual(["2026-01-01", "2026-02-01", "2026-03-01"]);
     expect(checking.values.length).toBe(series.buckets.length);
     expect(checking.values[0]).toBe("3800");
     expect(checking.values[1]).toBe("3800");
@@ -393,9 +374,7 @@ integration("reports", () => {
     });
     const figures = usdSummary(summary)!;
     expect(row(report, "income")!.total).toBe(figures.deposits);
-    expect(canonicalDecimal(row(report, "expense")!.total)).toBe(
-      negated(figures.withdrawals),
-    );
+    expect(canonicalDecimal(row(report, "expense")!.total)).toBe(negated(figures.withdrawals));
     expect(sumMoney(usd(report)!.totals)).toBe(canonicalDecimal(figures.netCashFlow));
   });
 
@@ -430,10 +409,7 @@ integration("reports", () => {
     const summary = await getSummary(actor, year);
     const report = await getReport(actor, { report: "categories", ...year });
     const spend = Object.fromEntries(
-      usdSummary(summary)!.spendingByCategory.map((entry) => [
-        entry.category,
-        entry.amount,
-      ]),
+      usdSummary(summary)!.spendingByCategory.map((entry) => [entry.category, entry.amount]),
     );
     const expenses = Object.fromEntries(
       usd(report)!
@@ -512,11 +488,7 @@ integration("reports", () => {
       });
       expect(row(without, savingsId)).toBeUndefined();
 
-      const shown = await getReport(
-        actor,
-        { report: "balance-sheet", ...year },
-        true,
-      );
+      const shown = await getReport(actor, { report: "balance-sheet", ...year }, true);
       expect(row(shown, savingsId)!.total).toBe("0");
     } finally {
       const archived = await getAccount(actor, savingsId);
@@ -566,11 +538,7 @@ integration("reports", () => {
       const report = await getReport(actor, { report: "balance-sheet", ...year });
       expect(report.currencies.map((entry) => entry.currency)).not.toContain("JPY");
 
-      const shown = await getReport(
-        actor,
-        { report: "balance-sheet", ...year },
-        true,
-      );
+      const shown = await getReport(actor, { report: "balance-sheet", ...year }, true);
       expect(shown.currencies.map((entry) => entry.currency)).toContain("JPY");
     } finally {
       const archived = await getAccount(actor, empty.id);
@@ -587,9 +555,7 @@ integration("reports", () => {
       order by p.currency
     `);
     expect(
-      result.rows.map(
-        (entry) => `${entry.currency}=${canonicalDecimal(String(entry.total))}`,
-      ),
+      result.rows.map((entry) => `${entry.currency}=${canonicalDecimal(String(entry.total))}`),
     ).toEqual(["EUR=0", "USD=0"]);
   });
 

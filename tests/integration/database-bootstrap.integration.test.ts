@@ -29,16 +29,12 @@ async function onMaintenance<T>(run: (client: Client) => Promise<T>) {
 
 integration("starting against a server that has never seen this database", () => {
   beforeAll(async () => {
-    await onMaintenance((client) =>
-      client.query(`drop database if exists ${createdDatabase}`),
-    );
+    await onMaintenance((client) => client.query(`drop database if exists ${createdDatabase}`));
   });
 
   afterAll(async () => {
     await closeDb();
-    await onMaintenance((client) =>
-      client.query(`drop database if exists ${createdDatabase}`),
-    );
+    await onMaintenance((client) => client.query(`drop database if exists ${createdDatabase}`));
   });
 
   // Pointing a fresh container at a fresh PostgreSQL server is the ordinary way
@@ -46,9 +42,7 @@ integration("starting against a server that has never seen this database", () =>
   // run CREATE DATABASE by hand before the app would come up at all.
   it("creates the database and migrates it", async () => {
     const existsBefore = await onMaintenance((client) =>
-      client.query("select 1 from pg_database where datname = $1", [
-        createdDatabase,
-      ]),
+      client.query("select 1 from pg_database where datname = $1", [createdDatabase]),
     );
     expect(existsBefore.rowCount).toBe(0);
 
@@ -56,9 +50,7 @@ integration("starting against a server that has never seen this database", () =>
     await runMigrations();
 
     const existsAfter = await onMaintenance((client) =>
-      client.query("select 1 from pg_database where datname = $1", [
-        createdDatabase,
-      ]),
+      client.query("select 1 from pg_database where datname = $1", [createdDatabase]),
     );
     expect(existsAfter.rowCount).toBe(1);
 

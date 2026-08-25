@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { createMcpServer } from "../src/server/mcp.js";
 
@@ -35,6 +35,15 @@ const COVERED_BY: Record<string, string> = {
   "PUT /api/v1/accounts/:id": "update_account",
   "POST /api/v1/accounts/:id/archive": "archive_account",
   "DELETE /api/v1/accounts/:id": "delete_account",
+  "GET /api/v1/budget-plans": "list_budget_plans",
+  "GET /api/v1/budget-plans/:id": "get_budget_plan",
+  "POST /api/v1/budget-plans": "create_budget_plan",
+  "PUT /api/v1/budget-plans/:id": "update_budget_plan",
+  "DELETE /api/v1/budget-plans/:id": "delete_budget_plan",
+  "GET /api/v1/budget-entries": "list_budget_entries",
+  "PUT /api/v1/budget-entries": "set_budget_entry",
+  "DELETE /api/v1/budget-entries/:id": "delete_budget_entry",
+  "GET /api/v1/budget-report": "get_budget_report",
   "GET /api/v1/recurrences": "list_recurrences",
   "GET /api/v1/recurrences/:id": "get_recurrence",
   "POST /api/v1/recurrences": "create_recurrence",
@@ -74,10 +83,8 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/transaction-templates": "create_transaction_template",
   "PUT /api/v1/transaction-templates/:id": "update_transaction_template",
   "DELETE /api/v1/transaction-templates/:id": "delete_transaction_template",
-  "POST /api/v1/transaction-templates/bulk-edit":
-    "bulk_edit_transaction_templates",
-  "POST /api/v1/transaction-templates/bulk-delete":
-    "bulk_delete_transaction_templates",
+  "POST /api/v1/transaction-templates/bulk-edit": "bulk_edit_transaction_templates",
+  "POST /api/v1/transaction-templates/bulk-delete": "bulk_delete_transaction_templates",
   "POST /api/v1/csv/preview": "preview_csv",
   "POST /api/v1/csv/stage": "stage_csv",
   "GET /api/v1/import-batches": "list_import_batches",
@@ -92,14 +99,9 @@ const COVERED_BY: Record<string, string> = {
 };
 
 async function registeredRoutes() {
-  const source = await readFile(
-    new URL("../src/server/api.ts", import.meta.url),
-    "utf8",
-  );
+  const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
   const routes = new Set<string>();
-  for (const match of source.matchAll(
-    /app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/g,
-  )) {
+  for (const match of source.matchAll(/app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/g)) {
     routes.add(`${match[1]!.toUpperCase()} ${match[2]}`);
   }
   return routes;
@@ -119,13 +121,8 @@ async function registeredRoutes() {
  * is how the first version of this silently compared half of them.
  */
 async function servicesByRoute() {
-  const source = await readFile(
-    new URL("../src/server/api.ts", import.meta.url),
-    "utf8",
-  );
-  const starts = [
-    ...source.matchAll(/^app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/gm),
-  ];
+  const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
+  const starts = [...source.matchAll(/^app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/gm)];
   const byRoute = new Map<string, Set<string>>();
   starts.forEach((start, index) => {
     const next = starts[index + 1];
@@ -133,9 +130,7 @@ async function servicesByRoute() {
     byRoute.set(
       `${start[1]!.toUpperCase()} ${start[2]}`,
       new Set(
-        [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map(
-          (call) => call[1]!,
-        ),
+        [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map((call) => call[1]!),
       ),
     );
   });
@@ -143,10 +138,7 @@ async function servicesByRoute() {
 }
 
 async function servicesByTool() {
-  const source = await readFile(
-    new URL("../src/server/mcp.ts", import.meta.url),
-    "utf8",
-  );
+  const source = await readFile(new URL("../src/server/mcp.ts", import.meta.url), "utf8");
   const byTool = new Map<string, Set<string>>();
   for (const match of source.matchAll(
     /registerTool\(\s*"([a-z_]+)",\s*\{.*?\n      \},\s*(.*?)\n    \);/gs,
@@ -154,9 +146,7 @@ async function servicesByTool() {
     byTool.set(
       match[1]!,
       new Set(
-        [...match[2]!.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*actor\b/g)].map(
-          (call) => call[1]!,
-        ),
+        [...match[2]!.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*actor\b/g)].map((call) => call[1]!),
       ),
     );
   }
@@ -274,10 +264,7 @@ describe("what an agent can reach compared with the browser", () => {
    * noticed. Checked by name rather than by count so the failure says which.
    */
   it("names every tool in the MCP guide", async () => {
-    const guide = await readFile(
-      new URL("../docs/mcp.md", import.meta.url),
-      "utf8",
-    );
+    const guide = await readFile(new URL("../docs/mcp.md", import.meta.url), "utf8");
     const tools = await toolNames(everyScope);
     const undocumented = [...tools].filter((tool) => !guide.includes(tool)).sort();
     expect(undocumented).toEqual([]);
@@ -352,8 +339,7 @@ describe("what an agent can reach compared with the browser", () => {
       new Set(everyScope),
     );
     const client = new Client({ name: "parity", version: "1.0.0" });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     await client.connect(clientTransport);
     const { tools } = await client.listTools();
@@ -361,10 +347,9 @@ describe("what an agent can reach compared with the browser", () => {
     await server.close();
 
     for (const tool of tools) {
-      expect(
-        (tool.description ?? "").length,
-        `${tool.name} needs a description`,
-      ).toBeGreaterThan(30);
+      expect((tool.description ?? "").length, `${tool.name} needs a description`).toBeGreaterThan(
+        30,
+      );
     }
   });
 
@@ -376,19 +361,77 @@ describe("what an agent can reach compared with the browser", () => {
    * same schema rather than a convenient superset.
    */
   it("declares the schema each listing actually parses", async () => {
-    const source = await readFile(
-      new URL("../src/server/mcp.ts", import.meta.url),
-      "utf8",
-    );
+    const source = await readFile(new URL("../src/server/mcp.ts", import.meta.url), "utf8");
+    // `.strict()` is closure, not width: it narrows what the tool accepts to
+    // exactly the declared shape, which is the direction this test wants.
     const declared = (tool: string) =>
-      new RegExp(`"${tool}",[\\s\\S]{0,900}?inputSchema: ([A-Za-z.]+)`).exec(
-        source,
-      )?.[1];
+      new RegExp(`"${tool}",[\\s\\S]{0,900}?inputSchema: ([A-Za-z.]+)`)
+        .exec(source)?.[1]
+        ?.replace(/\.strict$/, "");
 
     expect(declared("list_transactions")).toBe("listQuerySchema");
     expect(declared("list_staged_transactions")).toBe("stageListQuerySchema");
     // Its service reads a cursor and a limit and nothing else, and caps that
     // limit lower than the shared listing schema does.
     expect(declared("list_import_batches")).toBe("importBatchListQuerySchema");
+  });
+});
+
+/**
+ * The other direction, which nothing checked until a budget shipped with tools
+ * the page had no way to reach.
+ *
+ * Parity was only ever enforced one way: every route needed a tool. That let
+ * the agent surface run ahead of the browser, which is the wrong way round for
+ * a product whose argument is that a person and their agent see the same
+ * ledger. A capability an agent has and a person does not is a capability
+ * nobody asked for in that shape.
+ *
+ * Matched on the static prefix of the path, because that is how the browser
+ * writes a URL: a literal up to the first parameter, then a template.
+ */
+const AGENT_ONLY: Record<string, string> = {
+  "POST /api/v1/staged-transactions/bulk-selection":
+    "Staged commits and deletes are explicit-ID, so the page walks the pages and keeps the rows rather than handing the server a filter, and says so at StagingPage.tsx. The route exists for preview_bulk_staged_selection, where an agent has no pages to walk.",
+};
+
+async function clientSource() {
+  const root = new URL("../src/client/", import.meta.url);
+  const walk = async (directory: URL): Promise<string[]> => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    const out: string[] = [];
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        out.push(...(await walk(new URL(`${entry.name}/`, directory))));
+      } else if (/\.tsx?$/.test(entry.name)) {
+        out.push(await readFile(new URL(entry.name, directory), "utf8"));
+      }
+    }
+    return out;
+  };
+  return (await walk(root)).join("\n");
+}
+
+describe("what the browser can reach compared with an agent", () => {
+  it("calls every route that is not a named agent-only exception", async () => {
+    const routes = await registeredRoutes();
+    const client = await clientSource();
+
+    const unreachable: string[] = [];
+    for (const route of routes) {
+      if (route in AGENT_ONLY) continue;
+      const path = route.slice(route.indexOf(" ") + 1);
+      const prefix = path.split("/:")[0];
+      if (!client.includes(prefix)) {
+        unreachable.push(`${route} — no call in src/client`);
+      }
+    }
+    expect(unreachable).toEqual([]);
+  });
+
+  it("gives every agent-only route a reason", () => {
+    for (const [route, reason] of Object.entries(AGENT_ONLY)) {
+      expect(reason.length, route).toBeGreaterThan(40);
+    }
   });
 });

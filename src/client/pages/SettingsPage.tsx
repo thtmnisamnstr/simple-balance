@@ -1,21 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useThemeSetting } from "../theme.js";
-import {
-  Bot,
-  KeyRound,
-  Link,
-  Settings2,
-  SunMoon,
-  TriangleAlert,
-} from "lucide-react";
+import { Bot, KeyRound, Link, Settings2, SunMoon, TriangleAlert } from "lucide-react";
 import { useState, useId } from "react";
 import { useSearchParams } from "../router.js";
-import {
-  api,
-  json,
-  type AuthPublicOptions,
-  type Session,
-} from "../api.js";
+import { api, json, type AuthPublicOptions, type Session } from "../api.js";
 import { authClient } from "../auth-client.js";
 import {
   Alert,
@@ -26,6 +14,7 @@ import {
   Input,
   PageHeader,
   Select,
+  Skeleton,
   useConfirm,
 } from "../components.js";
 import {
@@ -129,15 +118,17 @@ export default function SettingsPage({ session }: { session: Session }) {
             leaving a stretch of nothing between this card and the next one
             under it. */}
         <div className="settings-column">
-        <section className="panel settings-section">
-          <header className="section-title">
-            <span><SunMoon size={19} /></span>
-            <div>
-              <h2>Appearance</h2>
-              <p>How the app is coloured. Nothing here changes a figure.</p>
-            </div>
-          </header>
-          {/* Outside a form and with no Save button, unlike everything else on
+          <section className="panel settings-section">
+            <header className="section-title">
+              <span>
+                <SunMoon size={19} />
+              </span>
+              <div>
+                <h2>Appearance</h2>
+                <p>How the app is coloured. Nothing here changes a figure.</p>
+              </div>
+            </header>
+            {/* Outside a form and with no Save button, unlike everything else on
               this page. This is the one preference whose result is visible while
               you are choosing it, so it applies as you pick — and a Save button
               would let this and the toggle in the sidebar disagree about one
@@ -147,218 +138,213 @@ export default function SettingsPage({ session }: { session: Session }) {
               label and would repeat the heading directly above it, announcing
               "Appearance" twice. The `aria-label` is kept identical to the
               heading so what is seen and what is announced agree. */}
-          <div className="radio-row" role="radiogroup" aria-label="Appearance">
-            {THEME_CHOICES.map(({ value, label }) => (
-              <label className="check-label" key={value}>
-                <input
-                  type="radio"
-                  // A shared name is what makes these one group to the browser,
-                  // so the arrow keys move between them and the three are one
-                  // tab stop rather than three.
-                  name={themeGroup}
-                  value={value}
-                  checked={theme.preference === value}
-                  onChange={() => theme.setTheme(value)}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-          <p className="settings-note">
-            Follow my system takes whatever this device is set to, and changes
-            when it does. Light and Dark stay where you put them. Whichever you
-            choose is saved to your account, so it comes back on any browser you
-            sign in from.
-          </p>
-          {theme.error ? <Alert>{theme.error.message}</Alert> : null}
-        </section>
-
-        <section className="panel settings-section">
-          <header className="section-title">
-            <span><Settings2 size={19} /></span>
-            <div>
-              <h2>Regional defaults</h2>
-              <p>Default dates, date ranges, and calculations use this timezone.</p>
+            <div className="radio-row" role="radiogroup" aria-label="Appearance">
+              {THEME_CHOICES.map(({ value, label }) => (
+                <label className="check-label" key={value}>
+                  <input
+                    type="radio"
+                    // A shared name is what makes these one group to the browser,
+                    // so the arrow keys move between them and the three are one
+                    // tab stop rather than three.
+                    name={themeGroup}
+                    value={value}
+                    checked={theme.preference === value}
+                    onChange={() => theme.setTheme(value)}
+                  />
+                  {label}
+                </label>
+              ))}
             </div>
-          </header>
-          <form
-            className="form-grid"
-            onSubmit={(event) => {
-              event.preventDefault();
-              preferencesMutation.mutate();
-            }}
-          >
-            <Field label="Timezone">
-              <Select
-                required
-                value={timezone}
-                onChange={(event) => setTimezone(event.target.value)}
-              >
-                {timezoneOptions(timezone).map((option) => (
-                  <option key={option} value={option}>
-                    {timezoneOptionLabel(option)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Default account currency or crypto asset">
-              <Select
-                required
-                value={currency}
-                onChange={(event) => setCurrency(event.target.value)}
-              >
-                {currencyOptions(currency).map((option) => (
-                  <option key={option} value={option}>
-                    {currencyOptionLabel(option)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            {preferencesMutation.error ? (
-              <Alert>{preferencesMutation.error.message}</Alert>
-            ) : null}
-            {preferencesMutation.isSuccess ? (
-              <Alert kind="success">Preferences saved.</Alert>
-            ) : null}
-            <div className="form-actions">
-              <Button type="submit" loading={preferencesMutation.isPending}>
-                Save preferences
-              </Button>
-            </div>
-          </form>
-        </section>
+            <p className="settings-note">
+              Follow my system takes whatever this device is set to, and changes when it does. Light
+              and Dark stay where you put them. Whichever you choose is saved to your account, so it
+              comes back on any browser you sign in from.
+            </p>
+            {theme.error ? <Alert>{theme.error.message}</Alert> : null}
+          </section>
 
-        <ConnectedApps />
-        </div>
-
-        {(session.auth.localEnabled || session.auth.googleEnabled) ? (
-          <div className="settings-column">
           <section className="panel settings-section">
             <header className="section-title">
-              <span><KeyRound size={19} /></span>
+              <span>
+                <Settings2 size={19} />
+              </span>
               <div>
-                <h2>Sign-in methods</h2>
-                <p>Both methods open this same private ledger when connected.</p>
+                <h2>Regional defaults</h2>
+                <p>Default dates, date ranges, and calculations use this timezone.</p>
               </div>
             </header>
-            <div className="auth-method-status">
-              {session.auth.localEnabled ? (
-                <div>
-                  <strong>Email and password</strong>
-                  <Badge tone={session.auth.localPasswordConfigured ? "green" : undefined}>
-                    {session.auth.localPasswordConfigured ? "Ready" : "Not configured"}
-                  </Badge>
-                </div>
-              ) : null}
-              {session.auth.googleEnabled ? (
-                <div>
-                  <strong>Google</strong>
-                  <Badge tone={session.auth.googleLinked ? "green" : undefined}>
-                    {session.auth.googleLinked ? "Connected" : "Not connected"}
-                  </Badge>
-                </div>
-              ) : null}
-            </div>
-            {searchParams.get("auth_error") === "google-link" ? (
-              <Alert>Google could not be connected. Your existing sign-in method is unchanged.</Alert>
-            ) : null}
-            {session.auth.localEnabled ? (
-              <form
-                className="form-grid"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  passwordMutation.mutate();
-                }}
-              >
-                {session.auth.localPasswordConfigured ? (
-                  <Field label="Current password">
-                    <Input
-                      required
-                      name="currentPassword"
-                      type="password"
-                      autoComplete="current-password"
-                      value={currentPassword}
-                      onChange={(event) => setCurrentPassword(event.target.value)}
-                    />
-                  </Field>
-                ) : null}
-                <Field
-                  label={
-                    session.auth.localPasswordConfigured
-                      ? "New password"
-                      : "Set a password"
-                  }
-                  hint="12–128 characters"
+            <form
+              className="form-grid"
+              onSubmit={(event) => {
+                event.preventDefault();
+                preferencesMutation.mutate();
+              }}
+            >
+              <Field label="Timezone">
+                <Select
+                  required
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
                 >
-                  <Input
-                    required
-                    name="newPassword"
-                    type="password"
-                    minLength={12}
-                    maxLength={128}
-                    autoComplete="new-password"
-                    value={newPassword}
-                    onChange={(event) => setNewPassword(event.target.value)}
-                  />
-                </Field>
-                <Field label="Confirm new password">
-                  <Input
-                    required
-                    name="newPasswordConfirmation"
-                    type="password"
-                    minLength={12}
-                    maxLength={128}
-                    autoComplete="new-password"
-                    value={passwordConfirmation}
-                    onChange={(event) => setPasswordConfirmation(event.target.value)}
-                  />
-                </Field>
-                <small>
-                  Changing your password signs out every other session and
-                  disconnects every MCP client, so an agent authorized before
-                  the change has to be authorized again.
-                </small>
-                {passwordMutation.error ? (
-                  <Alert>{passwordMutation.error.message}</Alert>
-                ) : null}
-                {passwordMutation.isSuccess ? (
-                  <Alert kind="success">
-                    Password updated. Any connected agents have been
-                    disconnected.
-                  </Alert>
-                ) : null}
-                <div className="form-actions">
-                  <Button type="submit" loading={passwordMutation.isPending}>
-                    {session.auth.localPasswordConfigured
-                      ? "Change password"
-                      : "Set a password"}
-                  </Button>
-                </div>
-              </form>
-            ) : null}
-            {session.auth.googleEnabled && !session.auth.googleLinked ? (
-              <div className="provider-action">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  loading={googleLinkMutation.isPending}
-                  onClick={() => googleLinkMutation.mutate()}
+                  {timezoneOptions(timezone).map((option) => (
+                    <option key={option} value={option}>
+                      {timezoneOptionLabel(option)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Default account currency or crypto asset">
+                <Select
+                  required
+                  value={currency}
+                  onChange={(event) => setCurrency(event.target.value)}
                 >
-                  <Link size={16} /> Connect Google
+                  {currencyOptions(currency).map((option) => (
+                    <option key={option} value={option}>
+                      {currencyOptionLabel(option)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              {preferencesMutation.error ? (
+                <Alert>{preferencesMutation.error.message}</Alert>
+              ) : null}
+              {preferencesMutation.isSuccess ? (
+                <Alert kind="success">Preferences saved.</Alert>
+              ) : null}
+              <div className="form-actions">
+                <Button type="submit" loading={preferencesMutation.isPending}>
+                  Save preferences
                 </Button>
-                {googleLinkMutation.error ? (
-                  <Alert>{googleLinkMutation.error.message}</Alert>
+              </div>
+            </form>
+          </section>
+
+          <ConnectedApps />
+        </div>
+
+        {session.auth.localEnabled || session.auth.googleEnabled ? (
+          <div className="settings-column">
+            <section className="panel settings-section">
+              <header className="section-title">
+                <span>
+                  <KeyRound size={19} />
+                </span>
+                <div>
+                  <h2>Sign-in methods</h2>
+                  <p>Both methods open this same private ledger when connected.</p>
+                </div>
+              </header>
+              <div className="auth-method-status">
+                {session.auth.localEnabled ? (
+                  <div>
+                    <strong>Email and password</strong>
+                    <Badge tone={session.auth.localPasswordConfigured ? "green" : undefined}>
+                      {session.auth.localPasswordConfigured ? "Ready" : "Not configured"}
+                    </Badge>
+                  </div>
+                ) : null}
+                {session.auth.googleEnabled ? (
+                  <div>
+                    <strong>Google</strong>
+                    <Badge tone={session.auth.googleLinked ? "green" : undefined}>
+                      {session.auth.googleLinked ? "Connected" : "Not connected"}
+                    </Badge>
+                  </div>
                 ) : null}
               </div>
-            ) : null}
-            {session.auth.localPasswordConfigured ? (
-              <p className="settings-note">
-                {authOptions.data?.passwordResetAvailable
-                  ? "Forgotten this password? The sign-in screen can send a link to reset it."
-                  : "This deployment has no mail server, so a forgotten password cannot be reset. Keep it in a password manager."}
-              </p>
-            ) : null}
-          </section>
+              {searchParams.get("auth_error") === "google-link" ? (
+                <Alert>
+                  Google could not be connected. Your existing sign-in method is unchanged.
+                </Alert>
+              ) : null}
+              {session.auth.localEnabled ? (
+                <form
+                  className="form-grid"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    passwordMutation.mutate();
+                  }}
+                >
+                  {session.auth.localPasswordConfigured ? (
+                    <Field label="Current password">
+                      <Input
+                        required
+                        name="currentPassword"
+                        type="password"
+                        autoComplete="current-password"
+                        value={currentPassword}
+                        onChange={(event) => setCurrentPassword(event.target.value)}
+                      />
+                    </Field>
+                  ) : null}
+                  <Field
+                    label={session.auth.localPasswordConfigured ? "New password" : "Set a password"}
+                    hint="12–128 characters"
+                  >
+                    <Input
+                      required
+                      name="newPassword"
+                      type="password"
+                      minLength={12}
+                      maxLength={128}
+                      autoComplete="new-password"
+                      value={newPassword}
+                      onChange={(event) => setNewPassword(event.target.value)}
+                    />
+                  </Field>
+                  <Field label="Confirm new password">
+                    <Input
+                      required
+                      name="newPasswordConfirmation"
+                      type="password"
+                      minLength={12}
+                      maxLength={128}
+                      autoComplete="new-password"
+                      value={passwordConfirmation}
+                      onChange={(event) => setPasswordConfirmation(event.target.value)}
+                    />
+                  </Field>
+                  <small>
+                    Changing your password signs out every other session and disconnects every MCP
+                    client, so an agent authorized before the change has to be authorized again.
+                  </small>
+                  {passwordMutation.error ? <Alert>{passwordMutation.error.message}</Alert> : null}
+                  {passwordMutation.isSuccess ? (
+                    <Alert kind="success">
+                      Password updated. Any connected agents have been disconnected.
+                    </Alert>
+                  ) : null}
+                  <div className="form-actions">
+                    <Button type="submit" loading={passwordMutation.isPending}>
+                      {session.auth.localPasswordConfigured ? "Change password" : "Set a password"}
+                    </Button>
+                  </div>
+                </form>
+              ) : null}
+              {session.auth.googleEnabled && !session.auth.googleLinked ? (
+                <div className="provider-action">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={googleLinkMutation.isPending}
+                    onClick={() => googleLinkMutation.mutate()}
+                  >
+                    <Link size={16} /> Connect Google
+                  </Button>
+                  {googleLinkMutation.error ? (
+                    <Alert>{googleLinkMutation.error.message}</Alert>
+                  ) : null}
+                </div>
+              ) : null}
+              {session.auth.localPasswordConfigured ? (
+                <p className="settings-note">
+                  {authOptions.data?.passwordResetAvailable
+                    ? "Forgotten this password? The sign-in screen can send a link to reset it."
+                    : "This deployment has no mail server, so a forgotten password cannot be reset. Keep it in a password manager."}
+                </p>
+              ) : null}
+            </section>
           </div>
         ) : null}
       </div>
@@ -408,8 +394,7 @@ function DeleteAccount({ session }: { session: Session }) {
     enabled: open,
   });
   const deletion = useMutation({
-    mutationFn: () =>
-      api("/api/v1/me", { ...json({ confirmEmail }), method: "DELETE" }),
+    mutationFn: () => api("/api/v1/me", { ...json({ confirmEmail }), method: "DELETE" }),
     onSuccess: () => {
       // The session went with the account, so there is nothing to return to.
       // A full load rather than a route change, to leave no cached ledger
@@ -418,32 +403,31 @@ function DeleteAccount({ session }: { session: Session }) {
     },
   });
 
-  const matches =
-    confirmEmail.trim().toLowerCase() === session.user.email.trim().toLowerCase();
+  const matches = confirmEmail.trim().toLowerCase() === session.user.email.trim().toLowerCase();
 
   return (
     <section className="panel settings-section danger-zone">
       <header className="section-title">
-        <span><TriangleAlert size={19} /></span>
+        <span>
+          <TriangleAlert size={19} />
+        </span>
         <div>
           <h2>Delete this account</h2>
           <p>
-            Everything in it goes: accounts, transactions, categories, payees,
-            staged rows, recurring transactions, import history, and every agent
-            you have connected.
-            This cannot be undone and there is no copy kept.
+            Everything in it goes: accounts, transactions, categories, payees, staged rows,
+            recurring transactions, import history, and every agent you have connected. This cannot
+            be undone and there is no copy kept.
           </p>
         </div>
       </header>
 
       {open ? (
         <>
-          {summary.isLoading ? <p className="settings-note">Counting…</p> : null}
+          {summary.isLoading ? <Skeleton height={20} label="Counting your records…" /> : null}
           {summary.error ? <Alert>{summary.error.message}</Alert> : null}
           {summary.data ? (
             <p className="settings-note">
-              This will delete{" "}
-              {plural(summary.data.transactions, "transaction")} across{" "}
+              This will delete {plural(summary.data.transactions, "transaction")} across{" "}
               {plural(summary.data.accounts, "account")}, along with{" "}
               {readableList([
                 plural(summary.data.categories, "category", "categories"),
@@ -464,10 +448,7 @@ function DeleteAccount({ session }: { session: Session }) {
               .
             </p>
           ) : null}
-          <Field
-            label="Type your email address to confirm"
-            hint={session.user.email}
-          >
+          <Field label="Type your email address to confirm" hint={session.user.email}>
             <Input
               value={confirmEmail}
               autoComplete="off"
@@ -545,9 +526,7 @@ const scopeSummary = (scopes: string[]) => {
   return "No ledger access";
 };
 
-const when = (value: string | null) =>
-  value ? new Date(value).toLocaleString() : null;
-
+const when = (value: string | null) => (value ? new Date(value).toLocaleString() : null);
 
 function ConnectedApps() {
   const queryClient = useQueryClient();
@@ -574,21 +553,23 @@ function ConnectedApps() {
   return (
     <section className="panel settings-section">
       <header className="section-title">
-        <span><Bot size={19} /></span>
+        <span>
+          <Bot size={19} />
+        </span>
         <div>
           <h2>Connected agents</h2>
           <p>MCP clients you have let into this ledger, and what each may do.</p>
         </div>
       </header>
 
-      {apps.isLoading ? <p className="settings-note">Loading…</p> : null}
+      {apps.isLoading ? <Skeleton height={64} label="Loading connected apps…" /> : null}
       {apps.error ? <Alert>{apps.error.message}</Alert> : null}
       {revokeMutation.error ? <Alert>{revokeMutation.error.message}</Alert> : null}
 
       {apps.data && apps.data.length === 0 ? (
         <p className="settings-note">
-          Nothing is connected. An agent appears here once you approve it, and
-          you can withdraw that approval at any time.
+          Nothing is connected. An agent appears here once you approve it, and you can withdraw that
+          approval at any time.
         </p>
       ) : null}
 
@@ -607,13 +588,8 @@ function ConnectedApps() {
           <Button
             type="button"
             variant="danger"
-            loading={
-              revokeMutation.isPending &&
-              revokeMutation.variables === app.clientId
-            }
-            onClick={() =>
-              revocation.ask(app, () => revokeMutation.mutate(app.clientId))
-            }
+            loading={revokeMutation.isPending && revokeMutation.variables === app.clientId}
+            onClick={() => revocation.ask(app, () => revokeMutation.mutate(app.clientId))}
           >
             Revoke
           </Button>

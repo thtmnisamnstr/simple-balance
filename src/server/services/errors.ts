@@ -2,21 +2,21 @@ import { ZodError } from "zod";
 import type { ApiErrorCode, ValidationIssue } from "../../shared/domain.js";
 
 export class AppError extends Error {
-  constructor(
-    public readonly code: ApiErrorCode,
-    message: string,
-    public readonly status: number,
-    public readonly details?: unknown,
-  ) {
+  readonly code: ApiErrorCode;
+  readonly status: number;
+  readonly details?: unknown;
+
+  constructor(code: ApiErrorCode, message: string, status: number, details?: unknown) {
     super(message);
     this.name = "AppError";
+    this.code = code;
+    this.status = status;
+    this.details = details;
   }
 }
 
-export const notFound = (
-  message = "The requested record was not found",
-  details?: unknown,
-) => new AppError("NOT_FOUND", message, 404, details);
+export const notFound = (message = "The requested record was not found", details?: unknown) =>
+  new AppError("NOT_FOUND", message, 404, details);
 
 export const conflict = (message: string, details?: unknown) =>
   new AppError("CONFLICT", message, 409, details);

@@ -2,6 +2,108 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+### Added
+
+Budgets. A limit per category per period, compared against what was actually
+spent, with nothing in it that writes a posting.
+
+A budget is a standing instruction rather than a row per month. Both ends of its
+window are snapped to the period, so any day inside a month names that whole
+month and a budget set today applies today. One plan covers every period in its
+window, so a budget that runs all year is one row and the
+months nobody has reached yet are not materialised by anything. Setting an
+amount for a single period overrides the plan for that period alone, and the
+report says which of the two produced each figure. Windows for one category may
+not overlap, which is what keeps last March answering with what last March
+intended when the budget is raised in July.
+
+A budget report shows whole periods. Every other report clips a bucket to the
+range asked for, and a budget must not: a limit belongs to a whole period, so
+weighing it against part of one reads as money still to spend when the month is
+already overspent. A range chooses which periods to show. The period still
+running is marked as such, because its spending is a total so far.
+
+The comparison runs on the same `date_trunc` grid the reports bucket by, so a
+limit and its spending cannot land on different months, and it joins from the
+budget to the spending rather than the other way, so a category budgeted at two
+hundred and spent nothing on reads as nought of two hundred instead of
+disappearing. Splits attribute each leg to its own category and transfers
+contribute nothing, both because legs are postings rather than because anything
+special was written for them.
+
+Deleting a budget leaves the books exactly as they were, because it never
+touched them.
+
+### Changed
+
+A refund now lowers the category it came back from, instead of raising income.
+
+A deposit credits income and a withdrawal debits expense only when no category
+contradicts it. A category whose kind runs against the direction makes the entry
+a refund, and its other half posts to the counter-account the direction would
+never have asked for. Thirty pounds back from the shop was previously refused
+outright with "Choose an income category for a deposit", so there was no way to
+enter one at all, and a spending figure could only ever go up.
+
+A draft may say `categoryKind` alongside `categoryName`, which is how a refund
+into a spending category that does not exist yet is recorded at all: without it
+a deposit creates an income category and credits that, and the spending it was
+reversing never moves. The transaction form asks the question whenever a name
+with nothing behind it is typed — "money you earned" against "a refund of money
+you spent" — and stays quiet when the category already exists or the picker is
+empty, because there is nothing to decide. A CSV import that may only stage carries the same field
+on the staged row, so the kind is the file's decision rather than whichever row
+happened to commit first.
+
+A CSV file's rows vote on the kind of a category the file creates: whichever
+direction most of them run is what the category is, and a tie is spending. It
+used to be created covering both directions when a file held a purchase and its
+refund, which is the same defect one layer along, because a category covering
+both agrees with whichever direction it is handed.
+
+Naming a category rather than citing its id follows the same rule. A deposit
+naming "Groceries" used to widen Groceries to cover both directions, and a
+category covering both agrees with whichever direction it is handed, so the
+refund credited income, the budget never moved, and every later refund into that
+category was broken too. A category running against the direction is now kept as
+it is, because that pairing is a reversal rather than an ambiguity. Two rows in
+one CSV naming a category nobody has created yet still make one that covers
+both, because there is no existing answer to preserve.
+
+One entry may not name both an income and an expense category, because two
+counter-accounts would be two movements and only one of them is the one somebody
+entered. A bulk edit refuses to turn rows into refunds for the same reason it
+refuses to flatten a split: not because it cannot be done, but because it cannot
+be done to rows nobody looked at.
+
+Nothing in the reports needed changing. Both counter-accounts already segment as
+operating in the cash flow statement, and spending by category already sums
+signed postings, so a refund lands correctly without any figure being taught
+what a refund is.
+
+### Fixed
+
+Merging two categories moves the budgets onto the target instead of destroying
+them with the source row, and refuses when both are budgeted for the same period
+rather than picking a winner. Same failure as the prune below, one door along.
+
+A category is no longer tidied away underneath a budget. Moving the last
+transaction off a category prunes it, which is right, and the composite foreign
+key then took its budgets with it, which is not: the docstring on that prune
+already promised that "a category held only by a standing instruction is held
+all the same", and a budget is exactly that. Asking to delete a category still
+takes its budgets, because that is a decision somebody made and the story says
+a budget is never a reason to refuse one.
+
+Creates that write no postings no longer claim to need an idempotency key they
+never had. `AGENTS.md` said every create required one and four of the six did
+not, which described the code as broken rather than describing what it does: a
+record somebody names is protected by its name being unique, so a second submit
+fails instead of duplicating. Only creates that write postings, which have no
+natural key, need the key.
+
 ## 0.1.5 - 2026-08-22
 
 ### Added

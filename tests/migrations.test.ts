@@ -42,6 +42,14 @@ describe("migration baseline", () => {
       "0003_transaction_templates",
       "0004_template_provenance",
     ]);
+    // AGENTS.md carries this same list in prose, and a list of what may never
+    // change is worth nothing if it can fall behind what is on disk. It did:
+    // the prose stopped at 0012 while drizzle/ held 0013, and nothing in the
+    // suite read AGENTS.md at all.
+    const agents = await readFile(path.join(import.meta.dirname, "..", "AGENTS.md"), "utf8");
+    const unlisted = migrationFiles.filter((file) => !agents.includes(file));
+    expect(unlisted).toEqual([]);
+
     expect(migrationFiles[0]).toBe("0000_initial.sql");
     expect(snapshotFiles[0]).toBe("0000_snapshot.json");
     expect(journal).toMatchObject({ version: "7", dialect: "postgresql" });
@@ -61,17 +69,12 @@ describe("migration baseline", () => {
     expect(snapshotFiles).toHaveLength(journal.entries.length);
     journal.entries.forEach((entry, index) => {
       expect(migrationFiles[index]).toBe(`${entry.tag}.sql`);
-      expect(snapshotFiles[index]).toBe(
-        `${String(index).padStart(4, "0")}_snapshot.json`,
-      );
+      expect(snapshotFiles[index]).toBe(`${String(index).padStart(4, "0")}_snapshot.json`);
     });
   });
 
   it("models the current schema directly", async () => {
-    const sql = await readFile(
-      path.join(migrationDirectory, "0000_initial.sql"),
-      "utf8",
-    );
+    const sql = await readFile(path.join(migrationDirectory, "0000_initial.sql"), "utf8");
     const baselineSnapshot = JSON.parse(
       await readFile(path.join(metadataDirectory, "0000_snapshot.json"), "utf8"),
     ) as {
@@ -94,19 +97,15 @@ describe("migration baseline", () => {
     expect(sql).toContain(
       'CREATE INDEX "transaction_external_id_idx" ON "ledger_transaction" USING btree ("user_id","external_id")',
     );
-    expect(sql).toContain(
-      'CONSTRAINT "ledger_transaction_shape_check" CHECK',
-    );
+    expect(sql).toContain('CONSTRAINT "ledger_transaction_shape_check" CHECK');
     // Postings are append-only, so one account can carry several generations
     // for the same transaction and a conversion touches the exchange account in
     // two currencies. A uniqueness rule there would block both.
     expect(sql).not.toContain('CREATE UNIQUE INDEX "posting_transaction_account_unique"');
     expect(sql).toContain('CREATE INDEX "posting_transaction_idx"');
-    expect(sql).toContain("CREATE TYPE \"public\".\"system_account_kind\"");
+    expect(sql).toContain('CREATE TYPE "public"."system_account_kind"');
     expect(sql).toContain('"system_kind" "system_account_kind"');
-    expect(sql).toContain(
-      'CONSTRAINT "idempotency_record_request_hash_check" CHECK',
-    );
+    expect(sql).toContain('CONSTRAINT "idempotency_record_request_hash_check" CHECK');
     expect(sql).toContain(
       'CONSTRAINT "ledger_transaction_destination_account_owner_fk" FOREIGN KEY ("user_id","destination_account_id")',
     );
@@ -129,8 +128,7 @@ describe("migration baseline", () => {
       baselineSnapshot.tables["public.idempotency_record"]?.columns.request_hash,
     ).toMatchObject({ notNull: true, type: "text" });
     expect(
-      baselineSnapshot.tables["public.ledger_transaction"]?.indexes
-        .transaction_external_id_idx,
+      baselineSnapshot.tables["public.ledger_transaction"]?.indexes.transaction_external_id_idx,
     ).toBeDefined();
   });
 
@@ -173,10 +171,7 @@ describe("migration baseline", () => {
    */
   it("adds the shared rate limit and the setup token as pure additions", async () => {
     for (const name of ["0007_shared_rate_limit", "0008_owner_setup_token"]) {
-      const sql = await readFile(
-        path.join(migrationDirectory, `${name}.sql`),
-        "utf8",
-      );
+      const sql = await readFile(path.join(migrationDirectory, `${name}.sql`), "utf8");
       for (const forbidden of [
         /\bDROP\b/i,
         /^\s*UPDATE\s/im,
@@ -251,12 +246,7 @@ describe("migration baseline", () => {
       `CHECK ("template_notification"."notify_at" ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')`,
     );
 
-    for (const forbidden of [
-      /\bDROP\b/i,
-      /^\s*UPDATE\s/im,
-      /^\s*DELETE\s/im,
-      /^\s*INSERT\s/im,
-    ]) {
+    for (const forbidden of [/\bDROP\b/i, /^\s*UPDATE\s/im, /^\s*DELETE\s/im, /^\s*INSERT\s/im]) {
       expect(sql, forbidden.source).not.toMatch(forbidden);
     }
     // Every added column carries a default, so no existing row is rewritten.
@@ -272,19 +262,12 @@ describe("migration baseline", () => {
    * quietly take that away on a large table.
    */
   it("adds the theme without rewriting a row", async () => {
-    const sql = await readFile(
-      path.join(migrationDirectory, "0011_user_theme.sql"),
-      "utf8",
-    );
+    const sql = await readFile(path.join(migrationDirectory, "0011_user_theme.sql"), "utf8");
 
-    expect(sql).toMatch(
-      /CREATE TYPE "public"\."user_theme" AS ENUM\('system', 'light', 'dark'\)/,
-    );
+    expect(sql).toMatch(/CREATE TYPE "public"\."user_theme" AS ENUM\('system', 'light', 'dark'\)/);
     // `system` first is not cosmetic: it is the default, and it means "follow
     // the machine", which is the only honest thing to fill an existing row with.
-    expect(sql).toMatch(
-      /ADD COLUMN "theme" "user_theme" DEFAULT 'system' NOT NULL/,
-    );
+    expect(sql).toMatch(/ADD COLUMN "theme" "user_theme" DEFAULT 'system' NOT NULL/);
     // A constant default, so the add is metadata-only. A volatile one would
     // rewrite the table.
     expect(sql).not.toMatch(/DEFAULT\s+[a-z_]+\s*\(/i);
@@ -305,9 +288,7 @@ describe("migration baseline", () => {
       "utf8",
     );
 
-    const dropped = [...sql.matchAll(/DROP INDEX IF EXISTS "([^"]+)"/g)].map(
-      (match) => match[1],
-    );
+    const dropped = [...sql.matchAll(/DROP INDEX IF EXISTS "([^"]+)"/g)].map((match) => match[1]);
     expect(dropped).toEqual([
       "category_user_idx",
       "ledger_account_user_idx",
@@ -341,15 +322,9 @@ describe("migration baseline", () => {
     );
 
     expect(sql).toContain('CREATE TABLE "recurrence"');
-    expect(sql).toContain(
-      `ALTER TYPE "public"."actor_source" ADD VALUE 'schedule';`,
-    );
-    expect(sql).toContain(
-      'ALTER TABLE "staged_transaction" ADD COLUMN "recurrence_id" uuid;',
-    );
-    expect(sql).toContain(
-      'ALTER TABLE "staged_transaction" ADD COLUMN "occurrence_date" date;',
-    );
+    expect(sql).toContain(`ALTER TYPE "public"."actor_source" ADD VALUE 'schedule';`);
+    expect(sql).toContain('ALTER TABLE "staged_transaction" ADD COLUMN "recurrence_id" uuid;');
+    expect(sql).toContain('ALTER TABLE "staged_transaction" ADD COLUMN "occurrence_date" date;');
 
     // The index that makes proposing an occurrence twice impossible. Partial on
     // recurrence_id and deliberately NOT qualified by status, so a row somebody
@@ -357,9 +332,7 @@ describe("migration baseline", () => {
     expect(sql).toContain(
       'CREATE UNIQUE INDEX "staged_recurrence_occurrence_unique" ON "staged_transaction" USING btree ("user_id","recurrence_id","occurrence_date") WHERE "staged_transaction"."recurrence_id" is not null',
     );
-    expect(sql).not.toMatch(
-      /staged_recurrence_occurrence_unique[\s\S]*?WHERE[^;]*status/i,
-    );
+    expect(sql).not.toMatch(/staged_recurrence_occurrence_unique[\s\S]*?WHERE[^;]*status/i);
 
     for (const forbidden of [/\bDROP\b/i, /^\s*UPDATE\s/im, /^\s*DELETE\s/im, /^\s*INSERT\s/im]) {
       expect(sql, forbidden.source).not.toMatch(forbidden);

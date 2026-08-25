@@ -561,12 +561,7 @@ integration("double-entry ledger", () => {
     const before = await postingCount(created.id);
     expect(before).toBe(2);
 
-    const deleted = await setTransactionDeleted(
-      actor,
-      created.id,
-      created.version,
-      true,
-    );
+    const deleted = await setTransactionDeleted(actor, created.id, created.version, true);
 
     // Nothing is erased. The movement is reversed, so the entry nets to nothing
     // and no balance or report has to remember to filter it out.

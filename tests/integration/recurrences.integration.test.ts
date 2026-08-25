@@ -5,10 +5,7 @@ import { MAX_RECURRENCES } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 import { recurrences, user } from "../../src/server/db/schema.js";
-import {
-  createAccount,
-  setAccountArchived,
-} from "../../src/server/services/accounts.js";
+import { createAccount, setAccountArchived } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import {
   createRecurrence,
@@ -20,11 +17,7 @@ import {
   ruleOf,
   updateRecurrence,
 } from "../../src/server/services/recurrences.js";
-import {
-  commitStages,
-  deleteStages,
-  listStages,
-} from "../../src/server/services/staging.js";
+import { commitStages, deleteStages, listStages } from "../../src/server/services/staging.js";
 import {
   addDays,
   occurrencesBetween,
@@ -99,9 +92,7 @@ integration("recurring transactions", () => {
         openingBalance: "10000",
       })
     ).id;
-    rentCategoryId = (
-      await createCategory(actor, { name: "Rent", kind: "expense" })
-    ).id;
+    rentCategoryId = (await createCategory(actor, { name: "Rent", kind: "expense" })).id;
   });
 
   afterAll(async () => {
@@ -117,12 +108,12 @@ integration("recurring transactions", () => {
         fromAccountId: checkingId,
         categoryId: rentCategoryId,
         amount: "1200.00",
-        ...((over.shape as object) ?? {}),
+        ...(over.shape as object),
       },
       schedule: {
         frequency: "monthly",
         anchorDate: inDays(1),
-        ...((over.schedule as object) ?? {}),
+        ...(over.schedule as object),
       },
     });
 
@@ -197,9 +188,7 @@ integration("recurring transactions", () => {
     const rows = await stagedFor(created.id);
     await deleteStages(actor, {
       stagedIds: rows.map((row) => row.id),
-      expectedVersions: Object.fromEntries(
-        rows.map((row) => [row.id, row.version]),
-      ),
+      expectedVersions: Object.fromEntries(rows.map((row) => [row.id, row.version])),
       idempotencyKey: "c3-discard",
     });
     const after = await getRecurrence(actor, created.id);
@@ -224,9 +213,7 @@ integration("recurring transactions", () => {
       inDays(43),
     ]);
 
-    expect(await proposeDueOccurrences(actor, created.id, inDays(43), 50)).toBe(
-      "nothing_due",
-    );
+    expect(await proposeDueOccurrences(actor, created.id, inDays(43), 50)).toBe("nothing_due");
     expect(await stagedFor(created.id)).toHaveLength(first.length);
   });
 
@@ -242,23 +229,15 @@ integration("recurring transactions", () => {
     // key. What must never happen is the same occurrence proposed twice.
     expect(settled.map((one) => one.status)).toContain("fulfilled");
 
-    const occurrences = (await stagedFor(created.id))
-      .map((row) => row.occurrenceDate)
-      .sort();
+    const occurrences = (await stagedFor(created.id)).map((row) => row.occurrenceDate).sort();
     // Against the arithmetic, not merely against itself. Uniqueness alone is
     // guaranteed by staged_recurrence_occurrence_unique, so asserting it proved
     // the index exists rather than that the race is safe; what a lost race
     // actually costs is an occurrence nobody proposed at all.
-    const [row] = await getDb()
-      .select()
-      .from(recurrences)
-      .where(eq(recurrences.id, created.id));
-    const expected = occurrencesBetween(
-      ruleOf(row!),
-      addDays(today, -1),
-      inDays(29),
-      50,
-    ).map((one) => one.occurrenceDate);
+    const [row] = await getDb().select().from(recurrences).where(eq(recurrences.id, created.id));
+    const expected = occurrencesBetween(ruleOf(row!), addDays(today, -1), inDays(29), 50).map(
+      (one) => one.occurrenceDate,
+    );
     expect(occurrences).toEqual(expected.sort());
     // And the watermark agrees with what was written, so neither run left it
     // ahead of the rows it stands for.
@@ -269,9 +248,7 @@ integration("recurring transactions", () => {
     const created = await make("C4 capped", {
       schedule: { frequency: "weekly", anchorDate: inDays(1) },
     });
-    expect(await proposeDueOccurrences(actor, created.id, inDays(43), 3)).toBe(
-      "capped",
-    );
+    expect(await proposeDueOccurrences(actor, created.id, inDays(43), 3)).toBe("capped");
     expect(await stagedFor(created.id)).toHaveLength(3);
     await proposeDueOccurrences(actor, created.id, inDays(43), 50);
     expect(await stagedFor(created.id)).toHaveLength(7);
@@ -302,9 +279,7 @@ integration("recurring transactions", () => {
     const rows = await stagedFor(created.id);
     const saturday = rows.find((row) => row.occurrenceDate === nextSaturday);
     expect(saturday, "the Saturday occurrence keeps its own date").toBeDefined();
-    expect((saturday!.draft as { date: string }).date).toBe(
-      addDays(nextSaturday, -1),
-    );
+    expect((saturday!.draft as { date: string }).date).toBe(addDays(nextSaturday, -1));
   });
 
   it("proposes a row naming an account that no longer resolves, and says which field", async () => {
@@ -330,9 +305,7 @@ integration("recurring transactions", () => {
     await proposeDueOccurrences(actor, created.id, inDays(1), 50);
     const [row] = await stagedFor(created.id);
     expect(row.status).toBe("staged");
-    expect(
-      row.validationIssues.some((issue) => issue.field === "fromAccountId"),
-    ).toBe(true);
+    expect(row.validationIssues.some((issue) => issue.field === "fromAccountId")).toBe(true);
   });
 
   it("still names the field when the amount is missing too", async () => {
@@ -391,9 +364,7 @@ integration("recurring transactions", () => {
    * a story about money that was never divided that way.
    */
   it("proposes a split and commits it as one, still settling to zero", async () => {
-    const householdId = (
-      await createCategory(actor, { name: "Household", kind: "expense" })
-    ).id;
+    const householdId = (await createCategory(actor, { name: "Household", kind: "expense" })).id;
     const created = await createRecurrence(actor, {
       name: "Split shop",
       shape: {
@@ -437,9 +408,7 @@ integration("recurring transactions", () => {
        order by tl.ordinal
     `);
     expect(legs.rows).toHaveLength(2);
-    expect(
-      (legs.rows as { amount: string }[]).map((row) => Number(row.amount)),
-    ).toEqual([60, 40]);
+    expect((legs.rows as { amount: string }[]).map((row) => Number(row.amount))).toEqual([60, 40]);
 
     // Every leg posts under its own leg id, and the whole entry still settles.
     const postings = await getDb().execute(sql`
@@ -485,16 +454,10 @@ integration("recurring transactions", () => {
 
     const rows = await stagedFor(created.id);
     for (const row of rows) {
-      expect(
-        String(row.draft.date) >= sunday,
-        `${row.draft.date} precedes ${sunday}`,
-      ).toBe(true);
+      expect(String(row.draft.date) >= sunday, `${row.draft.date} precedes ${sunday}`).toBe(true);
     }
     // The occurrence is still consumed rather than reconsidered forever.
-    const [after] = await getDb()
-      .select()
-      .from(recurrences)
-      .where(eq(recurrences.id, created.id));
+    const [after] = await getDb().select().from(recurrences).where(eq(recurrences.id, created.id));
     expect(after!.lastOccurrenceDate).toBe(sunday);
   });
 

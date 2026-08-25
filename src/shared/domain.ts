@@ -24,12 +24,7 @@ export type UserAccountType = (typeof userAccountTypes)[number];
 export type AccountType = (typeof accountTypes)[number];
 
 /** Which side of the books a server-owned counter-account represents. */
-export const systemAccountKinds = [
-  "income",
-  "expense",
-  "exchange",
-  "equity",
-] as const;
+export const systemAccountKinds = ["income", "expense", "exchange", "equity"] as const;
 export type SystemAccountKind = (typeof systemAccountKinds)[number];
 
 export const accountTypeLabels: Record<UserAccountType, string> = {
@@ -85,9 +80,7 @@ export function groupAccountsByType<T extends { type: string }>(
     return index === -1 ? accountTypeOrder.length : index;
   };
   return [...groups.entries()]
-    .sort(
-      ([left], [right]) => rank(left) - rank(right) || left.localeCompare(right),
-    )
+    .sort(([left], [right]) => rank(left) - rank(right) || left.localeCompare(right))
     .map(([type, items]) => ({
       type,
       label: accountTypeLabels[type as UserAccountType] ?? type,
@@ -106,6 +99,60 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 export const transactionTypes = ["deposit", "withdrawal", "transfer"] as const;
 export type TransactionType = (typeof transactionTypes)[number];
+
+/**
+ * Which side of the books the non-account half of an entry lands on, and
+ * whether getting there reverses the direction it was entered in.
+ *
+ * A deposit normally credits income and a withdrawal normally debits expense.
+ * A refund is the exception in both directions: thirty pounds back from the
+ * shop is not income, and what should move is the spending it reverses. So the
+ * kinds of the categories the entry names decide, and the direction is only the
+ * default when nothing contradicts it. A `both` category contradicts nothing,
+ * which is what makes it `both`.
+ *
+ * All the legs answer together, because they are shares of one movement. An
+ * entry naming an income category and an expense category at once is refused
+ * rather than split across two counter-accounts, because those would be two
+ * movements and only one of them is the one somebody entered.
+ *
+ * One function, because the browser previews this and the server enforces it.
+ * It returns a result rather than throwing so the form can put the refusal
+ * beside the field while the service turns the same sentence into a 422.
+ */
+export type EntrySide =
+  | { ok: true; counterKind: "income" | "expense"; reversal: boolean }
+  | { ok: false; message: string };
+
+export function resolveEntrySide(
+  type: "deposit" | "withdrawal",
+  namedKinds: Iterable<CategoryKind>,
+): EntrySide {
+  const kinds = new Set(namedKinds);
+  const forward = type === "deposit" ? "income" : "expense";
+  const reverse = type === "deposit" ? "expense" : "income";
+  if (kinds.has(forward) && kinds.has(reverse)) {
+    return {
+      ok: false,
+      message:
+        type === "deposit"
+          ? "A deposit is either income or a refund, not both. Enter it as two transactions."
+          : "A withdrawal is either spending or income coming back, not both. Enter it as two transactions.",
+    };
+  }
+  const reversal = kinds.has(reverse);
+  return { ok: true, counterKind: reversal ? reverse : forward, reversal };
+}
+
+/**
+ * Whether one category on one entry reverses it, which is the question a form
+ * asks about the field somebody just changed. A transfer files under no
+ * category at all, so nothing about it reverses.
+ */
+export function reversesEntry(type: TransactionType, kind: CategoryKind) {
+  if (type === "transfer") return false;
+  return type === "deposit" ? kind === "expense" : kind === "income";
+}
 
 /**
  * Which palette to paint, where `system` is a standing instruction rather than a
@@ -144,10 +191,7 @@ export const isoDateSchema = z
 
 export const currencyCodeSchema = z
   .string()
-  .regex(
-    /^[A-Z]{2,12}$/,
-    "Use an uppercase ISO currency code or supported crypto asset symbol",
-  )
+  .regex(/^[A-Z]{2,12}$/, "Use an uppercase ISO currency code or supported crypto asset symbol")
   .describe(
     "Uppercase currency code, for example USD or EUR, or a crypto asset symbol such as BTC. An account's currency is fixed once it is in use.",
   );
@@ -169,6 +213,22 @@ export const positiveDecimalStringSchema = decimalStringSchema
   )
   .describe(
     'How much money moved, as a decimal string greater than zero, for example "42.50". Direction comes from the transaction type, so this is never negative.',
+  );
+
+/**
+ * The version a caller last read, sent back so a write can refuse a stale one.
+ *
+ * Described once here rather than at each of the twelve places that take it,
+ * because an agent meeting `expectedVersion` with no description has to guess
+ * both where the number comes from and what to do when it is rejected, and
+ * guessing wrong means retrying the same stale write in a loop.
+ */
+export const expectedVersionSchema = z
+  .number()
+  .int()
+  .positive()
+  .describe(
+    "The `version` you last read on this record. The write is refused with STALE_VERSION if it has moved since, which means somebody else changed it: read the record again and decide whether your change still applies. Never retry with the old number.",
   );
 
 export const idempotencyKeySchema = z
@@ -342,6 +402,26 @@ const transactionShapeCommon = {
     .describe(
       'A category by name rather than by id, matched case-insensitively against your existing categories and created only if it is genuinely new. Ignored when categoryId is set. Use this when you know what to call it but not its id, for example "Groceries".',
     ),
+  // Which kind a category this entry has to create should be, when the entry's
+  // own direction is the wrong guess.
+  //
+  // A deposit naming a category nobody has created yet would otherwise make an
+  // income category, and a refund into a brand new spending category was
+  // therefore impossible to record: the category came out as income, the
+  // deposit credited it, and the spending it was reversing never moved. A CSV
+  // import needs the same thing for a different reason, because a file decides
+  // the kind from all its rows and then hands one row at a time to a commit
+  // that can no longer see the others.
+  //
+  // Ignored when the category already exists, which keeps whatever kind it has,
+  // and ignored when categoryId is given, since an id is already an answer.
+  categoryKind: z
+    .enum(categoryKinds)
+    .optional()
+    .nullable()
+    .describe(
+      'Which kind to create the category as when categoryName names one that does not exist yet. Left out, a deposit creates an income category and a withdrawal an expense one. Set it to "expense" on a deposit to record a refund into a spending category that is new, which is otherwise impossible to express. Ignored when the category already exists or when categoryId is set.',
+    ),
   legs: legsField,
   notes: freeText(z.string().trim().max(4_000)).optional().nullable(),
 };
@@ -510,9 +590,7 @@ export const transactionTemplateDraftSchema = z
   .strict()
   .superRefine(checkLegs);
 
-export type TransactionTemplateDraft = z.infer<
-  typeof transactionTemplateDraftSchema
->;
+export type TransactionTemplateDraft = z.infer<typeof transactionTemplateDraftSchema>;
 
 /**
  * Every selected template is named outright, with the version it was read at.
@@ -529,7 +607,7 @@ export const transactionTemplateBulkSelectionSchema = z
         z
           .object({
             id: z.string().uuid(),
-            expectedVersion: z.number().int().positive(),
+            expectedVersion: expectedVersionSchema,
           })
           .strict(),
       )
@@ -569,9 +647,7 @@ export const transactionTemplateBulkPatchSchema = z
     // Legs move as a whole list or not at all. "Add a leg to thirty templates"
     // has no meaning when each of the thirty splits a different total.
     legs: templateLegsField.nullable().optional(),
-    description: freeText(z.string().trim().min(1).max(240))
-      .nullable()
-      .optional(),
+    description: freeText(z.string().trim().min(1).max(240)).nullable().optional(),
     notes: freeText(z.string().trim().min(1).max(4_000)).nullable().optional(),
   })
   .strict()
@@ -584,7 +660,12 @@ export const transactionTemplateBulkEditSchema = z
     selection: transactionTemplateBulkSelectionSchema,
     patch: transactionTemplateBulkPatchSchema,
     idempotencyKey: idempotencyKeySchema,
-    dryRun: z.boolean().default(false),
+    dryRun: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      ),
   })
   .strict();
 
@@ -592,7 +673,12 @@ export const transactionTemplateBulkDeleteSchema = z
   .object({
     selection: transactionTemplateBulkSelectionSchema,
     idempotencyKey: idempotencyKeySchema,
-    dryRun: z.boolean().default(false),
+    dryRun: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      ),
   })
   .strict();
 
@@ -612,23 +698,21 @@ export const transactionTemplateBulkResultSchema = z
   })
   .strict();
 
-export type TransactionTemplateBulkPatch = z.infer<
-  typeof transactionTemplateBulkPatchSchema
->;
+export type TransactionTemplateBulkPatch = z.infer<typeof transactionTemplateBulkPatchSchema>;
 export type TransactionTemplateBulkSelection = z.infer<
   typeof transactionTemplateBulkSelectionSchema
 >;
-export type TransactionTemplateBulkResult = z.infer<
-  typeof transactionTemplateBulkResultSchema
->;
+export type TransactionTemplateBulkResult = z.infer<typeof transactionTemplateBulkResultSchema>;
 
 export const accountCreateSchema = z.object({
   name: oneLine(z.string().trim().min(1).max(120)).describe(
     "What you call this account. Unique among your accounts.",
   ),
-  type: z.enum(userAccountTypes).describe(
-    "What kind of account this is. credit_card, loan, and other_liability are money you owe; the rest are money you hold.",
-  ),
+  type: z
+    .enum(userAccountTypes)
+    .describe(
+      "What kind of account this is. credit_card, loan, and other_liability are money you owe; the rest are money you hold.",
+    ),
   currency: currencyCodeSchema,
   openingDate: isoDateSchema.describe(
     "The day this account's history starts. The opening balance is recorded on this date, and transactions before it are not counted in a balance as of a later day.",
@@ -642,7 +726,7 @@ export const accountCreateSchema = z.object({
 
 export const accountUpdateSchema = accountCreateSchema
   .partial()
-  .extend({ expectedVersion: z.number().int().positive() });
+  .extend({ expectedVersion: expectedVersionSchema });
 
 export const categoryCreateSchema = z.object({
   name: oneLine(z.string().trim().min(1).max(120)),
@@ -651,7 +735,7 @@ export const categoryCreateSchema = z.object({
 
 export const categoryUpdateSchema = categoryCreateSchema
   .partial()
-  .extend({ expectedVersion: z.number().int().positive() });
+  .extend({ expectedVersion: expectedVersionSchema });
 
 export const categoryMergeSchema = z.object({
   sourceCategoryIds: z.array(z.string().uuid()).min(1).max(100),
@@ -713,12 +797,12 @@ export const directTransactionCreateSchema = z.object({
 
 export const transactionUpdateSchema = z.object({
   draft: transactionDraftSchema,
-  expectedVersion: z.number().int().positive(),
+  expectedVersion: expectedVersionSchema,
   allowDuplicate: z.boolean().default(false),
 });
 
 export const versionedMutationSchema = z.object({
-  expectedVersion: z.number().int().positive(),
+  expectedVersion: expectedVersionSchema,
 });
 
 export const transactionDeletedMutationSchema = versionedMutationSchema.extend({
@@ -726,11 +810,13 @@ export const transactionDeletedMutationSchema = versionedMutationSchema.extend({
   allowDuplicate: z.boolean().default(false),
 });
 
-export const stageCreateSchema = z.object({
-  draft: stagedDraftSchema,
-  idempotencyKey: idempotencyKeySchema,
-  rawData: z.record(z.string(), z.unknown()).optional().nullable(),
-}).strict();
+export const stageCreateSchema = z
+  .object({
+    draft: stagedDraftSchema,
+    idempotencyKey: idempotencyKeySchema,
+    rawData: z.record(z.string(), z.unknown()).optional().nullable(),
+  })
+  .strict();
 
 /**
  * The most rows one bulk selection may carry. Every bulk request that lists ids
@@ -742,7 +828,7 @@ export const MAX_BULK_SELECTION_ENTRIES = 10_000;
 
 export const stageUpdateSchema = z.object({
   draft: stagedDraftSchema,
-  expectedVersion: z.number().int().positive(),
+  expectedVersion: expectedVersionSchema,
 });
 
 export const commitStageSchema = z.object({
@@ -750,12 +836,26 @@ export const commitStageSchema = z.object({
   expectedVersions: z.record(z.string(), z.number().int().positive()),
   idempotencyKey: idempotencyKeySchema,
   allowDuplicates: z.boolean().default(false),
-  dryRun: z.boolean().default(false),
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+    ),
 });
 
 export const bulkDeleteStageSchema = z.object({
   stagedIds: z.array(z.string().uuid()).min(1).max(MAX_BULK_SELECTION_ENTRIES),
   expectedVersions: z.record(z.string(), z.number().int().positive()),
+  // The last bulk route to get one. Every other bulk write lets a caller ask
+  // what would happen before doing it; this one made you find out by doing it,
+  // which is the wrong way round for the operation that removes rows.
+  dryRun: z
+    .boolean()
+    .default(false)
+    .describe(
+      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+    ),
 });
 
 export const dateRangeSchema = z.object({
@@ -782,14 +882,109 @@ export const reportNames = [
 ] as const;
 export type ReportName = (typeof reportNames)[number];
 
-export const reportBuckets = [
-  "none",
+export const reportBuckets = ["none", "week", "month", "quarter", "year"] as const;
+export type ReportBucket = (typeof reportBuckets)[number];
+
+/**
+ * The periods a budget can run on.
+ *
+ * Declared as report buckets rather than merely resembling them. A limit and
+ * the spending it is compared against have to land on one grid, and the only
+ * way to be sure of that is for the budget to be unable to name a period the
+ * report engine cannot bucket by. `satisfies` is what enforces it: add a period
+ * here that is not a bucket and this stops compiling.
+ *
+ * `none` is deliberately absent. A budget over all of time is not a budget.
+ * Pay-cycle and 4-4-5 periods are absent too, and that is a decision rather
+ * than an oversight: two of the three envelope products that lead this field
+ * refuse them as well.
+ */
+export const budgetPeriodUnits = [
   "week",
   "month",
   "quarter",
   "year",
-] as const;
-export type ReportBucket = (typeof reportBuckets)[number];
+] as const satisfies readonly ReportBucket[];
+export type BudgetPeriodUnit = (typeof budgetPeriodUnits)[number];
+
+/**
+ * A budget may be zero, which is a real budget meaning "anything here is over".
+ * It may not be negative. Without this the value travelled all the way to the
+ * table's check constraint and came back as a 500 with a stack trace, for what
+ * is only ever a mistyped amount.
+ */
+const budgetAmountSchema = decimalStringSchema.refine(
+  (value) => !value.trimStart().startsWith("-"),
+  { message: "A budget cannot be negative. Use zero to budget nothing." },
+);
+
+const budgetTarget = {
+  categoryId: z.string().uuid(),
+  currency: currencyCodeSchema,
+  periodUnit: z.enum(budgetPeriodUnits),
+};
+
+/**
+ * A standing budget for one category, per period, in one currency.
+ *
+ * There is no amount spanning currencies here and there is nowhere to put one.
+ * A budget is a vector the way net worth is, because this ledger holds no
+ * exchange rate that is not the rate some transfer actually got, and a
+ * converted total would be the one figure on the page nobody could check.
+ */
+export const budgetPlanCreateSchema = z
+  .object({
+    ...budgetTarget,
+    amount: budgetAmountSchema,
+    activeFrom: isoDateSchema,
+    activeTo: isoDateSchema.nullable().optional(),
+  })
+  .strict()
+  .refine((value) => value.activeTo == null || value.activeTo >= value.activeFrom, {
+    message: "A budget cannot end before it starts.",
+    path: ["activeTo"],
+  });
+
+export const budgetPlanUpdateSchema = z
+  .object({
+    amount: budgetAmountSchema.optional(),
+    activeFrom: isoDateSchema.optional(),
+    // Present and null ends the plan, absent leaves it alone. The distinction
+    // is the one the templates already draw, so it reads the same way here.
+    activeTo: isoDateSchema.nullable().optional(),
+    expectedVersion: expectedVersionSchema,
+  })
+  .strict();
+
+/** One period's amount, overriding whatever a plan would have said. */
+export const budgetEntrySetSchema = z
+  .object({
+    ...budgetTarget,
+    periodStart: isoDateSchema,
+    amount: budgetAmountSchema,
+    // Absent on the first set, required to change one that is already there.
+    expectedVersion: expectedVersionSchema.optional(),
+  })
+  .strict();
+
+export const budgetReportQuerySchema = z
+  .object({
+    start: isoDateSchema.optional(),
+    end: isoDateSchema.optional(),
+    periodUnit: z.enum(budgetPeriodUnits).default("month"),
+    // On, unlike every other report, and deliberately. Elsewhere an archived
+    // account's balance is genuinely closed out, so leaving it in would double
+    // count. A budget compares spending against a limit that was never scoped
+    // to an account, so money spent on a card since closed is money the budget
+    // covered: filtering it makes a budget spent to the penny read as underspent.
+    includeArchived: z.boolean().default(true),
+    // Spending in categories nobody budgeted. On by default, because the
+    // question "where did the rest go" is the one a budget raises, and a page
+    // that answered it only when asked would be hiding the gap. Turn it off to
+    // see the budget alone.
+    includeUnbudgeted: z.boolean().default(true),
+  })
+  .strict();
 
 /** How a report treats time: a period's own movement, or the balance it ends on. */
 export const reportAccumulations = ["change", "historical"] as const;
@@ -801,7 +996,6 @@ export type ReportAccumulation = (typeof reportAccumulations)[number];
  * the type the person already chose rather than from a second thing to declare.
  */
 export const cashAccountTypes = ["checking", "savings", "cash"] as const;
-
 
 /**
  * A ledger with a long history asked for weekly buckets is a request for
@@ -817,16 +1011,22 @@ export const MAX_REPORT_BUCKETS = 600;
  */
 export const MAX_REGISTER_ENTRIES = 10_000;
 
-export const reportNameSchema = z
-  .enum(reportNames)
-  .describe("Which report to run.");
+export const reportNameSchema = z.enum(reportNames).describe("Which report to run.");
 
 export const reportQuerySchema = dateRangeSchema.extend({
   report: reportNameSchema,
   bucket: z.enum(reportBuckets).optional(),
 });
 
-const queryBooleanSchema = z
+/**
+ * A boolean that arrived as a query string.
+ *
+ * Exported because five routes used to compare `=== "true"` by hand, which
+ * silently reads `?includeArchived=yes` as false: the caller asked for
+ * something, was not refused, and got the opposite. This refuses anything that
+ * is not `true` or `false`, which is the behaviour a caller can learn from.
+ */
+export const queryBooleanSchema = z
   .union([
     z.boolean(),
     z.literal("true").transform(() => true),
@@ -838,37 +1038,69 @@ export const sortDirections = ["asc", "desc"] as const;
 export type SortDirection = (typeof sortDirections)[number];
 
 /** Every column the transaction list puts on screen can order it. */
-const transactionSortFields = [
-  "date",
-  "payee",
-  "account",
-  "category",
-  "amount",
-] as const;
+const transactionSortFields = ["date", "payee", "account", "category", "amount"] as const;
 export type TransactionSortField = (typeof transactionSortFields)[number];
 
 /** Same rule for the staged queue. */
-const stageSortFields = [
-  "date",
-  "payee",
-  "account",
-  "category",
-  "status",
-  "amount",
-] as const;
+const stageSortFields = ["date", "payee", "account", "category", "status", "amount"] as const;
 export type StageSortField = (typeof stageSortFields)[number];
 
 export const listQuerySchema = dateRangeSchema.extend({
-  sort: z.enum(transactionSortFields).default("date"),
-  direction: z.enum(sortDirections).default("desc"),
-  cursor: z.string().min(1).max(500).optional(),
-  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-  limit: z.coerce.number().int().min(1).max(200).default(50),
-  accountId: z.string().uuid().optional(),
-  categoryId: z.string().uuid().optional(),
-  templateId: z.string().uuid().optional(),
-  payee: oneLine(z.string().trim().min(1).max(160)).optional(),
-  type: z.enum(transactionTypes).optional(),
+  // Described because these five were the worst case on the whole agent
+  // surface: a list published `sort`, `direction`, `cursor`, `page` and `limit`
+  // with nothing on any of them, which are exactly the five an agent has to
+  // guess at. They are shared by every list, so one description each covers the
+  // lot.
+  sort: z
+    .enum(transactionSortFields)
+    .default("date")
+    .describe(
+      "Which column to order by. Ordering is presentation only and never changes which rows match.",
+    ),
+  direction: z
+    .enum(sortDirections)
+    .default("desc")
+    .describe('Ascending or descending. Defaults to newest first ("desc").'),
+  cursor: z
+    .string()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe(
+      "Resume token from a previous page, taken from `nextCursor`. It records the ordering it was issued for and is refused under another, so re-read from page 1 after changing `sort` or `direction`. Some orderings cannot be resumed and offer no cursor; page through those by number instead.",
+    ),
+  page: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1_000_000)
+    .default(1)
+    .describe(
+      "1-based page number, for orderings that offer no cursor. Ignored when `cursor` is sent.",
+    ),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .default(50)
+    .describe("Rows per page, 1 to 200. Defaults to 50."),
+  accountId: z.string().uuid().optional().describe("Only rows touching this account."),
+  categoryId: z.string().uuid().optional().describe("Only rows filed under this category."),
+  templateId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "Only rows started from this template. Provenance only; a deleted template leaves its rows alone.",
+    ),
+  payee: oneLine(z.string().trim().min(1).max(160))
+    .optional()
+    .describe("Only rows whose payee matches, ignoring case and surrounding space."),
+  type: z
+    .enum(transactionTypes)
+    .optional()
+    .describe("Only deposits, only withdrawals, or only transfers."),
   currency: currencyCodeSchema.optional(),
   search: oneLine(z.string().trim().max(200)).optional(),
   includeDeleted: queryBooleanSchema,
@@ -892,7 +1124,7 @@ const bulkTransactionIdSelectionSchema = z
         z
           .object({
             id: z.string().uuid(),
-            expectedVersion: z.number().int().positive(),
+            expectedVersion: expectedVersionSchema,
           })
           .strict(),
       )
@@ -996,7 +1228,12 @@ export const bulkTransactionEditSchema = z
     patch: bulkTransactionPatchSchema,
     idempotencyKey: idempotencyKeySchema,
     allowDuplicates: z.boolean().default(false),
-    dryRun: z.boolean().default(false),
+    dryRun: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      ),
   })
   .strict();
 
@@ -1005,7 +1242,12 @@ export const bulkTransactionDeleteSchema = z
   .object({
     selection: bulkTransactionSelectionSchema,
     idempotencyKey: idempotencyKeySchema,
-    dryRun: z.boolean().default(false),
+    dryRun: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      ),
   })
   .strict();
 
@@ -1040,19 +1282,13 @@ export const bulkTransactionEditResultSchema = z
   })
   .strict();
 
-export type BulkTransactionFilter = z.infer<
-  typeof bulkTransactionFilterSchema
->;
+export type BulkTransactionFilter = z.infer<typeof bulkTransactionFilterSchema>;
 export type BulkTransactionSelectionSnapshot = z.infer<
   typeof bulkTransactionSelectionSnapshotSchema
 >;
 export type BulkTransactionPatch = z.infer<typeof bulkTransactionPatchSchema>;
-export type BulkTransactionEditInput = z.infer<
-  typeof bulkTransactionEditSchema
->;
-export type BulkTransactionEditResult = z.infer<
-  typeof bulkTransactionEditResultSchema
->;
+export type BulkTransactionEditInput = z.infer<typeof bulkTransactionEditSchema>;
+export type BulkTransactionEditResult = z.infer<typeof bulkTransactionEditResultSchema>;
 
 /**
  * `currency` and `includeDeleted` are dropped rather than inherited. A draft
@@ -1062,10 +1298,20 @@ export type BulkTransactionEditResult = z.infer<
 export const stageListQuerySchema = listQuerySchema
   .omit({ currency: true, includeDeleted: true })
   .extend({
-    sort: z.enum(stageSortFields).default("date"),
-    importBatchId: z.string().uuid().optional(),
-    recurrenceId: z.string().uuid().optional(),
-    validity: z.enum(["valid", "invalid", "duplicate"]).optional(),
+    sort: z
+      .enum(stageSortFields)
+      .default("date")
+      .describe(
+        "Which column to order by. Ordering is presentation only and never changes which rows match.",
+      ),
+    importBatchId: z.string().uuid().optional().describe("Only rows from this CSV import."),
+    recurrenceId: z.string().uuid().optional().describe("Only rows proposed by this recurrence."),
+    validity: z
+      .enum(["valid", "invalid", "duplicate"])
+      .optional()
+      .describe(
+        "Only rows that would commit cleanly, only rows with an issue, or only rows that look like something already in the ledger.",
+      ),
   });
 
 /**
@@ -1094,7 +1340,7 @@ const bulkStageIdSelectionSchema = z
         z
           .object({
             id: z.string().uuid(),
-            expectedVersion: z.number().int().positive(),
+            expectedVersion: expectedVersionSchema,
           })
           .strict(),
       )
@@ -1211,7 +1457,12 @@ export const bulkStageEditSchema = z
     selection: bulkStageSelectionSchema,
     patch: bulkStagePatchSchema,
     idempotencyKey: idempotencyKeySchema,
-    dryRun: z.boolean().default(false),
+    dryRun: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      ),
   })
   .strict();
 
@@ -1273,6 +1524,14 @@ export type PaginatedPage<T> = Page<T> & {
   pageSize: number;
   totalCount: number;
   totalPages: number;
+  /**
+   * Whether this ordering can be resumed with a cursor.
+   *
+   * `nextCursor` is null for two different reasons — the last page, or an
+   * ordering with no keyset to resume from — and a caller could not tell them
+   * apart. This says which, on every page.
+   */
+  cursorAvailable: boolean;
 };
 
 export const recurrenceFrequencies = ["daily", "weekly", "monthly", "yearly"] as const;
@@ -1378,9 +1637,7 @@ function sumsExactly(parts: readonly string[], whole: string) {
     const [integer = "0", fraction = ""] = value.split(".");
     return BigInt(integer + fraction.padEnd(scale, "0"));
   };
-  return (
-    parts.reduce((total, part) => total + asInteger(part), 0n) === asInteger(whole)
-  );
+  return parts.reduce((total, part) => total + asInteger(part), 0n) === asInteger(whole);
 }
 
 const recurrenceShapeFields = {
@@ -1483,10 +1740,7 @@ function checkSchedule(
   }
   // A weekly rule's relative day is already the weekday of its anchor, and a
   // daily one has no month to count within.
-  if (
-    schedule.position &&
-    (schedule.frequency === "daily" || schedule.frequency === "weekly")
-  ) {
+  if (schedule.position && (schedule.frequency === "daily" || schedule.frequency === "weekly")) {
     context.addIssue({
       code: "custom",
       path: ["position"],
@@ -1604,11 +1858,7 @@ export const templateNotificationSchema = z
       };
       for (const field of ["interval", "monthPolicy", "weekendPolicy", "position"] as const) {
         const value = notification[field];
-        if (
-          value !== undefined &&
-          value !== null &&
-          value !== MEANINGLESS[field]
-        ) {
+        if (value !== undefined && value !== null && value !== MEANINGLESS[field]) {
           context.addIssue({
             code: "custom",
             path: [field],
@@ -1646,7 +1896,7 @@ export const transactionTemplateCreateSchema = z.object({
  */
 export const transactionTemplateUpdateSchema = transactionTemplateCreateSchema
   .partial()
-  .extend({ expectedVersion: z.number().int().positive() });
+  .extend({ expectedVersion: expectedVersionSchema });
 
 /**
  * Whether to send an email when the scheduler proposes from this recurrence.
@@ -1676,6 +1926,6 @@ export const recurrenceUpdateSchema = z
     shape: recurrenceShapeSchema.optional(),
     schedule: recurrenceSchedulePatchSchema.optional(),
     notifyOnCreate: recurrenceNotifySchema.optional(),
-    expectedVersion: z.number().int().positive(),
+    expectedVersion: expectedVersionSchema,
   })
   .strict();

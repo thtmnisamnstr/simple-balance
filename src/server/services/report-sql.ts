@@ -1,4 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
+import type { ReportBucket } from "../../shared/domain.js";
 
 /**
  * Entries that still run through an archived account.
@@ -51,4 +52,42 @@ export function withClause(...parts: (SQL | null)[]): SQL {
   const present = parts.filter((part): part is SQL => part !== null);
   if (present.length === 0) return sql.empty();
   return sql`with ${sql.join(present, sql`, `)}`;
+}
+
+/**
+ * How long one bucket lasts, and what PostgreSQL calls it.
+ *
+ * Here rather than in `reports.ts` because budgeting needs the same grid. A
+ * limit and the spending it is compared against have to be bucketed by one
+ * expression, and two copies of `date_trunc` are two chances to disagree about
+ * which month a purchase fell in.
+ */
+export const PERIOD_STEPS: Record<Exclude<ReportBucket, "none">, SQL> = {
+  week: sql`interval '1 week'`,
+  month: sql`interval '1 month'`,
+  quarter: sql`interval '3 months'`,
+  year: sql`interval '1 year'`,
+};
+
+export const PERIOD_UNITS: Record<Exclude<ReportBucket, "none">, SQL> = {
+  week: sql`'week'`,
+  month: sql`'month'`,
+  quarter: sql`'quarter'`,
+  year: sql`'year'`,
+};
+
+export function gridQuery(bucket: ReportBucket, start: string, asOf: string): SQL {
+  if (bucket === "none") {
+    return sql`select ${start}::date as bucket_start, ${asOf}::date as period_end`;
+  }
+  return sql`
+    select
+      b.bucket::date as bucket_start,
+      (b.bucket + ${PERIOD_STEPS[bucket]} - interval '1 day')::date as period_end
+    from generate_series(
+      date_trunc(${PERIOD_UNITS[bucket]}, ${start}::date),
+      date_trunc(${PERIOD_UNITS[bucket]}, ${asOf}::date),
+      ${PERIOD_STEPS[bucket]}
+    ) as b(bucket)
+  `;
 }

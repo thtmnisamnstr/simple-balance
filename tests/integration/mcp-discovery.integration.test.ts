@@ -136,9 +136,7 @@ integration("what an MCP client can discover before it has a token", () => {
     ]) {
       const response = await app.request(`${BASE}${path}`);
       expect(response.status, path).toBe(200);
-      expect(response.headers.get("content-type"), path).toContain(
-        "application/json",
-      );
+      expect(response.headers.get("content-type"), path).toContain("application/json");
     }
   });
 
@@ -341,17 +339,16 @@ for (const mode of ["local", "google", "both"] as const) {
       expect(location.searchParams.get("client_id")).toBe(client.client_id);
       expect(location.searchParams.get("state")).toBe(`mode-${mode}`);
       expect(location.searchParams.get("code_challenge")).toBeTruthy();
-      expect(location.searchParams.get("redirect_uri")).toBe(
-        "http://127.0.0.1:7777/callback",
-      );
+      expect(location.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:7777/callback");
       // Consent is this server's policy, not the client's choice.
       expect(location.searchParams.get("prompt")).toBe("consent");
     });
 
     it("advertises exactly the sign-in methods this mode enables", async () => {
-      const methods = (await (
-        await app.request(`${BASE}/api/auth/methods`)
-      ).json()) as Record<string, unknown>;
+      const methods = (await (await app.request(`${BASE}/api/auth/methods`)).json()) as Record<
+        string,
+        unknown
+      >;
       expect(methods.mode).toBe(mode);
       expect(methods.localEnabled).toBe(mode !== "google");
       expect(methods.googleEnabled).toBe(mode !== "local");

@@ -125,26 +125,17 @@ export function draftForTransactionForm(input: unknown): TransactionFormDraft {
     notes: stagedString(draft.notes),
     fromAccountId: stagedString(draft.fromAccountId),
     toAccountId: stagedString(draft.toAccountId),
-    amount:
-      type === "transfer"
-        ? stagedString(draft.sourceAmount)
-        : stagedString(draft.amount),
-    destinationAmount:
-      type === "transfer" ? stagedString(draft.destinationAmount) : "",
+    amount: type === "transfer" ? stagedString(draft.sourceAmount) : stagedString(draft.amount),
+    destinationAmount: type === "transfer" ? stagedString(draft.destinationAmount) : "",
     externalId: stagedString(draft.externalId),
     templateId: stagedString(draft.templateId),
   };
 }
 
-export function summarizeStagedDraft(
-  draft: StagedDraft,
-  accounts: StageAccount[],
-) {
+export function summarizeStagedDraft(draft: StagedDraft, accounts: StageAccount[]) {
   const type = stagedType(draft.type);
   if (type === "deposit") {
-    const account = accounts.find(
-      (item) => item.id === stagedString(draft.toAccountId),
-    );
+    const account = accounts.find((item) => item.id === stagedString(draft.toAccountId));
     return {
       account: account?.name ?? "Unknown account",
       amount: stagedString(draft.amount),
@@ -152,9 +143,7 @@ export function summarizeStagedDraft(
     };
   }
   if (type === "withdrawal") {
-    const account = accounts.find(
-      (item) => item.id === stagedString(draft.fromAccountId),
-    );
+    const account = accounts.find((item) => item.id === stagedString(draft.fromAccountId));
     return {
       account: account?.name ?? "Unknown account",
       amount: stagedString(draft.amount),
@@ -162,12 +151,8 @@ export function summarizeStagedDraft(
     };
   }
   if (type === "transfer") {
-    const source = accounts.find(
-      (item) => item.id === stagedString(draft.fromAccountId),
-    );
-    const destination = accounts.find(
-      (item) => item.id === stagedString(draft.toAccountId),
-    );
+    const source = accounts.find((item) => item.id === stagedString(draft.fromAccountId));
+    const destination = accounts.find((item) => item.id === stagedString(draft.toAccountId));
     return {
       account: `${source?.name ?? "Unknown"} → ${destination?.name ?? "Unknown"}`,
       amount: stagedString(draft.sourceAmount),
@@ -176,7 +161,6 @@ export function summarizeStagedDraft(
   }
   return { account: "Unknown account", amount: "", currency: "" };
 }
-
 
 /**
  * What a row offers a new template, before the person edits it.

@@ -114,6 +114,7 @@ empty, and does nothing if it is already current. Generate the secret with
 ```sh
 docker run -d --name simple-balance --restart unless-stopped \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --stop-timeout 30 \
   --env-file .env -p 127.0.0.1:3000:3000 \
   ghcr.io/thtmnisamnstr/simple-balance:latest
 ```

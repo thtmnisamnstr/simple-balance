@@ -23,7 +23,9 @@ const azCount = 3;
 const availabilityZone = (index: number) =>
   azNames.apply((names) => {
     if (names.length < azCount) {
-      throw new Error(`${region} offers ${names.length} availability zones; this program spreads across ${azCount}.`);
+      throw new Error(
+        `${region} offers ${names.length} availability zones; this program spreads across ${azCount}.`,
+      );
     }
     return names[index];
   });
@@ -43,24 +45,34 @@ const internetGateway = new aws.ec2.InternetGateway("simple-balance", {
 // The role tags are how the AWS Load Balancer Controller finds somewhere to put
 // a load balancer. Untagged subnets mean a Service that stays pending with a
 // "couldn't auto-discover subnets" event and nothing else wrong with it.
-const publicSubnets = Array.from({ length: azCount }, (_, i) =>
-  new aws.ec2.Subnet(`simple-balance-public-${i}`, {
-    vpcId: vpc.id,
-    cidrBlock: `10.0.${i}.0/24`,
-    availabilityZone: availabilityZone(i),
-    mapPublicIpOnLaunch: true,
-    tags: { ...tags, Name: `simple-balance-public-${i}`, "kubernetes.io/role/elb": "1" },
-  }));
+const publicSubnets = Array.from(
+  { length: azCount },
+  (_, i) =>
+    new aws.ec2.Subnet(`simple-balance-public-${i}`, {
+      vpcId: vpc.id,
+      cidrBlock: `10.0.${i}.0/24`,
+      availabilityZone: availabilityZone(i),
+      mapPublicIpOnLaunch: true,
+      tags: { ...tags, Name: `simple-balance-public-${i}`, "kubernetes.io/role/elb": "1" },
+    }),
+);
 
 // A /20 each: with the VPC CNI every pod takes an address out of these, so the
 // subnet size is the pod ceiling.
-const privateSubnets = Array.from({ length: azCount }, (_, i) =>
-  new aws.ec2.Subnet(`simple-balance-private-${i}`, {
-    vpcId: vpc.id,
-    cidrBlock: `10.0.${16 * (i + 1)}.0/20`,
-    availabilityZone: availabilityZone(i),
-    tags: { ...tags, Name: `simple-balance-private-${i}`, "kubernetes.io/role/internal-elb": "1" },
-  }));
+const privateSubnets = Array.from(
+  { length: azCount },
+  (_, i) =>
+    new aws.ec2.Subnet(`simple-balance-private-${i}`, {
+      vpcId: vpc.id,
+      cidrBlock: `10.0.${16 * (i + 1)}.0/20`,
+      availabilityZone: availabilityZone(i),
+      tags: {
+        ...tags,
+        Name: `simple-balance-private-${i}`,
+        "kubernetes.io/role/internal-elb": "1",
+      },
+    }),
+);
 
 const natEip = new aws.ec2.Eip("simple-balance-nat", { domain: "vpc", tags });
 
@@ -86,22 +98,28 @@ const privateRouteTable = new aws.ec2.RouteTable("simple-balance-private", {
   tags: { ...tags, Name: "simple-balance-private" },
 });
 
-publicSubnets.forEach((subnet, i) =>
-  new aws.ec2.RouteTableAssociation(`simple-balance-public-${i}`, {
-    subnetId: subnet.id,
-    routeTableId: publicRouteTable.id,
-  }));
+publicSubnets.forEach(
+  (subnet, i) =>
+    new aws.ec2.RouteTableAssociation(`simple-balance-public-${i}`, {
+      subnetId: subnet.id,
+      routeTableId: publicRouteTable.id,
+    }),
+);
 
-privateSubnets.forEach((subnet, i) =>
-  new aws.ec2.RouteTableAssociation(`simple-balance-private-${i}`, {
-    subnetId: subnet.id,
-    routeTableId: privateRouteTable.id,
-  }));
+privateSubnets.forEach(
+  (subnet, i) =>
+    new aws.ec2.RouteTableAssociation(`simple-balance-private-${i}`, {
+      subnetId: subnet.id,
+      routeTableId: privateRouteTable.id,
+    }),
+);
 
 const nodeRole = new aws.iam.Role("simple-balance-node", {
   assumeRolePolicy: JSON.stringify({
     Version: "2012-10-17",
-    Statement: [{ Effect: "Allow", Principal: { Service: "ec2.amazonaws.com" }, Action: "sts:AssumeRole" }],
+    Statement: [
+      { Effect: "Allow", Principal: { Service: "ec2.amazonaws.com" }, Action: "sts:AssumeRole" },
+    ],
   }),
   tags,
 });
@@ -374,7 +392,8 @@ const ingressNginx = new k8s.helm.v3.Release(
             "service.beta.kubernetes.io/aws-load-balancer-type": "external",
             "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "ip",
             "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
-            "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled": "true",
+            "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled":
+              "true",
             // A TCP health check calls a controller healthy the moment nginx
             // has the socket open, which is before it has any configuration.
             "service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol": "http",

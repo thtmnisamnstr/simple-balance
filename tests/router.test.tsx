@@ -55,15 +55,11 @@ describe("embedded browser router", () => {
     );
 
     fireEvent.click(screen.getByRole("link", { name: "Open account" }));
-    expect(
-      screen.getByText("Account account-1 ?start=2026-07-01"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Account account-1 ?start=2026-07-01")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Set range" }));
     expect(
-      screen.getByText(
-        "Account account-1 ?start=2026-07-01&end=2026-07-31",
-      ),
+      screen.getByText("Account account-1 ?start=2026-07-01&end=2026-07-31"),
     ).toBeInTheDocument();
     expect(window.location.pathname).toBe("/accounts/account-1");
   });
@@ -72,15 +68,11 @@ describe("embedded browser router", () => {
     window.history.replaceState(null, "", "/accounts");
     render(
       <BrowserRouter>
-        <Link to="https://docs.example.com/accounting?from=app">
-          Documentation
-        </Link>
+        <Link to="https://docs.example.com/accounting?from=app">Documentation</Link>
       </BrowserRouter>,
     );
 
-    expect(
-      screen.getByRole("link", { name: "Documentation" }),
-    ).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Documentation" })).toHaveAttribute(
       "href",
       "https://docs.example.com/accounting?from=app",
     );

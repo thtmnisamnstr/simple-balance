@@ -5,6 +5,8 @@ import {
   bulkTransactionEditSchema,
   isoDateSchema,
   listQuerySchema,
+  resolveEntrySide,
+  reversesEntry,
   stageCreateSchema,
   transactionDraftSchema,
 } from "../src/shared/domain.js";
@@ -32,19 +34,13 @@ describe("boundary schemas", () => {
 
   it("enforces the PostgreSQL numeric(44,18) storage boundary", () => {
     expect(
-      decimalStringSchema.safeParse(
-        "99999999999999999999999999.999999999999999999",
-      ).success,
+      decimalStringSchema.safeParse("99999999999999999999999999.999999999999999999").success,
     ).toBe(true);
     expect(
-      decimalStringSchema.safeParse(
-        "-99999999999999999999999999.999999999999999999",
-      ).success,
+      decimalStringSchema.safeParse("-99999999999999999999999999.999999999999999999").success,
     ).toBe(true);
     expect(
-      decimalStringSchema.safeParse(
-        "100000000000000000000000000.000000000000000000",
-      ).success,
+      decimalStringSchema.safeParse("100000000000000000000000000.000000000000000000").success,
     ).toBe(false);
     expect(decimalStringSchema.safeParse("0.123456789012345678").success).toBe(true);
     expect(decimalStringSchema.safeParse("0.1234567890123456789").success).toBe(false);
@@ -203,9 +199,7 @@ describe("date presets", () => {
   it("uses the configured timezone at a calendar-day boundary", () => {
     const instant = new Date("2026-08-01T06:30:00.000Z");
 
-    expect(
-      rangeForPreset("this-month", instant, "America/Los_Angeles"),
-    ).toEqual({
+    expect(rangeForPreset("this-month", instant, "America/Los_Angeles")).toEqual({
       start: "2026-07-01",
       end: "2026-07-31",
     });
@@ -456,7 +450,7 @@ describe("CSV normalization", () => {
         {
           transaction_id: "11111111-1111-4111-8111-111111111111",
           date: "2026-07-30",
-          description: "=HYPERLINK(\"https://example.invalid\")",
+          description: '=HYPERLINK("https://example.invalid")',
           payee: "  +SUM(1,2)",
           notes: "@malicious",
           source_amount: "-12.34",
@@ -470,7 +464,7 @@ describe("CSV normalization", () => {
     expect(result.rows[0]).toEqual({
       transaction_id: "11111111-1111-4111-8111-111111111111",
       date: "2026-07-30",
-      description: "'=HYPERLINK(\"https://example.invalid\")",
+      description: '\'=HYPERLINK("https://example.invalid")',
       payee: "'  +SUM(1,2)",
       notes: "'@malicious",
       source_amount: "-12.34",
@@ -491,15 +485,12 @@ describe("reading a CSV cell", () => {
 
   it("treats an inherited property name as a missing column", () => {
     for (const inherited of ["__proto__", "constructor", "toString"]) {
-      const rows = normalizeCsvRows(
-        [{ Date: "2026-07-30", Memo: "Paycheck", Amount: "10.00" }],
-        {
-          mapping: mapping({ payee: inherited }),
-          dateFormat: "YMD",
-          decimalSeparator: ".",
-          defaultAccountId: accountId,
-        },
-      );
+      const rows = normalizeCsvRows([{ Date: "2026-07-30", Memo: "Paycheck", Amount: "10.00" }], {
+        mapping: mapping({ payee: inherited }),
+        dateFormat: "YMD",
+        decimalSeparator: ".",
+        defaultAccountId: accountId,
+      });
       // No throw, and the row simply says the field is missing.
       expect(rows[0]!.draft, inherited).toBeNull();
       expect(
@@ -531,5 +522,66 @@ describe("reading a CSV cell", () => {
       defaultAccountId: accountId,
     });
     expect(rows[0]!.draft).toMatchObject({ payee: "Paycheck" });
+  });
+});
+
+/**
+ * The rule the browser previews and the services enforce. Kept here as well as
+ * in the ledger tests because those prove the postings it produces, and these
+ * prove the rule itself, which is the thing two sides have to agree about.
+ */
+describe("which side of the books an entry lands on", () => {
+  it("follows the direction when nothing contradicts it", () => {
+    expect(resolveEntrySide("deposit", [])).toEqual({
+      ok: true,
+      counterKind: "income",
+      reversal: false,
+    });
+    expect(resolveEntrySide("withdrawal", [])).toEqual({
+      ok: true,
+      counterKind: "expense",
+      reversal: false,
+    });
+  });
+
+  it("reads a spending category on a deposit as a refund", () => {
+    expect(resolveEntrySide("deposit", ["expense"])).toEqual({
+      ok: true,
+      counterKind: "expense",
+      reversal: true,
+    });
+  });
+
+  it("reads an income category on a withdrawal as income going back", () => {
+    expect(resolveEntrySide("withdrawal", ["income"])).toEqual({
+      ok: true,
+      counterKind: "income",
+      reversal: true,
+    });
+  });
+
+  it("lets a both-kind category go either way without reversing anything", () => {
+    expect(resolveEntrySide("deposit", ["both"])).toMatchObject({
+      counterKind: "income",
+      reversal: false,
+    });
+    expect(resolveEntrySide("withdrawal", ["both", "expense"])).toMatchObject({
+      counterKind: "expense",
+      reversal: false,
+    });
+  });
+
+  it("refuses an entry that is income and a refund at once", () => {
+    const side = resolveEntrySide("deposit", ["income", "expense"]);
+    expect(side.ok).toBe(false);
+    expect(side.ok === false && side.message).toMatch(/either income or a refund/i);
+  });
+
+  it("says a transfer reverses nothing, because it files under no category", () => {
+    expect(reversesEntry("transfer", "income")).toBe(false);
+    expect(reversesEntry("transfer", "expense")).toBe(false);
+    expect(reversesEntry("deposit", "expense")).toBe(true);
+    expect(reversesEntry("withdrawal", "income")).toBe(true);
+    expect(reversesEntry("deposit", "both")).toBe(false);
   });
 });

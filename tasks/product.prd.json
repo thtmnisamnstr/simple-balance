@@ -378,6 +378,35 @@
         "npm test",
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
       ]
+    },
+    {
+      "id": "SB-019",
+      "priority": 190,
+      "title": "Budgeting",
+      "dependsOn": [
+        "SB-018"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A standing budget covers every period in its window, so an ongoing budget is one row and nothing materialises the periods nobody has reached",
+        "An amount set for one period overrides the standing budget for that period alone, and the report says which of the two produced each figure",
+        "Windows for one category, period unit and currency may not overlap, so what a past period intended survives a later change",
+        "Spending is compared against the limit on the same period grid the reports bucket by, computed from postings alone",
+        "A category budgeted and never spent on still appears, rather than being dropped as a zero",
+        "A refund lowers the category it came back to, because spending is summed signed and the counter-account carries the direction",
+        "Splits attribute each leg to its own category, and transfers contribute nothing, both without a rule of their own",
+        "Nothing in this story writes a posting, and deleting a budget changes no balance and no report",
+        "Deleting or archiving a category leaves no orphaned budget, and a budget is never a reason a category cannot be deleted",
+        "Every figure stops at today in the person's own timezone, and the day used is reported",
+        "No figure spans currencies anywhere in the reply",
+        "Reachable over MCP, reads on ledger:read and writes on ledger:write, with the browser and an agent calling the same services"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
+      ]
     }
   ]
 }

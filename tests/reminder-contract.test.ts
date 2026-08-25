@@ -55,9 +55,7 @@ describe("a reminder that happens once", () => {
       "weekendPolicy",
     ]);
     expect(issuePaths({ ...readBack, monthPolicy: "skip" })).toEqual(["monthPolicy"]);
-    expect(
-      issuePaths({ ...readBack, position: { ordinal: 1, weekday: 1 } }),
-    ).toEqual(["position"]);
+    expect(issuePaths({ ...readBack, position: { ordinal: 1, weekday: 1 } })).toEqual(["position"]);
   });
 
   it("names every field that contradicts it, not just the first", () => {

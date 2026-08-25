@@ -13,33 +13,24 @@ import {
   Alert,
   Badge,
   Button,
+  compareForSort,
   ConfirmDialog,
   EmptyState,
   Input,
   Modal,
   PageHeader,
   RowMenu,
+  Skeleton,
   SortableHeader,
-  compareForSort,
-  useConfirm,
   type SortState,
+  useConfirm,
 } from "../components.js";
-import {
-  compareMoney,
-  formatDate,
-  formatMoney,
-} from "../money.js";
+import { compareMoney, formatDate, formatMoney, movementSign } from "../money.js";
 import { RecurrenceForm, scheduleSentence } from "../forms.js";
 import { Link } from "../router.js";
 import { transactionTypeLabels } from "./TemplatesPage.js";
 
-type RecurrenceSortField =
-  | "name"
-  | "schedule"
-  | "amount"
-  | "next"
-  | "proposed"
-  | "notifies";
+type RecurrenceSortField = "name" | "schedule" | "amount" | "next" | "proposed" | "notifies";
 
 export default function RecurrencesPage() {
   const queryClient = useQueryClient();
@@ -79,8 +70,7 @@ export default function RecurrencesPage() {
 
   const currencyFor = (recurrence: Recurrence) => {
     const shape = recurrence.shape;
-    const accountId =
-      "fromAccountId" in shape ? shape.fromAccountId : shape.toAccountId;
+    const accountId = "fromAccountId" in shape ? shape.fromAccountId : shape.toAccountId;
     return accounts.data?.find((account) => account.id === accountId)?.currency;
   };
 
@@ -117,9 +107,7 @@ export default function RecurrencesPage() {
       const leftAmount = left.shape.amount;
       const rightAmount = right.shape.amount;
       if (sort.field === "amount" && leftAmount && rightAmount) {
-        return (
-          (sort.direction === "asc" ? 1 : -1) * compareMoney(leftAmount, rightAmount)
-        );
+        return (sort.direction === "asc" ? 1 : -1) * compareMoney(leftAmount, rightAmount);
       }
       return compareForSort(key(left), key(right), sort.direction);
     });
@@ -162,15 +150,11 @@ export default function RecurrencesPage() {
       </div>
 
       {recurrences.isPending || accounts.isPending ? (
-        <p className="settings-note">Loading recurrences…</p>
+        <Skeleton height={120} label="Loading recurrences…" />
       ) : visible.length === 0 ? (
         <EmptyState
           icon={<Repeat size={25} />}
-          title={
-            recurrences.data?.items.length
-              ? "No recurrence matches"
-              : "No recurrences yet"
-          }
+          title={recurrences.data?.items.length ? "No recurrence matches" : "No recurrences yet"}
           body={
             recurrences.data?.items.length
               ? "Nothing here matches that search."
@@ -181,15 +165,11 @@ export default function RecurrencesPage() {
         <section className="panel">
           <div className="table-wrap">
             <table className="data-table">
+              <caption className="sr-only">Recurring transactions</caption>
               <thead>
                 <tr>
                   <SortableHeader field="name" label="Name" sort={sort} onSort={setSort} />
-                  <SortableHeader
-                    field="schedule"
-                    label="Schedule"
-                    sort={sort}
-                    onSort={setSort}
-                  />
+                  <SortableHeader field="schedule" label="Schedule" sort={sort} onSort={setSort} />
                   <SortableHeader
                     field="amount"
                     label="Amount"
@@ -198,12 +178,7 @@ export default function RecurrencesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <SortableHeader
-                    field="next"
-                    label="Next"
-                    sort={sort}
-                    onSort={setSort}
-                  />
+                  <SortableHeader field="next" label="Next" sort={sort} onSort={setSort} />
                   <SortableHeader
                     field="proposed"
                     label="Proposed"
@@ -219,7 +194,7 @@ export default function RecurrencesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <th aria-label="Actions" />
+                  <th scope="col" aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -228,26 +203,25 @@ export default function RecurrencesPage() {
                     <td>
                       <strong>{recurrence.name}</strong>
                       <span className="table-subtitle">
-                        {transactionTypeLabels[recurrence.shape.type]} ·{" "}
-                        {recurrence.shape.payee}
+                        {transactionTypeLabels[recurrence.shape.type]} · {recurrence.shape.payee}
                       </span>
                     </td>
                     <td>{scheduleSentence(recurrence)}</td>
-                    <td className="align-right">
+                    <td
+                      className={`align-right money ${movementSign(recurrence.shape.type).className}`}
+                    >
                       {recurrence.shape.amount ? (
-                        formatMoney(
-                          recurrence.shape.amount,
-                          currencyFor(recurrence) ?? "",
-                        )
+                        <>
+                          {movementSign(recurrence.shape.type).sign}
+                          {formatMoney(recurrence.shape.amount, currencyFor(recurrence) ?? "")}
+                        </>
                       ) : (
                         <span className="template-blank">each time</span>
                       )}
                     </td>
                     <td>
                       <div className="transaction-payee">
-                        <span>
-                          {formatDate(recurrence.nextOccurrence.occurrenceDate)}
-                        </span>
+                        <span>{formatDate(recurrence.nextOccurrence.occurrenceDate)}</span>
                         {recurrence.overdue ? (
                           <Badge tone="amber">Past due</Badge>
                         ) : recurrence.nextOccurrence.postedDate === null ? (
@@ -295,9 +269,7 @@ export default function RecurrencesPage() {
                         <button
                           type="button"
                           className="danger"
-                          onClick={() =>
-                            removal.ask(recurrence, () => deletion.mutate(recurrence))
-                          }
+                          onClick={() => removal.ask(recurrence, () => deletion.mutate(recurrence))}
                         >
                           <Trash2 size={15} /> Delete
                         </button>

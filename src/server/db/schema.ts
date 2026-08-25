@@ -21,6 +21,7 @@ import {
 import { sql } from "drizzle-orm";
 import {
   accountTypes,
+  budgetPeriodUnits,
   systemAccountKinds,
   actorSources,
   categoryKinds,
@@ -85,10 +86,7 @@ export const account = pgTable(
   },
   (table) => [
     index("auth_account_user_idx").on(table.userId),
-    unique("auth_account_provider_account_unique").on(
-      table.providerId,
-      table.accountId,
-    ),
+    unique("auth_account_provider_account_unique").on(table.providerId, table.accountId),
   ],
 );
 
@@ -192,46 +190,42 @@ export const ownerSetupTokens = pgTable("auth_owner_setup_token", {
 // enums by enumerating this module's exports, and un-exporting one makes it
 // generate a `DROP TYPE` for a type every column of that kind still uses.
 export const accountTypeEnum = pgEnum("ledger_account_type", accountTypes);
-export const systemAccountKindEnum = pgEnum(
-  "system_account_kind",
-  systemAccountKinds,
-);
+export const systemAccountKindEnum = pgEnum("system_account_kind", systemAccountKinds);
 export const categoryKindEnum = pgEnum("category_kind", categoryKinds);
 export const transactionTypeEnum = pgEnum("transaction_type", transactionTypes);
 export const stagedStatusEnum = pgEnum("staged_status", ["staged", "committed", "deleted"]);
 export const actorSourceEnum = pgEnum("actor_source", actorSources);
-export const recurrenceFrequencyEnum = pgEnum(
-  "recurrence_frequency",
-  recurrenceFrequencies,
-);
-export const recurrenceMonthPolicyEnum = pgEnum(
-  "recurrence_month_policy",
-  recurrenceMonthPolicies,
-);
+export const recurrenceFrequencyEnum = pgEnum("recurrence_frequency", recurrenceFrequencies);
+export const recurrenceMonthPolicyEnum = pgEnum("recurrence_month_policy", recurrenceMonthPolicies);
 export const recurrenceWeekendPolicyEnum = pgEnum(
   "recurrence_weekend_policy",
   recurrenceWeekendPolicies,
 );
 export const userThemeEnum = pgEnum("user_theme", themes);
+export const budgetPeriodUnitEnum = pgEnum("budget_period_unit", budgetPeriodUnits);
 
-export const userPreferences = pgTable("user_preferences", {
-  userId: text("user_id")
-    .primaryKey()
-    .references(() => user.id, { onDelete: "cascade" }),
-  timezone: text("timezone").default("UTC").notNull(),
-  defaultCurrency: text("default_currency").default("USD").notNull(),
-  // Defaults to following the machine, which is also what every row that
-  // existed before this column lands on. A NOT NULL add with a constant default
-  // is metadata-only on PostgreSQL 11 and later, so there is no backfill to
-  // write and no table rewrite to wait for.
-  theme: userThemeEnum("theme").default("system").notNull(),
-  ...timestamps,
-}, (table) => [
-  check(
-    "user_preferences_default_currency_check",
-    sql`${table.defaultCurrency} ~ '^[A-Z]{2,12}$'`,
-  ),
-]);
+export const userPreferences = pgTable(
+  "user_preferences",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    timezone: text("timezone").default("UTC").notNull(),
+    defaultCurrency: text("default_currency").default("USD").notNull(),
+    // Defaults to following the machine, which is also what every row that
+    // existed before this column lands on. A NOT NULL add with a constant default
+    // is metadata-only on PostgreSQL 11 and later, so there is no backfill to
+    // write and no table rewrite to wait for.
+    theme: userThemeEnum("theme").default("system").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      "user_preferences_default_currency_check",
+      sql`${table.defaultCurrency} ~ '^[A-Z]{2,12}$'`,
+    ),
+  ],
+);
 
 /**
  * Sign-in and other auth attempts, counted where every replica can see them.
@@ -294,18 +288,11 @@ export const ledgerAccounts = pgTable(
     // Lets postings and transactions carry a foreign key that includes the
     // currency, so no row can name an amount in a currency its account does
     // not hold.
-    unique("ledger_account_user_id_currency_unique").on(
-      table.userId,
-      table.id,
-      table.currency,
-    ),
+    unique("ledger_account_user_id_currency_unique").on(table.userId, table.id, table.currency),
     uniqueIndex("ledger_account_system_kind_unique")
       .on(table.userId, table.systemKind, table.currency)
       .where(sql`${table.systemKind} is not null`),
-    check(
-      "ledger_account_currency_check",
-      sql`${table.currency} ~ '^[A-Z]{2,12}$'`,
-    ),
+    check("ledger_account_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
     check("ledger_account_version_check", sql`${table.version} >= 1`),
   ],
 );
@@ -348,11 +335,7 @@ export const importBatches = pgTable(
   },
   (table) => [
     unique("import_batch_user_id_id_unique").on(table.userId, table.id),
-    index("import_batch_user_created_idx").on(
-      table.userId,
-      table.createdAt,
-      table.id,
-    ),
+    index("import_batch_user_created_idx").on(table.userId, table.createdAt, table.id),
     check("import_batch_row_count_check", sql`${table.rowCount} >= 0`),
   ],
 );
@@ -425,14 +408,8 @@ export const transactions = pgTable(
       sql`lower(regexp_replace(trim(normalize(${table.payee}, NFKC)), '\\s+', ' ', 'g'))`,
     ),
     index("transaction_user_date_idx").on(table.userId, table.date, table.id),
-    index("transaction_user_source_account_idx").on(
-      table.userId,
-      table.sourceAccountId,
-    ),
-    index("transaction_user_destination_account_idx").on(
-      table.userId,
-      table.destinationAccountId,
-    ),
+    index("transaction_user_source_account_idx").on(table.userId, table.sourceAccountId),
+    index("transaction_user_destination_account_idx").on(table.userId, table.destinationAccountId),
     index("transaction_user_category_idx").on(table.userId, table.categoryId),
     index("transaction_user_template_idx").on(table.userId, table.templateId),
     index("transaction_external_id_idx").on(table.userId, table.externalId),
@@ -566,11 +543,7 @@ export const transactionLegs = pgTable(
     // entry can be moved to an account in another currency, so a currency on
     // the leg would be a mutable copy that append-only postings could never
     // follow.
-    unique("transaction_leg_posting_target_unique").on(
-      table.userId,
-      table.transactionId,
-      table.id,
-    ),
+    unique("transaction_leg_posting_target_unique").on(table.userId, table.transactionId, table.id),
     foreignKey({
       columns: [table.userId, table.transactionId],
       foreignColumns: [transactions.userId, transactions.id],
@@ -581,11 +554,7 @@ export const transactionLegs = pgTable(
       foreignColumns: [categories.userId, categories.id],
       name: "transaction_leg_category_owner_fk",
     }),
-    index("transaction_leg_transaction_idx").on(
-      table.userId,
-      table.transactionId,
-      table.ordinal,
-    ),
+    index("transaction_leg_transaction_idx").on(table.userId, table.transactionId, table.ordinal),
     // Serves the category screens, which ask which transactions touched one
     // category without knowing which of them are splits.
     index("transaction_leg_user_category_idx").on(
@@ -618,8 +587,7 @@ export const postings = pgTable(
     // account ends at zero. Both halves name the account being closed, the same
     // way an opening pair does, so unarchiving can find and undo them.
     closingAccountId: uuid("closing_account_id"),
-    accountId: uuid("account_id")
-      .notNull(),
+    accountId: uuid("account_id").notNull(),
     // Which leg of a split this line belongs to, on the counter-account side of
     // a split transaction and nowhere else. Null on the account side, on
     // openings and closings, and on every transaction that is not split.
@@ -647,11 +615,7 @@ export const postings = pgTable(
     // in one constraint, so a balance can sum without grouping by currency.
     foreignKey({
       columns: [table.userId, table.accountId, table.currency],
-      foreignColumns: [
-        ledgerAccounts.userId,
-        ledgerAccounts.id,
-        ledgerAccounts.currency,
-      ],
+      foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id, ledgerAccounts.currency],
       name: "posting_account_currency_fk",
     }),
     // Three columns, so a posting cannot name a leg of a different transaction
@@ -671,11 +635,7 @@ export const postings = pgTable(
     // resyncLegs never issuing one, not by this key.
     foreignKey({
       columns: [table.userId, table.transactionId, table.legId],
-      foreignColumns: [
-        transactionLegs.userId,
-        transactionLegs.transactionId,
-        transactionLegs.id,
-      ],
+      foreignColumns: [transactionLegs.userId, transactionLegs.transactionId, transactionLegs.id],
       name: "posting_leg_owner_fk",
     }).onDelete("cascade"),
     // Both halves of an opening pair name the account they open, so moving an
@@ -685,25 +645,15 @@ export const postings = pgTable(
       foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
       name: "posting_opening_account_owner_fk",
     }),
-    index("posting_opening_account_idx").on(
-      table.userId,
-      table.openingAccountId,
-    ),
+    index("posting_opening_account_idx").on(table.userId, table.openingAccountId),
     foreignKey({
       columns: [table.userId, table.closingAccountId],
       foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
       name: "posting_closing_account_owner_fk",
     }),
-    index("posting_closing_account_idx").on(
-      table.userId,
-      table.closingAccountId,
-    ),
+    index("posting_closing_account_idx").on(table.userId, table.closingAccountId),
     // Serves every balance-as-of query: one account, dates up to a bound.
-    index("posting_user_account_date_idx").on(
-      table.userId,
-      table.accountId,
-      table.date,
-    ),
+    index("posting_user_account_date_idx").on(table.userId, table.accountId, table.date),
     // Serves the dashboard, which sums a date range across counter-accounts.
     index("posting_user_date_idx").on(table.userId, table.date),
     index("posting_transaction_idx").on(table.transactionId),
@@ -736,7 +686,9 @@ export const stagedTransactions = pgTable(
     status: stagedStatusEnum("status").default("staged").notNull(),
     draft: jsonb("draft").notNull(),
     rawData: jsonb("raw_data"),
-    validationIssues: jsonb("validation_issues").default(sql`'[]'::jsonb`).notNull(),
+    validationIssues: jsonb("validation_issues")
+      .default(sql`'[]'::jsonb`)
+      .notNull(),
     duplicateOfId: uuid("duplicate_of_id"),
     // What this row would collide with. `duplicateOfId` names a committed
     // transaction it repeats; `duplicateKey` is the same fingerprint the commit
@@ -781,10 +733,7 @@ export const stagedTransactions = pgTable(
       table.createdAt,
       table.id,
     ),
-    index("staged_user_import_batch_idx").on(
-      table.userId,
-      table.importBatchId,
-    ),
+    index("staged_user_import_batch_idx").on(table.userId, table.importBatchId),
     // Finding the rows that share a fingerprint is a grouped lookup.
     index("staged_user_duplicate_key_idx").on(table.userId, table.duplicateKey),
     // The same expression over the draft's payee, for the same reason: the
@@ -849,10 +798,7 @@ export const idempotencyRecords = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.operation, table.key] }),
-    check(
-      "idempotency_record_request_hash_check",
-      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
-    ),
+    check("idempotency_record_request_hash_check", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
   ],
 );
 
@@ -873,16 +819,8 @@ export const auditEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("audit_user_created_idx").on(
-      table.userId,
-      table.createdAt,
-      table.id,
-    ),
-    index("audit_user_entity_idx").on(
-      table.userId,
-      table.entityType,
-      table.entityId,
-    ),
+    index("audit_user_created_idx").on(table.userId, table.createdAt, table.id),
+    index("audit_user_entity_idx").on(table.userId, table.entityType, table.entityId),
   ],
 );
 
@@ -982,11 +920,7 @@ export const templateNotifications = pgTable(
     index("template_notification_user_idx").on(table.userId),
     // The scheduler's due query, which like the recurrence one has to find work
     // across every ledger before it can know whose it is.
-    index("template_notification_due_idx").on(
-      table.nextNotificationDate,
-      table.userId,
-      table.id,
-    ),
+    index("template_notification_due_idx").on(table.nextNotificationDate, table.userId, table.id),
     check(
       "template_notification_interval_check",
       sql`${table.interval} between 1 and ${sql.raw(String(MAX_RECURRENCE_INTERVAL))}`,
@@ -1093,15 +1027,8 @@ export const recurrences = pgTable(
     // that cannot: the scheduler has to find work across every ledger before it
     // can know whose it is. It reads the id and the user id and nothing else,
     // and everything after it runs through an Actor built from that user id.
-    index("recurrence_due_idx").on(
-      table.nextOccurrenceDate,
-      table.userId,
-      table.id,
-    ),
-    check(
-      "recurrence_name_check",
-      sql`char_length(btrim(${table.name})) between 1 and 120`,
-    ),
+    index("recurrence_due_idx").on(table.nextOccurrenceDate, table.userId, table.id),
+    check("recurrence_name_check", sql`char_length(btrim(${table.name})) between 1 and 120`),
     check(
       "recurrence_interval_check",
       sql`${table.interval} between 1 and ${sql.raw(String(MAX_RECURRENCE_INTERVAL))}`,
@@ -1132,8 +1059,113 @@ export const recurrences = pgTable(
   ],
 );
 
+/**
+ * The standing instruction for one budget target.
+ *
+ * One row covers every period, so a budget that runs all year is one row rather
+ * than twelve, and nothing has to materialise the months nobody has reached
+ * yet. That is the whole reason there is no scheduler anywhere near budgeting:
+ * an amount that is derived on read cannot drift from what it was derived from,
+ * and there is no backlog for a stopped cron to eat.
+ *
+ * The window is what keeps history honest. Raising the grocery budget in July
+ * closes one plan and opens another, so asking what March intended still
+ * answers with what March intended. The service refuses an overlap under the
+ * category namespace lock, because two plans covering one month would leave the
+ * amount depending on which row was read first.
+ */
+export const budgetPlans = pgTable(
+  "budget_plan",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id").notNull(),
+    currency: text("currency").notNull(),
+    periodUnit: budgetPeriodUnitEnum("period_unit").notNull(),
+    amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
+    activeFrom: date("active_from").notNull(),
+    activeTo: date("active_to"),
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    // The composite key the category already carries, so one cascade satisfies
+    // both halves of the rule: deleting a category takes its budgets with it,
+    // and a budget is never a reason a category cannot be deleted.
+    foreignKey({
+      columns: [table.userId, table.categoryId],
+      foreignColumns: [categories.userId, categories.id],
+      name: "budget_plan_category_fk",
+    }).onDelete("cascade"),
+    unique("budget_plan_window_unique").on(
+      table.userId,
+      table.categoryId,
+      table.periodUnit,
+      table.currency,
+      table.activeFrom,
+    ),
+    // Zero is a budget, and a useful one: it says any spending here is over.
+    check("budget_plan_amount_check", sql`${table.amount} >= 0`),
+    check("budget_plan_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
+    check("budget_plan_version_check", sql`${table.version} >= 1`),
+    check(
+      "budget_plan_window_check",
+      sql`${table.activeTo} is null or ${table.activeTo} >= ${table.activeFrom}`,
+    ),
+  ],
+);
+
+/**
+ * One period's amount, set explicitly, overriding whatever the plan would say.
+ *
+ * The exception rather than the rule. Three hundred for December only is a row
+ * here; two hundred a month is a plan and no rows at all. An entry with no plan
+ * behind it is a budget for one period and nothing else, which is what somebody
+ * setting a single month means.
+ */
+export const budgetEntries = pgTable(
+  "budget_entry",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id").notNull(),
+    currency: text("currency").notNull(),
+    periodUnit: budgetPeriodUnitEnum("period_unit").notNull(),
+    // Always the first day of the period it names, truncated the same way the
+    // report grid truncates, so a limit and its actual cannot land on different
+    // grids. The service is what holds it to that; the column only stores it.
+    periodStart: date("period_start").notNull(),
+    amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.userId, table.categoryId],
+      foreignColumns: [categories.userId, categories.id],
+      name: "budget_entry_category_fk",
+    }).onDelete("cascade"),
+    unique("budget_entry_period_unique").on(
+      table.userId,
+      table.categoryId,
+      table.periodUnit,
+      table.periodStart,
+      table.currency,
+    ),
+    check("budget_entry_amount_check", sql`${table.amount} >= 0`),
+    check("budget_entry_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
+    check("budget_entry_version_check", sql`${table.version} >= 1`),
+  ],
+);
+
 export type CategoryRow = typeof categories.$inferSelect;
 export type TransactionRow = typeof transactions.$inferSelect;
 export type TransactionLegRow = typeof transactionLegs.$inferSelect;
 export type StagedTransactionRow = typeof stagedTransactions.$inferSelect;
 export type RecurrenceRow = typeof recurrences.$inferSelect;
+export type BudgetPlanRow = typeof budgetPlans.$inferSelect;
+export type BudgetEntryRow = typeof budgetEntries.$inferSelect;

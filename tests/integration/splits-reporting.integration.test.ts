@@ -52,9 +52,7 @@ integration("what a split looks like in the reports", () => {
       })
     ).id;
     foodId = (await createCategory(actor, { name: "Food", kind: "expense" })).id;
-    householdId = (
-      await createCategory(actor, { name: "Household", kind: "expense" })
-    ).id;
+    householdId = (await createCategory(actor, { name: "Household", kind: "expense" })).id;
     petsId = (await createCategory(actor, { name: "Pets", kind: "expense" })).id;
 
     splitId = (
@@ -149,7 +147,10 @@ integration("what a split looks like in the reports", () => {
       [foodId, [flatId]],
     ] as const) {
       const page = await listTransactions(actor, { limit: 50, categoryId });
-      expect(page.items.map((item) => item.id), categoryId).toEqual(expected);
+      expect(
+        page.items.map((item) => item.id),
+        categoryId,
+      ).toEqual(expected);
       expect(page.totalCount).toBe(expected.length);
     }
   });
@@ -169,10 +170,7 @@ integration("what a split looks like in the reports", () => {
     const split = page.items.find((item) => item.id === splitId)!;
     expect(split.category).toBeNull();
     expect(split.legs).toHaveLength(2);
-    expect(split.legs.map((leg) => leg.category?.name)).toEqual([
-      "Pets",
-      "Household",
-    ]);
+    expect(split.legs.map((leg) => leg.category?.name)).toEqual(["Pets", "Household"]);
     expect(split.legs.map((leg) => leg.amount)).toEqual(["60", "40"]);
     expect(split.legs.every((leg) => typeof leg.id === "string")).toBe(true);
     expect(page.items.find((item) => item.id === flatId)!.legs).toEqual([]);
@@ -180,9 +178,7 @@ integration("what a split looks like in the reports", () => {
 
   it("counts a split once against each category it names", async () => {
     const summaries = await listCategorySummaries(actor);
-    const counts = Object.fromEntries(
-      summaries.map((one) => [one.name, one.transactionCount]),
-    );
+    const counts = Object.fromEntries(summaries.map((one) => [one.name, one.transactionCount]));
     expect(counts).toMatchObject({ Pets: 1, Household: 1, Food: 1 });
   });
 
@@ -268,10 +264,7 @@ integration("what a split looks like in the reports", () => {
     const after = (await listTransactions(actor, { limit: 50 })).items.find(
       (item) => item.id === splitId,
     )!;
-    expect(after.legs.map((leg) => leg.category?.name)).toEqual([
-      "Pets",
-      "Household",
-    ]);
+    expect(after.legs.map((leg) => leg.category?.name)).toEqual(["Pets", "Household"]);
     // A relabelled leg has to move the row's version, or a mass edit's
     // description of the set it is about to change agrees about a row that
     // changed underneath it.
@@ -290,19 +283,15 @@ integration("what a split looks like in the reports", () => {
    * the sentence offering to archive should be.
    */
   it("refuses to delete a category only a split leg uses, and offers archiving", async () => {
-    const pets = (await listCategorySummaries(actor)).find(
-      (one) => one.name === "Pets",
-    )!;
-    await expect(
-      deleteCategory(actor, pets.id, pets.version),
-    ).rejects.toThrow(/Archive it instead/);
+    const pets = (await listCategorySummaries(actor)).find((one) => one.name === "Pets")!;
+    await expect(deleteCategory(actor, pets.id, pets.version)).rejects.toThrow(
+      /Archive it instead/,
+    );
   });
 
   /** Every leg answers to the direction of the entry it belongs to. */
   it("refuses to narrow a category a split withdrawal leg uses to income", async () => {
-    const pets = (await listCategorySummaries(actor)).find(
-      (one) => one.name === "Pets",
-    )!;
+    const pets = (await listCategorySummaries(actor)).find((one) => one.name === "Pets")!;
     await expect(
       updateCategory(actor, pets.id, {
         kind: "income",

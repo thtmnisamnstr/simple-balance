@@ -70,10 +70,7 @@ const committedSide = {
  * because the review screen reads its own position out of it: without it there
  * is no "3 of 11" and nowhere for Next to go.
  */
-function stub(
-  review: StagedDuplicateReview | null,
-  queueIds: string[] = ["staged-1"],
-) {
+function stub(review: StagedDuplicateReview | null, queueIds: string[] = ["staged-1"]) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -88,7 +85,12 @@ function stub(
         // path is a different question and gets nothing.
         if (url.searchParams.get("validity") !== "duplicate") {
           return Response.json({
-            items: [], page: 1, pageSize: 50, totalCount: 0, totalPages: 0, nextCursor: null,
+            items: [],
+            page: 1,
+            pageSize: 50,
+            totalCount: 0,
+            totalPages: 0,
+            nextCursor: null,
           });
         }
         return Response.json({
@@ -96,6 +98,7 @@ function stub(
           page: 1,
           pageSize: 200,
           totalCount: queueIds.length,
+          cursorAvailable: false,
           totalPages: 1,
           nextCursor: null,
         });
@@ -121,10 +124,7 @@ function renderReview(path = "/staged/duplicates/staged-1") {
         <BrowserRouter>
           <Routes>
             <Route path="/staged/duplicates" element={<DuplicateReviewPage />} />
-            <Route
-              path="/staged/duplicates/:id"
-              element={<DuplicateReviewPage />}
-            />
+            <Route path="/staged/duplicates/:id" element={<DuplicateReviewPage />} />
             <Route path="/staged" element={<p>The queue itself</p>} />
           </Routes>
         </BrowserRouter>
@@ -146,9 +146,7 @@ describe("reviewing two records of one payment", () => {
     await screen.findByLabelText("Staged row under review");
     expect(screen.getByLabelText("Committed transaction")).toBeInTheDocument();
     // Each side carries its own form, so each saves on its own.
-    expect(screen.getAllByRole("button", { name: /save changes/i })).toHaveLength(
-      2,
-    );
+    expect(screen.getAllByRole("button", { name: /save changes/i })).toHaveLength(2);
   });
 
   /**
@@ -160,12 +158,10 @@ describe("reviewing two records of one payment", () => {
     stub({ first: stagedSide, second: committedSide } as StagedDuplicateReview);
     renderReview();
     await screen.findByLabelText("Staged row under review");
-    expect(
-      screen.getAllByRole("button", { name: /drop this staged row/i }),
-    ).toHaveLength(1);
-    expect(
-      screen.getByLabelText("Committed transaction").textContent,
-    ).toMatch(/not dropped from here/i);
+    expect(screen.getAllByRole("button", { name: /drop this staged row/i })).toHaveLength(1);
+    expect(screen.getByLabelText("Committed transaction").textContent).toMatch(
+      /not dropped from here/i,
+    );
   });
 
   it("offers a drop on each side when both are staged", async () => {
@@ -176,9 +172,7 @@ describe("reviewing two records of one payment", () => {
     stub({ first: stagedSide, second: older } as StagedDuplicateReview);
     renderReview();
     await screen.findByLabelText("Staged row under review");
-    expect(
-      screen.getAllByRole("button", { name: /drop this staged row/i }),
-    ).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /drop this staged row/i })).toHaveLength(2);
   });
 
   /**
@@ -199,17 +193,13 @@ describe("reviewing two records of one payment", () => {
     fireEvent.click(screen.getByRole("button", { name: /drop this staged row/i }));
     fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
 
-    await vi.waitFor(() =>
-      expect(window.location.pathname).toBe("/staged/duplicates/staged-2"),
-    );
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/staged/duplicates/staged-2"));
     expect(screen.queryByText(/not found/i)).toBeNull();
     // The next comparison is actually on screen. Checking only the address let a
     // blank page through: the instruction to move on was held as a bare path, so
     // on arriving it was still set and sent the page to the same place again,
     // rendering nothing at all.
-    expect(
-      await screen.findByLabelText("Staged row under review"),
-    ).toBeInTheDocument();
+    expect(await screen.findByLabelText("Staged row under review")).toBeInTheDocument();
     expect(await screen.findByText(/possible duplicate 2 of 3/i)).toBeInTheDocument();
   });
 
@@ -222,9 +212,7 @@ describe("reviewing two records of one payment", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Drop it" }));
 
     // Not bounced silently back to the list: the run ended, and it says so.
-    expect(
-      await screen.findByText(/no duplicates left to review/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/no duplicates left to review/i)).toBeInTheDocument();
     expect(screen.queryByText(/not found/i)).toBeNull();
   });
 
@@ -235,9 +223,7 @@ describe("reviewing two records of one payment", () => {
       "staged-2",
     ]);
     renderReview();
-    expect(
-      await screen.findByText(/possible duplicate 2 of 3/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/possible duplicate 2 of 3/i)).toBeInTheDocument();
   });
 
   /**
@@ -255,14 +241,10 @@ describe("reviewing two records of one payment", () => {
     await screen.findByLabelText("Staged row under review");
 
     fireEvent.click(screen.getByRole("link", { name: /next/i }));
-    await vi.waitFor(() =>
-      expect(window.location.pathname).toBe("/staged/duplicates/staged-2"),
-    );
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/staged/duplicates/staged-2"));
 
     fireEvent.click(screen.getByRole("link", { name: /previous/i }));
-    await vi.waitFor(() =>
-      expect(window.location.pathname).toBe("/staged/duplicates/staged-1"),
-    );
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/staged/duplicates/staged-1"));
   });
 
   it("stops offering a step past either end", async () => {
@@ -285,34 +267,25 @@ describe("reviewing two records of one payment", () => {
     ]);
     renderReview("/staged/duplicates");
 
-    await vi.waitFor(() =>
-      expect(window.location.pathname).toBe("/staged/duplicates/staged-7"),
-    );
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/staged/duplicates/staged-7"));
   });
 
   it("says so when there is nothing to review at all", async () => {
     stub(null, []);
     renderReview("/staged/duplicates");
 
-    expect(
-      await screen.findByText(/no duplicates left to review/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/no duplicates left to review/i)).toBeInTheDocument();
     // It did not send anybody to a comparison of nothing.
     expect(window.location.pathname).toBe("/staged/duplicates");
   });
 
   it("offers the next one when this row has stopped repeating anything", async () => {
-    stub({ first: stagedSide, second: null } as StagedDuplicateReview, [
-      "staged-1",
-      "staged-2",
-    ]);
+    stub({ first: stagedSide, second: null } as StagedDuplicateReview, ["staged-1", "staged-2"]);
     renderReview();
 
     await screen.findByText(/nothing repeats this any more/i);
     fireEvent.click(screen.getByRole("link", { name: /next duplicate/i }));
-    await vi.waitFor(() =>
-      expect(window.location.pathname).toBe("/staged/duplicates/staged-2"),
-    );
+    await vi.waitFor(() => expect(window.location.pathname).toBe("/staged/duplicates/staged-2"));
   });
 
   it("says so when nothing repeats the row any more", async () => {
@@ -331,8 +304,6 @@ describe("reviewing two records of one payment", () => {
     expect(screen.getByLabelText("Staged row under review").textContent).toMatch(
       /waiting in the queue/i,
     );
-    expect(screen.getByLabelText("Committed transaction").textContent).toMatch(
-      /already recorded/i,
-    );
+    expect(screen.getByLabelText("Committed transaction").textContent).toMatch(/already recorded/i);
   });
 });

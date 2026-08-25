@@ -121,19 +121,22 @@ describe("authentication configuration", () => {
     ["LOG_LEVEL", "loud", /LOG_LEVEL must be debug, info, warn or error/],
     ["AUTH_MODE", "sso", /AUTH_MODE must be one of/],
     ["NODE_ENV", "Prod", /NODE_ENV must be production, development or test/],
-  ])("says which variable was wrong when %s is not a value it takes", async (name, value, expected) => {
-    setEnvironment({
-      NODE_ENV: "production",
-      DATABASE_URL: "postgresql://simple_balance:secret@database.example/simple_balance",
-      APP_BASE_URL: "https://simple-balance.example.com",
-      AUTH_SECRET: "a-production-secret-that-is-at-least-32-characters",
-      AUTH_MODE: "local",
-      [name]: value,
-    });
-    vi.resetModules();
-    const { getConfig } = await import("../src/server/config.js");
-    expect(() => getConfig()).toThrow(expected);
-  });
+  ])(
+    "says which variable was wrong when %s is not a value it takes",
+    async (name, value, expected) => {
+      setEnvironment({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://simple_balance:secret@database.example/simple_balance",
+        APP_BASE_URL: "https://simple-balance.example.com",
+        AUTH_SECRET: "a-production-secret-that-is-at-least-32-characters",
+        AUTH_MODE: "local",
+        [name]: value,
+      });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      expect(() => getConfig()).toThrow(expected);
+    },
+  );
 
   it("accepts and normalizes an optional trailing slash on the production origin", async () => {
     setEnvironment({
@@ -186,16 +189,15 @@ describe("authentication configuration", () => {
     expect(() => getConfig()).toThrow(/NODE_ENV is not production/);
   });
 
-  it.each([
-    "http://localhost:5173",
-    "http://127.0.0.1:3000",
-    "http://[::1]:3000",
-  ])("still starts outside production on the loopback URL %s", async (baseUrl) => {
-    setEnvironment({ APP_BASE_URL: baseUrl });
-    vi.resetModules();
-    const { getConfig } = await import("../src/server/config.js");
-    expect(getConfig().isProduction).toBe(false);
-  });
+  it.each(["http://localhost:5173", "http://127.0.0.1:3000", "http://[::1]:3000"])(
+    "still starts outside production on the loopback URL %s",
+    async (baseUrl) => {
+      setEnvironment({ APP_BASE_URL: baseUrl });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      expect(getConfig().isProduction).toBe(false);
+    },
+  );
 
   it.each([
     "development-only-secret-change-me-1234567890",

@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   accountTypes,
   actorSources,
+  budgetPeriodUnits,
   transactionTemplateBulkResultSchema,
   transactionTemplateDraftSchema,
   bulkStageEditResultSchema,
@@ -17,9 +18,31 @@ import {
 } from "../shared/domain.js";
 
 const uuidSchema = z.string().uuid();
-const decimalSchema = z.string();
+
+/**
+ * The output side's primitives, each carrying what it is.
+ *
+ * These used to be bare `z.string()`, so an agent reading `list_accounts`
+ * learned that `balance` is "a string" — true, useless, and the single largest
+ * gap on the output side, because one undescribed primitive is repeated across
+ * more than a thousand output properties. The input side already published
+ * described schemas for the same values; describing them here makes the two
+ * halves of the surface say the same thing about the same value.
+ *
+ * The shape stays `z.string()` rather than borrowing the input side's regex:
+ * an output schema is a promise about what this server sends, and a pattern
+ * there would make a client refuse a reply it should accept if the pattern and
+ * the formatter ever drifted.
+ */
+const decimalSchema = z
+  .string()
+  .describe(
+    "An exact decimal string, never a JSON number. Compare and total these with decimal arithmetic; parsing one into a float loses money at the eighteenth place.",
+  );
 const nullableStringSchema = z.string().nullable();
-const timestampSchema = z.string();
+const timestampSchema = z
+  .string()
+  .describe("An RFC 3339 instant in UTC, for example 2026-03-04T09:15:00.000Z.");
 
 const toolErrorSchema = z.object({
   error: z.object({
@@ -170,11 +193,9 @@ export const transactionResultSchema = z
   })
   .passthrough();
 
-export const bulkTransactionSelectionSnapshotResultSchema =
-  bulkTransactionSelectionSnapshotSchema;
+export const bulkTransactionSelectionSnapshotResultSchema = bulkTransactionSelectionSnapshotSchema;
 
-export const bulkTransactionEditMcpResultSchema =
-  bulkTransactionEditResultSchema;
+export const bulkTransactionEditMcpResultSchema = bulkTransactionEditResultSchema;
 
 const validationIssueSchema = z.object({
   field: z.string(),
@@ -228,7 +249,14 @@ export const stagedDuplicateReviewResultSchema = z.object({
 export function pageResultSchema<T extends z.ZodType>(itemSchema: T) {
   return z.object({
     items: z.array(itemSchema),
-    nextCursor: nullableStringSchema,
+    nextCursor: nullableStringSchema.describe(
+      "Send this as `cursor` to get the next page. Null means there is no next page under this ordering — either because this is the last one, or because the ordering cannot be resumed at all. `cursorAvailable` tells you which.",
+    ),
+    cursorAvailable: z
+      .boolean()
+      .describe(
+        "Whether this ordering can be resumed with a cursor. False means page through by number instead: some orderings have no keyset to resume from, and under those `nextCursor` is always null even when more rows exist.",
+      ),
     page: z.number().int().min(1),
     pageSize: z.number().int().min(1),
     totalCount: z.number().int().min(0),
@@ -447,9 +475,7 @@ export const templateNotificationResultSchema = z.object({
   anchorDate: z.string(),
   monthPolicy: z.enum(recurrenceMonthPolicies),
   weekendPolicy: z.enum(recurrenceWeekendPolicies),
-  position: z
-    .object({ ordinal: z.number().int(), weekday: z.number().int() })
-    .nullable(),
+  position: z.object({ ordinal: z.number().int(), weekday: z.number().int() }).nullable(),
   time: z.string(),
   repeats: z.boolean(),
   lastNotifiedDate: nullableStringSchema,
@@ -495,9 +521,7 @@ export const csvFilePreviewResultSchema = z.object({
   // A row with more fields than headers carries the surplus as an array under
   // `__parsed_extra`, so cells are not all strings. Insisting they were failed
   // this tool's output on exactly the malformed file it is called to diagnose.
-  rows: z.array(
-    z.record(z.string(), z.union([z.string(), z.array(z.string())])),
-  ),
+  rows: z.array(z.record(z.string(), z.union([z.string(), z.array(z.string())]))),
   errors: z.array(z.string()),
 });
 
@@ -529,10 +553,12 @@ export const deletedEntityResultSchema = z.object({
 
 export const deletedStagesResultSchema = z.object({
   deletedIds: z.array(uuidSchema),
+  dryRun: z
+    .boolean()
+    .describe("True when nothing was written and the ids are what would have been deleted."),
 });
 
-export const bulkStageSelectionSnapshotResultSchema =
-  bulkStageSelectionSnapshotSchema;
+export const bulkStageSelectionSnapshotResultSchema = bulkStageSelectionSnapshotSchema;
 
 export const bulkStageEditMcpResultSchema = bulkStageEditResultSchema;
 
@@ -661,3 +687,92 @@ export const recurrenceListResultSchema = z.object({
   today: z.string(),
   items: z.array(recurrenceViewResultSchema),
 });
+
+/**
+ * A budget is a plan or an entry, and the difference matters to an agent:
+ * changing a plan changes every period it covers, and changing an entry changes
+ * one. `source` on a report row says which of the two produced the figure, so
+ * an agent proposing a change knows which one to reach for.
+ */
+export const budgetPlanResultSchema = z
+  .object({
+    id: z.string().uuid(),
+    categoryId: z.string().uuid(),
+    categoryName: z.string(),
+    currency: z.string().describe("ISO-like code, upper case."),
+    periodUnit: z.enum(budgetPeriodUnits),
+    amount: z.string().describe("Decimal string. Never a number."),
+    activeFrom: isoDateSchema.describe(
+      "First day of the first period this amount applies to. Any day inside a period names that period, so this always comes back snapped to one.",
+    ),
+    activeTo: isoDateSchema
+      .nullable()
+      .describe(
+        "First day of the last period it applies to, or null while it is still running. Snapped to the period, like activeFrom.",
+      ),
+    version: z.number().int().positive(),
+  })
+  .passthrough();
+
+export const budgetEntryResultSchema = z
+  .object({
+    id: z.string().uuid(),
+    categoryId: z.string().uuid(),
+    categoryName: z.string(),
+    currency: z.string(),
+    periodUnit: z.enum(budgetPeriodUnits),
+    periodStart: isoDateSchema.describe("First day of the period, already truncated to the unit."),
+    amount: z.string().describe("Decimal string. Never a number."),
+    version: z.number().int().positive(),
+  })
+  .passthrough();
+
+export const budgetReportResultSchema = z.object({
+  periodUnit: z.enum(budgetPeriodUnits),
+  start: isoDateSchema,
+  asOf: isoDateSchema.describe(
+    "The day the figures stop at, which is never later than today where this person lives.",
+  ),
+  otherPeriodUnits: z
+    .array(z.enum(budgetPeriodUnits))
+    .describe(
+      "Period units this person budgets in that are not the one reported here. A budget belongs to a period unit, so a weekly budget does not appear in a monthly report and its category reads limit: null. If this is not empty, call again with one of these before concluding anything is unbudgeted.",
+    ),
+  periods: z.array(
+    z.object({
+      periodStart: isoDateSchema,
+      start: isoDateSchema.describe(
+        "The period's own first day. Never clipped to the range asked for: a limit belongs to a whole period, so the range chooses which periods to report rather than slicing them.",
+      ),
+      end: isoDateSchema.describe("The period's own last day."),
+      partial: z
+        .boolean()
+        .describe(
+          "True while the period is still running, so its spending is a total so far rather than a finished one. Do not report a partial period as under budget.",
+        ),
+      currency: z.string(),
+      budgeted: z.string().describe("Sum of the limits, as a decimal string."),
+      spent: z.string().describe("Sum of the actuals, as a decimal string."),
+      rows: z.array(
+        z.object({
+          categoryId: nullableStringSchema.describe("Null is the share of a split nobody filed."),
+          category: z.string(),
+          limit: nullableStringSchema.describe(
+            "Null means nothing budgeted this category for this period at this period unit. Check otherPeriodUnits before reporting it as unbudgeted.",
+          ),
+          actual: z
+            .string()
+            .describe("Signed. A refund is negative and lowers the category it came back to."),
+          remaining: nullableStringSchema.describe(
+            "Limit minus actual. Negative is over. Null when there is no limit.",
+          ),
+          source: z
+            .enum(["entry", "plan", "none"])
+            .describe("Which record produced the limit, so a change reaches the right one."),
+        }),
+      ),
+    }),
+  ),
+});
+
+export const deletedBudgetResultSchema = z.object({ id: z.string().uuid() });

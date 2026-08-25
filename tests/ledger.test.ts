@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { Actor, TransactionDraft } from "../src/shared/domain.js";
+import type { Actor, CategoryKind, TransactionDraft } from "../src/shared/domain.js";
 import { presentAccountBalance } from "../src/server/services/accounts.js";
 import { canonicalDecimal, decimal } from "../src/server/services/helpers.js";
-import {
-  buildPreparedTransaction,
-  systemAccountKey,
-} from "../src/server/services/transactions.js";
+import { buildPreparedTransaction, systemAccountKey } from "../src/server/services/transactions.js";
 
 const actor: Actor = { userId: "test-user", source: "web" };
 const checking = "11111111-1111-4111-8111-111111111111";
@@ -85,11 +82,13 @@ describe("signed ledger postings", () => {
       sourceAmount: "55.00",
       ...common,
     });
-    expect(prepared.postings.map(({ accountId, amount, currency }) => ({
-      accountId,
-      amount,
-      currency,
-    }))).toEqual([
+    expect(
+      prepared.postings.map(({ accountId, amount, currency }) => ({
+        accountId,
+        amount,
+        currency,
+      })),
+    ).toEqual([
       { accountId: checking, amount: "-55", currency: "USD" },
       { accountId: savings, amount: "55", currency: "USD" },
     ]);
@@ -121,9 +120,7 @@ describe("signed ledger postings", () => {
   it("keeps all numeric(44,18) digits during arithmetic", () => {
     expect(
       canonicalDecimal(
-        decimal("99999999999999999999999999.999999999999999999").minus(
-          "0.000000000000000001",
-        ),
+        decimal("99999999999999999999999999.999999999999999999").minus("0.000000000000000001"),
       ),
     ).toBe("99999999999999999999999999.999999999999999998");
   });
@@ -314,5 +311,115 @@ describe("splitting an entry across categories", () => {
     });
     expect(prepared.legs).toEqual([]);
     expect(prepared.transaction.legCount).toBe(0);
+  });
+});
+
+/**
+ * A refund is the case the direction gets wrong. Thirty pounds back from the
+ * shop is not income, and the spending it reverses is what should move. The
+ * category's kind decides which counter-account the other half lands on, so a
+ * refund debits expense rather than crediting income and every figure derived
+ * from expense postings follows without being told about refunds at all.
+ */
+describe("refunds and returned income", () => {
+  const groceries = { kind: "expense" as const };
+  const salary = { kind: "income" as const };
+  const either = { kind: "both" as const };
+
+  const prepareWith = (draft: TransactionDraft, ...kinds: CategoryKind[]) =>
+    buildPreparedTransaction(actor, draft, accounts, systemAccounts, new Set(kinds));
+
+  it("posts a refund against expense rather than income", () => {
+    const prepared = prepareWith(
+      { type: "deposit", toAccountId: checking, amount: "30.00", ...common },
+      groceries.kind,
+    );
+    expect(prepared.postings).toMatchObject([
+      { accountId: checking, amount: "30", currency: "USD" },
+      { accountId: expenseUsd, amount: "-30", currency: "USD" },
+    ]);
+    expect(currencyTotals(prepared.postings)).toEqual({ USD: "0" });
+  });
+
+  it("posts income coming back against income rather than expense", () => {
+    const prepared = prepareWith(
+      { type: "withdrawal", fromAccountId: checking, amount: "80.00", ...common },
+      salary.kind,
+    );
+    expect(prepared.postings).toMatchObject([
+      { accountId: checking, amount: "-80", currency: "USD" },
+      { accountId: incomeUsd, amount: "80", currency: "USD" },
+    ]);
+    expect(currencyTotals(prepared.postings)).toEqual({ USD: "0" });
+  });
+
+  it("leaves an ordinary deposit on income when the category agrees", () => {
+    const prepared = prepareWith(
+      { type: "deposit", toAccountId: checking, amount: "100.00", ...common },
+      salary.kind,
+    );
+    expect(prepared.postings[1]).toMatchObject({ accountId: incomeUsd });
+  });
+
+  it("treats a both-kind category as agreeing with either direction", () => {
+    const deposit = prepareWith(
+      { type: "deposit", toAccountId: checking, amount: "10.00", ...common },
+      either.kind,
+    );
+    const withdrawal = prepareWith(
+      { type: "withdrawal", fromAccountId: checking, amount: "10.00", ...common },
+      either.kind,
+    );
+    expect(deposit.postings[1]).toMatchObject({ accountId: incomeUsd });
+    expect(withdrawal.postings[1]).toMatchObject({ accountId: expenseUsd });
+  });
+
+  it("sends every leg of a split refund to the same counter-account", () => {
+    const prepared = prepareWith(
+      {
+        type: "deposit",
+        toAccountId: checking,
+        amount: "30.00",
+        legs: [{ amount: "20.00" }, { amount: "10.00" }],
+        ...common,
+      },
+      groceries.kind,
+    );
+    expect(prepared.postings).toMatchObject([
+      { accountId: checking, amount: "30", legIndex: null },
+      { accountId: expenseUsd, amount: "-20", legIndex: 0 },
+      { accountId: expenseUsd, amount: "-10", legIndex: 1 },
+    ]);
+    expect(currencyTotals(prepared.postings)).toEqual({ USD: "0" });
+  });
+
+  /**
+   * Two counter-accounts would be two movements, and only one of them is the
+   * one somebody entered. Refused rather than guessed at.
+   */
+  it("refuses an entry that is income and a refund at once", () => {
+    expect(() =>
+      prepareWith(
+        {
+          type: "deposit",
+          toAccountId: checking,
+          amount: "30.00",
+          legs: [{ amount: "20.00" }, { amount: "10.00" }],
+          ...common,
+        },
+        salary.kind,
+        groceries.kind,
+      ),
+    ).toThrow(/either income or a refund/i);
+  });
+
+  it("still balances an uncategorised deposit against income", () => {
+    const prepared = prepareWith({
+      type: "deposit",
+      toAccountId: checking,
+      amount: "5.00",
+      ...common,
+    });
+    expect(prepared.postings[1]).toMatchObject({ accountId: incomeUsd });
   });
 });

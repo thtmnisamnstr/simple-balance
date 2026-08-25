@@ -4,15 +4,8 @@ import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { user } from "../../src/server/db/schema.js";
-import {
-  createAccount,
-  deleteAccount,
-  getAccount,
-} from "../../src/server/services/accounts.js";
-import {
-  createCategory,
-  deleteCategory,
-} from "../../src/server/services/categories.js";
+import { createAccount, deleteAccount, getAccount } from "../../src/server/services/accounts.js";
+import { createCategory, deleteCategory } from "../../src/server/services/categories.js";
 import { createRecurrence } from "../../src/server/services/recurrences.js";
 import { createTransactionTemplate } from "../../src/server/services/transaction-templates.js";
 
@@ -78,9 +71,10 @@ describe.skipIf(!connection)("what stands in the way of a delete", () => {
       },
       idempotencyKey: nextKey(),
     });
-    await expect(
-      deleteCategory(actor, rent.id, rent.version),
-    ).rejects.toMatchObject({ code: "CONFLICT", details: { templateCount: 1 } });
+    await expect(deleteCategory(actor, rent.id, rent.version)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { templateCount: 1 },
+    });
   });
 
   it("refuses to delete a category a template's split leg names", async () => {
@@ -104,9 +98,10 @@ describe.skipIf(!connection)("what stands in the way of a delete", () => {
       },
       idempotencyKey: nextKey(),
     });
-    await expect(
-      deleteCategory(actor, utilities.id, utilities.version),
-    ).rejects.toMatchObject({ code: "CONFLICT", details: { templateCount: 1 } });
+    await expect(deleteCategory(actor, utilities.id, utilities.version)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { templateCount: 1 },
+    });
   });
 
   it("refuses to delete an account a recurrence names", async () => {
@@ -121,9 +116,7 @@ describe.skipIf(!connection)("what stands in the way of a delete", () => {
       },
       schedule: { frequency: "monthly", anchorDate: "2031-02-01" },
     });
-    await expect(
-      deleteAccount(actor, side.id, side.version),
-    ).rejects.toMatchObject({
+    await expect(deleteAccount(actor, side.id, side.version)).rejects.toMatchObject({
       code: "CONFLICT",
       details: { recurrenceCount: 1, templateCount: 0 },
     });
@@ -137,9 +130,7 @@ describe.skipIf(!connection)("what stands in the way of a delete", () => {
       draft: { type: "withdrawal", fromAccountId: spare.id, payee: "Someone" },
       idempotencyKey: nextKey(),
     });
-    await expect(
-      deleteAccount(actor, spare.id, spare.version),
-    ).rejects.toMatchObject({
+    await expect(deleteAccount(actor, spare.id, spare.version)).rejects.toMatchObject({
       code: "CONFLICT",
       details: { templateCount: 1, recurrenceCount: 0 },
     });
@@ -157,8 +148,6 @@ describe.skipIf(!connection)("what stands in the way of a delete", () => {
       name: "Never Used",
       kind: "expense",
     });
-    expect(
-      await deleteCategory(actor, unused.id, unused.version),
-    ).toMatchObject({ deleted: true });
+    expect(await deleteCategory(actor, unused.id, unused.version)).toMatchObject({ deleted: true });
   });
 });

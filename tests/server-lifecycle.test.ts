@@ -1,12 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createGracefulShutdown,
-  type DrainableServer,
-} from "../src/server/server-lifecycle.js";
+import { createGracefulShutdown, type DrainableServer } from "../src/server/server-lifecycle.js";
 
-function shutdownHarness(
-  closeResources: () => Promise<void> = vi.fn(async () => undefined),
-) {
+function shutdownHarness(closeResources: () => Promise<void> = vi.fn(async () => undefined)) {
   let closeCallback: ((error?: Error) => void) | undefined;
   let deadlineCallback: (() => void) | undefined;
   const deadline = {
@@ -57,10 +52,7 @@ describe("graceful server shutdown", () => {
     harness.shutdown("SIGTERM");
     expect(harness.server.close).toHaveBeenCalledTimes(1);
     expect(harness.server.closeIdleConnections).toHaveBeenCalledTimes(1);
-    expect(harness.scheduleDeadline).toHaveBeenCalledWith(
-      expect.any(Function),
-      250,
-    );
+    expect(harness.scheduleDeadline).toHaveBeenCalledWith(expect.any(Function), 250);
     expect(harness.deadline.unref).toHaveBeenCalledTimes(1);
 
     harness.closeCallback()?.();
@@ -119,9 +111,7 @@ describe("graceful server shutdown", () => {
 
     harness.shutdown("SIGTERM");
     harness.closeCallback()?.();
-    await vi.waitFor(() =>
-      expect(harness.closeResources).toHaveBeenCalledTimes(1),
-    );
+    await vi.waitFor(() => expect(harness.closeResources).toHaveBeenCalledTimes(1));
     harness.deadlineCallback()?.();
     resolveResources?.();
     await Promise.resolve();

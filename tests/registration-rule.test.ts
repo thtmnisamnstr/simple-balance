@@ -32,9 +32,7 @@ describe("who may register", () => {
   });
 
   it("reads addresses and domains apart", () => {
-    const rule = parseRegistrationRule(
-      "You@Example.com, pinecone.io, @usc.edu",
-    );
+    const rule = parseRegistrationRule("You@Example.com, pinecone.io, @usc.edu");
     expect(rule).toMatchObject({ kind: "list" });
     const list = rule as Extract<typeof rule, { kind: "list" }>;
     expect([...list.emails]).toEqual(["you@example.com"]);
@@ -110,9 +108,7 @@ describe("matching an address against the rule", () => {
       process.env.ALLOWED_EMAILS = allowed;
       process.env.AUTH_MODE = "local";
       vi.resetModules();
-      const { isRegistrationOpenToAnyone } = await import(
-        "../src/server/config.js"
-      );
+      const { isRegistrationOpenToAnyone } = await import("../src/server/config.js");
       return isRegistrationOpenToAnyone();
     };
 

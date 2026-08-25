@@ -56,9 +56,7 @@ integration("defects the audit claimed", () => {
       })
     ).id;
     foodId = (await createCategory(actor, { name: "Food", kind: "expense" })).id;
-    householdId = (
-      await createCategory(actor, { name: "Household", kind: "expense" })
-    ).id;
+    householdId = (await createCategory(actor, { name: "Household", kind: "expense" })).id;
     await createCategory(actor, { name: "Pets", kind: "expense" });
   });
 
@@ -126,12 +124,8 @@ integration("defects the audit claimed", () => {
       idempotencyKey: "audit-staged-split",
     });
 
-    const household = (await listCategorySummaries(actor)).find(
-      (one) => one.name === "Household",
-    )!;
-    const pets = (await listCategorySummaries(actor)).find(
-      (one) => one.name === "Pets",
-    )!;
+    const household = (await listCategorySummaries(actor)).find((one) => one.name === "Household")!;
+    const pets = (await listCategorySummaries(actor)).find((one) => one.name === "Pets")!;
     await mergeCategories(actor, {
       targetCategoryId: pets.id,
       targetExpectedVersion: pets.version,
@@ -169,9 +163,7 @@ integration("defects the audit claimed", () => {
       kind: "expense",
     });
     await expect(listCategorySummaries(actor)).resolves.toBeDefined();
-    await expect(
-      deleteCategory(actor, unused.id, unused.version),
-    ).resolves.toBeDefined();
+    await expect(deleteCategory(actor, unused.id, unused.version)).resolves.toBeDefined();
   });
 
   /**
@@ -230,9 +222,7 @@ integration("defects the audit claimed", () => {
       (event) => event.entityId === created.id && event.operation === "update",
     )!;
     const legCategories = (payload: unknown) =>
-      ((payload as { legs?: { categoryId: string }[] }).legs ?? []).map(
-        (leg) => leg.categoryId,
-      );
+      ((payload as { legs?: { categoryId: string }[] }).legs ?? []).map((leg) => leg.categoryId);
     expect(legCategories(edit.before)).toEqual([first.id, second.id]);
     expect(legCategories(edit.after)).toEqual([first.id, third.id]);
   });
@@ -240,15 +230,13 @@ integration("defects the audit claimed", () => {
   it("counts a staged split's legs against its categories", async () => {
     const summaries = await listCategorySummaries(actor);
     const pets = summaries.find((one) => one.name === "Pets")!;
-    const stagedRows = (await listStages(actor, { limit: 50 })).items.filter(
-      (item) => {
-        const legs = (item.draft as { legs?: unknown }).legs;
-        return (
-          Array.isArray(legs) &&
-          legs.some((leg) => (leg as { categoryId?: string }).categoryId === pets.id)
-        );
-      },
-    );
+    const stagedRows = (await listStages(actor, { limit: 50 })).items.filter((item) => {
+      const legs = (item.draft as { legs?: unknown }).legs;
+      return (
+        Array.isArray(legs) &&
+        legs.some((leg) => (leg as { categoryId?: string }).categoryId === pets.id)
+      );
+    });
     expect(stagedRows.length).toBeGreaterThan(0);
     expect(pets.stagedTransactionCount).toBeGreaterThan(0);
   });

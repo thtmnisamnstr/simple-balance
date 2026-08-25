@@ -17,9 +17,7 @@ describe("reading the mail settings", () => {
     expect(() => parseMailSettings({ SMTP_HOST: "smtp.example.com" })).toThrow(
       /must be set together/,
     );
-    expect(() => parseMailSettings({ MAIL_FROM: "b@example.com" })).toThrow(
-      /must be set together/,
-    );
+    expect(() => parseMailSettings({ MAIL_FROM: "b@example.com" })).toThrow(/must be set together/);
   });
 
   it("defaults to submission on 587, where STARTTLS does the encrypting", () => {
@@ -59,19 +57,18 @@ describe("reading the mail settings", () => {
       }),
     ).toMatchObject({ from: "Simple Balance <balance@example.com>" });
     for (const bad of ["balance", "balance@", "@example.com", "a b@example"]) {
-      expect(() =>
-        parseMailSettings({ SMTP_HOST: "smtp.example.com", MAIL_FROM: bad }),
-      ).toThrow(/MAIL_FROM/);
+      expect(() => parseMailSettings({ SMTP_HOST: "smtp.example.com", MAIL_FROM: bad })).toThrow(
+        /MAIL_FROM/,
+      );
     }
   });
 
   it("takes a reply address, and leaves it unset when nobody gave one", () => {
     const base = { SMTP_HOST: "smtp.example.com", MAIL_FROM: "b@example.com" };
     expect(parseMailSettings(base)?.replyTo).toBeUndefined();
-    expect(
-      parseMailSettings({ ...base, MAIL_REPLY_TO: "  support@example.com " })
-        ?.replyTo,
-    ).toBe("support@example.com");
+    expect(parseMailSettings({ ...base, MAIL_REPLY_TO: "  support@example.com " })?.replyTo).toBe(
+      "support@example.com",
+    );
     expect(
       parseMailSettings({
         ...base,
@@ -79,9 +76,7 @@ describe("reading the mail settings", () => {
       })?.replyTo,
     ).toBe("Simple Balance <support@example.com>");
     for (const bad of ["support", "support@", "@example.com"]) {
-      expect(() =>
-        parseMailSettings({ ...base, MAIL_REPLY_TO: bad }),
-      ).toThrow(/MAIL_REPLY_TO/);
+      expect(() => parseMailSettings({ ...base, MAIL_REPLY_TO: bad })).toThrow(/MAIL_REPLY_TO/);
     }
   });
 
@@ -119,9 +114,11 @@ describe("turning those settings into a connection", () => {
   // Without requireTLS, nodemailer carries on unencrypted whenever a relay
   // fails to advertise STARTTLS, which is how credentials end up in the open.
   it("will not send a password to a relay that refuses to encrypt", () => {
-    expect(
-      smtpOptions(settings({ SMTP_USERNAME: "u", SMTP_PASSWORD: "p" })),
-    ).toMatchObject({ secure: false, requireTLS: true, port: 587 });
+    expect(smtpOptions(settings({ SMTP_USERNAME: "u", SMTP_PASSWORD: "p" }))).toMatchObject({
+      secure: false,
+      requireTLS: true,
+      port: 587,
+    });
   });
 
   // A relay on a trusted network with nothing to authenticate has nothing to
@@ -142,9 +139,9 @@ describe("turning those settings into a connection", () => {
   });
 
   it("passes credentials through, and omits auth entirely without them", () => {
-    expect(
-      smtpOptions(settings({ SMTP_USERNAME: "u", SMTP_PASSWORD: "p" })),
-    ).toMatchObject({ auth: { user: "u", pass: "p" } });
+    expect(smtpOptions(settings({ SMTP_USERNAME: "u", SMTP_PASSWORD: "p" }))).toMatchObject({
+      auth: { user: "u", pass: "p" },
+    });
     expect(smtpOptions(settings())).not.toHaveProperty("auth");
   });
 

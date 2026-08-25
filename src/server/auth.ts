@@ -10,12 +10,7 @@ import {
   mayCreateSession,
 } from "./auth-policy.js";
 import { getConfig } from "./config.js";
-import {
-  mailEnabled,
-  passwordResetMessage,
-  sendMail,
-  verificationMessage,
-} from "./mail.js";
+import { mailEnabled, passwordResetMessage, sendMail, verificationMessage } from "./mail.js";
 import { isBootstrapClaim } from "./registration-context.js";
 import { revokeAllConnectedApps } from "./services/connected-apps.js";
 import { getDb } from "./db/client.js";
@@ -154,13 +149,7 @@ function createAuthInstance() {
       user: {
         create: {
           before: async (newUser, context) => {
-            if (
-              !mayCreateAuthUser(
-                newUser.email,
-                context?.path,
-                newUser.emailVerified,
-              )
-            ) {
+            if (!mayCreateAuthUser(newUser.email, context?.path, newUser.emailVerified)) {
               return false;
             }
             // Two local sign-ups are settled here rather than left to wait on
@@ -176,10 +165,7 @@ function createAuthInstance() {
             // a deployment never asked, so it must not withhold anything later:
             // otherwise the day somebody sets SMTP_HOST is the day everyone who
             // signed up before it stops being able to sign in.
-            if (
-              context?.path === "/sign-up/email" &&
-              (isBootstrapClaim() || !canSendMail)
-            ) {
+            if (context?.path === "/sign-up/email" && (isBootstrapClaim() || !canSendMail)) {
               return { data: { ...newUser, emailVerified: true } };
             }
             return true;
@@ -193,18 +179,13 @@ function createAuthInstance() {
             const linkedAccounts = transactionAdapter
               ? await transactionAdapter.findAccounts(newSession.userId)
               : undefined;
-            return mayCreateSession(
-              newSession.userId,
-              context?.path,
-              linkedAccounts,
-            );
+            return mayCreateSession(newSession.userId, context?.path, linkedAccounts);
           },
         },
       },
       account: {
         create: {
-          before: async (newAccount) =>
-            mayCreateProviderAccount(newAccount.providerId),
+          before: async (newAccount) => mayCreateProviderAccount(newAccount.providerId),
         },
       },
     },
@@ -239,7 +220,6 @@ export function getAuth(): ConcreteAuth {
   authInstance = created;
   return created;
 }
-
 
 export async function getWebIdentity(headers: Headers) {
   const session = await getAuth().api.getSession({ headers });

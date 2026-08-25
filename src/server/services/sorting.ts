@@ -48,11 +48,7 @@ export type SortPlan<Row> = {
  * falls back to sorting the whole table. On the default newest-first view that
  * is the difference between reading an index and scanning the ledger.
  */
-export function ordered(
-  expression: SQL,
-  direction: SortDirection,
-  nullable = false,
-) {
+export function ordered(expression: SQL, direction: SortDirection, nullable = false) {
   if (!nullable) {
     return direction === "asc" ? sql`${expression} asc` : sql`${expression} desc`;
   }
@@ -65,11 +61,7 @@ export function ordered(
  * The tuple comparison that resumes a keyset walk: strictly past the boundary
  * value, or level with it and strictly past the boundary row.
  */
-export function keysetAfter(
-  expression: SQL,
-  id: SQL,
-  direction: SortDirection,
-) {
+export function keysetAfter(expression: SQL, id: SQL, direction: SortDirection) {
   return (value: string, boundaryId: string) =>
     direction === "asc"
       ? sql`(${expression}, ${id}) > (${value}, ${boundaryId}::uuid)`

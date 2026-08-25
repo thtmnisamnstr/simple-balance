@@ -21,7 +21,7 @@ export default function CategoryDetailPage() {
   });
 
   if (category.error) return <Alert>{category.error.message}</Alert>;
-  if (!category.data) return <p>Loading category…</p>;
+  if (!category.data) return <p role="status">Loading category…</p>;
 
   return (
     <>

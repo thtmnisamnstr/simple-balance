@@ -5,26 +5,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
-import {
-  categories,
-  importBatches,
-  user,
-} from "../../src/server/db/schema.js";
+import { categories, importBatches, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
-import {
-  createCategory,
-  setCategoryArchived,
-} from "../../src/server/services/categories.js";
+import { createCategory, setCategoryArchived } from "../../src/server/services/categories.js";
 import {
   exportTransactionsCsv,
   listActiveImportBatches,
   stageCsv,
 } from "../../src/server/services/import-export.js";
-import {
-  createStage,
-  getStage,
-  listStages,
-} from "../../src/server/services/staging.js";
+import { createStage, getStage, listStages } from "../../src/server/services/staging.js";
 import {
   createTransaction,
   setTransactionDeleted,
@@ -109,9 +98,7 @@ integration("CSV import and export identification", () => {
 
   it("replays a committed CSV stage and binds its key to the file and mapping", async () => {
     const input = {
-      csv: ["date,description,amount", "2026-07-29,Idempotent CSV,9.50"].join(
-        "\n",
-      ),
+      csv: ["date,description,amount", "2026-07-29,Idempotent CSV,9.50"].join("\n"),
       fileName: "idempotent.csv",
       idempotencyKey: "csv-stage-idempotent",
       defaultAccountId: checkingId,
@@ -128,9 +115,7 @@ integration("CSV import and export identification", () => {
     const created = await stageCsv(actor, input);
     expect(await stageCsv(actor, input)).toEqual(created);
     expect(created).toMatchObject({ rowCount: 1, stagedIds: [expect.any(String)] });
-    expect(
-      (await listActiveImportBatches(actor, { limit: 10 })).items,
-    ).toEqual(
+    expect((await listActiveImportBatches(actor, { limit: 10 })).items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           fileName: "idempotent.csv",
@@ -143,10 +128,7 @@ integration("CSV import and export identification", () => {
     await expect(
       stageCsv(actor, {
         ...input,
-        csv: [
-          "date,description,amount",
-          "2026-07-29,Changed idempotent CSV,10.50",
-        ].join("\n"),
+        csv: ["date,description,amount", "2026-07-29,Changed idempotent CSV,10.50"].join("\n"),
       }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
@@ -164,12 +146,7 @@ integration("CSV import and export identification", () => {
       name: "Subscriptions",
       kind: "expense",
     });
-    await setCategoryArchived(
-      actor,
-      subscriptions.id,
-      subscriptions.version,
-      true,
-    );
+    await setCategoryArchived(actor, subscriptions.id, subscriptions.version, true);
     await createTransaction(
       actor,
       {
@@ -231,17 +208,26 @@ integration("CSV import and export identification", () => {
           kind: "expense",
           resolution: "existing",
         }),
+        // Named by a withdrawal and a deposit, so the rows tie and the category
+        // is created as spending. It used to be created covering both, and a
+        // category covering both agrees with whichever direction it is handed:
+        // the deposit then credited income and every later refund into Travel
+        // moved nothing.
         expect.objectContaining({
           inputName: "Travel",
           categoryId: null,
-          kind: "both",
+          kind: "expense",
           resolution: "new",
         }),
+        // An income category named on a withdrawal is income coming back, not
+        // a category that turns out to cover both. It keeps its kind, so the
+        // resolution is "existing" rather than "updated" and nothing about the
+        // ledger's own records changes.
         expect.objectContaining({
           inputName: "refunds",
           categoryId: refunds.id,
-          kind: "both",
-          resolution: "updated",
+          kind: "income",
+          resolution: "existing",
         }),
         expect.objectContaining({
           inputName: "subscriptions",
@@ -287,32 +273,22 @@ integration("CSV import and export identification", () => {
       await getDb()
         .select()
         .from(categories)
-        .where(
-          and(
-            eq(categories.userId, actor.userId),
-            eq(categories.name, "Travel"),
-          ),
-        ),
+        .where(and(eq(categories.userId, actor.userId), eq(categories.name, "Travel"))),
     ).toHaveLength(0);
     expect(
       await getDb()
         .select()
         .from(importBatches)
         .where(
-          and(
-            eq(importBatches.userId, actor.userId),
-            eq(importBatches.fileName, common.fileName),
-          ),
+          and(eq(importBatches.userId, actor.userId), eq(importBatches.fileName, common.fileName)),
         ),
     ).toHaveLength(0);
     expect(
       (await getDb().select().from(categories).where(eq(categories.id, refunds.id)))[0],
     ).toMatchObject({ kind: "income", version: refunds.version });
     expect(
-      (await getDb()
-        .select()
-        .from(categories)
-        .where(eq(categories.id, subscriptions.id)))[0]?.archivedAt,
+      (await getDb().select().from(categories).where(eq(categories.id, subscriptions.id)))[0]
+        ?.archivedAt,
     ).not.toBeNull();
 
     const input = {
@@ -342,17 +318,18 @@ integration("CSV import and export identification", () => {
       .where(eq(categories.userId, actor.userId));
     expect(resolvedCategories).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "Travel", kind: "both" }),
+        expect.objectContaining({ name: "Travel", kind: "expense" }),
         expect.objectContaining({ name: "Salary", kind: "income" }),
         expect.objectContaining({ name: "Dining", kind: "expense" }),
-        expect.objectContaining({ id: refunds.id, kind: "both" }),
+        // Unchanged: a withdrawal naming an income category is income coming
+        // back, and the category is not widened by it.
+        expect.objectContaining({ id: refunds.id, kind: "income" }),
         expect.objectContaining({ id: subscriptions.id, archivedAt: null }),
       ]),
     );
     expect(
       resolvedCategories.filter(
-        (category) =>
-          category.name.normalize("NFKC").trim().toLowerCase() === "travel",
+        (category) => category.name.normalize("NFKC").trim().toLowerCase() === "travel",
       ),
     ).toHaveLength(1);
   });
@@ -389,18 +366,11 @@ integration("CSV import and export identification", () => {
     expect(
       persisted.filter(
         (category) =>
-          category.name
-            .normalize("NFKC")
-            .trim()
-            .replace(/\s+/gu, " ")
-            .toLowerCase() === "concurrent utilities",
+          category.name.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase() ===
+          "concurrent utilities",
       ),
     ).toHaveLength(1);
-    expect(
-      [first, second].flatMap(
-        (result) => result.referenceResolution.categories,
-      ),
-    ).toEqual(
+    expect([first, second].flatMap((result) => result.referenceResolution.categories)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ resolution: "new" }),
         expect.objectContaining({ resolution: "existing" }),
@@ -481,10 +451,7 @@ integration("CSV import and export identification", () => {
       .select()
       .from(categories)
       .where(
-        and(
-          eq(categories.userId, actor.userId),
-          eq(categories.name, "tenant private category"),
-        ),
+        and(eq(categories.userId, actor.userId), eq(categories.name, "tenant private category")),
       );
     expect(primaryCategory?.id).not.toBe(otherCategory.id);
   });
@@ -517,9 +484,7 @@ integration("CSV import and export identification", () => {
       start: "2026-07-31",
       end: "2026-07-31",
     });
-    expect(exported.csv.split(/\r?\n/, 1)[0]).toContain(
-      "simple_balance_format",
-    );
+    expect(exported.csv.split(/\r?\n/, 1)[0]).toContain("simple_balance_format");
     expect(exported.csv).toContain("simple-balance-csv-1");
 
     const preview = await stageCsv(actor, {
@@ -618,14 +583,14 @@ integration("CSV import and export identification", () => {
           type: "withdrawal",
           fromAccountId: cardId,
           payee: "Elsewhere",
-        description: null,
+          description: null,
           amount: "42.5",
         }),
         expect.objectContaining({
           type: "deposit",
           toAccountId: cardId,
           payee: "Refund",
-        description: null,
+          description: null,
           amount: "9.99",
         }),
       ]),
@@ -718,8 +683,7 @@ integration("CSV import and export identification", () => {
       defaultAccountId: checkingId,
     });
 
-    const [row] = (await listStages(actor, { limit: 10, search: "Corrupt split" }))
-      .items;
+    const [row] = (await listStages(actor, { limit: 10, search: "Corrupt split" })).items;
     expect(row).toBeDefined();
     // Everything the file did state survived.
     expect(row!.draft).toMatchObject({
@@ -730,9 +694,7 @@ integration("CSV import and export identification", () => {
     });
     expect(Number((row!.draft as { amount?: string }).amount)).toBe(30);
     expect(row!.draft.legs).toBeUndefined();
-    expect(row!.validationIssues.map((issue) => issue.field)).toContain(
-      "legs_json",
-    );
+    expect(row!.validationIssues.map((issue) => issue.field)).toContain("legs_json");
   });
 
   it("lets a different person import an export of someone else's ledger", async () => {
@@ -869,11 +831,36 @@ integration("CSV import and export identification", () => {
       { start: "2026-09-09", end: "2026-09-09", includeDeleted: "true" },
     ]) {
       const exported = await exportTransactionsCsv(actor, query);
-      expect(exported.csv, JSON.stringify(query)).not.toContain(
-        "Exported Then Voided",
-      );
+      expect(exported.csv, JSON.stringify(query)).not.toContain("Exported Then Voided");
       expect(exported.rowCount, JSON.stringify(query)).toBe(0);
     }
   });
+  /**
+   * An export matching nothing is still a CSV file.
+   *
+   * It used to be the empty string, which has no header record: RFC 4180
+   * readers reject it, and this product's own preview and stage routes refused
+   * it on `z.string().min(1)`. So the one export somebody is most likely to be
+   * confused by — "did it work, or is my filter wrong?" — was also the one that
+   * could not be opened to find out.
+   *
+   * The header a populated file writes comes from its first row's keys; an
+   * empty one has no first row and takes them from a list instead. This asserts
+   * the two agree, because a column added to the rows and not to the list would
+   * make the empty file describe a different format from the full one.
+   */
+  it("exports a header-only file when nothing matches, with the same columns", async () => {
+    const populated = await exportTransactionsCsv(actor, {});
+    expect(populated.rowCount).toBeGreaterThan(0);
+    const populatedHeader = populated.csv.split("\r\n")[0];
 
+    const empty = await exportTransactionsCsv(actor, {
+      start: "1900-01-01",
+      end: "1900-01-02",
+    });
+    expect(empty.rowCount).toBe(0);
+    expect(empty.csv).not.toBe("");
+    expect(empty.csv.split("\r\n")).toHaveLength(1);
+    expect(empty.csv).toBe(populatedHeader);
+  });
 });

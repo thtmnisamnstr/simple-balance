@@ -32,10 +32,7 @@ export type Block = {
  * lets a jsdom test and a node test share this.
  */
 export function stylesheet() {
-  return readFileSync(
-    path.join(import.meta.dirname, "..", "..", "src/client/styles.css"),
-    "utf8",
-  );
+  return readFileSync(path.join(import.meta.dirname, "..", "..", "src/client/styles.css"), "utf8");
 }
 
 export function blocks(css: string): Block[] {
@@ -79,16 +76,16 @@ export function ruleFor(css: string, selector: string) {
   const matches = blocks(css).filter(
     (block) =>
       block.context.length === 0 &&
-      block.selector.split(",").map((one) => one.trim()).includes(selector),
+      block.selector
+        .split(",")
+        .map((one) => one.trim())
+        .includes(selector),
   );
   return matches;
 }
 
 /** Every `--custom-property` declared by blocks the predicates accept. */
-export function tokensIn(
-  css: string,
-  matches: (block: Block) => boolean,
-): Record<string, string> {
+export function tokensIn(css: string, matches: (block: Block) => boolean): Record<string, string> {
   const found: Record<string, string> = {};
   for (const block of blocks(css)) {
     if (!matches(block)) continue;

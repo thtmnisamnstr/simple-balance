@@ -25,10 +25,7 @@ export type GracefulShutdownOptions = {
   scheduleDeadline?: (callback: () => void, milliseconds: number) => Deadline;
 };
 
-function defaultScheduleDeadline(
-  callback: () => void,
-  milliseconds: number,
-): Deadline {
+function defaultScheduleDeadline(callback: () => void, milliseconds: number): Deadline {
   const timer = setTimeout(callback, milliseconds);
   return {
     clear: () => clearTimeout(timer),
@@ -99,10 +96,7 @@ export function createGracefulShutdown({
     state = "draining";
     logger.info(`${signal} received, shutting down`);
     deadline = scheduleDeadline(
-      () =>
-        forceExit(
-          `Graceful shutdown exceeded ${deadlineMs}ms; forcing exit`,
-        ),
+      () => forceExit(`Graceful shutdown exceeded ${deadlineMs}ms; forcing exit`),
       deadlineMs,
     );
     deadline.unref();

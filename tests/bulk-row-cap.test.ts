@@ -58,12 +58,8 @@ describe("the row cap every bulk path shares", () => {
     ["transactions", bulkTransactionSelectionSchema],
     ["staged rows", bulkStageSelectionSchema],
   ])("refuses a %s filter selection claiming more than the cap", (_label, schema) => {
-    expect(schema.safeParse(filterSelection(MAX_BULK_SELECTION_ENTRIES)).success).toBe(
-      true,
-    );
-    expect(
-      schema.safeParse(filterSelection(MAX_BULK_SELECTION_ENTRIES + 1)).success,
-    ).toBe(false);
+    expect(schema.safeParse(filterSelection(MAX_BULK_SELECTION_ENTRIES)).success).toBe(true);
+    expect(schema.safeParse(filterSelection(MAX_BULK_SELECTION_ENTRIES + 1)).success).toBe(false);
   });
 
   it("caps a template mass edit at the number of templates that can exist", () => {
@@ -76,9 +72,7 @@ describe("the row cap every bulk path shares", () => {
         items: items.slice(0, MAX_TRANSACTION_TEMPLATES),
       }).success,
     ).toBe(true);
-    expect(
-      transactionTemplateBulkSelectionSchema.safeParse({ items }).success,
-    ).toBe(false);
+    expect(transactionTemplateBulkSelectionSchema.safeParse({ items }).success).toBe(false);
   });
 
   it("says the same thing however the cap is met", () => {

@@ -22,6 +22,7 @@ import {
   dateRangeSchema,
   directTransactionCreateSchema,
   payeeMergeSchema,
+  queryBooleanSchema,
   reportNameSchema,
   transactionDeletedMutationSchema,
   versionedMutationSchema,
@@ -94,6 +95,17 @@ import {
   listRecurrences,
   updateRecurrence,
 } from "./services/recurrences.js";
+import {
+  createBudgetPlan,
+  deleteBudgetEntry,
+  deleteBudgetPlan,
+  getBudgetPlan,
+  getBudgetReport,
+  listBudgetEntries,
+  listBudgetPlans,
+  setBudgetEntry,
+  updateBudgetPlan,
+} from "./services/budgets.js";
 import { AppError } from "./services/errors.js";
 import {
   exportTransactionsCsv,
@@ -101,16 +113,14 @@ import {
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
-import {
-  deleteOwnAccount,
-  summarizeOwnData,
-} from "./services/account-deletion.js";
+import { deleteOwnAccount, summarizeOwnData } from "./services/account-deletion.js";
 import {
   listConnectedApps,
   pruneAbandonedClients,
   revokeAllConnectedApps,
   revokeConnectedApp,
 } from "./services/connected-apps.js";
+import { todayIn } from "../shared/recurrence-dates.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
   listDuplicatePayees,
@@ -143,9 +153,7 @@ import {
 } from "./services/transactions.js";
 import { isOwnerSetupTokenValid } from "./setup-token.js";
 
-const uuidPathSchema = z
-  .string()
-  .uuid("Not a valid identifier");
+const uuidPathSchema = z.string().uuid("Not a valid identifier");
 
 type Variables = {
   actor: Actor;
@@ -155,10 +163,7 @@ type Variables = {
 
 const app = new Hono<{ Variables: Variables }>();
 
-app.use(
-  "*",
-  secureHeaders(securityHeaderOptions(getConfig().isProduction)),
-);
+app.use("*", secureHeaders(securityHeaderOptions(getConfig().isProduction)));
 
 const globalBodyLimit = boundRequestBody({
   maxBytes: (context) => requestBodyLimit(context.req.path),
@@ -208,10 +213,7 @@ app.onError((error, c) => {
   // what an operator needs; the values are not.
   const query = (error as { query?: unknown }).query;
   if (typeof query === "string") {
-    console.error(
-      `Query failed: ${query}`,
-      (error as { cause?: unknown }).cause ?? error.name,
-    );
+    console.error(`Query failed: ${query}`, (error as { cause?: unknown }).cause ?? error.name);
   } else {
     console.error(error);
   }
@@ -254,9 +256,7 @@ app.use("/api/auth/*", hardenAuthCookies(getConfig().baseUrl));
 const authRequest = (c: Context, request: Request = c.req.raw) =>
   withCountableClientAddress(request, c, getConfig().trustProxy);
 
-app.get("/api/auth/methods", async (c) =>
-  c.json(await getPublicAuthOptions()),
-);
+app.get("/api/auth/methods", async (c) => c.json(await getPublicAuthOptions()));
 
 const FRESH_SESSION_MS = 15 * 60 * 1000;
 
@@ -276,11 +276,12 @@ app.post("/api/auth/sign-up/email", async (c) => {
   const contentType = c.req.header("content-type") ?? "";
   const payload = contentType.includes("application/x-www-form-urlencoded")
     ? Object.fromEntries(await c.req.raw.clone().formData())
-    : await c.req.raw.clone().json().catch(() => ({}));
+    : await c.req.raw
+        .clone()
+        .json()
+        .catch(() => ({}));
   const field = (name: string) =>
-    payload && typeof payload === "object"
-      ? (payload as Record<string, unknown>)[name]
-      : undefined;
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>)[name] : undefined;
 
   const email = field("email");
 
@@ -309,11 +310,7 @@ app.post("/api/auth/sign-up/email", async (c) => {
   // registration rule, so the code is the only thing standing between a caller
   // and the deployment. Better Auth's limiter never sees these attempts, since
   // a wrong code is refused above without its handler being called.
-  const setupCaller = countableClientAddress(
-    c.req.raw,
-    c,
-    getConfig().trustProxy,
-  );
+  const setupCaller = countableClientAddress(c.req.raw, c, getConfig().trustProxy);
   if (!(await setupCodeAttempts.take(setupCaller))) {
     return c.json(
       {
@@ -453,9 +450,7 @@ function boundedRegistration(body: Record<string, unknown>) {
     if (Array.isArray(value)) {
       bounded[field] = value
         .slice(0, 20)
-        .map((entry) =>
-          typeof entry === "string" ? entry.slice(0, limit) : entry,
-        );
+        .map((entry) => (typeof entry === "string" ? entry.slice(0, limit) : entry));
     }
   }
   // Each redirect is a URL a browser has to be able to reach, and twenty is
@@ -766,10 +761,7 @@ app.get("/.well-known/openid-configuration/mcp/", authorizationServerMetadata);
 // Say so, rather than letting the catch-all hand back an HTML page that a
 // client will try to parse as JSON.
 app.all("/.well-known/*", (c) =>
-  c.json(
-    { error: "not_found", error_description: "No metadata is published here" },
-    404,
-  ),
+  c.json({ error: "not_found", error_description: "No metadata is published here" }, 404),
 );
 
 const authenticatedMcpBodyLimit = boundRequestBody({
@@ -806,11 +798,7 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
     c.req.raw = request;
     let handled: Response | undefined;
     const limited = await authenticatedMcpBodyLimit(c, async () => {
-      handled = await handleMcpRequest(
-        c.req.raw,
-        identity.actor,
-        identity.scopes,
-      );
+      handled = await handleMcpRequest(c.req.raw, identity.actor, identity.scopes);
     });
     return limited ?? handled ?? new Response(null, { status: 500 });
   });
@@ -829,14 +817,9 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
   if (authorization !== null) {
     const scheme = /^bearer +/i.exec(authorization);
     const presented = scheme ? authorization.slice(scheme[0].length) : null;
-    const opaqueToken = presented
-      ? await unwrapMcpAccessToken(presented)
-      : null;
+    const opaqueToken = presented ? await unwrapMcpAccessToken(presented) : null;
     const headers = new Headers(c.req.raw.headers);
-    headers.set(
-      "authorization",
-      `Bearer ${opaqueToken ?? "invalid-audience-bound-jwt"}`,
-    );
+    headers.set("authorization", `Bearer ${opaqueToken ?? "invalid-audience-bound-jwt"}`);
     authenticatedRequest = new Request(c.req.raw, { headers });
   }
   const response = await protectedMcp(authenticatedRequest);
@@ -905,6 +888,32 @@ const pathId = (c: Context<{ Variables: Variables }>, name = "id") =>
 const pathReport = (c: Context<{ Variables: Variables }>) =>
   reportNameSchema.parse(c.req.param("report"));
 const query = (c: Context<{ Variables: Variables }>) => c.req.query();
+/**
+ * The query string with the named parameters read as booleans.
+ *
+ * A query string carries "true", never true, and a Zod boolean will not read
+ * one as the other, so a flag declared as a boolean for MCP - where the input
+ * really is JSON - refuses every value the browser can send. The reports route
+ * converts one flag by hand for exactly this reason; this is that conversion
+ * with a name, so the next route to grow a flag does not have to rediscover it.
+ */
+/**
+ * `?includeArchived=` read through the shared schema rather than by hand.
+ *
+ * Five routes compared the raw string with `"true"`, so anything else — `yes`,
+ * `1`, `TRUE` — quietly meant false. The schema refuses those instead, which
+ * turns a silently wrong answer into one the caller can correct.
+ */
+const includeArchivedFlag = (c: Context) =>
+  queryBooleanSchema.parse(c.req.query("includeArchived") ?? false);
+
+const queryWithFlags = (c: Context<{ Variables: Variables }>, ...flags: string[]) => {
+  const values: Record<string, unknown> = { ...c.req.query() };
+  for (const flag of flags) {
+    if (values[flag] !== undefined) values[flag] = values[flag] === "true";
+  }
+  return values;
+};
 
 app.get("/api/v1/session", async (c) =>
   c.json({
@@ -965,9 +974,7 @@ app.put("/api/v1/preferences", async (c) =>
 // reachable only with a session cookie, because that is what every /api/v1 route
 // resolves: an MCP token cannot get here, and an agent must never be able to
 // delete the person whose ledger it was given a corner of.
-app.get("/api/v1/me/data", async (c) =>
-  c.json(await summarizeOwnData(c.get("actor"))),
-);
+app.get("/api/v1/me/data", async (c) => c.json(await summarizeOwnData(c.get("actor"))));
 
 app.delete("/api/v1/me", async (c) =>
   c.json(await deleteOwnAccount(c.get("actor"), await body(c))),
@@ -977,22 +984,14 @@ app.delete("/api/v1/me", async (c) =>
 // listing needs ledger:read and revoking needs ledger:write, so a stolen
 // read-only token cannot spend its last minutes locking out the agents it was
 // stolen from. Every revocation is written to the audit log either way.
-app.get("/api/v1/connected-apps", async (c) =>
-  c.json(await listConnectedApps(c.get("actor"))),
-);
+app.get("/api/v1/connected-apps", async (c) => c.json(await listConnectedApps(c.get("actor"))));
 
 app.delete("/api/v1/connected-apps/:clientId", async (c) =>
   c.json(await revokeConnectedApp(c.get("actor"), c.req.param("clientId"))),
 );
 
 app.get("/api/v1/accounts", async (c) =>
-  c.json(
-    await listAccounts(
-      c.get("actor"),
-      c.req.query("end"),
-      c.req.query("includeArchived") === "true",
-    ),
-  ),
+  c.json(await listAccounts(c.get("actor"), c.req.query("end"), includeArchivedFlag(c))),
 );
 app.get("/api/v1/accounts/:id/balances", async (c) =>
   c.json(
@@ -1006,9 +1005,7 @@ app.get("/api/v1/accounts/:id/balances", async (c) =>
     ),
   ),
 );
-app.get("/api/v1/accounts/:id", async (c) =>
-  c.json(await getAccount(c.get("actor"), pathId(c))),
-);
+app.get("/api/v1/accounts/:id", async (c) => c.json(await getAccount(c.get("actor"), pathId(c))));
 app.post("/api/v1/accounts", async (c) =>
   c.json(await createAccount(c.get("actor"), await body(c)), 201),
 );
@@ -1016,47 +1013,29 @@ app.put("/api/v1/accounts/:id", async (c) =>
   c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),
 );
 app.post("/api/v1/accounts/:id/archive", async (c) => {
-  const parsed = versionedMutationSchema
-    .extend({ archived: z.boolean() })
-    .parse(await body(c));
+  const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
-    await setAccountArchived(
-      c.get("actor"),
-      pathId(c),
-      parsed.expectedVersion,
-      parsed.archived,
-    ),
+    await setAccountArchived(c.get("actor"), pathId(c), parsed.expectedVersion, parsed.archived),
   );
 });
 app.delete("/api/v1/accounts/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
-  return c.json(
-    await deleteAccount(c.get("actor"), pathId(c), parsed.expectedVersion),
-  );
+  return c.json(await deleteAccount(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
 
 app.get("/api/v1/categories", async (c) =>
-  c.json(
-    await listCategories(c.get("actor"), c.req.query("includeArchived") === "true"),
-  ),
+  c.json(await listCategories(c.get("actor"), includeArchivedFlag(c))),
 );
 app.get("/api/v1/categories/duplicates", async (c) =>
   c.json(await listDuplicateCategories(c.get("actor"))),
 );
 app.get("/api/v1/categories/summaries", async (c) =>
-  c.json(
-    await listCategorySummaries(
-      c.get("actor"),
-      c.req.query("includeArchived") === "true",
-    ),
-  ),
+  c.json(await listCategorySummaries(c.get("actor"), includeArchivedFlag(c))),
 );
 app.get("/api/v1/categories/:id", async (c) =>
   c.json(await getCategory(c.get("actor"), pathId(c))),
 );
-app.get("/api/v1/recurrences", async (c) =>
-  c.json(await listRecurrences(c.get("actor"))),
-);
+app.get("/api/v1/recurrences", async (c) => c.json(await listRecurrences(c.get("actor"))));
 app.get("/api/v1/recurrences/:id", async (c) =>
   c.json(await getRecurrence(c.get("actor"), pathId(c))),
 );
@@ -1068,10 +1047,38 @@ app.put("/api/v1/recurrences/:id", async (c) =>
 );
 app.delete("/api/v1/recurrences/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
-  return c.json(
-    await deleteRecurrence(c.get("actor"), pathId(c), parsed.expectedVersion),
-  );
+  return c.json(await deleteRecurrence(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
+app.get("/api/v1/budget-plans", async (c) => c.json(await listBudgetPlans(c.get("actor"))));
+app.get("/api/v1/budget-plans/:id", async (c) =>
+  c.json(await getBudgetPlan(c.get("actor"), pathId(c))),
+);
+app.post("/api/v1/budget-plans", async (c) =>
+  c.json(await createBudgetPlan(c.get("actor"), await body(c)), 201),
+);
+app.put("/api/v1/budget-plans/:id", async (c) =>
+  c.json(await updateBudgetPlan(c.get("actor"), pathId(c), await body(c))),
+);
+app.delete("/api/v1/budget-plans/:id", async (c) => {
+  const parsed = versionedMutationSchema.parse(await body(c));
+  return c.json(await deleteBudgetPlan(c.get("actor"), pathId(c), parsed.expectedVersion));
+});
+app.get("/api/v1/budget-entries", async (c) => c.json(await listBudgetEntries(c.get("actor"))));
+app.put("/api/v1/budget-entries", async (c) =>
+  c.json(await setBudgetEntry(c.get("actor"), await body(c))),
+);
+app.delete("/api/v1/budget-entries/:id", async (c) => {
+  const parsed = versionedMutationSchema.parse(await body(c));
+  return c.json(await deleteBudgetEntry(c.get("actor"), pathId(c), parsed.expectedVersion));
+});
+app.get("/api/v1/budget-report", async (c) =>
+  c.json(
+    await getBudgetReport(
+      c.get("actor"),
+      queryWithFlags(c, "includeArchived", "includeUnbudgeted"),
+    ),
+  ),
+);
 app.get("/api/v1/transaction-templates", async (c) =>
   c.json(await listTransactionTemplates(c.get("actor"))),
 );
@@ -1082,13 +1089,7 @@ app.post("/api/v1/transaction-templates", async (c) =>
   c.json(await createTransactionTemplate(c.get("actor"), await body(c)), 201),
 );
 app.put("/api/v1/transaction-templates/:id", async (c) =>
-  c.json(
-    await updateTransactionTemplate(
-      c.get("actor"),
-      pathId(c),
-      await body(c),
-    ),
-  ),
+  c.json(await updateTransactionTemplate(c.get("actor"), pathId(c), await body(c))),
 );
 app.post("/api/v1/transaction-templates/bulk-edit", async (c) =>
   c.json(await bulkEditTransactionTemplates(c.get("actor"), await body(c))),
@@ -1098,21 +1099,10 @@ app.post("/api/v1/transaction-templates/bulk-delete", async (c) =>
 );
 app.delete("/api/v1/transaction-templates/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
-  return c.json(
-    await deleteTransactionTemplate(
-      c.get("actor"),
-      pathId(c),
-      parsed.expectedVersion,
-    ),
-  );
+  return c.json(await deleteTransactionTemplate(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
 app.post("/api/v1/categories/merge", async (c) =>
-  c.json(
-    await mergeCategories(
-      c.get("actor"),
-      categoryMergeSchema.parse(await body(c)),
-    ),
-  ),
+  c.json(await mergeCategories(c.get("actor"), categoryMergeSchema.parse(await body(c)))),
 );
 app.get("/api/v1/payees/suggestions", async (c) =>
   c.json(await listPayeeSuggestions(c.get("actor"), c.req.query("search"))),
@@ -1121,17 +1111,10 @@ app.get("/api/v1/payees/duplicates", async (c) =>
   c.json(await listDuplicatePayees(c.get("actor"))),
 );
 app.post("/api/v1/payees/merge", async (c) =>
-  c.json(
-    await mergePayees(
-      c.get("actor"),
-      payeeMergeSchema.parse(await body(c)),
-    ),
-  ),
+  c.json(await mergePayees(c.get("actor"), payeeMergeSchema.parse(await body(c)))),
 );
 app.get("/api/v1/payees", async (c) =>
-  c.json(
-    await listPayees(c.get("actor"), { search: c.req.query("search") }),
-  ),
+  c.json(await listPayees(c.get("actor"), { search: c.req.query("search") })),
 );
 app.post("/api/v1/categories", async (c) =>
   c.json(await createCategory(c.get("actor"), await body(c)), 201),
@@ -1140,23 +1123,14 @@ app.put("/api/v1/categories/:id", async (c) =>
   c.json(await updateCategory(c.get("actor"), pathId(c), await body(c))),
 );
 app.post("/api/v1/categories/:id/archive", async (c) => {
-  const parsed = versionedMutationSchema
-    .extend({ archived: z.boolean() })
-    .parse(await body(c));
+  const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
-    await setCategoryArchived(
-      c.get("actor"),
-      pathId(c),
-      parsed.expectedVersion,
-      parsed.archived,
-    ),
+    await setCategoryArchived(c.get("actor"), pathId(c), parsed.expectedVersion, parsed.archived),
   );
 });
 app.delete("/api/v1/categories/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
-  return c.json(
-    await deleteCategory(c.get("actor"), pathId(c), parsed.expectedVersion),
-  );
+  return c.json(await deleteCategory(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
 
 app.get("/api/v1/transactions", async (c) =>
@@ -1172,18 +1146,12 @@ app.post("/api/v1/transactions/bulk-selection", async (c) =>
 );
 app.post("/api/v1/transactions/bulk-edit", async (c) =>
   c.json(
-    await bulkEditTransactions(
-      c.get("actor"),
-      bulkTransactionEditSchema.parse(await body(c)),
-    ),
+    await bulkEditTransactions(c.get("actor"), bulkTransactionEditSchema.parse(await body(c))),
   ),
 );
 app.post("/api/v1/transactions/bulk-delete", async (c) =>
   c.json(
-    await bulkDeleteTransactions(
-      c.get("actor"),
-      bulkTransactionDeleteSchema.parse(await body(c)),
-    ),
+    await bulkDeleteTransactions(c.get("actor"), bulkTransactionDeleteSchema.parse(await body(c))),
   ),
 );
 app.get("/api/v1/transactions/:id", async (c) =>
@@ -1250,30 +1218,26 @@ app.post("/api/v1/csv/preview", async (c) => {
   const parsed = z.object({ csv: z.string().min(1) }).parse(await body(c));
   return c.json(getCsvPreview(parsed.csv));
 });
-app.post("/api/v1/csv/stage", async (c) =>
-  c.json(await stageCsv(c.get("actor"), await body(c))),
-);
+app.post("/api/v1/csv/stage", async (c) => c.json(await stageCsv(c.get("actor"), await body(c))));
 app.get("/api/v1/import-batches", async (c) =>
   c.json(await listActiveImportBatches(c.get("actor"), query(c))),
 );
 app.get("/api/v1/csv/export", async (c) => {
-  const result = await exportTransactionsCsv(c.get("actor"), query(c));
+  const actor = c.get("actor");
+  const result = await exportTransactionsCsv(actor, query(c));
   c.header("Content-Type", "text/csv; charset=utf-8");
-  c.header(
-    "Content-Disposition",
-    `attachment; filename="transactions-${new Date().toISOString().slice(0, 10)}.csv"`,
-  );
+  // Dated in the person's own timezone, not the server's. `common.md` puts
+  // every "today" in this product through `todayIn`, and this was the one that
+  // went through the server clock instead: somebody at UTC+13 downloading at
+  // 09:00 got yesterday's date on the file, which is the one thing a dated
+  // filename exists to get right.
+  const { timezone } = await getPreferences(actor);
+  c.header("Content-Disposition", `attachment; filename="transactions-${todayIn(timezone)}.csv"`);
   return c.body(result.csv);
 });
 
 app.get("/api/v1/summary", async (c) =>
-  c.json(
-    await getSummary(
-      c.get("actor"),
-      query(c),
-      c.req.query("includeArchived") === "true",
-    ),
-  ),
+  c.json(await getSummary(c.get("actor"), query(c), includeArchivedFlag(c))),
 );
 app.get("/api/v1/staged/:id/duplicate", async (c) =>
   c.json(await getStagedDuplicateReview(c.get("actor"), pathId(c))),
@@ -1283,7 +1247,7 @@ app.get("/api/v1/reports/:report", async (c) =>
     await getReport(
       c.get("actor"),
       { ...c.req.query(), report: pathReport(c) },
-      c.req.query("includeArchived") === "true",
+      includeArchivedFlag(c),
     ),
   ),
 );

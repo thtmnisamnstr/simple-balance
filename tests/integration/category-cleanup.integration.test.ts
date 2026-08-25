@@ -3,15 +3,8 @@ import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
-import {
-  createCategory,
-  listCategories,
-} from "../../src/server/services/categories.js";
-import {
-  bulkEditStages,
-  createStage,
-  updateStage,
-} from "../../src/server/services/staging.js";
+import { createCategory, listCategories } from "../../src/server/services/categories.js";
+import { bulkEditStages, createStage, updateStage } from "../../src/server/services/staging.js";
 import { createTransactionTemplate } from "../../src/server/services/transaction-templates.js";
 import { createRecurrence } from "../../src/server/services/recurrences.js";
 import {
@@ -32,8 +25,7 @@ let keySeed = 0;
 const nextKey = () => `cleanup-${String((keySeed += 1)).padStart(6, "0")}`;
 let checkingId = "";
 
-const names = async () =>
-  (await listCategories(actor, true)).map((row) => row.name).sort();
+const names = async () => (await listCategories(actor, true)).map((row) => row.name).sort();
 
 const category = async (name: string) =>
   (await createCategory(actor, { name, kind: "expense" })).id;
@@ -226,27 +218,24 @@ integration("a category nothing points at any more", () => {
       const held = await category(name);
       const other = await category(`${name} elsewhere`);
       if (hold === "recurrence") {
-        await createRecurrence(
-          actor,
-          {
-            name,
-            schedule: {
-              frequency: "monthly",
-              interval: 1,
-              anchorDate: "2026-03-01",
-              monthPolicy: "last_day",
-              weekendPolicy: "allow",
-            },
-            shape: {
-              type: "withdrawal",
-              payee: "Standing",
-              amount: "20",
-              fromAccountId: checkingId,
-              categoryId: held,
-              description: null,
-            },
-          } as never,
-        );
+        await createRecurrence(actor, {
+          name,
+          schedule: {
+            frequency: "monthly",
+            interval: 1,
+            anchorDate: "2026-03-01",
+            monthPolicy: "last_day",
+            weekendPolicy: "allow",
+          },
+          shape: {
+            type: "withdrawal",
+            payee: "Standing",
+            amount: "20",
+            fromAccountId: checkingId,
+            categoryId: held,
+            description: null,
+          },
+        } as never);
       } else {
         await createTransactionTemplate(actor, {
           name,
@@ -410,9 +399,7 @@ integration("a category nothing points at any more", () => {
       } as never,
       nextKey(),
     );
-    expect((await listPayees(actor)).map((row) => row.name)).toContain(
-      "Only Ever Here",
-    );
+    expect((await listPayees(actor)).map((row) => row.name)).toContain("Only Ever Here");
     await updateTransaction(actor, created.id, {
       expectedVersion: created.version,
       draft: {

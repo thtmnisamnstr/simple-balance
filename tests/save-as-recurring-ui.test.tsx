@@ -2,14 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
@@ -163,6 +156,7 @@ function stubLedger(transactions: Transaction[] = [imported]) {
           page: 1,
           pageSize: transactions.length,
           totalCount: transactions.length,
+          cursorAvailable: false,
           totalPages: 1,
         };
         return jsonResponse(page);
@@ -174,6 +168,7 @@ function stubLedger(transactions: Transaction[] = [imported]) {
           page: 1,
           pageSize: 1,
           totalCount: 1,
+          cursorAvailable: false,
           totalPages: 1,
         };
         return jsonResponse(page);
@@ -181,10 +176,8 @@ function stubLedger(transactions: Transaction[] = [imported]) {
       if (url.pathname === "/api/v1/import-batches") {
         return jsonResponse({ items: [], nextCursor: null });
       }
-      if (url.pathname === "/api/v1/accounts")
-        return jsonResponse([checking, euroSavings]);
-      if (url.pathname === "/api/v1/categories")
-        return jsonResponse([groceries, retiredCategory]);
+      if (url.pathname === "/api/v1/accounts") return jsonResponse([checking, euroSavings]);
+      if (url.pathname === "/api/v1/categories") return jsonResponse([groceries, retiredCategory]);
       if (url.pathname === "/api/v1/transaction-templates") return jsonResponse([]);
       if (url.pathname === "/api/v1/payees/suggestions") return jsonResponse([]);
       return new Response("Not found", { status: 404 });
@@ -208,12 +201,8 @@ function renderAt(path: string, page: "transactions" | "staged") {
 
 async function openRecurrenceEditor(payee: string) {
   fireEvent.click(await screen.findByRole("button", { name: `Actions for ${payee}` }));
-  fireEvent.click(
-    screen.getByRole("button", { name: /Save as recurring transaction/ }),
-  );
-  return within(
-    screen.getByRole("dialog", { name: "Save as recurring transaction" }),
-  );
+  fireEvent.click(screen.getByRole("button", { name: /Save as recurring transaction/ }));
+  return within(screen.getByRole("dialog", { name: "Save as recurring transaction" }));
 }
 
 afterEach(() => {
@@ -234,9 +223,7 @@ describe("saving a transaction as a recurring transaction", () => {
       name: "Actions for Market",
     });
     const menu = trigger.closest("details");
-    expect(menu).toContainElement(
-      screen.getByRole("button", { name: /Save as template/ }),
-    );
+    expect(menu).toContainElement(screen.getByRole("button", { name: /Save as template/ }));
     expect(menu).toContainElement(
       screen.getByRole("button", { name: /Save as recurring transaction/ }),
     );
@@ -251,9 +238,7 @@ describe("saving a transaction as a recurring transaction", () => {
     expect(dialog.getByLabelText("Account")).toHaveValue(checking.id);
     expect(dialog.getByLabelText(/^Description/)).toHaveValue("Food");
     expect(dialog.getByLabelText(/^Notes/)).toHaveValue("weekly");
-    expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue(
-      "Groceries",
-    );
+    expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue("Groceries");
   });
 
   /**
@@ -294,26 +279,35 @@ describe("saving a transaction as a recurring transaction", () => {
       schedule: { frequency: "monthly", anchorDate: "2026-01-05" },
     });
     expect(writes[0]!.body.shape).not.toHaveProperty("date");
-    expect(JSON.stringify(writes[0]!.body)).not.toContain(
-      "bank-statement-row-9912",
-    );
+    expect(JSON.stringify(writes[0]!.body)).not.toContain("bank-statement-row-9912");
   });
 
   /**
-   * A category arrives without anybody having chosen it under the type now on
-   * screen. Kept, it would be refused once per proposal at commit and never at
-   * a moment anybody could connect to this form.
+   * Switching a withdrawal to a deposit under a spending category makes it a
+   * refund, which the server accepts and posts against that category. The form
+   * used to clear the field to avoid a refusal at commit that no longer
+   * happens, and clearing it now would delete the choice that says what the
+   * entry is.
    */
-  it("drops a category the type it is switched to cannot cover", async () => {
+  it("keeps a spending category when the type becomes a deposit", async () => {
     stubLedger();
     renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
     const dialog = await openRecurrenceEditor("Market");
-    expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue(
-      "Groceries",
-    );
+    expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue("Groceries");
     fireEvent.click(dialog.getByRole("radio", { name: /Deposit/ }));
     await waitFor(() =>
-      expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue(""),
+      expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue("Groceries"),
+    );
+  });
+
+  /** A transfer files under no category at all, so this one still clears. */
+  it("drops the category when the type becomes a transfer", async () => {
+    stubLedger();
+    renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
+    const dialog = await openRecurrenceEditor("Market");
+    fireEvent.click(dialog.getByRole("radio", { name: /Transfer/ }));
+    await waitFor(() =>
+      expect(dialog.queryByPlaceholderText("Type to search or add")).not.toBeInTheDocument(),
     );
   });
 
@@ -326,9 +320,7 @@ describe("saving a transaction as a recurring transaction", () => {
     const writes = stubLedger([crossCurrency]);
     renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
     const dialog = await openRecurrenceEditor("Monthly sweep");
-    expect(
-      dialog.getByText(/waits in the queue for the amount received/),
-    ).toBeInTheDocument();
+    expect(dialog.getByText(/waits in the queue for the amount received/)).toBeInTheDocument();
     fireEvent.change(dialog.getByLabelText(/^Name/), {
       target: { value: "Euro sweep" },
     });
@@ -352,7 +344,9 @@ describe("saving a transaction as a recurring transaction", () => {
    * category nobody could see it delete, including one already saved.
    */
   it("keeps a transfer's category rather than clearing it", async () => {
-    const writes = stubLedger([{ ...crossCurrency, categoryId: groceries.id, category: groceries }]);
+    const writes = stubLedger([
+      { ...crossCurrency, categoryId: groceries.id, category: groceries },
+    ]);
     renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
     const dialog = await openRecurrenceEditor("Monthly sweep");
     fireEvent.change(dialog.getByLabelText(/^Name/), {
@@ -428,12 +422,8 @@ describe("saving a transaction as a recurring transaction", () => {
     stubLedger();
     renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
     const dialog = await openRecurrenceEditor("Market");
-    expect(
-      dialog.getByRole("button", { name: "Create recurrence" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("dialog", { name: "Save as template" }),
-    ).not.toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Create recurrence" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Save as template" })).not.toBeInTheDocument();
   });
 });
 
@@ -447,9 +437,7 @@ describe("saving a staged row as a recurring transaction", () => {
     const writes = stubLedger();
     renderAt("/staged?start=2026-02-01&end=2026-02-28", "staged");
     const dialog = await openRecurrenceEditor("Utility Co");
-    expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue(
-      "Utilities",
-    );
+    expect(dialog.getByPlaceholderText("Type to search or add")).toHaveValue("Utilities");
     fireEvent.change(dialog.getByLabelText(/^Name/), {
       target: { value: "Electricity" },
     });

@@ -76,10 +76,7 @@ integration("paging the queue by date", () => {
         cursor = result.nextCursor;
       }
       expect(seen.length, `${direction}: every row came back`).toBe(DRAFTS.length);
-      expect(
-        new Set(seen).size,
-        `${direction}: and none of them twice`,
-      ).toBe(DRAFTS.length);
+      expect(new Set(seen).size, `${direction}: and none of them twice`).toBe(DRAFTS.length);
     }
   });
 
@@ -127,9 +124,7 @@ integration("paging the queue by date", () => {
         },
       ]);
     const found = await listStages(actor, { payee: stored, limit: 50 });
-    expect(
-      found.items.map((item) => (item.draft as { payee?: string }).payee),
-    ).toContain(stored);
+    expect(found.items.map((item) => (item.draft as { payee?: string }).payee)).toContain(stored);
     // And the folded spelling finds it too, which is the same rule from the
     // other side.
     const folded = await listStages(actor, { payee: "Caf\u00e9 fine", limit: 50 });

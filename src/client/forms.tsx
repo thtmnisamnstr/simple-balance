@@ -16,7 +16,9 @@ import {
   MAX_TRANSACTION_LEGS,
   recurrenceOrdinals,
   recurrenceScheduleSchema,
+  resolveEntrySide,
   templateNotificationSchema,
+  type CategoryKind,
   type RecurrenceFrequencyName,
   type RecurrenceOrdinal,
   type UserAccountType,
@@ -43,14 +45,7 @@ import {
   type Transaction,
   type TransactionTemplate,
 } from "./api.js";
-import {
-  Alert,
-  Button,
-  Field,
-  Input,
-  Select,
-  Textarea,
-} from "./components.js";
+import { Alert, Button, Field, Input, RequiredNote, Select, Textarea } from "./components.js";
 import {
   compareMoney,
   formatDate,
@@ -91,12 +86,8 @@ export function AccountForm({
       ? account.openingBalance.replace(/^-/, "")
       : account.openingBalance;
   });
-  const [liabilityBalanceKind, setLiabilityBalanceKind] = useState<
-    "owed" | "credit"
-  >(
-    account &&
-      liabilityAccountTypes.has(account.type) &&
-      isPositiveMoney(account.openingBalance)
+  const [liabilityBalanceKind, setLiabilityBalanceKind] = useState<"owed" | "credit">(
+    account && liabilityAccountTypes.has(account.type) && isPositiveMoney(account.openingBalance)
       ? "credit"
       : "owed",
   );
@@ -110,9 +101,7 @@ export function AccountForm({
     if (wasLiability && !willBeLiability) {
       const magnitude = openingBalance.replace(/^-/, "");
       setOpeningBalance(
-        liabilityBalanceKind === "owed" && isPositiveMoney(magnitude)
-          ? `-${magnitude}`
-          : magnitude,
+        liabilityBalanceKind === "owed" && isPositiveMoney(magnitude) ? `-${magnitude}` : magnitude,
       );
     } else if (!wasLiability && willBeLiability) {
       if (isNegativeMoney(openingBalance)) {
@@ -171,6 +160,7 @@ export function AccountForm({
         mutation.mutate();
       }}
     >
+      <RequiredNote />
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
       <Field label="Account name">
         <Input
@@ -185,9 +175,7 @@ export function AccountForm({
         <Field label="Account type">
           <Select
             value={type}
-            onChange={(event) =>
-              changeAccountType(event.target.value as UserAccountType)
-            }
+            onChange={(event) => changeAccountType(event.target.value as UserAccountType)}
           >
             {userAccountTypes.map((value) => (
               <option key={value} value={value}>
@@ -197,11 +185,7 @@ export function AccountForm({
           </Select>
         </Field>
         <Field label="Currency or crypto asset" hint="Fixed once this account is in use">
-          <Select
-            required
-            value={currency}
-            onChange={(event) => setCurrency(event.target.value)}
-          >
+          <Select required value={currency} onChange={(event) => setCurrency(event.target.value)}>
             {currencyOptions(currency).map((option) => (
               <option key={option} value={option}>
                 {currencyOptionLabel(option)}
@@ -210,11 +194,7 @@ export function AccountForm({
           </Select>
         </Field>
       </div>
-      <div
-        className={
-          liabilityAccountTypes.has(type) ? "three-columns" : "two-columns"
-        }
-      >
+      <div className={liabilityAccountTypes.has(type) ? "three-columns" : "two-columns"}>
         <Field label="Opening date">
           <Input
             type="date"
@@ -227,22 +207,14 @@ export function AccountForm({
           <Field label="Starting balance type">
             <Select
               value={liabilityBalanceKind}
-              onChange={(event) =>
-                setLiabilityBalanceKind(event.target.value as "owed" | "credit")
-              }
+              onChange={(event) => setLiabilityBalanceKind(event.target.value as "owed" | "credit")}
             >
               <option value="owed">Amount owed</option>
               <option value="credit">Credit balance</option>
             </Select>
           </Field>
         ) : null}
-        <Field
-          label={
-            liabilityAccountTypes.has(type)
-              ? "Starting amount"
-              : "Opening balance"
-          }
-        >
+        <Field label={liabilityAccountTypes.has(type) ? "Starting amount" : "Opening balance"}>
           <Input
             inputMode="decimal"
             required
@@ -278,7 +250,6 @@ export function AccountForm({
   );
 }
 
-
 /**
  * The payee field, with the suggestions and the snap-to-existing-spelling
  * behaviour that keeps a ledger from growing three spellings of one shop. Its
@@ -300,16 +271,12 @@ function PayeeInput({
   const payees = useQuery({
     queryKey: ["payees", "suggestions", value.trim().toLowerCase()],
     queryFn: () =>
-      api<string[]>(
-        `/api/v1/payees/suggestions?search=${encodeURIComponent(value.trim())}`,
-      ),
+      api<string[]>(`/api/v1/payees/suggestions?search=${encodeURIComponent(value.trim())}`),
     placeholderData: (previous) => previous,
   });
   const matching = (candidate: string) =>
     payees.data?.find(
-      (suggestion) =>
-        normalizeHumanName(suggestion) ===
-        normalizeHumanName(candidate),
+      (suggestion) => normalizeHumanName(suggestion) === normalizeHumanName(candidate),
     );
   return (
     <>
@@ -317,14 +284,9 @@ function PayeeInput({
         autoFocus={autoFocus}
         required={required}
         list={listId}
-        role="combobox"
-        aria-autocomplete="list"
-        aria-controls={listId}
         value={value}
         onChange={(event) => onChange(matching(event.target.value) ?? event.target.value)}
-        onBlur={() =>
-          onChange(matching(value) ?? value.trim().replace(/\s+/gu, " "))
-        }
+        onBlur={() => onChange(matching(value) ?? value.trim().replace(/\s+/gu, " "))}
         placeholder="Merchant, employer, person…"
       />
       <datalist id={listId}>
@@ -440,14 +402,9 @@ const transactionTypeOptions: {
  * two filtered archived accounts out and the third did not, so the same closed
  * account was offered on one screen and hidden on another.
  */
-function selectableAccounts(
-  accounts: Account[],
-  ...referenced: (string | undefined)[]
-) {
+function selectableAccounts(accounts: Account[], ...referenced: (string | undefined)[]) {
   const kept = new Set(referenced.filter((id): id is string => Boolean(id)));
-  return accounts.filter(
-    (account) => !account.archivedAt || kept.has(account.id),
-  );
+  return accounts.filter((account) => !account.archivedAt || kept.has(account.id));
 }
 
 type TransactionTypeChoiceProps =
@@ -469,9 +426,7 @@ function TransactionTypeChoice(props: TransactionTypeChoiceProps) {
   const { value, allowNone = false } = props;
   const onChange = props.onChange as (type: TransactionType | "") => void;
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
-  const chosenIndex = transactionTypeOptions.findIndex(
-    (option) => option.type === value,
-  );
+  const chosenIndex = transactionTypeOptions.findIndex((option) => option.type === value);
 
   const moveTo = (index: number) => {
     const count = transactionTypeOptions.length;
@@ -506,6 +461,11 @@ function TransactionTypeChoice(props: TransactionTypeChoiceProps) {
   };
 
   return (
+    // The handler and the interactive role arrive together, both gated on the
+    // same `allowNone`, so the element carrying a key handler is always a
+    // radiogroup. The rule reads the two attributes separately and cannot see
+    // that they agree.
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       className="transaction-type-grid"
       role={allowNone ? "group" : "radiogroup"}
@@ -572,15 +532,11 @@ function CategoryPicker({
   const listId = useId();
   const compatible = useMemo(
     () =>
-      categories.filter((category) => {
-        if (category.archivedAt && category.id !== categoryId) return false;
-        return (
-          !type ||
-          category.kind === "both" ||
-          (type === "deposit" && category.kind === "income") ||
-          (type === "withdrawal" && category.kind === "expense")
-        );
-      }),
+      // Kind no longer narrows this list. A category that runs against the
+      // direction is a refund rather than a mistake, and hiding it was how the
+      // picker made one impossible to enter. What it costs is that the list is
+      // longer; what the filter cost was a whole shape of entry.
+      categories.filter((category) => !category.archivedAt || category.id === categoryId),
     [categories, categoryId, type],
   );
 
@@ -590,28 +546,22 @@ function CategoryPicker({
   // hand-rolled near-match: without the NFKC step this previewed a ligature
   // the server would not store.
   const cleaned = cleanHumanName(categoryName);
-  // Deliberately every category, not just the compatible ones. A name that
-  // belongs to a category filed under the other side still names something
-  // that exists, and the server widens that category rather than refusing the
-  // entry or starting a second spelling of it.
-  const existing = categories.find(
-    (category) => normalizeHumanName(category.name) === normalized,
-  );
+  // Deliberately every category, not just the ones matching the direction. A
+  // name filed under the other side still names something that exists, and an
+  // entry running against it is a refund: the server files it against that
+  // category and leaves the category's kind alone. Filtering here is what made
+  // a refund impossible to enter.
+  const existing = categories.find((category) => normalizeHumanName(category.name) === normalized);
 
   return (
     <div className="category-picker">
       <Input
         list={listId}
-        role="combobox"
-        aria-autocomplete="list"
-        aria-controls={listId}
         value={categoryName}
         onChange={(event) => {
           const next = event.target.value;
           const match = categories.find(
-            (category) =>
-              normalizeHumanName(category.name) ===
-              normalizeHumanName(next),
+            (category) => normalizeHumanName(category.name) === normalizeHumanName(next),
           );
           // Matching by name keeps the spelling already in the ledger, so the
           // field shows what the entry will actually be filed under.
@@ -633,7 +583,6 @@ function CategoryPicker({
     </div>
   );
 }
-
 
 /**
  * The category side of the form: one picker, or one row per share of a split.
@@ -678,9 +627,7 @@ function CategoryLegs({
     note: "",
   });
   const replace = (index: number, changes: Partial<TransactionFormLeg>) =>
-    onLegsChange(
-      legs.map((leg, at) => (at === index ? { ...leg, ...changes } : leg)),
-    );
+    onLegsChange(legs.map((leg, at) => (at === index ? { ...leg, ...changes } : leg)));
 
   if (!legs.length) {
     return (
@@ -700,10 +647,7 @@ function CategoryLegs({
             // whole amount, so splitting starts from what is on screen rather
             // than from nothing.
             onCategoryChange("", "");
-            onLegsChange([
-              { id: "", categoryId, categoryName, amount: total, note: "" },
-              blank(),
-            ]);
+            onLegsChange([{ id: "", categoryId, categoryName, amount: total, note: "" }, blank()]);
           }}
         >
           Split across categories
@@ -851,14 +795,11 @@ export function TemplateForm({
   const reminder = template?.notification ?? null;
   const [name, setName] = useState(template?.name ?? "");
   const [reminding, setReminding] = useState(reminder !== null);
-  const [reminderRepeats, setReminderRepeats] = useState(
-    reminder?.repeats ?? false,
+  const [reminderRepeats, setReminderRepeats] = useState(reminder?.repeats ?? false);
+  const [reminderFrequency, setReminderFrequency] = useState<RecurrenceFrequencyName>(
+    reminder?.frequency ?? "monthly",
   );
-  const [reminderFrequency, setReminderFrequency] =
-    useState<RecurrenceFrequencyName>(reminder?.frequency ?? "monthly");
-  const [reminderInterval, setReminderInterval] = useState(
-    String(reminder?.interval ?? 1),
-  );
+  const [reminderInterval, setReminderInterval] = useState(String(reminder?.interval ?? 1));
   const [reminderDate, setReminderDate] = useState(
     reminder?.anchorDate ?? calendarDateInTimezone(new Date(), timezone),
   );
@@ -869,18 +810,13 @@ export function TemplateForm({
   const [reminderWeekendPolicy, setReminderWeekendPolicy] = useState(
     reminder?.weekendPolicy ?? "allow",
   );
-  const [reminderByPosition, setReminderByPosition] = useState(
-    reminder?.position != null,
+  const [reminderByPosition, setReminderByPosition] = useState(reminder?.position != null);
+  const [reminderOrdinal, setReminderOrdinal] = useState<RecurrencePosition["ordinal"]>(
+    (reminder?.position?.ordinal as RecurrencePosition["ordinal"]) ?? 1,
   );
-  const [reminderOrdinal, setReminderOrdinal] = useState<
-    RecurrencePosition["ordinal"]
-  >((reminder?.position?.ordinal as RecurrencePosition["ordinal"]) ?? 1);
-  const [reminderWeekday, setReminderWeekday] = useState(
-    reminder?.position?.weekday ?? 1,
-  );
+  const [reminderWeekday, setReminderWeekday] = useState(reminder?.position?.weekday ?? 1);
   const notificationsAvailable = useNotificationsAvailable();
-  const reminderPositional =
-    reminderFrequency === "monthly" || reminderFrequency === "yearly";
+  const reminderPositional = reminderFrequency === "monthly" || reminderFrequency === "yearly";
   const reminderUsesPosition = reminderPositional && reminderByPosition;
   // The server's own contract rather than a second copy of it here, the same way
   // the recurrence form checks its schedule: a form that validates its own
@@ -893,8 +829,7 @@ export function TemplateForm({
         frequency: reminderRepeats ? reminderFrequency : null,
         ...(reminderRepeats
           ? {
-              interval:
-                reminderInterval.trim() === "" ? 1 : Number(reminderInterval),
+              interval: reminderInterval.trim() === "" ? 1 : Number(reminderInterval),
               monthPolicy: reminderMonthPolicy,
               weekendPolicy: reminderWeekendPolicy,
               position: reminderUsesPosition
@@ -906,9 +841,7 @@ export function TemplateForm({
         time: reminderTime,
       }
     : null;
-  const parsedReminder = reminderInput
-    ? templateNotificationSchema.safeParse(reminderInput)
-    : null;
+  const parsedReminder = reminderInput ? templateNotificationSchema.safeParse(reminderInput) : null;
   // A daily reminder of one or two days moved on to a business day would land two
   // occurrences on one date, which the shared contract refuses. The recurrence
   // form disables the two options rather than letting somebody pick a refusal.
@@ -944,22 +877,16 @@ export function TemplateForm({
   const [notes, setNotes] = useState(source.notes ?? "");
   const queryClient = useQueryClient();
 
-  // The same rule the transaction form applies: a category that cannot cover
-  // this kind of entry is dropped rather than carried into every use of the
-  // template.
+  // The same rule the transaction form applies. Only a transfer clears the
+  // category now: it files under none at all. A deposit or a withdrawal keeps
+  // whatever was chosen, because a category running against the direction is a
+  // refund and clearing it would delete the very thing somebody selected.
   useEffect(() => {
-    const selected = categories.find((category) => category.id === categoryId);
-    if (
-      selected &&
-      selected.kind !== "both" &&
-      ((type === "deposit" && selected.kind !== "income") ||
-        (type === "withdrawal" && selected.kind !== "expense") ||
-        type === "transfer")
-    ) {
+    if (categoryId && type === "transfer") {
       setCategoryId("");
       setCategoryName("");
     }
-  }, [categories, categoryId, type]);
+  }, [categoryId, type]);
 
   // Clearing the interval to retype it must not leave a now-blocked policy
   // selected, which would be a refusal nobody could see the cause of.
@@ -1076,10 +1003,8 @@ export function TemplateForm({
         if (name.trim() && parsedReminder?.success !== false) mutation.mutate();
       }}
     >
-      <Field
-        label="Template name"
-        hint="What you will pick it out by later."
-      >
+      <RequiredNote />
+      <Field label="Template name" hint="What you will pick it out by later.">
         <Input
           autoFocus
           required
@@ -1107,20 +1032,13 @@ export function TemplateForm({
           <PayeeInput value={payee} onChange={setPayee} />
         </Field>
         <Field label="Date" hint="Leave blank to use the day you apply it.">
-          <Input
-            type="date"
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
-          />
+          <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
         </Field>
       </div>
 
       {type !== "deposit" ? (
         <Field label={type === "transfer" ? "From account" : "Account"}>
-          <Select
-            value={fromAccountId}
-            onChange={(event) => setFromAccountId(event.target.value)}
-          >
+          <Select value={fromAccountId} onChange={(event) => setFromAccountId(event.target.value)}>
             <option value="">Leave blank</option>
             {accountOptions.map((account) => (
               <option key={account.id} value={account.id}>
@@ -1132,10 +1050,7 @@ export function TemplateForm({
       ) : null}
       {type !== "withdrawal" ? (
         <Field label={type === "transfer" ? "To account" : "Account"}>
-          <Select
-            value={toAccountId}
-            onChange={(event) => setToAccountId(event.target.value)}
-          >
+          <Select value={toAccountId} onChange={(event) => setToAccountId(event.target.value)}>
             <option value="">Leave blank</option>
             {accountOptions.map((account) => (
               <option key={account.id} value={account.id}>
@@ -1146,10 +1061,7 @@ export function TemplateForm({
         </Field>
       ) : null}
 
-      <Field
-        label="Amount"
-        hint="Leave blank when it differs every time."
-      >
+      <Field label="Amount" hint="Leave blank when it differs every time.">
         <Input
           inputMode="decimal"
           value={amount}
@@ -1203,8 +1115,8 @@ export function TemplateForm({
             bottom, after every schedule field, where it read as a footnote to
             the weekend policy rather than as what the setting above does. */}
         <p className="settings-note">
-          A reminder only asks. It never records anything, because a template is
-          something you fill in yourself.
+          A reminder only asks. It never records anything, because a template is something you fill
+          in yourself.
         </p>
 
         {reminding ? (
@@ -1236,9 +1148,7 @@ export function TemplateForm({
                   <Select
                     value={reminderFrequency}
                     onChange={(event) =>
-                      setReminderFrequency(
-                        event.target.value as RecurrenceFrequencyName,
-                      )
+                      setReminderFrequency(event.target.value as RecurrenceFrequencyName)
                     }
                   >
                     <option value="daily">Daily</option>
@@ -1321,9 +1231,7 @@ export function TemplateForm({
                         value={String(reminderOrdinal)}
                         onChange={(event) =>
                           setReminderOrdinal(
-                            Number(
-                              event.target.value,
-                            ) as RecurrencePosition["ordinal"],
+                            Number(event.target.value) as RecurrencePosition["ordinal"],
                           )
                         }
                       >
@@ -1337,9 +1245,7 @@ export function TemplateForm({
                     <Field label="Day to remind on">
                       <Select
                         value={String(reminderWeekday)}
-                        onChange={(event) =>
-                          setReminderWeekday(Number(event.target.value))
-                        }
+                        onChange={(event) => setReminderWeekday(Number(event.target.value))}
                       >
                         {WEEKDAY_NAMES.map((day, index) => (
                           <option key={day} value={index}>
@@ -1354,9 +1260,7 @@ export function TemplateForm({
                     <Select
                       value={reminderMonthPolicy}
                       onChange={(event) =>
-                        setReminderMonthPolicy(
-                          event.target.value as Recurrence["monthPolicy"],
-                        )
+                        setReminderMonthPolicy(event.target.value as Recurrence["monthPolicy"])
                       }
                     >
                       <option value="last_day">Use the last day of that month</option>
@@ -1375,9 +1279,7 @@ export function TemplateForm({
                 <Select
                   value={reminderWeekendPolicy}
                   onChange={(event) =>
-                    setReminderWeekendPolicy(
-                      event.target.value as Recurrence["weekendPolicy"],
-                    )
+                    setReminderWeekendPolicy(event.target.value as Recurrence["weekendPolicy"])
                   }
                 >
                   <option value="allow">Send it on the weekend</option>
@@ -1393,9 +1295,8 @@ export function TemplateForm({
             ) : null}
             {reminderBusinessDayBlocked ? (
               <p className="settings-note">
-                A daily reminder of one or two days moved on to a business day
-                would land two on the same date. Make the interval three days or
-                more to use those two.
+                A daily reminder of one or two days moved on to a business day would land two on the
+                same date. Make the interval three days or more to use those two.
               </p>
             ) : null}
 
@@ -1427,8 +1328,8 @@ export function TemplateForm({
             ) : null}
             {notificationsAvailable === false ? (
               <Alert kind="info">
-                This deployment has no mail server configured, so the reminder
-                will be saved and nothing will be sent until one is.
+                This deployment has no mail server configured, so the reminder will be saved and
+                nothing will be sent until one is.
               </Alert>
             ) : null}
           </>
@@ -1437,9 +1338,8 @@ export function TemplateForm({
 
       {categoryName.trim() && !categoryId ? (
         <Alert kind="info">
-          “{categoryName.trim()}” is saved as a name rather than a category you
-          already have, and is matched when you use the template. If nothing
-          matches then, it is created.
+          “{categoryName.trim()}” is saved as a name rather than a category you already have, and is
+          matched when you use the template. If nothing matches then, it is created.
         </Alert>
       ) : null}
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
@@ -1496,28 +1396,21 @@ export function TransactionForm({
       fromAccountId: primaryAccountId,
       toAccountId:
         nextType === "transfer"
-          ? accounts.find((account) => account.id !== primaryAccountId)?.id ?? ""
+          ? (accounts.find((account) => account.id !== primaryAccountId)?.id ?? "")
           : primaryAccountId,
     };
   };
   const initialFormType = initial?.type ?? createType;
   const initialAccountIds = defaultAccountIds(initialFormType);
-  const [type, setType] = useState<TransactionType>(
-    initialFormType,
-  );
-  const [date, setDate] = useState(
-    initial?.date ?? calendarDateInTimezone(new Date(), timezone),
-  );
+  const [type, setType] = useState<TransactionType>(initialFormType);
+  const [date, setDate] = useState(initial?.date ?? calendarDateInTimezone(new Date(), timezone));
   const [description, setDescription] = useState(initial?.description ?? "");
   const [payee, setPayee] = useState(initial?.payee ?? initialPayee ?? "");
-  const [categoryId, setCategoryId] = useState(
-    initial?.categoryId ?? initialCategoryId ?? "",
-  );
+  const [categoryId, setCategoryId] = useState(initial?.categoryId ?? initialCategoryId ?? "");
   const [categoryName, setCategoryName] = useState(
     () =>
       categories.find(
-        (category) =>
-          category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
+        (category) => category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
       )?.name ??
       // The name the draft carried, for a row filed by name and no id. Falling
       // through to "" wrote null over it on the next save, and the row then
@@ -1543,14 +1436,27 @@ export function TransactionForm({
     initial?.toAccountId || initialAccountIds.toAccountId,
   );
   const [amount, setAmount] = useState(initial?.amount ?? "");
-  const [destinationAmount, setDestinationAmount] = useState(
-    initial?.destinationAmount ?? "",
-  );
+  const [destinationAmount, setDestinationAmount] = useState(initial?.destinationAmount ?? "");
   const [mode, setMode] = useState<"commit" | "stage">(initialMode);
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [createAnother, setCreateAnother] = useState(false);
   const [resetAfterSave, setResetAfterSave] = useState(false);
   const [categoryPickerVersion, setCategoryPickerVersion] = useState(0);
+  /**
+   * Which kind a category named here should be created as.
+   *
+   * Only ever consulted for a name this ledger does not have yet, and only for
+   * a deposit or a withdrawal. Empty means "whatever the direction implies",
+   * which is what the server does on its own; setting it is how somebody says
+   * this deposit is a refund of spending rather than income, in one step, on
+   * the entry that is establishing the category.
+   *
+   * Without it the browser could file a refund against a category that already
+   * existed but could not create one, so a refund into a brand new spending
+   * category was the one entry the MCP could record and this form could not.
+   */
+  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">("");
+  const categoryKindGroup = useId();
   const [repeatNotice, setRepeatNotice] = useState("");
   const payeeListId = useId();
   const modeGroup = useId();
@@ -1575,8 +1481,7 @@ export function TransactionForm({
     categoryId: initial?.categoryId ?? initialCategoryId ?? "",
     categoryName:
       categories.find(
-        (category) =>
-          category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
+        (category) => category.id === (initial?.categoryId ?? initialCategoryId ?? ""),
       )?.name ??
       initial?.categoryName ??
       "",
@@ -1597,9 +1502,7 @@ export function TransactionForm({
   const payees = useQuery({
     queryKey: ["payees", "suggestions", payee.trim().toLowerCase()],
     queryFn: () =>
-      api<string[]>(
-        `/api/v1/payees/suggestions?search=${encodeURIComponent(payee.trim())}`,
-      ),
+      api<string[]>(`/api/v1/payees/suggestions?search=${encodeURIComponent(payee.trim())}`),
     placeholderData: (previous) => previous,
   });
 
@@ -1608,21 +1511,22 @@ export function TransactionForm({
     if (!toAccountId && accounts[0]) setToAccountId(accounts[0].id);
   }, [accounts, fromAccountId, toAccountId]);
 
+  // Only a transfer clears the category, because only a transfer files under
+  // none. Against-the-direction is a refund, not a mismatch.
   useEffect(() => {
-    const selectedCategory = categories.find(
-      (category) => category.id === categoryId,
-    );
-    if (
-      selectedCategory &&
-      selectedCategory.kind !== "both" &&
-      ((type === "deposit" && selectedCategory.kind !== "income") ||
-        (type === "withdrawal" && selectedCategory.kind !== "expense") ||
-        type === "transfer")
-    ) {
+    if (categoryId && type === "transfer") {
       setCategoryId("");
       setCategoryName("");
     }
-  }, [categories, categoryId, type]);
+  }, [categoryId, type]);
+
+  // Both options are named after the direction, so a choice made under one type
+  // does not carry to another: "a refund of money you spent" is not on offer
+  // for a withdrawal, and leaving the state set would go on sending expense on
+  // an entry whose form never said so.
+  useEffect(() => {
+    setCategoryKind("");
+  }, [type]);
 
   // A category chosen somewhere other than this field - editing an existing
   // transaction, or a link that prefills one - still has to show its name.
@@ -1635,10 +1539,7 @@ export function TransactionForm({
   const source = accounts.find((account) => account.id === fromAccountId);
   const destination = accounts.find((account) => account.id === toAccountId);
   const crossCurrency =
-    type === "transfer" &&
-    source &&
-    destination &&
-    source.currency !== destination.currency;
+    type === "transfer" && source && destination && source.currency !== destination.currency;
   // A transfer has no counter-account side to partition, so its legs are never
   // sent even if switching type left some behind in the form.
   const splitting = type !== "transfer" && legs.length >= 2;
@@ -1648,7 +1549,82 @@ export function TransactionForm({
   // stored just because the form does not render it destroys a category on an
   // edit that never touched it.
   const showsCategoryPicker = !splitting && type !== "transfer";
-  const splitSettled = !splitting || moneyRemainder(amount, legs.map((leg) => leg.amount || "0")) === "0";
+  const splitSettled =
+    !splitting ||
+    moneyRemainder(
+      amount,
+      legs.map((leg) => leg.amount || "0"),
+    ) === "0";
+
+  /**
+   * The side of the books this entry will land on, previewed.
+   *
+   * `AGENTS.md` says the browser previews this rule and the services enforce
+   * it, and for a while only the second half was true: the form happily offered
+   * a split with one income leg and one expense leg, which the server refuses
+   * with a 422 nobody could have predicted from the screen. One function, so
+   * the sentence here is the sentence the service would have thrown.
+   */
+  /**
+   * Every category this entry will actually be filed under.
+   *
+   * Which ones those are depends on whether it is a split, and it has to be
+   * the same set the submit handler sends: a split sends its legs and drops
+   * the single picker, and one that is not a split does the reverse. Reading
+   * both at once let a name left behind in the single picker by switching to a
+   * split still count towards the preview below.
+   */
+  const namedCategories = splitting
+    ? legs.map((leg) => ({ id: leg.categoryId, name: leg.categoryName }))
+    : [{ id: categoryId, name: categoryName }];
+
+  /**
+   * What each of those is, as far as the form can tell.
+   *
+   * By id first, then by name, because a name that matches a category this
+   * ledger already has names that category whether or not an id came with it.
+   * Matching on id alone read a staged draft's category name — which arrives
+   * without one — as a category about to be created.
+   */
+  const namedKinds = namedCategories.map(({ id, name }) => {
+    const known =
+      categories.find((category) => category.id === id) ??
+      (name.trim()
+        ? categories.find(
+            (category) => normalizeHumanName(category.name) === normalizeHumanName(name),
+          )
+        : undefined);
+    if (known) return { kind: known.kind, existing: true, name };
+    if (name.trim()) return { kind: undefined, existing: false, name };
+    return { kind: undefined, existing: true, name };
+  });
+
+  // Names with no category behind them yet, which is the only case where the
+  // choice below has anything to decide.
+  const newCategoryNames = namedKinds
+    .filter((entry) => !entry.existing)
+    .map((entry) => entry.name.trim());
+
+  // The kind a name with nothing behind it will be created as: what was chosen
+  // if anything was, and the entry's own direction otherwise, which is what the
+  // server falls back to.
+  const newCategoryKind: CategoryKind = categoryKind || (type === "deposit" ? "income" : "expense");
+
+  const entrySide =
+    type === "transfer"
+      ? null
+      : resolveEntrySide(
+          type,
+          namedKinds
+            // A name with no category behind it yet will be created by the
+            // server under the kind chosen below, so it counts as that kind.
+            // Leaving it out made the form approve a split naming an existing
+            // income category and a new one, which the server then refused with
+            // a 422 the screen had not predicted.
+            .map((entry) => entry.kind ?? (entry.existing ? undefined : newCategoryKind))
+            .filter((kind): kind is CategoryKind => Boolean(kind)),
+        );
+  const entrySideError = entrySide && !entrySide.ok ? entrySide.message : "";
 
   /**
    * Forget a received amount that says nothing, and only that one.
@@ -1682,9 +1658,7 @@ export function TransactionForm({
     setPayee(initialPayee ?? "");
     setDescription("");
     setCategoryId(initialCategoryId ?? "");
-    setCategoryName(
-      categories.find((category) => category.id === initialCategoryId)?.name ?? "",
-    );
+    setCategoryName(categories.find((category) => category.id === initialCategoryId)?.name ?? "");
     setLegs([]);
     setCategoryPickerVersion((version) => version + 1);
     setNotes("");
@@ -1769,12 +1743,9 @@ export function TransactionForm({
     const usable = (id: string | undefined) => {
       const category = categories.find((entry) => entry.id === id);
       if (!category) return undefined;
-      const fits =
-        category.kind === "both"
-          ? nextType !== "transfer"
-          : (nextType === "deposit" && category.kind === "income") ||
-            (nextType === "withdrawal" && category.kind === "expense");
-      return fits ? category : undefined;
+      // Every kind fits a deposit or a withdrawal now, one of them as a refund.
+      // A transfer fits none, because it files under no category.
+      return nextType === "transfer" ? undefined : category;
     };
 
     if (draft.legs?.length) {
@@ -1790,7 +1761,7 @@ export function TransactionForm({
           return {
             id: "",
             categoryId: category?.id ?? "",
-            categoryName: category?.name ?? (leg.categoryId ? "" : leg.categoryName ?? ""),
+            categoryName: category?.name ?? (leg.categoryId ? "" : (leg.categoryName ?? "")),
             amount: leg.amount ?? "",
             note: leg.note ?? "",
           };
@@ -1809,11 +1780,7 @@ export function TransactionForm({
       setLegs([]);
       setCategoryId("");
       setCategoryName(draft.categoryName);
-    } else if (
-      previous.has("categoryId") ||
-      previous.has("categoryName") ||
-      previous.has("legs")
-    ) {
+    } else if (previous.has("categoryId") || previous.has("categoryName") || previous.has("legs")) {
       setLegs([]);
       setCategoryId(base.categoryId);
       setCategoryName(base.categoryName);
@@ -1855,10 +1822,17 @@ export function TransactionForm({
         categoryName: splitting
           ? null
           : showsCategoryPicker
-            ? (categoryId ? null : categoryName.trim() || null)
+            ? categoryId
+              ? null
+              : categoryName.trim() || null
             : initial?.categoryId
               ? null
               : initial?.categoryName || null,
+        // Only ever about a name with nothing behind it, so it is sent only
+        // when one is in play and somebody chose against the direction. The
+        // server ignores it otherwise, but sending it regardless would put a
+        // field in the audit trail that decided nothing.
+        ...(categoryKind && newCategoryNames.length > 0 ? { categoryKind } : {}),
         ...(splitting
           ? {
               legs: legs.map((leg) => ({
@@ -1896,9 +1870,7 @@ export function TransactionForm({
                 // state, and sending the one left in state made every edit of
                 // the sent amount fail the zero-sum check against a number
                 // nothing could reach.
-                ...(crossCurrency && destinationAmount
-                  ? { destinationAmount }
-                  : {}),
+                ...(crossCurrency && destinationAmount ? { destinationAmount } : {}),
                 ...common,
               };
 
@@ -1968,6 +1940,7 @@ export function TransactionForm({
         mutation.mutate(undefined);
       }}
     >
+      <RequiredNote />
       {mutation.error ? (
         <Alert>
           {mutation.error.message}
@@ -1996,11 +1969,7 @@ export function TransactionForm({
           <Select
             value={selectedTemplateId}
             onChange={(event) =>
-              applyTemplate(
-                templates.data?.find(
-                  (entry) => entry.id === event.target.value,
-                ),
-              )
+              applyTemplate(templates.data?.find((entry) => entry.id === event.target.value))
             }
           >
             <option value="">No template</option>
@@ -2025,46 +1994,44 @@ export function TransactionForm({
             setToAccountId(primaryAccountId);
           } else {
             setFromAccountId(primaryAccountId);
-            setToAccountId(
-              accounts.find((account) => account.id !== primaryAccountId)?.id ?? "",
-            );
+            setToAccountId(accounts.find((account) => account.id !== primaryAccountId)?.id ?? "");
           }
         }}
       />
       <div className="two-columns">
         <Field label="Date">
-          <Input type="date" required value={date} onChange={(event) => setDate(event.target.value)} />
+          <Input
+            type="date"
+            required
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+          />
         </Field>
         <Field label="Payee">
           <Input
             autoFocus
             required
             list={payeeListId}
-            role="combobox"
-            aria-autocomplete="list"
-            aria-controls={payeeListId}
             value={payee}
             onChange={(event) => {
               const next = event.target.value;
               const match = payees.data?.find(
-                (candidate) =>
-                  normalizeHumanName(candidate) ===
-                  normalizeHumanName(next),
+                (candidate) => normalizeHumanName(candidate) === normalizeHumanName(next),
               );
               setPayee(match ?? next);
             }}
             onBlur={() => {
               const match = payees.data?.find(
-                (candidate) =>
-                  normalizeHumanName(candidate) ===
-                  normalizeHumanName(payee),
+                (candidate) => normalizeHumanName(candidate) === normalizeHumanName(payee),
               );
               setPayee(match ?? payee.trim().replace(/\s+/gu, " "));
             }}
             placeholder="Merchant, employer, person…"
           />
           <datalist id={payeeListId}>
-            {payees.data?.map((value) => <option key={value} value={value} />)}
+            {payees.data?.map((value) => (
+              <option key={value} value={value} />
+            ))}
           </datalist>
         </Field>
       </div>
@@ -2168,6 +2135,38 @@ export function TransactionForm({
             onLegsChange={setLegs}
             total={amount}
           />
+          {newCategoryNames.length > 0 ? (
+            <div
+              className="radio-row"
+              role="radiogroup"
+              aria-label={
+                newCategoryNames.length === 1
+                  ? `What kind of category ${newCategoryNames[0]} is`
+                  : "What kind of category these are"
+              }
+            >
+              <label className="check-label">
+                <input
+                  type="radio"
+                  name={categoryKindGroup}
+                  checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
+                  onChange={() => setCategoryKind("")}
+                />
+                {type === "deposit" ? "Money you earned" : "Money you spent"}
+              </label>
+              <label className="check-label">
+                <input
+                  type="radio"
+                  name={categoryKindGroup}
+                  checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
+                  onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
+                />
+                {type === "deposit"
+                  ? "A refund of money you spent"
+                  : "Paying back money you earned"}
+              </label>
+            </div>
+          ) : null}
         </Field>
       )}
       <Field label="Notes" hint="Optional">
@@ -2202,10 +2201,7 @@ export function TransactionForm({
               </span>
             </label>
           </fieldset>
-          <fieldset
-            className="repeat-entry-options"
-            aria-label="Repeat transaction entry"
-          >
+          <fieldset className="repeat-entry-options" aria-label="Repeat transaction entry">
             <label className="check-label">
               <input
                 type="checkbox"
@@ -2233,6 +2229,7 @@ export function TransactionForm({
         </>
       ) : null}
       {repeatNotice ? <Alert kind="success">{repeatNotice}</Alert> : null}
+      {entrySideError ? <Alert kind="error">{entrySideError}</Alert> : null}
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
@@ -2240,9 +2237,13 @@ export function TransactionForm({
         <Button
           type="submit"
           loading={mutation.isPending}
-          disabled={!splitSettled}
+          disabled={!splitSettled || Boolean(entrySideError)}
         >
-          {transaction || staged ? "Save changes" : mode === "stage" ? "Stage transaction" : "Commit transaction"}
+          {transaction || staged
+            ? "Save changes"
+            : mode === "stage"
+              ? "Stage transaction"
+              : "Commit transaction"}
         </Button>
       </div>
     </form>
@@ -2289,8 +2290,7 @@ export function scheduleSentence(schedule: {
   positionWeekday?: number | null;
 }) {
   const unit = FREQUENCY_UNITS[schedule.frequency];
-  const every =
-    schedule.interval === 1 ? `Every ${unit}` : `Every ${schedule.interval} ${unit}s`;
+  const every = schedule.interval === 1 ? `Every ${unit}` : `Every ${schedule.interval} ${unit}s`;
   if (schedule.positionOrdinal != null && schedule.positionWeekday != null) {
     const ordinal = ORDINAL_NAMES.find(
       (one) => one.value === schedule.positionOrdinal,
@@ -2382,22 +2382,14 @@ export function RecurrenceForm({
   const [anchorDate, setAnchorDate] = useState(
     recurrence?.anchorDate ?? (initialAnchorDate || today),
   );
-  const [monthPolicy, setMonthPolicy] = useState(
-    recurrence?.monthPolicy ?? "last_day",
-  );
-  const [weekendPolicy, setWeekendPolicy] = useState(
-    recurrence?.weekendPolicy ?? "allow",
-  );
-  const [byPosition, setByPosition] = useState(
-    recurrence?.positionOrdinal != null,
-  );
+  const [monthPolicy, setMonthPolicy] = useState(recurrence?.monthPolicy ?? "last_day");
+  const [weekendPolicy, setWeekendPolicy] = useState(recurrence?.weekendPolicy ?? "allow");
+  const [byPosition, setByPosition] = useState(recurrence?.positionOrdinal != null);
   const [ordinal, setOrdinal] = useState<RecurrencePosition["ordinal"]>(
     (recurrence?.positionOrdinal as RecurrencePosition["ordinal"]) ?? 1,
   );
   const [weekday, setWeekday] = useState(recurrence?.positionWeekday ?? 1);
-  const [notifyOnCreate, setNotifyOnCreate] = useState(
-    recurrence?.notifyOnCreate ?? false,
-  );
+  const [notifyOnCreate, setNotifyOnCreate] = useState(recurrence?.notifyOnCreate ?? false);
   const notificationsAvailable = useNotificationsAvailable();
   const queryClient = useQueryClient();
 
@@ -2415,9 +2407,8 @@ export function RecurrenceForm({
     weekendPolicy,
     position: usesPosition ? { ordinal, weekday } : null,
   });
-  const intervalNumber = Number.isInteger(Number(interval)) && Number(interval) >= 1
-    ? Number(interval)
-    : null;
+  const intervalNumber =
+    Number.isInteger(Number(interval)) && Number(interval) >= 1 ? Number(interval) : null;
   // A weekend policy moves a date up to two days, so a daily schedule of one
   // or two days can put two occurrences on one date. The queue refuses to
   // commit rows that alike, so the server refuses the combination outright.
@@ -2457,12 +2448,7 @@ export function RecurrenceForm({
     // transaction form and a CSV round trip do: its picker is hidden rather
     // than emptied, so clearing on kind would delete a category somebody chose
     // on purpose, and on the edit path one already saved.
-    const usable = (category: Category) =>
-      !category.archivedAt &&
-      (type === "transfer" ||
-        category.kind === "both" ||
-        (type === "deposit" && category.kind === "income") ||
-        (type === "withdrawal" && category.kind === "expense"));
+    const usable = (category: Category) => !category.archivedAt;
     const selected = categories.find((category) => category.id === categoryId);
     if (selected && !usable(selected)) {
       setCategoryId("");
@@ -2596,7 +2582,10 @@ export function RecurrenceForm({
   const splitting = type !== "transfer" && legs.length >= 2;
   const splitSettled =
     !splitting ||
-    moneyRemainder(amount, legs.map((leg) => leg.amount || "0")) === "0";
+    moneyRemainder(
+      amount,
+      legs.map((leg) => leg.amount || "0"),
+    ) === "0";
   // Every leg of a split has to name a category and an amount, or the save
   // silently posts fewer legs than are on screen. A row left blank used to be
   // dropped, which took the split below two and sent no category at all.
@@ -2605,12 +2594,12 @@ export function RecurrenceForm({
     legs.every((leg) => (leg.categoryId || leg.categoryName.trim()) && leg.amount.trim());
   const ready = Boolean(
     name.trim() &&
-      payee.trim() &&
-      accountReady &&
-      transferReady &&
-      splitSettled &&
-      legsComplete &&
-      parsedSchedule.success,
+    payee.trim() &&
+    accountReady &&
+    transferReady &&
+    splitSettled &&
+    legsComplete &&
+    parsedSchedule.success,
   );
 
   return (
@@ -2621,6 +2610,7 @@ export function RecurrenceForm({
         if (ready) mutation.mutate();
       }}
     >
+      <RequiredNote />
       <Field label="Name" hint="What you will pick it out by later.">
         <Input
           autoFocus
@@ -2707,9 +2697,7 @@ export function RecurrenceForm({
           <Field label="Repeats">
             <Select
               value={frequency}
-              onChange={(event) =>
-                setFrequency(event.target.value as RecurrenceFrequencyName)
-              }
+              onChange={(event) => setFrequency(event.target.value as RecurrenceFrequencyName)}
             >
               <option value="daily">Daily</option>
               <option value="weekly">Weekly</option>
@@ -2768,9 +2756,7 @@ export function RecurrenceForm({
                   <Select
                     value={String(ordinal)}
                     onChange={(event) =>
-                      setOrdinal(
-                        Number(event.target.value) as RecurrencePosition["ordinal"],
-                      )
+                      setOrdinal(Number(event.target.value) as RecurrencePosition["ordinal"])
                     }
                   >
                     {ORDINAL_NAMES.map((one) => (
@@ -2831,10 +2817,9 @@ export function RecurrenceForm({
         </Field>
         {businessDayBlocked ? (
           <p className="settings-note">
-            A daily schedule of one or two days moved onto a business day puts
-            two occurrences on the same date, and Staged transactions refuses to
-            commit rows that alike. Make the interval three days or more to use
-            those two.
+            A daily schedule of one or two days moved onto a business day puts two occurrences on
+            the same date, and Staged transactions refuses to commit rows that alike. Make the
+            interval three days or more to use those two.
           </p>
         ) : null}
 
@@ -2874,9 +2859,8 @@ export function RecurrenceForm({
 
       {crossCurrency ? (
         <Alert kind="info">
-          These two accounts hold different currencies, and the rate is not
-          something a schedule can know in advance. Each proposal waits in the
-          queue for the amount received.
+          These two accounts hold different currencies, and the rate is not something a schedule can
+          know in advance. Each proposal waits in the queue for the amount received.
         </Alert>
       ) : null}
       <fieldset className="form-fieldset">
@@ -2891,20 +2875,20 @@ export function RecurrenceForm({
           Email me when this proposes a transaction
         </label>
         <p className="settings-note">
-          Sent when the scheduler adds rows to Staged transactions, not when you
-          commit them. One message per proposal, however many rows it holds.
+          Sent when the scheduler adds rows to Staged transactions, not when you commit them. One
+          message per proposal, however many rows it holds.
         </p>
         {notifyOnCreate && notificationsAvailable === false ? (
           <Alert kind="info">
-            This deployment has no mail server configured, so the setting will be
-            saved and nothing will be sent until one is.
+            This deployment has no mail server configured, so the setting will be saved and nothing
+            will be sent until one is.
           </Alert>
         ) : null}
       </fieldset>
 
       <Alert kind="info">
-        A recurrence adds a row to Staged transactions and posts nothing. Each
-        proposal is an ordinary staged row you check and commit.
+        A recurrence adds a row to Staged transactions and posts nothing. Each proposal is an
+        ordinary staged row you check and commit.
       </Alert>
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
 

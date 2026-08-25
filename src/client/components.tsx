@@ -61,22 +61,21 @@ export function SortableHeader<Field extends string>({
   className?: string;
 }) {
   const active = sort.field === field;
-  const direction = active
-    ? sort.direction
-    : lean === "descending"
-      ? "desc"
-      : "asc";
+  const direction = active ? sort.direction : lean === "descending" ? "desc" : "asc";
   const next: SortState<Field> = active
     ? { field, direction: sort.direction === "asc" ? "desc" : "asc" }
     : { field, direction };
   const Icon = !active ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown;
 
   return (
+    // Every sortable column is a column header, and saying so is what lets a
+    // screen reader announce "Payee, column 2" while walking a row. One
+    // attribute here covers every sortable column in the product, which is why
+    // the fix belongs in this component rather than at each table.
     <th
+      scope="col"
       className={className}
-      aria-sort={
-        active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"
-      }
+      aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
     >
       <button
         type="button"
@@ -197,14 +196,10 @@ function pageWindow(page: number, totalPages: number): (number | "gap")[] {
   if (totalPages <= 7) {
     return Array.from({ length: totalPages }, (_, index) => index + 1);
   }
-  const near = [page - 1, page, page + 1].filter(
-    (value) => value > 1 && value < totalPages,
-  );
+  const near = [page - 1, page, page + 1].filter((value) => value > 1 && value < totalPages);
   const shown = [...new Set([1, ...near, totalPages])].sort((a, b) => a - b);
   return shown.flatMap((value, index) =>
-    index > 0 && value - shown[index - 1]! > 1
-      ? (["gap", value] as (number | "gap")[])
-      : [value],
+    index > 0 && value - shown[index - 1]! > 1 ? (["gap", value] as (number | "gap")[]) : [value],
   );
 }
 
@@ -289,15 +284,37 @@ export function Button({
   loading?: boolean;
 }) {
   return (
+    // A spinner is a picture of waiting, which is nothing at all to somebody who
+    // cannot see it. `aria-busy` says the control is working and the `.sr-only`
+    // word says so in text, because a disabled button otherwise goes silent at
+    // exactly the moment a person most wants to know their click landed.
     <button
       {...props}
       disabled={loading || props.disabled}
+      aria-busy={loading || undefined}
       className={`button button-${variant} ${className}`}
     >
       {loading ? <LoaderCircle size={16} className="animate-spin" /> : null}
+      {loading ? <span className="sr-only">Working…</span> : null}
       {children}
     </button>
   );
+}
+
+/**
+ * The standing instruction for a form: what is required, said once.
+ *
+ * This product marks the optional fields rather than the required ones, which
+ * is a coherent scheme and the less cluttered of the two — but only if it is
+ * stated, because a person meeting an unmarked field has no way to know which
+ * scheme they are in. W3C puts an instruction covering a whole form before the
+ * form, which is where this goes.
+ *
+ * It is a sentence rather than a legend or an asterisk key because there is no
+ * asterisk to explain: nothing here is starred.
+ */
+export function RequiredNote() {
+  return <p className="required-note">Every field is required unless it says otherwise.</p>;
 }
 
 export function Field({
@@ -314,12 +331,11 @@ export function Field({
   );
 }
 
-export const Input = forwardRef<
-  HTMLInputElement,
-  React.InputHTMLAttributes<HTMLInputElement>
->(function Input(props, ref) {
-  return <input ref={ref} {...props} className={`input ${props.className ?? ""}`} />;
-});
+export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
+  function Input(props, ref) {
+    return <input ref={ref} {...props} className={`input ${props.className ?? ""}`} />;
+  },
+);
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
@@ -349,18 +365,10 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
  * disclosure that behaves like a disclosure is honest; menu roles without the
  * keyboard behaviour they imply are worse than none.
  */
-export function RowMenu({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+export function RowMenu({ label, children }: { label: string; children: ReactNode }) {
   const details = useRef<HTMLDetailsElement>(null);
   const summary = useRef<HTMLElement>(null);
-  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(
-    null,
-  );
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
 
   const close = (returnFocus = false) => {
     if (!details.current?.open) return;
@@ -410,14 +418,14 @@ export function RowMenu({
       {/* The role and expanded state are spelled out rather than left to the
           browser's own mapping for a summary, which assistive technology does
           not report consistently. What it does natively is exactly this. */}
-      <summary
-        ref={summary}
-        role="button"
-        aria-expanded={Boolean(anchor)}
-        aria-label={label}
-      >
+      <summary ref={summary} role="button" aria-expanded={Boolean(anchor)} aria-label={label}>
         <MoreHorizontal size={18} />
       </summary>
+      {/* A keyboard user activating one of the buttons inside dispatches a
+          click that bubbles to here, so this handler already serves them; the
+          div is a catcher for its children's events, not a control of its own.
+          Both rules read it as a mouse-only affordance. */}
+      {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
         className="menu-popover row-menu-popover"
         style={anchor ? { top: anchor.top, right: anchor.right } : undefined}
@@ -535,9 +543,7 @@ export function ConfirmDialog({
  * through component state.
  */
 export function useConfirm<T>() {
-  const [pending, setPending] = useState<{ value: T; run: () => void } | null>(
-    null,
-  );
+  const [pending, setPending] = useState<{ value: T; run: () => void } | null>(null);
   return {
     value: pending?.value ?? null,
     open: pending !== null,
@@ -583,18 +589,14 @@ export function DateRangeBar() {
         aria-label="Start date"
         type="date"
         value={start}
-        onChange={(event) =>
-          setRange({ start: event.target.value, end, preset: "custom" })
-        }
+        onChange={(event) => setRange({ start: event.target.value, end, preset: "custom" })}
       />
       <span className="date-separator">to</span>
       <Input
         aria-label="End date"
         type="date"
         value={end}
-        onChange={(event) =>
-          setRange({ start, end: event.target.value, preset: "custom" })
-        }
+        onChange={(event) => setRange({ start, end: event.target.value, preset: "custom" })}
       />
     </div>
   );
@@ -623,11 +625,6 @@ export function PageHeader({
   );
 }
 
-/**
- * Stands in for content while it loads. Without it the empty state shows first,
- * so a page with plenty of data still greets you with "nothing here yet" for as
- * long as the request takes.
- */
 /**
  * One toggleable field in a mass edit: the checkbox that opts the field in, and
  * whatever control sets its value.
@@ -665,13 +662,30 @@ export function BulkEditToggle({
   );
 }
 
-export function Skeleton({ height = 16 }: { height?: number }) {
+/**
+ * Stands in for content while it loads. Without it the empty state shows first,
+ * so a page with plenty of data still greets you with "nothing here yet" for as
+ * long as the request takes.
+ *
+ * The shimmer is `aria-hidden`, because a picture of a paragraph is not a
+ * paragraph. That left a gap when the loading sentences this replaced were
+ * retired: they said "Loading accounts…" out loud and the shimmer said nothing,
+ * so somebody using a screen reader met silence where the page had been. The
+ * `label` is that sentence, kept, in a live region that announces once.
+ *
+ * Pass `label` on the first skeleton of a group and leave it off the rest — a
+ * list of eight rows should say "Loading transactions…" once, not eight times.
+ */
+export function Skeleton({ height = 16, label }: { height?: number; label?: string }) {
   return (
-    <span
-      className="skeleton"
-      style={{ height, width: "100%" }}
-      aria-hidden="true"
-    />
+    <>
+      <span className="skeleton" style={{ height, width: "100%" }} aria-hidden="true" />
+      {label ? (
+        <span className="sr-only" role="status">
+          {label}
+        </span>
+      ) : null}
+    </>
   );
 }
 

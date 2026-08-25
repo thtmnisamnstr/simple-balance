@@ -7,12 +7,7 @@ import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { createMcpServer } from "../../src/server/mcp.js";
-import {
-  auditEvents,
-  stagedTransactions,
-  transactions,
-  user,
-} from "../../src/server/db/schema.js";
+import { auditEvents, stagedTransactions, transactions, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
   listDuplicatePayees,
@@ -24,15 +19,8 @@ import {
   payeeSummariesMatching,
 } from "../../src/server/services/payees.js";
 import { cleanHumanName, normalizeHumanName } from "../../src/shared/names.js";
-import {
-  createStage,
-  getStage,
-  updateStage,
-} from "../../src/server/services/staging.js";
-import {
-  createTransaction,
-  getTransaction,
-} from "../../src/server/services/transactions.js";
+import { createStage, getStage, updateStage } from "../../src/server/services/staging.js";
+import { createTransaction, getTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -58,20 +46,22 @@ integration("derived payee management", () => {
     databaseUrl.pathname = `/${databaseName}`;
     process.env.DATABASE_URL = databaseUrl.toString();
     await runMigrations();
-    await getDb().insert(user).values([
-      {
-        id: primary.userId,
-        name: "Payee Primary",
-        email: "payee-primary@example.com",
-        emailVerified: true,
-      },
-      {
-        id: other.userId,
-        name: "Payee Other",
-        email: "payee-other@example.com",
-        emailVerified: true,
-      },
-    ]);
+    await getDb()
+      .insert(user)
+      .values([
+        {
+          id: primary.userId,
+          name: "Payee Primary",
+          email: "payee-primary@example.com",
+          emailVerified: true,
+        },
+        {
+          id: other.userId,
+          name: "Payee Other",
+          email: "payee-other@example.com",
+          emailVerified: true,
+        },
+      ]);
     const [primaryAccount, otherAccount] = await Promise.all([
       createAccount(primary, {
         name: "Primary checking",
@@ -167,9 +157,7 @@ integration("derived payee management", () => {
     });
     expect(oversizedStage.draft).toMatchObject({ payee: oversized });
     expect(oversizedStage.validationIssues).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ field: "payee" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ field: "payee" })]),
     );
     expect((await getStage(primary, oversizedStage.id)).rawData).toEqual({
       payee: oversized,
@@ -249,9 +237,7 @@ integration("derived payee management", () => {
       ]),
     );
     expect(summaries.every((summary) => summary.name !== "Other Tenant Payee")).toBe(true);
-    expect(await listPayeeSuggestions(primary, "ACME")).toEqual([
-      "Acme Market",
-    ]);
+    expect(await listPayeeSuggestions(primary, "ACME")).toEqual(["Acme Market"]);
     // Ranked by use, not by name. It sorted alphabetically, which contradicted
     // what the browser and the MCP tool both say it returns — and with the list
     // capped at a hundred that meant a frequently used payee late in the alphabet
@@ -342,9 +328,7 @@ integration("derived payee management", () => {
       }),
     ]);
     expect(await listDuplicatePayees(primary)).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ normalizedName: "acme market" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ normalizedName: "acme market" })]),
     );
 
     const mergeAudits = await getDb()
@@ -356,9 +340,7 @@ integration("derived payee management", () => {
           inArray(auditEvents.operation, ["payee_merge", "merge"]),
         ),
       );
-    expect(
-      mergeAudits.map((event) => [event.entityType, event.operation]),
-    ).toEqual(
+    expect(mergeAudits.map((event) => [event.entityType, event.operation])).toEqual(
       expect.arrayContaining([
         ["transaction", "payee_merge"],
         ["staged_transaction", "payee_merge"],
@@ -366,13 +348,9 @@ integration("derived payee management", () => {
       ]),
     );
     expect(
-      mergeAudits.filter(
-        (event) => event.entityType === "payee" && event.operation === "merge",
-      ),
+      mergeAudits.filter((event) => event.entityType === "payee" && event.operation === "merge"),
     ).toHaveLength(1);
-    expect(
-      await listPayees(other, { search: "Other Tenant" }),
-    ).toEqual([
+    expect(await listPayees(other, { search: "Other Tenant" })).toEqual([
       expect.objectContaining({ name: "Other Tenant Payee", totalCount: 1 }),
     ]);
 
@@ -456,8 +434,7 @@ integration("derived payee management", () => {
       new Set(["ledger:write"]),
     );
     const client = new Client({ name: "payee-tools-test", version: "1.0.0" });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     await client.connect(clientTransport);
 
@@ -505,7 +482,6 @@ integration("derived payee management", () => {
       await server.close();
     }
   });
-
 
   /**
    * `payeeSummariesMatching` narrows in SQL what `payeeSummaries` groups in
@@ -607,4 +583,3 @@ integration("derived payee management", () => {
     expect(await keyOf(two.id)).toContain("Rekey Spelling One".toLowerCase());
   });
 });
-

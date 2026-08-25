@@ -226,9 +226,7 @@ export async function proposeDueOccurrences(
     const [row] = await tx
       .select()
       .from(recurrences)
-      .where(
-        and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)),
-      )
+      .where(and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)))
       .for("update", { skipLocked: true });
     if (!row) {
       // Absent and locked are the same empty result, so they are told apart by
@@ -237,18 +235,11 @@ export async function proposeDueOccurrences(
       const [exists] = await tx
         .select({ id: recurrences.id })
         .from(recurrences)
-        .where(
-          and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)),
-        );
+        .where(and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)));
       return exists ? "claimed_elsewhere" : "gone";
     }
 
-    const occurrences = occurrencesBetween(
-      ruleOf(row),
-      scheduleCursor(row),
-      today,
-      limit,
-    );
+    const occurrences = occurrencesBetween(ruleOf(row), scheduleCursor(row), today, limit);
     if (!occurrences.length) return "nothing_due";
 
     const shape = recurrenceShapeSchema.parse(row.shape);
@@ -424,9 +415,7 @@ async function assertNameAvailable(
     .from(recurrences)
     .where(eq(recurrences.userId, actor.userId));
   const clash = rows.find(
-    (row) =>
-      row.id !== excludeId &&
-      row.name.trim().toLowerCase() === name.trim().toLowerCase(),
+    (row) => row.id !== excludeId && row.name.trim().toLowerCase() === name.trim().toLowerCase(),
   );
   if (clash) {
     throw duplicate("A recurrence with this name already exists", {
@@ -439,11 +428,7 @@ async function assertNameAvailable(
  * A recurrence may keep an account that was archived after it was made, but it
  * may never be created naming one that is not this person's.
  */
-async function assertReferencesAreOwned(
-  tx: DbTransaction,
-  actor: Actor,
-  shape: RecurrenceShape,
-) {
+async function assertReferencesAreOwned(tx: DbTransaction, actor: Actor, shape: RecurrenceShape) {
   const accountIds = (["fromAccountId", "toAccountId"] as const)
     .map((field) => (shape as Record<string, unknown>)[field])
     .filter((id): id is string => typeof id === "string");
@@ -463,17 +448,14 @@ async function assertReferencesAreOwned(
       throw notFound("That account is not one of yours");
     }
   }
-  const categoryIds = [
-    shape.categoryId,
-    ...(shape.legs ?? []).map((leg) => leg.categoryId),
-  ].filter((id): id is string => typeof id === "string");
+  const categoryIds = [shape.categoryId, ...(shape.legs ?? []).map((leg) => leg.categoryId)].filter(
+    (id): id is string => typeof id === "string",
+  );
   if (categoryIds.length) {
     const owned = await tx
       .select({ id: categories.id })
       .from(categories)
-      .where(
-        and(eq(categories.userId, actor.userId), inArray(categories.id, categoryIds)),
-      );
+      .where(and(eq(categories.userId, actor.userId), inArray(categories.id, categoryIds)));
     const found = new Set(owned.map((row) => row.id));
     if (categoryIds.some((id) => !found.has(id))) {
       throw notFound("That category is not one of yours");
@@ -502,11 +484,7 @@ function recurrenceRowView(row: RecurrenceRow) {
   return { ...serializeRow(row), shape: row.shape as RecurrenceShape };
 }
 
-export async function createRecurrence(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
+export async function createRecurrence(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = recurrenceCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     // Read through the transaction, never off the pool. An MCP write hands its
@@ -602,9 +580,7 @@ export async function updateRecurrence(
       .set({
         ...(changes.name !== undefined ? { name: changes.name } : {}),
         ...(changes.shape !== undefined ? { shape: changes.shape } : {}),
-        ...(changes.notifyOnCreate !== undefined
-          ? { notifyOnCreate: changes.notifyOnCreate }
-          : {}),
+        ...(changes.notifyOnCreate !== undefined ? { notifyOnCreate: changes.notifyOnCreate } : {}),
         ...columns,
         nextOccurrenceDate: nextOccurrenceDateFor({
           ...before,
@@ -730,9 +706,7 @@ export async function listRecurrences(actor: Actor) {
   ]);
   return {
     today,
-    items: rows.map((row) =>
-      recurrenceView(row, counts.get(row.id) ?? NO_COUNTS, today),
-    ),
+    items: rows.map((row) => recurrenceView(row, counts.get(row.id) ?? NO_COUNTS, today)),
   };
 }
 
@@ -748,4 +722,3 @@ export async function getRecurrence(actor: Actor, id: string) {
   const counts = await countsByRecurrence(actor);
   return recurrenceView(row, counts.get(row.id) ?? NO_COUNTS, today);
 }
-

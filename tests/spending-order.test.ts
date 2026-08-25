@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  largestMoney,
-  moneyRatioPercent,
-} from "../src/client/money.js";
+import { largestMoney, moneyRatioPercent } from "../src/client/money.js";
 
 /**
  * Uncategorised spending is pinned to the bottom of the list, so the first row
@@ -19,12 +16,10 @@ describe("the widest amount on show", () => {
 
   // The reason this is not Number(): a float cannot tell these apart.
   it("orders by what the decimal says, not what a float can hold", () => {
-    expect(
-      largestMoney(["0.100000000000000001", "0.100000000000000002"]),
-    ).toBe("0.100000000000000002");
-    expect(largestMoney(["9007199254740993", "9007199254740992"])).toBe(
-      "9007199254740993",
+    expect(largestMoney(["0.100000000000000001", "0.100000000000000002"])).toBe(
+      "0.100000000000000002",
     );
+    expect(largestMoney(["9007199254740993", "9007199254740992"])).toBe("9007199254740993");
   });
 
   it("compares across different numbers of decimal places", () => {
@@ -76,11 +71,7 @@ describe("how the page arranges what the server sent", () => {
       row("b", "Food", "300.00"),
       row(null, "Uncategorized", "5000.00"),
     ]);
-    expect(arranged.map((entry) => entry.category)).toEqual([
-      "Rent",
-      "Food",
-      "Uncategorized",
-    ]);
+    expect(arranged.map((entry) => entry.category)).toEqual(["Rent", "Food", "Uncategorized"]);
   });
 
   // Cutting the list at seven would drop it at rank eight, which is the one row

@@ -10,14 +10,8 @@ import {
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import { canonicalDecimal, decimal } from "../../src/server/services/helpers.js";
-import {
-  cashFlowStatement,
-  getReport,
-} from "../../src/server/services/reports.js";
-import {
-  createTransaction,
-  updateTransaction,
-} from "../../src/server/services/transactions.js";
+import { cashFlowStatement, getReport } from "../../src/server/services/reports.js";
+import { createTransaction, updateTransaction } from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -40,8 +34,7 @@ const year = { start: "2026-01-01", end: "2026-06-30" };
 
 type Report = Awaited<ReturnType<typeof getReport>>;
 
-const usd = (report: Report) =>
-  report.currencies.find((entry) => entry.currency === "USD");
+const usd = (report: Report) => report.currencies.find((entry) => entry.currency === "USD");
 
 const segments = (report: Report) =>
   Object.fromEntries((usd(report)?.rows ?? []).map((row) => [row.key, row.total]));
@@ -53,9 +46,7 @@ const segments = (report: Report) =>
  * pass on a number the code never produced.
  */
 const sumMoney = (values: readonly string[]) =>
-  canonicalDecimal(
-    values.reduce((total, value) => total.plus(value), decimal("0")),
-  );
+  canonicalDecimal(values.reduce((total, value) => total.plus(value), decimal("0")));
 
 integration("the cash flow statement", () => {
   beforeAll(async () => {
@@ -112,8 +103,7 @@ integration("the cash flow statement", () => {
       })
     ).id;
     foodId = (await createCategory(actor, { name: "Food", kind: "expense" })).id;
-    salaryId = (await createCategory(actor, { name: "Salary", kind: "income" }))
-      .id;
+    salaryId = (await createCategory(actor, { name: "Salary", kind: "income" })).id;
 
     await createTransaction(
       actor,
@@ -306,11 +296,7 @@ integration("the cash flow statement", () => {
    * nowhere else.
    */
   it("nets movement between spendable accounts to exactly zero", async () => {
-    const report = await getReport(
-      actor,
-      { report: "cash-flow", ...year },
-      true,
-    );
+    const report = await getReport(actor, { report: "cash-flow", ...year }, true);
     expect(segments(report).internal).toBe("0");
   });
 
@@ -335,12 +321,8 @@ integration("the cash flow statement", () => {
       ...year,
       bucket: "month",
     });
-    const february = monthly.buckets.findIndex(
-      (bucket) => bucket.start === "2026-02-01",
-    );
-    const march = monthly.buckets.findIndex(
-      (bucket) => bucket.start === "2026-03-01",
-    );
+    const february = monthly.buckets.findIndex((bucket) => bucket.start === "2026-02-01");
+    const march = monthly.buckets.findIndex((bucket) => bucket.start === "2026-03-01");
     const financing = usd(monthly)!.rows.find((row) => row.key === "financing")!;
     expect(financing.values[february]).toBe("0");
     expect(financing.values[march]).toBe("-120");
@@ -371,19 +353,11 @@ integration("the cash flow statement", () => {
    */
   it("reports no outflow when an account is archived inside the window", async () => {
     const toToday = { start: "2026-01-01" };
-    const before = await getReport(
-      actor,
-      { report: "cash-flow", ...toToday },
-      true,
-    );
+    const before = await getReport(actor, { report: "cash-flow", ...toToday }, true);
     const loaded = await getAccount(actor, savingsId);
     await setAccountArchived(actor, savingsId, loaded.version, true);
     try {
-      const after = await getReport(
-        actor,
-        { report: "cash-flow", ...toToday },
-        true,
-      );
+      const after = await getReport(actor, { report: "cash-flow", ...toToday }, true);
       expect(segments(after)).toEqual(segments(before));
     } finally {
       const archived = await getAccount(actor, savingsId);
@@ -398,30 +372,20 @@ integration("the cash flow statement", () => {
    */
   it("leaves the figures alone when an account is archived and restored", async () => {
     const toToday = { start: "2026-01-01" };
-    const before = await getReport(
-      actor,
-      { report: "cash-flow", ...toToday },
-      true,
-    );
+    const before = await getReport(actor, { report: "cash-flow", ...toToday }, true);
     const loaded = await getAccount(actor, savingsId);
     await setAccountArchived(actor, savingsId, loaded.version, true);
     const archived = await getAccount(actor, savingsId);
     await setAccountArchived(actor, savingsId, archived.version, false);
 
-    const after = await getReport(
-      actor,
-      { report: "cash-flow", ...toToday },
-      true,
-    );
+    const after = await getReport(actor, { report: "cash-flow", ...toToday }, true);
     expect(segments(after)).toEqual(segments(before));
   });
 
   it("shows a conversion once, in the currency that moved", async () => {
     const report = await getReport(actor, { report: "cash-flow", ...year });
     const euro = report.currencies.find((entry) => entry.currency === "EUR")!;
-    expect(usd(report)!.rows.find((row) => row.key === "exchange")!.total).toBe(
-      "-220",
-    );
+    expect(usd(report)!.rows.find((row) => row.key === "exchange")!.total).toBe("-220");
     expect(euro.rows.find((row) => row.key === "exchange")!.total).toBe("200");
   });
 

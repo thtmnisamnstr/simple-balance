@@ -7,10 +7,7 @@ import { scratchDatabase } from "./support/scratch-database.js";
 import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
-import {
-  createTransaction,
-  listTransactions,
-} from "../../src/server/services/transactions.js";
+import { createTransaction, listTransactions } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -59,9 +56,27 @@ integration("list ordering", () => {
     const bills = await createCategory(actor, { name: "Bills", kind: "expense" });
 
     const rows = [
-      { date: "2027-03-01", payee: "Yarrow", amount: "300", account: savingsId, categoryId: travel.id },
-      { date: "2027-01-15", payee: "Acacia", amount: "20.50", account: checkingId, categoryId: bills.id },
-      { date: "2027-02-10", payee: "Marigold", amount: "1000", account: checkingId, categoryId: undefined },
+      {
+        date: "2027-03-01",
+        payee: "Yarrow",
+        amount: "300",
+        account: savingsId,
+        categoryId: travel.id,
+      },
+      {
+        date: "2027-01-15",
+        payee: "Acacia",
+        amount: "20.50",
+        account: checkingId,
+        categoryId: bills.id,
+      },
+      {
+        date: "2027-02-10",
+        payee: "Marigold",
+        amount: "1000",
+        account: checkingId,
+        categoryId: undefined,
+      },
     ];
     for (const [index, row] of rows.entries()) {
       await createTransaction(
@@ -85,43 +100,19 @@ integration("list ordering", () => {
   });
 
   it("orders by date in both directions", async () => {
-    expect(await payeesInOrder("date", "desc")).toEqual([
-      "Yarrow",
-      "Marigold",
-      "Acacia",
-    ]);
-    expect(await payeesInOrder("date", "asc")).toEqual([
-      "Acacia",
-      "Marigold",
-      "Yarrow",
-    ]);
+    expect(await payeesInOrder("date", "desc")).toEqual(["Yarrow", "Marigold", "Acacia"]);
+    expect(await payeesInOrder("date", "asc")).toEqual(["Acacia", "Marigold", "Yarrow"]);
   });
 
   it("orders by payee in both directions", async () => {
-    expect(await payeesInOrder("payee", "asc")).toEqual([
-      "Acacia",
-      "Marigold",
-      "Yarrow",
-    ]);
-    expect(await payeesInOrder("payee", "desc")).toEqual([
-      "Yarrow",
-      "Marigold",
-      "Acacia",
-    ]);
+    expect(await payeesInOrder("payee", "asc")).toEqual(["Acacia", "Marigold", "Yarrow"]);
+    expect(await payeesInOrder("payee", "desc")).toEqual(["Yarrow", "Marigold", "Acacia"]);
   });
 
   it("orders by amount as a number rather than as text", async () => {
     // Sorted as text, 1000 would fall between 20.50 and 300.
-    expect(await payeesInOrder("amount", "asc")).toEqual([
-      "Acacia",
-      "Yarrow",
-      "Marigold",
-    ]);
-    expect(await payeesInOrder("amount", "desc")).toEqual([
-      "Marigold",
-      "Yarrow",
-      "Acacia",
-    ]);
+    expect(await payeesInOrder("amount", "asc")).toEqual(["Acacia", "Yarrow", "Marigold"]);
+    expect(await payeesInOrder("amount", "desc")).toEqual(["Marigold", "Yarrow", "Acacia"]);
   });
 
   it("orders by account name", async () => {
@@ -131,16 +122,8 @@ integration("list ordering", () => {
   });
 
   it("orders by category and puts uncategorised rows last either way", async () => {
-    expect(await payeesInOrder("category", "asc")).toEqual([
-      "Acacia",
-      "Yarrow",
-      "Marigold",
-    ]);
-    expect(await payeesInOrder("category", "desc")).toEqual([
-      "Yarrow",
-      "Acacia",
-      "Marigold",
-    ]);
+    expect(await payeesInOrder("category", "asc")).toEqual(["Acacia", "Yarrow", "Marigold"]);
+    expect(await payeesInOrder("category", "desc")).toEqual(["Yarrow", "Acacia", "Marigold"]);
   });
 
   it("resumes a keyset sort through its cursor", async () => {

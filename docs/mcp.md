@@ -100,9 +100,15 @@ nothing pointing at it can be deleted where an archived account cannot.
 A transaction can name its category instead of citing an id. Send
 `categoryName` and the server matches it against the categories you already
 have, ignoring case and surrounding space, and creates one only when nothing
-matches; `categoryId` wins if you send both. An existing category that does not
-cover the side being posted is widened rather than duplicated, and an archived
-one named again comes back. This is the same rule a CSV import follows, so an
+matches; `categoryId` wins if you send both. `categoryKind` says which kind to
+create it as when the name is genuinely new, which is how a refund into a
+spending category nobody has created yet is expressed: without it a deposit
+makes an income category and the refund credits that instead of lowering the
+spending. It is ignored when the category already exists. A category naming the
+opposite side is kept as it is, because that is what a refund looks like: "Groceries" on a
+deposit lowers grocery spending rather than turning Groceries into a category
+that covers both. One already covering both sides stays that way, and an
+archived one named again comes back. This is the same rule a CSV import follows, so an
 agent writing "groceries" cannot start a second spelling of "Groceries".
 
 Deleting posts the reversal rather than erasing anything, which is why the tool
@@ -340,6 +346,51 @@ It is built for finding mistakes rather than for analysis: where a balance goes
 wrong, this is the row it went wrong on. An archived account ends at zero and
 the postings that closed it out to equity are in the list, marked `closing` in
 `origin`; an account's first pair is marked `opening`.
+
+## Budgets
+
+A budget sits over the ledger and never inside it. Nothing here writes a
+posting, so a budget that is deleted leaves the books exactly as they were, and
+no balance or report moves when one changes.
+
+Amounts resolve in three steps. An explicit entry for the period wins, otherwise
+the plan whose window covers the period says the amount, otherwise the category
+is unbudgeted and the report says what was spent against no limit.
+
+`list_budget_plans`, `get_budget_plan`, `create_budget_plan`,
+`update_budget_plan` and `delete_budget_plan` handle the standing amounts. One
+plan covers every period in its window, so a budget that runs all year is one
+row rather than twelve, and nothing materialises the months nobody has reached.
+Windows for one category may not overlap: raising a budget means ending the old
+plan and starting another from the next period, which is also what keeps last
+March answering with what last March intended.
+
+`list_budget_entries`, `set_budget_entry` and `delete_budget_entry` handle a
+single period. Use one for a one-off, such as a larger food budget in December.
+`periodStart` is truncated to the period unit, so any day inside the period
+names it.
+
+`get_budget_report` is the figure anybody actually wants: what each budgeted
+category was allowed and what it spent, period by period. Spending is signed, so
+a refund is negative and lowers the category it came back to. A category
+budgeted at two hundred and spent nothing on still appears, because the report
+joins from the budget to the spending rather than the other way. Figures stop at
+today where this person lives whatever end date is asked for, and `asOf` reports
+the day used. A period appears once per currency, and there is no total across
+currencies because this ledger holds no exchange rate that is not one some
+transfer actually got.
+
+`includeArchived` is on by default here and off everywhere else. A budget's
+limit was never scoped to an account, so spending that ran through a card since
+closed is spending the budget covered, and leaving it out makes a budget spent
+to the penny read as underspent. Every other report defaults the other way
+because an archived account's balance is genuinely closed out.
+
+Reading a budget needs `ledger:read`. Setting one needs `ledger:write`, and
+`ledger:stage` is not enough: a budget is a change to the ledger's own records
+rather than a proposal about money, which is the same line categories already
+sit on. Budgeting an income category is refused, because it has no spending for
+a limit to be compared against.
 
 ## Staged transactions
 

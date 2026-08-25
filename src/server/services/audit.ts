@@ -13,7 +13,9 @@ export async function listAuditEvents(
   // default the caller expected.
   const requested = Number.isFinite(options.limit) ? options.limit! : 50;
   const limit = Math.min(Math.max(Math.trunc(requested), 1), 200);
-  const cursor = options.cursor ? decodeCursor(options.cursor, { key: "created", direction: "desc" }) : null;
+  const cursor = options.cursor
+    ? decodeCursor(options.cursor, { key: "created", direction: "desc" })
+    : null;
   const resumeFrom = cursor ? cursorInstant(cursor) : null;
   const rows = await getDb()
     .select()
@@ -24,10 +26,7 @@ export async function listAuditEvents(
         cursor
           ? or(
               lt(auditEvents.createdAt, resumeFrom!),
-              and(
-                eq(auditEvents.createdAt, resumeFrom!),
-                lt(auditEvents.id, cursor.id),
-              ),
+              and(eq(auditEvents.createdAt, resumeFrom!), lt(auditEvents.id, cursor.id)),
             )
           : undefined,
       ),

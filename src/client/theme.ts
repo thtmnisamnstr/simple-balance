@@ -32,9 +32,7 @@ export type Resolved = "light" | "dark";
 export function systemTheme(): Resolved {
   try {
     if (typeof window.matchMedia !== "function") return "light";
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   } catch {
     return "light";
   }
@@ -104,9 +102,7 @@ export function applyTheme(preference: Theme) {
  */
 function applyChrome(preference: Theme) {
   try {
-    const metas = document.querySelectorAll<HTMLMetaElement>(
-      'meta[name="theme-color"]',
-    );
+    const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
     for (const meta of metas) {
       const wants = meta.getAttribute("data-theme-for");
       if (preference === "system") {
@@ -179,8 +175,7 @@ export function useThemeSetting(session: Session) {
   }, [preference]);
 
   const save = useMutation({
-    mutationFn: (theme: Theme) =>
-      api("/api/v1/preferences", { ...json({ theme }), method: "PUT" }),
+    mutationFn: (theme: Theme) => api("/api/v1/preferences", { ...json({ theme }), method: "PUT" }),
     onMutate: (theme: Theme) => {
       applyTheme(theme);
       writeCachedTheme(theme);

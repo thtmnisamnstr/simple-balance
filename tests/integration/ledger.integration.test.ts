@@ -28,10 +28,7 @@ import {
 } from "../../src/server/mcp-output-schemas.js";
 import { commitStages, createStage } from "../../src/server/services/staging.js";
 import { getSummary } from "../../src/server/services/summary.js";
-import {
-  createTransaction,
-  getTransaction,
-} from "../../src/server/services/transactions.js";
+import { createTransaction, getTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -54,13 +51,10 @@ integration("PostgreSQL ledger integration", () => {
     process.env.GOOGLE_CLIENT_ID = "integration-google-client";
     process.env.GOOGLE_CLIENT_SECRET = "integration-google-secret";
     process.env.AUTH_MODE = "both";
-    process.env.ALLOWED_EMAILS =
-      "first-integration@example.com,second-integration@example.com";
+    process.env.ALLOWED_EMAILS = "first-integration@example.com,second-integration@example.com";
     await database.create();
     const db = getDb();
-    await db.execute(
-      sql`delete from auth_user where id in (${first.userId}, ${second.userId})`,
-    );
+    await db.execute(sql`delete from auth_user where id in (${first.userId}, ${second.userId})`);
     await db.insert(user).values([
       {
         id: first.userId,
@@ -135,8 +129,9 @@ integration("PostgreSQL ledger integration", () => {
 
   it("isolates account and transaction IDs by tenant", async () => {
     expect(await listAccounts(second)).toEqual([]);
-    await expect(getTransaction(second, "11111111-1111-4111-8111-111111111111"))
-      .rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      getTransaction(second, "11111111-1111-4111-8111-111111111111"),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("keeps import-batch provenance internal and tenant-scoped", async () => {
@@ -188,8 +183,9 @@ integration("PostgreSQL ledger integration", () => {
     const created = await createTransaction(first, draft, "integration-paycheck");
     const retried = await createTransaction(first, draft, "integration-paycheck");
     expect(retried.id).toBe(created.id);
-    expect((await listAccounts(first)).find((item) => item.id === checkingId)?.balance)
-      .toBe("1700.5");
+    expect((await listAccounts(first)).find((item) => item.id === checkingId)?.balance).toBe(
+      "1700.5",
+    );
   });
 
   it("stores distinct amounts for a per-account FX transfer", async () => {
@@ -357,9 +353,7 @@ integration("PostgreSQL ledger integration", () => {
         idempotencyKey: "integration-mcp-account-create",
       },
     });
-    expect(retriedMcpAccount.structuredContent).toEqual(
-      createdMcpAccount.structuredContent,
-    );
+    expect(retriedMcpAccount.structuredContent).toEqual(createdMcpAccount.structuredContent);
     const mcpResult = await client.callTool({
       name: "create_transaction",
       arguments: {
@@ -387,12 +381,17 @@ integration("PostgreSQL ledger integration", () => {
         event.entityType === "transaction" &&
         ["create", "create_from_stage"].includes(event.operation),
     );
-    expect(events.some((event) => event.actorSource === "web" && event.operation === "create"))
-      .toBe(true);
-    expect(events.some((event) => event.actorSource === "web" && event.operation === "create_from_stage"))
-      .toBe(true);
-    expect(events.some((event) => event.actorSource === "mcp" && event.clientId === "integration"))
-      .toBe(true);
+    expect(
+      events.some((event) => event.actorSource === "web" && event.operation === "create"),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) => event.actorSource === "web" && event.operation === "create_from_stage",
+      ),
+    ).toBe(true);
+    expect(
+      events.some((event) => event.actorSource === "mcp" && event.clientId === "integration"),
+    ).toBe(true);
   });
 
   it("issues and validates audience-bound RS256 MCP access tokens", async () => {
@@ -404,26 +403,24 @@ integration("PostgreSQL ledger integration", () => {
       type: "public",
       userId: first.userId,
     });
-    await getDb().insert(oauthAccessToken).values({
-      id: "integration-oauth-token",
-      accessToken: "integration-opaque-access-token",
-      refreshToken: "integration-opaque-refresh-token",
-      accessTokenExpiresAt: new Date(Date.now() + 60_000),
-      refreshTokenExpiresAt: new Date(Date.now() + 120_000),
-      clientId: "integration-oauth-client",
-      userId: first.userId,
-      scopes: "openid ledger:read",
-    });
+    await getDb()
+      .insert(oauthAccessToken)
+      .values({
+        id: "integration-oauth-token",
+        accessToken: "integration-opaque-access-token",
+        refreshToken: "integration-opaque-refresh-token",
+        accessTokenExpiresAt: new Date(Date.now() + 60_000),
+        refreshTokenExpiresAt: new Date(Date.now() + 120_000),
+        clientId: "integration-oauth-client",
+        userId: first.userId,
+        scopes: "openid ledger:read",
+      });
     const token = await issueMcpAccessToken("integration-opaque-access-token");
-    const verified = await jwtVerify(
-      token,
-      createLocalJWKSet(await getMcpJwks()),
-      {
-        algorithms: ["RS256"],
-        issuer: "http://localhost:3000",
-        audience: "http://localhost:3000/mcp",
-      },
-    );
+    const verified = await jwtVerify(token, createLocalJWKSet(await getMcpJwks()), {
+      algorithms: ["RS256"],
+      issuer: "http://localhost:3000",
+      audience: "http://localhost:3000/mcp",
+    });
     expect(verified.payload).toMatchObject({
       sub: first.userId,
       client_id: "integration-oauth-client",
@@ -432,9 +429,7 @@ integration("PostgreSQL ledger integration", () => {
     // A JWT is signed, not encrypted. Anything that handles one reads every
     // claim in it, so the payload must not carry a credential that works on its
     // own — only the row id the server exchanges for one.
-    expect(JSON.stringify(verified.payload)).not.toContain(
-      "integration-opaque-access-token",
-    );
+    expect(JSON.stringify(verified.payload)).not.toContain("integration-opaque-access-token");
     expect(verified.payload.grant_id).toBe("integration-oauth-token");
     expect(await unwrapMcpAccessToken(token)).toBe("integration-opaque-access-token");
     const { default: app } = await import("../../src/server/api.js");
@@ -500,22 +495,16 @@ integration("PostgreSQL ledger integration", () => {
       .setExpirationTime("5m")
       .sign(new TextEncoder().encode("integration-provider-secret"));
     const idToken = await resignMcpIdToken(providerIdToken);
-    const verifiedIdToken = await jwtVerify(
-      idToken,
-      createLocalJWKSet(await getMcpJwks()),
-      {
-        algorithms: ["RS256"],
-        issuer: "http://localhost:3000",
-        audience: "integration-oauth-client",
-      },
-    );
+    const verifiedIdToken = await jwtVerify(idToken, createLocalJWKSet(await getMcpJwks()), {
+      algorithms: ["RS256"],
+      issuer: "http://localhost:3000",
+      audience: "integration-oauth-client",
+    });
     expect(verifiedIdToken.payload).toMatchObject({
       sub: first.userId,
       nonce: "integration-nonce",
       email: "first-integration@example.com",
     });
-    expect(Number(verifiedIdToken.payload.auth_time)).toBeLessThan(
-      10_000_000_000,
-    );
+    expect(Number(verifiedIdToken.payload.auth_time)).toBeLessThan(10_000_000_000);
   });
 });

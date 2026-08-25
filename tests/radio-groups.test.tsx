@@ -31,9 +31,7 @@ const accounts: Account[] = [
   account("acc-1", "Checking", "checking"),
   account("acc-2", "Savings", "savings"),
 ];
-const categories: Category[] = [
-  { id: "cat-1", name: "Food", kind: "expense", version: 1 },
-];
+const categories: Category[] = [{ id: "cat-1", name: "Food", kind: "expense", version: 1 }];
 
 function mount(node: React.ReactNode) {
   const client = new QueryClient({
@@ -61,9 +59,7 @@ function radioGroups(container: HTMLElement) {
  * section nobody opened is a radio this file would otherwise never see.
  */
 function revealOptionalSections(container: HTMLElement) {
-  for (const box of container.querySelectorAll<HTMLInputElement>(
-    'input[type="checkbox"]',
-  )) {
+  for (const box of container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) {
     if (!box.checked && !box.disabled) fireEvent.click(box);
   }
 }
@@ -72,9 +68,33 @@ afterEach(cleanup);
 
 describe("radio groups", () => {
   const forms = [
-    ["a template", <TemplateForm accounts={accounts} categories={categories} onDone={() => {}} />],
-    ["a recurring transaction", <RecurrenceForm accounts={accounts} categories={categories} onDone={() => {}} />],
-    ["a transaction", <TransactionForm accounts={accounts} categories={categories} onDone={() => {}} />],
+    [
+      "a template",
+      <TemplateForm
+        key="TemplateForm"
+        accounts={accounts}
+        categories={categories}
+        onDone={() => {}}
+      />,
+    ],
+    [
+      "a recurring transaction",
+      <RecurrenceForm
+        key="RecurrenceForm"
+        accounts={accounts}
+        categories={categories}
+        onDone={() => {}}
+      />,
+    ],
+    [
+      "a transaction",
+      <TransactionForm
+        key="TransactionForm"
+        accounts={accounts}
+        categories={categories}
+        onDone={() => {}}
+      />,
+    ],
   ] as const;
 
   for (const [what, form] of forms) {
@@ -100,9 +120,7 @@ describe("radio groups", () => {
       }
       // Every native radio anywhere, not only the ones inside a labelled group:
       // a set of radios outside one is the same defect with less signposting.
-      for (const radio of container.querySelectorAll<HTMLInputElement>(
-        'input[type="radio"]',
-      )) {
+      for (const radio of container.querySelectorAll<HTMLInputElement>('input[type="radio"]')) {
         expect(radio.getAttribute("name"), radio.outerHTML.slice(0, 90)).toBeTruthy();
       }
     });
@@ -140,9 +158,9 @@ describe("radio groups", () => {
     for (const box of screen.getAllByLabelText("Email me to make this transaction")) {
       fireEvent.click(box);
     }
-    const names = [
-      ...container.querySelectorAll<HTMLInputElement>('input[type="radio"]'),
-    ].map((radio) => radio.getAttribute("name"));
+    const names = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')].map(
+      (radio) => radio.getAttribute("name"),
+    );
     const groups = [...new Set(names)];
     // Two instances, so twice as many distinct groups as one instance has.
     expect(groups.length).toBeGreaterThan(1);

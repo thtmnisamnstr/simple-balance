@@ -35,8 +35,7 @@ const draft: TransactionDraft = {
 };
 
 /** The same key the service would take, so this cannot drift from it. */
-const fingerprint = () =>
-  `${actor.userId}:${transactionDuplicateKeys(draft)[0]}`;
+const fingerprint = () => `${actor.userId}:${transactionDuplicateKeys(draft)[0]}`;
 
 integration("the duplicate lock", () => {
   let outsider: PgClient;
@@ -96,9 +95,7 @@ integration("the duplicate lock", () => {
         error.code === "57014" ? ("timed out waiting" as const) : ("failed" as const),
       );
 
-    expect(await blocked, "the second writer is made to wait").toBe(
-      "timed out waiting",
-    );
+    expect(await blocked, "the second writer is made to wait").toBe("timed out waiting");
     await outsider.query("rollback");
     released!();
     await held;
@@ -124,9 +121,7 @@ integration("the duplicate lock", () => {
     // held, or an import that repeats one row slips through on the key that was
     // not taken.
     const withExternal = { ...draft, externalId: "bank-row-99" };
-    const keys = transactionDuplicateKeys(withExternal).map(
-      (one) => `${actor.userId}:${one}`,
-    );
+    const keys = transactionDuplicateKeys(withExternal).map((one) => `${actor.userId}:${one}`);
     expect(keys.length, "this draft has two keys").toBe(2);
 
     let released: (() => void) | undefined;

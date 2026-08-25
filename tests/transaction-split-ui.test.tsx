@@ -47,8 +47,20 @@ const split: Transaction = {
   sourceAmount: "100",
   sourceCurrency: "USD",
   legs: [
-    { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", categoryId: food.id, category: food, amount: "60", note: "Groceries" },
-    { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", categoryId: household.id, category: household, amount: "40", note: null },
+    {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      categoryId: food.id,
+      category: food,
+      amount: "60",
+      note: "Groceries",
+    },
+    {
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      categoryId: household.id,
+      category: household,
+      amount: "40",
+      note: null,
+    },
   ],
   version: 3,
 };
@@ -149,9 +161,7 @@ describe("splitting a transaction in the form", () => {
 
     fireEvent.change(legAmount(2), { target: { value: "40" } });
     expect(screen.getByText("The split adds up.")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Commit transaction/ }),
-    ).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /Commit transaction/ })).not.toBeDisabled();
   });
 
   /**
@@ -182,10 +192,9 @@ describe("splitting a transaction in the form", () => {
 
     expect(screen.queryByLabelText("Amount for split 1")).not.toBeInTheDocument();
     expect(screen.getByText("Split across categories")).toBeInTheDocument();
-    expect(
-      (screen.getByPlaceholderText("Type to search or add") as HTMLInputElement)
-        .value,
-    ).toBe("Food");
+    expect((screen.getByPlaceholderText("Type to search or add") as HTMLInputElement).value).toBe(
+      "Food",
+    );
   });
 
   it("sends the legs and no single category", async () => {
@@ -258,10 +267,7 @@ describe("splits and templates in the browser", () => {
     draft: {
       type: "withdrawal" as const,
       payee: "Costco",
-      legs: [
-        { categoryId: food.id, amount: "60.00" },
-        { categoryId: household.id },
-      ],
+      legs: [{ categoryId: food.id, amount: "60.00" }, { categoryId: household.id }],
     },
   };
 

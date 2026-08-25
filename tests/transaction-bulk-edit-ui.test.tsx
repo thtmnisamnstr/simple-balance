@@ -2,14 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
@@ -194,6 +187,7 @@ function baseFetch(
         page: 1,
         pageSize: 2,
         totalCount: 3,
+        cursorAvailable: false,
         totalPages: 2,
       };
       return jsonResponse(page);
@@ -273,9 +267,7 @@ describe("transaction mass selection", () => {
     expect(rows[1]).toBeChecked();
     expect(screen.getByText("2 transactions selected")).toBeInTheDocument();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Select all 3 matching" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
     expect(
       await screen.findByText("2 transactions matching this view selected"),
     ).toBeInTheDocument();
@@ -368,12 +360,8 @@ describe("transaction mass selection", () => {
     fireEvent.change(within(dialog).getByLabelText("New transaction type"), {
       target: { value: "deposit" },
     });
-    expect(
-      within(dialog).queryByRole("option", { name: /Old account/ }),
-    ).not.toBeInTheDocument();
-    expect(
-      within(dialog).queryByRole("option", { name: "Old category" }),
-    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("option", { name: /Old account/ })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("option", { name: "Old category" })).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply changes" }));
 
     await waitFor(() => expect(bulkBodies).toHaveLength(1));
@@ -409,6 +397,7 @@ describe("transaction mass selection", () => {
             page: 1,
             pageSize: 1,
             totalCount: 1,
+            cursorAvailable: false,
             totalPages: 1,
           });
         }
@@ -418,9 +407,11 @@ describe("transaction mass selection", () => {
     renderBrowser();
 
     fireEvent.click(
-      (await screen.findAllByRole("checkbox", {
-        name: /Select transaction /,
-      }))[0]!,
+      (
+        await screen.findAllByRole("checkbox", {
+          name: /Select transaction /,
+        })
+      )[0]!,
     );
     fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
     const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
@@ -439,9 +430,7 @@ describe("transaction mass selection", () => {
       "fetch",
       baseFetch((url, init) => {
         if (url.pathname === "/api/v1/transactions/bulk-delete") {
-          deleteBodies.push(
-            JSON.parse(String(init?.body)) as Record<string, unknown>,
-          );
+          deleteBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
           return jsonResponse(successfulBulkResult());
         }
         return undefined;
@@ -449,9 +438,7 @@ describe("transaction mass selection", () => {
     );
     renderBrowser();
 
-    fireEvent.click(
-      (await screen.findAllByRole("checkbox", { name: /Select transaction / }))[0]!,
-    );
+    fireEvent.click((await screen.findAllByRole("checkbox", { name: /Select transaction / }))[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Delete selected" }));
 
     // The confirmation is the app's own dialog, so it is on the page and has to
@@ -486,9 +473,7 @@ describe("transaction mass selection", () => {
     );
     renderBrowser();
 
-    fireEvent.click(
-      (await screen.findAllByRole("checkbox", { name: /Select transaction / }))[0]!,
-    );
+    fireEvent.click((await screen.findAllByRole("checkbox", { name: /Select transaction / }))[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Delete selected" }));
     const confirmation = await screen.findByRole("dialog", {
       name: /Delete these transactions/,
@@ -508,14 +493,13 @@ describe("transaction mass selection", () => {
           listRequests += 1;
           return jsonResponse({
             items: [
-              listRequests === 1
-                ? withdrawal
-                : { ...withdrawal, version: withdrawal.version + 1 },
+              listRequests === 1 ? withdrawal : { ...withdrawal, version: withdrawal.version + 1 },
             ],
             nextCursor: null,
             page: 1,
             pageSize: 1,
             totalCount: 2,
+            cursorAvailable: false,
             totalPages: 2,
           });
         }
@@ -529,9 +513,11 @@ describe("transaction mass selection", () => {
     const client = renderBrowser();
 
     fireEvent.click(
-      (await screen.findAllByRole("checkbox", {
-        name: /Select transaction /,
-      }))[0]!,
+      (
+        await screen.findAllByRole("checkbox", {
+          name: /Select transaction /,
+        })
+      )[0]!,
     );
     await client.invalidateQueries({ queryKey: ["transactions"] });
     await waitFor(() => expect(listRequests).toBeGreaterThanOrEqual(2));
@@ -548,9 +534,7 @@ describe("transaction mass selection", () => {
     expect(bulkBodies[0]).toMatchObject({
       selection: {
         mode: "ids",
-        items: [
-          { id: withdrawal.id, expectedVersion: withdrawal.version },
-        ],
+        items: [{ id: withdrawal.id, expectedVersion: withdrawal.version }],
       },
     });
   });
@@ -581,9 +565,11 @@ describe("transaction mass selection", () => {
     );
     renderBrowser();
 
-    const row = (await screen.findAllByRole("checkbox", {
-      name: /Select transaction /,
-    }))[0]!;
+    const row = (
+      await screen.findAllByRole("checkbox", {
+        name: /Select transaction /,
+      })
+    )[0]!;
     fireEvent.click(row);
     fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
     const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
@@ -612,8 +598,7 @@ describe("transaction mass selection", () => {
           previewRequests += 1;
           return jsonResponse({
             count: previewRequests === 1 ? 2 : 3,
-            fingerprint:
-              previewRequests === 1 ? "d".repeat(64) : "e".repeat(64),
+            fingerprint: previewRequests === 1 ? "d".repeat(64) : "e".repeat(64),
             activeCount: previewRequests === 1 ? 2 : 3,
             deletedCount: 0,
             transferCount: 0,
@@ -647,9 +632,7 @@ describe("transaction mass selection", () => {
         name: "Select all transactions on this page",
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Select all 3 matching" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
     await screen.findByText("2 transactions matching this view selected");
     fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
     const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
@@ -695,9 +678,11 @@ describe("transaction mass selection", () => {
     );
     renderBrowser();
 
-    const row = (await screen.findAllByRole("checkbox", {
-      name: /Select transaction /,
-    }))[0]!;
+    const row = (
+      await screen.findAllByRole("checkbox", {
+        name: /Select transaction /,
+      })
+    )[0]!;
     fireEvent.click(row);
     fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
     const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });

@@ -46,9 +46,7 @@ describe("CSV resource limits", () => {
     expect(configuredDatabasePoolSize()).toBe(20);
     for (const invalid of ["NaN", "0", "-1", "1.5", "101"]) {
       process.env.DATABASE_POOL_SIZE = invalid;
-      expect(() => configuredDatabasePoolSize()).toThrow(
-        /DATABASE_POOL_SIZE must be an integer/,
-      );
+      expect(() => configuredDatabasePoolSize()).toThrow(/DATABASE_POOL_SIZE must be an integer/);
     }
   });
 });

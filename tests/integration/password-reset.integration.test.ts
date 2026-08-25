@@ -104,9 +104,7 @@ class RecordingSmtpServer {
   async waitFor(to: string, matching: RegExp, timeoutMs = 8000) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      const found = this.messages.find(
-        (m) => m.to === to && matching.test(m.body),
-      );
+      const found = this.messages.find((m) => m.to === to && matching.test(m.body));
       if (found) return found;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -218,9 +216,10 @@ integration("password reset and address verification", () => {
   // Everything below runs in order against one deployment, which starts with no
   // mail server and gains one part way through, the way a real one would.
   it("offers no reset, and asks nobody to confirm, with no mail server", async () => {
-    const methods = (await (
-      await app.request(`${BASE}/api/auth/methods`)
-    ).json()) as Record<string, unknown>;
+    const methods = (await (await app.request(`${BASE}/api/auth/methods`)).json()) as Record<
+      string,
+      unknown
+    >;
     expect(methods.passwordResetAvailable).toBe(false);
     expect(methods.emailVerificationRequired).toBe(false);
 
@@ -250,9 +249,10 @@ integration("password reset and address verification", () => {
 
   it("keeps letting them in once a mail server is added", async () => {
     app = await loadApp(true);
-    const methods = (await (
-      await app.request(`${BASE}/api/auth/methods`)
-    ).json()) as Record<string, unknown>;
+    const methods = (await (await app.request(`${BASE}/api/auth/methods`)).json()) as Record<
+      string,
+      unknown
+    >;
     expect(methods.passwordResetAvailable).toBe(true);
     expect(methods.emailVerificationRequired).toBe(true);
 

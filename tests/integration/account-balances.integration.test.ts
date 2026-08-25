@@ -3,11 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { scratchDatabase } from "./support/scratch-database.js";
-import {
-  auditEvents,
-  ledgerAccounts,
-  user,
-} from "../../src/server/db/schema.js";
+import { auditEvents, ledgerAccounts, user } from "../../src/server/db/schema.js";
 import {
   createAccount,
   deleteAccount,
@@ -35,9 +31,7 @@ integration("account balance snapshots", () => {
   beforeAll(async () => {
     await database.create();
     const db = getDb();
-    await db.execute(
-      sql`delete from auth_user where id in (${first.userId}, ${second.userId})`,
-    );
+    await db.execute(sql`delete from auth_user where id in (${first.userId}, ${second.userId})`);
     await db.insert(user).values([
       {
         id: first.userId,
@@ -190,9 +184,7 @@ integration("account balance snapshots", () => {
     });
     const archived = await setAccountArchived(first, account.id, account.version, true);
 
-    await expect(
-      deleteAccount(first, account.id, archived.version),
-    ).rejects.toMatchObject({
+    await expect(deleteAccount(first, account.id, archived.version)).rejects.toMatchObject({
       code: "CONFLICT",
       // The precondition docs/mcp.md and the delete_account description both
       // state. It is refused before any reference is counted, so an account
@@ -210,12 +202,7 @@ integration("account balance snapshots", () => {
     const deletionAudits = await getDb()
       .select()
       .from(auditEvents)
-      .where(
-        and(
-          eq(auditEvents.entityId, account.id),
-          eq(auditEvents.operation, "delete"),
-        ),
-      );
+      .where(and(eq(auditEvents.entityId, account.id), eq(auditEvents.operation, "delete")));
     expect(deletionAudits).toHaveLength(0);
   });
 
@@ -233,21 +220,13 @@ integration("account balance snapshots", () => {
       deleted: true,
     });
     expect(
-      await getDb()
-        .select()
-        .from(ledgerAccounts)
-        .where(eq(ledgerAccounts.id, account.id)),
+      await getDb().select().from(ledgerAccounts).where(eq(ledgerAccounts.id, account.id)),
     ).toHaveLength(0);
     expect(
       await getDb()
         .select()
         .from(auditEvents)
-        .where(
-          and(
-            eq(auditEvents.entityId, account.id),
-            eq(auditEvents.operation, "delete"),
-          ),
-        ),
+        .where(and(eq(auditEvents.entityId, account.id), eq(auditEvents.operation, "delete"))),
     ).toHaveLength(1);
   });
 
@@ -280,10 +259,7 @@ integration("account balance snapshots", () => {
       if (deletionResult.status === "fulfilled") {
         expect(stageResult.value.validationIssues.length).toBeGreaterThan(0);
         expect(
-          await getDb()
-            .select()
-            .from(ledgerAccounts)
-            .where(eq(ledgerAccounts.id, account.id)),
+          await getDb().select().from(ledgerAccounts).where(eq(ledgerAccounts.id, account.id)),
         ).toHaveLength(0);
       } else {
         expect(deletionResult.reason).toMatchObject({ code: "CONFLICT" });
@@ -351,18 +327,8 @@ integration("account balance snapshots", () => {
       },
       "archived-account-history",
     );
-    await setAccountArchived(
-      first,
-      originalAccount.id,
-      originalAccount.version,
-      true,
-    );
-    await setAccountArchived(
-      first,
-      unrelatedAccount.id,
-      unrelatedAccount.version,
-      true,
-    );
+    await setAccountArchived(first, originalAccount.id, originalAccount.version, true);
+    await setAccountArchived(first, unrelatedAccount.id, unrelatedAccount.version, true);
 
     const preserved = await updateTransaction(first, transaction.id, {
       draft: {

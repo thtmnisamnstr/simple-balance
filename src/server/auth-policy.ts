@@ -19,9 +19,7 @@ export type LinkedAuthAccount = {
 };
 
 function hasCredentialAccount(accounts: LinkedAuthAccount[]) {
-  return accounts.some(
-    (linked) => linked.providerId === "credential" && Boolean(linked.password),
-  );
+  return accounts.some((linked) => linked.providerId === "credential" && Boolean(linked.password));
 }
 
 function hasLinkedGoogleAccount(accounts: LinkedAuthAccount[]) {
@@ -54,10 +52,7 @@ function isLinkedIdentityAuthorized(accounts: LinkedAuthAccount[]) {
  * startup covers exactly that gap, and only until somebody takes it.
  */
 export async function isLocalBootstrapOpen() {
-  const [existingUser] = await getDb()
-    .select({ id: user.id })
-    .from(user)
-    .limit(1);
+  const [existingUser] = await getDb().select({ id: user.id }).from(user).limit(1);
   return !existingUser;
 }
 
@@ -131,11 +126,7 @@ function isSocialCallbackPath(path?: string | null) {
  * configuration and the request rather than from a query. See
  * registration-context.ts for why that matters.
  */
-export function mayCreateAuthUser(
-  email: string,
-  path?: string | null,
-  emailVerified?: boolean,
-) {
+export function mayCreateAuthUser(email: string, path?: string | null, emailVerified?: boolean) {
   const config = getConfig();
   if (isSocialCallbackPath(path)) {
     if (!config.googleAuthEnabled) return false;
@@ -206,8 +197,7 @@ export async function getPublicAuthOptions() {
     mode: config.authMode,
     localEnabled: config.localAuthEnabled,
     googleEnabled: config.googleAuthEnabled,
-    localRegistrationOpen:
-      config.localAuthEnabled && (unclaimed || !isRegistrationClosed()),
+    localRegistrationOpen: config.localAuthEnabled && (unclaimed || !isRegistrationClosed()),
     // Nobody has an account yet, so there is nobody to sign in as and the
     // screen should open on the create-account form.
     awaitingFirstAccount: unclaimed,
@@ -215,8 +205,7 @@ export async function getPublicAuthOptions() {
     // for. Asking for it whenever a deployment is unclaimed would demand a
     // server log from people ALLOWED_EMAILS already lets in, and the sign-up
     // route would not have checked it anyway.
-    setupTokenRequired:
-      config.isProduction && unclaimed && isRegistrationClosed(),
+    setupTokenRequired: config.isProduction && unclaimed && isRegistrationClosed(),
     // Both need a mail server. Without one there is no link to send, so the
     // screen must not offer a reset it cannot perform, and a new account is
     // usable straight away rather than waiting on a message that never comes.

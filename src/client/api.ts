@@ -16,12 +16,13 @@ import type {
 } from "../shared/domain.js";
 
 export class ApiClientError extends Error {
-  constructor(
-    public code: string,
-    message: string,
-    public details?: unknown,
-  ) {
+  code: string;
+  details?: unknown;
+
+  constructor(code: string, message: string, details?: unknown) {
     super(message);
+    this.code = code;
+    this.details = details;
   }
 }
 
@@ -36,10 +37,21 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
+    const details = payload?.error?.details;
+    // A Zod refusal arrives as "Request validation failed" with the sentence
+    // somebody actually wrote buried in details. Showing the envelope instead
+    // of the message is how "A budget cannot be negative" became
+    // "Request validation failed" on screen.
+    const issue = Array.isArray(details)
+      ? details.find(
+          (entry: unknown): entry is { message: string } =>
+            typeof (entry as { message?: unknown })?.message === "string",
+        )
+      : undefined;
     throw new ApiClientError(
       payload?.error?.code ?? `HTTP_${response.status}`,
-      payload?.error?.message ?? response.statusText,
-      payload?.error?.details,
+      issue?.message ?? payload?.error?.message ?? response.statusText,
+      details,
     );
   }
   if (response.status === 204) return undefined as T;
@@ -171,17 +183,12 @@ export type CategoryMergeResult = {
  * would catch it: the browser would keep compiling against a shape the API had
  * stopped sending.
  */
-export type {
-  PayeeSummary,
-  PayeeDuplicateGroup,
-  PayeeMergeResult,
-} from "../shared/domain.js";
+export type { PayeeSummary, PayeeDuplicateGroup, PayeeMergeResult } from "../shared/domain.js";
 export type {
   BulkTransactionSelectionSnapshot as TransactionBulkSelectionPreview,
   BulkTransactionEditResult as TransactionBulkEditResult,
   BulkStageEditResult as StagedBulkEditResult,
 } from "../shared/domain.js";
-
 
 /**
  * One category's share of a split. `id` is what an edit sends back to keep
@@ -245,7 +252,6 @@ export type TransactionBulkEditSelection =
       expectedFingerprint: string;
     };
 
-
 export type TransactionBulkEditPatch = {
   date?: string;
   payee?: string;
@@ -255,7 +261,6 @@ export type TransactionBulkEditPatch = {
   notes?: string | null;
   type?: "deposit" | "withdrawal";
 };
-
 
 export type StagedTransaction = {
   id: string;
@@ -305,7 +310,6 @@ export type StagedBulkEditPatch = {
   notes?: string | null;
   type?: "deposit" | "withdrawal";
 };
-
 
 /**
  * A saved starting point for the transaction form. The draft is partial on
@@ -494,6 +498,57 @@ export type AuditEvent = {
 export type { CsvPreview } from "../shared/csv.js";
 
 export type { PaginatedPage, Page };
+
+export type BudgetPeriodUnitName = "week" | "month" | "quarter" | "year";
+
+export type BudgetPlan = {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  currency: string;
+  periodUnit: BudgetPeriodUnitName;
+  amount: string;
+  activeFrom: string;
+  activeTo: string | null;
+  version: number;
+};
+
+export type BudgetEntry = {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  currency: string;
+  periodUnit: BudgetPeriodUnitName;
+  periodStart: string;
+  amount: string;
+  version: number;
+};
+
+export type BudgetReportRow = {
+  categoryId: string | null;
+  category: string;
+  limit: string | null;
+  actual: string;
+  remaining: string | null;
+  source: "entry" | "plan" | "none";
+};
+
+export type BudgetReport = {
+  periodUnit: BudgetPeriodUnitName;
+  start: string;
+  asOf: string;
+  otherPeriodUnits: BudgetPeriodUnitName[];
+  periods: {
+    periodStart: string;
+    start: string;
+    end: string;
+    partial: boolean;
+    currency: string;
+    budgeted: string;
+    spent: string;
+    rows: BudgetReportRow[];
+  }[];
+};
 
 export function queryString(values: Record<string, string | undefined | null>) {
   const params = new URLSearchParams();

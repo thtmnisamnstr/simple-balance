@@ -17,8 +17,7 @@ const nothing: TickSummary = {
 };
 
 function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
-  const armed: { delay: number; fire: () => void; timer: ReturnType<typeof timerFor> }[] =
-    [];
+  const armed: { delay: number; fire: () => void; timer: ReturnType<typeof timerFor> }[] = [];
   const timerFor = () => ({ clear: vi.fn(), unref: vi.fn() });
   const schedule = vi.fn((callback: () => void, delay: number) => {
     const timer = timerFor();
@@ -75,9 +74,7 @@ describe("the recurrence scheduler loop", () => {
       }),
     );
     expect(spread.size).toBe(8);
-    expect(Math.max(...spread)).toBeLessThan(
-      FIRST_TICK_DELAY_MS + FIRST_TICK_JITTER_MS,
-    );
+    expect(Math.max(...spread)).toBeLessThan(FIRST_TICK_DELAY_MS + FIRST_TICK_JITTER_MS);
   });
 
   /**

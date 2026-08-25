@@ -2,20 +2,9 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  Account,
-  Category,
-  TransactionTemplate,
-} from "../src/client/api.js";
+import type { Account, Category, TransactionTemplate } from "../src/client/api.js";
 import { BrowserRouter } from "../src/client/router.js";
 import TemplatesPage from "../src/client/pages/TemplatesPage.js";
 
@@ -142,8 +131,7 @@ async function renderPage(templates: TransactionTemplate[]) {
   if (templates.length) await screen.findByText(templates[0]!.name);
 }
 
-const rowFor = (name: string) =>
-  screen.getByRole("row", { name: new RegExp(name) });
+const rowFor = (name: string) => screen.getByRole("row", { name: new RegExp(name) });
 
 afterEach(() => {
   cleanup();
@@ -274,9 +262,7 @@ describe("the templates screen", () => {
       name: "Set to",
     });
     expect(setOption).toBeDisabled();
-    expect(
-      screen.getByText(/A deposit has no source account/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/A deposit has no source account/)).toBeInTheDocument();
   });
 
   it("selects every matching template, not only the ones on this page", async () => {
@@ -292,9 +278,7 @@ describe("the templates screen", () => {
     expect(screen.getAllByRole("row").length - 1).toBe(25);
 
     fireEvent.click(screen.getByLabelText("Select Filler 00"));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Select all 30 matching" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Select all 30 matching" }));
     expect(screen.getByText("30 templates selected")).toBeInTheDocument();
   });
 
@@ -326,16 +310,14 @@ describe("the templates screen", () => {
 
     fireEvent.click(screen.getByLabelText("Select Rent"));
     fireEvent.click(screen.getByRole("button", { name: /Delete selected/ }));
-    const dialog = within(
-      screen.getByText("Delete 1 template?").closest("dialog")!,
-    );
+    const dialog = within(screen.getByText("Delete 1 template?").closest("dialog")!);
     fireEvent.click(dialog.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]!.path).toBe("/api/v1/transaction-templates/bulk-delete");
-    expect(
-      (posts[0]!.body as { selection: { items: unknown[] } }).selection.items,
-    ).toEqual([{ id: rent.id, expectedVersion: 3 }]);
+    expect((posts[0]!.body as { selection: { items: unknown[] } }).selection.items).toEqual([
+      { id: rent.id, expectedVersion: 3 },
+    ]);
   });
 
   it("can make a template, so the screen is not somewhere you only delete", async () => {
@@ -384,9 +366,7 @@ describe("the templates screen", () => {
     // Inside the dialog, because the page banner sits behind an open one.
     const dialog = await screen.findByRole("dialog");
     await waitFor(() =>
-      expect(
-        within(dialog).getByText(/A deposit has no source account/),
-      ).toBeInTheDocument(),
+      expect(within(dialog).getByText(/A deposit has no source account/)).toBeInTheDocument(),
     );
     expect(screen.getByText("1 template selected")).toBeInTheDocument();
   });
@@ -455,9 +435,7 @@ describe("the templates screen", () => {
     expect(screen.queryByText("Unavailable")).toBeNull();
 
     releaseAccounts(Response.json([checking, savings]));
-    await waitFor(() =>
-      expect(within(rowFor("Rent")).getByText("Checking")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(within(rowFor("Rent")).getByText("Checking")).toBeInTheDocument());
     expect(screen.queryByText("Unavailable")).toBeNull();
   });
 
@@ -473,9 +451,7 @@ describe("the templates screen", () => {
     });
     expect(used).toHaveTextContent("6");
     expect(used).toHaveAttribute("href", `/templates/${rent.id}`);
-    expect(
-      within(rowFor("Rent")).getByText("4 committed · 2 pending"),
-    ).toBeInTheDocument();
+    expect(within(rowFor("Rent")).getByText("4 committed · 2 pending")).toBeInTheDocument();
 
     // A template nothing came from reads zero rather than being left out.
     expect(
@@ -658,9 +634,7 @@ describe("the templates screen", () => {
     // checkbox, and it is shown whether or not the box is ticked.
     const note = dialog.getByText(/A reminder only asks/);
     const checkbox = dialog.getByLabelText(/Email me to make this/);
-    expect(
-      checkbox.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(checkbox.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(checkbox).not.toBeChecked();
   });
 
@@ -694,13 +668,8 @@ describe("the templates screen", () => {
     });
     // The fields a one-off cannot use are left out rather than sent as defaults,
     // because the server refuses them outright.
-    const notification = (posts[0]!.body as { notification: Record<string, unknown> })
-      .notification;
-    expect(Object.keys(notification).sort()).toEqual([
-      "anchorDate",
-      "frequency",
-      "time",
-    ]);
+    const notification = (posts[0]!.body as { notification: Record<string, unknown> }).notification;
+    expect(Object.keys(notification).sort()).toEqual(["anchorDate", "frequency", "time"]);
   });
 
   it("sends a repeating reminder with the schedule it was given", async () => {
@@ -758,13 +727,8 @@ describe("the templates screen", () => {
       target: { value: "1" },
     });
 
-    expect(
-      await screen.findByText(/would land two on the same date/),
-    ).toBeInTheDocument();
-    expect(
-      dialog.getByRole("option", { name: "Send it on the Friday" }),
-    ).toBeDisabled();
-
+    expect(await screen.findByText(/would land two on the same date/)).toBeInTheDocument();
+    expect(dialog.getByRole("option", { name: "Send it on the Friday" })).toBeDisabled();
   });
 
   it("seeds the reminder from the template being edited", async () => {
@@ -815,9 +779,7 @@ describe("the templates screen", () => {
 
     fireEvent.click(dialog.getByLabelText(/Email me to make this/));
 
-    expect(
-      await screen.findByText(/no mail server configured/),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/no mail server configured/)).toBeInTheDocument();
   });
 
   it("says a one-off reminder has been sent once nothing further is owed", async () => {

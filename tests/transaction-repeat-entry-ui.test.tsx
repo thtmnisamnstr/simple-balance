@@ -2,22 +2,9 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  Account,
-  Category,
-  Page,
-  StagedTransaction,
-  Transaction,
-} from "../src/client/api.js";
+import type { Account, Category, Page, StagedTransaction, Transaction } from "../src/client/api.js";
 import { TransactionForm } from "../src/client/forms.js";
 import StagingPage from "../src/client/pages/StagingPage.js";
 import { BrowserRouter } from "../src/client/router.js";
@@ -104,9 +91,7 @@ function queryClient() {
   return client;
 }
 
-function renderTransactionForm(
-  props: Partial<Parameters<typeof TransactionForm>[0]> = {},
-) {
+function renderTransactionForm(props: Partial<Parameters<typeof TransactionForm>[0]> = {}) {
   const client = queryClient();
   const onDone = vi.fn();
   const result = render(
@@ -131,12 +116,9 @@ function successfulCreateFetch(requestBodies: Record<string, unknown>[]) {
       const url = new URL(String(input), window.location.origin);
       if (
         init?.method === "POST" &&
-        (url.pathname === "/api/v1/transactions" ||
-          url.pathname === "/api/v1/staged-transactions")
+        (url.pathname === "/api/v1/transactions" || url.pathname === "/api/v1/staged-transactions")
       ) {
-        requestBodies.push(
-          JSON.parse(String(init?.body)) as Record<string, unknown>,
-        );
+        requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         return new Response(JSON.stringify({ id: crypto.randomUUID() }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -183,9 +165,7 @@ describe("transaction repeat-entry controls", () => {
     ).not.toBeInTheDocument();
 
     fireEvent.click(repeat);
-    expect(
-      form.getByRole("checkbox", { name: "Reset after saving/staging" }),
-    ).toBeEnabled();
+    expect(form.getByRole("checkbox", { name: "Reset after saving/staging" })).toBeEnabled();
 
     fireEvent.click(repeat);
     expect(
@@ -253,9 +233,7 @@ describe("transaction repeat-entry controls", () => {
 
     fireEvent.submit(container.querySelector("form")!);
     await waitFor(() => expect(requests).toHaveLength(2));
-    expect(requests[0]?.idempotencyKey).not.toBe(
-      requests[1]?.idempotencyKey,
-    );
+    expect(requests[0]?.idempotencyKey).not.toBe(requests[1]?.idempotencyKey);
     expect(onDone).not.toHaveBeenCalled();
   });
 
@@ -298,9 +276,7 @@ describe("transaction repeat-entry controls", () => {
         name: "After saving/staging, return to create another",
       }),
     );
-    fireEvent.click(
-      form.getByRole("checkbox", { name: "Reset after saving/staging" }),
-    );
+    fireEvent.click(form.getByRole("checkbox", { name: "Reset after saving/staging" }));
 
     fireEvent.submit(container.querySelector("form")!);
 
@@ -320,11 +296,7 @@ describe("transaction repeat-entry controls", () => {
 
 describe("manual staging entry point", () => {
   it("labels the action Stage transaction", () => {
-    window.history.replaceState(
-      null,
-      "",
-      "/staged?start=2026-07-01&end=2026-07-31",
-    );
+    window.history.replaceState(null, "", "/staged?start=2026-07-01&end=2026-07-31");
     const client = queryClient();
     const emptyPage: Page<never> = { items: [], nextCursor: null };
     client.setQueryData(["import-batches", "active"], {
@@ -343,6 +315,7 @@ describe("manual staging entry point", () => {
               page: 1,
               pageSize: 100,
               totalCount: 0,
+              cursorAvailable: false,
               totalPages: 0,
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
@@ -367,11 +340,7 @@ describe("manual staging entry point", () => {
       </QueryClientProvider>,
     );
 
-    expect(
-      screen.getByRole("button", { name: "Stage transaction" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Stage manually" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stage transaction" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stage manually" })).not.toBeInTheDocument();
   });
 });

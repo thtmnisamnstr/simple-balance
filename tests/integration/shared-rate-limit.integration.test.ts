@@ -1,10 +1,7 @@
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getDb } from "../../src/server/db/client.js";
-import {
-  createAttemptLimiter,
-  postgresAttemptStore,
-} from "../../src/server/http-security.js";
+import { createAttemptLimiter, postgresAttemptStore } from "../../src/server/http-security.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -54,12 +51,8 @@ integration("an allowance shared by every replica", () => {
    */
   it("loses no attempt when replicas race the same key", async () => {
     const attempts = 20;
-    const replicas = Array.from({ length: attempts }, () =>
-      replica(5),
-    );
-    const allowed = await Promise.all(
-      replicas.map((one) => one.take("shared-race")),
-    );
+    const replicas = Array.from({ length: attempts }, () => replica(5));
+    const allowed = await Promise.all(replicas.map((one) => one.take("shared-race")));
 
     expect(Number(await countFor("shared-race"))).toBe(attempts);
     // Each limiter is its own process here, so none of them refuses locally.
@@ -70,9 +63,7 @@ integration("an allowance shared by every replica", () => {
   it("starts a new window once the old one has run out", async () => {
     const early = replica(1, () => 2_000_000);
     expect(await early.take("shared-window")).toBe(true);
-    expect(await replica(1, () => 2_030_000).take("shared-window")).toBe(
-      false,
-    );
+    expect(await replica(1, () => 2_030_000).take("shared-window")).toBe(false);
     const later = replica(1, () => 2_061_000);
     expect(await later.take("shared-window")).toBe(true);
     expect(Number(await countFor("shared-window"))).toBe(1);

@@ -19,11 +19,16 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/server/db/migrate.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server.json",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt src tests *.ts",
+    "format:check": "oxfmt --check src tests *.ts",
     "test": "vitest run",
     "test:integration": "vitest run -c vitest.integration.config.ts tests/integration",
-    "verify": "npm run typecheck && npm run test && npm run build",
+    "verify": "npm run typecheck && npm run lint && npm run format:check && npm run test && npm run build",
     "set-version": "node scripts/set-version.mjs",
-    "ralph": "./scripts/ralph/ralph.sh"
+    "ralph": "./scripts/ralph/ralph.sh",
+    "test:browser": "playwright test"
   },
   "overrides": {
     "@napi-rs/wasm-runtime": "1.1.6",
@@ -49,6 +54,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^24.13.3",
@@ -60,6 +66,8 @@
     "@vitejs/plugin-react": "^6.0.5",
     "drizzle-kit": "^0.31.10",
     "jsdom": "^30.0.1",
+    "oxfmt": "^0.65.0",
+    "oxlint": "^1.80.0",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vite": "^8.2.1",

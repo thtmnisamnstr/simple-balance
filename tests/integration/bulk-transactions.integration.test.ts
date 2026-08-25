@@ -21,9 +21,7 @@ const database = scratchDatabase("bulk_transactions");
 const actor: Actor = { userId: "integration-bulk-transactions", source: "web" };
 const other: Actor = { userId: "integration-bulk-transactions-other", source: "web" };
 
-function explicitSelection(
-  rows: readonly { id: string; version: number }[],
-) {
+function explicitSelection(rows: readonly { id: string; version: number }[]) {
   return {
     mode: "ids" as const,
     items: rows.map((row) => ({
@@ -47,20 +45,22 @@ integration("atomic committed transaction bulk editing", () => {
       delete from auth_user
       where id in (${actor.userId}, ${other.userId})
     `);
-    await getDb().insert(user).values([
-      {
-        id: actor.userId,
-        name: "Bulk Transaction Tenant",
-        email: "bulk-transactions@example.com",
-        emailVerified: true,
-      },
-      {
-        id: other.userId,
-        name: "Other Bulk Transaction Tenant",
-        email: "bulk-transactions-other@example.com",
-        emailVerified: true,
-      },
-    ]);
+    await getDb()
+      .insert(user)
+      .values([
+        {
+          id: actor.userId,
+          name: "Bulk Transaction Tenant",
+          email: "bulk-transactions@example.com",
+          emailVerified: true,
+        },
+        {
+          id: other.userId,
+          name: "Other Bulk Transaction Tenant",
+          email: "bulk-transactions-other@example.com",
+          emailVerified: true,
+        },
+      ]);
     const [checking, savings, euro, otherAccount] = await Promise.all([
       createAccount(actor, {
         name: "Bulk Checking",
@@ -95,12 +95,8 @@ integration("atomic committed transaction bulk editing", () => {
     savingsId = savings.id;
     euroId = euro.id;
     otherAccountId = otherAccount.id;
-    bothCategoryId = (
-      await createCategory(actor, { name: "Bulk Both", kind: "both" })
-    ).id;
-    expenseCategoryId = (
-      await createCategory(actor, { name: "Bulk Expense", kind: "expense" })
-    ).id;
+    bothCategoryId = (await createCategory(actor, { name: "Bulk Both", kind: "both" })).id;
+    expenseCategoryId = (await createCategory(actor, { name: "Bulk Expense", kind: "expense" })).id;
   });
 
   afterAll(async () => {
@@ -168,9 +164,7 @@ integration("atomic committed transaction bulk editing", () => {
       dryRun: false,
     });
     expect(replay).toEqual(result);
-    expect((await getTransaction(actor, first.id)).version).toBe(
-      first.version + 1,
-    );
+    expect((await getTransaction(actor, first.id)).version).toBe(first.version + 1);
   });
 
   it("refuses a stale selection and writes nothing", async () => {
@@ -215,12 +209,7 @@ integration("atomic committed transaction bulk editing", () => {
       },
       "bulk-delete-repeat",
     );
-    const deleted = await setTransactionDeleted(
-      actor,
-      row.id,
-      row.version,
-      true,
-    );
+    const deleted = await setTransactionDeleted(actor, row.id, row.version, true);
 
     const result = await bulkDeleteTransactions(actor, {
       selection: explicitSelection([deleted]),
@@ -372,9 +361,7 @@ integration("atomic committed transaction bulk editing", () => {
         and transaction_id in (${first.id}::uuid, ${second.id}::uuid)
       group by currency
     `);
-    expect(perCurrency.rows).toEqual([
-      { currency: "USD", total: "0.000000000000000000" },
-    ]);
+    expect(perCurrency.rows).toEqual([{ currency: "USD", total: "0.000000000000000000" }]);
     const audits = await getDb().execute(sql`
       select entity_id, operation
       from audit_event
@@ -383,10 +370,12 @@ integration("atomic committed transaction bulk editing", () => {
         and operation = 'bulk_update'
       order by entity_id
     `);
-    expect(audits.rows).toEqual([
-      { entity_id: first.id, operation: "bulk_update" },
-      { entity_id: second.id, operation: "bulk_update" },
-    ].sort((left, right) => left.entity_id.localeCompare(right.entity_id)));
+    expect(audits.rows).toEqual(
+      [
+        { entity_id: first.id, operation: "bulk_update" },
+        { entity_id: second.id, operation: "bulk_update" },
+      ].sort((left, right) => left.entity_id.localeCompare(right.entity_id)),
+    );
   });
 
   it("rejects transfer conversion and cross-currency reassignment atomically", async () => {
@@ -754,9 +743,7 @@ integration("atomic committed transaction bulk editing", () => {
       patch: { date: existing.date, payee: existing.payee },
       idempotencyKey: "bulk-unselected-duplicate-rejected",
     };
-    await expect(
-      bulkEditTransactions(actor, collisionInput),
-    ).rejects.toMatchObject({
+    await expect(bulkEditTransactions(actor, collisionInput)).rejects.toMatchObject({
       code: "DUPLICATE",
       details: { duplicateOfId: existing.id },
     });
@@ -809,9 +796,7 @@ integration("atomic committed transaction bulk editing", () => {
       bulkEditTransactions(actor, {
         selection: {
           mode: "ids",
-          items: [
-            { id: owned.id, expectedVersion: owned.version + 1 },
-          ],
+          items: [{ id: owned.id, expectedVersion: owned.version + 1 }],
         },
         patch: { notes: "Must remain stale" },
         idempotencyKey: "bulk-stale-explicit-rejected",

@@ -5,17 +5,8 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Report } from "../src/client/api.js";
-import {
-  bucketLabel,
-  labelBudget,
-  labelledBuckets,
-  niceTicks,
-} from "../src/client/charts.js";
-import {
-  moneyExtent,
-  moneyRatioPercent,
-  moneyScalePercent,
-} from "../src/client/money.js";
+import { bucketLabel, labelBudget, labelledBuckets, niceTicks } from "../src/client/charts.js";
+import { moneyExtent, moneyRatioPercent, moneyScalePercent } from "../src/client/money.js";
 import ReportsPage from "../src/client/pages/ReportsPage.js";
 import { BrowserRouter, Route, Routes } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -111,9 +102,7 @@ describe("scaling money for a chart", () => {
   });
 
   it("keeps eighteen decimal places apart", () => {
-    expect(
-      moneyScalePercent("0.000000000000000001", "0", "0.000000000000000002"),
-    ).toBe("50");
+    expect(moneyScalePercent("0.000000000000000001", "0", "0.000000000000000002")).toBe("50");
   });
 
   it("puts a flat series in the middle rather than dividing by zero", () => {
@@ -134,13 +123,7 @@ describe("scaling money for a chart", () => {
 describe("the axis a chart is read against", () => {
   it("puts the gridlines on round numbers, not on quarters of the range", () => {
     // Four equal slices of this range would be 1247.83, 2495.66, 3743.49.
-    expect(niceTicks("0", "4991.32")).toEqual([
-      "0",
-      "1000",
-      "2000",
-      "3000",
-      "4000",
-    ]);
+    expect(niceTicks("0", "4991.32")).toEqual(["0", "1000", "2000", "3000", "4000"]);
   });
 
   it("crosses zero when the range does, so the line is one of the ticks", () => {
@@ -184,9 +167,7 @@ describe("the axis a chart is read against", () => {
     expect(labelledBuckets(4)).toEqual([0, 1, 2, 3]);
     // Twelve months all get a label. Spreading a fixed count across the range
     // instead rounded to 0, 1, 2, 4, 5, 6, 7 and skipped April on its own.
-    expect(labelledBuckets(12)).toEqual([
-      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-    ]);
+    expect(labelledBuckets(12)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 
     const many = labelledBuckets(600);
     expect(many.length).toBeLessThanOrEqual(12);
@@ -263,9 +244,9 @@ describe("the reports page", () => {
     await screen.findByRole("rowheader", { name: "Checking" });
 
     // The values run -25 to 250, so the axis covers that in round steps.
-    const scale = [
-      ...document.querySelectorAll(".chart-axis-value"),
-    ].map((node) => node.textContent);
+    const scale = [...document.querySelectorAll(".chart-axis-value")].map(
+      (node) => node.textContent,
+    );
     expect(scale.length).toBeGreaterThan(1);
     expect(scale).toContain("$0.00");
     // Every label is money, formatted the way the table formats it.
@@ -273,9 +254,11 @@ describe("the reports page", () => {
 
     // One label per bucket here, because three is under the thinning limit.
     const timeAxis = document.querySelector(".chart-axis-x")!;
-    expect(
-      [...timeAxis.querySelectorAll("span")].map((node) => node.textContent),
-    ).toEqual(["Jan 2026", "Feb 2026", "Mar 2026"]);
+    expect([...timeAxis.querySelectorAll("span")].map((node) => node.textContent)).toEqual([
+      "Jan 2026",
+      "Feb 2026",
+      "Mar 2026",
+    ]);
   });
 
   /**
@@ -288,9 +271,7 @@ describe("the reports page", () => {
     renderReports();
     await screen.findByRole("rowheader", { name: "Checking" });
 
-    const labels = [
-      ...document.querySelectorAll<HTMLElement>(".chart-axis-value"),
-    ];
+    const labels = [...document.querySelectorAll<HTMLElement>(".chart-axis-value")];
     const tops = labels.map((node) => Number.parseFloat(node.style.top));
     // Down the box as the value falls, and inside it at both ends.
     expect(tops).toEqual([...tops].sort((left, right) => right - left));
@@ -312,31 +293,22 @@ describe("the reports page", () => {
 
     // Read linearly an axis is a run of bare numbers, and the table beside it
     // already carries every figure as text.
-    expect(document.querySelector(".chart-axis-y")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
-    expect(document.querySelector(".chart-axis-x")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
+    expect(document.querySelector(".chart-axis-y")).toHaveAttribute("aria-hidden", "true");
+    expect(document.querySelector(".chart-axis-x")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("labels the chart for anyone who cannot see it", async () => {
     stub();
     renderReports();
     await screen.findByRole("rowheader", { name: "Checking" });
-    expect(
-      screen.getByRole("img", { name: /net worth over time, in usd/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /net worth over time, in usd/i })).toBeInTheDocument();
   });
 
   it("keeps the range and the report in the URL", async () => {
     stub();
     renderReports("/reports/net-worth?preset=custom&start=2026-01-01&end=2026-03-31");
     await screen.findByRole("rowheader", { name: "Checking" });
-    const called = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-      .calls[0]![0] as string;
+    const called = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(called).toContain("/api/v1/reports/net-worth");
     expect(called).toContain("start=2026-01-01");
     expect(called).toContain("end=2026-03-31");
@@ -349,9 +321,7 @@ describe("the reports page", () => {
     fireEvent.change(screen.getByLabelText("Group by"), {
       target: { value: "quarter" },
     });
-    expect(new URLSearchParams(window.location.search).get("bucket")).toBe(
-      "quarter",
-    );
+    expect(new URLSearchParams(window.location.search).get("bucket")).toBe("quarter");
   });
 
   it("links every report without losing the range", async () => {
@@ -387,8 +357,7 @@ describe("the reports page", () => {
     stub();
     renderReports("/reports/not-a-report");
     await screen.findByRole("rowheader", { name: "Checking" });
-    const called = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-      .calls[0]![0] as string;
+    const called = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(called).toContain("/api/v1/reports/net-worth");
   });
 
@@ -471,17 +440,15 @@ describe("the reports page", () => {
     await screen.findByRole("rowheader", { name: "Checking" });
 
     // A balance report: the figures are the same either way, and the page says so.
-    expect(
-      screen.getByText(/still in these figures/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/still in these figures/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("Include closed accounts"));
 
     await vi.waitFor(() => {
       expect(window.location.search).toContain("archived=1");
     });
-    const urls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map(
-      (call) => String(call[0]),
+    const urls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((call) =>
+      String(call[0]),
     );
     expect(urls.some((url) => url.includes("includeArchived=true"))).toBe(true);
   });

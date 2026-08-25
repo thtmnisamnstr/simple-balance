@@ -5,15 +5,9 @@ import { scratchDatabase } from "./support/scratch-database.js";
 import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
-import {
-  exportTransactionsCsv,
-  stageCsv,
-} from "../../src/server/services/import-export.js";
+import { exportTransactionsCsv, stageCsv } from "../../src/server/services/import-export.js";
 import { commitStages, listStages } from "../../src/server/services/staging.js";
-import {
-  createTransaction,
-  listTransactions,
-} from "../../src/server/services/transactions.js";
+import { createTransaction, listTransactions } from "../../src/server/services/transactions.js";
 import {
   bulkEditTransactionTemplates,
   createTransactionTemplate,
@@ -58,9 +52,7 @@ integration("carrying a split in and out of the app", () => {
       })
     ).id;
     foodId = (await createCategory(actor, { name: "Food", kind: "expense" })).id;
-    householdId = (
-      await createCategory(actor, { name: "Household", kind: "expense" })
-    ).id;
+    householdId = (await createCategory(actor, { name: "Household", kind: "expense" })).id;
 
     await createTransaction(
       actor,
@@ -140,9 +132,7 @@ integration("carrying a split in and out of the app", () => {
 
     await commitStages(actor, {
       stagedIds: staged.items.map((item) => item.id),
-      expectedVersions: Object.fromEntries(
-        staged.items.map((item) => [item.id, item.version]),
-      ),
+      expectedVersions: Object.fromEntries(staged.items.map((item) => [item.id, item.version])),
       idempotencyKey: "roundtrip-commit",
       allowDuplicates: true,
       dryRun: false,
@@ -155,10 +145,7 @@ integration("carrying a split in and out of the app", () => {
     const committed = page.items.find((item) => item.payee === "Costco")!;
     expect(committed.category).toBeNull();
     expect(committed.legs.map((leg) => leg.amount)).toEqual(["60", "40"]);
-    expect(committed.legs.map((leg) => leg.category?.name)).toEqual([
-      "Food",
-      "Household",
-    ]);
+    expect(committed.legs.map((leg) => leg.category?.name)).toEqual(["Food", "Household"]);
   });
 
   it("stores a split on a template, with the amounts left open", async () => {
@@ -196,17 +183,13 @@ integration("carrying a split in and out of the app", () => {
       dryRun: false,
     });
 
-    const after = (await listTransactionTemplates(actor)).find(
-      (one) => one.id === before.id,
-    )!;
+    const after = (await listTransactionTemplates(actor)).find((one) => one.id === before.id)!;
     expect(after.draft.payee).toBe("Costco Wholesale");
     expect(after.draft.legs).toHaveLength(2);
   });
 
   it("refuses a mass edit that would file a split template under one category", async () => {
-    const template = (await listTransactionTemplates(actor)).find(
-      (one) => one.draft.legs?.length,
-    )!;
+    const template = (await listTransactionTemplates(actor)).find((one) => one.draft.legs?.length)!;
 
     await expect(
       bulkEditTransactionTemplates(actor, {
@@ -221,9 +204,7 @@ integration("carrying a split in and out of the app", () => {
   });
 
   it("replaces a template's whole split, and clears it on request", async () => {
-    let template = (await listTransactionTemplates(actor)).find(
-      (one) => one.draft.legs?.length,
-    )!;
+    let template = (await listTransactionTemplates(actor)).find((one) => one.draft.legs?.length)!;
 
     await bulkEditTransactionTemplates(actor, {
       selection: {
@@ -233,13 +214,8 @@ integration("carrying a split in and out of the app", () => {
       idempotencyKey: "template-split-replace",
       dryRun: false,
     });
-    template = (await listTransactionTemplates(actor)).find(
-      (one) => one.id === template.id,
-    )!;
-    expect(template.draft.legs!.map((leg) => leg.categoryId)).toEqual([
-      foodId,
-      householdId,
-    ]);
+    template = (await listTransactionTemplates(actor)).find((one) => one.id === template.id)!;
+    expect(template.draft.legs!.map((leg) => leg.categoryId)).toEqual([foodId, householdId]);
 
     await bulkEditTransactionTemplates(actor, {
       selection: {
@@ -249,9 +225,7 @@ integration("carrying a split in and out of the app", () => {
       idempotencyKey: "template-split-clear",
       dryRun: false,
     });
-    template = (await listTransactionTemplates(actor)).find(
-      (one) => one.id === template.id,
-    )!;
+    template = (await listTransactionTemplates(actor)).find((one) => one.id === template.id)!;
     expect(template.draft.legs).toBeUndefined();
   });
 });

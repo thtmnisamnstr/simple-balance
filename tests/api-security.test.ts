@@ -47,16 +47,13 @@ describe("API transport security wiring", () => {
   // refused with a 415 the browser never surfaced. Both halves are pinned here
   // because the requirement is deliberate and the client has to satisfy it.
   it("refuses a state-changing request that names no content type", async () => {
-    const response = await app.request(
-      `${applicationOrigin}/api/v1/connected-apps/some-client`,
-      {
-        method: "DELETE",
-        headers: {
-          cookie: "better-auth.session_token=untrusted",
-          origin: applicationOrigin,
-        },
+    const response = await app.request(`${applicationOrigin}/api/v1/connected-apps/some-client`, {
+      method: "DELETE",
+      headers: {
+        cookie: "better-auth.session_token=untrusted",
+        origin: applicationOrigin,
       },
-    );
+    });
     expect(response.status).toBe(415);
     expect(await response.json()).toMatchObject({
       error: { code: "UNSUPPORTED_MEDIA_TYPE" },
@@ -64,37 +61,31 @@ describe("API transport security wiring", () => {
   });
 
   it("lets a bodyless revoke through the media type gate to authentication", async () => {
-    const response = await app.request(
-      `${applicationOrigin}/api/v1/connected-apps/some-client`,
-      {
-        method: "DELETE",
-        headers: {
-          cookie: "better-auth.session_token=untrusted",
-          origin: applicationOrigin,
-          "content-type": "application/json",
-        },
-        body: "{}",
+    const response = await app.request(`${applicationOrigin}/api/v1/connected-apps/some-client`, {
+      method: "DELETE",
+      headers: {
+        cookie: "better-auth.session_token=untrusted",
+        origin: applicationOrigin,
+        "content-type": "application/json",
       },
-    );
+      body: "{}",
+    });
     expect(response.status).not.toBe(415);
     expect(response.status).toBe(401);
   });
 
   it("rejects an oversized auth body before Better Auth parses it", async () => {
-    const response = await app.request(
-      `${applicationOrigin}/api/auth/sign-in/email`,
-      {
-        method: "POST",
-        headers: {
-          origin: applicationOrigin,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          email: "owner@example.com",
-          password: "x".repeat(AUTH_REQUEST_BODY_LIMIT_BYTES),
-        }),
+    const response = await app.request(`${applicationOrigin}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: {
+        origin: applicationOrigin,
+        "content-type": "application/json",
       },
-    );
+      body: JSON.stringify({
+        email: "owner@example.com",
+        password: "x".repeat(AUTH_REQUEST_BODY_LIMIT_BYTES),
+      }),
+    });
     expect(response.status).toBe(413);
     expect(await response.json()).toMatchObject({
       error: { code: "PAYLOAD_TOO_LARGE" },
@@ -102,19 +93,16 @@ describe("API transport security wiring", () => {
   });
 
   it("rejects an unauthenticated finance body before granting the upload allowance", async () => {
-    const response = await app.request(
-      `${applicationOrigin}/api/v1/preferences`,
-      {
-        method: "PUT",
-        headers: {
-          cookie: "better-auth.session_token=untrusted",
-          origin: applicationOrigin,
-          "content-type": "application/json",
-          "content-length": String(API_REQUEST_BODY_LIMIT_BYTES + 1),
-        },
-        body: "{}",
+    const response = await app.request(`${applicationOrigin}/api/v1/preferences`, {
+      method: "PUT",
+      headers: {
+        cookie: "better-auth.session_token=untrusted",
+        origin: applicationOrigin,
+        "content-type": "application/json",
+        "content-length": String(API_REQUEST_BODY_LIMIT_BYTES + 1),
       },
-    );
+      body: "{}",
+    });
     expect(response.status).toBe(401);
     expect(await response.json()).toMatchObject({
       error: { code: "UNAUTHORIZED" },
@@ -150,21 +138,14 @@ describe("API transport security wiring", () => {
  * behaviour itself is verified against the built container.
  */
 describe("static files at the root of the client bundle", () => {
-  const source = readFileSync(
-    path.join(import.meta.dirname, "..", "src/server/api.ts"),
-    "utf8",
-  );
+  const source = readFileSync(path.join(import.meta.dirname, "..", "src/server/api.ts"), "utf8");
 
   it("serves the bundle root before falling back to the shell", () => {
     // Specifically the wildcard one. Matching the bare serveStatic call found
     // the /assets/* handler, which contains the same text and is already before
     // the fallback, so this passed with the root handler deleted.
-    const rootHandler = source.indexOf(
-      'app.use("*", serveStatic({ root: "./dist/client" }))',
-    );
-    const shellFallback = source.indexOf(
-      'serveStatic({ path: "./dist/client/index.html" })',
-    );
+    const rootHandler = source.indexOf('app.use("*", serveStatic({ root: "./dist/client" }))');
+    const shellFallback = source.indexOf('serveStatic({ path: "./dist/client/index.html" })');
     expect(rootHandler, "a handler for the bundle root").toBeGreaterThan(-1);
     expect(shellFallback, "the single-page fallback").toBeGreaterThan(-1);
     expect(rootHandler).toBeLessThan(shellFallback);
@@ -176,10 +157,7 @@ describe("static files at the root of the client bundle", () => {
    * saying something vaguer than the manifest the release publishes.
    */
   it("describes the product the way the manifest does", () => {
-    const html = readFileSync(
-      path.join(import.meta.dirname, "..", "index.html"),
-      "utf8",
-    );
+    const html = readFileSync(path.join(import.meta.dirname, "..", "index.html"), "utf8");
     const manifest = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "..", "package.json"), "utf8"),
     ) as { description: string };
@@ -193,13 +171,8 @@ describe("static files at the root of the client bundle", () => {
   // wrong block, so doubling it would have kept the words and lost the meaning.
 
   it("keeps the icon the document asks for in the bundle", () => {
-    const html = readFileSync(
-      path.join(import.meta.dirname, "..", "index.html"),
-      "utf8",
-    );
-    for (const match of html.matchAll(
-      /<(?:link[^>]+href|script[^>]+src)="\/([^"]+)"/g,
-    )) {
+    const html = readFileSync(path.join(import.meta.dirname, "..", "index.html"), "utf8");
+    for (const match of html.matchAll(/<(?:link[^>]+href|script[^>]+src)="\/([^"]+)"/g)) {
       const file = match[1];
       // Hashed assets are emitted by the build, as is the module entry it
       // rewrites; these are the ones copied verbatim out of public/, so they

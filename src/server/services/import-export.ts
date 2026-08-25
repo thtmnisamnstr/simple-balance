@@ -25,11 +25,7 @@ import {
   rowsToCsv,
   type NormalizedCsvRow,
 } from "../../shared/csv.js";
-import {
-  getDb,
-  type DbTransaction,
-  withTransaction,
-} from "../db/client.js";
+import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
   categories,
   importBatches,
@@ -37,10 +33,7 @@ import {
   stagedTransactions,
   type CategoryRow,
 } from "../db/schema.js";
-import {
-  configuredCsvMaxBytes,
-  configuredCsvMaxRows,
-} from "../config-limits.js";
+import { configuredCsvMaxBytes, configuredCsvMaxRows } from "../config-limits.js";
 import { validationError } from "./errors.js";
 import {
   getIdempotent,
@@ -54,15 +47,8 @@ import {
 } from "./helpers.js";
 import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
-import {
-  payeeSummaries,
-  preferredPayee,
-  seedCanonicalPayeeCache,
-} from "./payees.js";
-import {
-  combineCategoryKinds,
-  preferredCategory,
-} from "./categories.js";
+import { payeeSummaries, preferredPayee, seedCanonicalPayeeCache } from "./payees.js";
+import { preferredCategory } from "./categories.js";
 import { insertImportedStages } from "./staging.js";
 import { listAllTransactions } from "./transactions.js";
 
@@ -133,10 +119,7 @@ export async function listActiveImportBatches(
     conditions.push(
       or(
         lt(importBatches.createdAt, createdAt),
-        and(
-          eq(importBatches.createdAt, createdAt),
-          lt(importBatches.id, cursor.id),
-        ),
+        and(eq(importBatches.createdAt, createdAt), lt(importBatches.id, cursor.id)),
       )!,
     );
   }
@@ -194,17 +177,16 @@ export async function listActiveImportBatches(
  * that could be read, because a queue of rows missing one field can be repaired
  * and a queue of blank rows cannot.
  */
-function appExportDraft(
-  row: Record<string, string>,
-  accountId: string,
-): CsvStageRow {
+function appExportDraft(row: Record<string, string>, accountId: string): CsvStageRow {
   if (row.simple_balance_format !== APP_CSV_FORMAT) {
     return {
       draft: null,
-      issues: [{
-        field: "simple_balance_format",
-        message: "The Simple Balance CSV format marker is missing or unsupported",
-      }],
+      issues: [
+        {
+          field: "simple_balance_format",
+          message: "The Simple Balance CSV format marker is missing or unsupported",
+        },
+      ],
     };
   }
   const protectedText = z
@@ -257,9 +239,7 @@ function appExportDraft(
   const common = {
     date: row.date,
     payee: protectedText.success ? protectedText.data.payee : row.payee,
-    description: protectedText.success
-      ? protectedText.data.description
-      : row.description || null,
+    description: protectedText.success ? protectedText.data.description : row.description || null,
     // A split says which categories the money went to, one per leg, so the
     // row's single category is left off rather than sent alongside them.
     ...(legs
@@ -272,11 +252,8 @@ function appExportDraft(
           // fallback for a file written before that, and the apostrophe the
           // neutraliser may have added is taken back off.
           categoryName:
-            (roundtripExtras.success
-              ? roundtripExtras.data.categoryName
-              : undefined) ??
-            (cleanHumanName(restoreNeutralizedCell(row.category_name || "")) ||
-              null),
+            (roundtripExtras.success ? roundtripExtras.data.categoryName : undefined) ??
+            (cleanHumanName(restoreNeutralizedCell(row.category_name || "")) || null),
         }),
     notes: protectedText.success ? protectedText.data.notes : row.notes || null,
     // Never the source ledger's own primary key, which means nothing here and
@@ -326,10 +303,7 @@ function appExportDraft(
     return {
       draft: null,
       partial: { ...common },
-      issues: [
-        ...legIssues,
-        { field: "type", message: "Transaction type is not recognized" },
-      ],
+      issues: [...legIssues, { field: "type", message: "Transaction type is not recognized" }],
     };
   }
 
@@ -384,11 +358,7 @@ export type CsvReferenceResolution = {
   }[];
 };
 
-async function canonicalizeImportedPayees(
-  tx: DbTransaction,
-  actor: Actor,
-  rows: CsvStageRow[],
-) {
+async function canonicalizeImportedPayees(tx: DbTransaction, actor: Actor, rows: CsvStageRow[]) {
   // The same query and the same comparator the payee list uses, called rather
   // than written again. Two copies of "which spelling wins" is two places for
   // the answer to drift, and an import filing entries under a spelling the
@@ -401,23 +371,16 @@ async function canonicalizeImportedPayees(
   }
   const canonicalByName = new Map<string, string>();
   for (const [normalizedName, payees] of groupedExisting) {
-    canonicalByName.set(
-      normalizedName,
-      cleanHumanName(preferredPayee(payees)!.name),
-    );
+    canonicalByName.set(normalizedName, cleanHumanName(preferredPayee(payees)!.name));
   }
   const existingNames = new Set(canonicalByName.keys());
-  const resolutionByName = new Map<
-    string,
-    CsvReferenceResolution["payees"][number]
-  >();
+  const resolutionByName = new Map<string, CsvReferenceResolution["payees"][number]>();
 
   for (const row of rows) {
     if (!row.draft) continue;
     const inputPayee = row.draft.payee;
     const normalized = normalizeHumanName(inputPayee);
-    const resolvedPayee =
-      canonicalByName.get(normalized) ?? cleanHumanName(inputPayee);
+    const resolvedPayee = canonicalByName.get(normalized) ?? cleanHumanName(inputPayee);
     if (!canonicalByName.has(normalized)) {
       canonicalByName.set(normalized, resolvedPayee);
     }
@@ -453,6 +416,10 @@ async function resolveImportedCategories(
       inputName: string;
       rowIndexes: number[];
       legTargets: { rowIndex: number; legIndex: number }[];
+      // How many rows naming this category run each way, so the kind is the
+      // direction most of them are rather than an order-dependent first guess.
+      deposits: number;
+      withdrawals: number;
       // Undefined until some row in the group states a type. A group that ends
       // with none is filed under "both" only if it has to create a category.
       kind: CategoryKind | undefined;
@@ -462,18 +429,30 @@ async function resolveImportedCategories(
     const normalizedName = normalizeHumanName(inputName);
     const existing = groups.get(normalizedName);
     if (existing) {
+      // Counted rather than widened. A file holding a purchase and its refund
+      // used to make the category cover both directions, and a category
+      // covering both agrees with whichever direction it is handed: the refund
+      // then credited income, the budget never moved, and every later refund
+      // into that category was broken too. So the file's rows vote, and the
+      // category is whichever direction most of them are, which is what the
+      // category actually is. A refund is the minority direction by
+      // construction.
+      if (kind === "income") existing.deposits += 1;
+      if (kind === "expense") existing.withdrawals += 1;
       existing.kind =
-        existing.kind === undefined
-          ? kind
-          : kind === undefined
-            ? existing.kind
-            : combineCategoryKinds(existing.kind, kind);
+        existing.deposits === 0 && existing.withdrawals === 0
+          ? undefined
+          : existing.withdrawals >= existing.deposits
+            ? "expense"
+            : "income";
       return existing;
     }
     const created = {
       inputName,
       rowIndexes: [] as number[],
       legTargets: [] as { rowIndex: number; legIndex: number }[],
+      deposits: kind === "income" ? 1 : 0,
+      withdrawals: kind === "expense" ? 1 : 0,
       kind,
     };
     groups.set(normalizedName, created);
@@ -485,27 +464,20 @@ async function resolveImportedCategories(
   // and reading only `draft` dropped it, silently, on a cross-ledger restore.
   const stageTarget = (row: CsvStageRow | undefined) => row?.draft ?? row?.partial;
 
-  const writeTarget = (
-    rowIndex: number,
-    patch: Record<string, unknown>,
-  ) => {
+  const writeTarget = (rowIndex: number, patch: Record<string, unknown>) => {
     const row = rows[rowIndex]!;
     if (row.draft) row.draft = { ...row.draft, ...patch } as typeof row.draft;
     else if (row.partial) row.partial = { ...row.partial, ...patch };
   };
 
-
   // A row that states no type says nothing about which kind of category may
-  // carry it, so it is filed under one and can create one, but never widens an
-  // existing narrow category to "both" on the strength of saying nothing.
+  // carry it, so it is filed under one and can create one, but never decides
+  // one on the strength of saying nothing. A transfer says nothing either: it
+  // has no counter-account side, so naming a category on one is a label rather
+  // than a direction, and answering "both" here was how a transfer widened
+  // whatever category it named.
   const targetKind = (target: { type?: unknown }): CategoryKind | undefined =>
-    target.type === "deposit"
-      ? "income"
-      : target.type === "withdrawal"
-        ? "expense"
-        : target.type === "transfer"
-          ? "both"
-          : undefined;
+    target.type === "deposit" ? "income" : target.type === "withdrawal" ? "expense" : undefined;
 
   for (let index = 0; index < rows.length; index += 1) {
     const target = stageTarget(rows[index]);
@@ -542,10 +514,12 @@ async function resolveImportedCategories(
     const target = stageTarget(rows[index]);
     if (!Array.isArray(target?.legs)) continue;
     const kind = targetKind(target);
-    for (const [legIndex, leg] of (target.legs as {
-      categoryId?: string | null;
-      categoryName?: string | null;
-    }[]).entries()) {
+    for (const [legIndex, leg] of (
+      target.legs as {
+        categoryId?: string | null;
+        categoryName?: string | null;
+      }[]
+    ).entries()) {
       if (leg.categoryId) continue;
       const inputName = cleanHumanName(leg.categoryName ?? "");
       if (!inputName) continue;
@@ -566,7 +540,11 @@ async function resolveImportedCategories(
       // The name goes with the id, so nothing downstream carries two answers.
       // A staged row keeping both would have the name re-applied at commit and
       // undo a mass edit that cleared the category.
-      writeTarget(rowIndex, { categoryId, categoryName: undefined });
+      writeTarget(rowIndex, {
+        categoryId,
+        categoryName: undefined,
+        categoryKind: undefined,
+      });
     }
     for (const { rowIndex, legIndex } of group.legTargets) {
       const target = stageTarget(rows[rowIndex]);
@@ -574,7 +552,7 @@ async function resolveImportedCategories(
       const legs = (target.legs as Record<string, unknown>[]).map((leg, index) =>
         index === legIndex ? { ...leg, categoryId, categoryName: undefined } : leg,
       );
-      writeTarget(rowIndex, { legs });
+      writeTarget(rowIndex, { legs, categoryKind: undefined });
     }
   };
 
@@ -589,9 +567,28 @@ async function resolveImportedCategories(
   const defer = (group: {
     inputName: string;
     rowIndexes: number[];
+    legTargets: { rowIndex: number; legIndex: number }[];
+    kind: CategoryKind | undefined;
   }) => {
+    // The kind travels with the name. The file decided it by counting every row
+    // that names this category, and the commit sees one row at a time: without
+    // carrying it, a file holding a purchase and its refund created an income
+    // category if the refund happened to commit first, filed the purchases
+    // against the income counter-account, and left a category no budget could
+    // be set on. Which row commits first is not a fact about anybody's money.
     for (const rowIndex of group.rowIndexes) {
-      writeTarget(rowIndex, { categoryName: group.inputName });
+      writeTarget(rowIndex, {
+        categoryName: group.inputName,
+        categoryKind: group.kind,
+      });
+    }
+    for (const { rowIndex, legIndex } of group.legTargets) {
+      const target = stageTarget(rows[rowIndex]);
+      if (!Array.isArray(target?.legs)) continue;
+      const legs = (target.legs as Record<string, unknown>[]).map((leg, index) =>
+        index === legIndex ? { ...leg, categoryName: group.inputName } : leg,
+      );
+      writeTarget(rowIndex, { legs, categoryKind: group.kind });
     }
   };
 
@@ -607,16 +604,20 @@ async function resolveImportedCategories(
   for (const [normalizedName, group] of groups) {
     const existing = categoryByName.get(normalizedName);
     if (existing) {
-      const resolvedKind =
-        group.kind === undefined
-          ? existing.kind
-          : combineCategoryKinds(existing.kind, group.kind);
+      // A category that already exists keeps its kind, whatever the file's rows
+      // wanted. The accumulated `group.kind` cannot be used here: a file with a
+      // withdrawal row and a deposit row for one name accumulates to `both`,
+      // and a `both` handed to a widening rule widened the stored category,
+      // which is how a refund stopped lowering a budget after any file that
+      // happened to contain both directions. Widening still happens, but only
+      // where there is nothing to preserve: creating a category below.
+      const resolvedKind = existing.kind;
       const unarchived = existing.archivedAt !== null;
-      const needsUpdate = unarchived || resolvedKind !== existing.kind;
-      // Bringing an archived category back, or widening what it may carry, is
-      // a change to the ledger's own records rather than to the review queue.
-      // A caller that may only stage leaves the row naming the category and
-      // lets the commit, which needs ledger:write, decide.
+      const needsUpdate = unarchived;
+      // Bringing an archived category back is a change to the ledger's own
+      // records rather than to the review queue. A caller that may only stage
+      // leaves the row naming the category and lets the commit, which needs
+      // ledger:write, decide.
       if (needsUpdate && !mayMutateCategories) {
         defer(group);
         resolutions.push({
@@ -749,12 +750,7 @@ export async function stageCsv(
 
   return withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
-      await lockIdempotencyKey(
-        tx,
-        actor,
-        "csv.stage",
-        parsed.idempotencyKey,
-      );
+      await lockIdempotencyKey(tx, actor, "csv.stage", parsed.idempotencyKey);
       const existing = await getIdempotent<{
         fileName: string;
         rowCount: number;
@@ -764,25 +760,14 @@ export async function stageCsv(
         referenceResolution: CsvReferenceResolution;
         importBatchId: string;
         stagedIds: string[];
-      }>(
-        tx,
-        actor,
-        "csv.stage",
-        parsed.idempotencyKey,
-        idempotencyPayload,
-      );
+      }>(tx, actor, "csv.stage", parsed.idempotencyKey, idempotencyPayload);
       if (existing) return existing;
     }
     const accountRows = await tx
       .select({ id: ledgerAccounts.id })
       .from(ledgerAccounts)
       // A CSV can never post directly into a counter-account.
-      .where(
-        and(
-          eq(ledgerAccounts.userId, actor.userId),
-          isNull(ledgerAccounts.systemKind),
-        ),
-      );
+      .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
     const allowedAccountIds = new Set(accountRows.map((account) => account.id));
     if (!allowedAccountIds.has(parsed.defaultAccountId)) {
       throw validationError("Default account is unavailable");
@@ -791,9 +776,7 @@ export async function stageCsv(
     const appExport = isAppExportCsv(parsedCsv.meta.fields ?? []);
     let rows: CsvStageRow[];
     if (appExport) {
-      rows = parsedCsv.data.map((row) =>
-        appExportDraft(row, parsed.defaultAccountId),
-      );
+      rows = parsedCsv.data.map((row) => appExportDraft(row, parsed.defaultAccountId));
     } else if (parsed.mapping) {
       rows = normalizeCsvRows(parsedCsv.data, {
         ...parsed,
@@ -822,10 +805,8 @@ export async function stageCsv(
       .select()
       .from(categories)
       .where(eq(categories.userId, actor.userId));
-    const {
-      resolutions: payeeResolution,
-      canonicalByName: canonicalPayees,
-    } = await canonicalizeImportedPayees(tx, actor, rows);
+    const { resolutions: payeeResolution, canonicalByName: canonicalPayees } =
+      await canonicalizeImportedPayees(tx, actor, rows);
     seedCanonicalPayeeCache(tx, canonicalPayees);
     if (appExport) {
       // An export restored into another ledger carries category ids that do not
@@ -833,8 +814,7 @@ export async function stageCsv(
       // instead of importing every row with no category at all.
       const ownedCategoryIds = new Set(categoryRows.map((row) => row.id));
       for (const row of rows) {
-        const categoryId: unknown =
-          row.draft?.categoryId ?? row.partial?.categoryId;
+        const categoryId: unknown = row.draft?.categoryId ?? row.partial?.categoryId;
         if (typeof categoryId !== "string" || ownedCategoryIds.has(categoryId)) {
           continue;
         }
@@ -908,6 +888,37 @@ export async function stageCsv(
   });
 }
 
+/**
+ * Every column an export writes, in order.
+ *
+ * A populated file takes its header from the first row's keys. An empty one has
+ * no first row, so it takes them from here, and the two have to agree — which
+ * is why this list sits beside the row builder rather than anywhere else.
+ */
+const APP_CSV_EXPORT_COLUMNS = [
+  "simple_balance_format",
+  "transaction_id",
+  "transaction_type",
+  "date",
+  "payee",
+  "description",
+  "category_id",
+  "category_name",
+  APP_CSV_EXTERNAL_ID_COLUMN,
+  "legs_json",
+  "notes",
+  "roundtrip_text_json",
+  "source_account_id",
+  "source_account_name",
+  "source_amount",
+  "source_currency",
+  "destination_account_id",
+  "destination_account_name",
+  "destination_amount",
+  "destination_currency",
+  "effective_rate",
+] as const;
+
 export async function exportTransactionsCsv(actor: Actor, query: unknown) {
   // An export is the whole filtered set, so the caller's window into it is
   // dropped. Left in, a `page` would start the walk partway down and quietly
@@ -980,15 +991,22 @@ export async function exportTransactionsCsv(actor: Actor, query: unknown) {
     effective_rate: transaction.effectiveRate,
   }));
   return {
-    csv: rowsToCsv(rows, [
-      "payee",
-      "description",
-      "category_name",
-      APP_CSV_EXTERNAL_ID_COLUMN,
-      "notes",
-      "source_account_name",
-      "destination_account_name",
-    ]),
+    csv: rowsToCsv(
+      rows,
+      [
+        "payee",
+        "description",
+        "category_name",
+        APP_CSV_EXTERNAL_ID_COLUMN,
+        "notes",
+        "source_account_name",
+        "destination_account_name",
+      ],
+      // The columns an export matching nothing still has to write. Taken from
+      // the same list the rows are built from, so a column added above appears
+      // in an empty file too rather than only in a populated one.
+      APP_CSV_EXPORT_COLUMNS,
+    ),
     rowCount: rows.length,
   };
 }

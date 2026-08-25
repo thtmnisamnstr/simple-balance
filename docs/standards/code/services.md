@@ -1,0 +1,244 @@
+# Services
+
+`src/server/services` is where the rules live. Everything above it — the HTTP
+routes, the MCP tools, the scheduler — is transport.
+
+148 exported functions across 22 modules. This guide is what they have in
+common.
+
+## 1. Shape
+
+### 1.1 A service function takes an actor first
+
+**Binding.** Three shapes, and which one a function has says what it is:
+
+| First parameter | What it is | Count |
+| --- | --- | --- |
+| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 76 |
+| `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 60 |
+| anything else | A pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft`. Touches no database and needs no actor. | the rest |
+
+There are 178 `userId, actor.userId` comparisons in this directory, which is
+roughly one per query, and that is the right ratio.
+
+`AGENTS.md` is the authority: "Never accept a public `userId`. Derive it from
+the authenticated `Actor`."
+
+**One named exception.** `revokeAllConnectedApps(userId: string, …)`
+(src/server/services/connected-apps.ts:206)
+takes a bare id because both its callers run where no `Actor` exists yet: one
+from a session (`identity.user.id`) and one from a password reset, which happens
+before anybody has signed in. Neither reads the id from the request, which is
+what the invariant actually forbids. A second function of this shape needs the
+same paragraph or it does not get written.
+
+`AGENTS.md` is the authority here: a query that forgets the scope is a
+cross-tenant read, which is the one class of bug in this product that cannot be
+apologised for.
+
+*Checked by:* `tests/integration/tenant-isolation.integration.test.ts`, which
+walks the surface with two users and asserts neither can see the other.
+
+### 1.2 The transport layer decides nothing
+
+**House.** A route parses, calls one service function, and serialises. It does
+not branch on business rules. The test for whether a line is in the wrong place:
+if the MCP and the HTTP API would both need it, it belongs in the service.
+
+This is why `tests/mcp-parity.test.ts` can compare the two transports service by
+service at all — there is something to compare because neither transport holds
+logic of its own.
+
+### 1.3 One public function per intent, not per table
+
+**House.** `setTransactionDeleted(actor, id, expectedVersion, deleted)` rather
+than a `delete` and an `undelete`, because they are one intent with a boolean.
+`setAccountArchived` is the same shape. Where two operations differ only in a
+flag, they are one function.
+
+## 2. Writing
+
+### 2.1 A write is one database transaction
+
+**Binding.** `AGENTS.md`: postings are append-only and balanced. That guarantee
+is only worth anything if the postings, the row they belong to, the version bump
+and the audit entry commit or fail together.
+
+So a service mutation runs inside exactly one transaction — but not necessarily
+one it opened. The shape is an optional trailing parameter, run through one
+helper:
+
+```ts
+export async function createBudgetPlan(actor: Actor, input: unknown, transaction?: DbTransaction) {
+  return withTransaction(transaction, async (tx) => { … });
+}
+```
+
+`withTransaction` joins the caller's transaction when it is given one and opens
+its own when it is not
+(src/server/db/client.ts:93). 38 service
+mutations take that parameter and every one of them goes through the helper;
+only six places in this directory reach for `getDb().transaction` directly.
+
+The parameter is not decoration. The MCP transport passes its transaction in
+(src/server/mcp.ts:855) so that
+its idempotency record, the mutation and the audit events land on one connection
+and commit together. Take it away and an agent's write could record its
+idempotency key and then fail, leaving a key that answers for a transaction that
+does not exist.
+
+Two rules fall out, and they are the ones to follow:
+
+- **A public mutation takes `transaction?: DbTransaction` and uses
+  `withTransaction`.** Never `getDb().transaction` directly in a new one; that
+  is the form that cannot be composed.
+- **A helper takes a required `tx: DbTransaction`** — 60 of them do — and never
+  reaches for the pool. A helper that opens its own transaction is the bug this
+  shape exists to prevent, because it commits independently of the caller that
+  is about to fail.
+
+*Checked by:* `human`. A new mutation that forgets the parameter is invisible
+until an agent needs to compose it.
+
+### 2.2 A write that changes something takes the version it expects
+
+**Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
+the version it read; the service compares, throws `staleVersion` if it moved,
+and bumps on success
+(`updateAccount`, src/server/services/accounts.ts:644).
+
+Two windows have to be closed, not one. Comparing before the update leaves a
+gap between the read and the write, so the update itself also filters on the
+version and throws when it matches no row
+(the `.where` on the update itself, a few lines below).
+The first check exists to produce a good message; the second is what makes it
+correct.
+
+`staleVersion` carries `currentVersion` so a client can offer "reload and try
+again" rather than "something went wrong". See `errors.md`.
+
+### 2.3 A write that creates something takes an idempotency key
+
+**Binding.** A create is retried by every client eventually — a dropped
+response, a scheduler that fires twice, an agent that loses its connection. The
+key makes the retry safe.
+
+The mechanism is worth understanding rather than copying. `getIdempotent` looks
+the key up **and hashes the request**
+(src/server/services/helpers.ts:89-113).
+Same key and same request returns the stored response. Same key and a
+*different* request is a `conflict`, because the caller has reused a key for
+something else and silently returning the old answer would be worse than
+refusing.
+
+The hash is over a canonicalised payload
+(src/server/services/helpers.ts:116):
+keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
+identical requests whose JSON key order differed would hash differently and the
+retry would be refused.
+
+**A trap this repository fell into.** Four integration tests built keys as
+`` `prefix-${n}`.padEnd(16, "0") ``, which makes `prefix-1` and `prefix-10` the
+same string. Where the payloads also matched, the second call returned the
+first call's transaction and the test passed having written nothing. All four
+now pad the counter rather than the string
+(tests/integration/category-by-name.integration.test.ts:27).
+
+### 2.4 Namespaces are locked before they are read
+
+**Binding.** Anything that decides "does this name already exist?" takes an
+advisory lock on that namespace first
+(src/server/services/helpers.ts:255,
+and the same for payees, templates and recurrences). Otherwise two concurrent
+requests both read "no", and both create.
+
+The lock is per user and per namespace, so it serialises the smallest thing that
+has to be serialised.
+
+### 2.5 Every write is audited
+
+**Binding.** 67 `writeAudit` calls. The audit row carries the entity, the
+operation, and the row before and after, serialised through `serializeRow` so a
+`Date` does not end up in JSON as something unparseable.
+
+An operation name is a sentence about intent, not a table verb:
+`create_from_transaction` says a category was created as a side effect of
+somebody entering money, which is a different event from creating one on the
+Categories page, and a year later that difference is the whole value of the row.
+
+## 3. Reading
+
+### 3.1 A read that a write depends on happens first, and inside the transaction
+
+**Binding.** Order matters more than it looks. `prepareTransaction` reads the
+categories a draft names **before** resolving which counter-account each half
+posts to, because the answer depends on the kind of category the draft is
+pointing at, and a category created by this very draft has to exist first.
+
+Getting this backwards is not a crash. It is a refund that posts to income, and
+nothing tells you.
+
+### 3.2 Awaiting in a loop is sometimes the point
+
+**Contested**, and this is the entry that made the whole `perf` lint category
+not worth having. `no-await-in-loop` finds 147 sites here. Some are
+opportunities. At least one is load-bearing:
+
+```
+Legs resolve one at a time rather than in a batch, so that two legs naming
+the same new category end up on one category rather than two: the second
+lookup sees what the first created.
+```
+
+(src/server/services/categories.ts:205.)
+
+Run those in parallel and a split naming "Groceries" twice creates two
+categories. The sequence *is* the algorithm. A linter cannot tell that apart
+from an accident, so the rule is off and the reasoning lives in the comment
+beside the loop.
+
+The rule for a reader: parallelise reads that do not see each other's writes;
+never parallelise a loop whose iterations resolve names.
+
+### 3.3 Money is summed in the database or in `decimal.js`, never in JavaScript numbers
+
+**Binding.** `AGENTS.md`. On the server that means `decimal()`
+(src/server/services/helpers.ts:20)
+and `canonicalDecimal` on the way out, so every amount that crosses a boundary
+is the same string for the same value.
+
+`numeric(44, 18)` in, canonical decimal string out. No stage in between is a
+`number`.
+
+## 4. Naming a category, and why it is in this guide
+
+**Binding**, because it is the rule most recently got wrong.
+
+Resolving a category by name never widens the category it finds
+(src/server/services/categories.ts:160).
+Widening to `both` was correct while an entry could only name a category of its
+own direction. It stopped being correct when a category running against the
+direction became a refund, and it stopped quietly: `both` agrees with whichever
+direction it is handed, so every later refund into that category credits income
+instead of lowering the spending.
+
+Where the direction genuinely cannot decide — a name with nothing behind it
+yet — the caller says so with `categoryKind`
+(src/server/services/categories.ts:215),
+and that field is ignored when the category already exists, because that one has
+an answer already.
+
+*Checked by:* `tests/integration/category-by-name.integration.test.ts`, whose
+last eight cases are exactly this, and
+`tests/integration/budgets.integration.test.ts` for the money proof — a refund
+into a spending category it created itself has to move a budget.
+
+## 5. What is not enforced
+
+| Rule | Why it is only a sentence |
+| --- | --- |
+| 1.2 Transports decide nothing | Parity compares the two surfaces, not where logic sits. |
+| 2.1 Mutations take `transaction?` and go through `withTransaction` | Grep-able and not grepped. A new mutation that opens its own transaction directly works fine until an agent tries to compose it, which is the worst kind of latency between cause and symptom. |
+| 3.1 Reads before dependent writes | Only the outcome is testable, and it is: the refund tests are that check wearing a different hat. |
+
+Three `human` rules in this guide.

@@ -78,7 +78,10 @@ describe("saving a split as a template", () => {
       description: "Weekly shop",
       notes: "Split three ways",
       categoryId: "",
-      legs: [leg("11111111-1111-4111-8111-111111111111", "60"), leg("22222222-2222-4222-8222-222222222222", "40")],
+      legs: [
+        leg("11111111-1111-4111-8111-111111111111", "60"),
+        leg("22222222-2222-4222-8222-222222222222", "40"),
+      ],
     });
     expect(template.legs).toHaveLength(2);
     expect(template.description).toBe("Weekly shop");

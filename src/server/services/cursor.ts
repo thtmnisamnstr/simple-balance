@@ -33,9 +33,7 @@ export function decodeCursor(
 ): CursorValue {
   let parsed: CursorValue;
   try {
-    parsed = cursorSchema.parse(
-      JSON.parse(Buffer.from(value, "base64url").toString("utf8")),
-    );
+    parsed = cursorSchema.parse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
   } catch {
     throw validationError("Cursor is invalid");
   }

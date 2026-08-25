@@ -52,9 +52,7 @@ export const securityHeaderOptions = (isProduction: boolean) =>
     // the files it serves, and the two have to agree or the shell and the API
     // answer differently about the same application.
     xFrameOptions: "DENY",
-    strictTransportSecurity: isProduction
-      ? "max-age=31536000; includeSubDomains"
-      : false,
+    strictTransportSecurity: isProduction ? "max-age=31536000; includeSubDomains" : false,
   }) satisfies Parameters<typeof secureHeaders>[0];
 
 export const AUTH_REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
@@ -75,8 +73,7 @@ const BULK_REQUEST_ENVELOPE_BYTES = 64 * 1024;
  * though the schemas accept it.
  */
 export const BULK_REQUEST_BODY_LIMIT_BYTES =
-  MAX_BULK_SELECTION_ENTRIES * BULK_SELECTION_ENTRY_BYTES +
-  BULK_REQUEST_ENVELOPE_BYTES;
+  MAX_BULK_SELECTION_ENTRIES * BULK_SELECTION_ENTRY_BYTES + BULK_REQUEST_ENVELOPE_BYTES;
 
 /**
  * Recognised by shape rather than listed, because a list has to be revisited
@@ -119,11 +116,7 @@ function errorResponse(
 }
 
 function contentType(request: Request) {
-  return request.headers
-    .get("content-type")
-    ?.split(";", 1)[0]
-    ?.trim()
-    .toLowerCase();
+  return request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
 }
 
 function headerOrigin(value: string | null) {
@@ -156,9 +149,7 @@ export async function rejectRequestBody(context: Context) {
   context.header("Connection", "close");
 }
 
-export function protectBrowserMutation(
-  options: MutationProtectionOptions,
-): MiddlewareHandler {
+export function protectBrowserMutation(options: MutationProtectionOptions): MiddlewareHandler {
   const allowedOrigin = new URL(options.allowedOrigin).origin;
   return async (context, next) => {
     if (safeMethods.has(context.req.method) || options.exempt?.(context)) {
@@ -179,8 +170,7 @@ export function protectBrowserMutation(
     const requestContentType = contentType(context.req.raw);
     if (
       (options.requireContentType || requestContentType !== undefined) &&
-      (!requestContentType ||
-        !options.allowedContentTypes.has(requestContentType))
+      (!requestContentType || !options.allowedContentTypes.has(requestContentType))
     ) {
       await rejectRequestBody(context);
       return errorResponse(
@@ -199,10 +189,7 @@ export function protectAuthMutation(allowedOrigin: string): MiddlewareHandler {
   const canonicalOrigin = new URL(allowedOrigin).origin;
   const browserMutationProtection = protectBrowserMutation({
     allowedOrigin: canonicalOrigin,
-    allowedContentTypes: new Set([
-      "application/json",
-      "application/x-www-form-urlencoded",
-    ]),
+    allowedContentTypes: new Set(["application/json", "application/x-www-form-urlencoded"]),
   });
 
   return async (context, next) => {
@@ -221,10 +208,7 @@ export function protectAuthMutation(allowedOrigin: string): MiddlewareHandler {
       const expectedTypes =
         path === "/api/auth/mcp/register"
           ? new Set(["application/json"])
-          : new Set([
-              "application/json",
-              "application/x-www-form-urlencoded",
-            ]);
+          : new Set(["application/json", "application/x-www-form-urlencoded"]);
       const requestContentType = contentType(context.req.raw);
       if (!requestContentType || !expectedTypes.has(requestContentType)) {
         await rejectRequestBody(context);
@@ -316,11 +300,7 @@ export function withCountableClientAddress(
  * a header the caller wrote. An address that cannot be established at all
  * shares one bucket, which is the strict reading rather than a free pass.
  */
-export function countableClientAddress(
-  request: Request,
-  context: Context,
-  trustProxy: boolean,
-) {
+export function countableClientAddress(request: Request, context: Context, trustProxy: boolean) {
   if (trustProxy) {
     const forwarded = request.headers.get("x-forwarded-for");
     return forwarded?.split(",", 1)[0]?.trim() || "unknown";
@@ -396,12 +376,7 @@ export function createAttemptLimiter(options: {
 }
 
 export type AttemptStore = {
-  take: (
-    key: string,
-    max: number,
-    windowMs: number,
-    now: number,
-  ) => Promise<boolean>;
+  take: (key: string, max: number, windowMs: number, now: number) => Promise<boolean>;
   clear: (key: string) => Promise<void>;
 };
 
@@ -438,9 +413,7 @@ export const postgresAttemptStore: AttemptStore = {
   async clear(key) {
     const { getDb } = await import("./db/client.js");
     const { sql } = await import("drizzle-orm");
-    await getDb().execute(
-      sql`delete from auth_rate_limit where key = ${`attempt:${key}`}`,
-    );
+    await getDb().execute(sql`delete from auth_rate_limit where key = ${`attempt:${key}`}`);
   },
 };
 
@@ -572,9 +545,7 @@ export function boundRequestBody(options: BodyLimitOptions): MiddlewareHandler {
   return async (context, next) => {
     const request = context.req.raw;
     const maxBytes =
-      typeof options.maxBytes === "function"
-        ? options.maxBytes(context)
-        : options.maxBytes;
+      typeof options.maxBytes === "function" ? options.maxBytes(context) : options.maxBytes;
     if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
       throw new Error("Request body limit must be a positive safe integer");
     }
@@ -675,15 +646,8 @@ export function apiRequestBodyLimit(path: string) {
   // limit that fits it is the limit a read tool gets too. The tool's own
   // schema is what refuses an oversized argument to anything else.
   const mcp = path === "/mcp" || path === "/mcp/";
-  if (
-    path === "/api/v1/csv/preview" ||
-    path === "/api/v1/csv/stage" ||
-    mcp
-  ) {
-    return (
-      configuredCsvMaxBytes() * JSON_STRING_WORST_CASE_EXPANSION +
-      CSV_REQUEST_ENVELOPE_BYTES
-    );
+  if (path === "/api/v1/csv/preview" || path === "/api/v1/csv/stage" || mcp) {
+    return configuredCsvMaxBytes() * JSON_STRING_WORST_CASE_EXPANSION + CSV_REQUEST_ENVELOPE_BYTES;
   }
   if (isBulkRequestPath(path)) return BULK_REQUEST_BODY_LIMIT_BYTES;
   return API_REQUEST_BODY_LIMIT_BYTES;

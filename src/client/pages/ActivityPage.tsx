@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bot, CalendarClock, History, Monitor } from "lucide-react";
 import type { ActorSource } from "../../shared/domain.js";
 import { api, type AuditEvent, type Page } from "../api.js";
-import { Alert, Badge, EmptyState, PageHeader } from "../components.js";
+import { Alert, Badge, EmptyState, PageHeader, Skeleton } from "../components.js";
 
 /**
  * Switched on the value rather than tested against one, so a source this build
@@ -57,15 +57,13 @@ export default function ActivityPage() {
                     }).format(new Date(event.createdAt))}
                   </small>
                 </div>
-                <Badge tone={tone}>
-                  {label}
-                </Badge>
+                <Badge tone={tone}>{label}</Badge>
               </div>
             );
           })}
         </section>
       ) : events.isPending ? (
-        <p className="settings-note">Loading activity…</p>
+        <Skeleton height={120} label="Loading activity…" />
       ) : events.error ? null : (
         <EmptyState
           icon={<History size={25} />}

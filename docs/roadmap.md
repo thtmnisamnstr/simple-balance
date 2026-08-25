@@ -268,39 +268,103 @@ both were nearly free once the engine existed.
 
 ## SB-019 — Budgeting
 
-**Priority 190. Depends on SB-018.**
+**Priority 190. Depends on SB-018.** The first of six, and the rest are SB-025
+to SB-029.
 
-Which kind is undecided, and there is a case for supporting both. They are
-different enough to need naming.
+Every kind of budgeting, from one model. That sounds like scope and it is
+mostly arithmetic: of the fourteen named methods, five need no storage at all,
+three need one column each, and the rest are the same two tables read
+differently. The expensive decision was never which methods to support. It was
+whether an assignment is a posting, and it is not.
 
-**Category limits** — a cap per category per period, and a bar showing spending
-against it. Monarch, Simplifi, and Copilot work this way. It is an overlay on
-figures SB-018 already computes: no new posting type, no new accounting concept,
-and a limit that is deleted leaves nothing behind.
+**A method is not a mode anybody picks.** There is no method chooser and the
+word does not appear in the product. Set two hundred a month on Groceries and
+that is a category limit, without hearing a name for it. Turn rollover on for
+that category and it is an envelope. Set its amount from a rule instead of a
+number and it is a trailing average. Put it in a group with a percentage and
+that group is 50/30/20. The unit of choice is the category, because a global
+mode forces a durable selector, a migration path, and a totals row that means
+two different things depending on it.
 
-**Zero-based envelopes** — income is assigned to categories before it is spent,
-and what is unspent rolls into next month. YNAB, EveryDollar, and Actual work
-this way, and for the people who want it, it is the product rather than a
-feature of it. In double-entry an envelope is an equity sub-account and
-assigning to it is a transfer, which is how plain-text accounting has always
-done it. That is real modelling: a second dimension over the ledger, a monthly
-rollover, and a second mental model to explain.
+### The model
 
-Sequence matters. Category limits first leaves the door open to envelopes;
-starting with envelopes does not leave the door open to anything, because the
-envelope model swallows the simpler one.
+`budget_plan` is the standing instruction for one target: how the amount is
+decided, whether it rolls over, its funding priority, and the window it is
+active in. One row covers every period, so nothing is materialised and no
+scheduler writes a budget figure. `budget_entry` is an explicit amount for one
+target in one period, which is the exception rather than the rule: three hundred
+for December only is a row, two hundred a month is not. `category_group` is one
+level of grouping, and a target is a category or a group, never both.
 
-**Acceptance criteria**
+Resolving an amount is three lines. An explicit entry wins; otherwise the plan's
+rule is evaluated; otherwise nothing is budgeted and the row shows what was
+spent against no limit.
+
+### An assignment is not a posting
+
+The acceptance criteria below used to say it was. That was written when
+envelopes were hypothetical, and it is wrong.
+
+Actual Budget implements the whole YNAB model with no postings and no stored
+balance, and fava-envelope does the same inside a real double-entry journal. The
+one system that does post assignments, refried, documents what it costs: the
+movements "will wreak havoc with your (non-budgeting) expense reports", so every
+assignment carries an automatic tag and ordinary reports exclude it. This ledger
+would inherit that exclusion on every report built after this story, and a trial
+balance that excluded something would not be a trial balance.
+
+The schema also refuses the specific shape. `ledger_account_system_kind_unique`
+permits one equity account per user per currency, accounts have no parent
+column, and no transaction may name a counter-account as a side. Envelopes as
+equity sub-accounts means amending an index from the initial migration and
+relaxing a rule recorded as non-negotiable. It would also cost the property that
+relabelling a leg writes no postings, because depleting an envelope by posting
+would make recategorising write compensating postings.
+
+The justification the plan rested on does not hold either. Equity sub-accounts
+are not how plain-text accounting has always done it: hledger's three placements
+are real accounts, virtual subaccounts of a real account, and virtual accounts
+off to the side, and the only primary source using equity is the Ledger manual,
+which uses balanced virtual postings behind a `--real` escape hatch this ledger
+does not have.
+
+The counter-argument is real and is recorded rather than dropped. Postings would
+put an envelope balance in the trial balance and in the audit log as a movement,
+and for a product whose argument is auditability that is a genuine benefit. It
+is a choice, and the evidence runs the other way.
+
+### What refunds cost, settled first
+
+A budget that cannot see a refund is wrong in the way somebody notices first,
+and until this story the ledger could not represent one: a deposit's other half
+always credited income, so thirty pounds back from the shop raised income
+instead of lowering groceries.
+
+Settled before any budget code, as its own change. A deposit credits income and
+a withdrawal debits expense only when no category contradicts it. A category
+whose kind runs against the direction makes the entry a refund, and its other
+half goes to the counter-account the direction would not have chosen. The rule
+is one function the browser previews and the services enforce. An entry naming
+an income category and an expense category at once is refused, because two
+counter-accounts would be two movements and only one of them is the one somebody
+entered, and a bulk edit will not turn rows into refunds for the same reason it
+will not flatten a split.
+
+Nothing in the reports needed changing, which is the part worth recording. Both
+counter-accounts already segment as operating in the cash flow statement, and
+spending by category already sums signed postings, so a refund lowers the
+category it came from without any figure being taught what a refund is.
+
+### Acceptance criteria
 
 - A limit is set per category per period and compared against spending computed
   the same way the reports compute it
 - Deleting or archiving a category leaves no orphaned limit, and a limit is
   never a reason a category cannot be deleted
 - Nothing in this story writes a posting, and no budget figure is derived from
-  anything except postings and the limits themselves
-- Where envelopes ship, an assignment is a posting like any other, subject to
-  zero-sum validation, and the rollover is an ordinary dated transaction rather
-  than a stored running total
+  anything except postings, plans and entries
+- An assignment is not a posting, and a rollover is derived rather than stored
+- A standing budget needs no row per period and nothing materialises one
 - Reachable over MCP, reads and writes on the same scope rules as everything else
 
 ## SB-020 — Widen what an agent may propose
@@ -464,6 +528,100 @@ for the once-a-year case where the books and the statement have quietly drifted.
   date, never as an edit to anything already there
 - A completed reconciliation is a record, and reopening one is itself recorded
 - Balances and reports are unaffected except by the adjusting entry
+
+## SB-025 — Rollover and sinking funds
+
+**Priority 250. Depends on SB-019.**
+
+Two columns on the plan and a recursive fold at read time. Unspent money carries
+forward, overspending carries forward as a debt, and a cap stops either running
+away. A sinking fund is the same machinery with a target and a date, funding
+itself over the periods remaining.
+
+This is the first budget figure that depends on more than one period, which
+means a back-dated correction changes every later period. That is correct and it
+will surprise people, so the page says so.
+
+**It does not ship without a measurement.** The reporting work priced its
+queries against a hundred thousand postings on PostgreSQL 15 and 16, with plan
+assertions that answer whether an index can serve a query rather than whether
+the planner bothers on a handful of rows. The research behind this story did not
+meet that standard and said so. If the recursive CTE will not hold, the fallback
+is a bounded window with the bound stated on the page, and never a cache.
+
+## SB-026 — Derived amounts
+
+**Priority 260. Depends on SB-019.**
+
+A trailing average of what was actually spent, last period plus a percentage, a
+share of income, and a funding order for when there is not enough to go round.
+Two columns and a small evaluator over aggregates the reports already compute.
+
+Deliberately few, and typed rather than a language. Actual built a template
+grammar in a free-text field and is migrating away from it. The position here is
+already that the agent is the rules engine, and a stage-scoped agent proposing a
+limit from a trailing window is the most natural thing on this surface.
+
+## SB-027 — Category groups
+
+**Priority 270. Depends on SB-019.**
+
+One level. A category belongs to at most one group, and a group may hold a
+budget of its own, which is what bucket budgeting, flex budgeting and 50/30/20
+are.
+
+Whether a group's budget stands alone or is the sum of its children is declared
+on the group. Monarch's is standalone and hledger's is the sum, both are
+defensible, and the failure is picking one silently.
+
+Arbitrary depth is refused. hledger shows what it costs: spending in an
+unbudgeted grandchild rolls up to the nearest budgeted ancestor, and the totals
+stop agreeing with themselves. One level has no grandchild, so there is nothing
+to misattribute.
+
+## SB-028 — Envelopes
+
+**Priority 280. Depends on SB-025 and SB-027.**
+
+Income assigned to categories before it is spent, and what is unspent rolls
+forward. It is SB-025's fold read differently, plus one figure: what is left to
+assign.
+
+That figure needs a perimeter, and the perimeter includes credit cards. A card
+sits outside the cash flow statement's set deliberately, but leaving it out here
+would mean spending on a card empties an envelope while no cash leaves the
+perimeter, so the product would say there is more money than there is. Each
+account can be taken out of the perimeter, and the page explains why the figure
+sits below the bank balance.
+
+## SB-029 — Forecast
+
+**Priority 290. Depends on SB-016 and SB-025.**
+
+Balances projected forward from the recurrences already generating dated
+occurrences and the plans already saying what each period intends.
+
+Money dated in the future has not moved. So this is a projection surface with
+its own vocabulary, and no figure it produces may reach a balance, a report
+total, or the trial balance. That is the invariant this story is at risk of, and
+it gets a test rather than a paragraph.
+
+## SB-030 — Programmatic HTTP access
+
+**Priority 300. Depends on nothing in the budgeting arc.**
+
+`/api/v1` authenticates with a cookie and nothing else, and every state-changing
+request must be same-origin and declare JSON, so nothing outside a browser can
+reach it. That was a reasonable place to stop while MCP was the answer for
+programmatic access, and it stops being one the moment the HTTP contract is
+documented as public.
+
+The cheap correct version reuses what is already here: accept the OAuth bearer
+tokens the MCP server issues, on the same three scopes, with the actor's source
+distinguishing them in the audit log. No second authentication system and no new
+token format. The same-origin requirement then applies to cookie-authenticated
+requests, which is where it belongs, because a bearer request carries no ambient
+credential for another site to forge.
 
 ---
 

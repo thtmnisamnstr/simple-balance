@@ -73,10 +73,7 @@ export function getAuthBootstrapLockPool() {
 }
 
 export async function closeDb() {
-  await Promise.all([
-    pool?.end(),
-    authBootstrapLockPool?.end(),
-  ]);
+  await Promise.all([pool?.end(), authBootstrapLockPool?.end()]);
   pool = undefined;
   authBootstrapLockPool = undefined;
   database = undefined;

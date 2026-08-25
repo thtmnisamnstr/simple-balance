@@ -9,19 +9,8 @@ import {
   type AccountBalanceSnapshot,
   type AccountRegister,
 } from "../api.js";
-import {
-  Alert,
-  Badge,
-  Button,
-  DateRangeBar,
-  PageHeader,
-  Skeleton,
-} from "../components.js";
-import {
-  formatDate,
-  formatMoney,
-  isNegativeMoney,
-} from "../money.js";
+import { Alert, Badge, Button, DateRangeBar, PageHeader, Skeleton } from "../components.js";
+import { formatDate, formatMoney, isNegativeMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
 
@@ -71,14 +60,12 @@ export default function AccountDetailPage() {
   const register = useQuery({
     queryKey: ["accounts", accountId, "register", start, end],
     queryFn: () =>
-      api<AccountRegister>(
-        `/api/v1/accounts/${accountId}/register?${queryString({ start, end })}`,
-      ),
+      api<AccountRegister>(`/api/v1/accounts/${accountId}/register?${queryString({ start, end })}`),
     enabled: Boolean(accountId) && showRegister,
   });
 
   if (account.error) return <Alert>{account.error.message}</Alert>;
-  if (!account.data) return <p>Loading account…</p>;
+  if (!account.data) return <p role="status">Loading account…</p>;
 
   return (
     <>
@@ -88,10 +75,7 @@ export default function AccountDetailPage() {
       <PageHeader
         eyebrow="Account"
         title={account.data.name}
-        description={
-          account.data.institution ||
-          "Transactions and balances for this account."
-        }
+        description={account.data.institution || "Transactions and balances for this account."}
         actions={
           <>
             <Badge tone="blue">{account.data.currency}</Badge>
@@ -102,37 +86,32 @@ export default function AccountDetailPage() {
       {balances.error ? <Alert>{balances.error.message}</Alert> : null}
       <DateRangeBar />
       <section className="balance-snapshot-grid" aria-label="Account balances">
-        {(Object.keys(balanceLabels) as (keyof typeof balanceLabels)[]).map(
-          (key) => {
-            const value = balances.data?.[key];
-            return (
-              <article className="balance-snapshot" key={key}>
-                <span className="account-icon">
-                  <Landmark size={18} />
-                </span>
-                <div>
-                  <span>{balanceLabels[key].title}</span>
-                  <strong>
-                    {value
-                      ? formatMoney(
-                          value.balancePresentation.amount,
-                          account.data.currency,
-                        )
-                      : "—"}
-                  </strong>
-                  <small>
-                    {value?.balancePresentation.label === "Amount owed"
-                      ? "Amount owed · "
-                      : value?.balancePresentation.label === "Credit balance"
-                        ? "Credit balance · "
-                        : ""}
-                    {balanceLabels[key].description}
-                  </small>
-                </div>
-              </article>
-            );
-          },
-        )}
+        {(Object.keys(balanceLabels) as (keyof typeof balanceLabels)[]).map((key) => {
+          const value = balances.data?.[key];
+          return (
+            <article className="balance-snapshot" key={key}>
+              <span className="account-icon">
+                <Landmark size={18} />
+              </span>
+              <div>
+                <span>{balanceLabels[key].title}</span>
+                <strong>
+                  {value
+                    ? formatMoney(value.balancePresentation.amount, account.data.currency)
+                    : "—"}
+                </strong>
+                <small>
+                  {value?.balancePresentation.label === "Amount owed"
+                    ? "Amount owed · "
+                    : value?.balancePresentation.label === "Credit balance"
+                      ? "Credit balance · "
+                      : ""}
+                  {balanceLabels[key].description}
+                </small>
+              </div>
+            </article>
+          );
+        })}
       </section>
       <section className="account-transactions">
         <div className="section-title">
@@ -153,15 +132,11 @@ export default function AccountDetailPage() {
           <div>
             <h2>Register</h2>
             <p>
-              Every posting in date order with the balance before and after it,
-              for when a balance is wrong and you need the row it went wrong on.
+              Every posting in date order with the balance before and after it, for when a balance
+              is wrong and you need the row it went wrong on.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => setShowRegister(!showRegister)}
-          >
+          <Button type="button" variant="secondary" onClick={() => setShowRegister(!showRegister)}>
             {showRegister ? "Hide register" : "Show register"}
           </Button>
         </div>
@@ -174,9 +149,9 @@ export default function AccountDetailPage() {
           ) : (
             <>
               <p className="settings-note">
-                Opening {formatMoney(register.data.openingBalance, register.data.currency)},
-                closing {formatMoney(register.data.closingBalance, register.data.currency)}
-                , as of {formatDate(register.data.asOf)}.
+                Opening {formatMoney(register.data.openingBalance, register.data.currency)}, closing{" "}
+                {formatMoney(register.data.closingBalance, register.data.currency)}, as of{" "}
+                {formatDate(register.data.asOf)}.
               </p>
               {register.data.entries.length ? (
                 <div className="table-wrap">
@@ -188,9 +163,15 @@ export default function AccountDetailPage() {
                       <tr>
                         <th scope="col">Date</th>
                         <th scope="col">Origin</th>
-                        <th scope="col" className="align-right">Amount</th>
-                        <th scope="col" className="align-right">Before</th>
-                        <th scope="col" className="align-right">After</th>
+                        <th scope="col" className="align-right">
+                          Amount
+                        </th>
+                        <th scope="col" className="align-right">
+                          Before
+                        </th>
+                        <th scope="col" className="align-right">
+                          After
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -244,9 +225,7 @@ export default function AccountDetailPage() {
                   </table>
                 </div>
               ) : (
-                <p className="settings-note">
-                  No postings in this range.
-                </p>
+                <p className="settings-note">No postings in this range.</p>
               )}
             </>
           )

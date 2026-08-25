@@ -20,15 +20,9 @@ export const MAX_RECURRENCE_CATCH_UP_LIMIT = 500;
 export const DEFAULT_RECURRENCE_CLAIM_LIMIT = 500;
 export const MAX_RECURRENCE_CLAIM_LIMIT = 5_000;
 
-function boundedEnvironmentInteger(
-  name: string,
-  fallback: number,
-  maximum: number,
-) {
+function boundedEnvironmentInteger(name: string, fallback: number, maximum: number) {
   const configured = Number(process.env[name] ?? fallback);
-  return Number.isSafeInteger(configured) &&
-    configured >= 1 &&
-    configured <= maximum
+  return Number.isSafeInteger(configured) && configured >= 1 && configured <= maximum
     ? configured
     : fallback;
 }
@@ -50,14 +44,8 @@ export function configuredCsvMaxRows() {
 }
 
 export function configuredDatabasePoolSize() {
-  const configured = Number(
-    process.env.DATABASE_POOL_SIZE ?? DEFAULT_DATABASE_POOL_SIZE,
-  );
-  if (
-    !Number.isSafeInteger(configured) ||
-    configured < 1 ||
-    configured > MAX_DATABASE_POOL_SIZE
-  ) {
+  const configured = Number(process.env.DATABASE_POOL_SIZE ?? DEFAULT_DATABASE_POOL_SIZE);
+  if (!Number.isSafeInteger(configured) || configured < 1 || configured > MAX_DATABASE_POOL_SIZE) {
     throw new Error(
       `DATABASE_POOL_SIZE must be an integer between 1 and ${MAX_DATABASE_POOL_SIZE}`,
     );

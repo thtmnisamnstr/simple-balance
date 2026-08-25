@@ -18,11 +18,7 @@ import "./support/dialog.js";
  * them hides the account an existing entry uses. Three forms each had their own
  * answer and two of them disagreed with the third.
  */
-const account = (
-  id: string,
-  name: string,
-  archivedAt: string | null = null,
-): Account => ({
+const account = (id: string, name: string, archivedAt: string | null = null): Account => ({
   id,
   name,
   type: "checking",
@@ -39,9 +35,7 @@ const LIVE = account("live-1", "Everyday");
 const OTHER = account("live-2", "Savings");
 const CLOSED = account("closed-1", "Closed last year", "2026-02-01");
 const accounts = [LIVE, OTHER, CLOSED];
-const categories: Category[] = [
-  { id: "cat-1", name: "Food", kind: "expense", version: 1 },
-];
+const categories: Category[] = [{ id: "cat-1", name: "Food", kind: "expense", version: 1 }];
 
 function mount(node: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -61,9 +55,33 @@ afterEach(cleanup);
 
 describe("the accounts a form offers", () => {
   const blank = [
-    ["a transaction", <TransactionForm accounts={accounts} categories={categories} onDone={() => {}} />],
-    ["a template", <TemplateForm accounts={accounts} categories={categories} onDone={() => {}} />],
-    ["a recurring transaction", <RecurrenceForm accounts={accounts} categories={categories} onDone={() => {}} />],
+    [
+      "a transaction",
+      <TransactionForm
+        key="TransactionForm"
+        accounts={accounts}
+        categories={categories}
+        onDone={() => {}}
+      />,
+    ],
+    [
+      "a template",
+      <TemplateForm
+        key="TemplateForm"
+        accounts={accounts}
+        categories={categories}
+        onDone={() => {}}
+      />,
+    ],
+    [
+      "a recurring transaction",
+      <RecurrenceForm
+        key="RecurrenceForm"
+        accounts={accounts}
+        categories={categories}
+        onDone={() => {}}
+      />,
+    ],
   ] as const;
 
   for (const [what, form] of blank) {
@@ -108,10 +126,9 @@ describe("the accounts a form offers", () => {
       />,
     );
     const options = offered(container);
-    expect(
-      options.join(" "),
-      "the account this entry is already on stays choosable",
-    ).toContain("Closed last year");
+    expect(options.join(" "), "the account this entry is already on stays choosable").toContain(
+      "Closed last year",
+    );
     // And the select really is showing it, rather than holding an id with no
     // matching option.
     const selects = [...container.querySelectorAll("select")];

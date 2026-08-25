@@ -27,8 +27,7 @@ describe("MCP output contracts", () => {
       name: "output-schema-test",
       version: "1.0.0",
     });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await resources.server.connect(serverTransport);
     await resources.client.connect(clientTransport);
 
@@ -43,38 +42,22 @@ describe("MCP output contracts", () => {
         };
       };
       const variants = output.properties?.result?.anyOf;
-      expect(variants, `${tool.name} must declare success and error results`)
-        .toHaveLength(2);
-      expect(variants?.[0], `${tool.name} success result must be concrete`)
-        .not.toEqual({});
+      expect(variants, `${tool.name} must declare success and error results`).toHaveLength(2);
+      expect(variants?.[0], `${tool.name} success result must be concrete`).not.toEqual({});
     }
 
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
-    const listAccountSchema = JSON.stringify(
-      byName.get("list_accounts")?.outputSchema,
-    );
-    const createAccountSchema = JSON.stringify(
-      byName.get("create_account")?.outputSchema,
-    );
-    const transactionSchema = JSON.stringify(
-      byName.get("create_transaction")?.outputSchema,
-    );
+    const listAccountSchema = JSON.stringify(byName.get("list_accounts")?.outputSchema);
+    const createAccountSchema = JSON.stringify(byName.get("create_account")?.outputSchema);
+    const transactionSchema = JSON.stringify(byName.get("create_transaction")?.outputSchema);
     const payeeSchema = JSON.stringify(byName.get("list_payees")?.outputSchema);
-    const categorySchema = JSON.stringify(
-      byName.get("list_categories")?.outputSchema,
-    );
-    const mergePayeeSchema = JSON.stringify(
-      byName.get("merge_payees")?.outputSchema,
-    );
+    const categorySchema = JSON.stringify(byName.get("list_categories")?.outputSchema);
+    const mergePayeeSchema = JSON.stringify(byName.get("merge_payees")?.outputSchema);
     const bulkPreviewSchema = JSON.stringify(
       byName.get("preview_bulk_transaction_selection")?.outputSchema,
     );
-    const bulkEditSchema = JSON.stringify(
-      byName.get("bulk_edit_transactions")?.outputSchema,
-    );
-    const bulkEditInputSchema = JSON.stringify(
-      byName.get("bulk_edit_transactions")?.inputSchema,
-    );
+    const bulkEditSchema = JSON.stringify(byName.get("bulk_edit_transactions")?.outputSchema);
+    const bulkEditInputSchema = JSON.stringify(byName.get("bulk_edit_transactions")?.inputSchema);
     expect(listAccountSchema).toContain('"type":"array"');
     expect(createAccountSchema).toContain('"openingBalance"');
     expect(transactionSchema).toContain('"destinationAmount"');
@@ -91,13 +74,8 @@ describe("MCP output contracts", () => {
     expect(bulkEditSchema).toContain('"selectionFingerprint"');
     expect(bulkEditSchema).toContain('"itemsTruncated"');
     expect(bulkEditInputSchema).toContain('"expectedFingerprint"');
-    expect(
-      byName.get("preview_bulk_transaction_selection")?.annotations
-        ?.readOnlyHint,
-    ).toBe(true);
-    expect(
-      byName.get("bulk_edit_transactions")?.annotations?.destructiveHint,
-    ).toBe(true);
+    expect(byName.get("preview_bulk_transaction_selection")?.annotations?.readOnlyHint).toBe(true);
+    expect(byName.get("bulk_edit_transactions")?.annotations?.destructiveHint).toBe(true);
     expect(createAccountSchema).not.toEqual(transactionSchema);
   });
 });
@@ -133,9 +111,7 @@ describe("revoking an agent over MCP", () => {
   // back inside the read gate such a token has no tools whatsoever, and a
   // server with none does not offer tools/list at all.
   it("offers neither to a token with no ledger scope", async () => {
-    const names = await toolsFor(["openid", "profile", "email"]).catch(
-      (error: Error) => error,
-    );
+    const names = await toolsFor(["openid", "profile", "email"]).catch((error: Error) => error);
     // Empty, not merely missing the two this was written for. Naming them left
     // the branch accepting any other tool reaching a token with no ledger scope
     // at all, which is the failure the assertion exists to catch.

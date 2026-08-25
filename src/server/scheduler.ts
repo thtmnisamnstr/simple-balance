@@ -39,9 +39,7 @@ async function main() {
     port: config.port,
     hostname: "0.0.0.0",
   });
-  console.info(
-    `Simple Balance scheduler listening on port ${config.port} for health checks only`,
-  );
+  console.info(`Simple Balance scheduler listening on port ${config.port} for health checks only`);
 
   // Forced on rather than read from RECURRENCE_SCHEDULER. That flag exists to
   // turn the tick off on replicas that serve the API; a pod running this

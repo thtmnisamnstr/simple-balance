@@ -14,10 +14,7 @@ const originalDatabaseUrl = process.env.DATABASE_URL;
 const expectedMigrations = String(
   (
     JSON.parse(
-      readFileSync(
-        path.resolve(import.meta.dirname, "../../drizzle/meta/_journal.json"),
-        "utf8",
-      ),
+      readFileSync(path.resolve(import.meta.dirname, "../../drizzle/meta/_journal.json"), "utf8"),
     ) as { entries: unknown[] }
   ).entries.length,
 );
@@ -68,6 +65,8 @@ integration("PostgreSQL migrations", () => {
       "auth_session",
       "auth_user",
       "auth_verification",
+      "budget_entry",
+      "budget_plan",
       "category",
       "idempotency_record",
       "import_batch",

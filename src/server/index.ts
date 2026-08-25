@@ -1,10 +1,6 @@
 import { serve } from "@hono/node-server";
 import app from "./api.js";
-import {
-  getConfig,
-  isRegistrationClosed,
-  isRegistrationOpenToAnyone,
-} from "./config.js";
+import { getConfig, isRegistrationClosed, isRegistrationOpenToAnyone } from "./config.js";
 import { closeDb } from "./db/client.js";
 import { reconcileArchivedAccountClosings } from "./services/accounts.js";
 import { runMigrations } from "./db/migrate.js";

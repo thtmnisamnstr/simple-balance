@@ -87,7 +87,6 @@ export async function isOwnerSetupTokenValid(candidate: unknown) {
   const candidateBytes = Buffer.from(candidate);
   const expectedBytes = Buffer.from(expected);
   return (
-    candidateBytes.length === expectedBytes.length &&
-    timingSafeEqual(candidateBytes, expectedBytes)
+    candidateBytes.length === expectedBytes.length && timingSafeEqual(candidateBytes, expectedBytes)
   );
 }

@@ -1,19 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { BarChart, ChartLegend, LineChart } from "../charts.js";
 import { api, queryString, type Report } from "../api.js";
-import {
-  Alert,
-  DateRangeBar,
-  EmptyState,
-  PageHeader,
-  Select,
-  Skeleton,
-} from "../components.js";
-import {
-  formatDate,
-  formatMoney,
-  isNegativeMoney,
-} from "../money.js";
+import { Alert, DateRangeBar, EmptyState, PageHeader, Select, Skeleton } from "../components.js";
+import { formatDate, formatMoney, isNegativeMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { Link, useLocation, useParams, useSearchParams } from "../router.js";
 import { reportBuckets, reportNames, type ReportName } from "../../shared/domain.js";
@@ -30,8 +19,7 @@ const TITLES: Record<ReportName, string> = {
 const BLURBS: Record<ReportName, string> = {
   "net-worth": "What your accounts held at the end of each period.",
   "income-expense": "What came in and what went out over each period.",
-  categories:
-    "Where the money went and where it came from, by what you filed it under.",
+  categories: "Where the money went and where it came from, by what you filed it under.",
   "cash-flow":
     "Movements in and out of the accounts you can spend from, by where the money came from and went to.",
   "balance-sheet": "What every account holds, as of one date.",
@@ -108,11 +96,7 @@ export default function ReportsPage() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Reports"
-        title={TITLES[report]}
-        description={BLURBS[report]}
-      />
+      <PageHeader eyebrow="Reports" title={TITLES[report]} description={BLURBS[report]} />
 
       <nav className="report-tabs" aria-label="Reports">
         {reportNames.map((name) => (
@@ -170,10 +154,9 @@ export default function ReportsPage() {
 
       {report === "cash-flow" ? (
         <Alert kind="info">
-          Cash flow will not match income and expenses, and the gap is widest if
-          you use a credit card. A card purchase is an expense the day you make
-          it; the cash leaves when you pay the bill, in a different period and
-          under borrowing and repaying. Both figures are right.
+          Cash flow will not match income and expenses, and the gap is widest if you use a credit
+          card. A card purchase is an expense the day you make it; the cash leaves when you pay the
+          bill, in a different period and under borrowing and repaying. Both figures are right.
         </Alert>
       ) : null}
 
@@ -257,9 +240,7 @@ export default function ReportsPage() {
                             {/* A balance report keeps a closed account's
                                 history, so without saying so its past reads as
                                 money still held. */}
-                            {entry.archived ? (
-                              <span className="row-note"> (closed)</span>
-                            ) : null}
+                            {entry.archived ? <span className="row-note"> (closed)</span> : null}
                           </th>
                           {entry.values.map((value, position) => (
                             <td

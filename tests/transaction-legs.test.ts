@@ -48,15 +48,13 @@ describe("legs on a transaction draft", () => {
 
   it("keeps the order the legs were given in", () => {
     const reversed = [...legs].reverse();
-    expect(transactionDraftSchema.parse({ ...withdrawal, legs: reversed }).legs).toEqual(
-      reversed,
-    );
+    expect(transactionDraftSchema.parse({ ...withdrawal, legs: reversed }).legs).toEqual(reversed);
   });
 
   it("refuses a split of one", () => {
-    expect(
-      failure(transactionDraftSchema.safeParse({ ...withdrawal, legs: [legs[0]] })),
-    ).toContain("A split needs at least two legs");
+    expect(failure(transactionDraftSchema.safeParse({ ...withdrawal, legs: [legs[0]] }))).toContain(
+      "A split needs at least two legs",
+    );
   });
 
   it("refuses more legs than a split may have", () => {
@@ -64,9 +62,7 @@ describe("legs on a transaction draft", () => {
       categoryId,
       amount: "1.00",
     }));
-    expect(
-      transactionDraftSchema.safeParse({ ...withdrawal, legs: many }).success,
-    ).toBe(false);
+    expect(transactionDraftSchema.safeParse({ ...withdrawal, legs: many }).success).toBe(false);
   });
 
   it("refuses a negative or zero leg, since direction comes from the entry", () => {
@@ -74,7 +70,10 @@ describe("legs on a transaction draft", () => {
       expect(
         transactionDraftSchema.safeParse({
           ...withdrawal,
-          legs: [{ categoryId, amount: "60.00" }, { categoryId: otherCategoryId, amount }],
+          legs: [
+            { categoryId, amount: "60.00" },
+            { categoryId: otherCategoryId, amount },
+          ],
         }).success,
         amount,
       ).toBe(false);
@@ -104,9 +103,7 @@ describe("legs against a single category", () => {
   it("refuses a request that sends both rather than merging them", () => {
     for (const conflict of [{ categoryId }, { categoryName: "Groceries" }]) {
       expect(
-        failure(
-          transactionDraftSchema.safeParse({ ...withdrawal, ...conflict, legs }),
-        ),
+        failure(transactionDraftSchema.safeParse({ ...withdrawal, ...conflict, legs })),
         JSON.stringify(conflict),
       ).toContain("Send either a category or legs, not both");
     }
@@ -183,10 +180,7 @@ describe("legs on a template", () => {
     const parsed = transactionTemplateDraftSchema.parse({
       legs: [{ categoryName: "Groceries" }, { categoryId, amount: "40.00" }],
     });
-    expect(parsed.legs).toEqual([
-      { categoryName: "Groceries" },
-      { categoryId, amount: "40.00" },
-    ]);
+    expect(parsed.legs).toEqual([{ categoryName: "Groceries" }, { categoryId, amount: "40.00" }]);
   });
 
   /**
@@ -225,8 +219,7 @@ describe("legs on a template", () => {
     expect(replaced.legs).toHaveLength(2);
     expect(transactionTemplateBulkPatchSchema.parse({ legs: null }).legs).toBeNull();
     expect(
-      transactionTemplateBulkPatchSchema.safeParse({ legs: [{ categoryName: "A" }] })
-        .success,
+      transactionTemplateBulkPatchSchema.safeParse({ legs: [{ categoryName: "A" }] }).success,
     ).toBe(false);
   });
 });

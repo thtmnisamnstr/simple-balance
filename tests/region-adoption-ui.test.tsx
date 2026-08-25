@@ -124,9 +124,7 @@ describe("adopting the region the browser implies", () => {
     stubApi(false);
     renderApp();
     await waitFor(() =>
-      expect(
-        bodies.find((one) => one.url === "/api/v1/preferences"),
-      ).toBeDefined(),
+      expect(bodies.find((one) => one.url === "/api/v1/preferences")).toBeDefined(),
     );
     const written = bodies.find((one) => one.url === "/api/v1/preferences")!;
     expect(written.body).toMatchObject({ ifUnchosen: true });

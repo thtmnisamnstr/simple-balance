@@ -2,19 +2,9 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  Account,
-  Category,
-  TransactionTemplate,
-} from "../src/client/api.js";
+import type { Account, Category, TransactionTemplate } from "../src/client/api.js";
 import { TransactionForm } from "../src/client/forms.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
 
@@ -92,8 +82,9 @@ const orphaned: TransactionTemplate = {
   },
 };
 
-// An income category on a withdrawal: the category was widened or narrowed
-// after the template was saved.
+// An income category on a withdrawal, which is income coming back rather than
+// a mismatch. The form used to drop it, which is how a returned payment was
+// impossible to enter from a template.
 const mismatched: TransactionTemplate = {
   ...rent,
   id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
@@ -235,9 +226,7 @@ describe("starting a transaction from a template", () => {
     fireEvent.submit(field(/^Payee/).closest("form")!);
 
     await waitFor(() =>
-      expect(requests.some((request) => request.path === "/api/v1/transactions")).toBe(
-        true,
-      ),
+      expect(requests.some((request) => request.path === "/api/v1/transactions")).toBe(true),
     );
     const posted = requests.find((r) => r.path === "/api/v1/transactions")!;
     expect((posted.body as { draft: Record<string, unknown> }).draft).toMatchObject({
@@ -249,8 +238,7 @@ describe("starting a transaction from a template", () => {
     expect(
       requests.filter(
         (request) =>
-          request.path.startsWith("/api/v1/transaction-templates") &&
-          request.method !== "GET",
+          request.path.startsWith("/api/v1/transaction-templates") && request.method !== "GET",
       ),
     ).toEqual([]);
   });
@@ -293,20 +281,23 @@ describe("starting a transaction from a template", () => {
     });
 
     expect(field("Account")).toHaveValue(checking.id);
-    expect(
-      screen.getByText(/account is no longer available/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/account is no longer available/i)).toBeInTheDocument();
   });
 
-  it("drops a category that no longer fits the type", async () => {
+  /**
+   * A category running against the direction is a refund, and the server posts
+   * it to the counter-account the direction would not have chosen. Dropping it
+   * here was the form deciding that shape of entry did not exist.
+   */
+  it("keeps a category that runs against the type, because that is a refund", async () => {
     stubApi([mismatched]);
     renderForm();
     fireEvent.change(await screen.findByLabelText(/^Start from a template/), {
       target: { value: mismatched.id },
     });
 
-    expect(field(/^Category/)).toHaveValue("");
-    expect(screen.getByText(/category is no longer available/i)).toBeInTheDocument();
+    expect(field(/^Category/)).toHaveValue(salaryCategory.name);
+    expect(screen.queryByText(/category is no longer available/i)).not.toBeInTheDocument();
   });
 
   /**
@@ -322,9 +313,7 @@ describe("starting a transaction from a template", () => {
       target: { value: splitWithDeadLeg.id },
     });
 
-    expect(
-      screen.getByText(/category is no longer available/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/category is no longer available/i)).toBeInTheDocument();
     const legAmounts = screen
       .getAllByRole("textbox")
       .filter((one) => (one as HTMLInputElement).value === "40.00");
@@ -390,14 +379,10 @@ describe("starting a transaction from a template", () => {
     fireEvent.change(control, { target: { value: rent.id } });
     expect(field(/^Amount/)).toHaveValue("1450.00");
 
-    fireEvent.click(
-      screen.getByLabelText(/return to create another/i),
-    );
+    fireEvent.click(screen.getByLabelText(/return to create another/i));
     fireEvent.click(screen.getByLabelText(/Reset after saving/i));
     fireEvent.submit(field(/^Payee/).closest("form")!);
-    await waitFor(() =>
-      expect(requests.some((r) => r.path === "/api/v1/transactions")).toBe(true),
-    );
+    await waitFor(() => expect(requests.some((r) => r.path === "/api/v1/transactions")).toBe(true));
 
     // Left selected, the next entry would be started under a template the
     // person believes they have finished with.
@@ -409,8 +394,6 @@ describe("starting a transaction from a template", () => {
     stubApi([]);
     renderForm();
     await screen.findByLabelText(/^Payee/);
-    expect(
-      screen.queryByLabelText(/^Start from a template/),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Start from a template/)).not.toBeInTheDocument();
   });
 });

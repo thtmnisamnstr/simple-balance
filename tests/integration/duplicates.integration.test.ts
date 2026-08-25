@@ -76,11 +76,7 @@ integration("transaction duplicate protection", () => {
       externalId: "bank-transaction-two",
     };
 
-    const created = await createTransaction(
-      actor,
-      original,
-      "duplicate-direct-original",
-    );
+    const created = await createTransaction(actor, original, "duplicate-direct-original");
     const selfUpdated = await updateTransaction(actor, created.id, {
       draft: original,
       expectedVersion: created.version,
@@ -88,11 +84,7 @@ integration("transaction duplicate protection", () => {
     });
     expect(selfUpdated.version).toBe(created.version + 1);
     await expect(
-      createTransaction(
-        actor,
-        duplicateDraft,
-        "duplicate-direct-rejected",
-      ),
+      createTransaction(actor, duplicateDraft, "duplicate-direct-rejected"),
     ).rejects.toMatchObject({
       code: "DUPLICATE",
       details: { duplicateOfId: created.id },
@@ -173,9 +165,7 @@ integration("transaction duplicate protection", () => {
       payee: "save 50%_a",
     });
 
-    expect(filtered.items.map((transaction) => transaction.id)).toEqual([
-      literal.id,
-    ]);
+    expect(filtered.items.map((transaction) => transaction.id)).toEqual([literal.id]);
     expect(await listPayeeSuggestions(actor, "50%_")).toEqual([literal.payee]);
   });
 
@@ -189,22 +179,9 @@ integration("transaction duplicate protection", () => {
       amount: "14.25",
       externalId: "restore-collision",
     };
-    const original = await createTransaction(
-      actor,
-      draft,
-      "restore-duplicate-original",
-    );
-    const deleted = await setTransactionDeleted(
-      actor,
-      original.id,
-      original.version,
-      true,
-    );
-    const activeDuplicate = await createTransaction(
-      actor,
-      draft,
-      "restore-duplicate-active",
-    );
+    const original = await createTransaction(actor, draft, "restore-duplicate-original");
+    const deleted = await setTransactionDeleted(actor, original.id, original.version, true);
+    const activeDuplicate = await createTransaction(actor, draft, "restore-duplicate-active");
 
     await expect(
       setTransactionDeleted(actor, deleted.id, deleted.version, false),
@@ -218,13 +195,7 @@ integration("transaction duplicate protection", () => {
       deletedAt: expect.any(String),
     });
 
-    const restored = await setTransactionDeleted(
-      actor,
-      deleted.id,
-      deleted.version,
-      false,
-      true,
-    );
+    const restored = await setTransactionDeleted(actor, deleted.id, deleted.version, false, true);
     expect(restored.deletedAt).toBeNull();
     expect(restored.version).toBe(deleted.version + 1);
   });
@@ -238,17 +209,9 @@ integration("transaction duplicate protection", () => {
       toAccountId: directAccountId,
       amount: "18.75",
     };
-    const created = await createTransaction(
-      actor,
-      transactionDraft,
-      "payload-bound-transaction",
-    );
+    const created = await createTransaction(actor, transactionDraft, "payload-bound-transaction");
     expect(
-      await createTransaction(
-        actor,
-        { ...transactionDraft },
-        "payload-bound-transaction",
-      ),
+      await createTransaction(actor, { ...transactionDraft }, "payload-bound-transaction"),
     ).toEqual(created);
     await expect(
       createTransaction(
@@ -379,9 +342,7 @@ integration("transaction duplicate protection", () => {
     expect((await getStage(actor, first.id)).status).toBe("staged");
     expect((await getStage(actor, second.id)).status).toBe("staged");
     expect(
-      (await listAccounts(actor)).find(
-        (account) => account.id === stagedAccountId,
-      )?.balance,
+      (await listAccounts(actor)).find((account) => account.id === stagedAccountId)?.balance,
     ).toBe("0");
 
     const result = await commitStages(actor, {
@@ -397,9 +358,7 @@ integration("transaction duplicate protection", () => {
     expect((await getStage(actor, first.id)).status).toBe("committed");
     expect((await getStage(actor, second.id)).status).toBe("committed");
     expect(
-      (await listAccounts(actor)).find(
-        (account) => account.id === stagedAccountId,
-      )?.balance,
+      (await listAccounts(actor)).find((account) => account.id === stagedAccountId)?.balance,
     ).toBe("20.84");
   });
 
@@ -414,8 +373,7 @@ integration("transaction duplicate protection", () => {
       name: "concurrent-retry-test",
       version: "1.0.0",
     });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     await client.connect(clientTransport);
 
@@ -442,9 +400,7 @@ integration("transaction duplicate protection", () => {
     ]);
     expect(firstDirect.isError).not.toBe(true);
     expect(secondDirect.isError).not.toBe(true);
-    expect(secondDirect.structuredContent).toEqual(
-      firstDirect.structuredContent,
-    );
+    expect(secondDirect.structuredContent).toEqual(firstDirect.structuredContent);
     const mismatchedDirect = await client.callTool({
       name: "create_transaction",
       arguments: {
@@ -493,9 +449,7 @@ integration("transaction duplicate protection", () => {
     ]);
     expect(firstCommit.isError).not.toBe(true);
     expect(secondCommit.isError).not.toBe(true);
-    expect(secondCommit.structuredContent).toEqual(
-      firstCommit.structuredContent,
-    );
+    expect(secondCommit.structuredContent).toEqual(firstCommit.structuredContent);
 
     await client.close();
     await server.close();
@@ -602,9 +556,7 @@ integration("transaction duplicate protection", () => {
     );
     const input = (selected: typeof stages) => ({
       stagedIds: selected.map((stage) => stage.id),
-      expectedVersions: Object.fromEntries(
-        selected.map((stage) => [stage.id, stage.version]),
-      ),
+      expectedVersions: Object.fromEntries(selected.map((stage) => [stage.id, stage.version])),
     });
     const results = await Promise.allSettled([
       deleteStages(actor, input([stages[0]!, stages[1]!])),

@@ -1,10 +1,6 @@
 import Papa from "papaparse";
 import { z } from "zod";
-import {
-  isoDateSchema,
-  positiveDecimalStringSchema,
-  type TransactionDraft,
-} from "./domain.js";
+import { isoDateSchema, positiveDecimalStringSchema, type TransactionDraft } from "./domain.js";
 
 export const APP_CSV_FORMAT = "simple-balance-csv-1";
 
@@ -103,10 +99,9 @@ export const csvMappingSchema = z
     notes: z.string().optional(),
     externalId: z.string().optional(),
   })
-  .refine(
-    (mapping) => Boolean(mapping.amount || mapping.debit || mapping.credit),
-    { message: "Map an amount column, or a debit column, or a credit column" },
-  );
+  .refine((mapping) => Boolean(mapping.amount || mapping.debit || mapping.credit), {
+    message: "Map an amount column, or a debit column, or a credit column",
+  });
 
 export type CsvMapping = z.infer<typeof csvMappingSchema>;
 
@@ -134,10 +129,7 @@ export function previewCsv(csv: string, limit = 25): CsvPreview {
   };
 }
 
-export function parseLocalizedAmount(
-  value: string,
-  decimalSeparator: "." | ",",
-): string | null {
+export function parseLocalizedAmount(value: string, decimalSeparator: "." | ","): string | null {
   let unsigned = value.trim().replace(/[\u00a0\u202f]/g, " ");
   if (!unsigned) return null;
   let negative = false;
@@ -157,30 +149,18 @@ export function parseLocalizedAmount(
   const decimalParts = unsigned.split(decimalSeparator);
   if (decimalParts.length > 2) return null;
   const [integerPart, fraction] = decimalParts;
-  if (
-    !integerPart ||
-    (fraction !== undefined && !/^\d+$/.test(fraction))
-  ) {
+  if (!integerPart || (fraction !== undefined && !/^\d+$/.test(fraction))) {
     return null;
   }
 
   const usesConfiguredGrouping = integerPart.includes(groupingSeparator);
   const usesSpaceGrouping = integerPart.includes(" ");
   if (usesConfiguredGrouping && usesSpaceGrouping) return null;
-  const grouping = usesConfiguredGrouping
-    ? groupingSeparator
-    : usesSpaceGrouping
-      ? " "
-      : null;
-  if (
-    grouping &&
-    !new RegExp(`^\\d{1,3}(?:\\${grouping}\\d{3})+$`).test(integerPart)
-  ) {
+  const grouping = usesConfiguredGrouping ? groupingSeparator : usesSpaceGrouping ? " " : null;
+  if (grouping && !new RegExp(`^\\d{1,3}(?:\\${grouping}\\d{3})+$`).test(integerPart)) {
     return null;
   }
-  const normalizedInteger = grouping
-    ? integerPart.replaceAll(grouping, "")
-    : integerPart;
+  const normalizedInteger = grouping ? integerPart.replaceAll(grouping, "") : integerPart;
   if (!/^(?:0|[1-9]\d*)$/.test(normalizedInteger)) return null;
 
   const normalized = `${negative ? "-" : ""}${normalizedInteger}${
@@ -194,7 +174,7 @@ function parseCsvDate(value: string, dateFormat: "YMD" | "MDY" | "DMY"): string 
   if (dateFormat === "YMD") {
     return isoDateSchema.safeParse(trimmed).success ? trimmed : null;
   }
-  const match = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(trimmed);
+  const match = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(trimmed);
   if (!match) return null;
   const [, first, second, year] = match;
   const month = dateFormat === "MDY" ? first : second;
@@ -264,9 +244,7 @@ export function normalizeCsvRows(
     const signedAmount = mapping.amount
       ? parseLocalizedAmount(signedRaw, options.decimalSeparator)
       : null;
-    const debit = mapping.debit
-      ? parseLocalizedAmount(debitRaw, options.decimalSeparator)
-      : null;
+    const debit = mapping.debit ? parseLocalizedAmount(debitRaw, options.decimalSeparator) : null;
     const credit = mapping.credit
       ? parseLocalizedAmount(creditRaw, options.decimalSeparator)
       : null;
@@ -290,10 +268,8 @@ export function normalizeCsvRows(
       });
     }
 
-    const debitPresent =
-      !mapping.amount && Boolean(debit) && !zeroAmountPattern.test(debit!);
-    const creditPresent =
-      !mapping.amount && Boolean(credit) && !zeroAmountPattern.test(credit!);
+    const debitPresent = !mapping.amount && Boolean(debit) && !zeroAmountPattern.test(debit!);
+    const creditPresent = !mapping.amount && Boolean(credit) && !zeroAmountPattern.test(credit!);
     if (debitPresent && creditPresent) {
       issues.push({
         field: "amount",
@@ -322,8 +298,7 @@ export function normalizeCsvRows(
     }
 
     const debitReadable = debitPresent && (bothColumnsMapped || !debit!.startsWith("-"));
-    const creditReadable =
-      creditPresent && (bothColumnsMapped || !credit!.startsWith("-"));
+    const creditReadable = creditPresent && (bothColumnsMapped || !credit!.startsWith("-"));
     const signedDebit = debitReadable;
     const signedCredit = creditReadable;
     let type: "deposit" | "withdrawal";
@@ -421,24 +396,31 @@ const escapeCsv = (value: unknown, protectFromFormulas: boolean) => {
     : value == null
       ? ""
       : String(value);
-  return /[",\n\r]/.test(stringValue)
-    ? `"${stringValue.replaceAll('"', '""')}"`
-    : stringValue;
+  return /[",\n\r]/.test(stringValue) ? `"${stringValue.replaceAll('"', '""')}"` : stringValue;
 };
 
 export function rowsToCsv(
   rows: Record<string, unknown>[],
   formulaProtectedColumns: readonly string[] = [],
+  // The columns to write when there are no rows to take them from. Without it
+  // an export matching nothing produced the empty string, which is not a CSV
+  // file: it has no header record, so RFC 4180 readers reject it and this
+  // product's own `z.string().min(1)` refused to preview or stage it. A
+  // header-only file is readable by everything, including us, and says plainly
+  // that the answer was "nothing" rather than that the export broke.
+  headerColumns: readonly string[] = [],
 ): string {
-  if (rows.length === 0) return "";
+  if (rows.length === 0) {
+    return headerColumns.length === 0
+      ? ""
+      : headerColumns.map((header) => escapeCsv(header, false)).join(",");
+  }
   const headers = Object.keys(rows[0]);
   const protectedColumns = new Set(formulaProtectedColumns);
   return [
     headers.map((header) => escapeCsv(header, false)).join(","),
     ...rows.map((row) =>
-      headers
-        .map((header) => escapeCsv(row[header], protectedColumns.has(header)))
-        .join(","),
+      headers.map((header) => escapeCsv(row[header], protectedColumns.has(header))).join(","),
     ),
   ].join("\r\n");
 }

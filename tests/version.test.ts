@@ -4,8 +4,7 @@ import { describe, expect, it } from "vitest";
 import { APP_VERSION } from "../src/shared/version.js";
 
 const root = path.resolve(import.meta.dirname, "..");
-const read = (relative: string) =>
-  readFileSync(path.join(root, relative), "utf8");
+const read = (relative: string) => readFileSync(path.join(root, relative), "utf8");
 const manifestVersion = (relative: string) =>
   (JSON.parse(read(relative)) as { version: string }).version;
 
@@ -68,12 +67,8 @@ describe("the release version", () => {
     // Both of the chart's version fields. appVersion is the images it installs;
     // `version` is the chart itself, and they move together here because the
     // chart is only ever published on this repository's releases.
-    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(
-      `version: ${version}`,
-    );
-    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(
-      `appVersion: "${version}"`,
-    );
+    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(`version: ${version}`);
+    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(`appVersion: "${version}"`);
   });
 
   /**
@@ -84,10 +79,7 @@ describe("the release version", () => {
    */
   it("is the tag on every example image", () => {
     const pinned = /ghcr\.io\/thtmnisamnstr\/simple-balance(?:-[a-z]+)?:(\S+)/g;
-    for (const relative of [
-      "deploy/compose/compose.distributed.yml",
-      "deploy/pulumi/README.md",
-    ]) {
+    for (const relative of ["deploy/compose/compose.distributed.yml", "deploy/pulumi/README.md"]) {
       const tags = [...read(relative).matchAll(pinned)].map((match) => match[1]);
       expect(tags.length, relative).toBeGreaterThan(0);
       for (const tag of tags) expect(tag, relative).toBe(version);

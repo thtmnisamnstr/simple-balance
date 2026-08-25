@@ -1,0 +1,140 @@
+# Errors
+
+Failing: which error, carrying what, phrased how.
+
+The wire format — RFC 9457, status codes, the envelope — is
+[`docs/standards/http.md`](../http.md). This is about the throw site.
+
+## 1. One error type
+
+**Binding, with one named exception.** Anything a caller could act on is an
+`AppError` (`src/server/services/errors.ts:4`). It carries a code, a message, an
+HTTP status and optional details, and both transports render it: HTTP into a
+problem document, MCP into a tool error.
+
+The distinction is the question **is there something the caller could do
+differently?** If yes, it is an `AppError`. If no, it is a bug, and a bug should
+throw a bare `Error` or `TypeError` and become a 500 — because a 500 is what
+"this should be impossible" means, and dressing it as a 422 would tell the
+caller to fix something they did not do.
+
+Five throws in `src/server/services` are that second kind, and all five are
+correct: three `TypeError`s in the idempotency canonicaliser for payload shapes
+that cannot occur
+(src/server/services/helpers.ts:145),
+and two `Error`s for a database count that came back non-numeric
+(src/server/services/categories.ts:486).
+
+So the rule is not "never throw a bare `Error` here". It is "never throw one for
+something the caller could have got right".
+
+## 2. Six constructors, and choosing between them
+
+**Binding.** Never construct `AppError` directly; use the constructor that names
+the situation.
+
+| Constructor | Status | Use when |
+| --- | --- | --- |
+| `notFound` | 404 | The record is not there, or is not theirs. Both, deliberately — see 2.1. |
+| `conflict` | 409 | The request contradicts the current state in a way retrying will not fix. |
+| `staleVersion` | 409 | Specifically: it moved since they read it. |
+| `duplicate` | 409 | A name or a reference already exists. |
+| `validationError` | 422 | The request is well-formed and asks for something impossible. |
+
+### 2.1 "Not yours" is "not found"
+
+**Binding.** A record belonging to another user is a 404, never a 403. A 403
+confirms the id exists, which is a cross-tenant leak of exactly one bit, and one
+bit is enough to enumerate.
+
+Because every query is scoped by `actor.userId` (see `services.md` 1.1), this
+falls out naturally: the row simply is not in the result.
+
+### 2.2 `staleVersion` is its own thing for a reason
+
+**House.** It could be a `conflict` with a message. It is separate because it is
+the one conflict a client can resolve automatically — reload, re-apply, retry —
+and it carries `currentVersion` in its details so the client can say what
+happened rather than "something went wrong".
+
+Its message is fixed at the constructor
+(src/server/services/errors.ts:24)
+because there is nothing per-site to add.
+
+### 2.3 `duplicate` carries the id of what it collided with
+
+**House.** `duplicateCategoryId` and `normalizedName`, so a client can offer
+"use the existing one" instead of making the person retype. An error that only
+says no is doing half its job.
+
+## 3. Messages
+
+### 3.1 A message says what to do, in the words the product uses
+
+**Binding**, shared with `docs/standards/common.md`.
+
+The message goes on a screen. It says what went wrong and what would work,
+in the vocabulary of the product rather than of the schema:
+
+> That category's budget already starts on 2026-03-01, which is this period or
+> later. Change that budget's amount instead, or set an amount for one period
+> only.
+
+That is one message from the budget overlap refusal. It names the date, says why
+the obvious fix will not work, and offers the two that will. The version it
+replaced said the window overlapped, which was true and useless — it described
+the check rather than the situation.
+
+**No apologies, no "unexpected", no exception text.** "Sorry, an unexpected
+error occurred" is three words of apology and no information.
+
+### 3.2 A refusal names the specific case when it can
+
+**House.** The same overlap refusal branches on whether the clash starts in the
+same period, because the advice differs. Two sentences beat one general one
+whenever the caller's next move differs.
+
+### 3.3 A Zod message is the one somebody wrote
+
+**Binding.** Zod refusals arrive wrapped: the envelope says "Request validation
+failed" and the sentence somebody actually wrote is buried in the details
+array. Showing the envelope is how "A budget cannot be negative" reached the
+screen as "Request validation failed".
+
+The client digs the first real message out
+(src/client/api.ts:45) and shows that
+in preference to the envelope. Which means schema messages are user-facing:
+write them that way.
+
+*Checked by:* `human` on the phrasing; `tests/domain.test.ts` pins several
+specific messages.
+
+## 4. Refusing early, and previewing the refusal
+
+**House.** Some rules the browser has to know before it submits, or the person
+gets a 422 the screen never hinted at. Those live in `src/shared` as a function
+returning a result rather than throwing
+(src/shared/domain.ts:127):
+
+```ts
+{ ok: false, message: "An entry is either income or a refund, not both." }
+```
+
+The service calls it and throws the message; the form calls it and renders the
+message. One sentence, one source, and the screen can never disagree with the
+server about what is allowed.
+
+The rule for deciding: if the browser can tell in advance, it must, and the
+sentence must be the same one.
+
+## 5. What is not enforced
+
+| Rule | Why it is only a sentence |
+| --- | --- |
+| 1 The right error for the situation | A lint rule banning `throw new Error` under `src/server/services` would be **wrong** — it would flag the five correct ones. Which kind a throw is cannot be read off its syntax. |
+| 3.1 Messages say what to do | Editorial. |
+| 3.2 Refusals name the specific case | Editorial. |
+
+Three `human` rules in this guide. The first looked mechanisable and is not,
+which is worth knowing: the check somebody would reach for first is the check
+that would have flagged correct code.

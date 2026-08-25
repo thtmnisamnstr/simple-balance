@@ -15,11 +15,7 @@ import {
   configuredRecurrenceClaimLimit,
 } from "../config-limits.js";
 import { getDb } from "../db/client.js";
-import {
-  templateNotifications,
-  transactionTemplates,
-  user,
-} from "../db/schema.js";
+import { templateNotifications, transactionTemplates, user } from "../db/schema.js";
 import {
   mailEnabled,
   recurrenceProposedMessage,
@@ -243,22 +239,12 @@ export async function runDueNotifications(
     // claim cost a transaction and a row lock on every tick for a reminder that
     // was hours away.
     if (
-      !notificationIsDue(
-        String(row.next_notification_date),
-        String(row.notify_at),
-        today,
-        nowTime,
-      )
+      !notificationIsDue(String(row.next_notification_date), String(row.notify_at), today, nowTime)
     ) {
       continue;
     }
     try {
-      const owed = await claimDueNotification(
-        String(row.id),
-        String(row.user_id),
-        today,
-        nowTime,
-      );
+      const owed = await claimDueNotification(String(row.id), String(row.user_id), today, nowTime);
       if (owed && (await deliver(String(row.user_id), owed))) sent += 1;
     } catch (error) {
       // One reminder must never end the sweep, for the same reason one
@@ -307,12 +293,7 @@ async function claimDueNotification(
         transactionTemplates,
         eq(transactionTemplates.id, templateNotifications.templateId),
       )
-      .where(
-        and(
-          eq(templateNotifications.id, id),
-          eq(templateNotifications.userId, userId),
-        ),
-      )
+      .where(and(eq(templateNotifications.id, id), eq(templateNotifications.userId, userId)))
       .for("update", { skipLocked: true });
     if (!row) return null;
 
@@ -366,4 +347,3 @@ async function deliver(userId: string, owed: OwedReminder) {
 export function firstNotificationDate(rule: NotificationRule) {
   return nextNotificationAfter(rule, null)?.sendDate ?? null;
 }
-

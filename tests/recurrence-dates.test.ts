@@ -24,8 +24,9 @@ const rule = (over: Partial<RecurrenceRule> = {}): RecurrenceRule => ({
 });
 
 const dates = (one: RecurrenceRule, from: number, to: number) =>
-  Array.from({ length: to - from + 1 }, (_, index) =>
-    occurrenceAt(one, from + index).occurrenceDate,
+  Array.from(
+    { length: to - from + 1 },
+    (_, index) => occurrenceAt(one, from + index).occurrenceDate,
   );
 
 describe("calendar helpers", () => {
@@ -83,12 +84,7 @@ describe("the sequence is anchored, not stepped", () => {
    * first time it meets February, and it never recovers.
    */
   it("returns to the 31st after a February that clamped it", () => {
-    expect(dates(rule(), 0, 3)).toEqual([
-      "2026-01-31",
-      "2026-02-28",
-      "2026-03-31",
-      "2026-04-30",
-    ]);
+    expect(dates(rule(), 0, 3)).toEqual(["2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"]);
   });
 
   it("lands on the 29th in a leap February with no special case", () => {
@@ -276,9 +272,7 @@ describe("finding where to resume", () => {
   });
 
   it("starts at the anchor when the watermark is before it", () => {
-    expect(nextOccurrenceAfter(rule(), "2020-01-01").occurrenceDate).toBe(
-      "2026-01-31",
-    );
+    expect(nextOccurrenceAfter(rule(), "2020-01-01").occurrenceDate).toBe("2026-01-31");
   });
 
   /**
@@ -286,12 +280,8 @@ describe("finding where to resume", () => {
    * date the new sequence never contained.
    */
   it("resumes correctly from a watermark that is not on the sequence", () => {
-    expect(nextOccurrenceAfter(rule(), "2026-02-14").occurrenceDate).toBe(
-      "2026-02-28",
-    );
-    expect(nextOccurrenceAfter(rule(), "2026-03-01").occurrenceDate).toBe(
-      "2026-03-31",
-    );
+    expect(nextOccurrenceAfter(rule(), "2026-02-14").occurrenceDate).toBe("2026-02-28");
+    expect(nextOccurrenceAfter(rule(), "2026-03-01").occurrenceDate).toBe("2026-03-31");
   });
 });
 
@@ -316,12 +306,8 @@ describe("what day and what time it is where somebody lives", () => {
   it("crosses the date line in both directions", () => {
     // UTC+14 and UTC-11, the two ends of the range of dates that are "today"
     // somewhere, which is why the scheduler's prefilter over-selects by a day.
-    expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "Pacific/Kiritimati")).toBe(
-      "2026-06-15",
-    );
-    expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "Pacific/Niue")).toBe(
-      "2026-06-14",
-    );
+    expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "Pacific/Kiritimati")).toBe("2026-06-15");
+    expect(calendarDayIn(at("2026-06-15T00:00:00Z"), "Pacific/Niue")).toBe("2026-06-14");
   });
 
   /**
@@ -334,10 +320,7 @@ describe("what day and what time it is where somebody lives", () => {
     expect(clockTimeIn(at("2026-06-15T09:05:00Z"), "UTC")).toBe("09:05");
     expect(clockTimeIn(at("2026-06-15T23:59:00Z"), "UTC")).toBe("23:59");
     for (const hour of [0, 1, 9, 12, 13, 23]) {
-      const value = clockTimeIn(
-        at(`2026-06-15T${String(hour).padStart(2, "0")}:30:00Z`),
-        "UTC",
-      );
+      const value = clockTimeIn(at(`2026-06-15T${String(hour).padStart(2, "0")}:30:00Z`), "UTC");
       expect(value).toMatch(/^([01][0-9]|2[0-3]):[0-5][0-9]$/);
     }
   });
@@ -351,9 +334,7 @@ describe("what day and what time it is where somebody lives", () => {
     // 2026-03-08 is when the United States springs forward.
     expect(clockTimeIn(at("2026-03-08T06:59:00Z"), "America/New_York")).toBe("01:59");
     expect(clockTimeIn(at("2026-03-08T07:00:00Z"), "America/New_York")).toBe("03:00");
-    expect(clockTimeIn(at("2026-03-08T07:00:00Z"), "America/New_York") >= "02:30").toBe(
-      true,
-    );
+    expect(clockTimeIn(at("2026-03-08T07:00:00Z"), "America/New_York") >= "02:30").toBe(true);
     // And back again in November, where 01:30 happens twice. Either pass sends
     // it; the watermark is what stops the second one.
     expect(clockTimeIn(at("2026-11-01T05:30:00Z"), "America/New_York")).toBe("01:30");
@@ -390,9 +371,7 @@ const scanPast = (one: RecurrenceRule, after: string) => {
   while (occurrenceAt(one, scanned).occurrenceDate <= after) {
     scanned += 1;
     if (scanned > SCAN_CAP) {
-      throw new Error(
-        `scanning ${JSON.stringify(one)} never passed ${after} in ${SCAN_CAP} steps`,
-      );
+      throw new Error(`scanning ${JSON.stringify(one)} never passed ${after} in ${SCAN_CAP} steps`);
     }
   }
   return scanned;
@@ -574,20 +553,20 @@ describe("seeking past a watermark on a positioned schedule", () => {
 
 describe("the watermark a schedule seeks from", () => {
   it("is the day before it may reach back to, until it has run", () => {
-    expect(
-      scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: null }),
-    ).toBe("2026-08-10");
+    expect(scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: null })).toBe(
+      "2026-08-10",
+    );
   });
 
   it("is the last occurrence once it is later than that", () => {
-    expect(
-      scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: "2026-09-01" }),
-    ).toBe("2026-09-01");
+    expect(scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: "2026-09-01" })).toBe(
+      "2026-09-01",
+    );
   });
 
   it("never moves backwards past the floor", () => {
-    expect(
-      scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: "2026-01-01" }),
-    ).toBe("2026-08-10");
+    expect(scheduleCursor({ proposesFrom: "2026-08-11", lastOccurrenceDate: "2026-01-01" })).toBe(
+      "2026-08-10",
+    );
   });
 });

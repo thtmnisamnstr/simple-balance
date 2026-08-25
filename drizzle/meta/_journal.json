@@ -92,6 +92,13 @@
       "when": 1787418473680,
       "tag": "0012_payee_normalized_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1787469715617,
+      "tag": "0013_budget_plans_and_entries",
+      "breakpoints": true
     }
   ]
 }

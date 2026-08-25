@@ -1,14 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Archive,
-  ArchiveRestore,
-  Combine,
-  Pencil,
-  Plus,
-  Search,
-  Tags,
-  Trash2,
-} from "lucide-react";
+import { Archive, ArchiveRestore, Combine, Pencil, Plus, Search, Tags, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "../router.js";
 import { type CategoryKind, categoryKinds } from "../../shared/domain.js";
@@ -24,16 +15,17 @@ import {
   Alert,
   Badge,
   Button,
-  EmptyState,
-  Input,
-  PageHeader,
-  Select,
-  SortMenu,
-  type SortState,
   compareForSort,
   ConfirmDialog,
+  EmptyState,
   Field,
+  Input,
   Modal,
+  PageHeader,
+  Select,
+  Skeleton,
+  SortMenu,
+  type SortState,
   useConfirm,
 } from "../components.js";
 
@@ -87,11 +79,7 @@ function CategoryDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            type="submit"
-            form="category-edit"
-            disabled={!trimmed}
-          >
+          <Button type="submit" form="category-edit" disabled={!trimmed}>
             Save
           </Button>
         </>
@@ -106,20 +94,13 @@ function CategoryDialog({
         }}
       >
         <Field label="Name">
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoFocus
-          />
+          <Input value={name} onChange={(event) => setName(event.target.value)} autoFocus />
         </Field>
         <Field
           label="Applies to"
           hint="Whether this category can be chosen for money coming in, going out, or both."
         >
-          <Select
-            value={kind}
-            onChange={(event) => setKind(event.target.value as CategoryKind)}
-          >
+          <Select value={kind} onChange={(event) => setKind(event.target.value as CategoryKind)}>
             {categoryKinds.map((value) => (
               <option key={value} value={value}>
                 {kindLabels[value]}
@@ -152,15 +133,12 @@ export default function CategoriesPage() {
     queryKey: ["categories", "summaries", includeArchived],
     queryFn: () =>
       api<CategorySummary[]>(
-        `/api/v1/categories/summaries${
-          includeArchived ? "?includeArchived=true" : ""
-        }`,
+        `/api/v1/categories/summaries${includeArchived ? "?includeArchived=true" : ""}`,
       ),
   });
   const duplicates = useQuery({
     queryKey: ["categories", "duplicates"],
-    queryFn: () =>
-      api<CategoryDuplicateGroup[]>("/api/v1/categories/duplicates"),
+    queryFn: () => api<CategoryDuplicateGroup[]>("/api/v1/categories/duplicates"),
   });
 
   const categoryMutation = useMutation({
@@ -176,10 +154,7 @@ export default function CategoriesPage() {
         | { action: "archive" | "delete"; category: Category },
     ) => {
       if (input.action === "create") {
-        return api<Category>(
-          "/api/v1/categories",
-          json({ name: input.name, kind: input.kind }),
-        );
+        return api<Category>("/api/v1/categories", json({ name: input.name, kind: input.kind }));
       }
       if (input.action === "update") {
         return api<Category>(`/api/v1/categories/${input.category.id}`, {
@@ -222,9 +197,7 @@ export default function CategoriesPage() {
     selectedIds.has(category.id),
   );
   const target = selectedCategories.find((category) => category.id === targetId);
-  const sourceCategories = selectedCategories.filter(
-    (category) => category.id !== targetId,
-  );
+  const sourceCategories = selectedCategories.filter((category) => category.id !== targetId);
   const mergeMutation = useMutation({
     mutationFn: () => {
       if (!target) throw new Error("Choose the category to keep");
@@ -234,10 +207,7 @@ export default function CategoriesPage() {
           sourceCategoryIds: sourceCategories.map((category) => category.id),
           targetCategoryId: target.id,
           expectedVersions: Object.fromEntries(
-            sourceCategories.map((category) => [
-              category.id,
-              category.version,
-            ]),
+            sourceCategories.map((category) => [category.id, category.version]),
           ),
           targetExpectedVersion: target.version,
         }),
@@ -280,8 +250,7 @@ export default function CategoriesPage() {
         }
       };
       return (
-        compareForSort(of(left), of(right), sort.direction) ||
-        left.name.localeCompare(right.name)
+        compareForSort(of(left), of(right), sort.direction) || left.name.localeCompare(right.name)
       );
     });
   }, [categories.data, search, sort]);
@@ -293,8 +262,7 @@ export default function CategoriesPage() {
 
   const chooseDuplicateGroup = (group: CategoryDuplicateGroup) => {
     const targetCategory =
-      group.categories.find((category) => !category.archivedAt) ??
-      group.categories[0];
+      group.categories.find((category) => !category.archivedAt) ?? group.categories[0];
     if (!targetCategory) return;
     setIncludeArchived(true);
     setTargetId(targetCategory.id);
@@ -330,9 +298,7 @@ export default function CategoriesPage() {
             <Plus size={16} /> Add category
           </Button>
         </form>
-        {categoryMutation.error ? (
-          <Alert>{categoryMutation.error.message}</Alert>
-        ) : null}
+        {categoryMutation.error ? <Alert>{categoryMutation.error.message}</Alert> : null}
       </section>
 
       {duplicates.data?.length ? (
@@ -348,14 +314,8 @@ export default function CategoriesPage() {
           </div>
           {duplicates.data.map((group) => (
             <Alert kind="info" key={group.normalizedName}>
-              <span>
-                {group.categories.map((category) => category.name).join(", ")}
-              </span>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => chooseDuplicateGroup(group)}
-              >
+              <span>{group.categories.map((category) => category.name).join(", ")}</span>
+              <Button type="button" variant="secondary" onClick={() => chooseDuplicateGroup(group)}>
                 Review merge
               </Button>
             </Alert>
@@ -387,12 +347,8 @@ export default function CategoriesPage() {
       {selectedCategories.length >= 2 ? (
         <section className="panel merge-panel">
           <div>
-            <strong>
-              Merge {selectedCategories.length} selected categories
-            </strong>
-            <small>
-              Transactions and staged rows will move to the category you keep.
-            </small>
+            <strong>Merge {selectedCategories.length} selected categories</strong>
+            <small>Transactions and staged rows will move to the category you keep.</small>
           </div>
           <Select
             aria-label="Category to keep"
@@ -444,9 +400,8 @@ export default function CategoriesPage() {
                   checked={selectedIds.has(category.id)}
                   onChange={(event) => {
                     const next = new Set(selectedIds);
-                    event.target.checked
-                      ? next.add(category.id)
-                      : next.delete(category.id);
+                    if (event.target.checked) next.add(category.id);
+                    else next.delete(category.id);
                     setSelectedIds(next);
                     if (!event.target.checked && targetId === category.id) {
                       setTargetId("");
@@ -468,8 +423,8 @@ export default function CategoriesPage() {
                     </Link>
                   </strong>
                   <small>
-                    {kindLabels[category.kind]} · {category.transactionCount}{" "}
-                    committed · {category.stagedTransactionCount} staged
+                    {kindLabels[category.kind]} · {category.transactionCount} committed ·{" "}
+                    {category.stagedTransactionCount} staged
                   </small>
                 </span>
               </div>
@@ -484,27 +439,16 @@ export default function CategoriesPage() {
                 {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>
               <div className="row-actions">
-                <button
-                  aria-label={`Edit ${category.name}`}
-                  onClick={() => setEditing(category)}
-                >
+                <button aria-label={`Edit ${category.name}`} onClick={() => setEditing(category)}>
                   <Pencil size={16} />
                 </button>
                 <button
                   aria-label={
-                    category.archivedAt
-                      ? `Restore ${category.name}`
-                      : `Archive ${category.name}`
+                    category.archivedAt ? `Restore ${category.name}` : `Archive ${category.name}`
                   }
-                  onClick={() =>
-                    categoryMutation.mutate({ action: "archive", category })
-                  }
+                  onClick={() => categoryMutation.mutate({ action: "archive", category })}
                 >
-                  {category.archivedAt ? (
-                    <ArchiveRestore size={16} />
-                  ) : (
-                    <Archive size={16} />
-                  )}
+                  {category.archivedAt ? <ArchiveRestore size={16} /> : <Archive size={16} />}
                 </button>
                 <button
                   aria-label={`Delete unused ${category.name}`}
@@ -521,7 +465,7 @@ export default function CategoriesPage() {
           ))}
         </div>
       ) : categories.isPending ? (
-        <p className="settings-note">Loading categories…</p>
+        <Skeleton height={120} label="Loading categories…" />
       ) : categories.error ? null : (
         <EmptyState
           icon={<Tags size={24} />}

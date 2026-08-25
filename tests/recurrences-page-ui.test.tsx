@@ -162,8 +162,7 @@ async function renderPage(items: Recurrence[], writes = stubApi(items)) {
   return writes;
 }
 
-const rowFor = (name: string) =>
-  screen.getByRole("row", { name: new RegExp(name) });
+const rowFor = (name: string) => screen.getByRole("row", { name: new RegExp(name) });
 
 afterEach(() => {
   cleanup();
@@ -358,9 +357,7 @@ describe("the recurrence form", () => {
     expect(
       within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
     ).toBeDisabled();
-    expect(
-      within(policy).getByRole("option", { name: /Move it on to the Monday/ }),
-    ).toBeDisabled();
+    expect(within(policy).getByRole("option", { name: /Move it on to the Monday/ })).toBeDisabled();
     expect(
       screen.getByText(/Make the interval three days or more to use those two/),
     ).toBeInTheDocument();
@@ -428,20 +425,14 @@ describe("the recurrence form", () => {
   });
 
   it("shows on the list whether a recurrence writes when it proposes", async () => {
-    await renderPage([
-      rent,
-      { ...payroll, notifyOnCreate: true },
-    ]);
+    await renderPage([rent, { ...payroll, notifyOnCreate: true }]);
 
     expect(within(rowFor("Rent")).getByText("No")).toBeInTheDocument();
     expect(within(rowFor("Salary")).getByText("Email")).toBeInTheDocument();
   });
 
   it("groups the ones that will email when the column is sorted", async () => {
-    await renderPage([
-      rent,
-      { ...payroll, notifyOnCreate: true },
-    ]);
+    await renderPage([rent, { ...payroll, notifyOnCreate: true }]);
     const names = () =>
       screen
         .getAllByRole("row")
@@ -467,9 +458,7 @@ describe("the recurrence form", () => {
     const dialog = within(await screen.findByRole("dialog"));
 
     for (const name of ["Schedule", "Notifications"]) {
-      expect(dialog.getByText(name).closest("fieldset")).toHaveClass(
-        "form-fieldset",
-      );
+      expect(dialog.getByText(name).closest("fieldset")).toHaveClass("form-fieldset");
     }
   });
 
@@ -496,9 +485,7 @@ describe("the recurrence form", () => {
     fireEvent.click(screen.getByRole("button", { name: /Actions for Rent/ }));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
 
-    expect(
-      await screen.findByLabelText(/Email me when this proposes/),
-    ).toBeChecked();
+    expect(await screen.findByLabelText(/Email me when this proposes/)).toBeChecked();
   });
 
   it("says so when the deployment cannot send the email it is offering", async () => {
@@ -507,9 +494,7 @@ describe("the recurrence form", () => {
       await renderPage([]);
       await openForm();
       fireEvent.click(screen.getByLabelText(/Email me when this proposes/));
-      expect(
-        await screen.findByText(/no mail server configured/),
-      ).toBeInTheDocument();
+      expect(await screen.findByText(/no mail server configured/)).toBeInTheDocument();
     } finally {
       mailAvailable = true;
     }

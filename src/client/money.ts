@@ -20,21 +20,14 @@ let isoCurrencyCodes: Set<string> | null = null;
 function isoCurrency(currency: string) {
   if (!isoCurrencyCodes) {
     isoCurrencyCodes = new Set(
-      typeof Intl.supportedValuesOf === "function"
-        ? Intl.supportedValuesOf("currency")
-        : [],
+      typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("currency") : [],
     );
   }
   return isoCurrencyCodes.has(currency);
 }
 
 /** Half-up rounding on the decimal string, so no precision is lost to floats. */
-function roundDecimal(
-  sign: string,
-  integer: string,
-  fraction: string,
-  digits: number,
-) {
+function roundDecimal(sign: string, integer: string, fraction: string, digits: number) {
   const kept = fraction.slice(0, digits);
   const roundUp = Number(fraction[digits] ?? "0") >= 5;
   const scaled = BigInt(`${integer}${kept.padEnd(digits, "0")}`) + (roundUp ? 1n : 0n);
@@ -61,10 +54,7 @@ function roundDecimal(
  */
 const numberFormatters = new Map<string, Intl.NumberFormat>();
 
-function numberFormat(
-  locales: string | string[] | undefined,
-  options: Intl.NumberFormatOptions,
-) {
+function numberFormat(locales: string | string[] | undefined, options: Intl.NumberFormatOptions) {
   const key = `${Array.isArray(locales) ? locales.join(",") : (locales ?? "")}|${JSON.stringify(options)}`;
   let formatter = numberFormatters.get(key);
   if (!formatter) {
@@ -86,11 +76,7 @@ function dateFormat(options: Intl.DateTimeFormatOptions) {
   return formatter;
 }
 
-export function formatMoney(
-  amount: string,
-  currency: string,
-  locales?: string | string[],
-) {
+export function formatMoney(amount: string, currency: string, locales?: string | string[]) {
   try {
     const match = /^(-?)(\d+)(?:\.(\d{1,18}))?$/.exec(amount);
     if (!match) return `${amount} ${currency}`;
@@ -100,8 +86,7 @@ export function formatMoney(
       style: "currency",
       currency,
     });
-    const currencyDigits =
-      baseFormatter.resolvedOptions().minimumFractionDigits ?? 0;
+    const currencyDigits = baseFormatter.resolvedOptions().minimumFractionDigits ?? 0;
     // A real currency is shown at its own precision, so a stored value carrying
     // more scale than the currency has does not leak extra digits into the UI.
     // Crypto symbols are not ISO currencies and genuinely need their scale, so
@@ -276,15 +261,11 @@ export function moneyRatioPercent(amount: string, maximum: string) {
   const bounded = hundredthsOfPercent > 10_000n ? 10_000n : hundredthsOfPercent;
   const visible = bounded < 400n ? 400n : bounded;
   const whole = visible / 100n;
-  const fraction = (visible % 100n)
-    .toString()
-    .padStart(2, "0")
-    .replace(/0+$/, "");
+  const fraction = (visible % 100n).toString().padStart(2, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
 export function moneyExtent(amounts: readonly string[]) {
-
   let low: bigint | undefined;
   let high: bigint | undefined;
   for (const amount of amounts) {
@@ -306,11 +287,7 @@ export function moneyExtent(amounts: readonly string[]) {
  * below zero would plot as a short positive bar and the chart would read as the
  * opposite of the truth.
  */
-export function moneyScalePercent(
-  amount: string,
-  low: string,
-  high: string,
-): string {
+export function moneyScalePercent(amount: string, low: string, high: string): string {
   const value = moneyUnits(amount);
   const bottom = moneyUnits(low);
   const top = moneyUnits(high);
@@ -321,10 +298,7 @@ export function moneyScalePercent(
   const clamped = value < bottom ? bottom : value > top ? top : value;
   const hundredths = ((clamped - bottom) * 10_000n) / span;
   const whole = hundredths / 100n;
-  const fraction = (hundredths % 100n)
-    .toString()
-    .padStart(2, "0")
-    .replace(/0+$/, "");
+  const fraction = (hundredths % 100n).toString().padStart(2, "0").replace(/0+$/, "");
   return fraction ? `${whole}.${fraction}` : whole.toString();
 }
 
@@ -344,4 +318,43 @@ export function formatDate(value: string) {
     day: "numeric",
     timeZone: "UTC",
   }).format(day);
+}
+
+/**
+ * Which way a movement went, as a sign and a class.
+ *
+ * A stored amount is always positive: `AGENTS.md` keeps direction in the
+ * transaction's type rather than in the number, so nothing about the value
+ * itself says whether money arrived or left. A list of movements has to say so
+ * anyway, and it has to say it the same way on every page.
+ *
+ * It used to say it three ways. The register signed and coloured by type; the
+ * reports coloured by the value's own sign; and the review queue, the templates
+ * and the recurrences said nothing at all, so the same withdrawal read three
+ * ways in three places and one of the three did not read at all.
+ *
+ * `inbound` is for a transfer seen from one account: the same transfer leaves
+ * one side and arrives at the other, so the answer depends on which account is
+ * being looked at, and a transfer seen from neither has no direction to show.
+ */
+export function movementSign(
+  type: string | undefined,
+  inbound?: boolean,
+): { sign: string; className: string } {
+  if (type === "deposit") return { sign: "+", className: "deposit" };
+  if (type === "withdrawal") return { sign: "−", className: "withdrawal" };
+  if (type === "transfer") {
+    // A transfer between somebody's own accounts is not spending, so it is
+    // signed but left uncoloured. The inbound side reads as an arrival, which
+    // is why it takes the deposit colour and the outbound side takes none.
+    // That asymmetry is the register's own and is preserved here rather than
+    // tidied, because tidying it would repaint a screen without being asked.
+    if (inbound === true) return { sign: "+", className: "deposit" };
+    if (inbound === false) return { sign: "−", className: "transfer" };
+    return { sign: "", className: "transfer" };
+  }
+  // A staged row can carry a type a parser could not read, and that row is
+  // exactly the one somebody opened the queue to repair. It gets no sign rather
+  // than a guessed one.
+  return { sign: "", className: "" };
 }

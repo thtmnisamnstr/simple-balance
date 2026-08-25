@@ -148,11 +148,7 @@ describe("accounts grouped by type", () => {
    */
   it("opens an account from the overview, keeping the range", async () => {
     stub();
-    window.history.replaceState(
-      null,
-      "",
-      "/?preset=custom&start=2026-03-01&end=2026-03-31",
-    );
+    window.history.replaceState(null, "", "/?preset=custom&start=2026-03-01&end=2026-03-31");
     render(
       <QueryClientProvider client={client()}>
         <BrowserRouter>

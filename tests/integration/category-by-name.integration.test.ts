@@ -6,15 +6,9 @@ import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { categories, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
-import {
-  createCategory,
-  setCategoryArchived,
-} from "../../src/server/services/categories.js";
+import { createCategory, setCategoryArchived } from "../../src/server/services/categories.js";
 import { createStage } from "../../src/server/services/staging.js";
-import {
-  createTransaction,
-  updateTransaction,
-} from "../../src/server/services/transactions.js";
+import { createTransaction, updateTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -25,16 +19,18 @@ let adminClient: PgClient;
 let accountId: string;
 
 let keySeed = 0;
-const nextKey = () => `cat-by-name-${(keySeed += 1)}`.padEnd(16, "0");
+// Padded on the counter rather than the whole string, because padding the
+// string to a fixed width made different counters collide: "…-1" and "…-10"
+// both filled out to the same key, and two calls with the same payload then
+// returned the first transaction instead of making a second one — a test that
+// passes having written nothing.
+const nextKey = () => `cat-by-name-${String((keySeed += 1)).padStart(4, "0")}`;
 
-const owned = () =>
-  getDb().select().from(categories).where(eq(categories.userId, actor.userId));
+const owned = () => getDb().select().from(categories).where(eq(categories.userId, actor.userId));
 
 const named = async (name: string) => {
   const rows = await owned();
-  return rows.filter(
-    (row) => row.name.trim().toLowerCase() === name.trim().toLowerCase(),
-  );
+  return rows.filter((row) => row.name.trim().toLowerCase() === name.trim().toLowerCase());
 };
 
 integration("naming a category on a transaction instead of picking one", () => {
@@ -118,7 +114,15 @@ integration("naming a category on a transaction instead of picking one", () => {
     expect(after[0].name).toBe("Groceries");
   });
 
-  it("widens a category rather than duplicating it when the other side needs it", async () => {
+  /**
+   * This used to assert the opposite, and its own fixture gave the game away by
+   * calling the payee "Refund". Widening was right while a deposit could not
+   * name a spending category at all; now that it can, and means a refund,
+   * widening destroys the thing that makes it one. `both` agrees with whichever
+   * direction it is handed, so the widened category credits income for ever
+   * after and the budget it should lower never moves.
+   */
+  it("keeps a spending category as spending when a refund names it", async () => {
     await createTransaction(
       actor,
       {
@@ -134,7 +138,32 @@ integration("naming a category on a transaction instead of picking one", () => {
     );
     const rows = await named("Groceries");
     expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe("expense");
+  });
+
+  /** A category genuinely used both ways still widens, because that pairing is
+   *  an ambiguity rather than a reversal. */
+  it("widens a category when one side of the pairing already covers both", async () => {
+    const flexible = await createCategory(actor, {
+      name: "Reimbursements",
+      kind: "both",
+    });
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        date: "2026-02-04",
+        payee: "Paid out",
+        description: null,
+        amount: "3.00",
+        fromAccountId: accountId,
+        categoryName: "reimbursements",
+      },
+      nextKey(),
+    );
+    const rows = await named("Reimbursements");
     expect(rows[0].kind).toBe("both");
+    expect(rows[0].id).toBe(flexible.id);
   });
 
   it("brings an archived category back when it is named again", async () => {
@@ -269,13 +298,196 @@ integration("naming a category on a transaction instead of picking one", () => {
     const theirs = await getDb()
       .select()
       .from(categories)
-      .where(
-        and(
-          eq(categories.userId, stranger.userId),
-          eq(categories.name, "Groceries"),
-        ),
-      );
+      .where(and(eq(categories.userId, stranger.userId), eq(categories.name, "Groceries")));
     expect(theirs).toHaveLength(1);
     expect((await named("Groceries"))[0].id).not.toBe(theirs[0].id);
+  });
+  /**
+   * Saying which kind a name should be created as.
+   *
+   * The direction is a good guess and a bad rule. A deposit naming something
+   * new made an income category, so the one entry that most needs a spending
+   * category — a refund arriving before any spending was ever filed under that
+   * name — was the one entry that could not make one. `categoryKind` is how a
+   * caller says so, and it is consulted for exactly that case: a name, nothing
+   * behind it yet, and a direction that would guess wrong.
+   */
+  describe("saying which kind a new category should be", () => {
+    it("creates a spending category from a deposit when told to", async () => {
+      const created = await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          date: "2026-02-10",
+          payee: "Electronics Store",
+          description: null,
+          amount: "30.00",
+          toAccountId: accountId,
+          categoryName: "Gadgets",
+          categoryKind: "expense",
+        },
+        nextKey(),
+      );
+      const [category] = await named("Gadgets");
+      expect(category).toBeDefined();
+      // Not "income", which is what the direction alone would have made, and
+      // not "both", which is what a widening resolve used to make.
+      expect(category.kind).toBe("expense");
+      expect(created.categoryId).toBe(category.id);
+    });
+
+    it("creates an income category from a withdrawal when told to", async () => {
+      await createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          date: "2026-02-11",
+          payee: "Client Refunded",
+          description: null,
+          amount: "40.00",
+          fromAccountId: accountId,
+          categoryName: "Consulting Returned",
+          categoryKind: "income",
+        },
+        nextKey(),
+      );
+      expect((await named("Consulting Returned"))[0].kind).toBe("income");
+    });
+
+    it("still follows the direction when nothing says otherwise", async () => {
+      await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          date: "2026-02-12",
+          payee: "Employer",
+          description: null,
+          amount: "500.00",
+          toAccountId: accountId,
+          categoryName: "Salary",
+        },
+        nextKey(),
+      );
+      expect((await named("Salary"))[0].kind).toBe("income");
+    });
+
+    // A category that exists has a right answer already, and this field is not
+    // a licence to overwrite it. Letting it through would be the widening bug
+    // again wearing a different hat.
+    it("leaves a category that already exists alone", async () => {
+      const before = await named("Groceries");
+      expect(before[0].kind).toBe("expense");
+      await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          date: "2026-02-13",
+          payee: "Supermarket Refund",
+          description: null,
+          amount: "6.00",
+          toAccountId: accountId,
+          categoryName: "GROCERIES",
+          categoryKind: "income",
+        },
+        nextKey(),
+      );
+      const after = await named("Groceries");
+      expect(after).toHaveLength(1);
+      expect(after[0].kind).toBe("expense");
+      expect(after[0].version).toBe(before[0].version);
+    });
+
+    it("ignores it when an id already answers the question", async () => {
+      const [existing] = await named("Gadgets");
+      const created = await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          date: "2026-02-14",
+          payee: "Electronics Store",
+          description: null,
+          amount: "7.00",
+          toAccountId: accountId,
+          categoryId: existing.id,
+          categoryKind: "income",
+        },
+        nextKey(),
+      );
+      expect(created.categoryId).toBe(existing.id);
+      expect((await named("Gadgets"))[0].kind).toBe("expense");
+    });
+
+    // Every leg is a share of one movement, so one answer covers them all.
+    it("applies to the legs of a split", async () => {
+      await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          date: "2026-02-15",
+          payee: "Two Refunds",
+          description: null,
+          amount: "25.00",
+          toAccountId: accountId,
+          categoryKind: "expense",
+          legs: [
+            { categoryName: "Returned Boots", amount: "10.00" },
+            { categoryName: "Returned Coat", amount: "15.00" },
+          ],
+        },
+        nextKey(),
+      );
+      expect((await named("Returned Boots"))[0].kind).toBe("expense");
+      expect((await named("Returned Coat"))[0].kind).toBe("expense");
+    });
+
+    it("works on an edit as well as a create", async () => {
+      const created = await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          date: "2026-02-16",
+          payee: "Later Refund",
+          description: null,
+          amount: "11.00",
+          toAccountId: accountId,
+        },
+        nextKey(),
+      );
+      await updateTransaction(actor, created.id, {
+        draft: {
+          type: "deposit",
+          date: "2026-02-16",
+          payee: "Later Refund",
+          description: null,
+          amount: "11.00",
+          toAccountId: accountId,
+          categoryName: "Edited Into Spending",
+          categoryKind: "expense",
+        },
+        expectedVersion: created.version,
+      });
+      expect((await named("Edited Into Spending"))[0].kind).toBe("expense");
+    });
+
+    // The field decides how to create a category; it is not itself stored on
+    // the entry. A staged row keeps it so the commit, which sees one row at a
+    // time, still knows what the row said.
+    it("does not survive onto the saved transaction", async () => {
+      const created = await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          date: "2026-02-17",
+          payee: "No Residue",
+          description: null,
+          amount: "4.00",
+          toAccountId: accountId,
+          categoryName: "Residue Check",
+          categoryKind: "expense",
+        },
+        nextKey(),
+      );
+      expect(created).not.toHaveProperty("categoryKind");
+    });
   });
 });

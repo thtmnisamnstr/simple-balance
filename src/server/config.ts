@@ -6,10 +6,7 @@ function isLoopbackHostname(hostname: string) {
   return (
     octets.length === 4 &&
     octets[0] === "127" &&
-    octets.every(
-      (octet) =>
-        /^\d{1,3}$/.test(octet) && Number(octet) <= 255,
-    )
+    octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
   );
 }
 
@@ -230,14 +227,11 @@ export function getConfig(): AppConfig {
   }
   cached = {
     databaseUrl:
-      values.DATABASE_URL ??
-      "postgresql://postgres:postgres@127.0.0.1:5432/simple_balance",
+      values.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/simple_balance",
     baseUrl: (
-      values.APP_BASE_URL ??
-      (isProduction ? "http://localhost:3000" : "http://localhost:5173")
+      values.APP_BASE_URL ?? (isProduction ? "http://localhost:3000" : "http://localhost:5173")
     ).replace(/\/$/, ""),
-    authSecret:
-      values.AUTH_SECRET ?? "development-only-secret-change-me-1234567890",
+    authSecret: values.AUTH_SECRET ?? "development-only-secret-change-me-1234567890",
     authMode,
     localAuthEnabled,
     googleAuthEnabled,
@@ -289,8 +283,7 @@ export type MailSettings = {
 
 // Displayed as-is by mail clients, so it has to be something they will accept:
 // either bare, or the "Name <address>" form.
-const mailAddress =
-  /^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$|^[^<>]+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/;
+const mailAddress = /^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$|^[^<>]+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/;
 
 /**
  * Reads the SMTP settings.
@@ -419,9 +412,7 @@ function assertDomain(candidate: string, entry: string) {
 function assertEmail(entry: string) {
   const [local, ...rest] = entry.split("@");
   if (!local || rest.length !== 1) {
-    throw new Error(
-      `ALLOWED_EMAILS entry "${entry}" is not a usable email address.`,
-    );
+    throw new Error(`ALLOWED_EMAILS entry "${entry}" is not a usable email address.`);
   }
   assertDomain(rest[0]!, entry);
 }

@@ -77,7 +77,9 @@ export function readSettings(): Settings {
     );
   }
 
-  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(settings.hostname)) {
+  if (
+    !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(settings.hostname)
+  ) {
     throw new Error(
       `simple-balance:hostname is a DNS name and nothing else: no scheme, no port, no path. Got "${settings.hostname}".`,
     );
@@ -93,14 +95,17 @@ export function readSettings(): Settings {
   ];
   for (const [key, value, floor] of floors) {
     if (value < floor) {
-      throw new Error(`simple-balance:${key} is ${value}; the chart's minReplicas for that workload is ${floor}.`);
+      throw new Error(
+        `simple-balance:${key} is ${value}; the chart's minReplicas for that workload is ${floor}.`,
+      );
     }
   }
 
   // Each API and scheduler process holds databasePoolSize connections and takes
   // one more while it starts. The frontend is nginx and holds none. Refusing
   // here beats a replica that scales up and cannot connect.
-  const peak = (settings.serverMaxReplicas + settings.schedulerMaxReplicas) * (settings.databasePoolSize + 1);
+  const peak =
+    (settings.serverMaxReplicas + settings.schedulerMaxReplicas) * (settings.databasePoolSize + 1);
   if (peak > settings.maxConnections) {
     throw new Error(
       `Scaled all the way out this deployment opens (${settings.serverMaxReplicas} + ${settings.schedulerMaxReplicas}) x ` +

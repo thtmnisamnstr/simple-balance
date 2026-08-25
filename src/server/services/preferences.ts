@@ -89,14 +89,8 @@ export const preferencePatchSchema = preferenceSchema.partial();
  */
 const adoptionSchema = z.object({ ifUnchosen: z.boolean().optional() });
 
-export async function setPreferences(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
-  const { ifUnchosen } = adoptionSchema.parse(
-    input && typeof input === "object" ? input : {},
-  );
+export async function setPreferences(actor: Actor, input: unknown, transaction?: DbTransaction) {
+  const { ifUnchosen } = adoptionSchema.parse(input && typeof input === "object" ? input : {});
   // Takes a transaction rather than always opening one, like every other write
   // here. Opening its own inside a caller's would take a second connection out
   // of the pool and commit on its own terms.

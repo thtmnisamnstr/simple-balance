@@ -8,13 +8,9 @@ import {
 
 describe("exact client money rendering", () => {
   it("keeps every integer digit exact without converting through Number", () => {
-    expect(
-      formatMoney(
-        "99999999999999999999999999.123456789012",
-        "USD",
-        "en-US",
-      ),
-    ).toBe("$99,999,999,999,999,999,999,999,999.12");
+    expect(formatMoney("99999999999999999999999999.123456789012", "USD", "en-US")).toBe(
+      "$99,999,999,999,999,999,999,999,999.12",
+    );
     expect(formatMoney("42", "USD", "en-US")).toBe("$42.00");
   });
 

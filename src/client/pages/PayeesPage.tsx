@@ -1,10 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowRight,
-  Combine,
-  Search,
-  UserRound,
-} from "lucide-react";
+import { ArrowRight, Combine, Search, UserRound } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { Link, payeeDetailSearch, useLocation } from "../router.js";
 import {
@@ -18,14 +13,15 @@ import {
   Alert,
   Badge,
   Button,
+  compareForSort,
+  ConfirmDialog,
   EmptyState,
   Input,
   PageHeader,
   Select,
+  Skeleton,
   SortMenu,
   type SortState,
-  compareForSort,
-  ConfirmDialog,
   useConfirm,
 } from "../components.js";
 import { newIdempotencyKey } from "../idempotency.js";
@@ -56,16 +52,11 @@ export default function PayeesPage() {
   });
   const duplicates = useQuery({
     queryKey: ["payees", "duplicates"],
-    queryFn: () =>
-      api<PayeeDuplicateGroup[]>("/api/v1/payees/duplicates"),
+    queryFn: () => api<PayeeDuplicateGroup[]>("/api/v1/payees/duplicates"),
   });
 
-  const selectedPayees = (payees.data ?? []).filter((payee) =>
-    participants.has(payee.name),
-  );
-  const selectedTarget = selectedPayees.find(
-    (payee) => payee.name === targetPayee,
-  );
+  const selectedPayees = (payees.data ?? []).filter((payee) => participants.has(payee.name));
+  const selectedTarget = selectedPayees.find((payee) => payee.name === targetPayee);
   const mergeMutation = useMutation({
     mutationFn: () => {
       if (!selectedTarget || selectedPayees.length < 2) {
@@ -98,9 +89,7 @@ export default function PayeesPage() {
   const filtered = useMemo(() => {
     const value = search.trim().toLocaleLowerCase();
     const matching = value
-      ? (payees.data ?? []).filter((payee) =>
-          payee.name.toLocaleLowerCase().includes(value),
-        )
+      ? (payees.data ?? []).filter((payee) => payee.name.toLocaleLowerCase().includes(value))
       : (payees.data ?? []);
     return [...matching].sort((left, right) => {
       const of = (payee: PayeeSummary) => {
@@ -116,8 +105,7 @@ export default function PayeesPage() {
         }
       };
       return (
-        compareForSort(of(left), of(right), sort.direction) ||
-        left.name.localeCompare(right.name)
+        compareForSort(of(left), of(right), sort.direction) || left.name.localeCompare(right.name)
       );
     });
   }, [payees.data, search, sort]);
@@ -155,11 +143,7 @@ export default function PayeesPage() {
           {duplicates.data.map((group) => (
             <Alert kind="info" key={group.normalizedName}>
               <span>{group.payees.map((payee) => payee.name).join(", ")}</span>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => chooseDuplicateGroup(group)}
-              >
+              <Button type="button" variant="secondary" onClick={() => chooseDuplicateGroup(group)}>
                 Review merge
               </Button>
             </Alert>
@@ -184,9 +168,7 @@ export default function PayeesPage() {
         <section className="panel merge-panel">
           <div>
             <strong>Merge {selectedPayees.length} selected payees</strong>
-            <small>
-              Committed transactions and staged rows will use the payee you keep.
-            </small>
+            <small>Committed transactions and staged rows will use the payee you keep.</small>
           </div>
           <Select
             aria-label="Payee to keep"
@@ -262,8 +244,7 @@ export default function PayeesPage() {
                     </Link>
                   </strong>
                   <small>
-                    {payee.transactionCount} committed · {payee.stagedTransactionCount}{" "}
-                    staged
+                    {payee.transactionCount} committed · {payee.stagedTransactionCount} staged
                   </small>
                 </span>
               </div>
@@ -287,7 +268,7 @@ export default function PayeesPage() {
           ))}
         </div>
       ) : payees.isPending ? (
-        <p>Loading payees…</p>
+        <Skeleton height={120} label="Loading payees…" />
       ) : (
         <EmptyState
           icon={<UserRound size={24} />}

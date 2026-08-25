@@ -15,6 +15,9 @@ export default defineConfig({
     // in it. Left in, a run collects them all, and the integration ones then
     // race each other for the same database and fail on schema comparisons that
     // are perfectly correct in each copy.
-    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/worktrees/**"],
+    // `tests/browser` belongs to Playwright, which brings its own `test` and
+    // `expect`. Collected here it fails at import with no useful message, and
+    // the two runners must not see each other's specs.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/worktrees/**", "tests/browser/**"],
   },
 });

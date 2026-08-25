@@ -302,6 +302,7 @@ added later. They were admitted under the rules that applied at the time.
 docker run -d --name simple-balance --restart unless-stopped \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --stop-timeout 30 \
   -p 127.0.0.1:3000:3000 \
   --env-file .env \
   ghcr.io/thtmnisamnstr/simple-balance:latest

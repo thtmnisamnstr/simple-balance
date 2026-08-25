@@ -3,10 +3,7 @@ import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
-import {
-  createTransaction,
-  listTransactions,
-} from "../../src/server/services/transactions.js";
+import { createTransaction, listTransactions } from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -83,24 +80,21 @@ integration("paging a payee-sorted list", () => {
     },
   );
 
-  it.each(["asc", "desc"] as const)(
-    "walks every row exactly once, %s",
-    async (direction) => {
-      const seen: string[] = [];
-      let cursor: string | null | undefined;
-      for (let step = 0; step <= PAYEES.length + 1; step += 1) {
-        const page = await listTransactions(actor, {
-          sort: "payee",
-          direction,
-          limit: 1,
-          cursor: cursor ?? undefined,
-        });
-        seen.push(...page.items.map((item) => item.payee));
-        cursor = page.nextCursor;
-        if (!cursor) break;
-      }
-      expect(cursor).toBeNull();
-      expect([...seen].sort()).toEqual([...PAYEES].sort());
-    },
-  );
+  it.each(["asc", "desc"] as const)("walks every row exactly once, %s", async (direction) => {
+    const seen: string[] = [];
+    let cursor: string | null | undefined;
+    for (let step = 0; step <= PAYEES.length + 1; step += 1) {
+      const page = await listTransactions(actor, {
+        sort: "payee",
+        direction,
+        limit: 1,
+        cursor: cursor ?? undefined,
+      });
+      seen.push(...page.items.map((item) => item.payee));
+      cursor = page.nextCursor;
+      if (!cursor) break;
+    }
+    expect(cursor).toBeNull();
+    expect([...seen].sort()).toEqual([...PAYEES].sort());
+  });
 });

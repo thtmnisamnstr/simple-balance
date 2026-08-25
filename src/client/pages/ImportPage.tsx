@@ -1,21 +1,9 @@
 import { Link } from "../router.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowRight,
-  CheckCircle2,
-  FileSpreadsheet,
-  FlaskConical,
-  Upload,
-} from "lucide-react";
+import { ArrowRight, CheckCircle2, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
-import {
-  api,
-  json,
-  queryString,
-  type Account,
-  type CsvPreview,
-} from "../api.js";
+import { api, json, queryString, type Account, type CsvPreview } from "../api.js";
 import {
   Alert,
   Badge,
@@ -24,6 +12,7 @@ import {
   Field,
   PageHeader,
   Select,
+  Skeleton,
 } from "../components.js";
 import { newIdempotencyKey } from "../idempotency.js";
 
@@ -172,9 +161,7 @@ export default function ImportPage() {
 
   const hasAmounts = Boolean(mapping.amount || mapping.debit || mapping.credit);
   const ready = Boolean(
-    csv &&
-      defaultAccountId &&
-      (appExport || (mapping.date && mapping.payee && hasAmounts)),
+    csv && defaultAccountId && (appExport || (mapping.date && mapping.payee && hasAmounts)),
   );
   const sampleHeaders = useMemo(() => preview?.headers.slice(0, 8) ?? [], [preview]);
 
@@ -197,7 +184,7 @@ export default function ImportPage() {
 
       {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
       {accounts.isPending ? (
-        <p className="settings-note">Loading accounts…</p>
+        <Skeleton height={64} label="Loading accounts…" />
       ) : accounts.error ? null : !accounts.data?.length ? (
         <EmptyState
           icon={<FileSpreadsheet size={25} />}
@@ -228,20 +215,19 @@ export default function ImportPage() {
                   <div>
                     <h2>{appExport ? "Choose the account" : "Map the columns"}</h2>
                     <p>
-                      Detected <strong>{preview.delimiter === "\t" ? "tab" : preview.delimiter}</strong>{" "}
+                      Detected{" "}
+                      <strong>{preview.delimiter === "\t" ? "tab" : preview.delimiter}</strong>{" "}
                       delimiter and {preview.headers.length} columns.
                     </p>
                   </div>
                 </div>
                 {appExport ? (
                   <Alert kind="info">
-                    This is a Simple Balance export, so its dates, amounts,
-                    categories, and text are read from the columns it already
-                    names and there is nothing to map. Every row is posted
-                    against the account you choose here, whichever account the
-                    file was exported from. Transfers name a second account,
-                    which is a choice this screen cannot make, so they arrive in
-                    the queue asking for it.
+                    This is a Simple Balance export, so its dates, amounts, categories, and text are
+                    read from the columns it already names and there is nothing to map. Every row is
+                    posted against the account you choose here, whichever account the file was
+                    exported from. Transfers name a second account, which is a choice this screen
+                    cannot make, so they arrive in the queue asking for it.
                   </Alert>
                 ) : null}
                 <div className="form-grid">
@@ -316,9 +302,7 @@ export default function ImportPage() {
                           label="Category"
                           headers={preview.headers}
                           value={mapping.category}
-                          onChange={(category) =>
-                            setMapping((value) => ({ ...value, category }))
-                          }
+                          onChange={(category) => setMapping((value) => ({ ...value, category }))}
                         />
                         <MappingField
                           label="Description"
@@ -349,7 +333,9 @@ export default function ImportPage() {
                         </Field>
                       </div>
                       {!hasAmounts ? (
-                        <Alert>Map a signed amount column or one or both debit/credit columns.</Alert>
+                        <Alert>
+                          Map a signed amount column or one or both debit/credit columns.
+                        </Alert>
                       ) : null}
                     </>
                   )}
@@ -410,18 +396,37 @@ export default function ImportPage() {
                     {result.referenceResolution.categories.length ||
                     result.referenceResolution.payees.length ? (
                       <Alert kind="info">
-                        Categories: {result.referenceResolution.categories.filter(
-                          (item) => item.resolution === "existing",
-                        ).length} matched, {result.referenceResolution.categories.filter(
-                          (item) => item.resolution === "new",
-                        ).length} new, and {result.referenceResolution.categories.filter(
-                          (item) => item.resolution === "updated",
-                        ).length} updated. Payees:{" "}
-                        {result.referenceResolution.payees.filter(
-                          (item) => item.resolution === "existing",
-                        ).length} matched and {result.referenceResolution.payees.filter(
-                          (item) => item.resolution === "new",
-                        ).length} new.
+                        Categories:{" "}
+                        {
+                          result.referenceResolution.categories.filter(
+                            (item) => item.resolution === "existing",
+                          ).length
+                        }{" "}
+                        matched,{" "}
+                        {
+                          result.referenceResolution.categories.filter(
+                            (item) => item.resolution === "new",
+                          ).length
+                        }{" "}
+                        new, and{" "}
+                        {
+                          result.referenceResolution.categories.filter(
+                            (item) => item.resolution === "updated",
+                          ).length
+                        }{" "}
+                        updated. Payees:{" "}
+                        {
+                          result.referenceResolution.payees.filter(
+                            (item) => item.resolution === "existing",
+                          ).length
+                        }{" "}
+                        matched and{" "}
+                        {
+                          result.referenceResolution.payees.filter(
+                            (item) => item.resolution === "new",
+                          ).length
+                        }{" "}
+                        new.
                       </Alert>
                     ) : null}
                   </>
@@ -438,10 +443,13 @@ export default function ImportPage() {
             {preview?.rows.length ? (
               <div className="preview-table-wrap">
                 <table className="preview-table">
+                  <caption className="sr-only">Preview of the file being imported</caption>
                   <thead>
                     <tr>
                       {sampleHeaders.map((header) => (
-                        <th key={header}>{header}</th>
+                        <th scope="col" key={header}>
+                          {header}
+                        </th>
                       ))}
                     </tr>
                   </thead>

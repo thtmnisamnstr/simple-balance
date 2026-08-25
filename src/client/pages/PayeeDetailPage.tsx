@@ -13,17 +13,18 @@ export default function PayeeDetailPage() {
 
   return (
     <>
-      <Link
-        className="back-link"
-        to={{ pathname: "/payees", search: listSearch.toString() }}
-      >
+      <Link className="back-link" to={{ pathname: "/payees", search: listSearch.toString() }}>
         <ArrowLeft size={16} /> All payees
       </Link>
       <PageHeader
         eyebrow="Payee"
         title={payee}
         description="Transactions associated with this payee."
-        actions={<span className="account-icon"><UserRound size={18} /></span>}
+        actions={
+          <span className="account-icon">
+            <UserRound size={18} />
+          </span>
+        }
       />
       <DateRangeBar />
       <section className="account-transactions">
@@ -33,11 +34,7 @@ export default function PayeeDetailPage() {
             <p>Filter, search, export, or add activity for this payee.</p>
           </div>
         </div>
-        <TransactionBrowser
-          includeStaged
-          fixedPayee={payee}
-          showDateRange={false}
-        />
+        <TransactionBrowser includeStaged fixedPayee={payee} showDateRange={false} />
       </section>
     </>
   );

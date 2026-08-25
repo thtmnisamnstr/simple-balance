@@ -17,9 +17,10 @@ const nginxHeaders = () => {
     "utf8",
   );
   return new Map(
-    [...conf.matchAll(/^add_header\s+(\S+)\s+"([^"]*)"\s+always;/gm)].map(
-      (match) => [match[1]!.toLowerCase(), match[2]!],
-    ),
+    [...conf.matchAll(/^add_header\s+(\S+)\s+"([^"]*)"\s+always;/gm)].map((match) => [
+      match[1]!.toLowerCase(),
+      match[2]!,
+    ]),
   );
 };
 
@@ -44,9 +45,7 @@ describe("the security headers nginx repeats", () => {
     api.delete("content-type");
 
     const missing = [...api.keys()].filter((name) => !nginx.has(name));
-    expect(missing, `set by the API and not by nginx: ${missing.join(", ")}`).toEqual(
-      [],
-    );
+    expect(missing, `set by the API and not by nginx: ${missing.join(", ")}`).toEqual([]);
 
     for (const [name, value] of api) {
       expect(nginx.get(name), `${name} differs`).toBe(value);

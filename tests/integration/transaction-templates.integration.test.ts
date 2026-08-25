@@ -73,20 +73,22 @@ integration("saving a transaction as a template", () => {
     process.env.DATABASE_URL = databaseUrl.toString();
     await runMigrations();
 
-    await getDb().insert(user).values([
-      {
-        id: owner.userId,
-        name: "Template Owner",
-        email: "template-owner@example.com",
-        emailVerified: true,
-      },
-      {
-        id: stranger.userId,
-        name: "Stranger",
-        email: "template-stranger@example.com",
-        emailVerified: true,
-      },
-    ]);
+    await getDb()
+      .insert(user)
+      .values([
+        {
+          id: owner.userId,
+          name: "Template Owner",
+          email: "template-owner@example.com",
+          emailVerified: true,
+        },
+        {
+          id: stranger.userId,
+          name: "Stranger",
+          email: "template-stranger@example.com",
+          emailVerified: true,
+        },
+      ]);
     const opening = {
       type: "checking" as const,
       currency: "USD",
@@ -102,12 +104,8 @@ integration("saving a transaction as a template", () => {
         openingBalance: "0",
       })
     ).id;
-    strangerAccountId = (
-      await createAccount(stranger, { ...opening, name: "Theirs" })
-    ).id;
-    groceriesId = (
-      await createCategory(owner, { name: "Groceries", kind: "expense" })
-    ).id;
+    strangerAccountId = (await createAccount(stranger, { ...opening, name: "Theirs" })).id;
+    groceriesId = (await createCategory(owner, { name: "Groceries", kind: "expense" })).id;
   });
 
   afterAll(async () => {
@@ -194,9 +192,9 @@ integration("saving a transaction as a template", () => {
         draft: withdrawal({ payee: "Somebody", externalId: "bank-reference-12345" }),
       }),
     ).rejects.toThrow();
-    expect(
-      (await listTransactionTemplates(owner)).map((t) => t.name),
-    ).not.toContain("Refused externalId");
+    expect((await listTransactionTemplates(owner)).map((t) => t.name)).not.toContain(
+      "Refused externalId",
+    );
 
     const dated = await createTransactionTemplate(owner, {
       name: "Keeps a date",
@@ -329,12 +327,11 @@ integration("saving a transaction as a template", () => {
     ).rejects.toThrow();
     expect(await getTransactionTemplate(owner, created.id)).toBeTruthy();
 
-    expect(await deleteTransactionTemplate(owner, created.id, created.version)).toEqual(
-      { id: created.id, deleted: true },
-    );
-    await expect(getTransactionTemplate(owner, created.id)).rejects.toThrow(
-      /not found/i,
-    );
+    expect(await deleteTransactionTemplate(owner, created.id, created.version)).toEqual({
+      id: created.id,
+      deleted: true,
+    });
+    await expect(getTransactionTemplate(owner, created.id)).rejects.toThrow(/not found/i);
   });
 
   it("cannot see, edit, or delete another tenant's template", async () => {
@@ -346,18 +343,16 @@ integration("saving a transaction as a template", () => {
     expect((await listTransactionTemplates(owner)).map((t) => t.name)).not.toContain(
       "Theirs alone",
     );
-    await expect(getTransactionTemplate(owner, theirs.id)).rejects.toThrow(
-      /not found/i,
-    );
+    await expect(getTransactionTemplate(owner, theirs.id)).rejects.toThrow(/not found/i);
     await expect(
       updateTransactionTemplate(owner, theirs.id, {
         name: "Stolen",
         expectedVersion: theirs.version,
       }),
     ).rejects.toThrow(/not found/i);
-    await expect(
-      deleteTransactionTemplate(owner, theirs.id, theirs.version),
-    ).rejects.toThrow(/not found/i);
+    await expect(deleteTransactionTemplate(owner, theirs.id, theirs.version)).rejects.toThrow(
+      /not found/i,
+    );
 
     const stillTheirs = await getDb()
       .select()
@@ -467,15 +462,11 @@ integration("saving a transaction as a template", () => {
         },
         "count-deleted-1",
       );
-      const before = (await listTransactionTemplates(owner)).find(
-        (row) => row.id === template.id,
-      )!;
+      const before = (await listTransactionTemplates(owner)).find((row) => row.id === template.id)!;
       expect(before.transactionCount).toBe(1);
 
       await setTransactionDeleted(owner, created.id, created.version, true);
-      const after = (await listTransactionTemplates(owner)).find(
-        (row) => row.id === template.id,
-      )!;
+      const after = (await listTransactionTemplates(owner)).find((row) => row.id === template.id)!;
       expect(after.transactionCount).toBe(0);
     });
 
@@ -503,8 +494,7 @@ integration("saving a transaction as a template", () => {
         "count-edit-1",
       );
       expect(
-        (await listTransactionTemplates(owner)).find((r) => r.id === template.id)!
-          .transactionCount,
+        (await listTransactionTemplates(owner)).find((r) => r.id === template.id)!.transactionCount,
       ).toBe(0);
 
       await updateTransaction(owner, created.id, {
@@ -521,8 +511,7 @@ integration("saving a transaction as a template", () => {
       });
 
       expect(
-        (await listTransactionTemplates(owner)).find((r) => r.id === template.id)!
-          .transactionCount,
+        (await listTransactionTemplates(owner)).find((r) => r.id === template.id)!.transactionCount,
       ).toBe(1);
     });
 
@@ -579,9 +568,7 @@ integration("saving a transaction as a template", () => {
         },
         idempotencyKey: "count-cross-tenant",
       });
-      const counted = (await listTransactionTemplates(owner)).find(
-        (row) => row.id === mine.id,
-      )!;
+      const counted = (await listTransactionTemplates(owner)).find((row) => row.id === mine.id)!;
       expect(counted.stagedTransactionCount).toBe(0);
     });
 
@@ -655,9 +642,9 @@ integration("saving a transaction as a template", () => {
         // Cleared means the key is gone, not present and empty. That is what
         // makes the field one the form asks for when the template is used.
         expect("amount" in draft).toBe(false);
-        expect(
-          (await getTransactionTemplate(owner, template.id)).version,
-        ).toBe(template.version + 1);
+        expect((await getTransactionTemplate(owner, template.id)).version).toBe(
+          template.version + 1,
+        );
       }
     });
 
@@ -689,9 +676,7 @@ integration("saving a transaction as a template", () => {
       ).rejects.toMatchObject({ code: "STALE_VERSION" });
 
       expect((await storedDraft(fresh.id)).payee).toBe("Untouched");
-      expect((await getTransactionTemplate(owner, fresh.id)).version).toBe(
-        fresh.version,
-      );
+      expect((await getTransactionTemplate(owner, fresh.id)).version).toBe(fresh.version);
     });
 
     it("will not touch a template belonging to somebody else", async () => {
@@ -736,9 +721,7 @@ integration("saving a transaction as a template", () => {
       const first = await bulkEditTransactionTemplates(owner, input);
       const replay = await bulkEditTransactionTemplates(owner, input);
       expect(replay).toEqual(first);
-      expect((await getTransactionTemplate(owner, template.id)).version).toBe(
-        template.version + 1,
-      );
+      expect((await getTransactionTemplate(owner, template.id)).version).toBe(template.version + 1);
     });
 
     it("refuses a source account for a template that is a deposit", async () => {
@@ -845,9 +828,7 @@ integration("saving a transaction as a template", () => {
       });
       expect(result.changedCount).toBe(1);
       expect(result.items.map((item) => item.id)).toEqual([other.id]);
-      expect((await getTransactionTemplate(owner, same.id)).version).toBe(
-        same.version,
-      );
+      expect((await getTransactionTemplate(owner, same.id)).version).toBe(same.version);
     });
 
     it("deletes every selected template, and none when one is stale", async () => {
@@ -878,9 +859,7 @@ integration("saving a transaction as a template", () => {
         idempotencyKey: nextKey(),
       });
       expect(result.changedCount).toBe(2);
-      const names = (await listTransactionTemplates(owner)).map(
-        (template) => template.name,
-      );
+      const names = (await listTransactionTemplates(owner)).map((template) => template.name);
       expect(names).not.toContain("Bulk delete A");
       expect(names).not.toContain("Bulk delete B");
       expect(names).toContain("Bulk delete C");
@@ -1096,9 +1075,7 @@ integration("what an agent reads about the person and their settings", () => {
   });
 
   it("refuses a timezone no calendar recognises", async () => {
-    await expect(
-      setPreferences(solo, { timezone: "Middle/Earth" }),
-    ).rejects.toThrow();
+    await expect(setPreferences(solo, { timezone: "Middle/Earth" })).rejects.toThrow();
     expect(await getPreferences(solo)).toMatchObject({
       timezone: "America/New_York",
     });
@@ -1136,9 +1113,7 @@ integration("what an agent reads about the person and their settings", () => {
   // An empty patch asks for nothing, and its only effect would be to write a
   // defaults row and record that the person had chosen them.
   it("refuses a patch that names no preference", async () => {
-    await expect(setPreferences(solo, {})).rejects.toThrow(
-      /at least one preference/i,
-    );
+    await expect(setPreferences(solo, {})).rejects.toThrow(/at least one preference/i);
   });
 
   /**
@@ -1153,12 +1128,14 @@ integration("what an agent reads about the person and their settings", () => {
       source: "web",
     });
     const register = async (who: Actor) => {
-      await getDb().insert(user).values({
-        id: who.userId,
-        name: "Adopter",
-        email: `${who.userId}@example.com`,
-        emailVerified: true,
-      });
+      await getDb()
+        .insert(user)
+        .values({
+          id: who.userId,
+          name: "Adopter",
+          email: `${who.userId}@example.com`,
+          emailVerified: true,
+        });
       return who;
     };
 
@@ -1200,10 +1177,7 @@ integration("what an agent reads about the person and their settings", () => {
         .select()
         .from(auditEvents)
         .where(
-          and(
-            eq(auditEvents.userId, who.userId),
-            eq(auditEvents.entityType, "user_preferences"),
-          ),
+          and(eq(auditEvents.userId, who.userId), eq(auditEvents.entityType, "user_preferences")),
         );
       expect(events).toHaveLength(1);
     });
@@ -1224,9 +1198,7 @@ integration("what an agent reads about the person and their settings", () => {
 
     it("still refuses a deliberate write of a timezone no calendar knows", async () => {
       const who = await register(fresh("deliberate"));
-      await expect(
-        setPreferences(who, { timezone: "Middle/Earth" }),
-      ).rejects.toThrow();
+      await expect(setPreferences(who, { timezone: "Middle/Earth" })).rejects.toThrow();
     });
 
     it("lets the first of two guesses win rather than either failing", async () => {
@@ -1242,10 +1214,7 @@ integration("what an agent reads about the person and their settings", () => {
         .select()
         .from(auditEvents)
         .where(
-          and(
-            eq(auditEvents.userId, who.userId),
-            eq(auditEvents.entityType, "user_preferences"),
-          ),
+          and(eq(auditEvents.userId, who.userId), eq(auditEvents.entityType, "user_preferences")),
         );
       expect(events).toHaveLength(1);
     });
@@ -1254,9 +1223,9 @@ integration("what an agent reads about the person and their settings", () => {
     // flag is not part of the tool's contract and a tool call carrying one
     // writes unconditionally rather than quietly doing nothing.
     it("is not something an agent can ask for", () => {
-      expect(
-        preferencePatchSchema.parse({ timezone: "UTC", ifUnchosen: true }),
-      ).toEqual({ timezone: "UTC" });
+      expect(preferencePatchSchema.parse({ timezone: "UTC", ifUnchosen: true })).toEqual({
+        timezone: "UTC",
+      });
     });
   });
 });

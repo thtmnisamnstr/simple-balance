@@ -22,15 +22,8 @@ import {
   setCategoryArchived,
   updateCategory,
 } from "../../src/server/services/categories.js";
-import {
-  commitStages,
-  createStage,
-  deleteStages,
-} from "../../src/server/services/staging.js";
-import {
-  createTransaction,
-  updateTransaction,
-} from "../../src/server/services/transactions.js";
+import { commitStages, createStage, deleteStages } from "../../src/server/services/staging.js";
+import { createTransaction, updateTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -249,12 +242,7 @@ integration("category duplicate detection and merge", () => {
       stagedIds: [activeStage.id],
       expectedVersions: { [activeStage.id]: activeStage.version },
     });
-    const archived = await setCategoryArchived(
-      primary,
-      category.id,
-      category.version,
-      true,
-    );
+    const archived = await setCategoryArchived(primary, category.id, category.version, true);
     expect(archived.archivedAt).not.toBeNull();
 
     await expect(
@@ -305,9 +293,7 @@ integration("category duplicate detection and merge", () => {
       idempotencyKey: "archived-category-invalid-stage",
     });
     expect(invalidStage.validationIssues).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ message: "Category is unavailable" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ message: "Category is unavailable" })]),
     );
     await expect(
       commitStages(primary, {
@@ -382,9 +368,7 @@ integration("category duplicate detection and merge", () => {
       idempotencyKey: "category-merge-staged",
     });
 
-    await expect(
-      deleteCategory(primary, source.id, source.version),
-    ).rejects.toMatchObject({
+    await expect(deleteCategory(primary, source.id, source.version)).rejects.toMatchObject({
       code: "CONFLICT",
       details: {
         transactionCount: 1,
@@ -409,17 +393,12 @@ integration("category duplicate detection and merge", () => {
       updatedStagedTransactionCount: 1,
     });
 
-    const [targetAfter] = await db
-      .select()
-      .from(categories)
-      .where(eq(categories.id, target.id));
+    const [targetAfter] = await db.select().from(categories).where(eq(categories.id, target.id));
     expect(targetAfter).toMatchObject({
       kind: "both",
       version: target.version + 1,
     });
-    expect(
-      await db.select().from(categories).where(eq(categories.id, source.id)),
-    ).toHaveLength(0);
+    expect(await db.select().from(categories).where(eq(categories.id, source.id))).toHaveLength(0);
 
     const [transactionAfter] = await db
       .select()
@@ -449,12 +428,7 @@ integration("category duplicate detection and merge", () => {
       .where(
         and(
           eq(auditEvents.userId, primary.userId),
-          inArray(auditEvents.entityId, [
-            target.id,
-            source.id,
-            committed.id,
-            staged.id,
-          ]),
+          inArray(auditEvents.entityId, [target.id, source.id, committed.id, staged.id]),
         ),
       );
     expect(
@@ -489,9 +463,7 @@ integration("category duplicate detection and merge", () => {
     );
 
     const transactionMerge = mergeEvents.find(
-      (event) =>
-        event.entityId === committed.id &&
-        event.operation === "category_merge",
+      (event) => event.entityId === committed.id && event.operation === "category_merge",
     );
     expect(transactionMerge?.before).toMatchObject({
       categoryId: source.id,
@@ -503,9 +475,7 @@ integration("category duplicate detection and merge", () => {
     });
 
     const stagedMerge = mergeEvents.find(
-      (event) =>
-        event.entityId === staged.id &&
-        event.operation === "category_merge",
+      (event) => event.entityId === staged.id && event.operation === "category_merge",
     );
     expect(stagedMerge?.before).toMatchObject({
       draft: { categoryId: source.id },
@@ -560,9 +530,9 @@ integration("category duplicate detection and merge", () => {
     });
 
     // In use by a standing instruction is in use.
-    await expect(
-      deleteCategory(primary, source.id, source.version),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(deleteCategory(primary, source.id, source.version)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
 
     await mergeCategories(primary, {
       sourceCategoryIds: [source.id],
@@ -617,9 +587,7 @@ integration("category duplicate detection and merge", () => {
       .from(categories)
       .where(inArray(categories.id, [staleTarget.id, staleSource.id]));
     expect(persisted).toHaveLength(2);
-    expect(
-      persisted.every((category) => category.version === 1),
-    ).toBe(true);
+    expect(persisted.every((category) => category.version === 1)).toBe(true);
 
     const otherTarget = await createCategory(other, {
       name: "Other Tenant Target",
@@ -637,23 +605,13 @@ integration("category duplicate detection and merge", () => {
     persisted = await getDb()
       .select()
       .from(categories)
-      .where(
-        inArray(categories.id, [
-          staleTarget.id,
-          staleSource.id,
-          otherTarget.id,
-        ]),
-      );
+      .where(inArray(categories.id, [staleTarget.id, staleSource.id, otherTarget.id]));
     expect(persisted).toHaveLength(3);
-    expect(
-      persisted.find((category) => category.id === staleSource.id),
-    ).toMatchObject({
+    expect(persisted.find((category) => category.id === staleSource.id)).toMatchObject({
       userId: primary.userId,
       version: staleSource.version,
     });
-    expect(
-      persisted.find((category) => category.id === otherTarget.id),
-    ).toMatchObject({
+    expect(persisted.find((category) => category.id === otherTarget.id)).toMatchObject({
       userId: other.userId,
       version: otherTarget.version,
     });
@@ -663,11 +621,7 @@ integration("category duplicate detection and merge", () => {
       .from(auditEvents)
       .where(
         and(
-          inArray(auditEvents.entityId, [
-            staleTarget.id,
-            staleSource.id,
-            otherTarget.id,
-          ]),
+          inArray(auditEvents.entityId, [staleTarget.id, staleSource.id, otherTarget.id]),
           inArray(auditEvents.operation, ["merge", "merge_into"]),
         ),
       );

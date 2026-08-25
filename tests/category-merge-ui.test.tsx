@@ -2,14 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CategoryMergeResult, CategorySummary } from "../src/client/api.js";
 import CategoriesPage from "../src/client/pages/CategoriesPage.js";
@@ -50,10 +43,7 @@ describe("category merging", () => {
         if (url.pathname === "/api/v1/categories/duplicates") {
           return Response.json([]);
         }
-        if (
-          url.pathname === "/api/v1/categories/merge" &&
-          init?.method === "POST"
-        ) {
+        if (url.pathname === "/api/v1/categories/merge" && init?.method === "POST") {
           mergeBody = JSON.parse(String(init.body)) as Record<string, unknown>;
           const result: CategoryMergeResult = {
             targetCategory: { ...groceries, version: 3 },
@@ -96,12 +86,8 @@ describe("category merging", () => {
     );
 
     const target = screen.getByRole("combobox", { name: "Category to keep" });
-    expect(
-      within(target).getByRole("option", { name: groceries.name }),
-    ).toBeInTheDocument();
-    expect(
-      within(target).getByRole("option", { name: grocery.name }),
-    ).toBeInTheDocument();
+    expect(within(target).getByRole("option", { name: groceries.name })).toBeInTheDocument();
+    expect(within(target).getByRole("option", { name: grocery.name })).toBeInTheDocument();
 
     const mergeButton = screen.getByRole("button", { name: "Merge" });
     expect(mergeButton).toBeDisabled();
@@ -109,9 +95,10 @@ describe("category merging", () => {
     expect(mergeButton).toBeEnabled();
     fireEvent.click(mergeButton);
     fireEvent.click(
-      within(
-        await screen.findByRole("dialog", { name: /Merge these categories/ }),
-      ).getByRole("button", { name: "Merge" }),
+      within(await screen.findByRole("dialog", { name: /Merge these categories/ })).getByRole(
+        "button",
+        { name: "Merge" },
+      ),
     );
 
     await waitFor(() => {

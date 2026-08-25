@@ -42,9 +42,9 @@ function restoreEnvironment() {
  * every case here builds both from scratch rather than sharing them.
  */
 async function startDeployment(allowedEmails: string | undefined) {
-  const databaseName = `simple_balance_tenants_${process.pid}_${Date.now()}_${
-    Math.abs(hash(allowedEmails ?? "closed"))
-  }`;
+  const databaseName = `simple_balance_tenants_${process.pid}_${Date.now()}_${Math.abs(
+    hash(allowedEmails ?? "closed"),
+  )}`;
   const adminClient = new PgClient({ connectionString: connection });
   await adminClient.connect();
   await adminClient.query(`create database "${databaseName}"`);
@@ -90,11 +90,7 @@ function hash(value: string) {
   return result;
 }
 
-function signUp(
-  app: App,
-  body: Record<string, string>,
-  client = fromNewClient(),
-) {
+function signUp(app: App, body: Record<string, string>, client = fromNewClient()) {
   return app.request("http://localhost:3000/api/auth/sign-up/email", {
     method: "POST",
     headers: {
@@ -186,9 +182,7 @@ integration("a list of domains and addresses admits exactly those", () => {
   let stop: () => Promise<void>;
 
   beforeAll(async () => {
-    ({ app, stop } = await startDeployment(
-      "pinecone.io, @usc.edu, one.person@example.com",
-    ));
+    ({ app, stop } = await startDeployment("pinecone.io, @usc.edu, one.person@example.com"));
     const claimed = await signUp(app, {
       name: "Operator",
       email: "operator@pinecone.io",
@@ -261,7 +255,6 @@ integration("a list of domains and addresses admits exactly those", () => {
     });
     expect(response.status).toBe(200);
   });
-
 });
 
 integration("an unset ALLOWED_EMAILS stays a one-person deployment", () => {

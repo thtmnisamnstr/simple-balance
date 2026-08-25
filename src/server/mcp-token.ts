@@ -1,20 +1,10 @@
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
-import {
-  decodeProtectedHeader,
-  decodeJwt,
-  importJWK,
-  jwtVerify,
-  SignJWT,
-  type JWK,
-} from "jose";
+import { decodeProtectedHeader, decodeJwt, importJWK, jwtVerify, SignJWT, type JWK } from "jose";
 import { getConfig } from "./config.js";
 import { MCP_SIGNING_KEY_LOCK } from "./db/advisory-locks.js";
 import { getDb } from "./db/client.js";
-import {
-  mcpSigningKeys,
-  oauthAccessToken,
-} from "./db/schema.js";
+import { mcpSigningKeys, oauthAccessToken } from "./db/schema.js";
 
 const ACTIVE_KEY_ID = "mcp-active-rs256";
 
@@ -138,20 +128,8 @@ export async function resignMcpIdToken(idToken: string) {
   if (!claims.sub || !claims.aud) {
     throw new Error("OAuth ID token is missing its subject or audience");
   }
-  const {
-    aud,
-    exp,
-    iat: _iat,
-    iss: _iss,
-    jti,
-    nbf,
-    sub,
-    ...customClaims
-  } = claims;
-  if (
-    typeof customClaims.auth_time === "number" &&
-    customClaims.auth_time > 10_000_000_000
-  ) {
+  const { aud, exp, iat: _iat, iss: _iss, jti, nbf, sub, ...customClaims } = claims;
+  if (typeof customClaims.auth_time === "number" && customClaims.auth_time > 10_000_000_000) {
     customClaims.auth_time = Math.floor(customClaims.auth_time / 1_000);
   }
   const config = getConfig();

@@ -27,7 +27,12 @@ const originalDatabaseUrl = process.env.DATABASE_URL;
 let adminClient: PgClient;
 
 let keySeed = 0;
-const nextKey = () => `closing-${(keySeed += 1)}`.padEnd(16, "0");
+// Padded on the counter rather than the whole string, because padding the
+// string to a fixed width made different counters collide: "…-1" and "…-10"
+// both filled out to the same key, and two calls with the same payload then
+// returned the first transaction instead of making a second one — a test that
+// passes having written nothing.
+const nextKey = () => `closing-${String((keySeed += 1)).padStart(8, "0")}`;
 
 const today = () => new Date().toISOString().slice(0, 10);
 const daysFromNow = (days: number) =>
@@ -110,9 +115,7 @@ integration("archiving an account closes its balance out to equity", () => {
     const [row] = await getDb()
       .select()
       .from(ledgerAccounts)
-      .where(
-        and(eq(ledgerAccounts.userId, actor.userId), eq(ledgerAccounts.name, "Savings")),
-      );
+      .where(and(eq(ledgerAccounts.userId, actor.userId), eq(ledgerAccounts.name, "Savings")));
     await setAccountArchived(actor, row.id, row.version, false);
 
     const reopened = await getAccount(actor, row.id);
@@ -149,10 +152,7 @@ integration("archiving an account closes its balance out to equity", () => {
     const after = usd(await getSummary(actor, {}))!;
     // Petty Cash is gone from the accounts, and so is the spending that ran
     // through it. Previously the balance dropped and the withdrawal stayed.
-    expect(after.accounts.map((entry) => entry.name).sort()).toEqual([
-      "Checking",
-      "Savings",
-    ]);
+    expect(after.accounts.map((entry) => entry.name).sort()).toEqual(["Checking", "Savings"]);
     expect(Number(after.withdrawals)).toBe(0);
     expect(after.spendingByCategory).toEqual([]);
     expect(await ledgerSumsToZero()).toEqual(["USD=0"]);
@@ -233,15 +233,9 @@ integration("archiving an account closes its balance out to equity", () => {
 
   it("writes nothing extra when an empty account is archived", async () => {
     const empty = await openAccount("Empty", "0");
-    const before = await getDb()
-      .select()
-      .from(postings)
-      .where(eq(postings.userId, actor.userId));
+    const before = await getDb().select().from(postings).where(eq(postings.userId, actor.userId));
     await setAccountArchived(actor, empty.id, empty.version, true);
-    const after = await getDb()
-      .select()
-      .from(postings)
-      .where(eq(postings.userId, actor.userId));
+    const after = await getDb().select().from(postings).where(eq(postings.userId, actor.userId));
     expect(after).toHaveLength(before.length);
   });
 });
@@ -307,11 +301,7 @@ integration("where uncategorised spending sits in the summary", () => {
       (entry) => entry.currency === "USD",
     )!.spendingByCategory;
 
-    expect(spending.map((entry) => entry.category)).toEqual([
-      "Rent",
-      "Food",
-      "Uncategorized",
-    ]);
+    expect(spending.map((entry) => entry.category)).toEqual(["Rent", "Food", "Uncategorized"]);
     // The named ones are still ordered by amount among themselves.
     expect(Number(spending[0].amount)).toBeGreaterThan(Number(spending[1].amount));
     // And it is genuinely the biggest, which is the case that used to top the list.
@@ -444,10 +434,7 @@ integration("an account that was archived can still be tidied away", () => {
 
     await deleteAccount(tidyActor, spare.id, restored.version);
 
-    const left = await getDb()
-      .select()
-      .from(postings)
-      .where(eq(postings.userId, tidyActor.userId));
+    const left = await getDb().select().from(postings).where(eq(postings.userId, tidyActor.userId));
     expect(left).toHaveLength(0);
   });
 });
@@ -528,7 +515,13 @@ integration("archiving an account holding future-dated money", () => {
     await setAccountArchived(futureActor, account.id, loaded.version, true);
 
     // The day the money leaves, the days in between, and past the deposit.
-    for (const asOf of [today(), daysFromNow(1), daysFromNow(44), daysFromNow(45), daysFromNow(60)]) {
+    for (const asOf of [
+      today(),
+      daysFromNow(1),
+      daysFromNow(44),
+      daysFromNow(45),
+      daysFromNow(60),
+    ]) {
       expect(await balanceAsOf(account.id, asOf), asOf).toBe(0);
     }
 
@@ -616,13 +609,10 @@ integration("archiving an account holding future-dated money", () => {
     const blocker = new PgClient({ connectionString: process.env.DATABASE_URL });
     await blocker.connect();
     await blocker.query("begin");
-    await blocker.query(
-      "select pg_advisory_xact_lock(hashtextextended($1, 0))",
-      [`account-reference:${futureActor.userId}:${account.id}`],
-    );
-    await blocker.query("update ledger_account set archived_at = null where id = $1", [
-      account.id,
+    await blocker.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      `account-reference:${futureActor.userId}:${account.id}`,
     ]);
+    await blocker.query("update ledger_account set archived_at = null where id = $1", [account.id]);
 
     // Reads the list, which still shows the row archived because the restore is
     // uncommitted, then blocks taking the lock this transaction holds.

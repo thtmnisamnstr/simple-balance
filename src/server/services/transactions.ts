@@ -22,6 +22,7 @@ import type {
   BulkTransactionFilter,
   BulkTransactionPatch,
   BulkTransactionSelectionSnapshot,
+  CategoryKind,
   SystemAccountKind,
   PaginatedPage,
   TransactionDraft,
@@ -39,15 +40,12 @@ import {
   listQuerySchema,
   MAX_BULK_SELECTION_ENTRIES,
   positiveDecimalStringSchema,
+  resolveEntrySide,
+  reversesEntry,
   transactionDraftSchema,
   transactionUpdateSchema,
 } from "../../shared/domain.js";
-import {
-  getDb,
-  type Database,
-  type DbTransaction,
-  withTransaction,
-} from "../db/client.js";
+import { getDb, type Database, type DbTransaction, withTransaction } from "../db/client.js";
 import {
   categories,
   ledgerAccounts,
@@ -77,20 +75,9 @@ import {
   writeAudit,
   writeAuditMany,
 } from "./helpers.js";
-import {
-  type SortPlan,
-  keysetAfter,
-  ordered,
-} from "./sorting.js";
-import {
-  ensureSystemAccount,
-  findSystemAccount,
-  postClosingBalance,
-} from "./accounts.js";
-import {
-  pruneOrphanedCategories,
-  resolveDraftCategory,
-} from "./categories.js";
+import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
+import { ensureSystemAccount, findSystemAccount, postClosingBalance } from "./accounts.js";
+import { pruneOrphanedCategories, resolveDraftCategory } from "./categories.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { resolveCanonicalPayee } from "./payees.js";
 
@@ -158,9 +145,7 @@ function transactionView(
   return {
     ...serializeRow(row),
     sourceAmount: row.sourceAmount ? canonicalDecimal(row.sourceAmount) : null,
-    destinationAmount: row.destinationAmount
-      ? canonicalDecimal(row.destinationAmount)
-      : null,
+    destinationAmount: row.destinationAmount ? canonicalDecimal(row.destinationAmount) : null,
     effectiveRate: row.effectiveRate ? canonicalDecimal(row.effectiveRate) : null,
     sourceAccount: sourceAccount ?? null,
     destinationAccount: destinationAccount ?? null,
@@ -183,9 +168,7 @@ function legViews(
   if (!legs) return [];
   return legs
     .filter((leg) => !decimal(leg.amount).isZero())
-    .map((leg) =>
-      legView(leg, leg.categoryId ? (categoryMap.get(leg.categoryId) ?? null) : null),
-    );
+    .map((leg) => legView(leg, leg.categoryId ? (categoryMap.get(leg.categoryId) ?? null) : null));
 }
 
 async function getOwnedAccounts(
@@ -215,9 +198,7 @@ async function getOwnedAccounts(
         );
   if (
     rows.length !== new Set(ids).size ||
-    rows.some(
-      (row) => row.archivedAt !== null && !allowedArchivedIds.has(row.id),
-    )
+    rows.some((row) => row.archivedAt !== null && !allowedArchivedIds.has(row.id))
   ) {
     throw validationError("One or more accounts are unavailable");
   }
@@ -273,12 +254,7 @@ export async function loadLedgerReferences(
   const accountRows = await tx
     .select()
     .from(ledgerAccounts)
-    .where(
-      and(
-        eq(ledgerAccounts.userId, actor.userId),
-        isNull(ledgerAccounts.systemKind),
-      ),
-    );
+    .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
   const categoryRows = await tx
     .select()
     .from(categories)
@@ -313,6 +289,22 @@ function counterAccount(
 }
 
 /**
+ * Which counter-account the non-account half of an entry posts to.
+ *
+ * The rule itself is `resolveEntrySide` in the shared contracts, because the
+ * browser previews it and this enforces it. All this adds is the refusal: the
+ * form shows the sentence beside the field, and here it is a 422.
+ */
+function counterKindFor(
+  type: "deposit" | "withdrawal",
+  namedKinds: ReadonlySet<CategoryKind>,
+): SystemAccountKind {
+  const side = resolveEntrySide(type, namedKinds);
+  if (!side.ok) throw validationError(side.message);
+  return side.counterKind;
+}
+
+/**
  * Half of an entry, before it is filed. The date is stamped on once for the
  * whole entry, because every posting a transaction makes happened on the day
  * the transaction did.
@@ -339,17 +331,14 @@ function posting(
 function assertBalanced(prepared: PreparedTransaction) {
   const totals = new Map<string, Decimal>();
   for (const entry of prepared.postings) {
-    totals.set(
-      entry.currency,
-      (totals.get(entry.currency) ?? decimal("0")).plus(entry.amount),
-    );
+    totals.set(entry.currency, (totals.get(entry.currency) ?? decimal("0")).plus(entry.amount));
   }
   for (const [currency, total] of totals) {
     if (!total.isZero()) {
-      throw validationError(
-        `Postings for ${currency} do not balance to zero`,
-        { currency, total: canonicalDecimal(total) },
-      );
+      throw validationError(`Postings for ${currency} do not balance to zero`, {
+        currency,
+        total: canonicalDecimal(total),
+      });
     }
   }
   return prepared;
@@ -369,10 +358,7 @@ function assertBalanced(prepared: PreparedTransaction) {
  */
 function assertLegsCoverTotal(draft: TransactionDraft, total: string) {
   if (!draft.legs) return;
-  const summed = draft.legs.reduce(
-    (running, leg) => running.plus(leg.amount),
-    decimal("0"),
-  );
+  const summed = draft.legs.reduce((running, leg) => running.plus(leg.amount), decimal("0"));
   if (summed.eq(total)) return;
   throw validationError(
     `The split adds up to ${canonicalDecimal(summed)}, but the transaction is ${canonicalDecimal(total)}`,
@@ -400,8 +386,7 @@ function counterPostings(
   currency: string,
   sign: 1 | -1,
 ): PostingSeed[] {
-  const signed = (amount: string) =>
-    sign === 1 ? decimal(amount) : decimal(amount).negated();
+  const signed = (amount: string) => (sign === 1 ? decimal(amount) : decimal(amount).negated());
   if (!draft.legs) return [posting(actor, accountId, signed(total), currency)];
   return draft.legs.map((leg, index) =>
     posting(actor, accountId, signed(leg.amount), currency, index),
@@ -422,6 +407,10 @@ export function buildPreparedTransaction(
   draft: TransactionDraft,
   accountMap: Map<string, PostingAccount>,
   systemAccounts: SystemAccountMap,
+  // The kinds of every category the entry names, which decide which
+  // counter-account its other half lands on. Empty means "nothing contradicts
+  // the direction", which is what an uncategorised entry is.
+  namedKinds: ReadonlySet<CategoryKind> = new Set(),
 ): PreparedTransaction {
   const common = {
     userId: actor.userId,
@@ -453,11 +442,17 @@ export function buildPreparedTransaction(
       postings: entries([
         posting(actor, destination.id, draft.amount, destination.currency),
         // The other half of the entry, as one posting or one per leg. Without
-        // it the deposit would create money out of nothing.
+        // it the deposit would create money out of nothing. Income unless a
+        // category says this is a refund, in which case it debits expense and
+        // the spending it reverses goes down rather than income going up.
         ...counterPostings(
           actor,
           draft,
-          counterAccount(systemAccounts, "income", destination.currency).id,
+          counterAccount(
+            systemAccounts,
+            counterKindFor("deposit", namedKinds),
+            destination.currency,
+          ).id,
           draft.amount,
           destination.currency,
           -1,
@@ -484,7 +479,8 @@ export function buildPreparedTransaction(
         ...counterPostings(
           actor,
           draft,
-          counterAccount(systemAccounts, "expense", source.currency).id,
+          counterAccount(systemAccounts, counterKindFor("withdrawal", namedKinds), source.currency)
+            .id,
           draft.amount,
           source.currency,
           1,
@@ -500,10 +496,9 @@ export function buildPreparedTransaction(
   const destination = accountMap.get(draft.toAccountId);
   if (!source || !destination) throw validationError("Transfer account is unavailable");
   if (source.currency !== destination.currency && !draft.destinationAmount) {
-    throw validationError(
-      "Destination amount is required when transfer currencies differ",
-      { field: "destinationAmount" },
-    );
+    throw validationError("Destination amount is required when transfer currencies differ", {
+      field: "destinationAmount",
+    });
   }
   if (
     source.currency === destination.currency &&
@@ -539,21 +534,11 @@ export function buildPreparedTransaction(
     postings: entries(
       source.currency === destination.currency
         ? [
-            posting(
-              actor,
-              source.id,
-              decimal(draft.sourceAmount).negated(),
-              source.currency,
-            ),
+            posting(actor, source.id, decimal(draft.sourceAmount).negated(), source.currency),
             posting(actor, destination.id, destinationAmount, destination.currency),
           ]
         : [
-            posting(
-              actor,
-              source.id,
-              decimal(draft.sourceAmount).negated(),
-              source.currency,
-            ),
+            posting(actor, source.id, decimal(draft.sourceAmount).negated(), source.currency),
             posting(
               actor,
               counterAccount(systemAccounts, "exchange", source.currency).id,
@@ -649,12 +634,7 @@ async function resyncLegs(
           ordinal,
           updatedAt: new Date(),
         })
-        .where(
-          and(
-            eq(transactionLegs.id, current.id),
-            eq(transactionLegs.userId, actor.userId),
-          ),
-        );
+        .where(and(eq(transactionLegs.id, current.id), eq(transactionLegs.userId, actor.userId)));
       ids.push(current.id);
       continue;
     }
@@ -673,9 +653,7 @@ async function resyncLegs(
     ids.push(created.id);
   }
 
-  const dropped = existing.filter(
-    (leg) => !named.has(leg.id) && !decimal(leg.amount).isZero(),
-  );
+  const dropped = existing.filter((leg) => !named.has(leg.id) && !decimal(leg.amount).isZero());
   if (dropped.length) {
     // The category goes with the amount. A leg worth nothing belongs to no
     // category, and leaving the label behind would keep a foreign key on a
@@ -708,10 +686,7 @@ async function resyncLegs(
  * A zeroed leg is left out for the same reason it is left out everywhere else:
  * it is how a leg is removed, and a list of them is what the entry now says.
  */
-function auditedTransaction(
-  row: TransactionRow,
-  legs: readonly TransactionLegRow[],
-) {
+function auditedTransaction(row: TransactionRow, legs: readonly TransactionLegRow[]) {
   const live = legs.filter((leg) => !decimal(leg.amount).isZero());
   const serialized = serializeRow(row);
   if (!live.length) return serialized;
@@ -802,12 +777,7 @@ export async function repostTransaction(
   const current = await tx
     .select()
     .from(postings)
-    .where(
-      and(
-        eq(postings.userId, actor.userId),
-        eq(postings.transactionId, transactionId),
-      ),
-    );
+    .where(and(eq(postings.userId, actor.userId), eq(postings.transactionId, transactionId)));
 
   type Slot = {
     accountId: string;
@@ -937,18 +907,49 @@ export async function prepareTransaction(
     options.references?.accounts,
   );
 
+  // Every category the entry names, whether it names one or one per leg. The
+  // legs of an entry are all shares of the same movement, so they answer to the
+  // same rule about which kind of category may carry it. Read before the
+  // counter-accounts rather than after, because their kinds decide which
+  // counter-account this entry needs: a refund wants the expense account the
+  // deposit it reverses would never have asked for.
+  const namedCategoryIds = new Set(
+    [draft.categoryId, ...(draft.legs ?? []).map((leg) => leg.categoryId)].filter(
+      (id) => id != null,
+    ),
+  );
+  const namedKinds = new Set<CategoryKind>();
+  for (const categoryId of namedCategoryIds) {
+    const category = options.references
+      ? options.references.categories.get(categoryId)
+      : (
+          await tx
+            .select()
+            .from(categories)
+            .where(and(eq(categories.id, categoryId), eq(categories.userId, actor.userId)))
+            .limit(1)
+        )[0];
+    if (
+      !category ||
+      (category.archivedAt !== null && !options.allowedArchivedCategoryIds?.has(category.id))
+    ) {
+      throw validationError("Category is unavailable");
+    }
+    namedKinds.add(category.kind);
+  }
+
   // Resolve the counter-accounts this entry needs before building it, so the
   // postings can be assembled without further database access.
   const systemAccounts: SystemAccountMap = new Map();
   const needed: { kind: SystemAccountKind; currency: string }[] = [];
   if (draft.type === "deposit") {
     needed.push({
-      kind: "income",
+      kind: counterKindFor("deposit", namedKinds),
       currency: accountMap.get(draft.toAccountId)!.currency,
     });
   } else if (draft.type === "withdrawal") {
     needed.push({
-      kind: "expense",
+      kind: counterKindFor("withdrawal", namedKinds),
       currency: accountMap.get(draft.fromAccountId)!.currency,
     });
   } else {
@@ -990,47 +991,8 @@ export async function prepareTransaction(
     if (!owned) throw validationError("Template is unavailable");
   }
 
-  // Every category the entry names, whether it names one or one per leg. The
-  // legs of an entry are all shares of the same movement, so they answer to the
-  // same rule about which kind of category may carry it.
-  const namedCategoryIds = new Set(
-    [
-      draft.categoryId,
-      ...(draft.legs ?? []).map((leg) => leg.categoryId),
-    ].filter((id) => id != null),
-  );
-  for (const categoryId of namedCategoryIds) {
-    const category = options.references
-      ? options.references.categories.get(categoryId)
-      : (
-          await tx
-            .select()
-            .from(categories)
-            .where(
-              and(
-                eq(categories.id, categoryId),
-                eq(categories.userId, actor.userId),
-              ),
-            )
-            .limit(1)
-        )[0];
-    if (
-      !category ||
-      (category.archivedAt !== null &&
-        !options.allowedArchivedCategoryIds?.has(category.id))
-    ) {
-      throw validationError("Category is unavailable");
-    }
-    if (draft.type === "deposit" && category.kind === "expense") {
-      throw validationError("Choose an income category for a deposit");
-    }
-    if (draft.type === "withdrawal" && category.kind === "income") {
-      throw validationError("Choose an expense category for a withdrawal");
-    }
-  }
-
   return assertBalanced(
-    buildPreparedTransaction(actor, canonicalDraft, accountMap, systemAccounts),
+    buildPreparedTransaction(actor, canonicalDraft, accountMap, systemAccounts, namedKinds),
   );
 }
 
@@ -1056,9 +1018,7 @@ export async function createTransactionWithinTx(
   await assertDuplicateAllowed(tx, actor, draft, allowDuplicate);
   const [created] = await tx.insert(transactions).values(prepared.transaction).returning();
   const legIds = await resyncLegs(tx, actor, created.id, prepared.legs);
-  await tx
-    .insert(postings)
-    .values(withLegIds(prepared.postings, legIds, created.id));
+  await tx.insert(postings).values(withLegIds(prepared.postings, legIds, created.id));
   await writeAudit(tx, actor, {
     entityType: "transaction",
     entityId: created.id,
@@ -1084,12 +1044,7 @@ export async function createTransaction(
     allowDuplicate,
   };
   return withTransaction(transaction, async (tx) => {
-    await lockIdempotencyKey(
-      tx,
-      actor,
-      "transaction.create",
-      idempotencyKey,
-    );
+    await lockIdempotencyKey(tx, actor, "transaction.create", idempotencyKey);
     const existing = await getIdempotent<TransactionView>(
       tx,
       actor,
@@ -1106,14 +1061,7 @@ export async function createTransaction(
       allowDuplicate,
     );
     const view = await hydrateTransaction(tx, actor, created);
-    await setIdempotent(
-      tx,
-      actor,
-      "transaction.create",
-      idempotencyKey,
-      idempotencyPayload,
-      view,
-    );
+    await setIdempotent(tx, actor, "transaction.create", idempotencyKey, idempotencyPayload, view);
     return view;
   });
 }
@@ -1127,17 +1075,13 @@ export async function createTransaction(
  * A fifty-row page meant a hundred sequential round trips to say what fifty
  * accounts and categories are called.
  */
-async function hydrateTransactions(
-  tx: DbTransaction,
-  actor: Actor,
-  rows: TransactionRow[],
-) {
+async function hydrateTransactions(tx: DbTransaction, actor: Actor, rows: TransactionRow[]) {
   if (!rows.length) return [];
   const accountIds = [
     ...new Set(
       rows.flatMap((row) =>
-        [row.sourceAccountId, row.destinationAccountId].filter(
-          (value): value is string => Boolean(value),
+        [row.sourceAccountId, row.destinationAccountId].filter((value): value is string =>
+          Boolean(value),
         ),
       ),
     ),
@@ -1167,23 +1111,13 @@ async function hydrateTransactions(
           currency: ledgerAccounts.currency,
         })
         .from(ledgerAccounts)
-        .where(
-          and(
-            eq(ledgerAccounts.userId, actor.userId),
-            inArray(ledgerAccounts.id, accountIds),
-          ),
-        )
+        .where(and(eq(ledgerAccounts.userId, actor.userId), inArray(ledgerAccounts.id, accountIds)))
     : [];
   const categoryRows = categoryIds.length
     ? await tx
         .select({ id: categories.id, name: categories.name, kind: categories.kind })
         .from(categories)
-        .where(
-          and(
-            eq(categories.userId, actor.userId),
-            inArray(categories.id, categoryIds),
-          ),
-        )
+        .where(and(eq(categories.userId, actor.userId), inArray(categories.id, categoryIds)))
     : [];
 
   const accountMap = new Map(accountRows.map((account) => [account.id, account]));
@@ -1199,11 +1133,7 @@ async function hydrateTransactions(
   );
 }
 
-async function hydrateTransaction(
-  tx: DbTransaction,
-  actor: Actor,
-  row: TransactionRow,
-) {
+async function hydrateTransaction(tx: DbTransaction, actor: Actor, row: TransactionRow) {
   const accountIds = [row.sourceAccountId, row.destinationAccountId].filter(
     (value): value is string => Boolean(value),
   );
@@ -1215,12 +1145,7 @@ async function hydrateTransaction(
           currency: ledgerAccounts.currency,
         })
         .from(ledgerAccounts)
-        .where(
-          and(
-            eq(ledgerAccounts.userId, actor.userId),
-            inArray(ledgerAccounts.id, accountIds),
-          ),
-        )
+        .where(and(eq(ledgerAccounts.userId, actor.userId), inArray(ledgerAccounts.id, accountIds)))
     : [];
   const accountMap = new Map(accountRows.map((account) => [account.id, account]));
   const legs = row.legCount
@@ -1228,8 +1153,8 @@ async function hydrateTransaction(
     : [];
   const categoryIds = [
     ...new Set(
-      [row.categoryId, ...legs.map((leg) => leg.categoryId)].filter(
-        (value): value is string => Boolean(value),
+      [row.categoryId, ...legs.map((leg) => leg.categoryId)].filter((value): value is string =>
+        Boolean(value),
       ),
     ),
   ];
@@ -1237,12 +1162,7 @@ async function hydrateTransaction(
     ? await tx
         .select({ id: categories.id, name: categories.name, kind: categories.kind })
         .from(categories)
-        .where(
-          and(
-            eq(categories.userId, actor.userId),
-            inArray(categories.id, categoryIds),
-          ),
-        )
+        .where(and(eq(categories.userId, actor.userId), inArray(categories.id, categoryIds)))
     : [];
   const categoryMap = new Map(categoryRows.map((category) => [category.id, category]));
   return transactionView(
@@ -1279,15 +1199,11 @@ function transactionSortPlan(
 ): SortPlan<TransactionRow> {
   const id = sql`${transactions.id}`;
   const tie = ordered(id, direction);
-  const resumable = (
-    expression: SQL,
-    parseCursorValue?: (value: string) => void,
-  ) => ({
+  const resumable = (expression: SQL, parseCursorValue?: (value: string) => void) => ({
     orderBy: [ordered(expression, direction), tie],
     keyset: keysetAfter(expression, id, direction),
     sortValue: expression,
-    cursorValue: (row: TransactionRow & { cursorSort?: unknown }) =>
-      String(row.cursorSort),
+    cursorValue: (row: TransactionRow & { cursorSort?: unknown }) => String(row.cursorSort),
     parseCursorValue,
   });
   // Reached through another table, so the value can be absent and the ordering
@@ -1374,9 +1290,7 @@ export async function listAllTransactions(
     const all: TransactionView[] = [];
     let after: { sort: string; id: string } | undefined;
     for (;;) {
-      const conditions = after
-        ? [...filters, plan.keyset!(after.sort, after.id)]
-        : filters;
+      const conditions = after ? [...filters, plan.keyset!(after.sort, after.id)] : filters;
       const rows = await tx
         .select({
           ...getTableColumns(transactions),
@@ -1398,9 +1312,7 @@ export async function listAllTransactions(
         )),
       );
       if (all.length > maxRows) {
-        throw validationError(
-          `Export exceeds ${maxRows.toLocaleString("en-US")} rows`,
-        );
+        throw validationError(`Export exceeds ${maxRows.toLocaleString("en-US")} rows`);
       }
       if (rows.length < batchSize) return all;
       const last = rows.at(-1)!;
@@ -1421,10 +1333,9 @@ export async function listTransactions(
   const plan = transactionSortPlan(query.sort, query.direction);
   if (query.cursor) {
     if (!plan.keyset) {
-      throw validationError(
-        "This sort order pages by number rather than by cursor.",
-        { sort: query.sort },
-      );
+      throw validationError("This sort order pages by number rather than by cursor.", {
+        sort: query.sort,
+      });
     }
     const cursor = decodeCursor(query.cursor, {
       key: query.sort,
@@ -1481,6 +1392,15 @@ export async function listTransactions(
             id: last.id,
           })
         : null,
+    // Whether this ordering can be resumed at all, said plainly.
+    //
+    // `nextCursor` is null for two different reasons — this is the last page,
+    // or this ordering has no keyset to resume from — and an agent walking a
+    // ledger under `sort: "account"` could not tell them apart. It got one page
+    // and had to infer from `totalPages` that it was supposed to fall back to
+    // numbered paging. This says which world it is in on every page, including
+    // the last one, where `nextCursor` is null either way.
+    cursorAvailable: Boolean(plan.cursorValue),
     page,
     pageSize: query.limit,
     totalCount,
@@ -1488,10 +1408,7 @@ export async function listTransactions(
   };
 }
 
-function transactionFilterConditions(
-  actor: Actor,
-  query: BulkTransactionFilter,
-) {
+function transactionFilterConditions(actor: Actor, query: BulkTransactionFilter) {
   const conditions: SQL[] = [eq(transactions.userId, actor.userId)];
   if (!query.includeDeleted) conditions.push(isNull(transactions.deletedAt));
   if (query.start) conditions.push(sql`${transactions.date} >= ${query.start}::date`);
@@ -1576,10 +1493,7 @@ async function splitTransactionIds(
   return new Set(rows.map((row) => row.transactionId));
 }
 
-function bulkSelectionSummary(
-  rows: readonly TransactionRow[],
-  splitIds: ReadonlySet<string>,
-) {
+function bulkSelectionSummary(rows: readonly TransactionRow[], splitIds: ReadonlySet<string>) {
   const currencies = new Set<string>();
   let activeCount = 0;
   let deletedCount = 0;
@@ -1668,36 +1582,31 @@ function applyBulkPatch(
   legs: readonly TransactionLegRow[] = [],
 ): TransactionDraft {
   if (row.type === "transfer" && (patch.accountId || patch.type)) {
-    throw validationError(
-      "Bulk account and type changes cannot include transfers",
-      { transactionId: row.id, fields: ["accountId", "type"] },
-    );
+    throw validationError("Bulk account and type changes cannot include transfers", {
+      transactionId: row.id,
+      fields: ["accountId", "type"],
+    });
   }
 
   const current = transactionToDraft(row, legs);
   // A split already says which categories the money went to, one per leg, so
   // there is no single category to set it to and no honest way to guess which
-  // leg was meant. Changing the type is refused for the same reason from the
-  // other end: every leg's category was checked against the direction of the
-  // entry, and flipping it invalidates all of them at once. Both are refused
-  // outright rather than quietly flattening the split, which cannot be undone.
+  // leg was meant. Changing the type is refused from the other end: flipping
+  // the direction under several legs turns every one of them into a refund at
+  // once, which is a claim about what happened rather than a relabelling. Both
+  // are refused outright rather than quietly flattening the split, which cannot
+  // be undone.
   if (current.legs && (patch.categoryId !== undefined || patch.type)) {
-    throw validationError(
-      "Bulk category and type changes cannot include split transactions",
-      { transactionId: row.id, fields: ["categoryId", "type"] },
-    );
+    throw validationError("Bulk category and type changes cannot include split transactions", {
+      transactionId: row.id,
+      fields: ["categoryId", "type"],
+    });
   }
   const common = {
     date: patch.date ?? current.date,
     payee: patch.payee ?? current.payee,
-    description:
-      patch.description !== undefined
-        ? patch.description
-        : current.description,
-    categoryId:
-      patch.categoryId !== undefined
-        ? patch.categoryId
-        : current.categoryId,
+    description: patch.description !== undefined ? patch.description : current.description,
+    categoryId: patch.categoryId !== undefined ? patch.categoryId : current.categoryId,
     notes: patch.notes !== undefined ? patch.notes : current.notes,
     externalId: current.externalId,
     // Provenance, and a mass edit is not a reason to lose it. Carried here
@@ -1739,7 +1648,7 @@ function applyBulkPatch(
   const amount =
     current.type === "transfer"
       ? patch.type === "deposit"
-        ? current.destinationAmount ?? current.sourceAmount
+        ? (current.destinationAmount ?? current.sourceAmount)
         : current.sourceAmount
       : current.amount;
   const accountId = patch.accountId ?? currentAccountId;
@@ -1777,10 +1686,7 @@ function assertExpectedFilterSnapshot(
   rows: readonly TransactionRow[],
 ) {
   const fingerprint = selectionFingerprint(rows);
-  if (
-    rows.length !== selection.expectedCount ||
-    fingerprint !== selection.expectedFingerprint
-  ) {
+  if (rows.length !== selection.expectedCount || fingerprint !== selection.expectedFingerprint) {
     throw staleVersion({
       expectedCount: selection.expectedCount,
       currentCount: rows.length,
@@ -1790,15 +1696,11 @@ function assertExpectedFilterSnapshot(
   }
 }
 
-function normalizedBulkSelection(
-  selection: BulkTransactionEditInput["selection"],
-) {
+function normalizedBulkSelection(selection: BulkTransactionEditInput["selection"]) {
   if (selection.mode === "ids") {
     return {
       mode: selection.mode,
-      items: [...selection.items].sort((left, right) =>
-        left.id.localeCompare(right.id),
-      ),
+      items: [...selection.items].sort((left, right) => left.id.localeCompare(right.id)),
     };
   }
   return {
@@ -1822,19 +1724,12 @@ async function selectBulkSnapshot(
   const rows = await tx
     .select()
     .from(transactions)
-    .where(
-      and(
-        eq(transactions.userId, actor.userId),
-        inArray(transactions.id, ids),
-      ),
-    )
+    .where(and(eq(transactions.userId, actor.userId), inArray(transactions.id, ids)))
     .orderBy(transactions.id);
   if (rows.length !== ids.length) {
     throw notFound("One or more transactions are unavailable");
   }
-  const expectedVersions = new Map(
-    selection.items.map((item) => [item.id, item.expectedVersion]),
-  );
+  const expectedVersions = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
   const staleItems = rows
     .filter((row) => expectedVersions.get(row.id) !== row.version)
     .map((row) => ({
@@ -1877,9 +1772,7 @@ async function assertBulkDuplicatesAllowed(
   // the whole ledger into an indexed read of the days it touches.
   const writtenDates = [
     ...new Set(
-      plans
-        .filter((plan) => plan.before.deletedAt === null)
-        .map((plan) => plan.draft.date),
+      plans.filter((plan) => plan.before.deletedAt === null).map((plan) => plan.draft.date),
     ),
   ];
   const activeRows = await tx
@@ -1921,12 +1814,7 @@ export async function bulkEditTransactions(
 
   return withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
-      await lockIdempotencyKey(
-        tx,
-        actor,
-        "transaction.bulk_edit",
-        parsed.idempotencyKey,
-      );
+      await lockIdempotencyKey(tx, actor, "transaction.bulk_edit", parsed.idempotencyKey);
       const existing = await getIdempotent<BulkTransactionEditResult>(
         tx,
         actor,
@@ -1956,45 +1844,31 @@ export async function bulkEditTransactions(
       tx,
       actor,
       snapshotDrafts.flatMap(({ row, draft }) => [
-        ...[row.sourceAccountId, row.destinationAccountId].filter(
-          (id): id is string => Boolean(id),
+        ...[row.sourceAccountId, row.destinationAccountId].filter((id): id is string =>
+          Boolean(id),
         ),
         ...draftAccountIds(draft),
       ]),
     );
-    if (
-      snapshotDrafts.some(
-        ({ row, draft }) => Boolean(row.categoryId || draft.categoryId),
-      )
-    ) {
+    if (snapshotDrafts.some(({ row, draft }) => Boolean(row.categoryId || draft.categoryId))) {
       await lockCategoryNamespace(tx, actor);
     }
     await lockPayeeNamespace(tx, actor);
     await lockTransactionDuplicateKeys(
       tx,
       actor,
-      snapshotDrafts
-        .filter(({ row }) => row.deletedAt === null)
-        .map(({ draft }) => draft),
+      snapshotDrafts.filter(({ row }) => row.deletedAt === null).map(({ draft }) => draft),
     );
 
     const snapshotIds = snapshotRows.map((row) => row.id);
     const lockedRows = await tx
       .select()
       .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, actor.userId),
-          inArray(transactions.id, snapshotIds),
-        ),
-      )
+      .where(and(eq(transactions.userId, actor.userId), inArray(transactions.id, snapshotIds)))
       .orderBy(transactions.id)
       .for("update");
     const lockedFingerprint = selectionFingerprint(lockedRows);
-    if (
-      lockedRows.length !== snapshotRows.length ||
-      lockedFingerprint !== snapshotFingerprint
-    ) {
+    if (lockedRows.length !== snapshotRows.length || lockedFingerprint !== snapshotFingerprint) {
       throw staleVersion({
         expectedCount: snapshotRows.length,
         currentCount: lockedRows.length,
@@ -2004,11 +1878,7 @@ export async function bulkEditTransactions(
     }
     if (parsed.selection.mode === "filter") {
       assertExpectedFilterSnapshot(parsed.selection, lockedRows);
-      const currentFilterRows = await selectBulkFilterRows(
-        tx,
-        actor,
-        parsed.selection,
-      );
+      const currentFilterRows = await selectBulkFilterRows(tx, actor, parsed.selection);
       assertExpectedFilterSnapshot(parsed.selection, currentFilterRows);
     }
 
@@ -2023,12 +1893,35 @@ export async function bulkEditTransactions(
     // row cannot change underneath the loop, and looking it up per row was
     // three round trips each for an answer already in hand.
     const references = await loadLedgerReferences(tx, actor);
+    // A category running against an entry's direction makes it a refund, which
+    // moves the other half of it from income to expense or back. That is a
+    // decision about what happened, and made across a filtered selection it
+    // would move money between the two counter-accounts for rows nobody looked
+    // at. Refused for the same reason a bulk edit will not flatten a split: not
+    // because it cannot be done, but because it cannot be done silently.
+    const patchedKind = parsed.patch.categoryId
+      ? references.categories.get(parsed.patch.categoryId)?.kind
+      : undefined;
+    if (patchedKind) {
+      const reversed = lockedRows.filter((row) =>
+        reversesEntry(parsed.patch.type ?? row.type, patchedKind),
+      );
+      if (reversed.length > 0) {
+        throw validationError(
+          `That category runs against the direction of ${reversed.length} of these transactions, which would make each one a refund. Change those individually.`,
+          {
+            fields: ["categoryId"],
+            reversedCount: reversed.length,
+          },
+        );
+      }
+    }
     for (const before of lockedRows) {
       const legs = lockedLegs.get(before.id) ?? [];
       const draft = applyBulkPatch(before, parsed.patch, legs);
       const existingAccountIds = new Set(
-        [before.sourceAccountId, before.destinationAccountId].filter(
-          (id): id is string => Boolean(id),
+        [before.sourceAccountId, before.destinationAccountId].filter((id): id is string =>
+          Boolean(id),
         ),
       );
       const prepared = await prepareTransaction(tx, actor, draft, {
@@ -2046,9 +1939,7 @@ export async function bulkEditTransactions(
       const canonicalPayee = prepared.transaction.payee;
       if (parsed.patch.accountId && before.type !== "transfer") {
         const previousCurrency =
-          before.type === "deposit"
-            ? before.destinationCurrency
-            : before.sourceCurrency;
+          before.type === "deposit" ? before.destinationCurrency : before.sourceCurrency;
         const targetCurrency =
           draft.type === "deposit"
             ? prepared.transaction.destinationCurrency
@@ -2071,12 +1962,7 @@ export async function bulkEditTransactions(
       });
     }
 
-    await assertBulkDuplicatesAllowed(
-      tx,
-      actor,
-      plans,
-      parsed.allowDuplicates,
-    );
+    await assertBulkDuplicatesAllowed(tx, actor, plans, parsed.allowDuplicates);
 
     const plannedItems = plans.map(({ before, draft }) => ({
       id: before.id,
@@ -2087,9 +1973,7 @@ export async function bulkEditTransactions(
       payee: draft.payee,
     }));
     const visibleItems =
-      parsed.selection.mode === "filter"
-        ? plannedItems.slice(0, 200)
-        : plannedItems;
+      parsed.selection.mode === "filter" ? plannedItems.slice(0, 200) : plannedItems;
     const baseResult = {
       updatedCount: plans.length,
       dryRun: parsed.dryRun,
@@ -2134,9 +2018,7 @@ export async function bulkEditTransactions(
         tx,
         actor,
         before.id,
-        before.deletedAt
-          ? []
-          : withLegIds(prepared.postings, legIds, before.id),
+        before.deletedAt ? [] : withLegIds(prepared.postings, legIds, before.id),
       );
     }
     const editedLegs = await legsByTransaction(
@@ -2155,10 +2037,7 @@ export async function bulkEditTransactions(
         entityId: before.id,
         operation: "bulk_update",
         before: auditedTransaction(before, lockedLegs.get(before.id) ?? []),
-        after: auditedTransaction(
-          updatedRows[index]!,
-          editedLegs.get(before.id) ?? [],
-        ),
+        after: auditedTransaction(updatedRows[index]!, editedLegs.get(before.id) ?? []),
       })),
     );
 
@@ -2219,12 +2098,7 @@ export async function bulkDeleteTransactions(
 
   return withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
-      await lockIdempotencyKey(
-        tx,
-        actor,
-        "transaction.bulk_delete",
-        parsed.idempotencyKey,
-      );
+      await lockIdempotencyKey(tx, actor, "transaction.bulk_delete", parsed.idempotencyKey);
       const existing = await getIdempotent<BulkTransactionEditResult>(
         tx,
         actor,
@@ -2244,9 +2118,7 @@ export async function bulkDeleteTransactions(
       tx,
       actor,
       snapshotRows.flatMap((row) =>
-        [row.sourceAccountId, row.destinationAccountId].filter(
-          (id): id is string => Boolean(id),
-        ),
+        [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
       ),
     );
 
@@ -2254,19 +2126,11 @@ export async function bulkDeleteTransactions(
     const lockedRows = await tx
       .select()
       .from(transactions)
-      .where(
-        and(
-          eq(transactions.userId, actor.userId),
-          inArray(transactions.id, snapshotIds),
-        ),
-      )
+      .where(and(eq(transactions.userId, actor.userId), inArray(transactions.id, snapshotIds)))
       .orderBy(transactions.id)
       .for("update");
     const lockedFingerprint = selectionFingerprint(lockedRows);
-    if (
-      lockedRows.length !== snapshotRows.length ||
-      lockedFingerprint !== snapshotFingerprint
-    ) {
+    if (lockedRows.length !== snapshotRows.length || lockedFingerprint !== snapshotFingerprint) {
       throw staleVersion({
         expectedCount: snapshotRows.length,
         currentCount: lockedRows.length,
@@ -2292,9 +2156,7 @@ export async function bulkDeleteTransactions(
       payee: row.payee,
     }));
     const visibleItems =
-      parsed.selection.mode === "filter"
-        ? plannedItems.slice(0, 200)
-        : plannedItems;
+      parsed.selection.mode === "filter" ? plannedItems.slice(0, 200) : plannedItems;
     const baseResult = {
       updatedCount: deletable.length,
       dryRun: parsed.dryRun,
@@ -2365,8 +2227,7 @@ export async function updateTransaction(
   input: unknown,
   transaction?: DbTransaction,
 ) {
-  const { draft, expectedVersion, allowDuplicate } =
-    transactionUpdateSchema.parse(input);
+  const { draft, expectedVersion, allowDuplicate } = transactionUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     const [before] = await tx
       .select()
@@ -2380,9 +2241,7 @@ export async function updateTransaction(
         (accountId): accountId is string => accountId !== null,
       ),
     );
-    const beforeLegs = (await legsByTransaction(tx, actor, [before.id])).get(
-      before.id,
-    );
+    const beforeLegs = (await legsByTransaction(tx, actor, [before.id])).get(before.id);
     const allowedArchivedCategoryIds = new Set(
       [before.categoryId, ...(beforeLegs ?? []).map((leg) => leg.categoryId)].filter(
         (id): id is string => id !== null,
@@ -2466,13 +2325,7 @@ export async function setTransactionDeleted(
     if (!before) throw notFound("Transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
     if (!deleted && before.deletedAt) {
-      await assertDuplicateAllowed(
-        tx,
-        actor,
-        transactionToDraft(before),
-        allowDuplicate,
-        id,
-      );
+      await assertDuplicateAllowed(tx, actor, transactionToDraft(before), allowDuplicate, id);
     }
     const [updated] = await tx
       .update(transactions)
@@ -2497,23 +2350,18 @@ export async function setTransactionDeleted(
     const legs = (await legsByTransaction(tx, actor, [id])).get(id) ?? [];
     let restored: (typeof postings.$inferInsert)[] = [];
     if (!deleted) {
-      const prepared = await prepareTransaction(
-        tx,
-        actor,
-        transactionToDraft(updated, legs),
-        {
-          allowedArchivedAccountIds: new Set(
-            [updated.sourceAccountId, updated.destinationAccountId].filter(
-              (accountId): accountId is string => accountId !== null,
-            ),
+      const prepared = await prepareTransaction(tx, actor, transactionToDraft(updated, legs), {
+        allowedArchivedAccountIds: new Set(
+          [updated.sourceAccountId, updated.destinationAccountId].filter(
+            (accountId): accountId is string => accountId !== null,
           ),
-          allowedArchivedCategoryIds: new Set(
-            [updated.categoryId, ...legs.map((leg) => leg.categoryId)].filter(
-              (categoryId): categoryId is string => categoryId !== null,
-            ),
+        ),
+        allowedArchivedCategoryIds: new Set(
+          [updated.categoryId, ...legs.map((leg) => leg.categoryId)].filter(
+            (categoryId): categoryId is string => categoryId !== null,
           ),
-        },
-      );
+        ),
+      });
       const legIds = await resyncLegs(tx, actor, id, prepared.legs);
       restored = withLegIds(prepared.postings, legIds, id);
     }
@@ -2557,9 +2405,7 @@ export async function findDuplicate(
   draft: TransactionDraft,
   excludeTransactionId?: string,
 ) {
-  const exclusion = excludeTransactionId
-    ? ne(transactions.id, excludeTransactionId)
-    : sql`true`;
+  const exclusion = excludeTransactionId ? ne(transactions.id, excludeTransactionId) : sql`true`;
   if (draft.externalId) {
     const [exact] = await tx
       .select({ id: transactions.id })
@@ -2581,8 +2427,7 @@ export async function findDuplicate(
       : draft.type === "withdrawal"
         ? draft.fromAccountId
         : draft.fromAccountId;
-  const amount =
-    draft.type === "transfer" ? draft.sourceAmount : draft.amount;
+  const amount = draft.type === "transfer" ? draft.sourceAmount : draft.amount;
   const accountCondition =
     draft.type === "deposit"
       ? eq(transactions.destinationAccountId, accountId)
@@ -2621,7 +2466,6 @@ export async function findDuplicate(
   return match?.id ?? null;
 }
 
-
 /**
  * Legs are deliberately not part of this, and neither is the category.
  *
@@ -2632,11 +2476,7 @@ export async function findDuplicate(
  * matters most.
  */
 function transactionHeuristicDuplicateKey(draft: TransactionDraft) {
-  const common = [
-    draft.type,
-    draft.date,
-    normalizeHumanName(draft.payee),
-  ];
+  const common = [draft.type, draft.date, normalizeHumanName(draft.payee)];
   if (draft.type === "deposit") {
     return `heuristic:${JSON.stringify([
       ...common,
@@ -2729,12 +2569,7 @@ async function assertDuplicateAllowed(
   excludeTransactionId?: string,
 ) {
   await lockTransactionDuplicateKeys(tx, actor, [draft]);
-  const duplicateOfId = await findDuplicate(
-    tx,
-    actor,
-    draft,
-    excludeTransactionId,
-  );
+  const duplicateOfId = await findDuplicate(tx, actor, draft, excludeTransactionId);
   if (duplicateOfId && !allowDuplicate) {
     throw duplicate("This transaction appears to be a duplicate", {
       duplicateOfId,

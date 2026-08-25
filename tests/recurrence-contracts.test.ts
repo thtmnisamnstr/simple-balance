@@ -61,9 +61,7 @@ describe("what a recurrence remembers", () => {
     expect(messages(recurrenceShapeSchema.safeParse(split))).toContain(
       "needs an amount for its legs to divide",
     );
-    expect(
-      recurrenceShapeSchema.safeParse({ ...split, amount: "100.00" }).success,
-    ).toBe(true);
+    expect(recurrenceShapeSchema.safeParse({ ...split, amount: "100.00" }).success).toBe(true);
   });
 
   /**
@@ -104,9 +102,7 @@ describe("what a recurrence remembers", () => {
       { categoryName: "Household", amount: "40.00" },
     ];
     expect(
-      recurrenceShapeSchema.safeParse(
-        shape({ amount: "100.00", categoryId, legs }),
-      ).success,
+      recurrenceShapeSchema.safeParse(shape({ amount: "100.00", categoryId, legs })).success,
     ).toBe(false);
     expect(
       recurrenceShapeSchema.safeParse({
@@ -174,9 +170,8 @@ describe("the schedule", () => {
 
   it("takes a relative day of the month, and refuses one where it has no meaning", () => {
     expect(
-      recurrenceScheduleSchema.safeParse(
-        schedule({ position: { ordinal: 2, weekday: 2 } }),
-      ).success,
+      recurrenceScheduleSchema.safeParse(schedule({ position: { ordinal: 2, weekday: 2 } }))
+        .success,
     ).toBe(true);
     expect(
       recurrenceScheduleSchema.safeParse(
@@ -199,9 +194,8 @@ describe("the schedule", () => {
 
   it("refuses a fifth ordinal, which means different things in different months", () => {
     expect(
-      recurrenceScheduleSchema.safeParse(
-        schedule({ position: { ordinal: 5, weekday: 2 } }),
-      ).success,
+      recurrenceScheduleSchema.safeParse(schedule({ position: { ordinal: 5, weekday: 2 } }))
+        .success,
     ).toBe(false);
   });
 });
@@ -231,9 +225,7 @@ describe("changing one part of a schedule", () => {
       frequency: "daily",
       interval: 1,
     });
-    expect(
-      recurrenceScheduleSchema.safeParse({ ...stored, ...patch }).success,
-    ).toBe(false);
+    expect(recurrenceScheduleSchema.safeParse({ ...stored, ...patch }).success).toBe(false);
   });
 
   it("requires an expected version", () => {
@@ -251,8 +243,7 @@ describe("creating one", () => {
       }).success,
     ).toBe(true);
     expect(
-      recurrenceCreateSchema.safeParse({ name: "", shape: shape(), schedule: schedule() })
-        .success,
+      recurrenceCreateSchema.safeParse({ name: "", shape: shape(), schedule: schedule() }).success,
     ).toBe(false);
   });
 });

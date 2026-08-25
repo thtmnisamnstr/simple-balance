@@ -61,9 +61,7 @@ function supportedValues(kind: "currency" | "timeZone", fallback: readonly strin
 }
 
 function includeSelected(values: string[], selected: string) {
-  return [...new Set([...values, selected])].sort((left, right) =>
-    left.localeCompare(right),
-  );
+  return [...new Set([...values, selected])].sort((left, right) => left.localeCompare(right));
 }
 
 export function currencyOptions(selected: string) {

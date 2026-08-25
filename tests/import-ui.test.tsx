@@ -2,13 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account, CsvPreview } from "../src/client/api.js";
 import { APP_CSV_COLUMNS } from "../src/shared/csv.js";
@@ -82,10 +76,7 @@ async function chooseFile(csv: string, name: string) {
 
 describe("CSV reference resolution UI", () => {
   it("maps the category column and explains automatic category/payee handling", async () => {
-    const csv = [
-      "date,payee,category,amount",
-      "2026-07-31,ACME Market,Dining,-12.34",
-    ].join("\n");
+    const csv = ["date,payee,category,amount", "2026-07-31,ACME Market,Dining,-12.34"].join("\n");
     const preview: CsvPreview = {
       delimiter: ",",
       headers: ["date", "payee", "category", "amount"],
@@ -171,12 +162,8 @@ describe("CSV reference resolution UI", () => {
         dryRun: true,
       });
     });
-    expect(
-      screen.getByText(/Categories: 0 matched, 1 new, and 0 updated/),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Payees: 1 matched and 0 new/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Categories: 0 matched, 1 new, and 0 updated/)).toBeInTheDocument();
+    expect(screen.getByText(/Payees: 1 matched and 0 new/)).toBeInTheDocument();
   });
 });
 

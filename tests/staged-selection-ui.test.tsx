@@ -4,11 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  Account,
-  PaginatedPage,
-  StagedTransaction,
-} from "../src/client/api.js";
+import type { Account, PaginatedPage, StagedTransaction } from "../src/client/api.js";
 import StagingPage from "../src/client/pages/StagingPage.js";
 import { BrowserRouter } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -81,6 +77,7 @@ function stubStagedQueue(duplicates: string[] = []) {
           page: 1,
           pageSize: 200,
           totalCount: duplicates.length,
+          cursorAvailable: false,
           totalPages: 1,
         } satisfies PaginatedPage<StagedTransaction>);
       }
@@ -94,6 +91,7 @@ function stubStagedQueue(duplicates: string[] = []) {
           page: second ? 2 : 1,
           pageSize: 2,
           totalCount: 3,
+          cursorAvailable: false,
           totalPages: 2,
         };
         return json(page);
@@ -110,11 +108,7 @@ function stubStagedQueue(duplicates: string[] = []) {
 }
 
 function renderStaging() {
-  window.history.replaceState(
-    null,
-    "",
-    "/staged?start=2026-07-01&end=2026-07-31",
-  );
+  window.history.replaceState(null, "", "/staged?start=2026-07-01&end=2026-07-31");
   return render(
     <QueryClientProvider client={queryClient()}>
       <TimezoneProvider timezone="UTC">
@@ -130,10 +124,8 @@ const pageCheckbox = () =>
   screen.getByRole("checkbox", {
     name: "Select all staged transactions on this page",
   }) as HTMLInputElement;
-const rowCheckbox = (payee: string) =>
-  screen.getByRole("checkbox", { name: `Select ${payee}` });
-const selectAllMatching = () =>
-  screen.queryByRole("button", { name: "Select all 3 matching" });
+const rowCheckbox = (payee: string) => screen.getByRole("checkbox", { name: `Select ${payee}` });
+const selectAllMatching = () => screen.queryByRole("button", { name: "Select all 3 matching" });
 
 afterEach(() => {
   cleanup();
@@ -207,9 +199,7 @@ describe("staged transaction selection", () => {
 
     expect(screen.getByText("2 selected")).toBeInTheDocument();
     expect(screen.queryByText("Offscreen")).not.toBeInTheDocument();
-    expect(stageCursors.filter((requested) => requested === "2")).toHaveLength(
-      0,
-    );
+    expect(stageCursors.filter((requested) => requested === "2")).toHaveLength(0);
   });
 
   it("offers whole-list selection whenever the list runs past the page", async () => {
@@ -238,9 +228,7 @@ describe("staged transaction selection", () => {
     ).toBeInTheDocument();
     // The page on screen never moves, so the offscreen row stays offscreen.
     expect(screen.queryByText("Offscreen")).not.toBeInTheDocument();
-    expect(stageCursors.filter((requested) => requested === "2")).toHaveLength(
-      1,
-    );
+    expect(stageCursors.filter((requested) => requested === "2")).toHaveLength(1);
     // Everything matching is already held, so the escalation is withdrawn.
     expect(selectAllMatching()).not.toBeInTheDocument();
   });

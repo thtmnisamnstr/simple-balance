@@ -10,14 +10,8 @@ import {
 } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import { getSummary } from "../../src/server/services/summary.js";
-import {
-  createTransaction,
-  updateTransaction,
-} from "../../src/server/services/transactions.js";
-import {
-  archivedEntriesCte,
-  withClause,
-} from "../../src/server/services/report-sql.js";
+import { createTransaction, updateTransaction } from "../../src/server/services/transactions.js";
+import { archivedEntriesCte, withClause } from "../../src/server/services/report-sql.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -43,10 +37,7 @@ const usd = (summary: Awaited<ReturnType<typeof getSummary>>) =>
 
 const spend = (summary: Awaited<ReturnType<typeof getSummary>>) =>
   Object.fromEntries(
-    (usd(summary)?.spendingByCategory ?? []).map((row) => [
-      row.category,
-      row.amount,
-    ]),
+    (usd(summary)?.spendingByCategory ?? []).map((row) => [row.category, row.amount]),
   );
 
 integration("the archived-account exclusion, hoisted", () => {
@@ -76,8 +67,7 @@ integration("the archived-account exclusion, hoisted", () => {
         openingBalance: "500",
       })
     ).id;
-    foodId = (await createCategory(actor, { name: "Food", kind: "expense" }))
-      .id;
+    foodId = (await createCategory(actor, { name: "Food", kind: "expense" })).id;
   });
 
   afterAll(async () => {
@@ -174,9 +164,7 @@ integration("the archived-account exclusion, hoisted", () => {
       where p.user_id = ${actor.userId}
       group by p.currency
     `);
-    expect(result.rows.map((row) => `${row.currency}=${Number(row.total)}`)).toEqual([
-      "USD=0",
-    ]);
+    expect(result.rows.map((row) => `${row.currency}=${Number(row.total)}`)).toEqual(["USD=0"]);
   });
 
   /**

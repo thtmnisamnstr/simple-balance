@@ -1,17 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutTemplate, ListChecks, Pencil, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
-import {
-  api,
-  json,
-  type Account,
-  type Category,
-  type TransactionTemplate,
-} from "../api.js";
+import { api, json, type Account, type Category, type TransactionTemplate } from "../api.js";
 import {
   Alert,
   Badge,
   Button,
+  compareForSort,
   ConfirmDialog,
   EmptyState,
   Field,
@@ -22,16 +17,12 @@ import {
   RowMenu,
   Select,
   SelectionCheckbox,
+  Skeleton,
   SortableHeader,
-  compareForSort,
-  useConfirm,
   type SortState,
+  useConfirm,
 } from "../components.js";
-import {
-  formatDate,
-  compareMoney,
-  formatMoney,
-} from "../money.js";
+import { formatDate, compareMoney, formatMoney, movementSign } from "../money.js";
 import { TemplateForm } from "../forms.js";
 import { Link } from "../router.js";
 import { newIdempotencyKey } from "../idempotency.js";
@@ -81,10 +72,7 @@ const sideForType: Record<string, "fromAccountId" | "toAccountId" | "both"> = {
   transfer: "both",
 };
 
-function accountAllowed(
-  field: "fromAccountId" | "toAccountId",
-  type: string,
-) {
+function accountAllowed(field: "fromAccountId" | "toAccountId", type: string) {
   const side = sideForType[type];
   return side === "both" || side === field;
 }
@@ -147,9 +135,7 @@ export default function TemplatesPage() {
   const categoryLabel = (template: TransactionTemplate) => {
     const legs = template.draft.legs;
     if (!legs?.length) return categoryName(template.draft.categoryId);
-    return (
-      categoryName(legs[0]!.categoryId) ?? legs[0]!.categoryName ?? undefined
-    );
+    return categoryName(legs[0]!.categoryId) ?? legs[0]!.categoryName ?? undefined;
   };
 
   const accountLabel = (template: TransactionTemplate) => {
@@ -161,9 +147,7 @@ export default function TemplatesPage() {
       return `${from ?? "Unavailable"} → ${to ?? "Unavailable"}`;
     }
     const id =
-      draft.type === "deposit"
-        ? draft.toAccountId
-        : (draft.fromAccountId ?? draft.toAccountId);
+      draft.type === "deposit" ? draft.toAccountId : (draft.fromAccountId ?? draft.toAccountId);
     if (!id) return null;
     return accountName(id) ?? "Unavailable";
   };
@@ -171,9 +155,7 @@ export default function TemplatesPage() {
   const currencyFor = (template: TransactionTemplate) => {
     const { draft } = template;
     const id =
-      draft.type === "deposit"
-        ? draft.toAccountId
-        : (draft.fromAccountId ?? draft.toAccountId);
+      draft.type === "deposit" ? draft.toAccountId : (draft.fromAccountId ?? draft.toAccountId);
     return accounts.data?.find((account) => account.id === id)?.currency ?? "USD";
   };
 
@@ -202,11 +184,7 @@ export default function TemplatesPage() {
         // that has already gone, which outranks no reminder at all. Sorting this
         // column is somebody asking what they are going to be told about.
         case "reminder":
-          return template.notification
-            ? template.notification.nextNotificationDate
-              ? 2
-              : 1
-            : 0;
+          return template.notification ? (template.notification.nextNotificationDate ? 2 : 1) : 0;
         default:
           return categoryLabel(template) ?? null;
       }
@@ -219,11 +197,7 @@ export default function TemplatesPage() {
           ? left.draft.amount && right.draft.amount
             ? (sort.direction === "asc" ? 1 : -1) *
               compareMoney(left.draft.amount, right.draft.amount)
-            : compareForSort(
-                left.draft.amount ?? null,
-                right.draft.amount ?? null,
-                sort.direction,
-              )
+            : compareForSort(left.draft.amount ?? null, right.draft.amount ?? null, sort.direction)
           : compareForSort(key(left), key(right), sort.direction);
       // Name breaks every tie, so a page of rows that match on the sorted
       // column keeps a stable order across renders.
@@ -233,15 +207,10 @@ export default function TemplatesPage() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const visible = filtered.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE,
-  );
+  const visible = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const selectedIds = Object.keys(selection);
-  const selectedTemplates = (templates.data ?? []).filter(
-    (template) => template.id in selection,
-  );
+  const selectedTemplates = (templates.data ?? []).filter((template) => template.id in selection);
   const pageSelected = visible.filter((template) => template.id in selection);
   const selectionItems = selectedIds.map((id) => ({
     id,
@@ -269,11 +238,7 @@ export default function TemplatesPage() {
     });
 
   const selectAllMatching = () =>
-    setSelection(
-      Object.fromEntries(
-        filtered.map((template) => [template.id, template.version]),
-      ),
-    );
+    setSelection(Object.fromEntries(filtered.map((template) => [template.id, template.version])));
 
   const afterBulk = async (message: string) => {
     clearSelection();
@@ -293,9 +258,7 @@ export default function TemplatesPage() {
         }),
       ),
     onSuccess: (result) =>
-      afterBulk(
-        `${result.changedCount} template${result.changedCount === 1 ? "" : "s"} changed.`,
-      ),
+      afterBulk(`${result.changedCount} template${result.changedCount === 1 ? "" : "s"} changed.`),
   });
 
   const bulkDelete = useMutation({
@@ -308,9 +271,7 @@ export default function TemplatesPage() {
         }),
       ),
     onSuccess: (result) =>
-      afterBulk(
-        `${result.changedCount} template${result.changedCount === 1 ? "" : "s"} deleted.`,
-      ),
+      afterBulk(`${result.changedCount} template${result.changedCount === 1 ? "" : "s"} deleted.`),
   });
 
   const deletion = useMutation({
@@ -383,11 +344,7 @@ export default function TemplatesPage() {
 
   const anyChange = BULK_FIELDS.some((field) => actions[field.key] !== "leave");
   const error =
-    templates.error ??
-    accounts.error ??
-    categories.error ??
-    bulkDelete.error ??
-    deletion.error;
+    templates.error ?? accounts.error ?? categories.error ?? bulkDelete.error ?? deletion.error;
 
   return (
     <>
@@ -446,11 +403,7 @@ export default function TemplatesPage() {
           </div>
           <div className="transaction-selection-actions">
             {selectedIds.length < filtered.length ? (
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={selectAllMatching}
-              >
+              <Button type="button" variant="secondary" onClick={selectAllMatching}>
                 {`Select all ${filtered.length} matching`}
               </Button>
             ) : null}
@@ -467,9 +420,7 @@ export default function TemplatesPage() {
             <Button
               type="button"
               variant="danger"
-              onClick={() =>
-                bulkRemoval.ask(selectedIds.length, () => bulkDelete.mutate())
-              }
+              onClick={() => bulkRemoval.ask(selectedIds.length, () => bulkDelete.mutate())}
             >
               <Trash2 size={16} /> Delete selected
             </Button>
@@ -481,15 +432,11 @@ export default function TemplatesPage() {
       ) : null}
 
       {templates.isPending || accounts.isPending || categories.isPending ? (
-        <p className="settings-note">Loading templates…</p>
+        <Skeleton height={120} label="Loading templates…" />
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={<LayoutTemplate size={25} />}
-          title={
-            templates.data?.length
-              ? "No template matches"
-              : "No templates yet"
-          }
+          title={templates.data?.length ? "No template matches" : "No templates yet"}
           body={
             templates.data?.length
               ? "Nothing here matches that search."
@@ -500,52 +447,24 @@ export default function TemplatesPage() {
         <section className="panel">
           <div className="table-wrap">
             <table className="data-table">
+              <caption className="sr-only">Transaction templates</caption>
               <thead>
                 <tr>
-                  <th className="checkbox-cell">
+                  <th scope="col" className="checkbox-cell">
                     <SelectionCheckbox
                       aria-label="Select all templates on this page"
-                      checked={
-                        visible.length > 0 &&
-                        pageSelected.length === visible.length
-                      }
+                      checked={visible.length > 0 && pageSelected.length === visible.length}
                       indeterminate={
-                        pageSelected.length > 0 &&
-                        pageSelected.length < visible.length
+                        pageSelected.length > 0 && pageSelected.length < visible.length
                       }
                       onChange={(event) => togglePage(event.target.checked)}
                     />
                   </th>
-                  <SortableHeader
-                    field="name"
-                    label="Name"
-                    sort={sort}
-                    onSort={setSort}
-                  />
-                  <SortableHeader
-                    field="type"
-                    label="Type"
-                    sort={sort}
-                    onSort={setSort}
-                  />
-                  <SortableHeader
-                    field="payee"
-                    label="Payee"
-                    sort={sort}
-                    onSort={setSort}
-                  />
-                  <SortableHeader
-                    field="account"
-                    label="Account"
-                    sort={sort}
-                    onSort={setSort}
-                  />
-                  <SortableHeader
-                    field="category"
-                    label="Category"
-                    sort={sort}
-                    onSort={setSort}
-                  />
+                  <SortableHeader field="name" label="Name" sort={sort} onSort={setSort} />
+                  <SortableHeader field="type" label="Type" sort={sort} onSort={setSort} />
+                  <SortableHeader field="payee" label="Payee" sort={sort} onSort={setSort} />
+                  <SortableHeader field="account" label="Account" sort={sort} onSort={setSort} />
+                  <SortableHeader field="category" label="Category" sort={sort} onSort={setSort} />
                   <SortableHeader
                     field="amount"
                     label="Amount"
@@ -569,7 +488,7 @@ export default function TemplatesPage() {
                     sort={sort}
                     onSort={setSort}
                   />
-                  <th aria-label="Actions" />
+                  <th scope="col" aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -582,9 +501,7 @@ export default function TemplatesPage() {
                         <SelectionCheckbox
                           aria-label={`Select ${template.name}`}
                           checked={template.id in selection}
-                          onChange={(event) =>
-                            toggleOne(template, event.target.checked)
-                          }
+                          onChange={(event) => toggleOne(template, event.target.checked)}
                         />
                       </td>
                       <td>
@@ -598,24 +515,14 @@ export default function TemplatesPage() {
                         )}
                       </td>
                       <td>
-                        {template.draft.payee ?? (
-                          <span className="template-blank">blank</span>
-                        )}
+                        {template.draft.payee ?? <span className="template-blank">blank</span>}
                       </td>
-                      <td>
-                        {account ? (
-                          account
-                        ) : (
-                          <span className="template-blank">blank</span>
-                        )}
-                      </td>
+                      <td>{account ? account : <span className="template-blank">blank</span>}</td>
                       <td>
                         {template.draft.legs?.length ? (
                           <div className="transaction-payee">
                             <span>{categoryLabel(template) ?? "Unavailable"}</span>
-                            <Badge tone="blue">
-                              Split · {template.draft.legs.length}
-                            </Badge>
+                            <Badge tone="blue">Split · {template.draft.legs.length}</Badge>
                           </div>
                         ) : template.draft.categoryId ? (
                           (category ?? "Unavailable")
@@ -623,12 +530,14 @@ export default function TemplatesPage() {
                           <span className="template-blank">blank</span>
                         )}
                       </td>
-                      <td className="align-right">
+                      <td
+                        className={`align-right money ${movementSign(template.draft.type).className}`}
+                      >
                         {template.draft.amount ? (
-                          formatMoney(
-                            template.draft.amount,
-                            currencyFor(template),
-                          )
+                          <>
+                            {movementSign(template.draft.type).sign}
+                            {formatMoney(template.draft.amount, currencyFor(template))}
+                          </>
                         ) : (
                           <span className="template-blank">blank</span>
                         )}
@@ -669,20 +578,13 @@ export default function TemplatesPage() {
                       </td>
                       <td className="row-actions">
                         <RowMenu label={`Actions for ${template.name}`}>
-                          <button
-                            type="button"
-                            onClick={() => setEditing(template)}
-                          >
+                          <button type="button" onClick={() => setEditing(template)}>
                             <Pencil size={15} /> Edit
                           </button>
                           <button
                             type="button"
                             className="danger"
-                            onClick={() =>
-                              removal.ask(template, () =>
-                                deletion.mutate(template),
-                              )
-                            }
+                            onClick={() => removal.ask(template, () => deletion.mutate(template))}
                           >
                             <Trash2 size={15} /> Delete
                           </button>
@@ -747,11 +649,7 @@ export default function TemplatesPage() {
         onClose={() => setBulkEditing(false)}
         footer={
           <>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setBulkEditing(false)}
-            >
+            <Button type="button" variant="ghost" onClick={() => setBulkEditing(false)}>
               Cancel
             </Button>
             <Button
@@ -765,28 +663,18 @@ export default function TemplatesPage() {
           </>
         }
       >
-        <form
-          id="template-bulk-edit-form"
-          className="bulk-edit-form"
-          onSubmit={submitBulkEdit}
-        >
+        <form id="template-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>
           {bulkEdit.error ? <Alert>{bulkEdit.error.message}</Alert> : null}
           <div className="bulk-edit-fields">
             {BULK_FIELDS.map((field) => {
               const action = actions[field.key];
-              const isAccount =
-                field.key === "fromAccountId" || field.key === "toAccountId";
+              const isAccount = field.key === "fromAccountId" || field.key === "toAccountId";
               const blocked =
-                isAccount &&
-                sideUnavailable(field.key as "fromAccountId" | "toAccountId");
+                isAccount && sideUnavailable(field.key as "fromAccountId" | "toAccountId");
               return (
                 <div
                   key={field.key}
-                  className={
-                    action === "leave"
-                      ? "bulk-edit-field"
-                      : "bulk-edit-field enabled"
-                  }
+                  className={action === "leave" ? "bulk-edit-field" : "bulk-edit-field enabled"}
                 >
                   <Field label={field.label}>
                     <Select
@@ -808,9 +696,7 @@ export default function TemplatesPage() {
                         Set to
                       </option>
                       {field.clearable ? (
-                        <option value="clear">
-                          Clear so it is filled in on use
-                        </option>
+                        <option value="clear">Clear so it is filled in on use</option>
                       ) : null}
                     </Select>
                   </Field>

@@ -66,9 +66,7 @@ const y = (value: string, low: string, high: string) => {
 
 const columnCentre = (index: number, count: number) => {
   const plot = VIEW.width - PADDING * 2;
-  return count <= 1
-    ? VIEW.width / 2
-    : PADDING + (index / (count - 1)) * plot;
+  return count <= 1 ? VIEW.width / 2 : PADDING + (index / (count - 1)) * plot;
 };
 
 /**
@@ -108,8 +106,8 @@ export function niceTicks(low: string, high: string, count = 4): string[] {
     const difference = span - BigInt(count) * candidate;
     return difference < 0n ? -difference : difference;
   };
-  const step = NICE_MULTIPLES.map((multiple) => multiple * magnitude).reduce(
-    (best, candidate) => (distance(candidate) < distance(best) ? candidate : best),
+  const step = NICE_MULTIPLES.map((multiple) => multiple * magnitude).reduce((best, candidate) =>
+    distance(candidate) < distance(best) ? candidate : best,
   );
 
   // The first multiple of the step at or above the low bound. Because every
@@ -124,9 +122,7 @@ export function niceTicks(low: string, high: string, count = 4): string[] {
   ) {
     ticks.push(moneyFromUnits(tick));
   }
-  return ticks.length >= 2
-    ? ticks
-    : [moneyFromUnits(lowUnits), moneyFromUnits(highUnits)];
+  return ticks.length >= 2 ? ticks : [moneyFromUnits(lowUnits), moneyFromUnits(highUnits)];
 }
 
 /**
@@ -265,13 +261,10 @@ function ChartFrame({
             every value hung off the left of the panel. One label in flow,
             hidden, is what reserves exactly the width the widest one needs. */}
         <span className="chart-axis-sizer">
-          {ticks.reduce(
-            (widest, tick) => {
-              const label = formatMoney(tick.value, currency);
-              return label.length > widest.length ? label : widest;
-            },
-            "",
-          )}
+          {ticks.reduce((widest, tick) => {
+            const label = formatMoney(tick.value, currency);
+            return label.length > widest.length ? label : widest;
+          }, "")}
         </span>
         {ticks.map((tick) => (
           <span key={tick.value} className="chart-axis-value" style={{ top: `${tick.at}%` }}>
@@ -304,9 +297,7 @@ function ChartFrame({
         {/* Only when no tick already landed on it, so the zero line is not
             drawn twice at different weights. */}
         {zeroAt !== null &&
-        !ticks.some(
-          (tick) => Math.abs(zeroAt - (tick.at / 100) * VIEW.height) < 0.5,
-        ) ? (
+        !ticks.some((tick) => Math.abs(zeroAt - (tick.at / 100) * VIEW.height) < 0.5) ? (
           <line
             className="chart-zero"
             x1={0}
@@ -323,11 +314,7 @@ function ChartFrame({
           <span
             key={label.key}
             className={
-              index === 0
-                ? "at-start"
-                : index === timeLabels.length - 1
-                  ? "at-end"
-                  : undefined
+              index === 0 ? "at-start" : index === timeLabels.length - 1 ? "at-end" : undefined
             }
             style={
               index === 0
@@ -355,14 +342,10 @@ const tickPositions = (values: string[], low: string, high: string) =>
 export function LineChart({ buckets, series, currency, title, bucket }: ChartProps) {
   const plot = useMeasuredWidth();
   const { low, high } = bounds(series);
-  const zeroAt =
-    !isPositiveMoney(low) && !isNegativeMoney(high) ? y("0", low, high) : null;
+  const zeroAt = !isPositiveMoney(low) && !isNegativeMoney(high) ? y("0", low, high) : null;
   const ticks = tickPositions(niceTicks(low, high), low, high);
   // A point sits at the centre of its column, so its label goes there too.
-  const timeLabels = labelledBuckets(
-    buckets.length,
-    labelBudget(plot.width),
-  ).map((index) => ({
+  const timeLabels = labelledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
     key: buckets[index]!.start,
     text: bucketLabel(buckets[index]!.start, bucket),
     at: (columnCentre(index, buckets.length) / VIEW.width) * 100,
@@ -410,10 +393,7 @@ export function BarChart({ buckets, series, currency, title, bucket }: ChartProp
   const ticks = tickPositions(niceTicks(low, high), low, high);
   // A group of bars fills its own slice of the width rather than sitting on a
   // point, so the label goes under the middle of the slice.
-  const timeLabels = labelledBuckets(
-    buckets.length,
-    labelBudget(plot.width),
-  ).map((index) => ({
+  const timeLabels = labelledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
     key: buckets[index]!.start,
     text: bucketLabel(buckets[index]!.start, bucket),
     at: ((index * groupWidth + groupWidth / 2) / VIEW.width) * 100,
@@ -438,11 +418,7 @@ export function BarChart({ buckets, series, currency, title, bucket }: ChartProp
               <rect
                 key={`${bucket.start}-${entry.key}`}
                 className={`chart-bar ${seriesClass(index)}`}
-                x={
-                  position * groupWidth +
-                  groupWidth * 0.15 +
-                  index * barWidth
-                }
+                x={position * groupWidth + groupWidth * 0.15 + index * barWidth}
                 y={Math.min(top, baseline)}
                 width={barWidth}
                 height={height < 1 ? 1 : height}

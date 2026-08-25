@@ -31,9 +31,7 @@ export function smtpOptions(mail: MailSettings) {
     port: mail.port,
     secure: mail.ssl,
     requireTLS: !mail.ssl && authenticated,
-    ...(authenticated
-      ? { auth: { user: mail.username!, pass: mail.password! } }
-      : {}),
+    ...(authenticated ? { auth: { user: mail.username!, pass: mail.password! } } : {}),
     // Bounded on every leg. Nodemailer waits two minutes to connect and ten to
     // read by default; at the other end of that is somebody watching a sign-in
     // screen, so this gives up long before they do.
@@ -118,13 +116,17 @@ export async function sendMail(message: Message) {
       to: message.to,
       subject: message.subject,
       text: message.body,
+      // RFC 3834 §5.2. Every message this product sends is machine-generated,
+      // and §2 says an automatic responder should not reply to a message
+      // carrying this header with any value other than "no". Without it a
+      // vacation responder or a ticketing system can answer a password reset,
+      // and the answer lands on MAIL_FROM or MAIL_REPLY_TO — a mailbox nobody
+      // reads, holding somebody's reset link.
+      headers: { "Auto-Submitted": "auto-generated" },
     });
     return true;
   } catch (error) {
-    console.error(
-      `Could not send "${message.subject}". Check SMTP_HOST and MAIL_FROM.`,
-      error,
-    );
+    console.error(`Could not send "${message.subject}". Check SMTP_HOST and MAIL_FROM.`, error);
     return false;
   }
 }
