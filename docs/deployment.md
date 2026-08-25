@@ -698,6 +698,27 @@ The names are `simple_balance_*` for this product's own, and `process_*` and
 `component="scheduler"`, so a split deployment can tell the two apart and a
 single container reports both under `api`.
 
+Five things are worth alerting on, and they are the ones that fail silently
+today:
+
+- `simple_balance_db_pool_connections{state="waiting"}` above zero for more than
+  a moment. A request waiting there has already been admitted and is queued
+  behind somebody else's transaction, which is what `DATABASE_POOL_SIZE` being
+  too small looks like from outside.
+- `simple_balance_scheduler_ticks_total{outcome="failed"}` increasing. A tick
+  that throws is caught and the next one is armed, so nothing stops and nothing
+  gets proposed.
+- The absence of `simple_balance_scheduler_ticks_total` altogether, on a
+  deployment that expects a schedule. That is `RECURRENCE_SCHEDULER` off
+  everywhere, which is the one misconfiguration whose symptom is a year of
+  missing rent.
+- `simple_balance_mail_messages_total{outcome="failed"}` increasing, or
+  `{outcome="skipped"}` on a deployment that thinks it has a mail server.
+- `simple_balance_startup_migration_runs_total{outcome="failed"}`. Readiness
+  already fails on this, but a failed migration and a database that was never
+  reachable look the same from outside and only one of the two is fixed by
+  waiting.
+
 ## Backups
 
 Everything is in PostgreSQL, so backing up the database backs up the product.

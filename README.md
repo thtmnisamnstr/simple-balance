@@ -150,6 +150,12 @@ can, which keeps the deployment yours alone. List addresses (`you@example.com`),
 whole domains (`example.com`), or `*` for anybody, and those people get accounts of
 their own. They cannot see yours and you cannot see theirs.
 
+**Watch it, if you want to.** `METRICS_ENABLED=true` makes it answer
+`GET /metrics` in Prometheus' format: requests, agent tool calls, ledger writes,
+the connection pool, and the schedule's own ticks and mail. It is off until you
+ask, no label names a person or an amount, and `METRICS_TOKEN` puts a bearer
+token in front of it where the port is reachable by anything you do not control.
+
 To move to a newer image, pull it, stop and remove the container, and start it
 again with the same command. Your database is untouched, and migrations run at
 startup. See [upgrades](docs/upgrades.md).

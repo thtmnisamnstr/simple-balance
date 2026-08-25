@@ -103,6 +103,15 @@ x-app-config: &app-config
   RECURRENCE_CATCH_UP_LIMIT: "50"
   RECURRENCE_CLAIM_LIMIT: "500"
 
+  # Prometheus metrics, off unless asked for. Both the server and the scheduler
+  # answer GET /metrics when this is on, and both are worth scraping: the server
+  # reports requests and ledger writes, the scheduler reports ticks, proposals
+  # and mail. Neither port is published to the host by this file and the
+  # frontend does not proxy /metrics, so a scraper has to be on this network —
+  # which is why METRICS_TOKEN is optional here.
+  METRICS_ENABLED: ${METRICS_ENABLED:-false}
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+
 services:
   postgres:
     image: postgres:16-alpine
