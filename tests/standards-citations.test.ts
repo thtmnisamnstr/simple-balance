@@ -409,6 +409,45 @@ describe("what the standards guides cite", () => {
     );
   });
 
+  /**
+   * The contract the code guides state about themselves.
+   *
+   * `index.md` says "Every rule says how it is checked" and gives a count of the
+   * ones nothing checks. Both were false: 34 of the 67 labelled rules named no
+   * mechanism at all — not even `human` — and the count said 19 because a rule
+   * that stayed silent was not counted as anything. A silent rule is the worst
+   * of the four states, because it reads as covered.
+   */
+  it("gives every labelled rule a mechanism, and counts the ones with none", () => {
+    const guides = globSync("docs/standards/code/*.md").filter(
+      (file) => !file.endsWith("index.md"),
+    );
+    const silent: string[] = [];
+    let unenforced = 0;
+    for (const guide of guides) {
+      const text = readFileSync(guide, "utf8");
+      const lines = text.split("\n");
+      const notEnforced = text.slice(text.indexOf("not enforced"));
+      unenforced += [...notEnforced.matchAll(/^\| (?!Rule|---)[^|]+\|/gm)].length;
+      const starts = lines.flatMap((line, index) => (line.startsWith("### ") ? [index] : []));
+      for (const [position, start] of starts.entries()) {
+        const end = starts[position + 1] ?? lines.length;
+        const body = lines.slice(start, end).join("\n");
+        if (!/\*\*(Binding|House|Contested)/.test(body)) continue;
+        if (body.includes("*Checked by:*")) continue;
+        const number = lines[start]!.slice(4).split(" ")[0]!;
+        // A row in the file's own table is the other way to name a mechanism:
+        // `human`, said in the place that counts them.
+        if (new RegExp(`^\\| ${number.replace(".", "\\.")}[ .]`, "m").test(notEnforced)) continue;
+        silent.push(`${guide.split("/").pop()}: ${lines[start]!.slice(4)}`);
+      }
+    }
+    expect(silent, "name a mechanism, or add a row to the file's table").toEqual([]);
+    expect(readFileSync("docs/standards/code/index.md", "utf8")).toContain(
+      `There are ${unenforced} \`human\` rules`,
+    );
+  });
+
   it("never cites a range backwards", () => {
     const backwards = all
       .filter((citation) => citation.to < citation.from)

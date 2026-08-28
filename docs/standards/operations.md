@@ -906,6 +906,17 @@ collection — but it is small and constant, and gating it would put a branch in
 front of every write in the product to save it. What the setting decides is
 whether the endpoint answers, which is the part with a security consequence.
 
+**The client is `prom-client`, and it is deprecated by rename.** npm prints
+"prom-client has been replaced by @prometheus-io/client" on every install, and
+the successor is the same project under the Prometheus organisation. It is not
+adopted here yet, and the reason is dates rather than doubt:
+`@prometheus-io/client` first appeared on 21 August 2026 and has four releases,
+the newest a day before this was written, while `prom-client@15.1.3` is what the
+ecosystem runs. Taking a week-old package on the branch a release is being cut
+from trades a deprecation notice for an unknown, which is the wrong way round.
+Revisit it in the release after this one: the move is an import rename if the API
+held, and finding out costs one branch.
+
 *Checked by:* `tests/metrics.test.ts` for the labels, the route pattern, the
 token and the absence of the route when it was not asked for;
 `tests/dockerfile.test.ts` for the frontend not proxying it and for the runtime

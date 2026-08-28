@@ -18,11 +18,11 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 110 pass, 52 skip | **1,068 pass, 587 skip** |
-| `npm test`, database set | 162 pass | **1,655 pass** |
+| `npm test`, no database | 110 pass, 52 skip | **1,069 pass, 587 skip** |
+| `npm test`, database set | 162 pass | **1,656 pass** |
 | `npm run test:integration` | 53 pass | 588 pass |
 
-The first row is what CI and `npm run verify` see, and 1,068 is the number that
+The first row is what CI and `npm run verify` see, and 1,069 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -331,9 +331,10 @@ cannot do that should leave the number alone and fail loudly instead.
 | 5.2 One database per file | Convention. |
 | 5.3 Stubbed globals, if the setting goes | Nothing reads the runner configuration back, and the file that would fail is not the file that changed. |
 
-Nine `human` rules in this guide. It said four until every rule here was made to
-name its mechanism, and the five that surfaced had never been checked by
-anything — the page was simply quiet about them. Two are worth an attempt: 2.5
-is a scan of `tests/` for the `padEnd` shape it was, and 5.3 is a test that
-reads one line of `vitest.config.ts`, which is what `tests/theme-tokens.test.ts`
-already does to a stylesheet.
+Nine `human` rules in this guide, and it said four. Three of the difference is
+rules that named no mechanism anywhere on the page, which is the state this
+count exists to make uncomfortable; the rest is one row that read 2.1–2.3 and
+counted once. Two of the nine are worth an attempt: 2.5 is a scan of `tests/`
+for the `padEnd` shape it was, and 5.3 is a test that reads one line of
+`vitest.config.ts`, which is what `tests/theme-tokens.test.ts` already does to a
+stylesheet.

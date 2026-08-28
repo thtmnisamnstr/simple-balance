@@ -185,7 +185,8 @@ instances starting together must not both migrate.
 | 4.1 Locks before name reads | A missing lock produces a rare duplicate, which no test will reliably reproduce. |
 | 4.2 Migrations under a lock | Only a second process starting against the same database at the same moment can tell the lock is there, and nothing starts one. The suite runs `runMigrations()` and would run it unlocked just as happily. |
 
-Four `human` rules in this guide. That is one more than it said before, because
-4.2 was never counted: nothing checked it and nothing admitted so.
+Four `human` rules in this guide, one more than it used to say. 4.2 was never
+counted, and the miscount was the whole defect: nothing checked it and nothing
+said so.
 `tests/count-casts.test.ts` still holds 3.4, and it knows the shapes this schema
 actually writes rather than refusing every `count(*)` it sees.

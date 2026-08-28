@@ -56,17 +56,23 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 19 `human` rules across the seven guides** — 14 in the six that
+**There are 32 `human` rules across the seven guides** — 27 in the six that
 enforce something, and five in `comments.md`, which argues rather than enforces
-and says so. It was 26. Seven became tests in one pass, which is what this
-number is for: it is written down so that it embarrasses somebody into moving
-it, and it worked. Each of the seven names the test that took it over.
+and says so.
 
-The seventh is the one worth reading, because it looked impossible. A rule about
-where a decision belongs cannot be checked by a program. What can be checked is
-what that rule going wrong leaves behind — a transport reaching for the database
-on its own — and that turned out to be five lines, each with a reason, and a
-sixth now has to be argued for.
+**It went up, and that is the honest direction.** It was 26, then seven became
+tests in one pass and it read 19 — and 19 was wrong, because 34 of the 67
+labelled rules named no mechanism at all. A rule that says nothing about how it
+is checked is `human`, whether or not the word appears; leaving those silent
+made the count flattering rather than useful. Every rule now names one, so the
+count is of rules that really have nobody but a reader behind them, and it can
+go down again by being worked on rather than by being unstated.
+
+The seven that became tests are worth reading for how, and one especially,
+because it looked impossible. A rule about where a decision belongs cannot be
+checked by a program. What can be checked is what that rule going wrong leaves
+behind — a transport reaching for the database on its own — and that turned out
+to be five lines, each with a reason, and a sixth now has to be argued for.
 
 ## The toolchain, and what it was chosen over
 

@@ -173,11 +173,11 @@ transaction and staging idempotency keys to their request": the same request
 twice comes back as one row, the same key over a changed amount is refused as a
 `conflict`, and a stage whose `rawData` keys arrive in the other order still
 replays, which is the canonicalisation being exercised rather than the key.
-Two simultaneous retries are covered a few cases below it. What nothing checks
-is that a create takes a key at all. The closest is
-`tests/mcp-measurements.test.ts`, which holds both numbers in the MCP guide's
-sentence to the count of tools carrying one, so the guide cannot record a gap
-without failing — but a keyless tool that nobody counts passes.
+Two simultaneous retries are covered a few cases below it. That a create takes a
+key at all is held only on the agent surface, by
+`tests/mcp-measurements.test.ts`, which counts the mutating tools from their
+annotations and fails on one carrying neither a key nor an expected version. A
+service function reached from a route has nothing equivalent behind it.
 
 ### 2.4 Namespaces are locked before they are read
 
