@@ -7,7 +7,7 @@ keeping.
 | --- | --- | --- | --- |
 | Unit (node) | 73 | `npm test` | nothing |
 | Unit (jsdom) | 36 | `npm test` | nothing |
-| Integration | 53 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 54 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -18,11 +18,16 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 110 pass, 52 skip | **1,069 pass, 587 skip** |
-| `npm test`, database set | 162 pass | **1,656 pass** |
-| `npm run test:integration` | 53 pass | 588 pass |
+| `npm test`, no database | 110 pass, 53 skip | **1,071 pass, 591 skip** |
+| `npm test`, database set | 163 pass | **1,662 pass** |
+| `npm run test:integration` | 54 pass | 592 pass |
 
-The first row is what CI and `npm run verify` see, and 1,069 is the number that
+The third row is one test larger than the second row's skip count, and the odd
+one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
+`describe` outside the database guard, because discovering which tools a scope
+exposes needs no ledger. It runs on every `npm test`, database or not.
+
+The first row is what CI and `npm run verify` see, and 1,071 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -209,18 +214,27 @@ reason long enough to be one.
 
 ## 4. The vitest plugin is off
 
-**Contested, decided.** `oxlint --vitest-plugin` reports 231 findings on this
-suite. 163 of them are false against Vitest's own API:
+**Contested, decided.** `oxlint --vitest-plugin` reports 272 findings on this
+suite. 189 of them are false against Vitest's own API:
 
-- **`valid-expect`, 65.** It refuses `expect(value, message)`. That is a Jest
+- **`valid-expect`, 89.** It refuses `expect(value, message)`. That is a Jest
   rule; in Vitest the second argument is the assertion message and is correct.
-- **`valid-describe-callback` and `valid-title`, 98.** Both fire on
+- **`valid-describe-callback` and `valid-title`, 100.** Both fire on
   `const integration = describe.skipIf(!connection)` — the alias every
-  integration file uses to skip cleanly without a database. The plugin cannot
-  see through it.
+  integration file uses to skip cleanly without a database — one of each in the
+  fifty files that declare it, and in no file that does not. The plugin cannot
+  see through the alias.
 
-A plugin that is 71% wrong on this codebase would train everybody to ignore
+A plugin that is 69% wrong on this codebase would train everybody to ignore
 lint output. Off, and this section is the reason so nobody turns it back on.
+
+Those four numbers read 231, 163, 65 and 98 when this was written, and nothing
+holds them to the suite. They climb with it, because the two shapes the plugin
+misreads are the shapes a new integration file and a new message-carrying
+assertion both use, so the finding count grows fastest exactly where it is
+wrongest. Re-measure with `npx oxlint --vitest-plugin --format=json` rather than
+quoting these. What decides the section is the proportion, and two points in the
+proportion is not a change of mind.
 
 ## 5. Support
 
@@ -262,13 +276,27 @@ the setting.
 | Test | Holds |
 | --- | --- |
 | `tests/standards-citations.test.ts` | Every citation a guide makes, in all three forms, plus every internal link and heading anchor. |
-| `tests/lint-budget.test.ts` | The 31 open lint warnings, per rule, ratcheted down only. Also fails on a warning nobody has budgeted. |
+| `tests/testing-guide-counts.test.ts` | The file counts in both tables at the top of this page, recounted from disk. The test counts beside them are deliberately left alone. |
+| `tests/comment-density.test.ts` | The density `AGENTS.md` and `comments.md` both quote: one number in both places, within a point and a half of what `src` measures, and the counts behind it exactly. |
+| `tests/lint-budget.test.ts` | The lint warning budget, per rule and ratcheted down only. All three rules it once held are cleared and now denied outright, so every budget in it reads zero and the linter fails before this test is reached. What is left is the rule that starts warning and that nobody has decided about. |
 | `tests/lint-config-documented.test.ts` | Every rule `.oxlintrc.json` silences or downgrades, and every plugin it enables, is explained in a guide. |
 | `tests/mcp-measurements.test.ts` | Every number `mcp.md` quotes, against the live tool list. Four had drifted when it was written. |
 | `tests/mcp-instructions.test.ts` | The server instructions carry each rule an agent otherwise learns by being refused. |
 | `tests/table-overflow.test.ts` | Every table has a caption and every header cell a `scope`, alongside the scroll containment it started with. |
+| `tests/transport-database-access.test.ts` | `services.md` 1.2, by the thing that goes wrong when it is broken: a query in `api.ts` or `mcp.ts` that is not one of the five carrying a written reason, and a reason still listed after the line it explains has gone. |
 | `tests/migrations.test.ts` | The migration list in `AGENTS.md` matches the directory, both directions. |
 | `tests/mcp-parity.test.ts` | Route parity between the two transports, both directions. |
+
+Three of those rows arrived after the table did, and two more tests were
+considered for it and left out. `tests/log-level.test.ts` and
+`tests/metrics.test.ts` hold what the product does — a level gate that drops
+what sits below it, a label set that carries nobody's identity — and
+`operations.md` names each as its check, as these guides between them name
+eighty-seven test files. A row here is the narrower case: the rule is written
+down in the prose and nowhere else, so a repository that quietly stopped
+following it would leave a true-sounding document and nothing that noticed.
+Widen the table to every `*Checked by:*` line and it stops being a list and
+becomes an index of the suite.
 
 ### 6.1 Citations come in three shapes, and the test knows all of them now
 

@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -24,7 +23,22 @@ const lifecycle = vi.hoisted(() => ({
 }));
 
 vi.mock("nodemailer", () => ({ createTransport: () => transport }));
-vi.mock("@hono/node-server", () => ({ serve: () => ({}) }));
+/**
+ * The app the entrypoint hands to `serve`, kept so a test can drive it.
+ *
+ * `health` is module-private and `main()` is what mounts `/metrics` on it, so
+ * this is the only seam that reaches the routes as configured rather than as
+ * written.
+ */
+const listener = vi.hoisted(() => ({
+  fetch: undefined as ((request: Request) => Response | Promise<Response>) | undefined,
+}));
+vi.mock("@hono/node-server", () => ({
+  serve: (options: { fetch: (request: Request) => Response | Promise<Response> }) => {
+    listener.fetch = options.fetch;
+    return {};
+  },
+}));
 vi.mock("../src/server/db/migrate.js", () => ({ runMigrations: async () => {} }));
 vi.mock("../src/server/db/client.js", () => ({ closeDb: async () => {}, getDb: () => ({}) }));
 vi.mock("../src/server/recurrence-scheduler.js", () => ({
@@ -49,6 +63,7 @@ afterEach(() => {
   transport.close.mockReset();
   lifecycle.closeResources = undefined;
   lifecycle.ticking = false;
+  listener.fetch = undefined;
   // The entrypoint reports a failed start by setting this, and vitest reads the
   // same field when the run ends, so one left behind would fail a green run.
   process.exitCode = 0;
@@ -124,29 +139,50 @@ describe("a scheduler started without one", () => {
 });
 
 /**
- * The scheduler's own `/metrics`, which is half of a claim made in three places.
+ * The scheduler's own `/metrics`, driven through the app it really serves.
  *
  * `operations.md`, the chart's README and the CHANGELOG all say both entrypoints
  * answer, and that a split deployment scraping only the API watches the process
  * doing none of the scheduled work. Every metrics test until now drove the API,
  * so the half that carries ticks, proposals and mail was asserted and never
- * checked.
+ * checked — and the first attempt at closing that read `scheduler.ts` as text
+ * and asserted three strings were in it, which would pass on a file that cannot
+ * start.
+ *
+ * `tests/integration/scheduler-metrics.integration.test.ts` is the other half:
+ * it starts the real process against a real database, which is what proves the
+ * route survives migrations and that nothing else is mounted beside it.
  */
 describe("the scheduler's metrics endpoint", () => {
-  const environment = { ...process.env };
+  it("answers on the health port, labelled as the scheduler", async () => {
+    vi.stubEnv("METRICS_ENABLED", "true");
 
-  afterEach(() => {
-    process.env = { ...environment };
-    vi.resetModules();
+    await startScheduler();
+    const response = await listener.fetch!(new Request("http://localhost/metrics"));
+
+    expect(response.status).toBe(200);
+    // The label is the point of a second endpoint. Both processes publish the
+    // same metric names, so without it the two scrapes collide and a proposal
+    // counter reads as though the API had proposed.
+    expect(await response.text()).toContain('component="scheduler"');
   });
 
-  it("is registered on the scheduler's health app when metrics are on", async () => {
-    const source = await readFile(new URL("../src/server/scheduler.ts", import.meta.url), "utf8");
-    // Read rather than driven: `main()` runs migrations and opens a listener,
-    // and the property worth holding is that the route is mounted on the same
-    // app the health probes are, behind the same setting the API uses.
-    expect(source).toContain('health.get("/metrics", serveMetrics)');
-    expect(source).toContain("if (config.metrics.enabled)");
-    expect(source).toContain('setMetricsComponent("scheduler")');
+  it("is absent from a scheduler that did not ask for it", async () => {
+    await startScheduler();
+    const response = await listener.fetch!(new Request("http://localhost/metrics"));
+
+    // Nothing there rather than something that refuses: the route is registered
+    // only when `METRICS_ENABLED` says so, which is what keeps a deployment that
+    // never asked from having a scrape surface at all.
+    expect(response.status).toBe(404);
+  });
+
+  it("still answers the probes a Deployment configures", async () => {
+    vi.stubEnv("METRICS_ENABLED", "true");
+
+    await startScheduler();
+    const live = await listener.fetch!(new Request("http://localhost/health/live"));
+
+    expect(live.status).toBe(200);
   });
 });

@@ -290,6 +290,7 @@
         "enabled": { "type": "boolean" },
         "frontendIngressFrom": { "type": "array", "items": { "type": "object" } },
         "serverIngressFrom": { "type": "array", "items": { "type": "object" } },
+        "schedulerIngressFrom": { "type": "array", "items": { "type": "object" } },
         "probeSourceCidrs": { "type": "array", "items": { "type": "string" } },
         "restrictEgress": { "type": "boolean" },
         "egressRules": { "type": "array", "items": { "type": "object" } }

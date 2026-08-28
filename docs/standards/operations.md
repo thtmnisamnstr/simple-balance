@@ -875,6 +875,22 @@ reminders and mail. Scraping only the API watches the process that does none of
 the scheduled work. Every series carries `component="api"` or
 `component="scheduler"` so the two never collide.
 
+*Checked by:* `tests/scheduler-startup.test.ts` drives the app that entrypoint
+hands to `serve`, so the route and the label are read from the process as
+configured rather than from the source file — which is what the first attempt at
+this check did, and it would have passed on a file that could not start.
+`tests/integration/scheduler-metrics.integration.test.ts` starts the real
+entrypoint against a real database and scrapes it, which is also where "serves
+nothing else" is held: `/api/v1/accounts` on that port is a 404 rather than a
+401, so a Service pointed there by mistake cannot half-work.
+
+With a NetworkPolicy in front, both processes need the scraper named:
+`networkPolicy.serverIngressFrom` for the API and
+`networkPolicy.schedulerIngressFrom` for the scheduler. The scheduler's policy
+allows any source in the cluster on its one port until `probeSourceCidrs`
+narrows it, and narrowing it without naming a scraper shuts the scrape out of
+the half that carries ticks, proposals and mail.
+
 **Binding, and the rule the rest of this product already follows.** No label
 carries somebody's identity: not a user id, not an email, not an account name,
 not an amount. A metric is read by whoever can reach the endpoint, which is not

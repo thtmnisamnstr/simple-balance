@@ -99,6 +99,12 @@ of time series. What it does publish is how busy this deployment is, so
 NetworkPolicy does not already decide about: set it and the endpoint answers
 only `Authorization: Bearer <token>`.
 
+With `networkPolicy.enabled`, name the scraper in `networkPolicy.serverIngressFrom`
+and `networkPolicy.schedulerIngressFrom`. The scheduler's policy allows any
+source in the cluster on its one port until `probeSourceCidrs` narrows it, at
+which point a scraper that is not named there cannot reach the process that
+reports ticks, proposals and mail.
+
 The Service publishes no separate port for it and the frontend does not proxy
 it, so a scrape reaches the pods directly — `kubernetes-pods` discovery with the
 usual `prometheus.io/scrape` annotations through `server.podAnnotations` and

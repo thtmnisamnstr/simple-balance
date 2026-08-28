@@ -509,6 +509,13 @@ networkPolicy:
   # MCP client inside the cluster. Same shape as above.
   serverIngressFrom: []
 
+  # Who may reach the scheduler, which serves health probes and, with
+  # config.metrics.enabled, /metrics. Empty allows any source in the cluster on
+  # that port; naming probeSourceCidrs narrows it to those, and a scraper then
+  # has to be named here or it cannot reach the process that reports ticks,
+  # proposals and mail. Same shape as above.
+  schedulerIngressFrom: []
+
   # kubelet runs the probes from the node's own address. Some CNIs hold these
   # rules against that traffic and others exempt it, so if probes start failing
   # the moment this is switched on, put the node CIDR here.
