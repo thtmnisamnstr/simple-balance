@@ -47,8 +47,8 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is five lines.**
-`src/server/api.ts` constructs `AppError` directly at `:978`, `:1023`, `:1032`,
-`:1045` and `:1057`. Two of the five carry codes a constructor covers
+`src/server/api.ts` constructs `AppError` directly at `:989`, `:1034`, `:1043`,
+`:1056` and `:1068`. Two of the five carry codes a constructor covers
 (`VALIDATION_ERROR` twice) and three carry codes no service raises at all:
 `FORBIDDEN` and `REAUTHENTICATION_REQUIRED` belong to the two operations that
 are reachable from a session and never from a token, which is exactly the pair

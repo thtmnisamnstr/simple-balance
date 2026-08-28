@@ -572,7 +572,7 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:266-300`, by name rather than by count, "so the failure says which" |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:295-300`, by name rather than by count, "so the failure says which" |
 | Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:80-91` |
 | The product backlog's version matches the manifest | `tests/version.test.ts:89-91` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |

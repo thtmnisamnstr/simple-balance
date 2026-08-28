@@ -112,6 +112,46 @@ describe("what mcp.md says it measured", () => {
     );
   });
 
+  /**
+   * A description that names a tool has to name one that exists.
+   *
+   * Eleven descriptions point the agent at another tool — `create_budget_plan`
+   * tells it to read `get_budget_report`, `preview_csv` tells it to follow with
+   * `stage_csv` — and that is the one kind of prose here a machine can check.
+   * A renamed tool leaves the sentences that named it behind, and the agent
+   * that follows one calls a name the server does not have: it gets a protocol
+   * error rather than an answer, and nothing in the reply says the instruction
+   * was stale rather than its own call malformed.
+   *
+   * Every `snake_case` word is read as a claim about a tool, because that is
+   * the shape a tool name has here and no field is spelled that way — fields
+   * are camelCase, and the input descriptions are not read at all. A future
+   * description that needs a snake_case word which is not a tool goes in
+   * `NOT_A_TOOL` with the reason, which is a decision worth making in a diff.
+   */
+  const NOT_A_TOOL: string[] = [];
+
+  it("never sends an agent to a tool that does not exist", () => {
+    const registered = new Set(tools.map((tool) => tool.name));
+    const missing: string[] = [];
+    let mentions = 0;
+    for (const tool of tools) {
+      for (const match of (tool.description ?? "").matchAll(
+        /\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+)\b/g,
+      )) {
+        const named = match[1]!;
+        if (NOT_A_TOOL.includes(named)) continue;
+        mentions += 1;
+        if (!registered.has(named)) missing.push(`${tool.name} names ${named}`);
+      }
+    }
+    expect(missing).toEqual([]);
+    // Guards the reading rather than the rule: a regex that stopped matching
+    // would leave this passing on nothing at all, which is what "green today"
+    // looks like from the outside either way.
+    expect(mentions).toBeGreaterThanOrEqual(11);
+  });
+
   it("counts enums on each side", () => {
     let input = 0;
     let output = 0;

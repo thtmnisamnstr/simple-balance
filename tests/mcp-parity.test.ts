@@ -3,6 +3,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { createMcpServer } from "../src/server/mcp.js";
+import { sourceFiles, topLevelDeclarations } from "./support/source.js";
+import { mutationNames } from "./support/mutations.js";
 
 /**
  * The MCP surface is meant to be able to do everything the browser can, so this
@@ -324,6 +326,51 @@ describe("what an agent can reach compared with the browser", () => {
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
       .map((tool) => tool.name);
     expect(writes).toEqual([]);
+  });
+
+  /**
+   * The other half of the same claim: what the annotation says, and what the
+   * code behind it does.
+   *
+   * The test above proves a read-only token is offered nothing annotated as a
+   * write. It cannot see the failure the other way round — a tool annotated
+   * `readOnlyHint: true` whose handler calls a service that writes a row. That
+   * one is worse, because the annotation is what a client shows the person
+   * approving the call: VS Code's is the only documented use of it, and it uses
+   * it to decide what may run without asking.
+   *
+   * "Writes a row" is `tests/support/mutations.ts`, the same reader
+   * `tests/service-transactions.test.ts` uses for the services guide, so there
+   * is one definition of a write in this repository rather than two that drift.
+   */
+  it("annotates a tool read-only only when nothing it calls writes", async () => {
+    const tools = await toolsWithAnnotations(everyScope);
+    const services = await servicesByTool();
+    const mutations = mutationNames(
+      sourceFiles("src/server/services").flatMap((file) =>
+        topLevelDeclarations(file).map((declaration) => ({
+          name: declaration.name,
+          body: declaration.body,
+        })),
+      ),
+    );
+
+    const lying: string[] = [];
+    let compared = 0;
+    for (const tool of tools) {
+      if (tool.annotations?.readOnlyHint !== true) continue;
+      const called = [...(services.get(tool.name) ?? [])];
+      // `preview_csv` takes a file rather than an actor, so no service name can
+      // be read off its handler. Skipped rather than failed, and the count below
+      // is what stops that skip growing quietly.
+      if (called.length === 0) continue;
+      compared += 1;
+      const writes = called.filter((service) => mutations.has(service));
+      if (writes.length > 0) lying.push(`${tool.name} calls ${writes.join(", ")}`);
+    }
+
+    expect(lying).toEqual([]);
+    expect(compared).toBeGreaterThanOrEqual(34);
   });
 
   it("hides every write from a token that may only read", async () => {
