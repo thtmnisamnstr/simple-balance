@@ -222,8 +222,9 @@ sets sit below it and neither restates it.
   browser app, the MCP surface, the HTTP API, the CSV format and the container
   do the same way everywhere. Read the one for the surface you are changing.
 - **[`docs/standards/code/`](docs/standards/code/index.md)** — the source.
-  Strictness, services, queries, React, errors, tests, comments, and the linter
-  and formatter settings the whole repository is checked with.
+  Strictness, services, queries, React, errors, tests, metrics and logging,
+  comments, and the linter and formatter settings the whole repository is
+  checked with.
 
 Where a guide and this file disagree, this file wins and the guide records the
 disagreement rather than quietly losing it.
@@ -231,12 +232,17 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 17.2% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 17.3% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelised.** Legs resolve one at a time so two
   naming the same new category land on one category. `no-await-in-loop` is off
   for this reason. (`docs/standards/code/services.md`.)
+- **Nothing outside the configuration layer names `console`.** Every line goes
+  through `log` (`src/server/log.ts`) so `LOG_LEVEL` means something, and that
+  includes handing `console` to something else as a default parameter, which is
+  how two modules sat outside the gate for a release.
+  (`docs/standards/code/observability.md`.)
 
 ## Commands
 

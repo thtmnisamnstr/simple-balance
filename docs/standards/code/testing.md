@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 110 pass, 53 skip | **1,071 pass, 591 skip** |
-| `npm test`, database set | 163 pass | **1,662 pass** |
+| `npm test`, no database | 110 pass, 53 skip | **1,083 pass, 591 skip** |
+| `npm test`, database set | 163 pass | **1,674 pass** |
 | `npm run test:integration` | 54 pass | 592 pass |
 
 The third row is one test larger than the second row's skip count, and the odd
@@ -27,7 +27,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,071 is the number that
+The first row is what CI and `npm run verify` see, and 1,083 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -290,9 +290,9 @@ the setting.
 Three of those rows arrived after the table did, and two more tests were
 considered for it and left out. `tests/log-level.test.ts` and
 `tests/metrics.test.ts` hold what the product does — a level gate that drops
-what sits below it, a label set that carries nobody's identity — and
-`operations.md` names each as its check, as these guides between them name
-eighty-seven test files. A row here is the narrower case: the rule is written
+what sits below it, a label set that carries nobody's identity — and both
+`operations.md` and `observability.md` name each as its check, as these guides
+between them name eighty-nine test files. A row here is the narrower case: the rule is written
 down in the prose and nowhere else, so a repository that quietly stopped
 following it would leave a true-sounding document and nothing that noticed.
 Widen the table to every `*Checked by:*` line and it stops being a list and

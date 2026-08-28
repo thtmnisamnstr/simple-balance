@@ -9,7 +9,7 @@ documentation. They do not govern the ledger: what the books guarantee is in
 
 They also do not govern the source. How the code is *written* — strictness,
 services, queries, React, errors, tests, comments — is
-[`code/`](code/index.md), a second set of seven guides that carries the linter
+[`code/`](code/index.md), a second set of eight guides that carries the linter
 and formatter decisions with it. The split is by what breaks: an interface
 standard broken is something a person can see, a code standard broken is
 something the next person has to live with.
@@ -72,7 +72,7 @@ that habit rather than introducing it.
 | [`csv.md`](csv.md) | The import and export format, and what makes a round trip lossless. |
 | [`operations.md`](operations.md) | Mail, configuration, and the container an operator runs. |
 | [`writing.md`](writing.md) | Documentation, the changelog, decisions, the README. |
-| [`code/`](code/index.md) | The source itself: seven guides, plus the toolchain the whole repository is checked with. |
+| [`code/`](code/index.md) | The source itself: eight guides, plus the toolchain the whole repository is checked with. |
 
 Read `common.md` first. Most of what looks like an interface question turns out
 to be a question about a value crossing a boundary, and those are answered once.

@@ -55,7 +55,25 @@ startup banner, the mail notice and the scheduler's warnings. `error` is quiet
 now, and is never itself silenced. The three places that warn about
 configuration keep writing directly, because the gate has to read the
 configuration to know the level and a warning about a setting cannot be gated by
-one.
+one. Two more sat outside it in a shape nothing was looking for: the graceful
+shutdown and the recurrence scheduler took `logger = console` as a default
+parameter, so "SIGTERM received, shutting down" printed at every level including
+the one chosen to silence it.
+
+**The log now says what the product is doing, and not only that it started.**
+`debug` adds a line per HTTP request, per MCP tool call and per message handed
+to the relay; `info` gains a line per scheduler tick that proposed a row or sent
+a reminder, and a tick that found nothing due drops to `debug`. The gap that
+closes is a deployment with `/metrics` off — the default — where a scheduler
+that stopped ticking a week ago produced exactly the log of one that was ticking
+every five minutes.
+
+None of those lines carries somebody's ledger. A request names its path and
+never its query string, a tool call names the tool and never its arguments, a
+message names what it was and never who it went to, and a failing query names
+the statement and never the values bound into it. That last one was already true
+of the HTTP path and was not true of the MCP path, which logged the error whole
+— including, on a database hiccup during token exchange, a live access token.
 
 
 Seven secrets can be read from a file instead of the environment:

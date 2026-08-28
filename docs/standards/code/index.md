@@ -30,6 +30,7 @@ contact with a real case was never a standard.
 | [`client.md`](client.md) | React: state, effects, queries, and the three rules that went from budgeted to denied. |
 | [`errors.md`](errors.md) | Failing: which error, carrying what, phrased how. |
 | [`testing.md`](testing.md) | Four tiers, what each can see, and what makes a test worth keeping. |
+| [`observability.md`](observability.md) | What the running product says about itself: what is counted, what is logged, and what neither may carry. |
 | [`comments.md`](comments.md) | The one convention here that is genuinely unusual, and why it pays. |
 
 Read `typescript.md` first if you are new; read `comments.md` first if you are
@@ -56,7 +57,7 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 33 `human` rules across the seven guides** — 28 in the six that
+**There are 40 `human` rules across the eight guides** — 35 in the seven that
 enforce something, and five in `comments.md`, which argues rather than enforces
 and says so. `tests/standards-citations.test.ts` counts the rows and holds this
 sentence to them, so the number cannot drift by a guide gaining a rule and
@@ -70,7 +71,14 @@ made the count flattering rather than useful. Every rule now names one, so the
 count is of rules that really have nobody but a reader behind them, and it can
 go down again by being worked on rather than by being unstated.
 
-It then went 32 → 33, which is the same honesty at a smaller scale:
+It then went 33 → 40 when `observability.md` arrived carrying seven of its own,
+which is the most of any guide here and is the honest shape of that subject: a
+label that identifies somebody and a counter that moves when nothing happened
+are both properties a test holds, and both are held. Whether a line was worth
+writing, and whether it was written at the level somebody would want it, are
+what review is for.
+
+Before that it went 32 → 33, which is the same honesty at a smaller scale:
 `database.md` 1.2 says a migration's name stays what it was written as, and no
 test can tell a name somebody chose from a slug the generator produced. It had
 been sitting silent beside a test that checks its neighbour, which is exactly

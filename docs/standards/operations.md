@@ -36,10 +36,10 @@ a house rule with reasoning, and anybody arguing with it should argue with the
 reasoning.
 
 The product already follows it. `recurrenceProposedMessage`
-(`src/server/mail.ts:229-250`) names the occurrence dates and stops, and the
+(`src/server/mail.ts:234-255`) names the occurrence dates and stops, and the
 docstring above it says why: "a proposed row is not money that has moved" and "a
 total in a mail reads like a statement". `templateReminderMessage`
-(`src/server/mail.ts:259-278`) names the template and the date and carries no
+(`src/server/mail.ts:264-283`) names the template and the date and carries no
 figure. The two auth messages carry a URL and nothing else.
 
 **Binding.** `AGENTS.md`: "Never represent money with JavaScript/JSON
@@ -107,7 +107,7 @@ automatic responses "SHOULD NOT be issued in response to any message which
 contains an Auto-Submitted header field ... where that field has any value other
 than 'no'". Without it a vacation responder or a ticketing system may reply to a
 password reset, and the reply lands on `MAIL_FROM` or `MAIL_REPLY_TO`.
-`sendMail` (`src/server/mail.ts:142-177`) sets it on every message.
+`sendMail` (`src/server/mail.ts:142-182`) sets it on every message.
 
 *Checked by:* `tests/mail-headers.test.ts`.
 
@@ -138,9 +138,9 @@ truncation: a mail client shows the first N characters, so whatever is first is
 what the person reads in the list.
 
 Both message builders follow it. `Reminder: ${templateName}`
-(`src/server/mail.ts:267`) and `Staged: N rows from ${recurrenceName}` (`:240`)
+(`src/server/mail.ts:272`) and `Staged: N rows from ${recurrenceName}` (`:245`)
 each lead with the fixed word, and both pass the name through `forSubject`
-(`src/server/mail.ts:199-206`), which cuts it to 60 code points and appends an
+(`src/server/mail.ts:204-211`), which cuts it to 60 code points and appends an
 ellipsis. A recurrence or template name may be 120 characters
 (`recurrenceCreateSchema` and `transactionTemplateCreateSchema`, both in
 `src/shared/domain.ts`), roughly twice what a client's message list shows, so
@@ -178,7 +178,7 @@ One policy about personal data in log lines, in one process.
 "Deliberately without the address: they asked to be gone." `sendMail` follows it:
 every `Message` carries `about`, a fixed phrase naming the kind of message
 (`src/server/mail.ts:97-107`), and that phrase is what the log line carries
-(`:174-177`). The phrase comes from the builder, so a caller that spreads one
+(`:179-182`). The phrase comes from the builder, so a caller that spreads one
 gets it without deciding anything, and it names the row rather than the kind:
 both scheduled senders set `about` after the spread, to
 `recurrence proposal <id>` and `template reminder <id>`. An id is neither
@@ -195,7 +195,7 @@ deliberately answers identically either way. `smtpFailure`
 refusing their credentials, or refusing this one message. `response` is the
 relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
-hand. `src/server/api.ts:266-272` narrows a Drizzle error the same way for a
+hand. `src/server/api.ts:277-283` narrows a Drizzle error the same way for a
 harder reason: its message is built from the failing SQL and its bound
 parameters, one of which is an OAuth access token.
 
@@ -207,7 +207,7 @@ beside it carries no `envelope` and no `rejected`.
 
 **House, and already met.** The reset satisfies the OWASP Forgot Password
 guidance in the ways that matter here: a single-use token whose one-hour expiry
-is stated in the body (`src/server/mail.ts:210-220`), no password in the
+is stated in the body (`src/server/mail.ts:215-225`), no password in the
 message, and an identical response whether or not the account exists, which is
 the whole reason `sendMail` returns `false` rather than throwing
 (`src/server/mail.ts:133-141`).
@@ -774,7 +774,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:283-298`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:289-304`, and the same pair on the
 scheduler at `src/server/scheduler.ts:23-32`). Both are registered above every
 auth middleware and neither is authenticated.
 
@@ -803,7 +803,7 @@ deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:631-636` and `README.md:130-133` describe one statement
-against the database and nothing else, and `src/server/api.ts:283-289` says the
+against the database and nothing else, and `src/server/api.ts:289-295` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -834,6 +834,20 @@ nothing.
 second channel. The container's logs are the log; nothing writes a file, rotates
 anything, or needs a volume.
 
+**What each level gets, because a level nobody can predict is a level nobody
+sets.** `info` is startup, mail, shutdown, and a scheduler tick that actually
+proposed a row or sent a reminder. `debug` adds the ordinary work: a line per
+HTTP request, per MCP tool call, per message handed to the relay, and per tick
+that found nothing due. `warn` is a setting that is wrong and survivable.
+`error` is something that failed, and is never silenced.
+
+The work lines are new in this release and the gap they close is worth naming:
+until now a deployment with `/metrics` off — which is the default — could not
+tell a working process from an idle one, because everything this product did
+between starting and failing was counted and never said. A scheduler that
+stopped ticking a week ago produced exactly the log of one that was ticking
+every five minutes.
+
 `LOG_LEVEL` reached exactly one consumer for a long time — Better Auth's own
 logger — while this product's thirty-one `console` calls ignored it, so a
 deployment asking for `error` still got the startup banner, the mail notice and
@@ -856,15 +870,33 @@ observability is `/metrics` below, which is a better shape for it than a log
 somebody has to reread through `jq`. A deployment that wants structured logs
 puts a collector in front; that is the collector's job and not this product's.
 
-*Checked by:* `tests/log-level.test.ts`, which holds both halves — that the gate
-drops what it should and never drops an error, and that no file outside the
-configuration layer reaches for `console` directly.
+**A line names counts and ids, and never contents.** No payee, no amount, no
+note, no subject line, no recipient, and no parameter bound into a failing
+query — one of those is the OAuth access token the MCP token endpoint looks a
+grant up by, and the rest are somebody's ledger. The narrowing is `log.failure`
+(`src/server/log.ts:71-97`), which is one function rather than a line at each
+transport because for a release it was a line at *one* transport: the HTTP
+handler dropped the bound parameters and the MCP tool path logged the error
+whole.
+
+An id is allowed, and the difference from a metric label is deliberate: a label
+costs a time series per distinct value and has to stay bounded, while a line
+costs one line, and without the id the log says only that a request happened
+somewhere.
+
+*Checked by:* `tests/log-level.test.ts`, which holds three halves now — that the
+gate drops what it should and never drops an error; that no file under
+`src/server` outside the configuration layer names `console` at all, as a call
+*or* as a value, which is how `logger = console` put the shutdown and scheduler
+lines outside the gate for a release; and that the request, tool and query lines
+carry the id and not the payee, the search term or the bound parameter.
+`docs/standards/code/observability.md` is the call-site half of this.
 
 ### Metrics
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (`src/server/api.ts:223`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:234`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -948,8 +980,8 @@ is killed at the end of the grace period every time.
 **House.** The shutdown deadline is strictly shorter than the orchestrator's
 grace period, and a second signal exits immediately.
 `src/server/server-lifecycle.ts` implements both: `DEFAULT_SHUTDOWN_DEADLINE_MS`
-is 10,000 (`src/server/server-lifecycle.ts:1`), and a signal arriving while
-draining forces the exit (`:92-97`),
+is 10,000 (`src/server/server-lifecycle.ts:3`), and a signal arriving while
+draining forces the exit (`:105-110`),
 which is the case most implementations miss and the one that makes Ctrl-C twice
 behave the way a person expects. The compose file sets
 `stop_grace_period: 30s` with a comment saying it is "Longer than the 10s drain
