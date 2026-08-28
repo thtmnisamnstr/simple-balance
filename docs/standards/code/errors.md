@@ -46,20 +46,24 @@ use the constructor that names the situation.
 | `duplicate` | 409 | A name or a reference already exists. |
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
-**The transport is the named exception, and it is five lines.**
-`src/server/api.ts` constructs `AppError` directly at `:989`, `:1034`, `:1043`,
-`:1056` and `:1068`. Two of the five carry codes a constructor covers
-(`VALIDATION_ERROR` twice) and three carry codes no service raises at all:
-`FORBIDDEN` and `REAUTHENTICATION_REQUIRED` belong to the two operations that
-are reachable from a session and never from a token, which is exactly the pair
-`AGENTS.md` names as the boundary between the surfaces. A constructor for them
-would put a transport-only code in the service vocabulary that `ServiceErrorCode`
-narrows on purpose.
+**The transport is the named exception, and it is four lines.**
+`src/server/api.ts` constructs `AppError` directly at `:983`, `:1028`, `:1037`
+and `:1050`. One carries a code a constructor covers and three carry codes no
+service raises at all: `FORBIDDEN` and `REAUTHENTICATION_REQUIRED` belong to the
+two operations that are reachable from a session and never from a token, which
+is exactly the pair `AGENTS.md` names as the boundary between the surfaces. A
+constructor for them would put a transport-only code in the service vocabulary
+that `ServiceErrorCode` narrows on purpose.
 
 So the rule is scoped rather than absolute: a service uses the constructors, and
-the transport may name a status the service half has no word for. The two
-`VALIDATION_ERROR` sites should use `validationError` and do not; that is a
-defect rather than an exception, and it is recorded here rather than filed away.
+the transport may name a status the service half has no word for. This said
+there were two `VALIDATION_ERROR` sites that should use `validationError` and
+did not. One of them now does — the failed password update at `:1062`, which was
+a 422 with a message and had no reason to spell the constructor out. The other
+cannot: the malformed-body guard at `:983` is a **400**, not a 422, because a
+body that is not JSON is a malformed request rather than an impossible one, and
+`validationError` is 422 by definition. That is an exception with a reason
+rather than the defect this paragraph used to call it.
 
 *Checked by:* `tests/service-errors.test.ts` for the service half, which is
 where the rule bites. Nothing checks the transport half.

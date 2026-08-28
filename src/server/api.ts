@@ -109,7 +109,7 @@ import {
   setBudgetEntry,
   updateBudgetPlan,
 } from "./services/budgets.js";
-import { AppError } from "./services/errors.js";
+import { AppError, validationError } from "./services/errors.js";
 import {
   exportTransactionsCsv,
   getCsvPreview,
@@ -1059,11 +1059,7 @@ app.post("/api/v1/auth/local-password", async (c) => {
       body: { newPassword: parsed.newPassword },
     });
   } catch (error) {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      error instanceof Error ? error.message : "Password could not be updated",
-      422,
-    );
+    throw validationError(error instanceof Error ? error.message : "Password could not be updated");
   }
   return c.json(await getUserAuthState(userId));
 });

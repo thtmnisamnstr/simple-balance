@@ -115,7 +115,7 @@ without a route survives the suite.
 
 A read-only token can list grants and cannot revoke them, so a stolen
 `ledger:read` token cannot spend its last minutes locking out the agents it was
-stolen from (`src/server/api.ts:1064-1067`).
+stolen from (`src/server/api.ts:1084-1088`).
 
 ### Accounts
 
@@ -307,13 +307,13 @@ add it.
   than simply make them.
 - **House, and the three inconsistencies that were here are gone.** The paths
   read the way the rules above say now:
-  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1417`)
+  `GET /api/v1/staged-transactions/{id}/duplicate` (src/server/api.ts:1413`)
   rather than a `staged` collection that existed nowhere else;
-  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:1380`)
+  `POST /api/v1/staged-transactions/bulk-delete` (src/server/api.ts:1376`)
   rather than a `delete` that spelled the same operation as
-  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:1320`)
+  `POST /api/v1/transactions/bulk-delete` (src/server/api.ts:1316`)
   differently; and `POST /api/v1/accounts/{id}/archived` and
-  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1172`, `:1298`),
+  `POST /api/v1/categories/{id}/archived` (src/server/api.ts:1168`, `:1294`),
   which take `{"archived": boolean}` and are therefore the state sub-resource
   pattern, matching `POST /api/v1/transactions/{id}/deleted`.
 
@@ -498,7 +498,7 @@ or that the two patch schemas agree with each other.
   output schema fails the call".
 - **House.** `GET /api/v1/csv/export` is the only route that answers with
   something other than JSON: `text/csv; charset=utf-8; header=present` with a
-  `Content-Disposition` filename (`src/server/api.ts:1398-1412`). Its format is
+  `Content-Disposition` filename (src/server/api.ts:1394-1408`). Its format is
   governed by [`csv.md`](csv.md).
 
 *Checked by:* `tests/http-security.test.ts` for headers and body limits,
@@ -555,7 +555,7 @@ code.
   way; a mistyped *id* should match it.
 - **House, and a gap.** A wrong method on an existing path should be 405 with
   `Allow`. Today it falls to the catch-all and is a 404
-  (`src/server/api.ts:1455-1459`). OWASP's REST guidance is to allowlist methods
+  (src/server/api.ts:1451-1455`). OWASP's REST guidance is to allowlist methods
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Today the one 429 the process emits
   carries nothing. `Retry-After` is standard in RFC 9110; the `RateLimit-*`
@@ -790,7 +790,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   (`src/shared/domain.ts:1285`). A server may return fewer rows than asked for.
 - **House, and an outlier.** `GET /api/v1/audit-events` parses its own query by
   hand rather than through a published schema
-  (`src/server/api.ts:1440-1447`), so its parameters are the one list contract
+  (src/server/api.ts:1436-1443`), so its parameters are the one list contract
   not expressed in Zod. The service defends itself against the resulting `NaN`
   (`src/server/services/audit.ts:11-15`), which is the right defence in the
   wrong place. Give it a schema.
@@ -940,10 +940,10 @@ so a second submit fails rather than duplicating."
 - **House.** No `GET` or `DELETE` accepts a key. A safe method needs none, and a
   delete on this API is a versioned mutation, which is idempotent by
   construction, with one exception:
-  `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1091-1095`)
+  `DELETE /api/v1/connected-apps/{clientId}` (src/server/api.ts:1087-1091`)
   reads no body and takes no `expectedVersion`, where the other six versioned
-  deletes parse `versionedMutationSchema` (`src/server/api.ts:1178`, `:1205`,
-  `:1219`, `:1227`, `:1262`, `:1299`). Revoking a grant is idempotent anyway,
+  deletes parse `versionedMutationSchema` (src/server/api.ts:1174`, `:1201`,
+  `:1215`, `:1223`, `:1258`, `:1295`). Revoking a grant is idempotent anyway,
   since the second call finds nothing to revoke, but the premise does not hold
   for it and the carve-out is named here rather than left to be discovered.
 
@@ -1024,7 +1024,7 @@ edit, a mass delete, a commit, and a CSV import."
   that catches the tool handing a strict schema the key it added.
 - **House.** A filter selection is resolved first by the matching
   `bulk-selection` route, which returns the count and the fingerprint the write
-  must send back (`src/server/api.ts:1306-1312`, `:1369-1371`). The fingerprint
+  must send back (src/server/api.ts:1302-1308`, `:1365-1367`). The fingerprint
   is a SHA-256 over the sorted `id:version` pairs, computed by one function so
   the transaction and staged paths cannot drift into accepting different sets
   (`src/server/services/helpers.ts:230-245`).
@@ -1144,7 +1144,7 @@ fingerprint (`:544`).
     and gets a 404 with no CORS headers, which is the correct answer to a
     preflight for something that is not allowed.
 - **House.** The single-page app never answers an API path. JSON 404 catch-alls
-  sit under `/api/v1/*` (`src/server/api.ts:1455-1459`) and `/.well-known/*`
+  sit under `/api/v1/*` (src/server/api.ts:1451-1455`) and `/.well-known/*`
   (`src/server/api.ts:873-877`), below every route those prefixes own and above
   the shell. Without them a mistyped path came back as 200 `text/html`, which an
   API client parses as a syntax error and a person debugging reads as a working
@@ -1276,7 +1276,7 @@ ships in this image — which is true of *this* image and not of the one already
 running. A browser tab left open across the upgrade is serving the previous
 build, and it would have met a 404 on the first archive somebody attempted.
 
-One middleware sets both headers (`src/server/api.ts:1151-1164`), the value of
+One middleware sets both headers (src/server/api.ts:1147-1160`), the value of
 `Deprecation` is the date form RFC 9745 requires rather than the superseded
 draft's `true`, and the sunset is 188 days later, which clears both the ninety
 days and the one minor release. It was a date in the past for a while, which is
