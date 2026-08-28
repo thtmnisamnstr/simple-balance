@@ -171,10 +171,14 @@ level down, at the field.
 | --- | --- |
 | 1.1 Server state is a query | Not mechanisable. |
 | 2.1 `Number()` only where approximate | A lint rule banning `Number(` in `src/client` would fire on legitimate uses; a narrower one keyed on variable names is possible and fiddly. |
+| 2.2 The preview calls the rule rather than copying it | Checkable one rule at a time — that `forms.tsx` imports `resolveEntrySide` is a grep — but what needs catching is the next preview somebody writes, and a copy of a rule that has no shared home yet reads as ordinary client code. `tests/module-boundaries.test.ts` proves the import is allowed, not that it was taken. |
+| 3.1 `Field` wraps every labelled control | The lint rule that would have seen it is off precisely because it cannot see through `Field` — see [`index.md`](index.md). A control that lost its label fails whichever UI test reaches for it by name; one labelled by hand beside `Field` fails nothing, because the accessible name comes out the same either way. |
 | 3.3 Fields reachable from the browser | Parity checks routes, not fields. This is the gap that let `categoryKind` through. |
 
-Three `human` rules in this guide, down from four.
-`tests/query-keys.test.ts` now holds 1.2, and it also checks the half nobody had
+Five `human` rules in this guide. It said three until 2.2 and 3.1 were counted:
+both named no mechanism at all, which is not the same as being checked, and a
+count that quietly leaves those out is the one number here worth nothing.
+`tests/query-keys.test.ts` took 1.2 over, and it also checks the half nobody had
 written down: that a key some query files itself under is a key something
-invalidates. Of the three left, 3.3 is the one that has already cost something —
-it is the gap that let `categoryKind` reach an agent and not a person.
+invalidates. Of the five, 3.3 is the one that has already cost something — it is
+the gap that let `categoryKind` reach an agent and not a person.

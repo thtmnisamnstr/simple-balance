@@ -282,10 +282,11 @@ strict double-entry tool ships. The balance sheet is net worth with one column,
 and the trial balance is the same query with the counter-accounts left in, so
 both were nearly free once the engine existed.
 
-## SB-019 — Budgeting
+## SB-019 — Budgeting — **done**
 
-**Priority 190. Depends on SB-018.** The first of six, and the rest are SB-025
-to SB-029.
+**Priority 190. Depends on SB-018. Built, unreleased, and carrying migration
+0013.** The first of six, and the rest are SB-025 to SB-029, none of them
+started.
 
 Every kind of budgeting, from one model. That sounds like scope and it is
 mostly arithmetic: of the fourteen named methods, five need no storage at all,
@@ -304,17 +305,31 @@ two different things depending on it.
 
 ### The model
 
-`budget_plan` is the standing instruction for one target: how the amount is
-decided, whether it rolls over, its funding priority, and the window it is
-active in. One row covers every period, so nothing is materialised and no
-scheduler writes a budget figure. `budget_entry` is an explicit amount for one
-target in one period, which is the exception rather than the rule: three hundred
-for December only is a row, two hundred a month is not. `category_group` is one
-level of grouping, and a target is a category or a group, never both.
+**As designed, across the six stories.** `budget_plan` is the standing
+instruction for one target: how the amount is decided, whether it rolls over,
+its funding priority, and the window it is active in. One row covers every
+period, so nothing is materialised and no scheduler writes a budget figure.
+`budget_entry` is an explicit amount for one target in one period, which is the
+exception rather than the rule: three hundred for December only is a row, two
+hundred a month is not. `category_group` is one level of grouping, and a target
+is a category or a group, never both.
 
 Resolving an amount is three lines. An explicit entry wins; otherwise the plan's
 rule is evaluated; otherwise nothing is budgeted and the row shows what was
 spent against no limit.
+
+**As built, in this story.** `budget_plan` carries the amount, the period unit,
+the currency and the window, and nothing else: no rule column, no rollover flag,
+no priority. `budget_entry` is the per-period override, as designed. There is no
+`category_group` table. Resolving an amount is therefore two of the three lines —
+an explicit entry wins, otherwise the plan's amount, otherwise nothing is
+budgeted — and the third line arrives with SB-026, which is the story that gives
+a plan a rule to evaluate.
+
+That gap is the whole of the difference between "budgeting" and "a budget", and
+it is worth being plain about which this is: a limit per category per period is
+what shipped, and rollover, sinking funds, derived amounts, groups, envelopes
+and forecasting are SB-025 to SB-029.
 
 ### An assignment is not a posting
 
@@ -382,6 +397,35 @@ category it came from without any figure being taught what a refund is.
 - An assignment is not a posting, and a rollover is derived rather than stored
 - A standing budget needs no row per period and nothing materialises one
 - Reachable over MCP, reads and writes on the same scope rules as everything else
+
+**How it was met**
+
+The budget is a standing instruction and the period is the unit. A plan covers
+every period in its window from one row, both ends snapped to whole periods in
+PostgreSQL rather than in JavaScript, so a limit and the spending it is compared
+against cannot land on different months. Nothing materialises a period and no
+scheduler writes a budget figure, which is what makes an open-ended budget one
+row rather than one row a month for ever.
+
+Spending is the reports' own query. It sums signed postings on the expense
+counter-account over the same `date_trunc` grid the reports bucket by, so a
+refund is negative and lowers the category it came back to, a split attributes
+each leg through its own `leg_id`, and a transfer contributes nothing — none of
+which needed a rule of its own, because none of them is a special case once the
+figure comes from postings.
+
+Two decisions worth writing down rather than leaving implied:
+
+An assignment is not a posting, and the acceptance criteria above used to say it
+was. Actual Budget implements the whole YNAB model with no postings, and the one
+system that does post assignments documents what it costs. This ledger would
+have inherited that cost on every report built after this story.
+
+Archived accounts are counted, unlike every other report. Elsewhere an archived
+account's balance is closed out and leaving it in would double count; a budget
+was never scoped to an account, so money spent on a card since closed is money
+the budget covered, and filtering it makes a budget spent to the penny read as
+underspent.
 
 ## SB-020 — Widen what an agent may propose
 

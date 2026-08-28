@@ -253,11 +253,16 @@ out.
   document rests on less than it should." A roadmap that only lists what it
   knows is a roadmap nobody can weigh.
 - **The heading carries the story id and its title, and adds `**done**` once the
-  item has shipped**; the line under it carries the mechanics.
-  `docs/roadmap.md:67-69` reads SB-017, "Split transactions", **done**, then
-  "Priority 160. Depends on SB-015. Shipped as migration 0005." Three of the
-  fifteen headings carry the state today (SB-017, SB-016, SB-018) and they are
-  the three that have shipped, so the convention holds.
+  item is built**; the line under it carries the mechanics, including whether it
+  has shipped. `docs/roadmap.md:67-69` reads SB-017, "Split transactions",
+  **done**, then "Priority 160. Depends on SB-015. Shipped as migration 0005."
+  Four of the fifteen headings carry the state today: SB-017, SB-016 and SB-018,
+  which have shipped, and SB-019, whose line says "Built, unreleased". This
+  paragraph said "once the item has shipped" for a while, and the practice never
+  did: SB-018 was marked in the commit that built it, a week before the release
+  that carried it. The heading answers "is there anything left to write", and the
+  line under it answers "can anybody use it", which are different questions and
+  are worth keeping apart.
 - **Acceptance criteria before it is built, "How it was met" after.** The second
   is where the decision record lives, along with the list introduced at
   `docs/roadmap.md:114`: "Two decisions worth writing down rather than leaving
