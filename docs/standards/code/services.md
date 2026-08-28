@@ -3,20 +3,38 @@
 `src/server/services` is where the rules live. Everything above it — the HTTP
 routes, the MCP tools, the scheduler — is transport.
 
-148 exported functions across 22 modules. This guide is what they have in
-common.
+290 top-level declarations across 22 modules, 148 of them exported functions.
+This guide is what they have in common.
 
 ## 1. Shape
 
 ### 1.1 A service function takes an actor first
 
-**Binding.** Three shapes, and which one a function has says what it is:
+**Binding.** Three shapes, and which one a function has says what it is. All
+three rows count the same 290 declarations — everything at the top level of the
+directory, exported or not — because the second shape is mostly not exported and
+a table that counted only entry points would report the helpers as a handful:
 
 | First parameter | What it is | Count |
 | --- | --- | --- |
-| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 76 |
+| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 84 |
 | `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 60 |
-| anything else | A pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft`. Touches no database and needs no actor. | the rest |
+| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 146 |
+
+The three add up because they are one population read one way. Splitting them
+by export tells you something the totals hide: 76 of the 84 are exported and 29
+of the 60 are, which is the shape working. An entry point is reachable and a
+helper mostly is not.
+
+The third row is the one to read carefully, because *mostly* is doing work: 131
+of the 146 touch no database at all, and the other 15 do. Most of those are the
+second row under another name:
+`selectBulkFilterRows(executor: Database | DbTransaction, …)` and
+`legsByTransaction(db, …)` are helpers whose first parameter is spelled to admit
+the pool as well. The rest are entry points with no actor to take, either
+because no request made them run (`runDueNotifications`, `runDueRecurrences`) or
+because of the exception below. None of the 15 is a fourth shape, and a
+genuinely new one belongs in the table rather than in this paragraph.
 
 There are 178 `userId, actor.userId` comparisons in this directory, which is
 roughly one per query, and that is the right ratio.
@@ -90,9 +108,25 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
 
 `withTransaction` joins the caller's transaction when it is given one and opens
 its own when it is not
-(src/server/db/client.ts:109). 38 service
-mutations take that parameter and every one of them goes through the helper;
-only six places in this directory reach for `getDb().transaction` directly.
+(src/server/db/client.ts:109). 38 declarations here take that parameter. 37 of
+them are mutations, and every one of those 37 goes through the helper, which is
+the claim worth making and not the same one as the count of the parameter.
+
+The thirty-eighth is `listConnectedApps`
+(src/server/services/connected-apps.ts:40),
+which runs two selects and joins with `transaction ?? getDb()`. Wrapping a read
+in a transaction of its own would buy nothing, so the helper is asked of
+mutations and a declaration that writes nothing is left alone rather than
+exempted by name.
+
+Four places in this directory reach for `getDb().transaction` directly, and none
+of the four advertises the parameter, so nothing is being ignored: two reads
+that want every query on one snapshot (`getTransaction`, `listAllTransactions`),
+and two entry points the scheduler calls, which own their boundary on purpose —
+`proposeDueOccurrences` keeps one transaction to one recurrence so a tick does
+not hold a one-connection deployment for its whole length, and
+`claimDueNotification` moves the watermark in the transaction that claims the
+row. A fifth has to argue that nothing will ever want to compose with it.
 
 The parameter is not decoration. The MCP transport passes its transaction in
 (`src/server/mcp.ts:291-301`, and every `runIdempotentMcpMutation` call under it)
@@ -114,7 +148,10 @@ Two rules fall out, and they are the ones to follow:
 
 *Checked by:* `tests/service-transactions.test.ts`, which reads each
 mutation's parameter list rather than grepping for `withTransaction`, so a
-mutation that delegates its writes to a helper still satisfies it.
+mutation that delegates its writes to a helper still satisfies it. It holds both
+counts as floors rather than equalities — the point is that the reader still
+finds the two shapes, not that the directory has stopped growing — so the
+numbers above are today's and the test is what keeps the rule.
 
 ### 2.2 A write that changes something takes the version it expects
 
@@ -240,8 +277,12 @@ nothing tells you.
 ### 3.2 Awaiting in a loop is sometimes the point
 
 **Contested**, and this is the entry that made the whole `perf` lint category
-not worth having. `no-await-in-loop` finds 147 sites here. Some are
-opportunities. At least one is load-bearing:
+not worth having. `no-await-in-loop` finds 51 sites in this directory and 157
+across the whole repository; the count quoted in `index.md`, where the category
+was declined, is the repository-wide one. The 106 sites outside this directory
+are almost all tests, most of them integration tests awaiting one request at a
+time, which is a different thing from a service resolving names in order. Some
+of the 51 here are opportunities. At least one is load-bearing:
 
 ```
 Legs resolve one at a time rather than in a batch, so that two legs naming

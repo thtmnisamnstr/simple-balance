@@ -56,9 +56,11 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 32 `human` rules across the seven guides** — 27 in the six that
+**There are 33 `human` rules across the seven guides** — 28 in the six that
 enforce something, and five in `comments.md`, which argues rather than enforces
-and says so.
+and says so. `tests/standards-citations.test.ts` counts the rows and holds this
+sentence to them, so the number cannot drift by a guide gaining a rule and
+nobody coming back here.
 
 **It went up, and that is the honest direction.** It was 26, then seven became
 tests in one pass and it read 19 — and 19 was wrong, because 34 of the 67
@@ -67,6 +69,12 @@ is checked is `human`, whether or not the word appears; leaving those silent
 made the count flattering rather than useful. Every rule now names one, so the
 count is of rules that really have nobody but a reader behind them, and it can
 go down again by being worked on rather than by being unstated.
+
+It then went 32 → 33, which is the same honesty at a smaller scale:
+`database.md` 1.2 says a migration's name stays what it was written as, and no
+test can tell a name somebody chose from a slug the generator produced. It had
+been sitting silent beside a test that checks its neighbour, which is exactly
+the shape that made 19 wrong.
 
 The seven that became tests are worth reading for how, and one especially,
 because it looked impossible. A rule about where a decision belongs cannot be
@@ -101,6 +109,31 @@ leaves out:
 | `pedantic` | 1,557 | Declined. |
 | `style` | 17,976 | Declined. |
 | `restriction` | 5,085 | Declined. |
+
+**Those are the numbers the decision was made on, and they are not today's.**
+Re-measured with `npx oxlint -A all -D <category>` on the current tree:
+correctness 35, `suspicious` 2,438, `perf` 731, `pedantic` 1,835, `style`
+24,673, `restriction` 7,296. Nothing holds either column — they are a
+measurement, and the two of them do not measure the same rule set, which is most
+of the movement:
+
+- **`correctness` reads 35, and `npm run lint` still reads zero.** That command
+  overrides the six rules `.oxlintrc.json` turns off by name, and the 35 are
+  exactly those six: `label-has-associated-control` 8,
+  `control-has-associated-label` 9, `prefer-tag-over-role` 8, `no-autofocus` 6,
+  `anchor-has-content` 1, `no-control-regex` 3. The category is denied and
+  clean; this is what denying it with exceptions looks like from outside.
+- **`suspicious` went 191 → 2,438 on one rule that cannot be right here.**
+  2,160 of them are `react-in-jsx-scope`, which React 19's automatic runtime
+  makes wrong in every file that renders anything. The `react` and `jsx-a11y`
+  plugins were adopted after the original pass, so that column was measured
+  without them.
+- **`perf` went 172 → 731, and the shape of the argument is unchanged.** 157 are
+  `no-await-in-loop`, which this codebase does on purpose — see `services.md`
+  §3.2. The other 547 are `react-perf` rules on inline props
+  (`jsx-no-new-function-as-prop` 381, `jsx-no-new-array-as-prop` 76,
+  `jsx-no-jsx-as-prop` 58, `jsx-no-new-object-as-prop` 32) — a category this
+  repository would have to be rewritten around rather than fixed into.
 
 Plugins, measured the same way. `import`, `promise`, `node` and `react-perf`
 each added **zero** findings, so they are on for free and will catch the first

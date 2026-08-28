@@ -59,18 +59,33 @@ the record so nobody re-measures it.
 
 ### 1.4 `noUncheckedIndexedAccess` is declined, for now
 
-**Contested.** 440 errors. It is the setting on this list most worth having,
-because indexing into an array or a record is exactly where an `undefined`
-arrives unannounced, and it is the single largest source of the non-null
-assertions counted in 2.2.
+**Contested.** 441 errors, 59 of them in `src` and the rest in `tests`. It is
+the setting on this list most worth having, because indexing into an array or a
+record is exactly where an `undefined` arrives unannounced.
 
-It is declined because 440 sites cannot be reviewed carefully in one change, and
+It is not, as this section used to claim, where the non-null assertions counted
+in 2.2 came from. Twenty of those 144 sit on an index or a lookup, and most of
+the twenty are `.at(-1)`, a `Map.get` or a regular expression group, all of
+which hand back `undefined` with the flag off. So it is the flag that would add
+to that count rather than the flag that explains it, which is what 2.2 says from
+the other end.
+
+It is declined because 441 sites cannot be reviewed carefully in one change, and
 mechanically silencing them with `!` would convert a real check into a
 formality — the same defect the flag exists to catch, now written down. If it is
-ever adopted it should be one directory at a time.
+ever adopted it should be one directory at a time, and the split above says
+which one first: `src` is 59 of the 441 and all of the benefit, since a test
+that indexes a fixture it wrote three lines earlier learns nothing from being
+told the row might be missing.
 
-`exactOptionalPropertyTypes` (71) and `noPropertyAccessFromIndexSignature` (666)
+`exactOptionalPropertyTypes` (73) and `noPropertyAccessFromIndexSignature` (687)
 are declined outright.
+
+All three numbers are a measurement and not a check. Each is the error count
+from `npx tsc -p tsconfig.json --noEmit --<flag>`, taken by hand against the
+whole of `tsconfig.json`, which is `src` and `tests` together because that is
+what `npm run typecheck` reads. Nothing re-runs them, so read one as the last
+reading rather than as today's, and take it again before arguing from it.
 
 *Checked by:* `human`.
 
@@ -87,16 +102,25 @@ is a Zod parse rather than a cast. `AppError.details` is `unknown`
 carries whatever the thrower had, and every reader narrows before use.
 
 *Checked by:* `tests/no-explicit-any.test.ts`. `no-explicit-any` is a
-`typescript` plugin rule outside `correctness`, so the linter does not run it;
-the test greps for the type instead, in code with the comments blanked, so the
-several comments that discuss `any` do not read as uses of it.
+`typescript` plugin rule outside `correctness`, so `npm run lint` does not run
+it; the test runs oxlint itself over `src` with that one rule denied and reads
+the diagnostics back. It deliberately does not grep. A grep for `: any` cannot
+see `as any`, `any[]`, `Record<string, any>` or a bare `<any>` type argument,
+and it does see the word in prose — "as good a name for the row as any" in
+`TemplatesPage.tsx` — so a parser finds all four spellings and neither
+comment. A second case points the same rule at a fixture written outside the
+tree holding all four, so the zero above is a rule that fires rather than a rule
+that never had anything to find.
 
 ### 2.2 Assertions are rare and each has a reason
 
-**House.** One `as unknown as` in the whole of `src`, and **137 non-null
-assertions across 33 files**. Neither number is zero and neither should be: a
-`!` after a lookup that a database constraint guarantees is honest, and the
-alternative is a branch that cannot be reached and cannot be tested.
+**House.** One `as unknown as` in the whole of `src`, and **144 non-null
+assertions across 33 files**, counted with
+`npx oxlint -D typescript/no-non-null-assertion src` for the reason 2.1 gives:
+a `!` is punctuation, and a grep meets it in `!==` and in every negation this
+codebase writes. Neither number is zero and neither should be: a `!` after a
+lookup that a database constraint guarantees is honest, and the alternative is a
+branch that cannot be reached and cannot be tested.
 
 The single `as unknown as` is at `accounts.ts:512`, building the row an
 archived account would have had so the caller sees the shape it expects; the
@@ -104,10 +128,11 @@ alternative was making every field optional for one call site. It was three when
 this was written and two of the three went while the code was being brought to
 this guide, which is the number moving the right way.
 
-137 is higher than it looks like it should be, and 1.4 explains most of it —
-without `noUncheckedIndexedAccess`, indexing an array gives a non-optional type,
-so the assertions that exist are the ones somebody added anyway. Adopting that
-flag would raise this number a great deal before lowering it.
+144 is higher than it looks like it should be, and 1.4 is why it is not higher
+still: without `noUncheckedIndexedAccess`, indexing an array gives a
+non-optional type, so all but twenty of these were written for some reason other
+than an index. Adopting that flag would raise this number a great deal before
+lowering it.
 
 The rule is about which of the two you are doing. A `!` standing in for
 "I checked this three lines up" is fine. A `!` standing in for "it is probably
@@ -205,17 +230,20 @@ fails; nothing here prefers one of the two.
 
 ### 3.3 `src/shared` may not import from `src/server` or `src/client`
 
-**Binding by convention, checked by nothing yet.** `src/shared` is the code both
-sides run: the domain schemas, the CSV grammar, the name normalisation, the
-recurrence arithmetic. It is imported by a browser bundle, so a stray `node:`
-import there ends up in the client or fails the build.
+**Binding.** `src/shared` is the code both sides run: the domain schemas, the
+CSV grammar, the name normalisation, the recurrence arithmetic. It is imported
+by a browser bundle, so a stray `node:` import there ends up in the client or
+fails the build.
 
 The direction is `shared ← server` and `shared ← client`, never the reverse and
 never `server ↔ client`.
 
 *Checked by:* `tests/module-boundaries.test.ts`, which walks the import graph
-rather than grepping for a path, so an import that reaches `src/server` through
-a re-export is caught too.
+rather than grepping for a path, resolving every specifier to a real file before
+judging it, so an import that reaches `src/server` through a re-export is caught
+and `src/server/db/client.ts` is not mistaken for the browser. It holds the
+`node:` half as well: a built-in imported from `src/shared` or `src/client`
+fails there rather than at the next person's build.
 
 ### 3.4 Money is exact on both sides, by two different means
 
@@ -296,7 +324,7 @@ reads.
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 1.3 `noImplicitReturns` is declined | Nothing re-measures it, so a fourth site would arrive unargued. |
-| 1.4 `noUncheckedIndexedAccess` is declined | A count taken once is a measurement, not a check, and 440 goes stale quietly. |
+| 1.4 `noUncheckedIndexedAccess` is declined | A count taken once is a measurement, not a check, and 441 goes stale quietly. |
 | 2.2 Assertions carry a reason | Not mechanisable. |
 | 4.1 Argument order | A signature is read, not called, and nothing reads one. |
 | 4.2 Throw or return a result | Which of the two a caller needs is a judgement about the caller. |

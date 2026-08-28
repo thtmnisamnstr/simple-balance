@@ -516,7 +516,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behaviour they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:1827-1834`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:1831-1838`: "`.strict()` is the load-bearing part: a
   filter this cannot honour is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -565,7 +565,7 @@ here is testable, because the thing being judged is whether a sentence is true.
 
 **House. A change that alters behaviour a document describes changes that
 document in the same commit.** `AGENTS.md`'s definition of done covers the code
-half. The documentation half is habit, and habit is why three of these are
+half. The documentation half is habit, and habit is why four of these are
 checked and four are not.
 
 What is checked:
@@ -575,12 +575,21 @@ What is checked:
 | Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:266-300`, by name rather than by count, "so the failure says which" |
 | Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:80-91` |
 | The product backlog's version matches the manifest | `tests/version.test.ts:89-91` |
+| `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |
+
+The last of those was on the list below until it was written. It moved because
+the hand-kept version had already drifted six variables in both directions at
+once: `NODE_ENV` and the two Google settings were in `.env.example` and in no
+table, and the three the nginx image reads were in a table and in no example.
+Both halves are the same defect from opposite ends. An operator who copies the
+example gets a variable nothing documents; one who reads the tables looks for a
+line that is not there. A drifted example file is worse than no example file,
+because it is believed.
 
 What is not, in the order they are likely to drift:
 
 - `.env.example` against `config.ts`, both directions.
-- `docs/deployment.md`'s settings tables against `.env.example`, and its stated
-  defaults against `config.ts`.
+- `docs/deployment.md`'s stated defaults against `config.ts`.
 - `docs/architecture.md`'s "Where things live" paths against the tree.
 - The run command in `README.md` against the hardening flags it should carry.
 
@@ -611,7 +620,7 @@ shape rather than when it changes colour. It was last retaken against a real
 production build during the 0.1.5 cut, which is the standard: a seeded ledger
 and the real Content-Security-Policy in force, not a development server.
 
-*Checked by:* the three rows above, and nothing else.
+*Checked by:* the four rows above, and nothing else.
 
 ## Where this guide and the repository disagree
 
@@ -619,18 +628,25 @@ Recorded rather than resolved, because each needs a decision rather than an
 edit.
 
 - **Em dashes.** `common.md` says "No em dashes. They are a house preference and
-  the codebase is consistent about it." The corpus is not: 44 in
-  `CHANGELOG.md`, 33 in `docs/roadmap.md`, 94 across commit bodies, and 79
-  comment lines in `src/`. In user-visible copy the rule holds almost
-  everywhere, with three exceptions: `App.tsx:570`, `select-options.ts:110` and
-  `TemplatesPage.tsx:564`. Two further sites, `SettingsPage.tsx:132` and
+  the codebase is consistent about it." The corpus is not: 60 in
+  `CHANGELOG.md`, 37 in `docs/roadmap.md`, 155 across the commit bodies
+  reachable from `HEAD`, and 158 comment lines in `src/`. Those four read 44,
+  33, 94 and 79 when this bullet was written, and none of them moved because
+  anybody argued the rule down: a rule nothing enforces loses ground at the rate
+  the repository grows, which is the case for scoping it rather than for
+  restating it. In user-visible copy the rule holds almost everywhere, with
+  three exceptions: `App.tsx:570`, `select-options.ts:110` and
+  `TemplatesPage.tsx:582`. Two further sites, `SettingsPage.tsx:133` and
   `ReportsPage.tsx:139-140`, are prose inside JSX and read as copy but are
-  comments, so they answer to the comment rule rather than this one. The rule as written is therefore nearly true of UI
-  strings and plainly false of documents, commit bodies and comments.
+  comments, so they answer to the comment rule rather than this one. Two of
+  those five citations had drifted off the line they name, which is what a line
+  number into a file somebody is still editing does when nothing checks it. The
+  rule as written is therefore nearly true of UI strings and plainly false of
+  documents, commit bodies and comments.
   `common.md` owns the sentence and this guide cannot narrow it, so the choice
   is the owner's: scope the rule to copy, or accept an edit across six files and
-  every future commit body. Until then,
-  new prose written under this guide takes the rule as written.
+  every future commit body. Until then, new prose written under this guide
+  takes the rule as written.
 - **The frozen migration list has two homes.** `AGENTS.md` names every
   migration in prose and `tests/migrations.test.ts` pins the first five by name.
   The two are now held together, because that test reads `AGENTS.md` and fails
@@ -651,14 +667,16 @@ edit.
 
 ## What is checked, and what is not
 
-Everything in this guide is review except what four test files cover:
+Everything in this guide is review except what five test files cover:
 `tests/version.test.ts` on the version, `tests/migrations.test.ts` on what an
 upgrade note promises about somebody's data, `tests/mcp-parity.test.ts` on
-whether `docs/mcp.md` names every tool, and `tests/docs-conventions.test.ts` on
-whether the README still points at a reporting channel and every shipped roadmap
-item still says how it was met. That is the honest count, and it is the
-highest ratio in this set, because a document's defects are almost all defects
-of truth rather than of form. The three worth naming, because they are the ones
+whether `docs/mcp.md` names every tool, `tests/env-example.test.ts` on whether
+the deployment tables and the example files still describe the same set of
+variables, and `tests/docs-conventions.test.ts` on whether the README still
+points at a reporting channel and every shipped roadmap item still says how it
+was met. That is the honest count, and it is the highest ratio in this set,
+because a document's defects are almost all defects of truth rather than of
+form. The three worth naming, because they are the ones
 that actually go wrong:
 
 - Whether a changelog entry describes a change somebody would notice, or a

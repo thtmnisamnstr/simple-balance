@@ -14,9 +14,13 @@ and `numeric`, and pretending otherwise would cost more than it bought.
 migrations, `0000_initial.sql` through `0013_budget_plans_and_entries.sql`. A
 change is a new forward-only migration, generated with `npm run db:generate`.
 
-*Checked by:* `tests/migrations.test.ts`, which reads the list out of
-`AGENTS.md` and fails when the directory and the list disagree — in both
-directions, so an unnamed migration is as much a failure as a missing file.
+*Checked by:* `tests/migrations.test.ts`, which reads `AGENTS.md` as text and
+fails on any `.sql` in `drizzle/` the prose does not name. That is one
+direction, and it is the one that went wrong: the prose stopped at 0012 while
+the directory held 0013. The other direction is not covered. A file deleted on
+its own is caught by the journal and snapshot counts beside it, but a name left
+in `AGENTS.md` after its file, its journal entry and its snapshot have all gone
+passes, so the frozen list can still outlive what it lists.
 
 ### 1.2 A migration has a name, not a number and a slug from a generator
 
@@ -24,7 +28,14 @@ directions, so an unnamed migration is as much a failure as a missing file.
 default names it after a Marvel character. Rename it on generation, and record
 it in `AGENTS.md` in the same change.
 
-*Checked by:* `tests/migrations.test.ts`.
+*Checked by:* nothing that reads a name for what it says. The recording half is
+held by 1.1: a freshly generated file that nobody listed fails the moment it
+lands in `drizzle/`. `tests/migrations.test.ts` also pins the first five
+journal tags to the words they shipped with, and holds every later file to its
+own tag, so a rename after the fact fails. What no test does is tell
+`0014_budget_carryover` from `0014_lucky_moon_knight`: both are strings it has
+not seen before, and only review stands between the second one and the
+directory. §5 carries this.
 
 ### 1.3 Additive by default
 
@@ -111,8 +122,15 @@ Widening one end and not the other is a defect that survived two rounds of
 review, because it only shows when the range starts mid-period: a month's limit
 compared against part of a month's spending, and every figure looks plausible.
 
-*Checked by:* `tests/integration/budgets.integration.test.ts`, including an
-exhaustive pass over every (plan, period) window pair.
+*Checked by:* `tests/integration/budgets.integration.test.ts`, and in
+particular its `describe.each` over the four period units. Each unit gets one
+plan starting mid-period and one override named by a day inside a period, and
+asserts the plan covers the period its start falls in and no earlier one, with
+the dates read back from what the service snapped rather than computed by hand.
+Eight cases, not every (plan, period) pair: a window starting mid-period is the
+shape the defect needed, and every other test that reports a figure is monthly.
+The only two naming another unit ask for a refusal and for the list of units a
+monthly report left out, so neither could have seen it.
 
 ### 3.3 `ORDER BY` cannot see an expression over a `UNION`'s output
 
@@ -180,13 +198,15 @@ instances starting together must not both migrate.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
+| 1.2 A name rather than a generator's slug | A test holds a name steady once it is written; none can tell a chosen name from a generated one. |
 | 1.3 Additive by default | A migration linter could catch `drop column`; none exists. |
 | 3.1 One grid query | Nothing stops a second one being written. |
 | 4.1 Locks before name reads | A missing lock produces a rare duplicate, which no test will reliably reproduce. |
 | 4.2 Migrations under a lock | Only a second process starting against the same database at the same moment can tell the lock is there, and nothing starts one. The suite runs `runMigrations()` and would run it unlocked just as happily. |
 
-Four `human` rules in this guide, one more than it used to say. 4.2 was never
-counted, and the miscount was the whole defect: nothing checked it and nothing
-said so.
+Five `human` rules in this guide, two more than it used to say. 4.2 was never
+counted, and 1.2 was counted as checked because a test with `migrations` in its
+name sits beside it and does check its other half. Both are the same defect:
+nothing held the rule and nothing said so.
 `tests/count-casts.test.ts` still holds 3.4, and it knows the shapes this schema
 actually writes rather than refusing every `count(*)` it sees.
