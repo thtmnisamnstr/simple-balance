@@ -37,6 +37,11 @@ The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
 a constructor tells you what it assigns.
 
+*Checked by:* `npm run typecheck`. TS1294 fires on the syntax itself, so a
+constructor parameter property fails the build as readily as an `enum` does,
+rather than being caught in review. It says nothing about the gain: a class that
+declares its fields and assigns them somewhere unreadable erases just as well.
+
 ### 1.3 `noImplicitReturns` is declined
 
 **Contested.** The flag is good advice in general and wrong here. All three
@@ -49,6 +54,8 @@ others" is the contract, not a mistake.
 Adopting it would mean writing `return undefined` three times to mean "carry
 on", which is noise that reads as an oversight. Declined, and this paragraph is
 the record so nobody re-measures it.
+
+*Checked by:* `human`.
 
 ### 1.4 `noUncheckedIndexedAccess` is declined, for now
 
@@ -64,6 +71,8 @@ ever adopted it should be one directory at a time.
 
 `exactOptionalPropertyTypes` (71) and `noPropertyAccessFromIndexSignature` (666)
 are declined outright.
+
+*Checked by:* `human`.
 
 ## 2. Types
 
@@ -124,6 +133,13 @@ generated from it (src/server/db/schema.ts:194),
 and the UI iterates it (`src/client/pages/CategoriesPage.tsx:111`).
 Adding a member is one edit, and every one of those follows.
 
+*Checked by:* `npm run typecheck`, for the half of it that is a refusal:
+`erasableSyntaxOnly` rejects an `enum` outright, and because the type is derived
+from the array rather than written beside it, a member added in one place cannot
+disagree with a reader that already exists. Nothing asks for the array in the
+first place, so a closed set hand-written as a bare union of string literals
+passes every check this repository has.
+
 ### 2.4 `satisfies` where a value must stay inside a type without losing its own
 
 **House.** Two uses, and both earn the keyword. The clearer one:
@@ -156,6 +172,13 @@ as a literal (`src/shared/domain.ts:452`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
+*Checked by:* `tsc`, which refuses a member's own field before the union has
+been narrowed, and `tests/domain.test.ts` by way of importing the module at all:
+Zod builds these unions at load and throws "Invalid discriminated union option
+at index" on an option carrying no literal discriminant, so a member that lost
+its `type` fails at import rather than at a parse. Neither can ask for a
+discriminant on a union that never had one.
+
 ## 3. Modules
 
 ### 3.1 Every relative import ends in `.js`
@@ -175,6 +198,10 @@ it, so it passes locally.
 **Binding**, by `verbatimModuleSyntax`. `import type { Actor } from ...`, or
 `import { type CategoryKind, categoryKinds } from ...` when a module gives you
 both. The flag was free, which means the codebase already did this everywhere.
+
+*Checked by:* `npm run typecheck`. TS1484 names the binding that needs the
+keyword, which is why both spellings above are fine and only the missing keyword
+fails; nothing here prefers one of the two.
 
 ### 3.3 `src/shared` may not import from `src/server` or `src/client`
 
@@ -210,6 +237,14 @@ The rule for a reader: never `Number(amount)`, on either side, for anything that
 is compared, summed, or shown. `Number` appears in this codebase only where the
 result is a pixel or a percentage that is already approximate.
 
+*Checked by:* `tests/ledger.test.ts`, which "keeps all numeric(44,18) digits
+during arithmetic" on the server half, and `tests/client-money.test.ts`, which
+"keeps every integer digit exact without converting through Number" on the
+client half at twenty-six integer digits. Both pin an implementation at cases a
+float loses, which is what makes them evidence that the two agree. Neither
+refuses a `Number(amount)` written somewhere else, so the paragraph above is the
+half a reader carries.
+
 ## 4. Functions
 
 ### 4.1 Arguments in the order the reader needs them
@@ -234,6 +269,9 @@ This is written down because guessing it wrong is the most common mistake made
 against this codebase — including in an earlier draft of this very section,
 which stated two of these three signatures incorrectly. Read the function.
 
+*Checked by:* `human`. The compiler reads a call against the signature and has
+nothing to say about the signature, which is the side this rule is about.
+
 ### 4.2 A function that can fail says how in its type
 
 **House.** Two shapes, and the choice is about who decides what to do next:
@@ -249,12 +287,22 @@ That second shape exists because of a real defect: the form used to let somebody
 build a split the server would reject with a 422 the screen had not predicted.
 One function, two callers, one sentence. See `errors.md`.
 
+*Checked by:* `human`. The compiler holds every caller to whichever of the two
+shapes it finds; which one the function should have offered is the part nothing
+reads.
+
 ## 5. What is not enforced
 
 | Rule | Why it is only a sentence |
 | --- | --- |
+| 1.3 `noImplicitReturns` is declined | Nothing re-measures it, so a fourth site would arrive unargued. |
+| 1.4 `noUncheckedIndexedAccess` is declined | A count taken once is a measurement, not a check, and 440 goes stale quietly. |
 | 2.2 Assertions carry a reason | Not mechanisable. |
+| 4.1 Argument order | A signature is read, not called, and nothing reads one. |
+| 4.2 Throw or return a result | Which of the two a caller needs is a judgement about the caller. |
 
-One `human` rule in this guide, down from three. Both that went are now
-tests: `tests/no-explicit-any.test.ts` holds the zero in 2.1, and
-`tests/module-boundaries.test.ts` walks the import graph for 3.3.
+Five `human` rules in this guide, and the number went up rather than down. Four
+of the five had carried no `*Checked by:*` line at all, which is `human` whether
+or not the word appears; counting them is the whole of the change. The two that
+really went are tests: `tests/no-explicit-any.test.ts` holds the zero in 2.1,
+and `tests/module-boundaries.test.ts` walks the import graph for 3.3.

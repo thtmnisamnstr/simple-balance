@@ -18,11 +18,11 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 110 pass, 52 skip | **1,067 pass, 587 skip** |
-| `npm test`, database set | 162 pass | **1,654 pass** |
+| `npm test`, no database | 110 pass, 52 skip | **1,068 pass, 587 skip** |
+| `npm test`, database set | 162 pass | **1,655 pass** |
 | `npm run test:integration` | 53 pass | 588 pass |
 
-The first row is what CI and `npm run verify` see, and 1,067 is the number that
+The first row is what CI and `npm run verify` see, and 1,068 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -62,6 +62,12 @@ while the product is broken. Two known cases, both found the hard way:
 Two budget defects were invisible to jsdom and visible in a browser, which is
 why the browser tier exists at all.
 
+*Checked by:* `human`. Both cases are covered where they were found and nowhere
+else: `tests/browser/budgets.spec.ts` reaches the payee `<input list>` by the
+`combobox` role jsdom withholds, and its "keyboard reaches the whole page"
+presses Tab against a real layout. A page with no browser spec makes the same
+two assumptions with nothing watching.
+
 ### 1.2 The browser tier is small on purpose
 
 **House.** Eleven tests, one file, one worker, against a real API and a real
@@ -87,6 +93,12 @@ passed on an empty database and failed on every subsequent run against the same
 one. A browser spec that only passes once is a spec that will be declared flaky
 and deleted.
 
+*Checked by:* `tests/testing-guide-counts.test.ts` for the size, which counts
+`tests/browser` on disk against the tier table at the top of this page: a second
+spec file cannot appear without somebody editing the sentence that says why
+there is one. What the eleven tests choose to assert is nobody's check but a
+reviewer's.
+
 ## 2. What makes a test worth keeping
 
 ### 2.1 A test name is a sentence about behaviour
@@ -94,6 +106,8 @@ and deleted.
 **House.** "lowers the category a refund came back to", not "test refund case
 2". The name is what somebody reads when it fails at 2am, and it should tell
 them what the product promised.
+
+*Checked by:* `human`.
 
 ### 2.2 A test asserts the outcome, not the mechanism
 
@@ -104,6 +118,8 @@ changed nothing and pass through rewrites that changed everything.
 The strongest form is money: `tests/integration/budgets.integration.test.ts`
 proves a refund into a spending category by reading the budget report and
 finding less spent. Nothing about how it got there.
+
+*Checked by:* `human`.
 
 ### 2.3 A test that only your understanding could have written is dangerous
 
@@ -124,6 +140,9 @@ Three things reduce it, and none of them eliminate it:
 - **Prefer end-to-end proof for anything about money.** A report figure is
   harder to be confidently wrong about than an intermediate.
 
+*Checked by:* `human`. Mutation testing (3.1) is the nearest thing to a check
+and it is a technique somebody runs, not a gate.
+
 ### 2.4 A test is order-independent
 
 **Binding for `tests/integration/budgets.integration.test.ts`; aspirational elsewhere.**
@@ -142,6 +161,12 @@ are order-independent.
 ### 2.5 An idempotency key generator cannot collide
 
 **Binding.** See `services.md` 2.3. Pad the counter, not the string.
+
+*Checked by:* `human` for the keys a test builds — where two collide the second
+call returns the first one's row, and every assertion after it reads something
+nobody wrote. `tests/idempotency-key.test.ts` holds the other generator, the one
+the product ships: "does not repeat itself" draws 500 keys from the path taken
+when `crypto.randomUUID` is missing and counts them.
 
 ## 3. Techniques that found real defects
 
@@ -176,6 +201,12 @@ request field the MCP documented and the browser never sent, and parity was
 green throughout. `tests/new-category-kind-ui.test.tsx` closes that one case;
 the general gap is open and named in `client.md` 4.
 
+*Checked by:* `tests/mcp-parity.test.ts`, once per direction: "has a tool for
+every route that is not a named exception", and "calls every route that is not a
+named agent-only exception", which looks for each route's literal prefix
+anywhere under `src/client`. An entry in either exception list has to carry a
+reason long enough to be one.
+
 ## 4. The vitest plugin is off
 
 **Contested, decided.** `oxlint --vitest-plugin` reports 231 findings on this
@@ -201,6 +232,13 @@ separate config whose global setup **requires** the variable
 (`vitest.integration.config.ts`), so the integration run cannot pass by
 skipping everything — the one failure mode that pattern otherwise invites.
 
+*Checked by:* `npm run test:integration` for that second half:
+`tests/integration/support/require-database.ts` throws before a file is
+collected when `CI` is set and the variable is empty. The first half is nobody's
+check — a new file that forgets the guard does not skip, it tries to connect,
+which fails where there is no database to reach and quietly succeeds where there
+is.
+
 ### 5.2 Each integration file owns its database
 
 **House.** Create a scratch database named for the file and the process, migrate
@@ -213,6 +251,11 @@ it, drop it in `afterAll`. Files then do not race, which matters because
 `vi.restoreAllMocks` does not undo `vi.stubGlobal`. Without it a file that stubs
 `fetch` serves the next file's requests, and the failure surfaces somewhere
 unrelated.
+
+*Checked by:* `human`. Nothing reads `vitest.config.ts` back, and six files stub
+a global and leave the undoing to the runner, so deleting the line breaks
+whichever file happens to run after one of them rather than anything that names
+the setting.
 
 ## 6. Tests that hold this guide set
 
@@ -279,8 +322,18 @@ cannot do that should leave the number alone and fail loudly instead.
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 1 Cheapest tier that can see it | Judgement. |
-| 2.1–2.3 What makes a test good | Judgement, and the reason for reviewing tests as carefully as code. |
+| 1.1 What jsdom cannot see | A defect jsdom is blind to is one no jsdom run reports, so the only check is somebody deciding a case needs a browser. |
+| 2.1 A test name is a sentence about behaviour | Editorial. |
+| 2.2 Outcome, not mechanism | Judgement. A rule banning `toHaveBeenCalledWith` would fire on the tests where the call *is* the outcome, of which `tests/idempotency-key.test.ts` is one. |
+| 2.3 A test only your understanding could have written | Judgement, and the reason for reviewing tests as carefully as code. |
 | 2.4 Order independence, outside budgets | The wider suite does not hold it and is not going to soon. |
+| 2.5 The keys a test builds | Nothing reads the key builders under `tests/`, and the suite cannot: the collision is what makes the test green. |
 | 5.2 One database per file | Convention. |
+| 5.3 Stubbed globals, if the setting goes | Nothing reads the runner configuration back, and the file that would fail is not the file that changed. |
 
-Four `human` rules in this guide.
+Nine `human` rules in this guide. It said four until every rule here was made to
+name its mechanism, and the five that surfaced had never been checked by
+anything — the page was simply quiet about them. Two are worth an attempt: 2.5
+is a scan of `tests/` for the `padEnd` shape it was, and 5.3 is a test that
+reads one line of `vitest.config.ts`, which is what `tests/theme-tokens.test.ts`
+already does to a stylesheet.

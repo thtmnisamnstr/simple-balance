@@ -73,6 +73,14 @@ bit is enough to enumerate.
 Because every query is scoped by `actor.userId` (see `services.md` 1.1), this
 falls out naturally: the row simply is not in the result.
 
+*Checked by:* `tests/integration/tenant-isolation.integration.test.ts`, which
+reaches for one person's accounts, categories, transactions and budgets as
+somebody else and insists the refusal is the not-found one — the budget calls on
+`status: 404` outright, the older ones on the sentence. It walks the services it
+names rather than the surface, so a service added later goes unchecked until
+somebody adds it there, and the suite needs a `TEST_DATABASE_URL`, which
+`npm run verify` does not have.
+
 ### 2.2 `staleVersion` is its own thing for a reason
 
 **House.** It could be a `conflict` with a message. It is separate because it is
@@ -89,11 +97,31 @@ retry with the version, naming `details.currentVersion` only where the throw
 site carried one. Same diagnosis, different next move, which is what
 [`common.md`](../common.md#errors) asks for.
 
+*Checked by:* `npm run typecheck` for the fixed message, since `staleVersion`
+takes details and nothing else and a throw site therefore has no parameter to
+put a sentence in; and `tests/error-messages.test.ts` for the two audiences, which
+reads both halves of one refusal — "tells the browser to reload", "tells an
+agent where the version it needs is, when the throw site sent one" — and pins
+the code, the status and the details as the same for both. What nothing reaches
+is the judgement at the throw site: whether this conflict is the automatic kind,
+and whether it passed the version it could have. Thirteen of the fifty sites
+carry no details, and the constructor drops the field name rather than pointing
+at something that is not there, so the omission costs the agent its next move
+and costs the suite nothing.
+
 ### 2.3 `duplicate` carries the id of what it collided with
 
 **House.** `duplicateCategoryId` and `normalizedName`, so a client can offer
 "use the existing one" instead of making the person retype. An error that only
 says no is doing half its job.
+
+*Checked by:* `tests/integration/categories.integration.test.ts`, whose "rejects
+normalized duplicates on create and update" matches both fields against the
+category actually collided with, on each of the two paths. Only the category
+refusal is held to it. The account, template and recurrence duplicates carry an
+id nothing asserts, and the offer the fields exist for has not been built:
+`duplicateCategoryId` occurs once in `src`, at the throw, so what is checked is
+that the error is carrying it and not that anything acts on it.
 
 ## 3. Messages
 

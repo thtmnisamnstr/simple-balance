@@ -133,6 +133,14 @@ correct.
 `staleVersion` carries `currentVersion` so a client can offer "reload and try
 again" rather than "something went wrong". See `errors.md`.
 
+*Checked by:* `tests/integration/mcp-tools.integration.test.ts`, "tells an agent
+to read the row again, and hands it the version to use", which sends a version
+the row never had and asserts the refusal comes back naming the version it
+actually holds. That is the first of the two windows — the one that exists to
+produce a good message. The second needs two writers overlapping on one row, and
+nothing here arranges that, so the filter on the update is argued for rather
+than demonstrated.
+
 ### 2.3 A write that creates something takes an idempotency key
 
 **Binding.** A create is retried by every client eventually — a dropped
@@ -160,6 +168,17 @@ first call's transaction and the test passed having written nothing. All four
 now pad the counter rather than the string
 (tests/integration/category-by-name.integration.test.ts:27).
 
+*Checked by:* `tests/integration/duplicates.integration.test.ts`, "binds direct
+transaction and staging idempotency keys to their request": the same request
+twice comes back as one row, the same key over a changed amount is refused as a
+`conflict`, and a stage whose `rawData` keys arrive in the other order still
+replays, which is the canonicalisation being exercised rather than the key.
+Two simultaneous retries are covered a few cases below it. What nothing checks
+is that a create takes a key at all. The closest is
+`tests/mcp-measurements.test.ts`, which holds both numbers in the MCP guide's
+sentence to the count of tools carrying one, so the guide cannot record a gap
+without failing — but a keyless tool that nobody counts passes.
+
 ### 2.4 Namespaces are locked before they are read
 
 **Binding.** Anything that decides "does this name already exist?" takes an
@@ -170,6 +189,18 @@ requests both read "no", and both create.
 
 The lock is per user and per namespace, so it serialises the smallest thing that
 has to be serialised.
+
+*Checked by:* `tests/integration/duplicate-lock.integration.test.ts` for the
+mechanism, from a second connection under a 400ms statement timeout: a blocked
+waiter either expires or does not, and it expires. That is the duplicate
+fingerprint lock rather than a name, and it is the only one under test — nothing
+asserts that a path deciding a name reaches `lockCategoryNamespace` or one of
+its siblings first. Sequentially the outcome is covered, by
+`tests/integration/transaction-templates.integration.test.ts`, "refuses a second
+template whose name differs only by case or spacing". The unique constraints
+behind those names are on the raw text, so they catch an exact repeat and
+nothing else; under concurrency a case variant has only the lock behind it, and
+a payee has no row to constrain at all.
 
 ### 2.5 Every write is audited
 
@@ -182,6 +213,17 @@ An operation name is a sentence about intent, not a table verb:
 `create_from_transaction` says a category was created as a side effect of
 somebody entering money, which is a different event from creating one on the
 Categories page, and a year later that difference is the whole value of the row.
+
+*Checked by:* `tests/integration/ledger.integration.test.ts`, "writes scoped
+audit history", which asserts the rows are there, that a second tenant sees none
+of them, and that they parse as the shape the MCP tool declares; and
+`tests/integration/splits-audit.integration.test.ts`, "records which categories a
+split's legs held, before and after", for the payload carrying the legs. The
+same ledger file separates `create` from `create_from_stage` by requiring both
+to appear, which is as close as anything comes to holding an operation name to
+its intent. The word left unchecked is *every*: nothing enumerates the mutations
+in this directory the way `tests/service-transactions.test.ts` enumerates their
+parameter lists, so a new write that audits nothing passes.
 
 ## 3. Reading
 
@@ -216,6 +258,15 @@ beside the loop.
 
 The rule for a reader: parallelise reads that do not see each other's writes;
 never parallelise a loop whose iterations resolve names.
+
+*Checked by:* `tests/integration/splits.integration.test.ts`, "creates a category
+named by a leg, and reuses it for a second leg naming the same one" — the outcome
+the sequence exists for, on two legs spelled "Garden supplies" and "garden
+supplies", asserting they land on one id. Resolution matches on a normalised name
+and stores the raw one, so two legs resolved side by side would insert two rows
+that `category_user_name_unique` is perfectly happy with, and the assertion
+fails. Nothing checks the other half, that the loop stays sequential, because the
+rule with an opinion about it is the one turned off.
 
 ### 3.3 Money is summed in the database or in `decimal.js`, never in JavaScript numbers
 
@@ -254,12 +305,15 @@ into a spending category it created itself has to move a budget.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
+| 1.3 One public function per intent | Whether two operations are one intent with a boolean is the judgement being asked for, and anything able to settle it would not need the rule written down. The nearest check belongs to another guide: `tests/http-route-table.test.ts` refuses a route ending `/archive` or `/delete`, which is this split where it reaches a URL and nowhere else. |
 | 3.1 Reads before dependent writes | Only the outcome is testable, and it is: the refund tests are that check wearing a different hat. |
 
-One `human` rule in this guide, down from three.
-`tests/service-transactions.test.ts` holds 2.1, reading the parameter list
-rather than grepping for a name, so a mutation that delegates its writes to a
-helper still counts. `tests/transport-database-access.test.ts` holds as much of
-1.2 as a program can be asked: not "does this line belong here", which is
-judgement, but "is a transport querying the database", which is what that
-judgement going wrong looks like.
+Two `human` rules in this guide, and one of them is new to the table rather than
+newly unchecked: 1.3 had never said either way, which from a distance reads like
+a rule that is checked. `tests/service-transactions.test.ts` holds 2.1, reading
+the parameter list rather than grepping for a name, so a mutation that delegates
+its writes to a helper still counts. `tests/transport-database-access.test.ts`
+holds as much of 1.2 as a program can be asked: not "does this line belong
+here", which is judgement, but "is a transport querying the database", which is
+what that judgement going wrong looks like. Three more — 2.2, 2.4 and 2.5 — are
+held in part, and each says underneath it which part.

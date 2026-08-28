@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -119,5 +120,33 @@ describe("a scheduler started without one", () => {
     expect(info).toContain("SMTP_HOST");
     expect(error).toBe("");
     expect(lifecycle.ticking).toBe(true);
+  });
+});
+
+/**
+ * The scheduler's own `/metrics`, which is half of a claim made in three places.
+ *
+ * `operations.md`, the chart's README and the CHANGELOG all say both entrypoints
+ * answer, and that a split deployment scraping only the API watches the process
+ * doing none of the scheduled work. Every metrics test until now drove the API,
+ * so the half that carries ticks, proposals and mail was asserted and never
+ * checked.
+ */
+describe("the scheduler's metrics endpoint", () => {
+  const environment = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...environment };
+    vi.resetModules();
+  });
+
+  it("is registered on the scheduler's health app when metrics are on", async () => {
+    const source = await readFile(new URL("../src/server/scheduler.ts", import.meta.url), "utf8");
+    // Read rather than driven: `main()` runs migrations and opens a listener,
+    // and the property worth holding is that the route is mounted on the same
+    // app the health probes are, behind the same setting the API uses.
+    expect(source).toContain('health.get("/metrics", serveMetrics)');
+    expect(source).toContain("if (config.metrics.enabled)");
+    expect(source).toContain('setMetricsComponent("scheduler")');
   });
 });

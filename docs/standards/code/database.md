@@ -54,11 +54,25 @@ codebase wants, so nothing casts.
 The scale looks absurd for currency and is not for exchange rates, which is what
 `effectiveRate` holds in the same precision.
 
+*Checked by:* `tests/integration/migrations.integration.test.ts`, which asks a
+migrated database what `posting.amount` really is rather than reading the
+migration text back — `numeric`, precision 44, scale 18. That is the column every
+balance is summed from, and the only one it names: a money column added somewhere
+else at some other scale would pass.
+
 ### 2.2 An enum column is generated from the shared tuple
 
 **Binding.** `pgEnum` takes the same `as const` array the domain and the UI use
 (src/server/db/schema.ts:194).
 There is no second list of the members anywhere.
+
+*Checked by:* `npm run typecheck`, in both directions. A member the schema drops
+is refused where a parsed value is inserted, and one the schema adds alone is
+refused where a stored row is read back into shared-typed code. A copy that
+agrees today is caught as well, because each of these ten tuples is named exactly
+once outside its import, so writing the members out again leaves the import
+unread and `noUnusedLocals` fails — which holds by arithmetic rather than by
+design, and would stop holding the day a tuple earns a second use in the file.
 
 ### 2.3 Every user-owned table carries `userId`, and every query filters on it
 
@@ -113,6 +127,13 @@ select ... union all select ... order by (category_id is null), name
 Wrap the union in a subquery and select the flag as a column. The budget report
 does exactly that.
 
+*Checked by:* `tests/integration/budgets.integration.test.ts`, which runs the
+union arm in nearly every case because `includeUnbudgeted` defaults to true, so a
+regression comes back as `invalid UNION/INTERSECT/EXCEPT ORDER BY clause` rather
+than as a wrong order. It covers this query, not the trap: a union written where
+no test runs one is refused just as loudly, in front of somebody using the
+product.
+
 ### 3.4 A count is `::int`
 
 **House.** `count(*)` comes back as a string, because PostgreSQL's `bigint`
@@ -131,6 +152,13 @@ as prose.
 `ledger_transaction` columns." Balances, cash flow and spending all read the
 posting table. The transaction row holds what somebody typed; the postings hold
 what the books say, and after a correction those differ on purpose.
+
+*Checked by:* `tests/integration/account-balances.integration.test.ts`, which
+keeps a voided 999 deposit in its fixture and expects a balance that leaves it
+out. The transaction row still says 999 while its postings net to zero, so a
+balance read from the wrong table is wrong by exactly that. One figure, though:
+nothing reads the source, so a report written tomorrow is covered only once
+somebody gives it a case where the two tables disagree.
 
 ## 4. Locks
 
@@ -155,7 +183,9 @@ instances starting together must not both migrate.
 | 1.3 Additive by default | A migration linter could catch `drop column`; none exists. |
 | 3.1 One grid query | Nothing stops a second one being written. |
 | 4.1 Locks before name reads | A missing lock produces a rare duplicate, which no test will reliably reproduce. |
+| 4.2 Migrations under a lock | Only a second process starting against the same database at the same moment can tell the lock is there, and nothing starts one. The suite runs `runMigrations()` and would run it unlocked just as happily. |
 
-Three `human` rules in this guide, down from four.
-`tests/count-casts.test.ts` holds 3.4, and it knows the shapes this schema
+Four `human` rules in this guide. That is one more than it said before, because
+4.2 was never counted: nothing checked it and nothing admitted so.
+`tests/count-casts.test.ts` still holds 3.4, and it knows the shapes this schema
 actually writes rather than refusing every `count(*)` it sees.

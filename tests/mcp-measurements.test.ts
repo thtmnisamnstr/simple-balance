@@ -254,15 +254,43 @@ describe("what mcp.md says it measured", () => {
     expect(described).toBe(claimed(/output properties, (\d+) with a description/));
   });
 
+  /**
+   * Two numbers, counted two ways.
+   *
+   * This asserted one count against both halves of the sentence, so it could
+   * only ever say that a number equalled itself: a mutating tool with no
+   * idempotency key — the exact thing the rule exists against, and the thing
+   * that would make `idempotentHint: true` a lie — would have moved both halves
+   * together and passed. The mutating count comes from the annotations now, and
+   * the key count from the schemas, which is what makes the comparison mean
+   * something.
+   *
+   * A version is the other way a tool earns the annotation, so a mutating tool
+   * carrying `expectedVersion` instead is counted as covered rather than as a
+   * defect. Both are named in the guide's own sentence.
+   */
   it("counts mutating tools and the idempotency keys they carry", () => {
-    const withKey = tools.filter(
+    const properties = (tool: (typeof tools)[number]) =>
+      (tool.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {};
+    const mutating = tools.filter((tool) => !tool.annotations?.["readOnlyHint"]);
+    const withKey = mutating.filter((tool) => properties(tool)["idempotencyKey"] !== undefined);
+    const uncovered = mutating.filter(
       (tool) =>
-        (tool.inputSchema as { properties?: Record<string, unknown> })?.properties?.[
-          "idempotencyKey"
-        ] !== undefined,
-    ).length;
-    expect(withKey).toBe(claimed(/Measured: (\d+)\s+mutating tools, \d+ with `idempotencyKey`/));
-    expect(withKey).toBe(claimed(/mutating tools, (\d+) with `idempotencyKey` in the schema/));
+        properties(tool)["idempotencyKey"] === undefined &&
+        properties(tool)["expectedVersion"] === undefined &&
+        properties(tool)["expectedVersions"] === undefined &&
+        properties(tool)["input"] === undefined,
+    );
+    expect(mutating.length).toBe(
+      claimed(/Measured: (\d+)\s+mutating tools, \d+ with `idempotencyKey`/),
+    );
+    expect(withKey.length).toBe(
+      claimed(/mutating tools, (\d+) with `idempotencyKey` in the schema/),
+    );
+    expect(
+      uncovered.map((tool) => tool.name),
+      "a mutating tool with neither a key nor a version makes idempotentHint a lie",
+    ).toEqual([]);
   });
 
   it("counts the annotation split", () => {
