@@ -23,7 +23,9 @@ export const preferenceSchema = z.object({
     .describe(
       "An IANA timezone name such as Europe/London. It decides what today means everywhere a date is worked out: which day an open-ended range stops at, and which day an entry dated today lands on.",
     ),
-  defaultCurrency: currencyCodeSchema,
+  defaultCurrency: currencyCodeSchema.describe(
+    "The currency a new account and a new entry start in. It is a default and nothing else: it changes no figure already recorded, and the person may change it whenever they like.",
+  ),
   theme: z
     .enum(themes)
     .describe(

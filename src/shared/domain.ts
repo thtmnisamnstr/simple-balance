@@ -1511,7 +1511,11 @@ export const listQuerySchema = dateRangeSchema.extend({
     .enum(transactionTypes)
     .optional()
     .describe("Only deposits, only withdrawals, or only transfers."),
-  currency: currencyCodeSchema.optional(),
+  currency: currencyCodeSchema
+    .optional()
+    .describe(
+      "Only rows that touch this currency on either side, so a conversion matches under both the currency it left and the one it arrived in.",
+    ),
   search: oneLine(z.string().trim().max(200))
     .optional()
     .describe(

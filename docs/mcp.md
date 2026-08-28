@@ -58,15 +58,20 @@ and whether the user still has an authentication method enabled by the current
 - `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
 - `ledger:write`: every ledger operation, including direct and staged commits.
 
-The protected-resource discovery document advertises `ledger:read` alone,
-because that is what every connection needs and no more is worth asking somebody
-to approve before there is anything to approve it for. A client that wants
-`ledger:stage` or `ledger:write` asks for it in the authorization request. The
-refusal described below names the whole scope string that would have worked, and
-a client implementing the OAuth step-up turns that into a fresh consent prompt
-without being reconfigured. The wider grant is not sticky across a revoke and
-reconnect: an authorization started from scratch begins at read again, until the
-next refusal asks for more.
+Both discovery documents advertise all seven scopes — the three above plus
+`openid`, `profile`, `email` and `offline_access` — so a client that reads them
+and asks for everything arrives with write access it may have no use for. That
+is more than a first connection needs, and narrowing it is a change this release
+does not make: a client written against an older SDK, or by hand, may not
+implement the RFC 6750 step-up, so anybody re-authorising after the upgrade
+would come back read-only with nothing on screen saying why. Taking a capability
+away quietly is not something an upgrade here does.
+
+What did land is the half that costs nobody anything. A call to a tool the
+connection has no scope for answers with an `insufficient_scope` challenge
+naming the tier that would have worked, so a client that *does* ask for less has
+a way back up, and narrowing the first ask becomes a later release's job once
+the step-up has been in the field.
 
 Tools an agent has no scope for are left out of discovery entirely, so it never
 sees a tool it cannot call, and calling one anyway comes back as a 403 naming
