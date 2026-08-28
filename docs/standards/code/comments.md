@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**17.1% of the non-blank lines in `src` are comments** — 6,855 of 40,026. That
+**17.2% of the non-blank lines in `src` are comments** — 6,868 of 40,045. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -13,8 +13,16 @@ It was 14.9% when this page was written, which is the reason
 without anybody noticing, and this one is quoted in `AGENTS.md` too. The test
 holds a floor of 14%, because the failure the rule is written against is
 somebody tidying the comments away, and it holds the two quotations to within a
-point and a half of the truth and to each other. Not to an exact figure: a
-number every commit has to update is a number people update without reading.
+point and a half of the truth and to each other. The percentage is deliberately
+not held to an exact figure: a number every commit has to update is a number
+people update without reading. The pair of counts beside it is, because a band
+wide enough to survive a normal week's edits is wide enough to hide three
+hundred lines, and the counts are what somebody would recompute to check the
+percentage anyway.
+
+*Checked by:* `tests/comment-density.test.ts`, which recounts `src`, fails under
+the floor, refuses two documents that quote different numbers, and compares
+`6,868 of 40,045` against the recount exactly.
 
 ## 1. What a comment is for here
 
@@ -84,8 +92,11 @@ field, which is the obvious thing and the wrong thing.
 
 ## 5. A silenced rule carries its reason at the site
 
-**Binding.** Two lint rules are disabled inline rather than in config, and both
-carry a paragraph:
+**Binding.** Fourteen sites in `src` disable a rule inline rather than in
+config, and they name three rules between them: `react/set-state-in-effect`
+twelve times, `jsx-a11y/no-static-element-interactions` twice, and
+`jsx-a11y/click-events-have-key-events` once. Every one of the fourteen carries
+a paragraph arguing why the rule is wrong about that line:
 
 ```
 // The handler and the interactive role arrive together, both gated on the
@@ -95,11 +106,27 @@ carry a paragraph:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-(`src/client/forms.tsx:479`, and `src/client/components.tsx:497`.)
+That one is `src/client/forms.tsx:479`. `src/client/components.tsx:497`
+silences two rules in a single comment and does not borrow this argument: it
+makes its own, that a keyboard user's activation of the buttons inside bubbles
+to the same handler, so the element is a catcher for its children's events
+rather than a mouse-only control. Thirteen of the fourteen paragraphs sit
+directly above the disable. The exception is `src/client/forms.tsx:1535`, where
+the reason is about the whole effect and sits above it, and the disable reaches
+only the one line inside that assigns.
 
 A bare disable is a claim that the rule is wrong, made without argument. Rules
 turned off across the whole repository carry their reason in
 [`index.md`](index.md) instead, where the count of them is visible.
+
+Those counts are of the day this was written and nothing holds them there;
+`grep -rn "oxlint-disable" src` recounts them. It said two when this page was
+written, both of them `jsx-a11y`. The twelve that arrived after it are what
+denying `react/set-state-in-effect` cost: taking it off its budget left every
+surviving site to argue for itself, which is the point of
+[`client.md`](client.md) §1.3 and the reason none of them could be a bulk fix.
+So a count going up is not the failure. A count going up faster than the
+paragraphs is.
 
 **Placement note.** An `oxlint-disable-next-line` has to be on the line directly
 above the element the rule reports. Inside a JSX attribute list it targets the
@@ -130,19 +157,24 @@ additions for comments specifically:
 
 ## 8. What is not enforced
 
-Everything in this guide. There is no test for comment quality and there should
-not be one — a density check would be gamed by exactly the restatement comments
-section 2 bans.
+Every rule in this guide, and no longer the number at the top of it.
+`tests/comment-density.test.ts` recounts `src` on every run, fails under a floor
+of 14%, and holds the counts this page quotes to that recount exactly. That is a
+check against the comments being tidied away, which is a different thing from a
+check that they are any good. There is no test for comment quality and there
+should not be one — quality measured as density is gamed by exactly the
+restatement comments section 2 bans, and the floor is set low enough that nobody
+is ever tempted to pad towards it.
 
-The one mechanical check that exists is section 6's: the formatter must not
-change comment prose, and that is verified by measurement when the formatter
-changes rather than on every run.
+The other mechanical check is section 6's: the formatter must not change comment
+prose, and that is verified by measurement when the formatter changes rather
+than on every run.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 1 What a comment is for | Judgement, and the judgement is the guide. |
 | 2 What a comment must not be | A restatement detector would flag good comments too. |
-| 3 Where the density goes | Distribution, not a threshold. |
+| 3 Where the density goes | The floor holds the total. Where it lands is distribution, and nothing reads that. |
 | 4 Docstrings say what a thing is for | Editorial. |
 | 7 Prose style | Editorial. |
 

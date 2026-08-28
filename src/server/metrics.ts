@@ -20,11 +20,17 @@ import { APP_VERSION } from "../shared/version.js";
  * one series; `/api/v1/accounts/<uuid>` is one series per account, which is how
  * a monitoring system falls over on a ledger with ten thousand transactions.
  *
- * **Collection is always on; only the endpoint is switched.** Every counter
- * below costs a few nanoseconds and no allocation, so gating them on
- * `METRICS_ENABLED` would buy nothing and would put a branch in front of every
+ * **Collection is always on; only the endpoint is switched.** A labelled
+ * increment costs about 130ns and does allocate — `prom-client` hashes the
+ * label object into a string key on every call — and an unlabelled one about
+ * 12ns (2M iterations of `Counter.inc` on this machine, Node 26). That is a
+ * rounding error beside the database round trip it sits next to, so gating it
+ * on `METRICS_ENABLED` would buy back nothing worth a branch in front of every
  * write in the product. What the setting decides is whether `GET /metrics`
- * answers at all, which is the part with a security consequence.
+ * answers at all, which is the part with a security consequence. The earlier
+ * version of this paragraph claimed no allocation, which was pleasant and
+ * wrong; the number is here so the next person can re-measure rather than
+ * believe it.
  */
 export const registry = new Registry();
 

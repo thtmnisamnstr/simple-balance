@@ -82,7 +82,14 @@ export const log = {
   },
 };
 
-/** For tests, and for the startup path that reads configuration twice. */
+/**
+ * For tests, which set `LOG_LEVEL` and then import this module again.
+ *
+ * Nothing in `src` calls it: the memo is per process and a process reads its
+ * configuration once. It said "and for the startup path that reads
+ * configuration twice", which named a caller that does not exist and made the
+ * export look load-bearing.
+ */
 export function resetLogLevel() {
   configured = undefined;
 }
