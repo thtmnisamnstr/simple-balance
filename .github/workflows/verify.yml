@@ -75,6 +75,49 @@ jobs:
           TEST_DATABASE_URL: ""
       - run: npm run test:integration
 
+  # The browser tier, on one combination rather than on the matrix. It starts
+  # three processes and drives Chromium, so it is the slowest thing here and the
+  # only one that proves the whole stack: the four deprecated route aliases are
+  # checked nowhere else, and the argument that 0.1.5 upgrades cleanly to this
+  # release rests on them. It was written and then never run by anything but a
+  # person, which is how two of its assertions came to be pinning a header value
+  # the code had stopped sending.
+  browser:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: simple_balance_browser
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d simple_balance_browser"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      BROWSER_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/simple_balance_browser
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: ${{ inputs.ref == '' && 'npm' || '' }}
+      - run: npm ci
+      # The browser only, rather than `--with-deps`: the runner image already
+      # carries the system libraries, and installing them again is a minute per
+      # run for nothing.
+      - run: npx playwright install chromium
+      # `list` rather than the HTML report: a failure prints the assertion and
+      # the trace path in the log, and uploading the report would mean pinning
+      # another action by digest for something the log already says.
+      - run: npm run test:browser
+
   # The chart and the Pulumi programs ship in the release, so a change that
   # breaks either should fail here rather than at somebody's `helm install`.
   # Neither is covered by `npm run verify`: the chart is YAML the TypeScript

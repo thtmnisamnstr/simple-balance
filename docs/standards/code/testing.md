@@ -71,6 +71,13 @@ works, so it covers a path per capability rather than a case per branch.
 Everything it asserts that a cheaper tier could assert is a test in the wrong
 place.
 
+**CI runs it, on one combination.** It was written and then run only by
+whoever remembered, which is how two of its assertions came to be pinning a
+header value the code had stopped sending: the tier that exists to prove the
+whole stack was the tier nothing exercised. It runs on one Postgres and one Node
+rather than on the four-way matrix, because what it proves does not vary with
+either and it starts three processes to prove it.
+
 **It has to survive being run twice.** It signs up a fresh person per run, and
 on an empty database that person is the first account and lands on the sign-up
 form; on every run after, the same database already has one and the form starts
