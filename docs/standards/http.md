@@ -307,13 +307,13 @@ add it.
   than simply make them.
 - **House, and the three inconsistencies that were here are gone.** The paths
   read the way the rules above say now:
-  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1369`)
+  `GET /api/v1/staged-transactions/{id}/duplicate` (`src/server/api.ts:1393`)
   rather than a `staged` collection that existed nowhere else;
-  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:1332`)
+  `POST /api/v1/staged-transactions/bulk-delete` (`src/server/api.ts:1356`)
   rather than a `delete` that spelled the same operation as
-  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:1272`)
+  `POST /api/v1/transactions/bulk-delete` (`src/server/api.ts:1296`)
   differently; and `POST /api/v1/accounts/{id}/archived` and
-  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1129`, `:1245`),
+  `POST /api/v1/categories/{id}/archived` (`src/server/api.ts:1153`, `:1269`),
   which take `{"archived": boolean}` and are therefore the state sub-resource
   pattern, matching `POST /api/v1/transactions/{id}/deleted`.
 
@@ -322,17 +322,18 @@ add it.
   under `ledger:write`, the other removes staged rows that never posted under
   `ledger:stage`. Only the spelling was duplicated.
 
-  They were renamed outright rather than deprecated, and the reason is the one
-  in [Nothing outside a browser can reach this API
+  Each old spelling still answers, on the same handler, marked with
+  `Deprecation` and `Sunset`. The first version of this renamed them outright,
+  on the argument in [Nothing outside a browser can reach this API
   today](#nothing-outside-a-browser-can-reach-this-api-today): a cookie, a
   same-origin check and a required content type mean the only client that could
-  have been broken ships in the same image as the server that answers it. The
-  deprecation policy below starts applying the day SB-030 makes a third-party
-  client possible. Paying for `/api/v2` to fix a hyphen would have been an
-  expensive way to keep a promise nobody had been made — and the window to do it
-  for nothing closes when SB-030 lands, which is why it was not deferred again.
-  The one cost is real and small: a browser tab left open across the upgrade
-  gets a 404 on the old paths until it is reloaded.
+  be calling them ships in the same image as the server that answers. That is
+  true of the image being deployed and false of the one already running — a
+  browser tab left open across the upgrade is serving the previous build, and
+  would have met a 404 on the first archive somebody attempted, with nothing to
+  tell it apart from a bug. Paying for `/api/v2` to fix a hyphen would still
+  have been an expensive way to keep a promise nobody had been made; keeping the
+  old paths for a release is the cheap way to keep the one that matters.
 
   The MCP tools keep their names. `archive_account` and `archive_category` are
   `verb_noun` and correct, and [`mcp.md`](mcp.md) has already settled that
@@ -488,7 +489,7 @@ or that the two patch schemas agree with each other.
   output schema fails the call".
 - **House.** `GET /api/v1/csv/export` is the only route that answers with
   something other than JSON: `text/csv; charset=utf-8; header=present` with a
-  `Content-Disposition` filename (`src/server/api.ts:1350-1364`). Its format is
+  `Content-Disposition` filename (`src/server/api.ts:1374-1388`). Its format is
   governed by [`csv.md`](csv.md).
 
 *Checked by:* `tests/http-security.test.ts` for headers and body limits,
@@ -545,7 +546,7 @@ code.
   way; a mistyped *id* should match it.
 - **House, and a gap.** A wrong method on an existing path should be 405 with
   `Allow`. Today it falls to the catch-all and is a 404
-  (`src/server/api.ts:1407-1411`). OWASP's REST guidance is to allowlist methods
+  (`src/server/api.ts:1431-1435`). OWASP's REST guidance is to allowlist methods
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Today the one 429 the process emits
   carries nothing. `Retry-After` is standard in RFC 9110; the `RateLimit-*`
@@ -780,7 +781,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   (`src/shared/domain.ts:1045`). A server may return fewer rows than asked for.
 - **House, and an outlier.** `GET /api/v1/audit-events` parses its own query by
   hand rather than through a published schema
-  (`src/server/api.ts:1392-1399`), so its parameters are the one list contract
+  (`src/server/api.ts:1416-1423`), so its parameters are the one list contract
   not expressed in Zod. The service defends itself against the resulting `NaN`
   (`src/server/services/audit.ts:11-15`), which is the right defence in the
   wrong place. Give it a schema.
@@ -932,8 +933,8 @@ so a second submit fails rather than duplicating."
   construction, with one exception:
   `DELETE /api/v1/connected-apps/{clientId}` (`src/server/api.ts:1072-1076`)
   reads no body and takes no `expectedVersion`, where the other six versioned
-  deletes parse `versionedMutationSchema` (`src/server/api.ts:1136`, `:1124`,
-  `:1136`, `:1146`, `:1176`, `:1215`). Revoking a grant is idempotent anyway,
+  deletes parse `versionedMutationSchema` (`src/server/api.ts:1160`, `:1148`,
+  `:1160`, `:1170`, `:1200`, `:1239`). Revoking a grant is idempotent anyway,
   since the second call finds nothing to revoke, but the premise does not hold
   for it and the carve-out is named here rather than left to be discovered.
 
@@ -1014,7 +1015,7 @@ edit, a mass delete, a commit, and a CSV import."
   that catches the tool handing a strict schema the key it added.
 - **House.** A filter selection is resolved first by the matching
   `bulk-selection` route, which returns the count and the fingerprint the write
-  must send back (`src/server/api.ts:1259-1262`, `:1322-1325`). The fingerprint
+  must send back (`src/server/api.ts:1283-1286`, `:1346-1349`). The fingerprint
   is a SHA-256 over the sorted `id:version` pairs, computed by one function so
   the transaction and staged paths cannot drift into accepting different sets
   (`src/server/services/helpers.ts:230-245`).
@@ -1134,7 +1135,7 @@ fingerprint (`:544`).
     and gets a 404 with no CORS headers, which is the correct answer to a
     preflight for something that is not allowed.
 - **House.** The single-page app never answers an API path. JSON 404 catch-alls
-  sit under `/api/v1/*` (`src/server/api.ts:1407-1411`) and `/.well-known/*`
+  sit under `/api/v1/*` (`src/server/api.ts:1431-1435`) and `/.well-known/*`
   (`src/server/api.ts:846-850`), below every route those prefixes own and above
   the shell. Without them a mistyped path came back as 200 `text/html`, which an
   API client parses as a syntax error and a person debugging reads as a working
@@ -1243,8 +1244,8 @@ Not breaking:
 
 ### Deprecation
 
-**House**, and nothing is deprecated today, so this is the policy for the first
-time it happens.
+**House**, and in use as of this release: the four renamed paths below are the
+first thing to go through it.
 
 - A deprecated route or field is announced in `CHANGELOG.md` in the commit that
   deprecates it, with the replacement named.
@@ -1259,14 +1260,26 @@ time it happens.
   is longer. That number is this product's choice; nothing cited sets one.
 - One Hono middleware sets both headers. Do not set them per route.
 
-Nothing has used this policy yet, and the three path inconsistencies that would
-have been its first candidates were renamed outright instead — see [Paths and
-resources](#paths-and-resources) for why a contract no third party can reach
-owes nobody a window. The first real use of this policy is the first breaking
-change made after SB-030 lands, and the middleware that sets both headers is
-written then rather than now.
+The four renamed paths are the first use, and they are why this policy stopped
+being hypothetical. The first version of the rename argued that `/api/v1` is
+cookie-only and same-origin, so the only client that could call the old paths
+ships in this image — which is true of *this* image and not of the one already
+running. A browser tab left open across the upgrade is serving the previous
+build, and it would have met a 404 on the first archive somebody attempted.
 
-*Not checked mechanically.* Review, and there is nothing deprecated yet to test.
+One middleware sets both headers (`src/server/api.ts:1132-1145`), the value of
+`Deprecation` is the date form RFC 9745 requires rather than the superseded
+draft's `true`, and the sunset is 188 days later, which clears both the ninety
+days and the one minor release. It was a date in the past for a while, which is
+worse than no header at all: a client reading it is told the path is already
+gone while it is still answering.
+
+*Checked by:* `tests/http-route-table.test.ts` reads both values as dates: that
+`Deprecation` is `@<seconds>`, that the sunset parses, that the window is at
+least ninety days, and that it has not passed. The last of those fails on the
+day it expires, which is the day somebody has to decide between removing the
+aliases and moving the date. `tests/browser/budgets.spec.ts` proves two of the
+four still answer over a real connection.
 
 ### The OpenAPI document
 

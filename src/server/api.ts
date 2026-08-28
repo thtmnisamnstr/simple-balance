@@ -1109,13 +1109,37 @@ app.put("/api/v1/accounts/:id", async (c) =>
  * cannot rewrite its own URLs, so a 307 would cost a round trip to say something
  * it cannot act on.
  */
-const RENAMED_PATH_SUNSET = "Sat, 01 Aug 2026 00:00:00 GMT";
+/**
+ * When they were deprecated, and when they stop answering.
+ *
+ * `Deprecation` carries a date rather than `true`: RFC 9745 supersedes the
+ * draft that spelled it as a boolean, and its value "MUST be a Date as per
+ * Section 3.3.7 of RFC 9651", which on the wire is `@` and seconds since the
+ * epoch. The first version of this shipped `true`, which is the draft nobody
+ * implements any more.
+ *
+ * The sunset is 188 days after the deprecation, which clears the ninety days
+ * and the one minor release `docs/standards/http.md` asks for. It was a date in
+ * the past for a while — a window that had closed before the release carrying
+ * it shipped, which tells a client the path is already gone while it is still
+ * answering. `tests/api-security.test.ts` now fails once it is in the past, so
+ * the day it expires is a decision somebody makes rather than a promise that
+ * quietly went stale.
+ */
+const RENAMED_PATH_DEPRECATION = "@1787616000";
+const RENAMED_PATH_SUNSET = "Mon, 01 Mar 2027 00:00:00 GMT";
 
 function deprecated(successor: string): MiddlewareHandler {
   return async (c, next) => {
-    c.header("Deprecation", "true");
+    c.header("Deprecation", RENAMED_PATH_DEPRECATION);
     c.header("Sunset", RENAMED_PATH_SUNSET);
-    c.header("Link", `<${successor}>; rel="successor-version"`);
+    // Two relations, because they answer different questions: `successor-version`
+    // is where to go instead, and `deprecation` is where to read why.
+    c.header(
+      "Link",
+      `<${successor}>; rel="successor-version", ` +
+        `<https://github.com/thtmnisamnstr/simple-balance/blob/main/CHANGELOG.md>; rel="deprecation"`,
+    );
     await next();
   };
 }

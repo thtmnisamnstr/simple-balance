@@ -150,10 +150,41 @@ describe("the paths kept alive across a rename", () => {
     ]);
   });
 
-  it("dates its own removal, so it is not kept for ever by accident", async () => {
+  /**
+   * The window, read as dates rather than as source text.
+   *
+   * This used to assert the two headers were set and that `Deprecation` was
+   * `"true"`, which is the superseded draft's spelling and which pinned the
+   * defect rather than catching it: the sunset shipped as a date twenty-seven
+   * days in the *past*, so every alias told its caller the path was already
+   * gone while it was still answering, and this test passed throughout.
+   */
+  it("promises a window that is still open, and long enough", async () => {
     const source = await readFile(apiPath, "utf8");
-    expect(source).toMatch(/const RENAMED_PATH_SUNSET = "[^"]+"/);
+    const deprecation = /const RENAMED_PATH_DEPRECATION = "@(\d+)"/.exec(source);
+    const sunset = /const RENAMED_PATH_SUNSET = "([^"]+)"/.exec(source);
+    expect(
+      deprecation,
+      "RENAMED_PATH_DEPRECATION must be @<seconds since the epoch>",
+    ).not.toBeNull();
+    expect(sunset).not.toBeNull();
     expect(source).toContain('c.header("Sunset", RENAMED_PATH_SUNSET)');
-    expect(source).toContain('c.header("Deprecation", "true")');
+    expect(source).toContain('c.header("Deprecation", RENAMED_PATH_DEPRECATION)');
+    expect(source).toContain('rel="deprecation"');
+
+    const deprecatedAt = new Date(Number(deprecation![1]) * 1000);
+    const sunsetAt = new Date(sunset![1]!);
+    expect(Number.isNaN(sunsetAt.getTime()), `${sunset![1]} is not an HTTP-date`).toBe(false);
+    const days = (sunsetAt.getTime() - deprecatedAt.getTime()) / 86_400_000;
+    // RFC 8594: the sunset must not be earlier than the deprecation. The ninety
+    // days on top of that is this product's own rule, in http.md.
+    expect(days).toBeGreaterThanOrEqual(90);
+    // The day this fails is the day somebody decides: drop the aliases, or
+    // extend the window and say so. Both are decisions; a date that quietly
+    // passed is not.
+    expect(
+      sunsetAt.getTime(),
+      "the sunset has passed — remove the aliases or move the date",
+    ).toBeGreaterThan(Date.now());
   });
 });

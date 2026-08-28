@@ -51,6 +51,23 @@ function threshold(): Level {
 const enabled = (level: Level) => ORDER.indexOf(level) >= ORDER.indexOf(threshold());
 
 export const log = {
+  /**
+   * A line the operator cannot do their job without, at any level.
+   *
+   * Not a fifth level and not a synonym for `info`: this is for the handful of
+   * lines that are the product's only channel for something somebody has to
+   * have. The first-run setup code is the whole of it — a fresh production
+   * instance prints a one-time code and there is nowhere else to read it, so
+   * `LOG_LEVEL=warn` turned a supported setting into a deployment that cannot
+   * be claimed. The startup banner is not here: nobody is locked out by not
+   * knowing which port was logged.
+   *
+   * `tests/log-level.test.ts` holds the call sites, so this stays two lines
+   * rather than becoming the level everything is written at.
+   */
+  announce(...parts: unknown[]) {
+    console.info(...parts);
+  },
   debug(...parts: unknown[]) {
     if (enabled("debug")) console.debug(...parts);
   },

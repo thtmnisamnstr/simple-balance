@@ -55,8 +55,12 @@ async function main() {
     !isRegistrationOpenToAnyone() &&
     (await isLocalBootstrapOpen())
   ) {
-    log.info(`First-run setup code: ${await getOwnerSetupToken()}`);
-    log.info(
+    // Announced rather than logged at a level, because there is nowhere else to
+    // read it: `LOG_LEVEL=warn` is a supported setting and it made a fresh
+    // production instance print nothing at all, which is an instance nobody can
+    // claim.
+    log.announce(`First-run setup code: ${await getOwnerSetupToken()}`);
+    log.announce(
       isRegistrationClosed()
         ? "ALLOWED_EMAILS admits nobody, so this is the only way to create the first account. It stops working once one exists."
         : "Addresses ALLOWED_EMAILS admits do not need it. This claims the instance with an address it would turn away, and stops working once an account exists.",

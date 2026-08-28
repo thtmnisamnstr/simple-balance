@@ -82,6 +82,41 @@ describe("the log level", () => {
   });
 });
 
+describe("the line that is not a level", () => {
+  it("prints at the quietest setting there is", async () => {
+    process.env.LOG_LEVEL = "error";
+    const log = await freshLog();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    log.announce("First-run setup code: abc");
+    // The defect this exists against: `LOG_LEVEL=warn` on a fresh production
+    // instance printed nothing at all, and the setup code is the only way to
+    // claim one. A supported setting made the deployment unclaimable.
+    expect(info).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * Two call sites, and the list is the point.
+   *
+   * `announce` is not a level and must not become the one everything is written
+   * at. It is for a line that is the product's only channel for something the
+   * operator has to have; a third call site is a decision somebody should have
+   * to make in a diff.
+   */
+  it("is used only where nothing else can carry the message", () => {
+    const sites = sourceFiles("src/server").flatMap((file) =>
+      file.code
+        .split("\n")
+        .flatMap((line, index) =>
+          /\blog\.announce\(/.test(line) ? [`${file.path}:${index + 1}`] : [],
+        ),
+    );
+    expect(sites.map((site) => site.split(":")[0])).toEqual([
+      "src/server/index.ts",
+      "src/server/index.ts",
+    ]);
+  });
+});
+
 describe("every line this product writes", () => {
   /**
    * The configuration layer keeps `console` on purpose.

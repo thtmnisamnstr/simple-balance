@@ -205,6 +205,40 @@ for a second page. Activity shows the hundred most recent events and neither sor
 nor pages. Everything the
 browser or an agent did is in the audit log.
 
+## Budgets
+
+Set an amount for a category and a period — a month, a week, a quarter, a year —
+and **Budgets** compares it against what you actually spent on that category in
+each period. A budget is a standing instruction rather than a row per month: two
+hundred a month on Groceries is one line, and it covers every period from the day
+it starts until you end it. Both ends snap to whole periods, so a budget set on
+the 14th applies to that whole month rather than to half of it.
+
+**One month can differ without changing the rest.** December's grocery bill is
+not November's, so an amount set for a single period overrides the standing one
+for that period alone, and the report says which of the two produced each figure.
+Clearing the override puts the standing amount back.
+
+**A refund lowers the category it came back to**, rather than raising income.
+Thirty back from the shop makes groceries thirty lighter, because spending is
+summed signed from the postings and a refund is the negative one. A split
+receipt lands each leg on its own category, and a transfer between your own
+accounts is not spending, so neither needs a rule here.
+
+**A category you budgeted and never spent on still appears**, at nought against
+its limit, because a category dropped for being empty is the one you most want
+to see. Spending in categories nobody budgeted for is shown too — the question a
+budget raises is where the rest went — and can be turned off.
+
+Figures stop at today in your own timezone, whatever range you ask for, and the
+page says which day it used. Nothing here writes to the ledger: a budget is a
+plan, and deleting one changes no balance and no report.
+
+**What is not here yet.** Money left over does not carry into next month, there
+are no savings goals, no budget set from a rule such as an average of what you
+usually spend, no grouping of categories under one budget, no envelopes, and no
+forecast. Those are the next five stories in [the roadmap](roadmap.md).
+
 ## How it looks
 
 There is a light theme and a dark one, and by default the app takes whichever the

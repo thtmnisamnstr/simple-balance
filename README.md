@@ -39,6 +39,8 @@ able to do anything dangerous, or get around the step where you check its work.
   it will touch
 - A register for any account: every posting with the balance before and after it,
   for when a figure is wrong and you need the row it went wrong on
+- A budget per category per period, standing or set for one month, compared
+  against what was actually spent — including what a refund gave back
 - Categories and payees that match case-insensitively, flag near-duplicates, and
   merge
 - An audit log of everything you or an agent did
@@ -223,10 +225,13 @@ Do not cut a version. Releases are the owner's.
 
 ## Not built yet
 
-Budgets, bank sync, account sharing, attachments, and reconciliation. What is
-planned, in what order, and the evidence behind each is in the
-[roadmap](docs/roadmap.md), which also says what is deliberately not planned and
-why, market prices among it. Tags are neither built nor planned.
+Bank sync, account sharing, attachments, and reconciliation. Budgeting is
+started rather than finished: a limit per category per period is here, and
+rollover, sinking funds, budgets set from a rule, category groups, envelopes and
+forecasting are not. What is planned, in what order, and the evidence behind
+each is in the [roadmap](docs/roadmap.md), which also says what is deliberately
+not planned and why, market prices among it. Tags are neither built nor
+planned.
 
 ## More
 

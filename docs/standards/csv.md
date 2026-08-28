@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1342-1364`, which is the
+which reads and writes files, and `src/server/api.ts:1366-1388`, which is the
 transport.
 
 ## 1. Why CSV, and why no apology
@@ -144,7 +144,7 @@ product has no export whose first record is not a header.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/api.ts:1354-1363`). It used to read the server clock, so somebody
+(`src/server/api.ts:1378-1387`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 

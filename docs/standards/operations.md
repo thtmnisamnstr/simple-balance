@@ -931,7 +931,7 @@ chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:217`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:115-120`, `docs/deployment.md:422-429`). Docker's
+`--stop-timeout 30` (`README.md:117-122`, `docs/deployment.md:422-429`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 

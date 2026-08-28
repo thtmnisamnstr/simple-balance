@@ -58,9 +58,9 @@ configuration to know the level and a warning about a setting cannot be gated by
 one.
 
 
-Six secrets can be read from a file instead of the environment: `AUTH_SECRET`,
-`DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`
-and `SETUP_TOKEN`. Point `NAME_FILE` at a file whose contents are the value, and
+Seven secrets can be read from a file instead of the environment:
+`AUTH_SECRET`, `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`,
+`GOOGLE_CLIENT_SECRET`, `SETUP_TOKEN` and `METRICS_TOKEN`. Point `NAME_FILE` at a file whose contents are the value, and
 the value never enters the process environment, so nothing that dumps an
 environment can show it.
 
@@ -69,7 +69,7 @@ variable wins, which is what happened when `NAME_FILE` did nothing at all — bu
 it warns and names the file being ignored, because a change to that file will
 look like it worked and will not have.
 
-The bundled Helm chart and compose file still pass all six as environment
+The bundled Helm chart and compose file still pass all seven as environment
 variables; `docs/deployment.md` says what using the file form on either takes.
 
 Budgets. A limit per category per period, compared against what was actually
@@ -207,22 +207,23 @@ Committing or deleting staged transactions now refuses a selection that leaves
 out the version for one of its own rows, and says which row, instead of
 reporting it as a version conflict on a row nothing had changed. A repeated id
 in the same selection is refused as a duplicate rather than reported as a row
-that could not be found. Both requests now refuse an unrecognised field instead
-of dropping it, which is what the same call over MCP already did: a body typing
-`expectedVersion` where the field is `expectedVersions` was refused for an agent
-and silently read as naming no versions at all for the browser.
+that could not be found. Over MCP both requests also refuse an unrecognised
+field rather than dropping it — a body typing `expectedVersion` where the field
+is `expectedVersions` is refused by name — and over HTTP they still drop it, as
+they did in 0.1.5. Tightening the HTTP side was in an earlier draft of this
+release and was taken back out: a client that has been sending a stray field
+since 0.1.5 keeps working, and the release that refuses it is a later one.
 
-An MCP client is now told to ask for less. The protected-resource discovery
-document advertises `openid profile email offline_access ledger:read` rather
-than every scope this deployment supports, because a client builds its
-authorization request from that list and every scope in it is one more thing a
-person is asked to approve before there is anything to approve it for. The
-`ledger:stage` and `ledger:write` tiers are unchanged, still named on the
-consent screen, and still reachable: a call needing one comes back as a 403
-naming the whole scope string that would have worked, which a client
-implementing the OAuth step-up turns into a fresh consent prompt. The
-authorization-server document still lists all seven, because that is the
-question it answers.
+Both discovery documents still advertise all seven scopes. An earlier draft of
+this release narrowed the protected-resource document to
+`openid profile email offline_access ledger:read`, on the argument that a client
+builds its authorization request from that list and every scope in it is one
+more thing somebody is asked to approve before there is anything to approve it
+for. That argument still stands and the change does not: a client that read the
+document under 0.1.5 and asked for `ledger:write` would have found the scope it
+already holds missing from the list it builds its request from, which is a
+capability narrowing on an upgrade. It comes back in a release that can
+deprecate it first.
 
 A version conflict reaching an agent now says to read the record again and retry
 with the version it reports, rather than to refresh and try again. An agent has
@@ -240,9 +241,11 @@ that followed writing them.
 `npm run lint` runs oxlint and `npm run format` runs oxfmt, in place of ESLint
 and Prettier. TypeScript 7 forced the linter question — typescript-eslint does
 not run on it — and the formatter was measured rather than assumed: oxfmt
-reflowed no comment prose in a repository whose comments are 14.9% of its
-non-blank source lines. Neither is visible in the running application, and no
-formatting-only change is included here.
+reflowed no comment prose in a repository whose comments were 14.9% of its
+non-blank source lines at the time, and are 16.8% now. Neither is visible in the
+running application. Adopting the formatter reformatted the tree once, and two
+Pulumi deployment files are nothing but that reflow; no other file changed shape
+without a reason beside it.
 
 ### Fixed
 
