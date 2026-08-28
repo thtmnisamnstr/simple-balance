@@ -2,6 +2,7 @@ import { getConfig } from "./config.js";
 import { configuredRecurrenceTickSeconds } from "./config-limits.js";
 import { runDueNotifications, type NotificationTickSummary } from "./services/notifications.js";
 import { runDueRecurrences, type TickSummary } from "./services/recurrences.js";
+import { log } from "./log.js";
 import {
   recurrenceOccurrences,
   reminderSweeps,
@@ -37,7 +38,17 @@ export const STOP_GRACE_MS = 5_000;
 
 type Timer = { clear: () => void; unref: () => void };
 
+/**
+ * Injectable so a test can read what was said, and defaulted to `log` rather
+ * than to `console` — see the same note in `server-lifecycle.ts`. A default of
+ * `console` is a `LOG_LEVEL` gate this module simply is not behind.
+ *
+ * `debug` is here because a tick that found nothing due is worth a line and is
+ * not worth an operator's `info` log every five minutes: at the default level a
+ * quiet schedule says nothing, and at `debug` it says it looked.
+ */
 type SchedulerLogger = {
+  debug: (message: string) => void;
   info: (message: string) => void;
   error: (message: string, error?: unknown) => void;
 };
@@ -75,7 +86,7 @@ export function createRecurrenceScheduler(
     runReminders = runDueNotifications,
     schedule = defaultSchedule,
     jitter = () => Math.random() * FIRST_TICK_JITTER_MS,
-    logger = console,
+    logger = log,
   } = options;
 
   if (!enabled) return { enabled: false, stop: async () => {} };
@@ -113,15 +124,41 @@ export function createRecurrenceScheduler(
         // After the proposals, so a recurrence that proposes and a template that
         // reminds on one day arrive in that order. Its own try, because a
         // reminder that fails must not cost the proposals their catch-up signal.
+        let sent = 0;
+        let sweepFailed = 0;
         try {
           const reminders = await runReminders(() => stopping);
           reminderSweeps.inc({ outcome: "examined" }, reminders.examined);
           reminderSweeps.inc({ outcome: "sent" }, reminders.sent);
           reminderSweeps.inc({ outcome: "failed" }, reminders.failed);
+          sent = reminders.sent;
+          sweepFailed = reminders.failed;
         } catch (error) {
           reminderSweeps.inc({ outcome: "swept_failed" });
           logger.error("Template reminder sweep failed", error);
         }
+        // Said out loud, and not only counted.
+        //
+        // `/metrics` is off unless a deployment asks for it, so without this a
+        // working scheduler and a stopped one produce identical logs — which is
+        // the failure this whole feature exists to avoid, one level up. The
+        // level splits on whether anything happened: a tick that proposed a row,
+        // sent a reminder or failed at either is `info` and belongs in an
+        // ordinary log, and a tick that found nothing due is `debug`, because
+        // most of them find nothing due and an operator did not ask to hear
+        // about it every five minutes.
+        //
+        // Counts and no identities. Which recurrence proposed what is the audit
+        // trail's business and the ledger's; this line is about whether the
+        // schedule is running.
+        const acted = summary.proposed + summary.notified + summary.failed + sent + sweepFailed;
+        const line =
+          `Scheduler tick: examined ${summary.examined} recurrence${summary.examined === 1 ? "" : "s"}, ` +
+          `proposed ${summary.proposed}, failed ${summary.failed}, notified ${summary.notified}; ` +
+          `sent ${sent} reminder${sent === 1 ? "" : "s"}, ${sweepFailed} failed` +
+          (summary.capped ? "; capped, so the next tick follows immediately" : "");
+        if (acted > 0) logger.info(line);
+        else logger.debug(line);
         // A recurrence that filled its catch-up cap has strictly advanced its
         // watermark, so coming straight back drains a backlog at full speed and
         // still terminates. Everything else waits out the interval.

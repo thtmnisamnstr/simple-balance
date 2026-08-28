@@ -250,7 +250,7 @@ async function runTool(fn: () => Promise<unknown>) {
     return toolResult(await fn());
   } catch (error) {
     if (!(error instanceof AppError) && !(error instanceof ZodError)) {
-      log.error("Unexpected MCP tool error", error);
+      log.failure("Unexpected MCP tool error", error);
     }
     // An agent can only correct a call it can see the fault in. A schema
     // failure names the field and what was wrong with it; reporting it as an
@@ -548,6 +548,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
     // its arguments through untouched and looks at none of them.
     const measured = async function measure(this: unknown, ...args: unknown[]) {
       const stop = mcpToolDuration.startTimer({ tool: name });
+      const startedAt = Date.now();
       let outcome = "error";
       try {
         const result = await Reflect.apply(callback, this, args);
@@ -556,6 +557,16 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       } finally {
         stop();
         mcpToolCalls.inc({ tool: name, outcome });
+        // The same fact as the counter, in the channel that is on by default.
+        // `/metrics` is off unless a deployment asks for it, so without this an
+        // agent's session leaves no trace at all and "did the agent do that, or
+        // did somebody" has no answer outside the audit trail.
+        //
+        // The tool name and the outcome, and never the arguments: they carry
+        // payees, amounts and notes, and a debug log is not where somebody's
+        // ledger should turn up. `debug` because an agent doing ordinary work
+        // is not news.
+        log.debug(`MCP tool ${name} ${outcome} in ${Date.now() - startedAt}ms`);
       }
     } as typeof callback;
     return register(name, config, measured);

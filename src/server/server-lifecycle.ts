@@ -1,3 +1,5 @@
+import { log } from "./log.js";
+
 export const DEFAULT_SHUTDOWN_DEADLINE_MS = 10_000;
 
 export type DrainableServer = {
@@ -11,6 +13,17 @@ type Deadline = {
   unref: () => void;
 };
 
+/**
+ * Injectable so a test can read what was said, and defaulted to `log` rather
+ * than to `console`.
+ *
+ * `console` was the default here and in the recurrence scheduler, which put two
+ * modules outside the `LOG_LEVEL` gate by way of a parameter rather than a call
+ * — the shape `tests/log-level.test.ts` could not see, because it looked for
+ * `console.info(` and this is `console` handed over as a value. "SIGTERM
+ * received, shutting down" printed at every level, including the one an
+ * operator chose to silence it with.
+ */
 type ShutdownLogger = {
   info: (message: string) => void;
   error: (message: string, error?: unknown) => void;
@@ -37,7 +50,7 @@ export function createGracefulShutdown({
   server,
   closeResources,
   exit,
-  logger = console,
+  logger = log,
   deadlineMs = DEFAULT_SHUTDOWN_DEADLINE_MS,
   scheduleDeadline = defaultScheduleDeadline,
 }: GracefulShutdownOptions) {

@@ -187,12 +187,23 @@ startDefaultMetrics();
  */
 app.use("*", async (c, next) => {
   const stop = httpDuration.startTimer();
+  const startedAt = Date.now();
   try {
     await next();
   } finally {
     const labels = { method: c.req.method, route: routeLabel(c) };
     stop(labels);
     httpRequests.inc({ ...labels, status: String(c.res.status) });
+    // The one line that says a request happened, in the channel that is on by
+    // default. `/metrics` answers only where a deployment asked for it, and an
+    // aggregate cannot answer "what did that browser just do" anyway.
+    //
+    // The path, not the pattern the metric uses. A label has to stay bounded or
+    // it costs a time series per account; a line costs one line, and the id in
+    // it is the difference between a log an operator can follow and a log that
+    // says a request happened somewhere. Nothing in a query string is written:
+    // filters carry payees and search terms, which is somebody's ledger.
+    log.debug(`${c.req.method} ${c.req.path} ${c.res.status} in ${Date.now() - startedAt}ms`);
   }
 });
 
@@ -263,17 +274,11 @@ app.onError((error, c) => {
       422,
     );
   }
-  // Not the error object. Drizzle builds its message out of the failing SQL and
-  // its bound parameters, and one of those parameters is the OAuth access token
-  // the MCP token endpoint looks a grant up by, so logging it whole would write
-  // a live credential into the log on any database hiccup. The statement is
-  // what an operator needs; the values are not.
-  const query = (error as { query?: unknown }).query;
-  if (typeof query === "string") {
-    log.error(`Query failed: ${query}`, (error as { cause?: unknown }).cause ?? error.name);
-  } else {
-    log.error(error);
-  }
+  // Narrowed rather than logged whole, and narrowed in `log.failure` rather
+  // than here: the same error reaches an MCP tool call, and this transport
+  // holding the rule while the other one did not is how a bound parameter would
+  // still have reached the log.
+  log.failure("Request failed", error);
   return c.json(
     { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } },
     500,

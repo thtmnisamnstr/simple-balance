@@ -167,6 +167,11 @@ export async function sendMail(message: Message) {
       headers: { "Auto-Submitted": "auto-generated" },
     });
     mailMessages.inc({ outcome: "sent" });
+    // What was sent, never who it went to. `message.about` is the kind — "the
+    // password reset", "the reminder" — which is what the failure line beside
+    // this one already uses and for the same reason: an address in a log is
+    // somebody's identity written down somewhere they did not agree to.
+    log.debug(`Sent ${message.about}.`);
     return true;
   } catch (error) {
     // Not the subject, which is a name somebody wrote, and not the error whole,

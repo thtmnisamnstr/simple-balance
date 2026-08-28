@@ -68,6 +68,33 @@ export const log = {
   announce(...parts: unknown[]) {
     console.info(...parts);
   },
+  /**
+   * A failure, with the part of it an operator must not be handed.
+   *
+   * Drizzle builds an error's message out of the failing SQL *and its bound
+   * parameters*, and one of those parameters is the OAuth access token the MCP
+   * token endpoint looks a grant up by. Logging such an error whole writes a
+   * live credential into the log on any database hiccup — and the parameters of
+   * an ordinary ledger query are somebody's payees and amounts, which is the
+   * same rule one notch less alarming.
+   *
+   * The statement is what an operator needs and the values are not, so this
+   * keeps the first and drops the second. It lives here rather than at either
+   * transport because `api.ts` had it and `mcp.ts` did not: the HTTP path
+   * narrowed the error and the agent path logged it whole, which is one
+   * transport quietly holding a rule the other one keeps.
+   */
+  failure(context: string, error: unknown) {
+    const query = (error as { query?: unknown } | null)?.query;
+    if (typeof query === "string") {
+      // The cause where there is one, and the class name where there is not:
+      // both say what went wrong without repeating the statement's arguments.
+      const cause = (error as { cause?: unknown }).cause;
+      log.error(`${context}: ${query}`, cause ?? (error as { name?: unknown })?.name);
+      return;
+    }
+    log.error(context, error);
+  },
   debug(...parts: unknown[]) {
     if (enabled("debug")) console.debug(...parts);
   },
