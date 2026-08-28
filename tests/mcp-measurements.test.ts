@@ -138,24 +138,51 @@ describe("what mcp.md says it measured", () => {
     expect(tools.length - closed).toBe(claimed(/input schemas are\s+closed and (\d+) are open/));
   });
 
-  it("counts top-level parameters and how many lack a description", () => {
+  /**
+   * Every field, not every parameter.
+   *
+   * This counted the top level only, and reported zero while 263 of 673 fields
+   * carried nothing: the whole of `draft`, `shape`, `patch`, `selection`,
+   * `schedule` and `mapping` — which is to say every field an agent actually
+   * has to fill in to write anything. The guide's "0 of 226" was true of what
+   * it measured and false of what it said, which is the worst shape for a
+   * number to be in.
+   *
+   * It walks the schema now: properties, array items, and every branch of an
+   * `anyOf`, `oneOf` or `allOf`, because a discriminated union publishes each
+   * member separately and a field described on one branch and not another is
+   * exactly the gap this missed.
+   */
+  it("counts every input field and how many lack a description", () => {
     let total = 0;
-    let undescribed = 0;
-    for (const tool of tools) {
-      const properties = (
-        tool.inputSchema as { properties?: Record<string, { description?: string }> }
-      )?.properties;
-      for (const property of Object.values(properties ?? {})) {
+    const undescribed: string[] = [];
+    type Node = {
+      description?: string;
+      properties?: Record<string, Node>;
+      items?: Node;
+      anyOf?: Node[];
+      oneOf?: Node[];
+      allOf?: Node[];
+    };
+    const walk = (node: Node | undefined, path: string) => {
+      if (!node || typeof node !== "object") return;
+      for (const [name, child] of Object.entries(node.properties ?? {})) {
         total += 1;
-        if (!property?.description) undescribed += 1;
+        if (!child?.description) undescribed.push(`${path}${name}`);
+        walk(child, `${path}${name}.`);
       }
-    }
+      walk(node.items, `${path}[].`);
+      for (const branch of [...(node.anyOf ?? []), ...(node.oneOf ?? []), ...(node.allOf ?? [])]) {
+        walk(branch, path);
+      }
+    };
+    for (const tool of tools) walk(tool.inputSchema as Node, `${tool.name}.`);
+
     // Held at zero rather than at whatever the guide claims. Every other
     // measurement here is a fact the guide has to keep up with; this one became
     // a rule the moment it reached zero, and a rule is worth more than a number
-    // somebody has to remember to lower. A new tool with an undescribed
-    // parameter fails here.
-    expect(undescribed, "every tool parameter carries a description").toBe(0);
+    // somebody has to remember to lower.
+    expect(undescribed, "every input field carries a description").toEqual([]);
     expect(total).toBe(claimed(/Measured:\s+\*\*0 of (\d+) carry none\*\*/));
   });
 

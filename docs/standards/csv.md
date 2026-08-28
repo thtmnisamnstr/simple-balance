@@ -56,7 +56,7 @@ quote "should be enclosed in double-quotes". A guide that writes MUST there is
 asserting a strictness the document does not carry, which matters because three
 of our four departures sit on exactly those two rules.
 
-**The write side conforms.** `rowsToCsv` at `src/shared/csv.ts:453-466` emits
+**The write side conforms.** `rowsToCsv` at `src/shared/csv.ts:498-511` emits
 one header record, CRLF between records, no trailing CRLF, and quotes a field
 only when it contains `"`, `,`, CR or LF, doubling an internal quote. Nothing
 else is quoted, so the file stays readable to a human eye.
@@ -68,7 +68,7 @@ which splits an exported file on `\r\n` to find its header.
 The departures, all on the read side, all deliberate:
 
 1. **We trim.** `previewCsv` and `stageCsv` both hand Papa Parse a `transform`
-   and a `transformHeader` that call `trim()` (`src/shared/csv.ts:154-169`,
+   and a `transformHeader` that call `trim()` (`src/shared/csv.ts:199-214`,
    `src/server/services/import-export.ts:781-782`). Rule 4 says a leading or
    trailing space is part of the field. A trailing space in a bank's header row
    is common and never meaningful, and a payee cell padded to a column width is
@@ -153,7 +153,7 @@ a dated filename exists to get right.
 **House.** **Import sniffs. Export is always a comma.**
 
 Papa Parse guesses the delimiter and the preview reports what it guessed, both
-in the API response (`CsvPreview.delimiter`, `src/shared/csv.ts:122-169`) and on
+in the API response (`CsvPreview.delimiter`, `src/shared/csv.ts:167-214`) and on
 screen (`src/client/pages/ImportPage.tsx:313-317`). The import screen says so
 before a file is chosen: "Comma, semicolon, and tab delimiters are detected
 automatically."
@@ -218,7 +218,7 @@ integration tests.
 
 ### Reading an amount out of a bank file
 
-`parseLocalizedAmount` (`src/shared/csv.ts:171-209`) accepts, for a given
+`parseLocalizedAmount` (`src/shared/csv.ts:216-254`) accepts, for a given
 decimal separator: a bare decimal, the configured grouping separator or a space
 as a thousands separator but not both, a leading minus, and a parenthesised
 negative. It refuses a leading `+`, an interior minus, an inconsistent grouping
@@ -263,7 +263,7 @@ credit column", eleven cases including a signed zero, which is left alone.
 `YYYY-MM-DD` on export, straight from the transaction. On import the order is
 chosen by the person as `YMD`, `MDY` or `DMY`
 (`src/server/services/import-export.ts:86-91`) and parsed by `parseCsvDate`
-(`src/shared/csv.ts:211-272`).
+(`src/shared/csv.ts:256-317`).
 
 **House.** **No two-digit years, and no inferred order.** `parseCsvDate`
 requires a four-digit year and does not attempt to tell `03/04/2026` apart by
@@ -568,7 +568,7 @@ Three mechanisms, and they are deliberately not the same strictness:
    (`stagedDuplicateKey`, `src/server/services/transactions.ts:2542-2680`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:1004`, `src/server/services/staging.ts:533-609`).
+   three (`src/shared/domain.ts:1244`, `src/server/services/staging.ts:533-609`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a
@@ -638,7 +638,7 @@ not finish"), `tests/integration/import-export.integration.test.ts:508`.
 
 **House. A row number is the file's own line.** Rows count from one with the
 header as row 1, which is RFC 7111's convention, and `csvFileLine`
-(`src/shared/csv.ts:149`) is the single place that says so. It is adopted as a
+(`src/shared/csv.ts:194`) is the single place that says so. It is adopted as a
 convention and labelled that way rather than as conformance, because RFC 7111 is
 an Independent Submission carrying the disclaimer that it is "not endorsed by
 the IETF and has no formal standing in the IETF standards process", and because
@@ -688,7 +688,7 @@ and is what makes the sample answerable — by the browser and by an agent alike
 
 `CsvPreview.errors` is shown too, which it never was. It is reported as the rows
 the parser could not read among those the preview reads, not as a count over the
-file: `previewCsv` takes twenty-five (`src/shared/csv.ts:154`), so a fault past
+file: `previewCsv` takes twenty-five (`src/shared/csv.ts:199`), so a fault past
 that one is not in it. The messages are shown as the parser wrote them, `Row N`
 and all; what N counts is settled by the item above, which is the file's own
 line with the header as row 1.
@@ -722,7 +722,7 @@ import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
 than by coincidence (`src/server/config-limits.ts:13`,
-`src/shared/domain.ts:912`). `CSV_MAX_ROWS` may lower it; raising it past the
+`src/shared/domain.ts:1152`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.
 
@@ -785,7 +785,7 @@ not optional for that reason.
 **Neutralise the human-readable column, carry the exact value in a JSON channel,
 and never neutralise the channel.**
 
-- `neutralizeSpreadsheetFormula` (`src/shared/csv.ts:421-442`) prefixes an
+- `neutralizeSpreadsheetFormula` (`src/shared/csv.ts:466-487`) prefixes an
   apostrophe to a triggering value.
 - It is applied to exactly seven columns, named at the call site
   (`src/server/services/import-export.ts:1060-1070`): `payee`, `description`,
@@ -797,7 +797,7 @@ and never neutralise the channel.**
 - `roundtrip_text_json` is never neutralised, and it is what the importer reads
   first. A category named `-Reimbursements` grew an apostrophe on every trip and
   became a second category each time, until the exact value got its own channel.
-- `restoreNeutralizedCell` (`src/shared/csv.ts:438-466`) strips the apostrophe
+- `restoreNeutralizedCell` (`src/shared/csv.ts:483-511`) strips the apostrophe
   back off for a file written before that channel existed. It is not injective
   and cannot be: a category genuinely named `'-Reimbursements` and one named
   `-Reimbursements` export identically. It is the best answer available for an

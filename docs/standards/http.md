@@ -384,10 +384,10 @@ add it.
   [`common.md`](common.md#naming).
 - **House, and a live gap.** Unknown query parameters and unknown body fields
   are an error. Newer schemas are `.strict()`; the older core ones are not.
-  `listQuerySchema` (`src/shared/domain.ts:1221-1286`) accepts anything, so
+  `listQuerySchema` (`src/shared/domain.ts:1461-1526`) accepts anything, so
   `?sortt=date` returns page one in the default order with a 200, which is the
   wrong answer delivered confidently. The bulk filter schema derived from it
-  **is** strict (`src/shared/domain.ts:1291-1293`), so the two disagree about
+  **is** strict (`src/shared/domain.ts:1531-1533`), so the two disagree about
   the same parameter set. Make `listQuerySchema` strict. The two staged
   selection schemas were the same disagreement between callers rather than
   between schemas, and are strict now; see [the bulk selection
@@ -408,7 +408,7 @@ add it.
   **on**, so `?includeArchived=1` turned them off without saying so, and on that
   report off means every penny spent through a closed account leaves the
   figures. The only thing that differed was the default, so `queryBoolean` takes
-  one (`src/shared/domain.ts:1064-1085`) and the route hands the schema the raw
+  one (`src/shared/domain.ts:1304-1325`) and the route hands the schema the raw
   query. `tests/domain.test.ts` holds both halves: the two spellings that work,
   and that `1`, `yes`, `TRUE`, `on` and an empty value are refused rather than
   read as off.
@@ -434,18 +434,18 @@ only for template mass edits.
   and reading it as "clear this" turns a mis-click into a data loss.
 
 The budgeting schemas already follow it: `activeTo` present and null ends a
-plan, absent leaves it alone (`src/shared/domain.ts:1118-1132`). So does the
+plan, absent leaves it alone (`src/shared/domain.ts:1358-1372`). So does the
 template mass edit, whose schema comment says why blank and absent have to stay
 different: "blank and absent being different is the whole of what a stored draft
-records" (`src/shared/domain.ts:634-641`).
+records" (`src/shared/domain.ts:807-814`).
 
 **Where the code disagrees.** Three patch schemas answer this question and two
 of them read `""` as a clear rather than refusing it. The transaction bulk patch
 carries `.transform((value) => (value === "" ? null : value))` on `description`
-and `notes` (`src/shared/domain.ts:1399-1410`), pinned by
+and `notes` (`src/shared/domain.ts:1689-1700`), pinned by
 `tests/domain.test.ts:142-149`, and the staged bulk patch carries the identical
 transform on the same two fields (`src/shared/domain.ts:1646-1657`). The
-template mass edit (`:593-617`) is the only one of the three that refuses the
+template mass edit (`:814-830`) is the only one of the three that refuses the
 empty string. So fixing only the transaction path leaves the same defect on the
 staged one. There is an argument for the
 transform, that a transaction description has no "unset" state distinct from
@@ -469,10 +469,10 @@ or that the two patch schemas agree with each other.
 - **House.** A single resource is returned as the object itself, with no
   envelope. A collection is returned as one of two envelopes and no third.
 - **House.** Two list envelopes:
-  - `Page<T>`: `{items, nextCursor}` (`src/shared/domain.ts:1768-1772`), where
+  - `Page<T>`: `{items, nextCursor}` (`src/shared/domain.ts:2136-2140`), where
     callers only stream forward.
   - `PaginatedPage<T>`: `Page<T>` plus `{page, pageSize, totalCount,
-    totalPages}` (`src/shared/domain.ts:1774-1779`).
+    totalPages}` (`src/shared/domain.ts:2142-2147`).
 - **House.** `201 Created` on a create that mints a row, `200 OK` on everything
   else that succeeds. No route returns `204`; every response has a body,
   because an MCP tool result cannot be empty and the two transports return the
@@ -630,7 +630,7 @@ and for the code each of those refusals names being a member of `apiErrorCodes`.
 ### Rules that hold either way
 
 - **House.** The published enumeration is frozen contract, and it is complete.
-  `apiErrorCodes` (`src/shared/domain.ts:1723-1758`) is the sum of two lists
+  `apiErrorCodes` (`src/shared/domain.ts:2091-2126`) is the sum of two lists
   held apart on purpose: `serviceErrorCodes`, the nine an `AppError` can carry,
   and `transportErrorCodes`, the five the middleware refuses with before a route
   runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:171`, `:235`),
@@ -787,7 +787,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
      and PostgreSQL answers a value it cannot read with an error
      (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:49-62`).
 - **House.** `limit` is optional, defaults to 50 and is capped at 200
-  (`src/shared/domain.ts:1045`). A server may return fewer rows than asked for.
+  (`src/shared/domain.ts:1285`). A server may return fewer rows than asked for.
 - **House, and an outlier.** `GET /api/v1/audit-events` parses its own query by
   hand rather than through a published schema
   (`src/server/api.ts:1434-1441`), so its parameters are the one list contract
@@ -814,13 +814,13 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   list query, the bulk filter selection and the MCP tool, and adding one changes
   what a fingerprint covers.
 - **House.** Sorting is `sort` plus `direction`, with `direction` one of `asc`
-  or `desc` (`src/shared/domain.ts:1224-1235`). If multi-key sorting ever
+  or `desc` (`src/shared/domain.ts:1464-1475`). If multi-key sorting ever
   arrives it becomes `sort=-date,payee`, following JSON:API and Zalando rule
   137, rather than a second parameter, because a second parameter cannot express
   precedence.
 - **Binding.** Order is presentation and never scopes a write. `sort`,
   `direction`, `cursor`, `page` and `limit` are omitted from every bulk filter
-  schema (`src/shared/domain.ts:1291-1293`), so two requests selecting the same
+  schema (`src/shared/domain.ts:1531-1533`), so two requests selecting the same
   rows in different orders are the same selection.
 
 *Checked by:* the bulk filter schemas being `.strict()` in `src/shared/domain.ts`,
@@ -834,7 +834,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
 
 - **House, and the reason is the standing test.** The version travels in the
   body as `expectedVersion`, never as `If-Match`
-  (`src/shared/domain.ts:859-874`). A mismatch is `409 STALE_VERSION` with
+  (`src/shared/domain.ts:1099-1114`). A mismatch is `409 STALE_VERSION` with
   `{currentVersion}` in the details. Google AIP-154 sanctions a body-carried
   token with an abort on mismatch, and Zalando's appendix rates a payload
   version number as "perfect optimistic locking", so this is a published pattern
@@ -860,14 +860,14 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   tools), so the Azure objection does not bite there. Over HTTP only the writes
   whose schema declares an `idempotencyKey` are protected, and no update or
   delete does: `transactionUpdateSchema` and `versionedMutationSchema` carry a
-  version and nothing else (`src/shared/domain.ts:859-874`). So an HTTP update
+  version and nothing else (`src/shared/domain.ts:1099-1114`). So an HTTP update
   whose response is lost genuinely cannot be retried, and the browser hides it
   by refetching. That is the gap, and it is the same gap as the missing keys on
   five creates below.
 - **House, one named exception.** `PUT /api/v1/budget-entries` is an upsert and
   its `expectedVersion` is optional: absent on the first set for a period,
   required to change one that is already there
-  (`src/shared/domain.ts:1135-1143`).
+  (`src/shared/domain.ts:1375-1383`).
 - **Binding.** `AGENTS.md`: "Any write that changes a leg must bump the parent
   transaction's `version` in the same transaction." A version that does not move when a leg moves would
   let a bulk selection fingerprint describe a row that has changed underneath
@@ -928,14 +928,14 @@ so a second submit fails rather than duplicating."
   postings require idempotency, and this guide extends that to every create,
   because a public client retrying a `POST` after a timeout should not get two
   rows. Today `POST /transactions` and `POST /staged-transactions` take a key
-  (`src/shared/domain.ts:846-850` and `:890-895`) and `POST /accounts`,
+  (`src/shared/domain.ts:1086-1090` and `:1130-1135`) and `POST /accounts`,
   `POST /categories`, `POST /recurrences`, `POST /transaction-templates` and
-  `POST /categories/merge` do not (`src/shared/domain.ts:718`, `:752`, `:2176`,
-  `:2138`, `:767`). The MCP tools for the same operations all require one.
+  `POST /categories/merge` do not (`src/shared/domain.ts:958`, `:992`, `:2707`,
+  `:2669`, `:1007`). The MCP tools for the same operations all require one.
   The four creates are protected by a unique name, which is the `AGENTS.md`
   carve-out. `POST /categories/merge` is protected by nothing, and the sister
   route `POST /payees/merge` does take a key
-  (`src/shared/domain.ts:817-829`), so the two merges disagree about the same
+  (`src/shared/domain.ts:1057-1069`), so the two merges disagree about the same
   question. Add the field.
 - **House.** No `GET` or `DELETE` accepts a key. A safe method needs none, and a
   delete on this API is a versioned mutation, which is idempotent by
@@ -967,7 +967,7 @@ edit, a mass delete, a commit, and a CSV import."
 
 - **House, scoped to what the invariant above covers: transaction and staged
   mass edits.** Two selection shapes and no third for those
-  (`src/shared/domain.ts:1349-1352`):
+  (`src/shared/domain.ts:1617-1620`):
   - `{"mode": "ids", "items": [{"id", "expectedVersion"}]}` for rows the caller
     can see.
   - `{"mode": "filter", "filter", "excludedIds", "expectedCount",
@@ -975,7 +975,7 @@ edit, a mass delete, a commit, and a CSV import."
     the fingerprint were issued by a preview call.
 - **House, and three routes outside that scope encode a selection their own
   way. Each records why, and that is the answer rather than a deferral.**
-  `transactionTemplateBulkSelectionSchema` (`src/shared/domain.ts:608-632`) is
+  `transactionTemplateBulkSelectionSchema` (`src/shared/domain.ts:773-805`) is
   `{items: [{id, expectedVersion}]}` with no `mode` discriminator, and stays
   that way because `AGENTS.md` already settled it: a template mass edit "has no
   filtered selection, because the list is capped and the browser holds all of
@@ -1046,7 +1046,7 @@ edit, a mass delete, a commit, and a CSV import."
   per-row reporting. A caller that wants to know what will happen asks first,
   rather than being told afterwards which rows failed. Six of the seven had it;
   `bulkDeleteStageSchema`, behind `POST /api/v1/staged-transactions/bulk-delete`
-  (`src/shared/domain.ts:966-990`), did not, which made the one bulk write that
+  (`src/shared/domain.ts:1206-1230`), did not, which made the one bulk write that
   removes rows the one nobody could ask about first. It validates the whole
   request — every row present, every row still staged, every version current —
   and returns the ids it would have deleted with `dryRun: true`, stopping before

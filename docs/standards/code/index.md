@@ -27,7 +27,7 @@ contact with a real case was never a standard.
 | [`typescript.md`](typescript.md) | The language: strictness, types, modules, what the compiler is set to refuse. |
 | [`services.md`](services.md) | The server service layer: actors, transactions, versions, idempotency, audit. |
 | [`database.md`](database.md) | Schema, migrations, and queries: Drizzle, raw SQL, and the traps this one has hit. |
-| [`client.md`](client.md) | React: state, effects, queries, and the warning budget that is still open. |
+| [`client.md`](client.md) | React: state, effects, queries, and the three rules that went from budgeted to denied. |
 | [`errors.md`](errors.md) | Failing: which error, carrying what, phrased how. |
 | [`testing.md`](testing.md) | Four tiers, what each can see, and what makes a test worth keeping. |
 | [`comments.md`](comments.md) | The one convention here that is genuinely unusual, and why it pays. |
@@ -111,7 +111,7 @@ thing they ever see:
 One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all three sites here exist *to reject* them: two
 sanitise user input (`src/shared/domain.ts:251-252`) and one is the
-CSV-injection defence (`src/shared/csv.ts:421`).
+CSV-injection defence (`src/shared/csv.ts:466`).
 The rule exists to catch a control character written by accident; every one of
 these was written on purpose, and the code that strips control characters is
 necessarily code that names them.

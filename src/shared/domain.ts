@@ -287,8 +287,21 @@ export const MAX_TRANSACTION_LEGS = 50;
  */
 const transactionLegSchema = z
   .object({
-    id: z.string().uuid().optional(),
-    categoryId: z.string().uuid().optional().nullable(),
+    id: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        "The existing leg this entry of the list is about, so it is changed rather than replaced. Left out, the old leg is zeroed and a new one written, appending a reversal and a repost for money that never moved. A leg missing from the list is removed.",
+      ),
+    categoryId: z
+      .string()
+      .uuid()
+      .optional()
+      .nullable()
+      .describe(
+        "Which category this leg's share files under. It wins over this leg's categoryName, and the legs answer the direction question together, so an income category on one leg beside an expense category on another is refused.",
+      ),
     categoryName: oneLine(z.string().trim().min(1).max(120))
       .optional()
       .nullable()
@@ -296,7 +309,12 @@ const transactionLegSchema = z
         'A category by name rather than by id for this leg, matched and created on the same terms as the entry-level categoryName. Ignored when this leg\'s categoryId is set, for example "Groceries".',
       ),
     amount: positiveDecimalStringSchema,
-    note: freeText(z.string().trim().max(240)).optional().nullable(),
+    note: freeText(z.string().trim().max(240))
+      .optional()
+      .nullable()
+      .describe(
+        "What this share of the entry was for, when the category alone does not say it. Nothing reads it back: search does not match it and nothing groups by it, so a distinction you want to report on belongs in a category.",
+      ),
   })
   .strict();
 
@@ -384,12 +402,24 @@ function checkTransactionLegs(
  * which its occurrence supplies, and without the provenance fields it refuses.
  */
 const transactionShapeCommon = {
-  payee: oneLine(z.string().trim().min(1, "Payee is required").max(160)),
+  payee: oneLine(z.string().trim().min(1, "Payee is required").max(160)).describe(
+    "Who the money went to or came from. Case and spacing are canonicalised to the spelling already in use; any other variation starts a second payee somebody has to merge later. It is part of the duplicate check.",
+  ),
   description: freeText(z.string().trim().max(240))
     .optional()
     .nullable()
-    .transform((value) => value || null),
-  categoryId: z.string().uuid().optional().nullable(),
+    .transform((value) => value || null)
+    .describe(
+      "A short line saying what this entry was, matched by the search filter alongside the payee and notes. Anything longer than a line belongs in notes.",
+    ),
+  categoryId: z
+    .string()
+    .uuid()
+    .optional()
+    .nullable()
+    .describe(
+      "Which category this entry files under. It wins over categoryName and is refused alongside legs. Its kind decides where the other half lands: an expense category on a deposit makes a refund, reducing that spending rather than adding income.",
+    ),
   // Naming a category instead of picking one. The name is matched against the
   // categories this ledger already has, ignoring case and surrounding space, and
   // only creates one when nothing matches. That is the same rule a CSV import
@@ -423,7 +453,12 @@ const transactionShapeCommon = {
       'Which kind to create the category as when categoryName names one that does not exist yet. Left out, a deposit creates an income category and a withdrawal an expense one. Set it to "expense" on a deposit to record a refund into a spending category that is new, which is otherwise impossible to express. Ignored when the category already exists or when categoryId is set.',
     ),
   legs: legsField,
-  notes: freeText(z.string().trim().max(4_000)).optional().nullable(),
+  notes: freeText(z.string().trim().max(4_000))
+    .optional()
+    .nullable()
+    .describe(
+      "Anything longer that should stay with the entry, such as a reference or the reason for it. Only the search filter reads it, so a category or payee written only here files the entry nowhere.",
+    ),
 };
 
 const transactionCommon = {
@@ -449,30 +484,68 @@ const transactionCommon = {
 
 const depositDraftSchema = z
   .object({
-    type: z.literal("deposit"),
+    type: z
+      .literal("deposit")
+      .describe(
+        "Which way the money moved, and what else the draft needs: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both and sourceAmount. Direction lives here alone, so amounts are always positive; a transfer refuses legs, and a category on one is stored but never posted.",
+      ),
     ...transactionCommon,
-    toAccountId: z.string().uuid(),
+    toAccountId: z
+      .string()
+      .uuid()
+      .describe(
+        "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
+      ),
     amount: positiveDecimalStringSchema,
   })
   .superRefine(checkTransactionLegs);
 
 const withdrawalDraftSchema = z
   .object({
-    type: z.literal("withdrawal"),
+    type: z
+      .literal("withdrawal")
+      .describe(
+        "Which way the money moved, and what else the draft needs: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both and sourceAmount. Direction lives here alone, so amounts are always positive; a transfer refuses legs, and a category on one is stored but never posted.",
+      ),
     ...transactionCommon,
-    fromAccountId: z.string().uuid(),
+    fromAccountId: z
+      .string()
+      .uuid()
+      .describe(
+        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+      ),
     amount: positiveDecimalStringSchema,
   })
   .superRefine(checkTransactionLegs);
 
 const transferDraftSchema = z
   .object({
-    type: z.literal("transfer"),
+    type: z
+      .literal("transfer")
+      .describe(
+        "Which way the money moved, and what else the draft needs: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both and sourceAmount. Direction lives here alone, so amounts are always positive; a transfer refuses legs, and a category on one is stored but never posted.",
+      ),
     ...transactionCommon,
-    fromAccountId: z.string().uuid(),
-    toAccountId: z.string().uuid(),
-    sourceAmount: positiveDecimalStringSchema,
-    destinationAmount: positiveDecimalStringSchema.optional(),
+    fromAccountId: z
+      .string()
+      .uuid()
+      .describe(
+        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+      ),
+    toAccountId: z
+      .string()
+      .uuid()
+      .describe(
+        "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
+      ),
+    sourceAmount: positiveDecimalStringSchema.describe(
+      "How much left fromAccountId, in that account's currency. On a cross-currency transfer it is only one side: destinationAmount says what arrived, and the rate is implied by the pair rather than given.",
+    ),
+    destinationAmount: positiveDecimalStringSchema
+      .optional()
+      .describe(
+        "What arrived in toAccountId, in that account's currency, so a conversion records both real amounts rather than a rate. Required when the accounts differ in currency; on a same-currency transfer, omit it or match sourceAmount.",
+      ),
   })
   .superRefine(checkTransactionLegs);
 
@@ -486,21 +559,83 @@ export type TransactionDraft = z.infer<typeof transactionDraftSchema>;
 
 // Staging deliberately accepts incomplete normalized drafts so imported rows and
 // agents can preserve/correct validation errors without affecting the ledger.
-export const stagedDraftSchema = z
+export /**
+ * A proposed entry, which is allowed to be wrong.
+ *
+ * Every field is `unknown` and the object keeps whatever else it is given,
+ * because a staged row is what a file or an agent proposed rather than
+ * something the ledger has accepted: a date that is not a date and an amount
+ * with a currency symbol both have to survive long enough for somebody to fix
+ * them. That makes the descriptions do all the work here — the type says
+ * nothing, so a field with no description tells an agent nothing at all.
+ */
+const stagedDraftSchema = z
   .object({
-    type: z.unknown().optional(),
-    date: z.unknown().optional(),
-    description: z.unknown().optional(),
-    payee: z.unknown().optional(),
-    categoryId: z.unknown().optional(),
-    notes: z.unknown().optional(),
-    externalId: z.unknown().optional(),
-    fromAccountId: z.unknown().optional(),
-    toAccountId: z.unknown().optional(),
-    amount: z.unknown().optional(),
-    sourceAmount: z.unknown().optional(),
-    destinationAmount: z.unknown().optional(),
-    legs: z.unknown().optional(),
+    type: z
+      .unknown()
+      .optional()
+      .describe(
+        "deposit, withdrawal or transfer, as on a committed entry. A row whose type cannot be read is staged with an issue rather than refused, and cannot be committed until it can.",
+      ),
+    date: z
+      .unknown()
+      .optional()
+      .describe(
+        "The day it happened, as YYYY-MM-DD once it is readable. A row keeps whatever the file said until somebody fixes it, so this may be any shape at all.",
+      ),
+    description: z
+      .unknown()
+      .optional()
+      .describe("A short line saying what the entry was, as on a committed entry."),
+    payee: z
+      .unknown()
+      .optional()
+      .describe(
+        "Who the money went to or came from. Canonicalised against the spelling this ledger already uses when the row is staged, not when it commits.",
+      ),
+    categoryId: z
+      .unknown()
+      .optional()
+      .describe(
+        "Which category this files under, if the proposal already knows. A staged row may name one instead, in the rawData the queue keeps.",
+      ),
+    notes: z.unknown().optional().describe("Anything longer that should stay with the entry."),
+    externalId: z
+      .unknown()
+      .optional()
+      .describe(
+        "The reference the row carried in the file it came from. It is what stops a second import of the same statement staging the same rows twice.",
+      ),
+    fromAccountId: z
+      .unknown()
+      .optional()
+      .describe("Where the money came from: a withdrawal's account, or a transfer's source."),
+    toAccountId: z
+      .unknown()
+      .optional()
+      .describe("Where the money landed: a deposit's account, or a transfer's destination."),
+    amount: z
+      .unknown()
+      .optional()
+      .describe(
+        "How much, as a decimal string and always positive once readable. Direction is the type, not the sign.",
+      ),
+    sourceAmount: z
+      .unknown()
+      .optional()
+      .describe("How much left the source account, in that account's currency, on a transfer."),
+    destinationAmount: z
+      .unknown()
+      .optional()
+      .describe(
+        "What arrived in the destination account, in that account's currency. A cross-currency transfer cannot commit without it, which is the commonest reason a row waits here.",
+      ),
+    legs: z
+      .unknown()
+      .optional()
+      .describe(
+        "The split, if the proposal came with one. The legs have to add up to the amount before the row can commit, and a transfer may not carry any.",
+      ),
   })
   .catchall(z.unknown());
 
@@ -549,10 +684,18 @@ const emptyListToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
  */
 const transactionTemplateLegSchema = z
   .object({
-    categoryId: blankToAbsent(z.string().uuid()),
-    categoryName: blankToAbsent(oneLine(z.string().trim().max(120))),
-    amount: blankToAbsent(positiveDecimalStringSchema),
-    note: blankToAbsent(freeText(z.string().trim().max(240))),
+    categoryId: blankToAbsent(z.string().uuid()).describe(
+      "Which existing category this share of the split goes to. One that no longer resolves is cleared with a notice when the template is used, so the leg reads as unfinished rather than showing an empty picker holding a dead id.",
+    ),
+    categoryName: blankToAbsent(oneLine(z.string().trim().max(120))).describe(
+      "Names this leg's category rather than picking one, matched ignoring case when somebody uses the template and created then if nothing matches. Ignored when this leg's categoryId is set.",
+    ),
+    amount: blankToAbsent(positiveDecimalStringSchema).describe(
+      "This leg's share of the total, always positive. It may be left out, which a transaction's leg may not: a template can remember how the money is usually divided and leave the figures to the person, and the shares need only add up on submit.",
+    ),
+    note: blankToAbsent(freeText(z.string().trim().max(240))).describe(
+      "A word about this share alone, distinct from the entry's own description and notes, which cover the whole transaction. Left out, the leg is prefilled without one.",
+    ),
   })
   .strict();
 
@@ -579,18 +722,40 @@ const templateLegsField = z
  */
 export const transactionTemplateDraftSchema = z
   .object({
-    type: blankToAbsent(z.enum(transactionTypes)),
+    type: blankToAbsent(z.enum(transactionTypes)).describe(
+      "Which kind of entry the form starts on. Left out, the template says nothing about direction and the person chooses each time, which is what a template about a payee rather than a movement wants; a stored type also decides which account side is worth keeping.",
+    ),
     date: blankToAbsent(isoDateSchema),
-    payee: blankToAbsent(oneLine(z.string().trim().max(160))),
-    fromAccountId: blankToAbsent(z.string().uuid()),
-    toAccountId: blankToAbsent(z.string().uuid()),
-    amount: blankToAbsent(positiveDecimalStringSchema),
-    destinationAmount: blankToAbsent(positiveDecimalStringSchema),
-    categoryId: blankToAbsent(z.string().uuid()),
-    categoryName: blankToAbsent(oneLine(z.string().trim().max(120))),
-    legs: emptyListToAbsent(templateLegsField),
-    description: blankToAbsent(freeText(z.string().trim().max(240))),
-    notes: blankToAbsent(freeText(z.string().trim().max(4_000))),
+    payee: blankToAbsent(oneLine(z.string().trim().max(160))).describe(
+      "Who entries made from this are with, prefilled. Left out, the form keeps whatever is in the field already, so omit it deliberately for a template standing for a kind of spending rather than one shop.",
+    ),
+    fromAccountId: blankToAbsent(z.string().uuid()).describe(
+      "The account the money leaves, prefilled, for a withdrawal or a transfer. Left out, the person chooses each time. Stored on a deposit template nothing ever reads it, and an account archived since is dropped with a notice when the template is used.",
+    ),
+    toAccountId: blankToAbsent(z.string().uuid()).describe(
+      "The account the money arrives in, prefilled, for a deposit or a transfer. Left out, the person chooses each time. Stored on a withdrawal template nothing ever reads it, and an account archived since is dropped with a notice when the template is used.",
+    ),
+    amount: blankToAbsent(positiveDecimalStringSchema).describe(
+      "The figure to prefill, always positive, since type says which way the money moves; on a transfer it is the amount leaving the source account. This is the usual field to leave out, which is what lets one template serve a bill that differs every month.",
+    ),
+    destinationAmount: blankToAbsent(positiveDecimalStringSchema).describe(
+      "What arrives in the destination account, for a transfer template between two currencies where the two sides are different figures. Only a transfer has one: changing a template's type to anything else drops it, and a bulk edit refuses to set it on a row that is not a transfer.",
+    ),
+    categoryId: blankToAbsent(z.string().uuid()).describe(
+      "Files every entry started from this under a category that already exists. Refused alongside legs, and an id that no longer resolves is cleared with a notice when somebody uses the template rather than prefilled invisibly.",
+    ),
+    categoryName: blankToAbsent(oneLine(z.string().trim().max(120))).describe(
+      "Names the category rather than picking one, so a template can point at a category this ledger does not have yet: it is matched, ignoring case, only when somebody uses the template, and created then if nothing matches. Ignored when categoryId is set, and refused alongside legs.",
+    ),
+    legs: emptyListToAbsent(templateLegsField).describe(
+      "Divides the counter-account side across several categories instead of a single categoryId or categoryName, which are refused alongside it, as is a split on a transfer. Unlike a transaction's legs these need not add up: amounts may be blank, and the division is checked only on submit.",
+    ),
+    description: blankToAbsent(freeText(z.string().trim().max(240))).describe(
+      "The one-line description to prefill. Left out, the field is left as the form found it rather than blanked, so a template silent about the description will not wipe one off an entry being edited.",
+    ),
+    notes: blankToAbsent(freeText(z.string().trim().max(4_000))).describe(
+      "The longer note to prefill, for something every entry made from this carries. Left out, the field keeps whatever the form already had, which is what you want when the note differs every time.",
+    ),
   })
   .strict()
   .superRefine(checkLegs);
@@ -611,13 +776,21 @@ export const transactionTemplateBulkSelectionSchema = z
       .array(
         z
           .object({
-            id: z.string().uuid(),
+            id: z
+              .string()
+              .uuid()
+              .describe(
+                "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
+              ),
             expectedVersion: expectedVersionSchema,
           })
           .strict(),
       )
       .min(1)
-      .max(MAX_TRANSACTION_TEMPLATES),
+      .max(MAX_TRANSACTION_TEMPLATES)
+      .describe(
+        "Every template to change, each named with the version you last read for it. This is the whole selection: a duplicated id, an id that is not yours, or a version that has moved refuses the entire call rather than changing part of it.",
+      ),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -640,20 +813,87 @@ export const transactionTemplateBulkSelectionSchema = z
  */
 export const transactionTemplateBulkPatchSchema = z
   .object({
-    type: z.enum(transactionTypes).nullable().optional(),
-    date: isoDateSchema.nullable().optional(),
-    payee: oneLine(z.string().trim().min(1).max(160)).nullable().optional(),
-    fromAccountId: z.string().uuid().nullable().optional(),
-    toAccountId: z.string().uuid().nullable().optional(),
-    amount: positiveDecimalStringSchema.nullable().optional(),
-    destinationAmount: positiveDecimalStringSchema.nullable().optional(),
-    categoryId: z.string().uuid().nullable().optional(),
-    categoryName: oneLine(z.string().trim().min(1).max(120)).nullable().optional(),
+    type: z
+      .enum(transactionTypes)
+      .nullable()
+      .optional()
+      .describe(
+        "The type every selected template opens the form as, or null to leave the choice to whoever uses it. Setting it drops the account side the new type never reads, and anything but a transfer drops destinationAmount; transfer is refused on a template already split.",
+      ),
+    date: isoDateSchema
+      .nullable()
+      .optional()
+      .describe(
+        "The date every selected template fills into the form, stored as typed and never moved on, so a fixed date quietly backdates every entry made from it months later. Null clears it, so the form starts on the day it is used.",
+      ),
+    payee: oneLine(z.string().trim().min(1).max(160))
+      .nullable()
+      .optional()
+      .describe(
+        "The payee every selected template fills into the form, or null to leave it blank for whoever uses it. An empty string is refused rather than read as that clear, because blank and absent are the whole of what a stored template records.",
+      ),
+    fromAccountId: z
+      .string()
+      .uuid()
+      .nullable()
+      .optional()
+      .describe(
+        "The account a withdrawal or transfer template draws from, or null to leave the form asking. Refused rather than dropped while any selected template is, or is being made into, a deposit, which has no source account.",
+      ),
+    toAccountId: z
+      .string()
+      .uuid()
+      .nullable()
+      .optional()
+      .describe(
+        "The account a deposit or transfer template pays into, or null to leave the form asking. Refused rather than dropped while any selected template is, or is being made into, a withdrawal, which has no destination account.",
+      ),
+    amount: positiveDecimalStringSchema
+      .nullable()
+      .optional()
+      .describe(
+        "The amount every selected template fills into the form, as an exact decimal string and always positive, since the type says which way the money goes. Null clears it, which is what a bill that differs every month wants.",
+      ),
+    destinationAmount: positiveDecimalStringSchema
+      .nullable()
+      .optional()
+      .describe(
+        "What arrives on the far side of a transfer between currencies, in the destination account's currency, so the pair records the rate actually paid. Refused on any selected template that is not a transfer, and setting type to anything else drops it.",
+      ),
+    categoryId: z
+      .string()
+      .uuid()
+      .nullable()
+      .optional()
+      .describe(
+        "The category every selected template files under, or null to leave the choice to whoever uses it. Sent alongside legs it is dropped silently rather than refused, and it is refused outright when a selected template is already split.",
+      ),
+    categoryName: oneLine(z.string().trim().min(1).max(120))
+      .nullable()
+      .optional()
+      .describe(
+        "A category named rather than picked, stored as typed and matched only when the template is used, so nothing is created now and a template may name a category this ledger does not have. Dropped when legs is sent, and ignored where a categoryId is stored.",
+      ),
     // Legs move as a whole list or not at all. "Add a leg to thirty templates"
     // has no meaning when each of the thirty splits a different total.
-    legs: templateLegsField.nullable().optional(),
-    description: freeText(z.string().trim().min(1).max(240)).nullable().optional(),
-    notes: freeText(z.string().trim().min(1).max(4_000)).nullable().optional(),
+    legs: templateLegsField
+      .nullable()
+      .optional()
+      .describe(
+        "The split every selected template opens with, replaced as a whole list rather than added to. It clears any single category on those templates without saying so, null removes the split, and it is refused on a transfer template.",
+      ),
+    description: freeText(z.string().trim().min(1).max(240))
+      .nullable()
+      .optional()
+      .describe(
+        "The description every selected template fills into the form, or null to leave it blank. An empty string is refused rather than read as a clear, and it replaces rather than appends.",
+      ),
+    notes: freeText(z.string().trim().min(1).max(4_000))
+      .nullable()
+      .optional()
+      .describe(
+        "The notes every selected template fills into the form, or null to leave them blank. They are copied into every entry made from it, so anything true of one occasion only belongs on the entry.",
+      ),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0, {
@@ -1294,18 +1534,30 @@ const bulkTransactionFilterSchema = listQuerySchema
 
 const bulkTransactionIdSelectionSchema = z
   .object({
-    mode: z.literal("ids"),
+    mode: z
+      .literal("ids")
+      .describe(
+        'Which of the two ways of naming rows this selection uses: "ids" names each row with the version you read for it, "filter" describes a view the server resolves. Use "filter" only with the count and fingerprint a preview handed back.',
+      ),
     items: z
       .array(
         z
           .object({
-            id: z.string().uuid(),
+            id: z
+              .string()
+              .uuid()
+              .describe(
+                "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
+              ),
             expectedVersion: expectedVersionSchema,
           })
           .strict(),
       )
       .min(1)
-      .max(MAX_BULK_SELECTION_ENTRIES),
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .describe(
+        "The rows to act on, each with the version you last read for it, and the whole of what will change. A duplicated id, an id that is not yours, or a version that has moved refuses the entire call rather than changing part of it.",
+      ),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -1321,7 +1573,11 @@ const bulkTransactionIdSelectionSchema = z
 
 const bulkTransactionFilterSelectionSchema = z
   .object({
-    mode: z.literal("filter"),
+    mode: z
+      .literal("filter")
+      .describe(
+        'Which of the two ways of naming rows this selection uses: "ids" names each row with the version you read for it, "filter" describes a view the server resolves. Use "filter" only with the count and fingerprint a preview handed back.',
+      ),
     filter: bulkTransactionFilterSchema.describe(
       "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
     ),
@@ -1332,8 +1588,20 @@ const bulkTransactionFilterSelectionSchema = z
       .describe(
         'Rows to leave out of an otherwise-matching filter, so somebody can say "all of these except those" without listing the rest.',
       ),
-    expectedCount: z.number().int().nonnegative().max(MAX_BULK_SELECTION_ENTRIES),
-    expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    expectedCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .describe(
+        "How many rows the preview said this filter matched. The write is refused if the filter now matches a different number, so a row added, deleted or edited into the view since the preview stops the call instead of being swept up.",
+      ),
+    expectedFingerprint: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .describe(
+        "The fingerprint the preview returned for this exact set, covering every row's id and version rather than just the count. Checked when the selection is read and again under lock, so a row changed in between fails the whole call.",
+      ),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -1389,25 +1657,61 @@ export const bulkTransactionSelectionSnapshotSchema = z
 
 const bulkTransactionPatchSchema = z
   .object({
-    date: isoDateSchema.optional(),
-    payee: z.string().trim().min(1, "Payee is required").max(160).optional(),
-    categoryId: z.string().uuid().nullable().optional(),
-    accountId: z.string().uuid().optional(),
+    date: isoDateSchema
+      .optional()
+      .describe(
+        "Moves every selected entry to this date. The correction is appended at the new date rather than written over the old postings, so any balance read between the two changes. A date after today counts toward no balance or cash flow until it arrives.",
+      ),
+    payee: z
+      .string()
+      .trim()
+      .min(1, "Payee is required")
+      .max(160)
+      .optional()
+      .describe(
+        'Renames the payee on every selected row to this one, canonicalised against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
+      ),
+    categoryId: z
+      .string()
+      .uuid()
+      .nullable()
+      .optional()
+      .describe(
+        "Files every selected entry under this category, or under none when null. A selection holding a split is refused, and so is a category whose kind runs against an entry's direction: that would make those entries refunds for rows nobody looked at.",
+      ),
+    accountId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        "Moves every selected entry to this account, on the side its type reads: destination for a deposit, source for a withdrawal. A selection holding a transfer is refused, and so is an account in another currency, since a bulk edit never re-denominates money.",
+      ),
     description: z
       .string()
       .trim()
       .max(240)
       .nullable()
       .optional()
-      .transform((value) => (value === "" ? null : value)),
+      .transform((value) => (value === "" ? null : value))
+      .describe(
+        "Replaces the description on every selected row; null, or an empty string, clears it. It overwrites rather than appends, so whatever each row said is gone. Leave the key out to keep what is there.",
+      ),
     notes: z
       .string()
       .trim()
       .max(4_000)
       .nullable()
       .optional()
-      .transform((value) => (value === "" ? null : value)),
-    type: z.enum(["deposit", "withdrawal"]).optional(),
+      .transform((value) => (value === "" ? null : value))
+      .describe(
+        "Replaces the working notes on every selected row; null, or an empty string, clears them. Nothing is appended, so a long note on one row is lost to a short one applied across the selection.",
+      ),
+    type: z
+      .enum(["deposit", "withdrawal"])
+      .optional()
+      .describe(
+        "Flips every selected entry between deposit and withdrawal, keeping its amount and carrying its account to the side the new type reads. A selection holding a transfer or a split is refused: flipping direction under several legs would make every one a refund.",
+      ),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0, {
@@ -1537,18 +1841,30 @@ export const bulkStageFilterSchema = stageListQuerySchema
 
 const bulkStageIdSelectionSchema = z
   .object({
-    mode: z.literal("ids"),
+    mode: z
+      .literal("ids")
+      .describe(
+        'Which of the two ways of naming rows this selection uses: "ids" names each row with the version you read for it, "filter" describes a view the server resolves. Use "filter" only with the count and fingerprint a preview handed back.',
+      ),
     items: z
       .array(
         z
           .object({
-            id: z.string().uuid(),
+            id: z
+              .string()
+              .uuid()
+              .describe(
+                "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
+              ),
             expectedVersion: expectedVersionSchema,
           })
           .strict(),
       )
       .min(1)
-      .max(MAX_BULK_SELECTION_ENTRIES),
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .describe(
+        "The rows to act on, each with the version you last read for it, and the whole of what will change. A duplicated id, an id that is not yours, or a version that has moved refuses the entire call rather than changing part of it.",
+      ),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -1564,7 +1880,11 @@ const bulkStageIdSelectionSchema = z
 
 const bulkStageFilterSelectionSchema = z
   .object({
-    mode: z.literal("filter"),
+    mode: z
+      .literal("filter")
+      .describe(
+        'Which of the two ways of naming rows this selection uses: "ids" names each row with the version you read for it, "filter" describes a view the server resolves. Use "filter" only with the count and fingerprint a preview handed back.',
+      ),
     filter: bulkStageFilterSchema.describe(
       "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
     ),
@@ -1575,8 +1895,20 @@ const bulkStageFilterSelectionSchema = z
       .describe(
         'Rows to leave out of an otherwise-matching filter, so somebody can say "all of these except those" without listing the rest.',
       ),
-    expectedCount: z.number().int().nonnegative().max(MAX_BULK_SELECTION_ENTRIES),
-    expectedFingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+    expectedCount: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(MAX_BULK_SELECTION_ENTRIES)
+      .describe(
+        "How many rows the preview said this filter matched. The write is refused if the filter now matches a different number, so a row added, deleted or edited into the view since the preview stops the call instead of being swept up.",
+      ),
+    expectedFingerprint: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .describe(
+        "The fingerprint the preview returned for this exact set, covering every row's id and version rather than just the count. Checked when the selection is read and again under lock, so a row changed in between fails the whole call.",
+      ),
   })
   .strict()
   .superRefine((selection, context) => {
@@ -1636,25 +1968,61 @@ export const bulkStageSelectionSnapshotSchema = z
  */
 const bulkStagePatchSchema = z
   .object({
-    date: isoDateSchema.optional(),
-    payee: z.string().trim().min(1, "Payee is required").max(160).optional(),
-    categoryId: z.string().uuid().nullable().optional(),
-    accountId: z.string().uuid().optional(),
+    date: isoDateSchema
+      .optional()
+      .describe(
+        "Sets the draft date on every selected row. Nothing posts, so no balance moves; this is the date the row carries when it is committed, and one dated ahead of today counts toward nothing until that day.",
+      ),
+    payee: z
+      .string()
+      .trim()
+      .min(1, "Payee is required")
+      .max(160)
+      .optional()
+      .describe(
+        'Renames the payee on every selected row to this one, canonicalised against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
+      ),
+    categoryId: z
+      .string()
+      .uuid()
+      .nullable()
+      .optional()
+      .describe(
+        "Files every selected draft under this category, or under none when null. A selection holding a split is refused, and with ledger:write, moving the last row off a category also removes that category when nothing else refers to it.",
+      ),
+    accountId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        "Sets the account on every selected draft, on the side its type reads. A selection holding a transfer is refused, and so is a row that does not yet say which way the money went unless you set type in the same patch.",
+      ),
     description: z
       .string()
       .trim()
       .max(240)
       .nullable()
       .optional()
-      .transform((value) => (value === "" ? null : value)),
+      .transform((value) => (value === "" ? null : value))
+      .describe(
+        "Replaces the description on every selected row; null, or an empty string, clears it. It overwrites rather than appends, so whatever each row said is gone. Leave the key out to keep what is there.",
+      ),
     notes: z
       .string()
       .trim()
       .max(4_000)
       .nullable()
       .optional()
-      .transform((value) => (value === "" ? null : value)),
-    type: z.enum(["deposit", "withdrawal"]).optional(),
+      .transform((value) => (value === "" ? null : value))
+      .describe(
+        "Replaces the working notes on every selected row; null, or an empty string, clears them. Nothing is appended, so a long note on one row is lost to a short one applied across the selection.",
+      ),
+    type: z
+      .enum(["deposit", "withdrawal"])
+      .optional()
+      .describe(
+        "Flips every selected draft between deposit and withdrawal, carrying whatever account it had to the side the new type reads. A selection holding a transfer or a split is refused. Set it with accountId to finish a row that never said which way the money went.",
+      ),
   })
   .strict()
   .refine((patch) => Object.keys(patch).length > 0, {
@@ -1824,10 +2192,26 @@ export const MAX_RECURRENCE_INTERVAL = 366;
  */
 const recurrenceLegSchema = z
   .object({
-    categoryId: z.string().uuid().optional(),
-    categoryName: oneLine(z.string().trim().min(1).max(120)).optional(),
-    amount: positiveDecimalStringSchema,
-    note: freeText(z.string().trim().max(240)).optional(),
+    categoryId: z
+      .string()
+      .uuid()
+      .optional()
+      .describe(
+        "Which category this leg's share files under. It wins over this leg's categoryName, and the legs answer the direction question together, so an income category on one leg beside an expense category on another is refused.",
+      ),
+    categoryName: oneLine(z.string().trim().min(1).max(120))
+      .optional()
+      .describe(
+        'A category by name rather than by id for this leg, for example "Groceries", matched and created on the same terms as the entry-level categoryName. Ignored when this leg\'s categoryId is set.',
+      ),
+    amount: positiveDecimalStringSchema.describe(
+      "This leg's share of the total. Every occurrence proposes the same division, so the legs have to add up to the amount rather than being adjusted per row.",
+    ),
+    note: freeText(z.string().trim().max(240))
+      .optional()
+      .describe(
+        "What this share of the entry was for, when the category alone does not say it. Nothing reads it back: search does not match it and nothing groups by it, so a distinction you want to report on belongs in a category.",
+      ),
   })
   .strict();
 
@@ -1899,7 +2283,10 @@ const recurrenceShapeFields = {
     .array(recurrenceLegSchema)
     .min(2, "A split needs at least two legs")
     .max(MAX_TRANSACTION_LEGS)
-    .optional(),
+    .optional()
+    .describe(
+      "The split this proposes, replayed on every occurrence. The legs have to add up to the amount, because a division that does not balance proposes a row nobody can commit, over and over. A transfer may not carry any.",
+    ),
 };
 
 /**
@@ -1917,28 +2304,60 @@ const recurrenceShapeFields = {
 export const recurrenceShapeSchema = z.discriminatedUnion("type", [
   z
     .object({
-      type: z.literal("deposit"),
+      type: z
+        .literal("deposit")
+        .describe(
+          "Which way the money moves on every occurrence: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both. Direction lives here alone, so the amount is always positive, and a transfer carries no legs.",
+        ),
       ...recurrenceShapeFields,
-      toAccountId: z.string().uuid(),
+      toAccountId: z
+        .string()
+        .uuid()
+        .describe(
+          "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
+        ),
       amount: positiveDecimalStringSchema.optional(),
     })
     .strict()
     .superRefine(checkRecurrenceShape),
   z
     .object({
-      type: z.literal("withdrawal"),
+      type: z
+        .literal("withdrawal")
+        .describe(
+          "Which way the money moves on every occurrence: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both. Direction lives here alone, so the amount is always positive, and a transfer carries no legs.",
+        ),
       ...recurrenceShapeFields,
-      fromAccountId: z.string().uuid(),
+      fromAccountId: z
+        .string()
+        .uuid()
+        .describe(
+          "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+        ),
       amount: positiveDecimalStringSchema.optional(),
     })
     .strict()
     .superRefine(checkRecurrenceShape),
   z
     .object({
-      type: z.literal("transfer"),
+      type: z
+        .literal("transfer")
+        .describe(
+          "Which way the money moves on every occurrence: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both. Direction lives here alone, so the amount is always positive, and a transfer carries no legs.",
+        ),
       ...recurrenceShapeFields,
-      fromAccountId: z.string().uuid(),
-      toAccountId: z.string().uuid(),
+      fromAccountId: z
+        .string()
+        .uuid()
+        .describe(
+          "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+        ),
+      toAccountId: z
+        .string()
+        .uuid()
+        .describe(
+          "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
+        ),
       amount: positiveDecimalStringSchema.optional(),
       destinationAmount: positiveDecimalStringSchema.optional(),
     })
@@ -1956,8 +2375,19 @@ const recurrenceAnchorDateSchema = isoDateSchema.refine(
 /** "The second Tuesday", "the last Friday". */
 const recurrencePositionSchema = z
   .object({
-    ordinal: z.literal(recurrenceOrdinals),
-    weekday: z.number().int().min(0).max(6),
+    ordinal: z
+      .literal(recurrenceOrdinals)
+      .describe(
+        "Which one in the month the position names: 1 to 4 from the start, or -1 for the last. There is no fifth, because a 5 would mean a different date in months with only four of that weekday, and anybody wanting the fifth means the last.",
+      ),
+    weekday: z
+      .number()
+      .int()
+      .min(0)
+      .max(6)
+      .describe(
+        "Which day of the week the ordinal counts, 0 for Sunday to 6 for Saturday. An off-by-one is not refused, it just moves every occurrence a day, so check the nextOccurrenceDate a read reports before leaving it.",
+      ),
   })
   .strict()
   .describe(
@@ -2007,12 +2437,39 @@ function checkSchedule(
 
 export const recurrenceScheduleSchema = z
   .object({
-    frequency: z.enum(recurrenceFrequencies),
-    interval: z.number().int().min(1).max(MAX_RECURRENCE_INTERVAL).default(1),
+    frequency: z
+      .enum(recurrenceFrequencies)
+      .describe(
+        "How often it comes round, counted from anchorDate, each occurrence proposing a staged row rather than posting anything. Monthly and yearly count from the anchor and never from the occurrence before, so one anchored on the 31st gives February the 28th and March the 31st.",
+      ),
+    interval: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_RECURRENCE_INTERVAL)
+      .default(1)
+      .describe(
+        "How many frequency units between occurrences, so 2 on a weekly schedule is every fortnight. A daily interval of one or two is refused with a business-day weekend policy: the move would put two occurrences on one date, which the queue will not commit.",
+      ),
     anchorDate: recurrenceAnchorDateSchema,
-    monthPolicy: z.enum(recurrenceMonthPolicies).default("last_day"),
-    weekendPolicy: z.enum(recurrenceWeekendPolicies).default("allow"),
-    position: recurrencePositionSchema.nullable().optional(),
+    monthPolicy: z
+      .enum(recurrenceMonthPolicies)
+      .default("last_day")
+      .describe(
+        "What a monthly or yearly schedule does when the anchor's day is missing from the target month: last_day proposes the last it has, skip proposes nothing that month. Daily, weekly and positioned schedules never reach it.",
+      ),
+    weekendPolicy: z
+      .enum(recurrenceWeekendPolicies)
+      .default("allow")
+      .describe(
+        "Where an occurrence landing on a Saturday or Sunday goes: allow leaves it, skip proposes nothing, previous_business_day moves it to the Friday, next_business_day to the Monday. Only the proposed row's date moves, so the schedule never drifts.",
+      ),
+    position: recurrencePositionSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Lands a monthly or yearly schedule on a relative day, the second Tuesday or the last Friday, and the anchor's day number is then not read at all. Daily and weekly schedules refuse it, and monthPolicy never applies to one.",
+      ),
   })
   .strict()
   .superRefine(checkSchedule);
@@ -2027,12 +2484,40 @@ export type RecurrenceSchedule = z.infer<typeof recurrenceScheduleSchema>;
  */
 export const recurrenceSchedulePatchSchema = z
   .object({
-    frequency: z.enum(recurrenceFrequencies).optional(),
-    interval: z.number().int().min(1).max(MAX_RECURRENCE_INTERVAL).optional(),
+    frequency: z
+      .enum(recurrenceFrequencies)
+      .optional()
+      .describe(
+        "How often it comes round, counted from anchorDate, each occurrence proposing a staged row rather than posting anything. Monthly and yearly count from the anchor and never from the occurrence before, so one anchored on the 31st gives February the 28th and March the 31st.",
+      ),
+    interval: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_RECURRENCE_INTERVAL)
+      .optional()
+      .describe(
+        "How many frequency units between occurrences, so 2 on a weekly schedule is every fortnight. A daily interval of one or two is refused with a business-day weekend policy: the move would put two occurrences on one date, which the queue will not commit.",
+      ),
     anchorDate: recurrenceAnchorDateSchema.optional(),
-    monthPolicy: z.enum(recurrenceMonthPolicies).optional(),
-    weekendPolicy: z.enum(recurrenceWeekendPolicies).optional(),
-    position: recurrencePositionSchema.nullable().optional(),
+    monthPolicy: z
+      .enum(recurrenceMonthPolicies)
+      .optional()
+      .describe(
+        "What a monthly or yearly schedule does when the anchor's day is missing from the target month: last_day proposes the last it has, skip proposes nothing that month. Daily, weekly and positioned schedules never reach it.",
+      ),
+    weekendPolicy: z
+      .enum(recurrenceWeekendPolicies)
+      .optional()
+      .describe(
+        "Where an occurrence landing on a Saturday or Sunday goes: allow leaves it, skip proposes nothing, previous_business_day moves it to the Friday, next_business_day to the Monday. Only the proposed row's date moves, so the schedule never drifts.",
+      ),
+    position: recurrencePositionSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Lands a monthly or yearly schedule on a relative day, the second Tuesday or the last Friday, and the anchor's day number is then not read at all. Daily and weekly schedules refuse it, and monthPolicy never applies to one.",
+      ),
   })
   .strict();
 
@@ -2065,12 +2550,41 @@ export const clockTimeSchema = z
  */
 export const templateNotificationSchema = z
   .object({
-    frequency: z.enum(recurrenceFrequencies).nullable().default(null),
-    interval: z.number().int().min(1).max(MAX_RECURRENCE_INTERVAL).optional(),
+    frequency: z
+      .enum(recurrenceFrequencies)
+      .nullable()
+      .default(null)
+      .describe(
+        "How often the reminder repeats, on the same schedules a recurrence offers. Null, the default, is a single reminder on anchorDate; only a frequency makes one repeat, and a one-off refuses an interval, a policy or a position rather than reading it as a repeat.",
+      ),
+    interval: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_RECURRENCE_INTERVAL)
+      .optional()
+      .describe(
+        "How many frequency units between reminders, so 3 on a monthly frequency is quarterly. A reminder with no frequency accepts only the stored default 1 and refuses any other value, rather than dropping an interval somebody typed.",
+      ),
     anchorDate: recurrenceAnchorDateSchema,
-    monthPolicy: z.enum(recurrenceMonthPolicies).optional(),
-    weekendPolicy: z.enum(recurrenceWeekendPolicies).optional(),
-    position: recurrencePositionSchema.nullable().optional(),
+    monthPolicy: z
+      .enum(recurrenceMonthPolicies)
+      .optional()
+      .describe(
+        "What a monthly or yearly reminder does when the anchor's day is missing from the target month: last_day sends on the last it has, skip sends nothing. A positioned reminder never reaches it, and one with no frequency accepts only the default last_day.",
+      ),
+    weekendPolicy: z
+      .enum(recurrenceWeekendPolicies)
+      .optional()
+      .describe(
+        "Where a reminder due on a Saturday or Sunday goes: allow leaves it, skip sends none, previous_business_day moves it to the Friday, next_business_day to the Monday. Only the send date moves, and a reminder with no frequency accepts only the default allow.",
+      ),
+    position: recurrencePositionSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Lands a monthly or yearly reminder on the second Tuesday or the last Friday, and the anchor's day number is then not read. Daily and weekly frequencies refuse it, and a reminder with no frequency accepts only null.",
+      ),
     time: clockTimeSchema,
     /**
      * The three fields a read reports and a write cannot set, accepted and then
@@ -2083,9 +2597,26 @@ export const templateNotificationSchema = z
      * `frequency !== null` restated, and the two dates are watermarks the
      * scheduler owns, so there is nothing here worth refusing.
      */
-    repeats: z.boolean().optional(),
-    lastNotifiedDate: z.string().nullable().optional(),
-    nextNotificationDate: z.string().nullable().optional(),
+    repeats: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether this reminder repeats, which is frequency not being null said again. Accepted and ignored, so a stored reminder can be read, changed and sent straight back; setting it true does not make a one-off repeat.",
+      ),
+    lastNotifiedDate: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "The occurrence the last reminder went out for, which the scheduler owns. Accepted and ignored, so setting it neither suppresses a reminder nor replays one; what moves it is changing the rule, which starts the watermark afresh.",
+      ),
+    nextNotificationDate: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "When the next reminder is owed, worked out by the scheduler from the rule. Accepted and ignored, so it cannot bring a reminder forward or hold one back; null means nothing further is owed, which for a single reminder means it has gone.",
+      ),
   })
   .strict()
   .describe(
@@ -2190,9 +2721,21 @@ export const recurrenceCreateSchema = z
 
 export const recurrenceUpdateSchema = z
   .object({
-    name: oneLine(z.string().trim().min(1).max(120)).optional(),
-    shape: recurrenceShapeSchema.optional(),
-    schedule: recurrenceSchedulePatchSchema.optional(),
+    name: oneLine(z.string().trim().min(1).max(120))
+      .optional()
+      .describe(
+        "What to call this recurrence, so a person can pick it out of a list later. Not shown on the entries it proposes.",
+      ),
+    shape: recurrenceShapeSchema
+      .optional()
+      .describe(
+        "What each occurrence proposes. Sent whole rather than field by field: leave a field out of the shape and the proposal leaves it out too, which is how an amount that varies is asked for each time.",
+      ),
+    schedule: recurrenceSchedulePatchSchema
+      .optional()
+      .describe(
+        "When it comes round. Sent whole, like the shape: a schedule missing a field is a schedule that no longer has it, rather than one that kept it.",
+      ),
     notifyOnCreate: recurrenceNotifySchema.optional(),
     expectedVersion: expectedVersionSchema,
   })

@@ -159,7 +159,7 @@ parts, in order:
 4. **The refusals, named.** A transfer cannot be split. A daily schedule of one
    or two days cannot use a business-day policy. An entry-level category, by id
    or by name, cannot be sent alongside `legs`: `checkLegs`
-   (`src/shared/domain.ts:329-337`) refuses it with "Send either a category or
+   (`src/shared/domain.ts:347-355`) refuses it with "Send either a category or
    legs, not both".
 5. **What a person must be asked first, and what cannot be undone.** A
    description tells an agent what it cannot perceive. The model sentence on the
@@ -262,7 +262,7 @@ unrepresentable, so the model's own sampling cannot produce it.
 - **Ids are `format: "uuid"`.** See the budget section for why the pattern
   beside the format is a defect rather than belt and braces.
 - **A name beside an id, where the server can resolve it.** `categoryName`
-  (`src/shared/domain.ts:376-387` for the entry-level field,
+  (`src/shared/domain.ts:448-461` for the entry-level field,
   `:276-281` for the leg-level one, which defers to it) lets an agent send the
   human word: it is "matched case-insensitively against your existing categories
   and created only if it is genuinely new", and `categoryId` wins if both are
@@ -299,8 +299,12 @@ unrepresentable, so the model's own sampling cannot produce it.
   a `toolInput` helper or a `.strict()` at the tool boundary rather than by
   closing the schemas they share with `/api/v1`, because what a browser may send
   and what an agent may invent are different questions.
-- **Binding, and now true.** Every parameter carries a description. Measured:
-  **0 of 226 carry none**, having been 146 of 225.
+- **Binding, and now true of every field rather than of every parameter.**
+  Measured: **0 of 673 carry none**, having been 146 of 225 at the top level and
+  263 of 673 once anybody counted the fields inside `draft`, `shape`, `patch`,
+  `selection`, `schedule` and `mapping` — which is to say the fields an agent
+  has to fill in to write anything. The measurement said zero for a year because
+  it walked one level.
 
   Most of the distance came from describing a shared thing once rather than at
   each site that uses it. `list_transactions` was the worst case, publishing
@@ -447,8 +451,10 @@ The rules:
   `tests/mcp-output.test.ts` holds it: no output schema may declare a `userId`
   property except by named exception.
 - **House.** Describe an output field whose meaning its name does not give — and
-  only those. Measured: **1,577 output properties, 308 with a description**,
-  having been 52. `decimalSchema` and `timestampSchema` were bare `z.string()`,
+  only those. Measured: **1,577 output properties, 356 with a description**,
+  having been 52, and having gone up by forty-eight when the input fields were
+  described — a schema shared between a draft and the row it becomes carries its
+  sentences both ways. `decimalSchema` and `timestampSchema` were bare `z.string()`,
   so an agent reading `list_accounts` learned that `balance` is "a string": one
   undescribed primitive repeated across more than a thousand properties. Both
   now say what they are, and most of the described count comes from those two
@@ -550,7 +556,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (`src/shared/domain.ts:1723`) is a `const` array rather than a bare TypeScript
+  (`src/shared/domain.ts:2091`) is a `const` array rather than a bare TypeScript
   union precisely so `toolErrorSchema` can publish it as an enum
   (`src/server/mcp-output-schemas.ts:88-94`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it

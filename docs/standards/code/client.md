@@ -1,7 +1,8 @@
 # Client
 
 React in `src/client`. What the browser app does the same way everywhere, and
-the one pile of warnings that is not cleared yet.
+the three rules that were a warning budget until the budget reached zero and
+they were denied.
 
 This is the code half. How the app should *look and behave* is
 [`docs/standards/web.md`](../web.md), which is a much longer document because

@@ -235,7 +235,7 @@ One describes the interfaces — the browser app, the MCP surface, the HTTP API,
 the CSV format and the container — and the other the source. Every rule in the
 second says who enforces it: the compiler, the linter, a named test, or nobody
 at all, and the rules in that last group are counted on the index page so the
-number is visible and can be argued down. Six of them became tests in the pass
+number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
 `npm run lint` runs oxlint and `npm run format` runs oxfmt, in place of ESLint

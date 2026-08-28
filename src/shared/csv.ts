@@ -103,15 +103,60 @@ export function parseExportedLegs(value: string | undefined) {
 
 export const csvMappingSchema = z
   .object({
-    date: z.string().min(1),
-    payee: z.string().min(1),
-    description: z.string().optional(),
-    amount: z.string().optional(),
-    debit: z.string().optional(),
-    credit: z.string().optional(),
-    category: z.string().optional(),
-    notes: z.string().optional(),
-    externalId: z.string().optional(),
+    date: z
+      .string()
+      .min(1)
+      .describe(
+        "The heading of the column holding each row's date, spelled as the file spells it rather than as this product names the field. A cell dateFormat cannot parse leaves that row in the queue with a date issue, and a heading the file lacks does that to every row: nothing checks a mapping against the header line.",
+      ),
+    payee: z
+      .string()
+      .min(1)
+      .describe(
+        "The heading of the column naming who the money was with. Every row needs one, so a heading the file lacks stages the whole file unfinished. The text is matched against your existing payees, ignoring case and spacing, so a match files under the spelling already here.",
+      ),
+    description: z
+      .string()
+      .optional()
+      .describe(
+        "The heading of the column holding the one-line description for each entry. Leave it out where the file has no such column: a misspelt heading is not refused, it reads blank on every row, so the import succeeds with no descriptions.",
+      ),
+    amount: z
+      .string()
+      .optional()
+      .describe(
+        "The heading of a single signed column, where the minus sign is the only thing saying money went out. Map this or the debit and credit pair; amount wins outright when both are mapped, so a row with a blank amount cell stages unfinished even though those columns hold its figure.",
+      ),
+    debit: z
+      .string()
+      .optional()
+      .describe(
+        "The heading of a two-column file's money-out column, paired with credit and read only when amount is unmapped. A row with non-zero figures in both is refused, and so is a negative figure here unless credit is mapped too: with one column the sign is the only other way to state direction.",
+      ),
+    credit: z
+      .string()
+      .optional()
+      .describe(
+        "The heading of a two-column file's money-in column, paired with debit and read only when amount is unmapped. A row with non-zero figures in both is refused, and so is a negative figure here unless debit is mapped too: with one column the sign is the only other way to state direction.",
+      ),
+    category: z
+      .string()
+      .optional()
+      .describe(
+        "The heading of the column naming each row's category, matched against those already here and created only where nothing matches. Rows naming the same new category settle its kind together, so a purchase and its refund land in one; under ledger:stage the name travels on the staged row instead.",
+      ),
+    notes: z
+      .string()
+      .optional()
+      .describe(
+        "The heading of the column holding the longer note for each entry. A heading the file lacks reads blank on every row without complaint, so check it against the headings preview_csv returned before staging four thousand rows with their notes missing.",
+      ),
+    externalId: z
+      .string()
+      .optional()
+      .describe(
+        "The heading of the column holding the bank's own reference, which is what stops a statement being imported twice. It is an identity, not a hint: pointed at a column that repeats, such as an account number or a running balance, every row after the first looks like one already seen.",
+      ),
   })
   .refine((mapping) => Boolean(mapping.amount || mapping.debit || mapping.credit), {
     message: "Map an amount column, or a debit column, or a credit column",
