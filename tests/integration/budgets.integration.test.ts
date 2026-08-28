@@ -24,6 +24,7 @@ import {
   updateTransaction,
 } from "../../src/server/services/transactions.js";
 import { setPreferences } from "../../src/server/services/preferences.js";
+import { todayIn } from "../../src/shared/recurrence-dates.js";
 import { canonicalDecimal, decimal } from "../../src/server/services/helpers.js";
 import { stageCsv } from "../../src/server/services/import-export.js";
 import { commitStages, listStages } from "../../src/server/services/staging.js";
@@ -1217,12 +1218,112 @@ integration("budgets", () => {
     },
   );
 
-  it("stops at today rather than at an end date in the future", async () => {
+  /**
+   * "No figure spans currencies anywhere in the reply", which the whole suite
+   * asserted in a ledger that had one currency in it.
+   *
+   * A single-currency fixture cannot tell a report that keys by currency from
+   * one that adds across currencies, because both produce the same number. So
+   * this one budgets the same category in two, spends in both, and asks for the
+   * two figures separately.
+   */
+  it("keeps two currencies apart in the same category", async () => {
+    const euroAccount = (
+      await createAccount(actor, {
+        name: `Euro current ${nextKey()}`,
+        type: "checking",
+        currency: "EUR",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      })
+    ).id;
+    const name = `Travel ${nextKey()}`;
+    const category = await createCategory(actor, { name, kind: "expense" });
+
+    for (const [account, amount] of [
+      [checkingId, "40.00"],
+      [euroAccount, "70.00"],
+    ] as const) {
+      await createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          date: "2026-03-05",
+          payee: "Rail",
+          description: null,
+          fromAccountId: account,
+          categoryId: category.id,
+          amount,
+        },
+        nextKey(),
+      );
+    }
+    for (const [currency, limit] of [
+      ["USD", "100.00"],
+      ["EUR", "200.00"],
+    ] as const) {
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        amount: limit,
+        currency,
+        periodUnit: "month",
+        activeFrom: "2026-01-01",
+      });
+    }
+
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    // A period is per currency rather than holding a currency breakdown, which
+    // is what makes a figure spanning two of them unrepresentable rather than
+    // merely avoided.
+    const rows = report.periods
+      .filter((period) => period.periodStart === "2026-03-01")
+      .flatMap((period) =>
+        period.rows
+          .filter((row) => row.category === name)
+          .map((row) => ({ currency: period.currency, limit: row.limit, actual: row.actual })),
+      );
+    // Two rows, each holding only its own currency's money. A report that added
+    // them would show one row of 110 against 300, which is a number in no
+    // currency at all.
+    expect(rows.sort((a, b) => a.currency.localeCompare(b.currency))).toEqual([
+      { currency: "EUR", limit: "200", actual: "70" },
+      { currency: "USD", limit: "100", actual: "40" },
+    ]);
+  });
+
+  /**
+   * The criterion is "every figure stops at today in the person's own timezone,
+   * and the day used is reported", and this asserted `asOf < "2999-12-31"`,
+   * which is true of any date before the year 2999 — including the server's
+   * today, which is the one thing the criterion is about. So it moves the
+   * person to a timezone fourteen hours from UTC and asks for the day there.
+   */
+  it("stops at today in the person's own timezone, and says which day", async () => {
     const report = await getBudgetReport(actor, {
       start: "2026-03-01",
       end: "2999-12-31",
       periodUnit: "month",
     });
-    expect(report.asOf < "2999-12-31").toBe(true);
+    expect(report.asOf).toBe(todayIn("UTC"));
+
+    // Kiritimati is UTC+14, so for part of every day it is already tomorrow
+    // there. A report that read the server's clock would agree with UTC around
+    // the clock; this one has to follow the person.
+    await setPreferences(actor, { timezone: "Pacific/Kiritimati", defaultCurrency: "USD" });
+    try {
+      const far = await getBudgetReport(actor, {
+        start: "2026-03-01",
+        end: "2999-12-31",
+        periodUnit: "month",
+      });
+      expect(far.asOf).toBe(todayIn("Pacific/Kiritimati"));
+      // And the periods stop there rather than running to the end date: a
+      // budget for a month nobody has reached is not a budget that was
+      // underspent.
+      expect(far.periods.at(-1)!.periodStart <= far.asOf).toBe(true);
+    } finally {
+      await setPreferences(actor, { timezone: "UTC", defaultCurrency: "USD" });
+    }
   });
 });

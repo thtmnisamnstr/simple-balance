@@ -509,8 +509,22 @@ describe("what the browser can reach compared with an agent", () => {
     for (const route of routes) {
       if (route in AGENT_ONLY) continue;
       const path = route.slice(route.indexOf(" ") + 1);
-      const prefix = path.split("/:")[0];
-      if (!client.includes(prefix)) {
+      // The whole path, with each parameter standing in for a template hole.
+      // This asked whether the prefix before the first parameter appeared
+      // anywhere in the client, which is true of `/api/v1/accounts` the moment
+      // anything fetches an account — so every parameterised sub-route was
+      // unchecked, and a page could stop calling one without this noticing.
+      const pattern = new RegExp(
+        path
+          .split("/")
+          .map((segment) =>
+            segment.startsWith(":")
+              ? "\\$\\{[^}`]*\\}"
+              : segment.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          )
+          .join("/"),
+      );
+      if (!pattern.test(client)) {
         unreachable.push(`${route} — no call in src/client`);
       }
     }

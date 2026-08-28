@@ -22,6 +22,11 @@ import { sourceFiles } from "./support/source.js";
  *
  * Matching is by a snippet of the line rather than by line number, so ordinary
  * edits above them do not fail this.
+ *
+ * `getPool()` is in the pattern beside `getDb()` because `src/server/db/client.ts`
+ * exports both, and a transport reaching for the pool directly is the same
+ * defect one level lower: it would have walked past this check while doing
+ * exactly what the check exists to catch.
  */
 const ALLOWED = [
   {
@@ -61,7 +66,7 @@ const ALLOWED = [
 
 /** A line that reaches the database rather than a service. */
 const REACHES_DATABASE =
-  /\bgetDb\(\)|getAuthBootstrapLockPool\(\)|\bdb\.(?:select|insert|update|delete|execute|transaction)\b/;
+  /\bgetDb\(\)|\bgetPool\(\)|getAuthBootstrapLockPool\(\)|\bdb\.(?:select|insert|update|delete|execute|transaction)\b/;
 
 describe("a transport", () => {
   const transports = sourceFiles("src/server").filter((file) =>
