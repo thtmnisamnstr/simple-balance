@@ -312,15 +312,19 @@ describe("saving a transaction as a recurring transaction", () => {
   });
 
   /**
-   * The one field a proposal cannot carry. A rate belongs to the day it was
-   * got, so the shape keeps no destination amount and every occurrence waits in
-   * the queue for one. Left unsaid, that arrives as a refusal per row.
+   * A rate usually belongs to the day it was got, so leaving the received
+   * amount blank is the ordinary case and every occurrence waits in the queue
+   * for one. It is not the only case, which is why the field exists: the schema
+   * has accepted `destinationAmount` since 0.1.4 and an agent could pin it
+   * while this form said the concept was impossible. Two surfaces disagreeing
+   * about whether a field is meaningful is the parity defect `AGENTS.md` names,
+   * one step further along than the field simply being missing.
    */
-  it("says up front that a cross-currency transfer needs its rate each time", async () => {
+  it("leaves the received amount out when it was not given", async () => {
     const writes = stubLedger([crossCurrency]);
     renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
     const dialog = await openRecurrenceEditor("Monthly sweep");
-    expect(dialog.getByText(/waits in the queue for the amount received/)).toBeInTheDocument();
+    expect(dialog.getByText(/waits in the queue for it/)).toBeInTheDocument();
     fireEvent.change(dialog.getByLabelText(/^Name/), {
       target: { value: "Euro sweep" },
     });
@@ -336,6 +340,18 @@ describe("saving a transaction as a recurring transaction", () => {
       },
     });
     expect(writes[0]!.body.shape).not.toHaveProperty("destinationAmount");
+  });
+
+  it("sends the received amount when the rate is agreed in advance", async () => {
+    const writes = stubLedger([crossCurrency]);
+    renderAt("/transactions?start=2026-01-01&end=2026-12-31&preset=custom", "transactions");
+    const dialog = await openRecurrenceEditor("Monthly sweep");
+    fireEvent.change(dialog.getByLabelText(/^Name/), { target: { value: "Euro sweep" } });
+    fireEvent.change(dialog.getByLabelText(/^Amount received/), { target: { value: "460.00" } });
+    fireEvent.click(dialog.getByRole("button", { name: "Create recurrence" }));
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body.shape).toMatchObject({ destinationAmount: "460.00" });
   });
 
   /**

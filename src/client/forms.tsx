@@ -2426,7 +2426,19 @@ export function RecurrenceForm({
     (shape && "toAccountId" in shape ? shape.toAccountId : "") || "",
   );
   const [amount, setAmount] = useState(shape?.amount ?? "");
+  // The received side of a cross-currency transfer, which the schema has
+  // accepted since 0.1.4 and this form did not offer. An agent could pin it and
+  // a person could not, which is the parity defect `AGENTS.md` names, and the
+  // form argued the opposite in an alert: that the amount received is not
+  // something a schedule can know. Both are true — usually it cannot, and a
+  // standing order at an agreed rate can — so the field is here and optional,
+  // and the alert says what leaving it blank does.
+  const [destinationAmount, setDestinationAmount] = useState(
+    (shape && "destinationAmount" in shape ? (shape.destinationAmount ?? "") : "") || "",
+  );
   const [categoryId, setCategoryId] = useState(shape?.categoryId ?? "");
+  const [categoryKind, setCategoryKind] = useState<CategoryKind | "">("");
+  const categoryKindGroup = useId();
   // A stored shape may name its category rather than cite one, the way a CSV
   // import or an agent leaves it. Seeding from the id alone dropped the name on
   // the floor, and saving then wrote the recurrence back with no category.
@@ -2584,6 +2596,9 @@ export function RecurrenceForm({
           ...(type !== "deposit" ? { fromAccountId } : {}),
           ...(type !== "withdrawal" ? { toAccountId } : {}),
           ...(trimmed(amount) ? { amount: trimmed(amount) } : {}),
+          ...(crossCurrency && trimmed(destinationAmount)
+            ? { destinationAmount: trimmed(destinationAmount) }
+            : {}),
           ...(kept.length >= 2
             ? {
                 legs: kept.map((leg) => ({
@@ -2601,6 +2616,9 @@ export function RecurrenceForm({
                 : {}),
           ...(trimmed(description) ? { description: trimmed(description) } : {}),
           ...(trimmed(notes) ? { notes: trimmed(notes) } : {}),
+          // Only where it decides something: a name that already exists keeps
+          // the kind it has, so sending one there would be noise.
+          ...(categoryKind && newCategoryNames.length > 0 ? { categoryKind } : {}),
         },
         schedule: parsedSchedule.data,
         notifyOnCreate,
@@ -2638,6 +2656,30 @@ export function RecurrenceForm({
   // because the same division is replayed on every occurrence: one that does
   // not balance proposes a row nobody can commit, over and over.
   const splitting = type !== "transfer" && legs.length >= 2;
+  /**
+   * Category names this ledger does not have yet, and what kind to make them.
+   *
+   * The same question `TransactionForm` asks, for the same reason and with the
+   * same words: a recurring refund into a spending category nobody has created
+   * yet would otherwise be filed as income, once a month, for ever. The schema
+   * has carried `categoryKind` since the refund work; only this form did not
+   * ask, so an agent could set it and a person could not.
+   */
+  const namedForKind = splitting
+    ? legs.map((leg) => ({ id: leg.categoryId, name: leg.categoryName }))
+    : [{ id: categoryId, name: categoryName }];
+  const newCategoryNames = namedForKind
+    .filter(({ id, name }) => {
+      if (!name.trim()) return false;
+      const known =
+        categories.find((category) => category.id === id) ??
+        categories.find(
+          (category) => normalizeHumanName(category.name) === normalizeHumanName(name),
+        );
+      return !known;
+    })
+    .map(({ name }) => name.trim());
+  const newCategoryKind: CategoryKind = categoryKind || (type === "deposit" ? "income" : "expense");
   const splitSettled =
     !splitting ||
     moneyRemainder(
@@ -2719,18 +2761,36 @@ export function RecurrenceForm({
         </Field>
       ) : null}
 
-      <Field
-        label="Amount"
-        hint="Leave blank when it differs every time. Each proposal then waits on Staged transactions for a number."
-      >
-        <Input
-          inputMode="decimal"
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          placeholder="0.00"
-          pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
-        />
-      </Field>
+      <div className={crossCurrency ? "two-columns" : ""}>
+        <Field
+          label={
+            crossCurrency && sendingAccount ? `Amount sent (${sendingAccount.currency})` : "Amount"
+          }
+          hint="Leave blank when it differs every time. Each proposal then waits on Staged transactions for a number."
+        >
+          <Input
+            inputMode="decimal"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            placeholder="0.00"
+            pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
+          />
+        </Field>
+        {crossCurrency ? (
+          <Field
+            label={`Amount received (${receivingAccount!.currency})`}
+            hint="Optional. Leave blank unless the rate is agreed in advance."
+          >
+            <Input
+              inputMode="decimal"
+              value={destinationAmount}
+              onChange={(event) => setDestinationAmount(event.target.value)}
+              placeholder="0.00"
+              pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
+            />
+          </Field>
+        ) : null}
+      </div>
 
       {type === "transfer" ? null : (
         <Field label="Category" hint="Optional">
@@ -2746,6 +2806,38 @@ export function RecurrenceForm({
             onLegsChange={setLegs}
             total={amount}
           />
+          {newCategoryNames.length > 0 ? (
+            <div
+              className="radio-row"
+              role="radiogroup"
+              aria-label={
+                newCategoryNames.length === 1
+                  ? `What kind of category ${newCategoryNames[0]} is`
+                  : "What kind of category these are"
+              }
+            >
+              <label className="check-label">
+                <input
+                  type="radio"
+                  name={categoryKindGroup}
+                  checked={newCategoryKind === (type === "deposit" ? "income" : "expense")}
+                  onChange={() => setCategoryKind("")}
+                />
+                {type === "deposit" ? "Money you earned" : "Money you spent"}
+              </label>
+              <label className="check-label">
+                <input
+                  type="radio"
+                  name={categoryKindGroup}
+                  checked={newCategoryKind === (type === "deposit" ? "expense" : "income")}
+                  onChange={() => setCategoryKind(type === "deposit" ? "expense" : "income")}
+                />
+                {type === "deposit"
+                  ? "A refund of money you spent"
+                  : "Paying back money you earned"}
+              </label>
+            </div>
+          ) : null}
         </Field>
       )}
 
@@ -2917,8 +3009,10 @@ export function RecurrenceForm({
 
       {crossCurrency ? (
         <Alert kind="info">
-          These two accounts hold different currencies, and the rate is not something a schedule can
-          know in advance. Each proposal waits in the queue for the amount received.
+          These two accounts hold different currencies. Leave the amount received blank and each
+          proposal waits in the queue for it, which is what you want while the rate moves. Fill it
+          in only where the rate is agreed in advance: every occurrence then proposes that same
+          figure.
         </Alert>
       ) : null}
       <fieldset className="form-fieldset">

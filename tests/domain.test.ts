@@ -3,6 +3,7 @@ import {
   decimalStringSchema,
   accountCreateSchema,
   bulkDeleteStageSchema,
+  budgetReportQuerySchema,
   bulkTransactionEditSchema,
   commitStageSchema,
   isoDateSchema,
@@ -689,5 +690,51 @@ describe("which line of a CSV an error is about", () => {
   it("shifts a field mismatch by two and a quote fault by one", () => {
     expect(csvFileLine({ type: "FieldMismatch", row: 0 })).toBe(2);
     expect(csvFileLine({ type: "Quotes", row: 0 })).toBe(1);
+  });
+});
+
+/**
+ * A flag that arrives as a query string, on the one report whose flags default
+ * to on.
+ *
+ * The budget route used to coerce these two itself with `=== "true"`, so
+ * `?includeArchived=1` turned a default-on flag off and said nothing. On this
+ * report that is not cosmetic: with it off, every penny spent through an
+ * account you have since closed leaves the figures, and a budget spent to the
+ * penny reads as underspent.
+ */
+describe("the budget report's query flags", () => {
+  it("defaults both to on, because that is the wider question", () => {
+    const parsed = budgetReportQuerySchema.parse({
+      start: "2026-01-01",
+      end: "2026-03-31",
+      periodUnit: "month",
+    });
+    expect(parsed.includeArchived).toBe(true);
+    expect(parsed.includeUnbudgeted).toBe(true);
+  });
+
+  it("reads the two spellings a query string can carry", () => {
+    const parsed = budgetReportQuerySchema.parse({
+      start: "2026-01-01",
+      end: "2026-03-31",
+      periodUnit: "month",
+      includeArchived: "false",
+      includeUnbudgeted: "true",
+    });
+    expect(parsed.includeArchived).toBe(false);
+    expect(parsed.includeUnbudgeted).toBe(true);
+  });
+
+  it("refuses anything else rather than reading it as off", () => {
+    for (const value of ["1", "yes", "TRUE", "on", ""]) {
+      const parsed = budgetReportQuerySchema.safeParse({
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+        includeArchived: value,
+      });
+      expect(parsed.success, `includeArchived=${value || "(empty)"} must be refused`).toBe(false);
+    }
   });
 });

@@ -805,6 +805,7 @@ export async function stageCsv(
     decimalSeparator: parsed.decimalSeparator,
   };
 
+  let replayed = false;
   const outcome = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
       await lockIdempotencyKey(tx, actor, "csv.stage", parsed.idempotencyKey);
@@ -818,7 +819,10 @@ export async function stageCsv(
         importBatchId: string;
         stagedIds: string[];
       }>(tx, actor, "csv.stage", parsed.idempotencyKey, idempotencyPayload);
-      if (existing) return existing;
+      if (existing) {
+        replayed = true;
+        return existing;
+      }
     }
     const accountRows = await tx
       .select({ id: ledgerAccounts.id })
@@ -946,7 +950,7 @@ export async function stageCsv(
   // Rows placed in the queue, which is what an import costs this deployment. A
   // preview stages nothing and is not counted; a file that staged four thousand
   // rows counts four thousand, for the same reason a mass edit counts rows.
-  if ("stagedIds" in outcome) csvRowsStaged.inc(outcome.stagedIds.length);
+  if (!replayed && "stagedIds" in outcome) csvRowsStaged.inc(outcome.stagedIds.length);
   return outcome;
 }
 

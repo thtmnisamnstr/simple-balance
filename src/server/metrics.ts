@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from "prom-client";
+import { APP_VERSION } from "../shared/version.js";
 
 /**
  * What this process can be asked about itself, in Prometheus' text format.
@@ -63,7 +64,11 @@ export const httpDuration = new Histogram({
 
 export const mcpToolCalls = new Counter({
   name: `${prefix}mcp_tool_calls_total`,
-  help: "MCP tool calls, by tool and outcome.",
+  // What it does not count is worth saying on the metric itself: this is
+  // incremented around the tool's own handler, so a call the protocol refuses
+  // first — arguments the schema rejects, a tool that does not exist, a tool
+  // outside the connection's scope — appears nowhere in it.
+  help: "MCP tool calls that reached a tool, by tool and outcome. Excludes calls the protocol refused first.",
   labelNames: ["tool", "outcome"] as const,
   registers: [registry],
 });
@@ -154,6 +159,24 @@ export const csvRowsStaged = new Counter({
   registers: [registry],
 });
 
+/**
+ * What is deployed, as the one gauge every Prometheus setup expects.
+ *
+ * A scrape that cannot say which version produced it is a scrape you cannot
+ * correlate with a deploy, which is most of what metrics are for on the day
+ * something changes. Constant 1 with the version in a label is the convention;
+ * the value carries nothing.
+ */
+new Gauge({
+  name: `${prefix}build_info`,
+  help: "Always 1. The labels say which build is running.",
+  labelNames: ["version"] as const,
+  registers: [registry],
+  collect() {
+    this.set({ version: APP_VERSION }, 1);
+  },
+});
+
 export const idempotencyReplays = new Counter({
   name: `${prefix}idempotency_replays_total`,
   help: "Requests answered from a stored idempotency record instead of being run again.",
@@ -190,23 +213,6 @@ new Gauge({
     this.set({ state: "waiting" }, trackedPool.waitingCount);
   },
 });
-
-/** Time an operation and observe it, whatever it does. */
-export async function timed<T>(
-  histogram: Histogram<string>,
-  labels: Record<string, string>,
-  operation: () => Promise<T>,
-): Promise<T> {
-  const stop = histogram.startTimer(labels);
-  try {
-    return await operation();
-  } finally {
-    // In `finally`, so a refused write is timed like an accepted one. A
-    // histogram that only sees successes reports a system that is fast right up
-    // until the moment it is failing.
-    stop();
-  }
-}
 
 let defaultsStarted = false;
 

@@ -329,10 +329,10 @@ unrepresentable, so the model's own sampling cannot produce it.
   "MUST NOT automatically dereference `$ref` values that resolve to a network
   URI" and SHOULD bound schema depth and subschema count as a denial-of-service
   defence, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
-  and a thing clients are told to refuse. Measured: 504 `anyOf` and 7 `oneOf`
-  across the surface. 426 of the 504 are two-member nullable pairs, 127 of them
-  on inputs; 131 of all the `anyOf` are on inputs and 373 on outputs. The 7 `oneOf` are all on
-  inputs and are the boolean-or-string-literal coercion. So the composition is
+  and a thing clients are told to refuse. Measured: 506 `anyOf` and 7 `oneOf`
+  across the surface. 426 of the 506 are two-member nullable pairs, 127 of them
+  on inputs; 133 of all the `anyOf` are on inputs and 373 on outputs. The 7
+  `oneOf` are all on inputs and are the boolean-or-string-literal coercion. So the composition is
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
 
@@ -504,7 +504,7 @@ written — the table above went stale by a quarter in two days for want of it.
   ordering not keyset-resumable, and nothing in the result says which. An agent
   walking a ledger under `sort: "account"` gets one page and has to infer the
   fallback from `totalPages`, which the result does carry beside `page`,
-  `pageSize` and `totalCount` (`src/server/services/transactions.ts:1405-1408`).
+  `pageSize` and `totalCount` (`src/server/services/transactions.ts:1416-1419`).
   That is the fallback the `AGENTS.md` sentence above prescribes. The page
   envelope now says which world a caller is in: `cursorAvailable` is on every
   page of both listings, and `nextCursor`'s own description says that null means
@@ -550,7 +550,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (`src/shared/domain.ts:1720`) is a `const` array rather than a bare TypeScript
+  (`src/shared/domain.ts:1723`) is a `const` array rather than a bare TypeScript
   union precisely so `toolErrorSchema` can publish it as an enum
   (`src/server/mcp-output-schemas.ts:88-94`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
@@ -718,19 +718,19 @@ it means choosing which half to defer to anyway.
   document's Common Mistakes list names "Publishing all possible scopes in
   `scopes_supported`". The two documents answer two different questions and now
   say two different things. The authorization-server document lists all seven
-  (`src/server/api.ts:783`), because RFC 8414's field is what the server
+  (`src/server/api.ts:804`), because RFC 8414's field is what the server
   supports and Better Auth's accept-list at `/authorize` is the union of its
   four defaults with our three
   (`node_modules/better-auth/dist/plugins/oidc-provider/authorize.mjs:23-33`).
   The protected-resource document is the one a client builds its scope request
   from — the SDK joins `scopes_supported` verbatim, ahead of the client's own
   configured scope, in `client/auth.js`'s `resolvedScope` — and it lists
-  `openid profile email offline_access ledger:read` (`src/server/api.ts:792`):
+  `openid profile email offline_access ledger:read` (`src/server/api.ts:813`):
   the default grant plus the refresh a long-lived client cannot work without,
   since Better Auth issues a refresh token only when `offline_access` was
   requested. It is narrowed on every path the document is
   reachable from, including `/api/auth/.well-known/oauth-protected-resource`
-  (`src/server/api.ts:761`), which is where `withMcpAuth`'s own 401 sends a
+  (`src/server/api.ts:782`), which is where `withMcpAuth`'s own 401 sends a
   client on first contact; narrowing only the RFC 9728 paths would have left the
   advertisement everybody reads untouched and the one nobody reads correct. The
   two wider tiers are still accepted at `/authorize`, still named on the consent
@@ -906,7 +906,7 @@ what stops `idempotentHint` becoming a lie.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (`src/server/api.ts:886-937`).
+  (`src/server/api.ts:907-958`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's

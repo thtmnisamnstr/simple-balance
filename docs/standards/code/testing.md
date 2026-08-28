@@ -18,11 +18,11 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 110 pass, 52 skip | **1,053 pass, 587 skip** |
-| `npm test`, database set | 162 pass | **1,640 pass** |
+| `npm test`, no database | 110 pass, 52 skip | **1,062 pass, 587 skip** |
+| `npm test`, database set | 162 pass | **1,649 pass** |
 | `npm run test:integration` | 53 pass | 588 pass |
 
-The first row is what CI and `npm run verify` see, and 1,053 is the number that
+The first row is what CI and `npm run verify` see, and 1,062 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming

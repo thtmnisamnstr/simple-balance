@@ -2,10 +2,10 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Account, Category } from "../src/client/api.js";
-import { TransactionForm } from "../src/client/forms.js";
+import { RecurrenceForm, TransactionForm } from "../src/client/forms.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
 
 /**
@@ -19,6 +19,12 @@ import { TimezoneProvider } from "../src/client/timezone.js";
  *
  * These tests are about the one question the form now asks, and about not
  * asking it when there is nothing to decide.
+ *
+ * `RecurrenceForm` had the same hole for longer and it mattered more there: a
+ * recurring refund into a category nobody has created yet would have been filed
+ * as income once a month, for ever, and the schedule is the surface nobody
+ * re-reads. It is at the bottom of this file, because the question and the
+ * words are the same and only the form differs.
  */
 
 const checking: Account = {
@@ -218,5 +224,58 @@ describe("choosing what a new category is", () => {
     expect(
       screen.getByRole("radiogroup", { name: "What kind of category these are" }),
     ).toBeInTheDocument();
+  });
+});
+
+function renderRecurrence() {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+      mutations: { retry: false },
+    },
+  });
+  client.setQueryData(["payees", "suggestions", ""], []);
+  return render(
+    <QueryClientProvider client={client}>
+      <TimezoneProvider timezone="UTC">
+        <RecurrenceForm accounts={[checking]} categories={[groceries]} onDone={vi.fn()} />
+      </TimezoneProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("choosing what a new category is, on a recurrence", () => {
+  it("asks nothing for a category this ledger already has", () => {
+    renderRecurrence();
+    chooseType(/Withdrawal/);
+    fireEvent.change(picker(), { target: { value: "Groceries" } });
+    expect(refundChoice()).not.toBeInTheDocument();
+  });
+
+  it("asks when the name is new", () => {
+    renderRecurrence();
+    chooseType(/Withdrawal/);
+    fireEvent.change(picker(), { target: { value: "Bicycle repairs" } });
+    expect(
+      screen.getByRole("radiogroup", { name: "What kind of category Bicycle repairs is" }),
+    ).toBeInTheDocument();
+  });
+
+  it("sends the kind that was chosen, so a recurring refund is not filed as income", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    captureRequests(bodies);
+    renderRecurrence();
+    chooseType(/Deposit/);
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Quarterly rebate" } });
+    fireEvent.change(screen.getByLabelText(/^Payee/), { target: { value: "Utility" } });
+    fireEvent.change(screen.getByLabelText(/^Account/), {
+      target: { value: checking.id },
+    });
+    fireEvent.change(picker(), { target: { value: "Utilities" } });
+    fireEvent.click(screen.getByLabelText("A refund of money you spent"));
+    fireEvent.click(screen.getByRole("button", { name: /Create recurrence/ }));
+
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toMatchObject({ shape: { categoryKind: "expense" } });
   });
 });

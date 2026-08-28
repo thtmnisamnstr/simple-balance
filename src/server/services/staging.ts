@@ -59,7 +59,7 @@ import {
   writeAuditMany,
 } from "./helpers.js";
 import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
-import { stagedRowsCommitted } from "../metrics.js";
+import { ledgerWrites, stagedRowsCommitted } from "../metrics.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { pruneOrphanedCategories } from "./categories.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
@@ -1092,13 +1092,17 @@ export async function commitStages(actor: Actor, input: unknown, transaction?: D
     allowDuplicates: parsed.allowDuplicates,
     dryRun: parsed.dryRun,
   };
+  let replayed = false;
   const outcome = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
       await lockIdempotencyKey(tx, actor, "stage.commit", parsed.idempotencyKey);
       const existing = await getIdempotent<{
         committed: { stagedId: string; transactionId: string }[];
       }>(tx, actor, "stage.commit", parsed.idempotencyKey, idempotencyPayload);
-      if (existing) return existing;
+      if (existing) {
+        replayed = true;
+        return existing;
+      }
     }
     const rows = await tx
       .select()
@@ -1232,7 +1236,19 @@ export async function commitStages(actor: Actor, input: unknown, transaction?: D
   // The queue's whole point is that rows wait here until somebody says so, so
   // the number worth watching is how many made it out, not how many arrived.
   // A dry run reports what would commit and commits nothing.
-  if ("committed" in outcome) stagedRowsCommitted.inc(outcome.committed.length);
+  // Not on a replay: the stored response carries the same list, and counting it
+  // again would say the queue emptied twice on a client that retried once.
+  //
+  // Both counters, because they answer different questions and a commit is the
+  // answer to both: how many rows left the queue, and how many rows the books
+  // gained. `ledger_writes_total` counted only `createTransaction` for a while,
+  // so every transaction that arrived through the queue — which is every CSV
+  // import and every accepted recurrence — was invisible in the figure named
+  // after writes.
+  if (!replayed && "committed" in outcome) {
+    stagedRowsCommitted.inc(outcome.committed.length);
+    ledgerWrites.inc({ operation: "create" }, outcome.committed.length);
+  }
   return outcome;
 }
 

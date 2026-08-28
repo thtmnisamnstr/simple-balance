@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1366-1388`, which is the
+which reads and writes files, and `src/server/api.ts:1384-1406`, which is the
 transport.
 
 ## 1. Why CSV, and why no apology
@@ -144,7 +144,7 @@ product has no export whose first record is not a header.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/api.ts:1378-1387`). It used to read the server clock, so somebody
+(`src/server/api.ts:1396-1405`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 
@@ -468,11 +468,11 @@ different person import an export of someone else's ledger").
 | --- | --- |
 | The transaction id | It is a foreign ledger's primary key |
 | Accounts, by id or by name | An import names one account and that is the only thing deciding where rows land |
-| The category id, where this ledger does not own it | It is dropped so the name can resolve instead, rather than importing with no category at all (`src/server/services/import-export.ts:868-881`) |
+| The category id, where this ledger does not own it | It is dropped so the name can resolve instead, rather than importing with no category at all (`src/server/services/import-export.ts:872-885`) |
 | Leg ids | Same reason as category ids |
 | The currency | It comes from the chosen account |
 | `effective_rate` | Recomputed from the two amounts |
-| Deleted transactions | Never exported. The format has no column saying an entry is void, so a row indistinguishable from live money would go in front of the importer and reading it back would raise the amount from the dead (`src/server/services/import-export.ts:940-951`) |
+| Deleted transactions | Never exported. The format has no column saying an entry is void, so a row indistinguishable from live money would go in front of the importer and reading it back would raise the amount from the dead (`src/server/services/import-export.ts:944-955`) |
 | Version, timestamps, audit history, template and recurrence provenance | Not in the format. An import is new provenance |
 | Committed status | See below |
 | Byte-exact payee capitalisation and spacing | `cleanHumanName` and the canonical rewrite above |
@@ -565,7 +565,7 @@ Three mechanisms, and they are deliberately not the same strictness:
 1. **The stored fingerprint.** Every staged row gets one key: the external
    reference when the row has one, because that is an identity rather than a
    guess, otherwise a heuristic key over type, date, payee, account and amount
-   (`stagedDuplicateKey`, `src/server/services/transactions.ts:2517-2655`).
+   (`stagedDuplicateKey`, `src/server/services/transactions.ts:2542-2680`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
    three (`src/shared/domain.ts:1004`, `src/server/services/staging.ts:533-609`).
@@ -673,7 +673,7 @@ right preview and a wrong import is a bug rather than a surprise.
 Before a dry run the panel shows the file's own cells. A dry run replaces them
 with the first rows as the server read them — date, payee, account, category,
 amount and the issues each row carries — out of the same `sample` an MCP caller
-receives (`src/server/services/import-export.ts:901`), rendered through
+receives (`src/server/services/import-export.ts:905`), rendered through
 `summarizeStagedDraft`, which is the queue's own summariser rather than a second
 copy of it. A row that could not be assembled is shown from its `partial`,
 exactly as `stageCsv` will store it.
@@ -767,7 +767,7 @@ export somebody is most likely to want to open — "did it work, or is my filter
 wrong?" — was the one that could not be opened.
 
 It now takes its columns from a declared list when there are no rows to take
-them from (`src/server/services/import-export.ts:908-933`).
+them from (`src/server/services/import-export.ts:912-937`).
 
 *Checked by:* `tests/integration/import-export.integration.test.ts`, which
 asserts the empty file's header is character-for-character the header a
@@ -788,7 +788,7 @@ and never neutralise the channel.**
 - `neutralizeSpreadsheetFormula` (`src/shared/csv.ts:421-442`) prefixes an
   apostrophe to a triggering value.
 - It is applied to exactly seven columns, named at the call site
-  (`src/server/services/import-export.ts:1056-1066`): `payee`, `description`,
+  (`src/server/services/import-export.ts:1060-1070`): `payee`, `description`,
   `category_name`, `external_id`, `notes`, `source_account_name`,
   `destination_account_name`. Free text a person reads, and nothing else.
 - It is **not** applied to an amount, a rate, a date or an id. A negative amount
@@ -837,7 +837,7 @@ be.
   infers a mapping from header aliases each time
   (`src/client/pages/ImportPage.tsx:59-95`), and `import_batch.mapping` is
   stored for the record rather than for reuse
-  (`src/server/services/import-export.ts:913`). The inference is also
+  (`src/server/services/import-export.ts:917`). The inference is also
   browser-only: an MCP caller composes the mapping itself.
 - **No conditional rules.** No `if` blocks, no auto-categorisation by pattern.
   The roadmap records why, and records the counter-argument: the agent is the

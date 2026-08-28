@@ -1062,6 +1062,31 @@ const budgetTarget = {
 };
 
 /**
+ * A boolean that arrived as a query string.
+ *
+ * Exported because five routes used to compare `=== "true"` by hand, which
+ * silently reads `?includeArchived=yes` as false: the caller asked for
+ * something, was not refused, and got the opposite. This refuses anything that
+ * is not `true` or `false`, which is the behaviour a caller can learn from.
+ *
+ * The budget report was a sixth. It kept its own `=== "true"` in the transport
+ * for two flags that default to **on**, so `?includeArchived=1` turned them off
+ * without saying so — and on that report, off means every penny spent through a
+ * closed account silently leaves the figures. The default is the only thing
+ * that differed, so it is a parameter now rather than a reason to hand-roll it.
+ */
+export const queryBoolean = (whenAbsent: boolean) =>
+  z
+    .union([
+      z.boolean(),
+      z.literal("true").transform(() => true),
+      z.literal("false").transform(() => false),
+    ])
+    .default(whenAbsent);
+
+export const queryBooleanSchema = queryBoolean(false);
+
+/**
  * A standing budget for one category, per period, in one currency.
  *
  * There is no amount spanning currencies here and there is nowhere to put one.
@@ -1078,7 +1103,7 @@ export const budgetPlanCreateSchema = z
       .nullable()
       .optional()
       .describe(
-        "The last day this budget applies, snapped to the end of its period. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
+        "The last period this budget applies to, named by any date inside it: the value is snapped back to that period's first day, and the budget covers the whole of it. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
       ),
   })
   .strict()
@@ -1097,7 +1122,7 @@ export const budgetPlanUpdateSchema = z
       .nullable()
       .optional()
       .describe(
-        "The last day this budget applies, snapped to the end of its period. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
+        "The last period this budget applies to, named by any date inside it: the value is snapped back to that period's first day, and the budget covers the whole of it. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
       ),
     expectedVersion: expectedVersionSchema,
   })
@@ -1129,22 +1154,16 @@ export const budgetReportQuerySchema = z
     // count. A budget compares spending against a limit that was never scoped
     // to an account, so money spent on a card since closed is money the budget
     // covered: filtering it makes a budget spent to the penny read as underspent.
-    includeArchived: z
-      .boolean()
-      .default(true)
-      .describe(
-        "Include categories that have been archived. Archived categories still hold the history filed under them, so a report that leaves them out is answering a narrower question than it looks.",
-      ),
+    includeArchived: queryBoolean(true).describe(
+      "Include spending that went through an account you have since closed. On by default, and unlike every other report: a budget was never scoped to an account, so money spent on a card you have closed is money the budget covered, and leaving it out makes a budget spent to the penny read as underspent.",
+    ),
     // Spending in categories nobody budgeted. On by default, because the
     // question "where did the rest go" is the one a budget raises, and a page
     // that answered it only when asked would be hiding the gap. Turn it off to
     // see the budget alone.
-    includeUnbudgeted: z
-      .boolean()
-      .default(true)
-      .describe(
-        "Include categories with no budget set, so spending that nobody planned for is visible rather than quietly absent. Their limit comes back null.",
-      ),
+    includeUnbudgeted: queryBoolean(true).describe(
+      "Include categories with no budget set, so spending that nobody planned for is visible rather than quietly absent. Their limit comes back null.",
+    ),
   })
   .strict();
 
@@ -1184,22 +1203,6 @@ export const reportQuerySchema = dateRangeSchema.extend({
       "Group the report by day, week, month, quarter or year. Defaults to whatever suits the range asked for.",
     ),
 });
-
-/**
- * A boolean that arrived as a query string.
- *
- * Exported because five routes used to compare `=== "true"` by hand, which
- * silently reads `?includeArchived=yes` as false: the caller asked for
- * something, was not refused, and got the opposite. This refuses anything that
- * is not `true` or `false`, which is the behaviour a caller can learn from.
- */
-export const queryBooleanSchema = z
-  .union([
-    z.boolean(),
-    z.literal("true").transform(() => true),
-    z.literal("false").transform(() => false),
-  ])
-  .default(false);
 
 export const sortDirections = ["asc", "desc"] as const;
 export type SortDirection = (typeof sortDirections)[number];

@@ -692,9 +692,11 @@ scrape_configs:
       - targets: ["simple-balance-server:3000", "simple-balance-scheduler:3000"]
 ```
 
-The names are `simple_balance_*` for this product's own, and `process_*` and
-`nodejs_*` for the runtime's — heap, event-loop lag, garbage collection — which
-`prom-client` collects. Every series carries `component="api"` or
+Every name starts `simple_balance_`, the runtime's included: heap, event-loop
+lag and garbage collection arrive as `simple_balance_process_*` and
+`simple_balance_nodejs_*`, because `prom-client`'s default set is collected under
+the same prefix rather than beside it. `simple_balance_build_info` carries the
+version as a label, so a scrape says which build produced it. Every series carries `component="api"` or
 `component="scheduler"`, so a split deployment can tell the two apart and a
 single container reports both under `api`.
 
@@ -714,10 +716,15 @@ today:
   missing rent.
 - `simple_balance_mail_messages_total{outcome="failed"}` increasing, or
   `{outcome="skipped"}` on a deployment that thinks it has a mail server.
-- `simple_balance_startup_migration_runs_total{outcome="failed"}`. Readiness
-  already fails on this, but a failed migration and a database that was never
-  reachable look the same from outside and only one of the two is fixed by
-  waiting.
+- `simple_balance_build_info` changing, or disagreeing between the API and the
+  scheduler. A split deployment upgraded halfway is two versions against one
+  database, which is the state the schema contract is written for and the one
+  nobody notices without asking.
+
+The migration counters are the exception: a startup migration that fails takes
+the process down before it serves anything, so nothing is ever scraped with
+`outcome="failed"` on it. Readiness is what tells you, and the counters are for
+reading afterwards — how long the wait for the lock was on a rolling deploy.
 
 ## Backups
 

@@ -195,7 +195,7 @@ deliberately answers identically either way. `smtpFailure`
 refusing their credentials, or refusing this one message. `response` is the
 relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
-hand. `src/server/api.ts:245-251` narrows a Drizzle error the same way for a
+hand. `src/server/api.ts:266-272` narrows a Drizzle error the same way for a
 harder reason: its message is built from the failing SQL and its bound
 parameters, one of which is an OAuth access token.
 
@@ -777,7 +777,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:262-277`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:283-298`, and the same pair on the
 scheduler at `src/server/scheduler.ts:23-32`). Both are registered above every
 auth middleware and neither is authenticated.
 
@@ -806,7 +806,7 @@ deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:631-636` and `README.md:130-133` describe one statement
-against the database and nothing else, and `src/server/api.ts:262-268` says the
+against the database and nothing else, and `src/server/api.ts:283-289` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -867,7 +867,7 @@ configuration layer reaches for `console` directly.
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (`src/server/api.ts:202`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:223`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -891,7 +891,8 @@ route pattern — `/api/v1/accounts/:id` is one series, not one per account — 
 a path matching no route at all is counted under a single literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
-**House.** `METRICS_TOKEN` is optional and is a secret in the `_FILE` sense
+**House.** `METRICS_TOKEN` is optional and is a secret in the `_FILE` sense,
+the seventh
 (`src/server/config-files.ts:15-24`). Scraping over a private network with a
 NetworkPolicy in front is a real deployment and demanding a token there would be
 ceremony; publishing write rates and queue depths to the open internet is not,
@@ -901,9 +902,12 @@ frontend nginx does not proxy `/metrics` at all — a scrape goes to the API
 service directly, so the browser's own hostname never exposes it
 (`tests/dockerfile.test.ts:212-218`).
 
-**House.** Collection is always on; only the endpoint is switched. Every counter
-costs a few nanoseconds and no allocation, so gating them would buy nothing and
-would put a branch in front of every write in the product.
+**House.** Collection is always on; only the endpoint is switched. It is not
+free — the request middleware builds a label object per request and
+`prom-client`'s default set installs a `PerformanceObserver` for garbage
+collection — but it is small and constant, and gating it would put a branch in
+front of every write in the product to save it. What the setting decides is
+whether the endpoint answers, which is the part with a security consequence.
 
 *Checked by:* `tests/metrics.test.ts` for the labels, the route pattern, the
 token and the absence of the route when it was not asked for;

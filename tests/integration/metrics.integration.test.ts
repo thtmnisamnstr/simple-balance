@@ -152,7 +152,7 @@ integration("what a write adds to the metrics", () => {
     expect(await counterValue("simple_balance_ledger_writes_total")).toBe(before);
   });
 
-  it("counts a replayed key as a replay and as a write", async () => {
+  it("counts a replayed key as a replay and not as a second write", async () => {
     const key = nextKey();
     const draft = {
       type: "deposit" as const,
@@ -166,12 +166,20 @@ integration("what a write adds to the metrics", () => {
     const replays = await counterValue("simple_balance_idempotency_replays_total", {
       operation: "transaction.create",
     });
+    const writes = await counterValue("simple_balance_ledger_writes_total", {
+      operation: "create",
+    });
     const second = await createTransaction(actor, draft, key);
 
-    // Same row back, so the ledger changed once and the deployment served two
-    // writes. Both numbers are true and they answer different questions: one is
-    // "how much is in the books", the other is "how often is a client retrying".
+    // Same row back, so the ledger changed once. The retry is a fact about the
+    // client rather than about the books, and the two counters split it that
+    // way: `ledger_writes_total` does not move and `idempotency_replays_total`
+    // does. Counting both was the defect — a client retrying a four-thousand-row
+    // edit reported eight thousand rows changed.
     expect(second.id).toBe(first.id);
+    expect(await counterValue("simple_balance_ledger_writes_total", { operation: "create" })).toBe(
+      writes,
+    );
     expect(
       await counterValue("simple_balance_idempotency_replays_total", {
         operation: "transaction.create",

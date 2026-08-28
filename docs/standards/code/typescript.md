@@ -41,7 +41,7 @@ a constructor tells you what it assigns.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:929`, `src/server/http-security.ts:160` and `:551`),
+(`src/server/api.ts:950`, `src/server/http-security.ts:160` and `:551`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -223,7 +223,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1035`, `:2242` and `:2331`.)
+(`src/server/services/transactions.ts:1035`, `:2267` and `:2356`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

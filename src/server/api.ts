@@ -190,12 +190,33 @@ app.use("*", async (c, next) => {
   try {
     await next();
   } finally {
-    const route = c.req.routePath === "/*" ? "unmatched" : c.req.routePath;
-    const labels = { method: c.req.method, route };
+    const labels = { method: c.req.method, route: routeLabel(c) };
     stop(labels);
     httpRequests.inc({ ...labels, status: String(c.res.status) });
   }
 });
+
+/**
+ * The series a request belongs to, always from a closed set.
+ *
+ * `routePath` is Hono's matched pattern, which is what keeps a ledger with ten
+ * thousand transactions to one series rather than ten thousand. It is `/*`
+ * twice over, though, and those two cases are not the same thing: a mistyped
+ * URL that matched no route, and a request answered by middleware mounted on
+ * `*` before any route ran — which is where a 413 from the body limit lands.
+ * Labelling both "unmatched" put a refused CSV upload in the same series as a
+ * typo, so the prefix decides between them, from a fixed list.
+ */
+const KNOWN_PREFIXES = ["api", "mcp", "health", ".well-known", "metrics", "assets"] as const;
+
+function routeLabel(c: Context) {
+  const matched = c.req.routePath;
+  if (matched !== "/*") return matched;
+  const prefix = c.req.path.split("/")[1] ?? "";
+  return KNOWN_PREFIXES.includes(prefix as (typeof KNOWN_PREFIXES)[number])
+    ? `/${prefix}/*`
+    : "unmatched";
+}
 
 // Registered only when it was asked for, so a deployment that never set
 // `METRICS_ENABLED` has no such route rather than a route that refuses.
@@ -990,14 +1011,6 @@ const query = (c: Context<{ Variables: Variables }>) => c.req.query();
 const includeArchivedFlag = (c: Context) =>
   queryBooleanSchema.parse(c.req.query("includeArchived") ?? false);
 
-const queryWithFlags = (c: Context<{ Variables: Variables }>, ...flags: string[]) => {
-  const values: Record<string, unknown> = { ...c.req.query() };
-  for (const flag of flags) {
-    if (values[flag] !== undefined) values[flag] = values[flag] === "true";
-  }
-  return values;
-};
-
 app.get("/api/v1/session", async (c) =>
   c.json({
     user: c.get("authUser"),
@@ -1213,7 +1226,12 @@ app.get("/api/v1/budget-report", async (c) =>
   c.json(
     await getBudgetReport(
       c.get("actor"),
-      queryWithFlags(c, "includeArchived", "includeUnbudgeted"),
+      // The raw query, because the schema knows how to read a flag off one and
+      // refuses `?includeArchived=1` rather than reading it as off. This route
+      // used to coerce the two flags itself with `=== "true"`, which is the
+      // defect `queryBoolean` exists against — and on this report, off means
+      // spending through a closed account silently leaves the figures.
+      c.req.query(),
     ),
   ),
 );

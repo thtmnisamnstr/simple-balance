@@ -1044,6 +1044,7 @@ export async function createTransaction(
     draft: parsedDraft,
     allowDuplicate,
   };
+  let replayed = false;
   const written = await withTransaction(transaction, async (tx) => {
     await lockIdempotencyKey(tx, actor, "transaction.create", idempotencyKey);
     const existing = await getIdempotent<TransactionView>(
@@ -1053,7 +1054,10 @@ export async function createTransaction(
       idempotencyKey,
       idempotencyPayload,
     );
-    if (existing) return existing;
+    if (existing) {
+      replayed = true;
+      return existing;
+    }
     const created = await createTransactionWithinTx(
       tx,
       actor,
@@ -1066,11 +1070,18 @@ export async function createTransaction(
     return view;
   });
   // Counted after the transaction has settled rather than inside it, so a write
-  // that rolled back is not reported as a write that happened. A replayed
-  // idempotent call returns here too and is counted once more, which is right:
-  // it is a write this deployment served, and the replay itself is counted
-  // separately in `getIdempotent`.
-  ledgerWrites.inc({ operation: "create" });
+  // that rolled back is not reported as a write that happened, and not counted
+  // at all on a replay: the stored response comes back without a row being
+  // written, and `ledger_writes_total` names the books rather than the traffic.
+  // The retry is counted separately, as `idempotency_replays_total`, which is
+  // the question it actually answers.
+  //
+  // One case this cannot see: a caller that supplied its own transaction — every
+  // MCP write does — is counted when this call returns rather than when that
+  // transaction commits. The window is the few statements the transport runs
+  // after the service, and closing it would take a queue of pending counts
+  // shared between concurrent requests, which is a worse bug than the one it fixes.
+  if (!replayed) ledgerWrites.inc({ operation: "create" });
   return written;
 }
 
@@ -1822,6 +1833,7 @@ export async function bulkEditTransactions(
     allowDuplicates: parsed.allowDuplicates,
   };
 
+  let editReplayed = false;
   const edited = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
       await lockIdempotencyKey(tx, actor, "transaction.bulk_edit", parsed.idempotencyKey);
@@ -1832,7 +1844,10 @@ export async function bulkEditTransactions(
         parsed.idempotencyKey,
         idempotencyPayload,
       );
-      if (existing) return bulkTransactionEditResultSchema.parse(existing);
+      if (existing) {
+        editReplayed = true;
+        return bulkTransactionEditResultSchema.parse(existing);
+      }
     }
 
     const snapshotRows = await selectBulkSnapshot(tx, actor, parsed.selection);
@@ -2090,7 +2105,11 @@ export async function bulkEditTransactions(
   // single edits are the same amount of ledger changing, and a counter that
   // said "1" for the first would make the busiest thing this product does look
   // like the quietest. A dry run changed nothing and counts nothing.
-  if (!edited.dryRun) ledgerWrites.inc({ operation: "bulk_edit" }, edited.updatedCount);
+  // A replay writes nothing and must not add its rows a second time: a client
+  // retrying a four-thousand-row edit would otherwise report eight thousand.
+  if (!edited.dryRun && !editReplayed) {
+    ledgerWrites.inc({ operation: "bulk_edit" }, edited.updatedCount);
+  }
   return edited;
 }
 
@@ -2112,6 +2131,7 @@ export async function bulkDeleteTransactions(
     operation: "delete",
   };
 
+  let deleteReplayed = false;
   const removed = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
       await lockIdempotencyKey(tx, actor, "transaction.bulk_delete", parsed.idempotencyKey);
@@ -2122,7 +2142,10 @@ export async function bulkDeleteTransactions(
         parsed.idempotencyKey,
         idempotencyPayload,
       );
-      if (existing) return bulkTransactionEditResultSchema.parse(existing);
+      if (existing) {
+        deleteReplayed = true;
+        return bulkTransactionEditResultSchema.parse(existing);
+      }
     }
 
     const snapshotRows = await selectBulkSnapshot(tx, actor, parsed.selection);
@@ -2235,7 +2258,9 @@ export async function bulkDeleteTransactions(
     );
     return result;
   });
-  if (!removed.dryRun) ledgerWrites.inc({ operation: "bulk_delete" }, removed.updatedCount);
+  if (!removed.dryRun && !deleteReplayed) {
+    ledgerWrites.inc({ operation: "bulk_delete" }, removed.updatedCount);
+  }
   return removed;
 }
 

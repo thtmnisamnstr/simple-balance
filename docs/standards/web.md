@@ -629,7 +629,7 @@ is Binding is that the control points at it.
 **Second defect, from the same component.** `Field` is a wrapping `<label>`,
 which is correct around one control and wrong around a composite. `<Field
 label="Category">` wraps `CategoryLegs` at `src/client/forms.tsx:1098`, `:2174`
-and `:2737`, which renders up to fifty rows of three inputs.
+and `:2797`, which renders up to fifty rows of three inputs.
 The label binds to the first leg's `CategoryPicker`, which carries no
 `aria-label` of its own, so legs two onward have no accessible name at all, while
 the amount and note inputs in the same rows do. Give `Field` an `as="group"`
@@ -774,7 +774,7 @@ float. GOV.UK's reasons (accidental scroll increments, no feedback on a
 non-numeric entry) are secondary and point the same way.
 
 **Scope this exactly.** A blanket ban on `type="number"` in the client would
-fail on correct code: `src/client/forms.tsx:1186` and `:2768` both use it for
+fail on correct code: `src/client/forms.tsx:1186` and `:2860` both use it for
 the recurrence interval, with `min` and `max`, which is an integer count where a
 spinner is arguably right. The rule is: no `type="number"` on a field bound to a
 decimal-string money value.
@@ -1621,7 +1621,7 @@ is which.
    test past uniqueness.
 6. **No `type="number"` on a field bound to a decimal-string money value.**
    Scope it, or it fails on the recurrence interval at `forms.tsx:1186` and
-   `:2768` and gets deleted on first contact.
+   `:2860` and gets deleted on first contact.
 7. **`eslint-plugin-jsx-a11y`.** Covers label association and accessible names
    off the shelf, more cheaply than writing either.
 8. **Every form control is inside a `Field`**, once `Field` carries the full

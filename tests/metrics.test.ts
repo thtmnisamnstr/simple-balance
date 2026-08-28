@@ -181,20 +181,28 @@ describe("an MCP tool call", () => {
     expect(text).toContain("simple_balance_mcp_tool_duration_seconds_count{");
   });
 
-  it("counts a refusal as an error rather than as a call that worked", async () => {
+  /**
+   * What the wrapper cannot see, stated rather than implied.
+   *
+   * The counter wraps `registerTool`, so it runs only once the SDK has parsed
+   * the arguments against the tool's own schema and found the tool. A call the
+   * protocol refuses first — an argument the schema rejects, a tool that does
+   * not exist, a tool outside this connection's scope — never reaches it and is
+   * counted nowhere.
+   *
+   * This test used to assert that such a call was *not* counted as `ok`, which
+   * is true of a series that does not exist and would have been true of a
+   * counter that had never been wired up at all. It asserts the real shape now:
+   * nothing at all, which is a gap somebody may want to close by counting at
+   * the transport, and which the metric's help text names.
+   */
+  it("counts nothing for a call the protocol refuses before the tool runs", async () => {
     const client = await connect();
-    // A tool this connection holds, called with an argument its schema refuses,
-    // so the refusal comes from the tool rather than from the protocol.
     await client
       .callTool({ name: "list_transactions", arguments: { limit: -1 } })
       .catch(() => undefined);
     const text = await registry.metrics();
-    // Either the protocol refused it before the tool ran, in which case nothing
-    // is counted, or the tool refused it, in which case the outcome is `error`.
-    // What must not happen is a refusal counted as `ok`.
-    expect(text).not.toMatch(
-      /simple_balance_mcp_tool_calls_total\{[^}]*tool="list_transactions"[^}]*outcome="ok"/,
-    );
+    expect(text).not.toContain('tool="list_transactions"');
   });
 });
 
