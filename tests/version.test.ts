@@ -100,6 +100,36 @@ describe("the release version", () => {
    * what makes this the step that stops a release rather than one an operator
    * discovers is missing halfway through an upgrade.
    */
+  /**
+   * The next release's note, written before the version moves.
+   *
+   * The check below only looks at the release this build claims to be, so it
+   * passes on a repository with no note for the release about to be cut — and
+   * `npm run set-version` is the first act of cutting one, which turns a green
+   * suite red at the worst moment. Writing the note early is the fix; this is
+   * what makes writing it early *provable*, by asking the same question of the
+   * next patch version.
+   */
+  it("already has the note for the release after this one", () => {
+    const [major, minor, patch] = version.split("-")[0]!.split(".").map(Number);
+    const next = `${major}.${minor}.${(patch ?? 0) + 1}`;
+    const lines = read("docs/upgrades.md").split("\n");
+    const at = lines.indexOf(`## Before you upgrade to ${next}`);
+    expect(
+      at,
+      `docs/upgrades.md needs a line reading exactly "## Before you upgrade to ${next}" — ` +
+        "write it as the work lands, not as the release is cut",
+    ).toBeGreaterThan(-1);
+    const body = lines.slice(at + 1);
+    const end = body.findIndex((line) => line.startsWith("## "));
+    expect(
+      body
+        .slice(0, end === -1 ? undefined : end)
+        .join("\n")
+        .trim().length,
+    ).toBeGreaterThan(0);
+  });
+
   it("is the version the upgrade notes tell an operator about", () => {
     // A prerelease upgrades on to the same schema as the release it precedes,
     // so the note is headed with the release rather than with `-rc.1`.

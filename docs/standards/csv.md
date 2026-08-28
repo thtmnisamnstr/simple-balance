@@ -321,11 +321,11 @@ by name, `src/server/services/import-export.ts:186-344`).
 | `notes` | A person, formula-neutralised | Fallback only |
 | `roundtrip_text_json` | The reader | Yes, first |
 | `source_account_id` | A person | No |
-| `source_account_name` | A person | No |
+| `source_account_name` | A person, formula-neutralised | No |
 | `source_amount` | Both | Yes, for a withdrawal and a transfer |
 | `source_currency` | A person | No |
 | `destination_account_id` | A person | No |
-| `destination_account_name` | A person | No |
+| `destination_account_name` | A person, formula-neutralised | No |
 | `destination_amount` | Both | Yes, for a deposit and a transfer |
 | `destination_currency` | A person | No |
 | `effective_rate` | A person | No, recomputed from the two amounts |

@@ -3,6 +3,48 @@
 Everything persistent is in PostgreSQL. The container holds nothing you need to
 keep, so upgrading is swapping it for a newer one.
 
+## Before you upgrade to 0.1.6
+
+Nothing refuses to start that 0.1.5 accepted, and nothing about an existing
+configuration has to change. Four things are worth knowing.
+
+**One migration runs at startup, and it only adds.** It creates the two budget
+tables and the period-unit type they use. No existing table is rewritten and no
+column changes, so the pause is the length of two `create table` statements
+whatever the size of your ledger.
+
+**Two settings that used to be refused are now warnings.** A bounded integer out
+of range — `CSV_MAX_ROWS=50000`, `DATABASE_POOL_SIZE=0`, an empty
+`RECURRENCE_TICK_SECONDS` — starts the container, names itself in the log with
+the value it was given and the number in force instead, and runs on the default.
+So does a name set both ways, such as `DATABASE_URL` beside
+`DATABASE_URL_FILE`, where the environment variable wins as it always did. If
+you have been carrying one of these, this release tells you so for the first
+time; the release that refuses it is a later one.
+
+**Four `/api/v1` paths were renamed and the old spellings still answer.**
+`POST /accounts/{id}/archive` is now `/archived`, `POST /categories/{id}/archive`
+is now `/archived`, `POST /staged-transactions/delete` is now `/bulk-delete`, and
+`GET /staged/{id}/duplicate` is now `/staged-transactions/{id}/duplicate`. The old
+paths carry `Deprecation` and `Sunset` headers and stop answering after 1 March
+2027. Nothing you run needs changing today; a browser tab left open across the
+upgrade keeps working.
+
+**An agent's arguments are checked more strictly.** Every MCP tool now declares a
+closed argument object, so a tool call carrying a field the tool does not declare
+comes back as an error naming it rather than having the field dropped in silence.
+Nothing an agent could successfully do before is impossible now — the dropped
+field never had any effect — but a call that returned success may now return a
+failure, which is the point: an open object teaches a model that an argument it
+invented works.
+
+**New, and off unless you ask.** `METRICS_ENABLED=true` makes both the API and
+the scheduler answer `GET /metrics` in Prometheus' format, and `METRICS_TOKEN`
+puts a bearer token in front of it. A deployment that sets neither has no such
+route and nothing changes. `LOG_LEVEL` now governs this application's own log
+lines as well as the auth library's, so `warn` and `error` are quieter than they
+were; the first-run setup code prints at every level.
+
 ## Before you upgrade to 0.1.5
 
 Nothing refuses to start that 0.1.4 accepted, and nothing about an existing
@@ -142,12 +184,14 @@ This is the reason step 2 is not optional.
    split-deployment compose file and the Pulumi README. `tests/version.test.ts`
    checks every one of those against `package.json`, so a location the script
    forgets fails the suite rather than shipping.
-2. Write this release's `## Before you upgrade to 0.2.0` section at the top of
-   this file: what runs automatically, what an operator has to do by hand, what
-   changed under them, and what to check afterwards. Write it even when the
+2. Check this release's `## Before you upgrade to 0.2.0` section at the top of
+   this file, which should already be written: what runs automatically, what an
+   operator has to do by hand, what changed under them, and what to check
+   afterwards. Write it as the work lands rather than here — the suite asks for
+   the *next* version's note as well as this one's, so a release whose note was
+   left to the last minute has already been failing. Write it even when the
    answer is that nothing changed, because a missing heading and an unwritten
-   note look the same from the outside. `tests/version.test.ts` checks the
-   heading is there, so forgetting it fails the suite rather than the operator.
+   note look the same from the outside.
 3. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
    for you and the upgrade notes above send people there to read it.
 4. Add that release's migrations to the frozen list in `AGENTS.md`. Once an

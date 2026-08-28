@@ -381,6 +381,34 @@ describe("what the standards guides cite", () => {
     expect(landed).toEqual([]);
   });
 
+  /**
+   * Two numbers `web.md` opens with, held against the stylesheet.
+   *
+   * Both had gone stale by the time anybody counted: fifty-seven tokens where
+   * sixty are declared — three of them the subject of a section forty lines
+   * further down the same guide — and 3,349 lines where the file has 3,450. A
+   * number in a guide is checked by whoever recounts it, which is nobody, and
+   * these two carry an argument each: the token count is the inventory the
+   * "largest gap in this chapter" rests on, and the line count is what makes
+   * hand-written CSS a claim rather than a boast.
+   */
+  it("counts the stylesheet the way web.md says it does", () => {
+    const css = readFileSync("src/client/styles.css", "utf8");
+    const guide = readFileSync("docs/standards/web.md", "utf8");
+    const root = css.slice(css.indexOf(":root {"), css.indexOf("\n}", css.indexOf(":root {")));
+    const tokens = [...root.matchAll(/^\s+(--[a-z0-9-]+):/gm)].length;
+    // Newlines, not split parts: a file ending in a newline splits to one more
+    // than it has lines, and `wc -l` is what anybody checking this would run.
+    const lines = css.split("\n").length - (css.endsWith("\n") ? 1 : 0);
+    const words: Record<number, string> = { 57: "Fifty-seven", 60: "Sixty", 61: "Sixty-one" };
+    expect(guide, `styles.css declares ${tokens} tokens`).toContain(
+      `${words[tokens] ?? String(tokens)} tokens are declared`,
+    );
+    expect(guide, `styles.css is ${lines} lines`).toContain(
+      `${lines.toLocaleString("en-GB")} lines of hand-written CSS`,
+    );
+  });
+
   it("never cites a range backwards", () => {
     const backwards = all
       .filter((citation) => citation.to < citation.from)

@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,349 lines of hand-written CSS in
+Query for server state, and 3,450 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -63,8 +63,8 @@ media one (`:55`), and that each block declares `color-scheme`.
 
 ### 1.3 What is a token, and what is not
 
-**House, and the largest gap in this chapter.** Fifty-seven tokens are declared
-and all fifty-seven are a colour or a shadow made of colours. Nothing else in
+**House, and the largest gap in this chapter.** Sixty tokens are declared and
+all sixty are a colour or a shadow made of colours. Nothing else in
 the stylesheet is a token: not a space, not a radius, not a size, not a weight,
 not a duration, not a z-index, not a breakpoint. There is no stated rule for why
 `--shadow` earns a name and `13px` does not.
