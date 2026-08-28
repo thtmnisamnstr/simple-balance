@@ -415,14 +415,19 @@ contain them.
 **What this product picked:** environment variables for everything, with a
 `_FILE` escape hatch for secrets. `NAME_FILE` names a file whose contents are the
 value. It applies to `AUTH_SECRET`, `DATABASE_URL`, `DIRECT_DATABASE_URL`,
-`SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET` and `SETUP_TOKEN`, and to no setting.
+`SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`, `SETUP_TOKEN` and `METRICS_TOKEN`, and
+to no setting.
 **That line is the definition of the difference between a secret and a
 setting**: if it has a `_FILE` form it is a secret.
 
-Exactly one of `NAME` and `NAME_FILE` may be set. Both set refuses to start with
-the variable named, because a precedence rule means somebody eventually changes
-a value that has no effect. A `NAME_FILE` that cannot be read, or
-whose file is empty, refuses to start as well rather than resolving to nothing.
+Set one of `NAME` and `NAME_FILE`, never both. Both set warns and uses `NAME`,
+naming the file being ignored, because a change to that file will look like it
+worked and will not have. It refused to start for a while, which was the better
+rule read in isolation and the wrong one across an upgrade: `NAME` winning is
+what happened before `NAME_FILE` did anything at all, so a deployment that had
+both set kept the value it was already using. A `NAME_FILE` that cannot be read,
+or whose file is empty, still refuses to start rather than resolving to
+nothing — nobody was relying on that, because nothing worked.
 
 **That includes `SMTP_PASSWORD_FILE`, and it is worth saying why it does not
 break the mail invariant.** `AGENTS.md` says everything needing mail degrades
@@ -456,7 +461,7 @@ this application requires in order to work, and a deployment that sets none of
 them is unaffected.
 
 **Settled.** `resolveFileBackedSecrets` and `readSecret`
-(`src/server/config-files.ts`) read `NAME_FILE` for those six names.
+(`src/server/config-files.ts`) read `NAME_FILE` for those seven names.
 `SETUP_TOKEN` and `DIRECT_DATABASE_URL` are on the list because the litmus runs
 both ways: the first is the code that claims an instance and the second carries
 a password, so a set of four would have been this product quietly calling them
@@ -537,49 +542,41 @@ misconfigured.
 long, specific error and continues. State the rule and the exception in the same
 breath, because an unstated exception reads as a bug.
 
-**Settled, and the parsing is what changed.** There used to be a second
+**Settled twice, and the second time reversed the first.** There used to be an
 exception nobody had named as one: `boundedEnvironmentInteger` returned the
 default whenever the value was not a safe integer in range, so `CSV_MAX_ROWS`,
 `CSV_MAX_BYTES`, `RECURRENCE_TICK_SECONDS`, `RECURRENCE_CATCH_UP_LIMIT` and
 `RECURRENCE_CLAIM_LIMIT` all fell back silently while `DATABASE_POOL_SIZE` threw.
-The five now do what the one did. `boundedEnvironmentInteger`
-(`src/server/config-limits.ts:52-60`) refuses and names the variable, and
-`configuredDatabasePoolSize` (`src/server/config-limits.ts:78-84`) is that same
-function rather than the only one that behaved. Unset is the only thing that
-means the default; an empty value is something somebody typed, and it is not a
-number.
+The five were made to do what the one did, and then all six were made to warn
+instead, which is where they are now
+(`src/server/config-limits.ts:52-72`).
 
-Refusing was half of it. All five were read at the call site rather than at
-startup — `configuredCsvMaxRows()` inside an import
-(`src/server/services/import-export.ts:776`), the recurrence limits inside a
-tick — so a refusal would have arrived hours later in a log nobody was reading,
-or on a deployment that never imported a CSV, not at all.
-`assertConfiguredLimits()` (`src/server/config-limits.ts:162-169`) reads all six
-and `getConfig()` calls it (`src/server/config.ts:178-183`), which is a line
-every entrypoint runs before it serves anything. `DATABASE_POOL_SIZE` reached
-startup only by the accident that `reconcileArchivedAccountClosings()` at
-`src/server/index.ts:28` queries before `serve()`, so the first `getPool()`
-(`src/server/db/client.ts:13`) ran during startup; it no longer rests on that.
+**The reversal is the interesting half, and it is not a retreat from the rule.**
+A release upgrades cleanly from the one before it, which `AGENTS.md` states as a
+rule of its own: a setting that was accepted stays accepted, and the release that
+starts refusing it is a later one, after the warning has been in the field. A
+deployment carrying `CSV_MAX_ROWS=50000` since 0.1.4 was being quietly reduced to
+10,000 the whole time; refusing it at startup would have been correct in
+isolation and would have stopped that container on upgrade, which is the one
+thing this product promises not to do.
 
-The argument for the fallback was that a typo in a tuning number should not take
-the ledger down, and it is answered rather than waved away. The process refuses
-in front of whoever just deployed it, with the variable named, which is the
-moment a mistake costs least — against `CSV_MAX_ROWS=1O000` running for a year
-on a limit its operator never chose, which is exactly what
-`config.ts:217-219` already says about `RECURRENCE_SCHEDULER`.
-`docs/deployment.md:58-72` says the same in an operator's words, including that a
-value above a ceiling used to be quietly reduced and now has to be brought into
-range before the container starts.
+So the warning carries what the refusal would have said — the variable, the value
+it was given, the range it had to be in, and the number in force instead — and it
+is printed once per name at startup, in front of whoever just deployed. What was
+kept from the first pass is the part that mattered most: all six are read at
+startup rather than at the call site. `configuredCsvMaxRows()` used to run inside
+an import (`src/server/services/import-export.ts:776`) and the recurrence limits
+inside a tick, so a message about either arrived hours later in a log nobody was
+reading, or on a deployment that never imported a CSV, not at all.
+`assertConfiguredLimits()` (`src/server/config-limits.ts:155-162`) reads all six
+and `getConfig()` calls it (`src/server/config.ts:178-183`), which every
+entrypoint runs before it serves anything.
 
-*Checked by:* `tests/config.test.ts` for the strict half and for the startup
-refusal itself ("refuses to start when %s is not a whole number in range", over
-all six, through `getConfig()` rather than through the parser).
-`tests/config-limits.test.ts` covers the parser: "accepts positive bounded
-integer overrides", "refuses invalid override %s rather than quietly using the
-default" over `NaN`, `0`, `-1`, `1.5`, a number past the ceiling and the empty
-string, "leaves an unset limit on its default", and a case per variable that the
-startup check names the one that was wrong. The test that pinned the silent
-fallback is gone, which is what adopting the rule meant.
+*Checked by:* `tests/config.test.ts` ("warns and falls back when %s is not a
+whole number in range", over all six, through `getConfig()` rather than through
+the parser) and `tests/config-limits.test.ts` for the parser: "accepts positive
+bounded integer overrides", "leaves an unset limit on its default", and a case
+per variable naming the one that was wrong.
 
 ### Documenting a variable
 
@@ -637,7 +634,7 @@ name in the message.
 
 The root file is the model for all five. `AUTH_SECRET=` is empty with
 `openssl rand -base64 32` above it (`.env.example:8-13`),
-`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:76-80`),
+`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:77-81`),
 and the mail block is commented out as a group (`.env.example:31-51`).
 
 It also does one thing beyond the rule, worth generalising: it warns about
@@ -1015,8 +1012,10 @@ keep, so upgrading is swapping it for a newer one." Backup and restore is
 `pg_dump --format=custom` and `pg_restore`, under "Backups" in
 `docs/deployment.md`, and the reason it must be written down even though it is
 two commands is that an operator who cannot find the sentence assumes there is
-more to it. The sixth is covered outright now that the bounded integers refuse
-rather than falling back.
+more to it. The sixth is where the answer is "warn and carry on" rather than
+"refuse": a bounded integer out of range names itself at startup and runs on the
+default, which is a deliberate trade against a deployment that has been carrying
+a bad value since a release that accepted it.
 
 *Not checked mechanically.* "No unconfigured outbound connection" would be a grep
 over `src/server` for network calls with an allow-list, which does not exist.
@@ -1101,7 +1100,8 @@ marked **Settled**.
 
 Nothing is outstanding. The four rows this table last carried have landed, and
 each is recorded above as **Settled** with the test that holds it: the bounded
-integers refuse at startup, the two example files and the deployment tables name
+integers are read at startup and warn by name, the two example files and the
+deployment tables name
 the same variables with the exceptions written down, every image pins its bases
 by digest and labels them, and the scheduler checks the transport it sends
 every scheduled message over. An empty table is a claim, so it is worth saying

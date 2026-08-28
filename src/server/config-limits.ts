@@ -140,24 +140,17 @@ export function configuredRecurrenceClaimLimit() {
 }
 
 /**
- * Reads every bounded integer once, at startup, so a wrong one is a process
- * that will not start rather than a limit nobody ever sees.
- *
- * Refusing is only half the rule: each of these is otherwise read at the moment
- * it is wanted — `CSV_MAX_ROWS` inside an import, the recurrence limits inside a
- * tick — which is hours or days after the operator who set it stopped watching,
- * and for a variable nothing on the deployment happens to exercise, never.
- * `getConfig()` calls this, so every entrypoint reaches it before it serves
- * anything, the way `DATABASE_POOL_SIZE` was only reached by the accident of a
- * query running before the listener opened.
- */
-/**
  * Read every bounded integer once, at startup, so a typo is reported in front of
  * whoever just deployed rather than on the first CSV import or the first
  * scheduler tick — which for a tick interval could be minutes later and in a
- * different container's log.
+ * different container's log, and for a variable nothing on the deployment
+ * exercises, never at all. `getConfig()` calls this, so every entrypoint reaches
+ * it before it serves anything, rather than resting on the accident that made
+ * `DATABASE_POOL_SIZE` work: a query that happened to run before the listener
+ * opened.
  *
- * It reports; it does not refuse. See `boundedEnvironmentInteger`.
+ * It reports; it does not refuse. See `boundedEnvironmentInteger` for why, which
+ * is the upgrade rule rather than a softer view of typos.
  */
 export function assertConfiguredLimits() {
   configuredCsvMaxBytes();
