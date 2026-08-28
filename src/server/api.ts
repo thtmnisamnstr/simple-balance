@@ -203,6 +203,10 @@ app.use("*", async (c, next) => {
     // it is the difference between a log an operator can follow and a log that
     // says a request happened somewhere. Nothing in a query string is written:
     // filters carry payees and search terms, which is somebody's ledger.
+    //
+    // Built whether or not `debug` is on, because `log` takes the finished
+    // string: one template literal against a request that has just been through
+    // the database, which is not worth a predicate at two call sites.
     log.debug(`${c.req.method} ${c.req.path} ${c.res.status} in ${Date.now() - startedAt}ms`);
   }
 });

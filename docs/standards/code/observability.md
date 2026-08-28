@@ -56,11 +56,11 @@ than exempting the labels we add ourselves.
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (`src/server/api.ts:223-230`) reads Hono's matched
+one per account. `routeLabel` (src/server/api.ts:227-234`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labelled by its prefix from a fixed list
-(`:221`), and a path that matched nothing at all is one literal, because a
+(`:225`), and a path that matched nothing at all is one literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
 *Checked by:* `tests/metrics.test.ts`, which asks for `/api/v1/accounts/<uuid>`
@@ -71,7 +71,7 @@ paths and insists both land under one name.
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(`src/server/api.ts:234`) — registered rather than refusing, so a deployment
+(src/server/api.ts:238`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labelled increment costs about 130ns and does
@@ -179,6 +179,14 @@ proposed a row, sent a reminder or failed at either is `info`, and a tick that
 found nothing due is `debug`. Most ticks find nothing, and an `info` line every
 five minutes saying so is how a log stops being read.
 
+**A line's message is built whether or not its level is on**, because `log`
+takes the finished string. For the two per-request lines that is one template
+literal against a request that has just been through the database, which is not
+worth an `enabled()` predicate and the two call sites that would then have to
+remember to use it. It would be worth it for a line that had to serialise
+something to say itself; there is no such line, and adding one is the moment to
+revisit this.
+
 **`announce` is not a fifth level.** It prints at any setting and exists for the
 handful of lines that are the product's only channel for something the operator
 must have — today the first-run setup code, and nothing else. `LOG_LEVEL=warn`
@@ -205,7 +213,7 @@ The four sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (`src/server/api.ts:206`) and never the query string, because a filter carries
+  (src/server/api.ts:210`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
   (`src/server/mcp.ts:569`) and never the arguments, which are somebody's ledger
