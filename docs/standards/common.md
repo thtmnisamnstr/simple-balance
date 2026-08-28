@@ -124,7 +124,7 @@ Worked sentences, so the voice is not reinvented per site:
 | Version conflict, browser | This changed while you were editing it. Reload to see the current version |
 | Version conflict, agent | This changed since you read it. Read it again and retry with the version in `details.currentVersion` |
 | Idempotent replay | This was already saved |
-| Stale bulk fingerprint | The selection changed. Preview the selection again and retry |
+| Stale bulk fingerprint | The rows this was about have changed. Preview the selection again and retry with the count and fingerprint it returns |
 | Cursor under a changed ordering | This page marker was issued for a different order. Start from the first page |
 | Row belongs to another tenant | Not found |
 

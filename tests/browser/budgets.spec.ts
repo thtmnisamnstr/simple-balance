@@ -442,10 +442,14 @@ test.describe("the budgets page in a browser", () => {
     });
 
     expect(archived.status(), await archived.text()).toBe(200);
-    // It works, and it says it is going away, and when.
-    expect(archived.headers()["deprecation"]).toBe("true");
-    expect(archived.headers()["sunset"]).toBeTruthy();
+    // It works, and it says it is going away, and when. `Deprecation` carries a
+    // date rather than `true`: RFC 9745 supersedes the draft that spelled it as
+    // a boolean, and this test pinned the draft's spelling while the sunset it
+    // never read was a date already in the past.
+    expect(archived.headers()["deprecation"]).toMatch(/^@\d+$/);
+    expect(new Date(archived.headers()["sunset"]!).getTime()).toBeGreaterThan(Date.now());
     expect(archived.headers()["link"]).toContain("successor-version");
+    expect(archived.headers()["link"]).toContain('rel="deprecation"');
   });
 
   test("reads a staged duplicate through the path the previous release used", async () => {
@@ -457,6 +461,6 @@ test.describe("the budgets page in a browser", () => {
     );
     const body = await response.text();
     expect(body, body).toContain("NOT_FOUND");
-    expect(response.headers()["deprecation"]).toBe("true");
+    expect(response.headers()["deprecation"]).toMatch(/^@\d+$/);
   });
 });

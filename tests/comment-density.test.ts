@@ -72,4 +72,24 @@ describe("comment density", () => {
       ).toBeLessThanOrEqual(TOLERANCE);
     }
   });
+
+  /**
+   * The raw pair, held tighter than the percentage.
+   *
+   * `comments.md` quotes both a percentage and the counts behind it, and the
+   * counts went stale twice while the percentage stayed inside its band: a
+   * band wide enough to survive a normal week's edits is wide enough to hide
+   * three hundred lines. The counts are the thing somebody would recompute to
+   * check the percentage, so they are the thing worth pinning exactly.
+   */
+  it("quotes counts that add up to the percentage beside them", () => {
+    const guide = readFileSync(path.join(repoRoot, "docs/standards/code/comments.md"), "utf8");
+    const pair = /\*\* — ([\d,]+) of ([\d,]+)\./.exec(guide);
+    expect(pair, "comments.md should quote `N of M` beside the percentage").not.toBeNull();
+    const asNumber = (value: string) => Number(value.replaceAll(",", ""));
+    expect(
+      { comments: asNumber(pair![1]!), lines: asNumber(pair![2]!) },
+      "recount with the measure in this file",
+    ).toEqual({ comments: measured.comments, lines: measured.lines });
+  });
 });

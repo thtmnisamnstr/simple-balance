@@ -53,18 +53,35 @@ export const conflict = (message: string, details?: unknown) =>
  * "a refusal offers the move that works" rule failing one level down — the same
  * fault as telling an agent to refresh, one field deeper.
  */
-const carriesCurrentVersion = (details: unknown) =>
-  typeof details === "object" && details !== null && "currentVersion" in details;
+const carries = (details: unknown, key: string) =>
+  typeof details === "object" && details !== null && key in details;
 
+/**
+ * The same fault twice over, and the second one has no version to offer.
+ *
+ * A mass change describes its set with a count and a fingerprint rather than
+ * with a version, so when the set has moved underneath it there is nothing to
+ * "retry with the version it reports": the move that works is previewing the
+ * selection again, which is what issues the next count and fingerprint. Both
+ * messages said to read the row again, which is advice a caller cannot take on
+ * a refusal that is not about a row.
+ *
+ * The code stays `STALE_VERSION` either way. It is the same event and a client
+ * keying on the code has been seeing it since 0.1.4; only the sentence changes.
+ */
 export const staleVersion = (details?: unknown) =>
   new AppError(
     "STALE_VERSION",
-    "This changed while you were editing it. Reload to see the current version.",
+    carries(details, "currentFingerprint")
+      ? "The rows this was about have changed. Preview the selection again and retry with the count and fingerprint it returns."
+      : "This changed while you were editing it. Reload to see the current version.",
     409,
     details,
-    carriesCurrentVersion(details)
-      ? "This changed since you read it. Read it again and retry with the version in details.currentVersion."
-      : "This changed since you read it. Read it again and retry with the version it reports.",
+    carries(details, "currentFingerprint")
+      ? "The selected set has changed since it was previewed. Preview the selection again and send the count and fingerprint it returns."
+      : carries(details, "currentVersion")
+        ? "This changed since you read it. Read it again and retry with the version in details.currentVersion."
+        : "This changed since you read it. Read it again and retry with the version it reports.",
   );
 
 export const duplicate = (message: string, details?: unknown) =>

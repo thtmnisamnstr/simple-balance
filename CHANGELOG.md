@@ -242,7 +242,7 @@ that followed writing them.
 and Prettier. TypeScript 7 forced the linter question — typescript-eslint does
 not run on it — and the formatter was measured rather than assumed: oxfmt
 reflowed no comment prose in a repository whose comments were 14.9% of its
-non-blank source lines at the time, and are 16.8% now. Neither is visible in the
+non-blank source lines at the time, and are 17.1% now. Neither is visible in the
 running application. Adopting the formatter reformatted the tree once, and two
 Pulumi deployment files are nothing but that reflow; no other file changed shape
 without a reason beside it.

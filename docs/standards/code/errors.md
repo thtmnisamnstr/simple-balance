@@ -33,10 +33,10 @@ ban — each of the five carries the reason it cannot happen, and a sixth throw
 fails until somebody writes down which kind it is. Whether the reason is honest
 is still review; whether the throw was thought about at all is now a test.
 
-## 2. Six constructors, and choosing between them
+## 2. Five constructors, and choosing between them
 
-**Binding.** Never construct `AppError` directly; use the constructor that names
-the situation.
+**Binding in `src/server/services`.** Never construct `AppError` directly there;
+use the constructor that names the situation.
 
 | Constructor | Status | Use when |
 | --- | --- | --- |
@@ -45,6 +45,24 @@ the situation.
 | `staleVersion` | 409 | Specifically: it moved since they read it. |
 | `duplicate` | 409 | A name or a reference already exists. |
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
+
+**The transport is the named exception, and it is five lines.**
+`src/server/api.ts` constructs `AppError` directly at `:978`, `:1023`, `:1032`,
+`:1045` and `:1057`. Two of the five carry codes a constructor covers
+(`VALIDATION_ERROR` twice) and three carry codes no service raises at all:
+`FORBIDDEN` and `REAUTHENTICATION_REQUIRED` belong to the two operations that
+are reachable from a session and never from a token, which is exactly the pair
+`AGENTS.md` names as the boundary between the surfaces. A constructor for them
+would put a transport-only code in the service vocabulary that `ServiceErrorCode`
+narrows on purpose.
+
+So the rule is scoped rather than absolute: a service uses the constructors, and
+the transport may name a status the service half has no word for. The two
+`VALIDATION_ERROR` sites should use `validationError` and do not; that is a
+defect rather than an exception, and it is recorded here rather than filed away.
+
+*Checked by:* `tests/service-errors.test.ts` for the service half, which is
+where the rule bites. Nothing checks the transport half.
 
 ### 2.1 "Not yours" is "not found"
 

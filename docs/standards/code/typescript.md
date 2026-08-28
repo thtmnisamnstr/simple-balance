@@ -84,7 +84,7 @@ several comments that discuss `any` do not read as uses of it.
 
 ### 2.2 Assertions are rare and each has a reason
 
-**House.** One `as unknown as` in the whole of `src`, and **136 non-null
+**House.** One `as unknown as` in the whole of `src`, and **137 non-null
 assertions across 33 files**. Neither number is zero and neither should be: a
 `!` after a lookup that a database constraint guarantees is honest, and the
 alternative is a branch that cannot be reached and cannot be tested.
@@ -95,7 +95,7 @@ alternative was making every field optional for one call site. It was three when
 this was written and two of the three went while the code was being brought to
 this guide, which is the number moving the right way.
 
-136 is higher than it looks like it should be, and 1.4 explains most of it —
+137 is higher than it looks like it should be, and 1.4 explains most of it —
 without `noUncheckedIndexedAccess`, indexing an array gives a non-optional type,
 so the assertions that exist are the ones somebody added anyway. Adopting that
 flag would raise this number a great deal before lowering it.

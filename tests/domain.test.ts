@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { staleVersion } from "../src/server/services/errors.js";
 import {
   decimalStringSchema,
   accountCreateSchema,
@@ -736,5 +738,37 @@ describe("the budget report's query flags", () => {
       });
       expect(parsed.success, `includeArchived=${value || "(empty)"} must be refused`).toBe(false);
     }
+  });
+});
+
+/**
+ * The worked sentences in `common.md`, against the ones the code sends.
+ *
+ * That table is published as the product's own wording and nothing held it to
+ * the code. The stale-fingerprint row read "The selection changed. Preview the
+ * selection again and retry", which nothing has ever sent: a fingerprint
+ * mismatch threw the generic version conflict, so a caller was told to reload
+ * and read the row again — on a refusal that is not about a row and has no
+ * version to retry with.
+ */
+describe("the refusal a stale bulk selection sends", () => {
+  it("offers the move that works, which is previewing again", () => {
+    const refusal = staleVersion({
+      expectedCount: 3,
+      currentCount: 4,
+      expectedFingerprint: "abc",
+      currentFingerprint: "def",
+    });
+    expect(refusal.code).toBe("STALE_VERSION");
+    expect(refusal.message).toContain("Preview the selection again");
+    expect(refusal.agentMessage).toContain("Preview the selection again");
+    const guide = readFileSync(new URL("../docs/standards/common.md", import.meta.url), "utf8");
+    expect(guide).toContain(refusal.message.replace(/\.$/, ""));
+  });
+
+  it("still tells a caller holding one row to read that row again", () => {
+    const refusal = staleVersion({ currentVersion: 7 });
+    expect(refusal.message).toContain("Reload");
+    expect(refusal.agentMessage).toContain("details.currentVersion");
   });
 });
