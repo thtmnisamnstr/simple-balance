@@ -352,6 +352,23 @@ record somebody names is protected by its name being unique, so a second submit
 fails instead of duplicating. Only creates that write postings, which have no
 natural key, need the key.
 
+Merging two categories can be asked for twice. It is the one write on the API
+that nothing protected: a retry after a timeout carries the versions the caller
+read before the first attempt, so a merge that had in fact succeeded answered
+its own retry with a stale-version refusal, which reads as "it did not happen"
+about one that did. `POST /categories/merge` and `merge_categories` now take an
+optional `idempotencyKey`, exactly as the payee merge beside them always has,
+and the browser sends one per merge rather than per click. Optional because a
+0.1.5 client sends nothing; requiring it is a later release's job.
+
+The auth, consent and setup routes answer in a shape the browser's own error
+reader can see. Fourteen of them returned a flat `{code, message}` while the
+reader looks inside `error`, so a wrong password produced a request that had
+plainly failed and no sentence saying why. They send both halves now, and each
+Zod field error carries a dotted `field` beside what it already had. Nothing was
+taken away: a client reading either shape still works, and dropping the older
+half waits for a release where it has been deprecated first.
+
 ## 0.1.5 - 2026-08-22
 
 ### Added
