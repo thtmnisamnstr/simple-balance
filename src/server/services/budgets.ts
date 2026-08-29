@@ -1460,6 +1460,17 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
  * entry, and the fold may still change it — that is what a group budget that
  * rolls over or works itself out means.
  */
+/**
+ * A group's history follows its current members, and that is a choice.
+ *
+ * Membership is a column on the category rather than a record of when it moved,
+ * so moving Groceries into "Fixed costs" today changes what that group spent
+ * last March. The alternative is dating the membership, which is a table and a
+ * second history to keep straight for a figure nobody reconciles against
+ * anything. What makes this safe is that no money moves: a group is a way of
+ * reading categories, the categories' own rows are untouched, and the ledger
+ * says exactly what it said before.
+ */
 function fillGroupRows(
   periods: Map<string, BudgetPeriodView>,
   groups: readonly { id: string; name: string; policy: BudgetGroupPolicy }[],

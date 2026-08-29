@@ -287,7 +287,10 @@ figure on the page wrong in the same direction. Put a category in a group by
 editing it.
 
 A group's line appears above the categories on the budget page, with what its
-categories spent between them. Nothing on a transaction ever names a group, so
+categories spent between them. Moving a category into a group changes what that
+group spent in every past period too, because a group is a way of reading
+categories rather than a record of where they used to be. Nothing about the
+categories themselves changes. Nothing on a transaction ever names a group, so
 grouping changes no figure until you budget one, and deleting a group leaves
 every category exactly where it was.
 

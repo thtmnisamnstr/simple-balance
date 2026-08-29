@@ -765,6 +765,12 @@ cannot emit that, so the tenant check moved to `resolveCategoryGroup`, on the
 one path that writes the column, with
 `tests/integration/tenant-isolation.integration.test.ts` holding it there.
 
+A group's history follows its current members: moving a category into a group
+changes what that group spent last March too. Dating the membership would be a
+second history to keep straight for a figure nothing reconciles against, and
+what makes the choice safe is that no money moves — the categories' own rows are
+untouched and the ledger says exactly what it said before.
+
 Deleting a group leaves every category exactly where it was and takes the
 group's own budget with it. Both fall out of the foreign keys rather than out of
 a sweep somebody has to remember, which is what keeps them true of a delete that
