@@ -30,6 +30,7 @@ const report: BudgetReport = {
   start: "2026-03-01",
   asOf: "2026-03-31",
   otherPeriodUnits: [],
+  rollover: null,
   periods: [
     {
       periodStart: "2026-03-01",
@@ -39,6 +40,8 @@ const report: BudgetReport = {
       currency: "GBP",
       budgeted: "700",
       spent: "845",
+      carriedIn: "0",
+      available: "0",
       rows: [
         {
           categoryId: groceries,
@@ -47,6 +50,9 @@ const report: BudgetReport = {
           actual: "245",
           remaining: "-45",
           source: "plan",
+          carriedIn: null,
+          available: null,
+          carriedOut: null,
         },
         {
           categoryId: rent,
@@ -55,6 +61,9 @@ const report: BudgetReport = {
           actual: "500",
           remaining: "0",
           source: "entry",
+          carriedIn: null,
+          available: null,
+          carriedOut: null,
         },
         {
           categoryId: transport,
@@ -63,6 +72,9 @@ const report: BudgetReport = {
           actual: "10",
           remaining: "90",
           source: "plan",
+          carriedIn: null,
+          available: null,
+          carriedOut: null,
         },
         {
           categoryId: null,
@@ -71,6 +83,9 @@ const report: BudgetReport = {
           actual: "100",
           remaining: null,
           source: "none",
+          carriedIn: null,
+          available: null,
+          carriedOut: null,
         },
       ],
     },
@@ -171,6 +186,8 @@ describe("the budgets page", () => {
           ...report.periods[0]!,
           budgeted: "200",
           spent: "0",
+          carriedIn: "0",
+          available: "0",
           rows: [
             {
               categoryId: groceries,
@@ -179,6 +196,9 @@ describe("the budgets page", () => {
               actual: "0",
               remaining: "200",
               source: "plan",
+              carriedIn: null,
+              available: null,
+              carriedOut: null,
             },
           ],
         },
@@ -414,5 +434,73 @@ describe("the budgets page", () => {
     stub({ ...report, periods: [] });
     renderBudgets();
     expect(await screen.findByText(/Nothing budgeted in this range/)).toBeInTheDocument();
+  });
+
+  /**
+   * The carry columns, which appear only where something carries.
+   *
+   * A ledger that has never ticked the box would otherwise grow two columns of
+   * dashes, which says a budget has a feature it does not have.
+   */
+  it("shows what was carried in only when a budget carries something", async () => {
+    stub(report);
+    renderBudgets();
+    expect(await screen.findByRole("rowheader", { name: /Groceries/ })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Carried in" })).not.toBeInTheDocument();
+
+    stub({
+      ...report,
+      rollover: { from: "2026-01-01", clipped: false },
+      periods: [
+        {
+          ...report.periods[0]!,
+          carriedIn: "60",
+          available: "260",
+          rows: [
+            {
+              categoryId: groceries,
+              category: "Groceries",
+              limit: "200",
+              actual: "245",
+              remaining: "15",
+              source: "plan",
+              carriedIn: "60",
+              available: "260",
+              carriedOut: "15",
+            },
+          ],
+        },
+      ],
+    });
+    renderBudgets();
+    expect(await screen.findByRole("columnheader", { name: "Carried in" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Available" })).toBeInTheDocument();
+    // And the page says how far back the figure was worked out from, because a
+    // carry with no visible history is a number nobody can check.
+    expect(screen.getByText(/worked out from/i)).toBeInTheDocument();
+  });
+
+  it("says when the carry was folded from as far back as it looks", async () => {
+    stub({
+      ...report,
+      rollover: { from: "2020-01-01", clipped: true },
+      periods: [
+        {
+          ...report.periods[0]!,
+          carriedIn: "10",
+          available: "210",
+          rows: [
+            {
+              ...report.periods[0]!.rows[0]!,
+              carriedIn: "10",
+              available: "210",
+              carriedOut: "0",
+            },
+          ],
+        },
+      ],
+    });
+    renderBudgets();
+    expect(await screen.findByText(/as far back as this page looks/i)).toBeInTheDocument();
   });
 });

@@ -58,7 +58,7 @@ bug.
 ### 2.1 Money is `numeric(44, 18)`
 
 **Binding.** `AGENTS.md`. Every amount column, without exception
-(src/server/db/schema.ts:273).
+(src/server/db/schema.ts:275).
 Drizzle returns `numeric` as a string, which is exactly what the rest of the
 codebase wants, so nothing casts.
 
@@ -74,7 +74,7 @@ else at some other scale would pass.
 ### 2.2 An enum column is generated from the shared tuple
 
 **Binding.** `pgEnum` takes the same `as const` array the domain and the UI use
-(src/server/db/schema.ts:194).
+(src/server/db/schema.ts:195).
 There is no second list of the members anywhere.
 
 *Checked by:* `npm run typecheck`, in both directions. A member the schema drops

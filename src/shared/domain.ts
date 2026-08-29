@@ -1276,6 +1276,19 @@ export const budgetPeriodUnits = [
 export type BudgetPeriodUnit = (typeof budgetPeriodUnits)[number];
 
 /**
+ * How a plan's per-period amount is arrived at.
+ *
+ * Stored, and never asked for. There is no method chooser in this product and
+ * the word does not appear on the page: a budget with a target and a date is a
+ * sinking fund because of what it says, not because somebody picked "sinking
+ * fund" from a list. The column exists so the check constraints can hold the
+ * parameters to the shape they belong to, and so a reader of the row can tell
+ * which arithmetic produced the figure.
+ */
+export const budgetAmountRules = ["fixed", "sinking_fund"] as const;
+export type BudgetAmountRule = (typeof budgetAmountRules)[number];
+
+/**
  * A budget may be zero, which is a real budget meaning "anything here is over".
  * It may not be negative. Without this the value travelled all the way to the
  * table's check constraint and came back as a 500 with a stack trace, for what
@@ -1334,6 +1347,100 @@ export const queryBooleanSchema = queryBoolean(false);
  * exchange rate that is not the rate some transfer actually got, and a
  * converted total would be the one figure on the page nobody could check.
  */
+/**
+ * What a budget does with the difference at the end of a period.
+ *
+ * Shared by create and update so the two cannot drift, and written as one
+ * object because the three fields are one decision. Off, this is a limit that
+ * starts again every period. On, it is an envelope: what was not spent belongs
+ * to the next period and what was overspent is owed by it. A target turns the
+ * same machinery into a sinking fund, which funds itself over the periods
+ * between now and the date it is needed.
+ */
+const budgetCarry = {
+  rollover: z
+    .boolean()
+    .optional()
+    .describe(
+      "Carry the difference into the next period: what is left over is added to it, and an overspend is subtracted from it as a debt. Off, which is the default, means every period starts again at the amount. This stores nothing per period — the carry is worked out from the same plans, entries and postings the figures already come from.",
+    ),
+  rolloverCap: decimalStringSchema
+    .nullable()
+    .optional()
+    .describe(
+      "The most that may be carried in either direction, or null for no limit. It is symmetric: a fund nobody has drawn on for three years and a category three thousand in debt to itself are the same runaway. Only meaningful with rollover on.",
+    ),
+  targetAmount: decimalStringSchema
+    .nullable()
+    .optional()
+    .describe(
+      "Turn this budget into a sinking fund saving up for this much. The amount for each period is worked out rather than fixed: what is still needed, divided by the periods left before targetDate. Requires targetDate and rollover, since a fund that does not keep what it saved saves nothing.",
+    ),
+  targetDate: isoDateSchema
+    .nullable()
+    .optional()
+    .describe(
+      "The date the target amount is needed by. Requires targetAmount. Once the fund is full, or the date has passed, the amount for each period is nothing.",
+    ),
+};
+
+/**
+ * The rules that hold the carry fields to each other.
+ *
+ * Refused here rather than by a check constraint: the constraint arrives as a
+ * 500 with a stack trace for what is only ever an incomplete form, and the
+ * sentence somebody reads should say which of the two halves is missing.
+ *
+ * Written as three predicates applied by hand at each schema rather than as a
+ * wrapper around both. A wrapper would have to be generic over the schema it
+ * refines, and a generic wrapper returns a plain `ZodType` — which drops
+ * `.extend()`, and `src/server/mcp.ts` extends both of these to add an
+ * idempotency key.
+ */
+type BudgetCarryFields = {
+  rollover?: boolean | undefined;
+  rolloverCap?: string | null | undefined;
+  targetAmount?: string | null | undefined;
+  targetDate?: string | null | undefined;
+};
+
+/** Zero or below, read off the text rather than by parsing to a float. */
+const decimalIsNegativeOrZero = (value: string) => {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("-")) return true;
+  return /^\+?0*(\.0*)?$/.test(trimmed);
+};
+
+const carryHalves = (value: BudgetCarryFields) =>
+  (value.targetAmount == null) === (value.targetDate == null);
+const carryHalvesMessage = {
+  message:
+    "A sinking fund needs both an amount to save and a date to have it by. Send both, or neither.",
+  path: ["targetDate"],
+};
+
+const sinkingFundRolls = (value: BudgetCarryFields) =>
+  value.targetAmount == null || value.rollover !== false;
+const sinkingFundRollsMessage = {
+  message:
+    "A sinking fund has to carry what it saved into the next period, so rollover cannot be off.",
+  path: ["rollover"],
+};
+
+const targetIsPositive = (value: BudgetCarryFields) =>
+  value.targetAmount == null || !decimalIsNegativeOrZero(value.targetAmount);
+const targetIsPositiveMessage = {
+  message: "A sinking fund's target has to be more than nothing.",
+  path: ["targetAmount"],
+};
+
+const capIsNotNegative = (value: BudgetCarryFields) =>
+  value.rolloverCap == null || !value.rolloverCap.trimStart().startsWith("-");
+const capIsNotNegativeMessage = {
+  message: "A carry cap cannot be negative. It applies in both directions.",
+  path: ["rolloverCap"],
+};
+
 export const budgetPlanCreateSchema = z
   .object({
     ...budgetTarget,
@@ -1345,12 +1452,17 @@ export const budgetPlanCreateSchema = z
       .describe(
         "The last period this budget applies to, named by any date inside it: the value is snapped back to that period's first day, and the budget covers the whole of it. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
       ),
+    ...budgetCarry,
   })
   .strict()
   .refine((value) => value.activeTo == null || value.activeTo >= value.activeFrom, {
     message: "A budget cannot end before it starts.",
     path: ["activeTo"],
-  });
+  })
+  .refine(carryHalves, carryHalvesMessage)
+  .refine(sinkingFundRolls, sinkingFundRollsMessage)
+  .refine(targetIsPositive, targetIsPositiveMessage)
+  .refine(capIsNotNegative, capIsNotNegativeMessage);
 
 export const budgetPlanUpdateSchema = z
   .object({
@@ -1364,9 +1476,19 @@ export const budgetPlanUpdateSchema = z
       .describe(
         "The last period this budget applies to, named by any date inside it: the value is snapped back to that period's first day, and the budget covers the whole of it. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
       ),
+    ...budgetCarry,
     expectedVersion: expectedVersionSchema,
   })
-  .strict();
+  .strict()
+  // The same four rules as a create, and they read the patch rather than the
+  // row: a field left out keeps what the row already had, so the service fills
+  // the gaps from the stored plan and re-checks the pair. What is caught here
+  // is a patch that is wrong on its own terms — a target amount with no date
+  // beside it, a fund told not to roll over.
+  .refine(carryHalves, carryHalvesMessage)
+  .refine(sinkingFundRolls, sinkingFundRollsMessage)
+  .refine(targetIsPositive, targetIsPositiveMessage)
+  .refine(capIsNotNegative, capIsNotNegativeMessage);
 
 /** One period's amount, overriding whatever a plan would have said. */
 export const budgetEntrySetSchema = z
@@ -1424,6 +1546,22 @@ export const cashAccountTypes = ["checking", "savings", "cash"] as const;
  * memory. Refused with the coarser bucket named, rather than served slowly.
  */
 export const MAX_REPORT_BUCKETS = 600;
+
+/**
+ * How far back a rollover carry is folded before the periods being reported.
+ *
+ * A carry depends on every period since the budget started, so a budget running
+ * since 2019 asked for one month in 2026 is eighty periods of arithmetic to
+ * answer a question about one. That is fine and it is also unbounded, which is
+ * the shape of a page that gets slower every month it exists.
+ *
+ * So the fold has a bound, and a report that hit it says so rather than
+ * quietly reporting a carry that started from nothing in the middle of a
+ * budget's life. Ten years of months, two and a half of weeks: long enough that
+ * nobody meets it by accident, short enough that the query behind it stays one
+ * indexed scan.
+ */
+export const MAX_ROLLOVER_PERIODS = 120;
 
 /**
  * The most postings one register will list. Refused rather than truncated: a

@@ -154,7 +154,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 (src/shared/domain.ts:97-98.)
 
 The array is the single source: Zod validates from it, the database enum is
-generated from it (src/server/db/schema.ts:194),
+generated from it (src/server/db/schema.ts:195),
 and the UI iterates it (`src/client/pages/CategoriesPage.tsx:111`).
 Adding a member is one edit, and every one of those follows.
 

@@ -120,6 +120,23 @@ special was written for them.
 Deleting a budget leaves the books exactly as they were, because it never
 touched them.
 
+**A budget can carry what a period did not spend into the next one**, which is
+the whole of envelope budgeting, and it carries an overspend forward too, as a
+debt against the next period rather than something the calendar forgives. A cap
+holds the carry inside a number in both directions. Nothing is stored per
+period: the carried figures are folded at read time from the same plans, entries
+and postings every other figure comes from, so turning it off leaves nothing
+behind and a back-dated correction changes every period after it. The fold
+reaches back to the budget's own start, up to ten years of months, and a report
+that stopped at the bound says so rather than reporting a carry that began from
+nothing part way through.
+
+**A budget can be saving up for something**, which is the same machinery with a
+target and a date: each period puts aside what is still needed divided by the
+periods left, the figure adjusts as the fund fills, and it asks for nothing once
+it is full. There is no amount to type and no method to pick — a budget with a
+target and a date is a sinking fund because of what it says.
+
 ### Changed
 
 A numeric setting outside its range says so at startup instead of falling back

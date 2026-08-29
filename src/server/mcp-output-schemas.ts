@@ -3,6 +3,7 @@ import {
   accountTypes,
   actorSources,
   serviceErrorCodes,
+  budgetAmountRules,
   budgetPeriodUnits,
   transactionTemplateBulkResultSchema,
   transactionTemplateDraftSchema,
@@ -820,6 +821,27 @@ export const budgetPlanResultSchema = z
       .describe(
         "First day of the last period it applies to, or null while it is still running. Snapped to the period, like activeFrom.",
       ),
+    rollover: z
+      .boolean()
+      .describe(
+        "True when what a period does not spend belongs to the next one, and an overspend is owed by it. Nothing is stored per period either way: the carry is worked out at read time by get_budget_report.",
+      ),
+    rolloverCap: nullableStringSchema.describe(
+      "The most that may be carried in either direction, as a decimal string, or null for no limit.",
+    ),
+    targetAmount: nullableStringSchema.describe(
+      "What a sinking fund is saving up for, or null when this is an ordinary budget.",
+    ),
+    targetDate: isoDateSchema
+      .nullable()
+      .describe(
+        "First day of the period the target is needed by, snapped like the window, or null when there is no target.",
+      ),
+    amountRule: z
+      .enum(budgetAmountRules)
+      .describe(
+        "How the per-period amount is arrived at. Derived from the row rather than chosen: a budget with a target and a date is a sinking fund, and everything else is fixed. A fund's own amount column is zero, because each period's figure is worked out from what is still needed and how many periods are left.",
+      ),
     version: versionSchema,
   })
   .passthrough();
@@ -848,6 +870,19 @@ export const budgetReportResultSchema = z.object({
     .describe(
       "Period units this person budgets in that are not the one reported here. A budget belongs to a period unit, so a weekly budget does not appear in a monthly report and its category reads limit: null. If this is not empty, call again with one of these before concluding anything is unbudgeted.",
     ),
+  rollover: z
+    .object({
+      from: isoDateSchema.describe(
+        "The first period the carry was worked out from, which is normally the earliest rolling budget's own start.",
+      ),
+      clipped: z
+        .boolean()
+        .describe(
+          "True when the fold stopped at its bound instead of reaching that start, so the carry began from nothing part way through a budget's life. Say so rather than reporting the figure as though it were complete.",
+        ),
+    })
+    .nullable()
+    .describe("Null when nothing in this report rolls over."),
   periods: z.array(
     z.object({
       periodStart: isoDateSchema,
@@ -863,6 +898,14 @@ export const budgetReportResultSchema = z.object({
       currency: z.string(),
       budgeted: z.string().describe("Sum of the limits, as a decimal string."),
       spent: z.string().describe("Sum of the actuals, as a decimal string."),
+      carriedIn: z
+        .string()
+        .describe(
+          "Sum of what earlier periods handed this one. Zero when nothing in this period rolls over.",
+        ),
+      available: z
+        .string()
+        .describe("Sum of budgeted and carriedIn, which is what there was to spend."),
       rows: z.array(
         z.object({
           categoryId: nullableStringSchema.describe("Null is the share of a split nobody filed."),
@@ -874,11 +917,20 @@ export const budgetReportResultSchema = z.object({
             .string()
             .describe("Signed. A refund is negative and lowers the category it came back to."),
           remaining: nullableStringSchema.describe(
-            "Limit minus actual. Negative is over. Null when there is no limit.",
+            "What is left to spend, counting anything carried in: available minus actual, which is the limit minus actual for a budget that does not roll over. Negative is over. Null when there is no limit.",
           ),
           source: z
             .enum(["entry", "plan", "none"])
             .describe("Which record produced the limit, so a change reaches the right one."),
+          carriedIn: nullableStringSchema.describe(
+            "What earlier periods left to this one, or null when this budget does not roll over. Negative is a debt handed forward by a period that overspent.",
+          ),
+          available: nullableStringSchema.describe(
+            "The limit plus whatever was carried in, which is what there was to spend. Equal to the limit when nothing rolls over, and null when there is no limit.",
+          ),
+          carriedOut: nullableStringSchema.describe(
+            "What this period hands to the next, after any cap. Provisional while the period is still running, for the same reason actual is. Null when this budget does not roll over.",
+          ),
         }),
       ),
     }),

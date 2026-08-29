@@ -463,4 +463,84 @@ test.describe("the budgets page in a browser", () => {
     expect(body, body).toContain("NOT_FOUND");
     expect(response.headers()["deprecation"]).toMatch(/^@\d+$/);
   });
+
+  /**
+   * Rollover through the form and back off the screen.
+   *
+   * The fold is tested exhaustively against the service in
+   * `tests/integration/budgets.integration.test.ts`. What only a browser can
+   * show is that the checkbox reaches the server at all — the same shape of
+   * defect as the archived-spending box, which rendered correctly and sent
+   * nothing — and that the two columns appear when, and only when, something
+   * carries.
+   */
+  test("carries what a period did not spend into the next one", async () => {
+    const carried = `Carried ${Date.now()}`;
+    await page.goto("/categories");
+    await page.getByLabel("Category name").fill(carried);
+    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByRole("button", { name: "Add category" }).click();
+    await expect(page.getByText(carried, { exact: false }).first()).toBeVisible();
+
+    await page.goto("/budgets");
+    // Before anything carries, the columns are not there at all.
+    const report = page.getByRole("table", { name: /Budget against spending/ }).first();
+    await expect(report.getByRole("columnheader", { name: "Carried in" })).toHaveCount(0);
+
+    // Scoped to the form that sets a budget: the edit dialog carries the same
+    //field and a closed `<dialog>` is still in the document.
+    const setBudget = page.locator("form.budget-form");
+    await setBudget.getByLabel(/^Category/).selectOption({ label: carried });
+    await setBudget.getByLabel(/^Amount/).fill("100.00");
+    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
+    await setBudget.getByLabel(/^Carry what is left over/).check();
+    await page.getByRole("button", { name: /^set budget$/i }).click();
+    await expect(page.getByText(/budgeting £100\.00/i)).toBeVisible();
+
+    const standing = page.getByRole("table", { name: /standing budgets/i });
+    await expect(standing.getByRole("row", { name: new RegExp(carried) })).toContainText(
+      "Carries over",
+    );
+
+    // July was budgeted and untouched, so August starts with a hundred more
+    // than it budgeted — and the page says where the figure was worked out from.
+    await page.getByLabel("Start date").fill("2026-08-01");
+    await page.getByLabel("End date").fill("2026-08-31");
+    const august = page
+      .getByRole("table", { name: /Budget against spending/ })
+      .getByRole("row", { name: new RegExp(carried) });
+    await expect(august).toContainText("£100.00");
+    await expect(page.getByText(/Carried-in figures were worked out from/i)).toBeVisible();
+  });
+
+  test("a sinking fund asks for no amount and says what it is saving for", async () => {
+    const fund = `Fund ${Date.now()}`;
+    await page.goto("/categories");
+    await page.getByLabel("Category name").fill(fund);
+    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByRole("button", { name: "Add category" }).click();
+    await expect(page.getByText(fund, { exact: false }).first()).toBeVisible();
+
+    await page.goto("/budgets");
+    const setBudget = page.locator("form.budget-form");
+    await setBudget.getByLabel(/^Category/).selectOption({ label: fund });
+    await setBudget.getByLabel(/^Saving up for/).fill("600.00");
+    // Typing a target hides the amount box, because a fund works out its own
+    // figure, and turns the carry on, because a fund that does not keep what it
+    // saved saves nothing.
+    await expect(setBudget.getByLabel(/^Amount/)).toHaveCount(0);
+    await expect(setBudget.getByLabel(/^Carry what is left over/)).toBeChecked();
+    await setBudget.getByLabel(/^Needed by/).fill("2026-12-20");
+    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
+    await page.getByRole("button", { name: /^set budget$/i }).click();
+
+    const standing = page.getByRole("table", { name: /standing budgets/i });
+    const row = standing.getByRole("row", { name: new RegExp(fund) });
+    await expect(row).toContainText("Saving £600.00 by December 2026");
+    // The amount column says what it is rather than showing a zero somebody
+    // would read as "budget nothing".
+    await expect(row).toContainText("Worked out");
+  });
 });

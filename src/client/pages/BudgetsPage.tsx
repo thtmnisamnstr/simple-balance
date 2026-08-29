@@ -148,6 +148,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
   // budgets in both and there is no total across them to fall back on.
   const [currency, setCurrency] = useState(session.preferences.defaultCurrency);
   const [activeFrom, setActiveFrom] = useState("");
+  // Three fields and one checkbox, because they are one decision: what happens
+  // to the difference at the end of a period. The words "envelope", "sinking
+  // fund" and "rollover budget" appear nowhere — a budget is what it says it
+  // is, and naming the method would make it a mode somebody has to pick.
+  const [rollover, setRollover] = useState(false);
+  const [rolloverCap, setRolloverCap] = useState("");
+  const [targetAmount, setTargetAmount] = useState("");
+  const [targetDate, setTargetDate] = useState("");
   const remove = useConfirm<BudgetPlan>();
   const [editing, setEditing] = useState<BudgetPlan | null>(null);
   const [override, setOverride] = useState<{
@@ -160,6 +168,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [overrideAmount, setOverrideAmount] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editActiveTo, setEditActiveTo] = useState("");
+  const [editRollover, setEditRollover] = useState(false);
+  const [editRolloverCap, setEditRolloverCap] = useState("");
 
   const report = useQuery({
     queryKey: ["budgets", "report", start, end, periodUnit, includeArchived],
@@ -213,7 +223,19 @@ export default function BudgetsPage({ session }: { session: Session }) {
     mutationFn: () =>
       api<BudgetPlan>(
         "/api/v1/budget-plans",
-        json({ categoryId, amount, currency, periodUnit, activeFrom }),
+        json({
+          categoryId,
+          // A fund works out its own figure each period, so the amount box is
+          // hidden and zero is what the server is told. Sending what was typed
+          // would be a number nothing reads.
+          amount: targetAmount === "" ? amount : "0",
+          currency,
+          periodUnit,
+          activeFrom,
+          rollover,
+          ...(rollover && rolloverCap !== "" ? { rolloverCap } : {}),
+          ...(targetAmount !== "" ? { targetAmount, targetDate } : {}),
+        }),
       ),
     onSuccess: (plan) => {
       setError("");
@@ -222,6 +244,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
       );
       setCategoryId("");
       setAmount("");
+      setRolloverCap("");
+      setTargetAmount("");
+      setTargetDate("");
       invalidate();
     },
     onError: (cause: Error) => setError(cause.message),
@@ -236,6 +261,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
           // skip, so it travels as null. Absent would leave the old end in
           // place and the form would look as though it had done nothing.
           activeTo: editActiveTo === "" ? null : editActiveTo,
+          rollover: editRollover,
+          // Same three-way patch, and the same reason: a cap somebody cleared
+          // has to travel as null or the old one stays.
+          rolloverCap: editRollover && editRolloverCap !== "" ? editRolloverCap : null,
           expectedVersion: plan.version,
         }),
         method: "PUT",
@@ -401,15 +430,17 @@ export default function BudgetsPage({ session }: { session: Session }) {
               ))}
             </Select>
           </Field>
-          <Field label="Amount">
-            <Input
-              required
-              inputMode="decimal"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder="200.00"
-            />
-          </Field>
+          {targetAmount === "" ? (
+            <Field label="Amount">
+              <Input
+                required
+                inputMode="decimal"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="200.00"
+              />
+            </Field>
+          ) : null}
           <Field label="Currency">
             <Select required value={currency} onChange={(event) => setCurrency(event.target.value)}>
               {currencyChoices.map((code) => (
@@ -427,6 +458,49 @@ export default function BudgetsPage({ session }: { session: Session }) {
               onChange={(event) => setActiveFrom(event.target.value)}
             />
           </Field>
+          <Field label="Saving up for (optional)">
+            <Input
+              inputMode="decimal"
+              value={targetAmount}
+              onChange={(event) => {
+                setTargetAmount(event.target.value);
+                // A fund keeps what it saves or it is not saving. Turning the
+                // carry on here rather than refusing the form later is the
+                // difference between a rule and an obstacle.
+                if (event.target.value !== "") setRollover(true);
+              }}
+              placeholder="600.00"
+            />
+          </Field>
+          {targetAmount === "" ? null : (
+            <Field label="Needed by">
+              <Input
+                required
+                type="date"
+                value={targetDate}
+                onChange={(event) => setTargetDate(event.target.value)}
+              />
+            </Field>
+          )}
+          <label className="date-bar-check">
+            <input
+              type="checkbox"
+              checked={rollover}
+              disabled={targetAmount !== ""}
+              onChange={(event) => setRollover(event.target.checked)}
+            />
+            Carry what is left over into the next {unitNoun[periodUnit]}
+          </label>
+          {rollover ? (
+            <Field label="Most to carry (optional)">
+              <Input
+                inputMode="decimal"
+                value={rolloverCap}
+                onChange={(event) => setRolloverCap(event.target.value)}
+                placeholder="No limit"
+              />
+            </Field>
+          ) : null}
           <Button type="submit" loading={createPlan.isPending}>
             Set budget
           </Button>
@@ -435,6 +509,13 @@ export default function BudgetsPage({ session }: { session: Session }) {
           One budget covers every {unitNoun[periodUnit]} from the date it starts, so there is
           nothing to set again next {unitNoun[periodUnit]}. To change it later without rewriting
           what past {unitNoun[periodUnit]}s intended, end this one and start another.
+        </p>
+        <p className="settings-note">
+          {targetAmount === ""
+            ? rollover
+              ? `What this ${unitNoun[periodUnit]} does not spend is added to the next one, and anything overspent is taken off it. Nothing is stored ${unitNoun[periodUnit]} by ${unitNoun[periodUnit]}: the figures are worked out from what you budgeted and what you spent, so turning this off leaves nothing behind.`
+              : `Each ${unitNoun[periodUnit]} starts again at the amount. Tick the box to carry the difference forward instead.`
+            : `Each ${unitNoun[periodUnit]} puts aside what is still needed, divided by the ${unitNoun[periodUnit]}s left before the date. There is no amount to type: the figure changes as the fund fills up, and stops once it is full.`}
         </p>
       </div>
 
@@ -463,120 +544,161 @@ export default function BudgetsPage({ session }: { session: Session }) {
           body="Set a budget above, or widen the dates."
         />
       ) : (
-        periods.map((period) => (
-          <div className="panel" key={`${period.periodStart}:${period.currency}`}>
-            <div className="panel-header">
-              <h3>
-                {periodName(periodUnit, period.periodStart)}, {period.currency}
-                {period.partial ? " (so far)" : ""}
-              </h3>
-              <span className="subtle">
-                {formatMoney(period.budgeted, period.currency)} budgeted.{" "}
-                {formatMoney(period.spent, period.currency)} spent in total, budgeted or not.
-              </span>
-            </div>
-            <div className="table-wrap">
-              <table className="data-table">
-                <caption className="sr-only">
-                  Budget against spending for {period.start} to {period.end} in {period.currency}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Category</th>
-                    <th scope="col" className="align-right">
-                      Budget
-                    </th>
-                    <th scope="col" className="align-right">
-                      Spent
-                    </th>
-                    <th scope="col" className="align-right">
-                      Remaining
-                    </th>
-                    <th scope="col">Progress</th>
-                    <th scope="col">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {period.rows.map((row) => {
-                    const state = rowState(row, period.partial);
-                    return (
-                      <tr key={`${row.categoryId ?? "unfiled"}`}>
-                        <th scope="row">
-                          {row.category}{" "}
-                          {row.source === "entry" ? (
-                            <Badge tone="neutral">This {unitNoun[periodUnit]} only</Badge>
+        periods.map((period) => {
+          // The carry columns appear only where something carries. A table of
+          // dashes says a budget has a feature it does not have, and every
+          // ledger that has never ticked the box would grow two of them.
+          const carries = period.rows.some((row) => row.carriedIn !== null);
+          return (
+            <div className="panel" key={`${period.periodStart}:${period.currency}`}>
+              <div className="panel-header">
+                <h3>
+                  {periodName(periodUnit, period.periodStart)}, {period.currency}
+                  {period.partial ? " (so far)" : ""}
+                </h3>
+                <span className="subtle">
+                  {formatMoney(period.budgeted, period.currency)} budgeted.{" "}
+                  {carries
+                    ? `${formatMoney(period.carriedIn, period.currency)} carried in, ${formatMoney(period.available, period.currency)} available. `
+                    : ""}
+                  {formatMoney(period.spent, period.currency)} spent in total, budgeted or not.
+                </span>
+              </div>
+              <div className="table-wrap">
+                <table className="data-table">
+                  <caption className="sr-only">
+                    Budget against spending for {period.start} to {period.end} in {period.currency}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Category</th>
+                      <th scope="col" className="align-right">
+                        Budget
+                      </th>
+                      {carries ? (
+                        <>
+                          <th scope="col" className="align-right">
+                            Carried in
+                          </th>
+                          <th scope="col" className="align-right">
+                            Available
+                          </th>
+                        </>
+                      ) : null}
+                      <th scope="col" className="align-right">
+                        Spent
+                      </th>
+                      <th scope="col" className="align-right">
+                        Remaining
+                      </th>
+                      <th scope="col">Progress</th>
+                      <th scope="col">
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {period.rows.map((row) => {
+                      const state = rowState(row, period.partial);
+                      return (
+                        <tr key={`${row.categoryId ?? "unfiled"}`}>
+                          <th scope="row">
+                            {row.category}{" "}
+                            {row.source === "entry" ? (
+                              <Badge tone="neutral">This {unitNoun[periodUnit]} only</Badge>
+                            ) : null}
+                          </th>
+                          <td className="align-right money">
+                            {row.limit === null ? "—" : formatMoney(row.limit, period.currency)}
+                          </td>
+                          {carries ? (
+                            <>
+                              <td className="align-right money">
+                                {row.carriedIn === null
+                                  ? "—"
+                                  : formatMoney(row.carriedIn, period.currency)}
+                              </td>
+                              <td className="align-right money">
+                                {row.available === null
+                                  ? "—"
+                                  : formatMoney(row.available, period.currency)}
+                              </td>
+                            </>
                           ) : null}
-                        </th>
-                        <td className="align-right money">
-                          {row.limit === null ? "—" : formatMoney(row.limit, period.currency)}
-                        </td>
-                        <td className="align-right money">
-                          {formatMoney(row.actual, period.currency)}
-                        </td>
-                        <td className="align-right money">
-                          {row.remaining === null
-                            ? "—"
-                            : formatMoney(row.remaining, period.currency)}
-                        </td>
-                        <td>
-                          <div className="budget-progress">
-                            <Badge tone={stateTone[state]}>{stateLabel[state]}</Badge>
-                            {row.limit === null ? null : (
-                              <div
-                                className="budget-bar"
-                                data-state={state}
-                                role="img"
-                                aria-label={`${formatMoney(
-                                  row.actual,
-                                  period.currency,
-                                )} of ${formatMoney(row.limit, period.currency)} spent`}
+                          <td className="align-right money">
+                            {formatMoney(row.actual, period.currency)}
+                          </td>
+                          <td className="align-right money">
+                            {row.remaining === null
+                              ? "—"
+                              : formatMoney(row.remaining, period.currency)}
+                          </td>
+                          <td>
+                            <div className="budget-progress">
+                              <Badge tone={stateTone[state]}>{stateLabel[state]}</Badge>
+                              {row.limit === null ? null : (
+                                <div
+                                  className="budget-bar"
+                                  data-state={state}
+                                  role="img"
+                                  aria-label={`${formatMoney(
+                                    row.actual,
+                                    period.currency,
+                                  )} of ${formatMoney(row.limit, period.currency)} spent`}
+                                >
+                                  <span
+                                    style={{
+                                      width: `${fillPercent(row.limit, row.actual)}%`,
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="align-right">
+                            {row.categoryId === null ? null : (
+                              <Button
+                                variant="ghost"
+                                onClick={() => {
+                                  const existing = entryFor(
+                                    row.categoryId,
+                                    period.currency,
+                                    period.periodStart,
+                                  );
+                                  setOverride({
+                                    categoryId: row.categoryId!,
+                                    category: row.category,
+                                    currency: period.currency,
+                                    periodStart: period.periodStart,
+                                    existing,
+                                  });
+                                  setOverrideAmount(existing?.amount ?? row.limit ?? "");
+                                }}
                               >
-                                <span
-                                  style={{
-                                    width: `${fillPercent(row.limit, row.actual)}%`,
-                                  }}
-                                />
-                              </div>
+                                {row.source === "entry"
+                                  ? "Change this " + unitNoun[periodUnit]
+                                  : "Just this " + unitNoun[periodUnit]}
+                              </Button>
                             )}
-                          </div>
-                        </td>
-                        <td className="align-right">
-                          {row.categoryId === null ? null : (
-                            <Button
-                              variant="ghost"
-                              onClick={() => {
-                                const existing = entryFor(
-                                  row.categoryId,
-                                  period.currency,
-                                  period.periodStart,
-                                );
-                                setOverride({
-                                  categoryId: row.categoryId!,
-                                  category: row.category,
-                                  currency: period.currency,
-                                  periodStart: period.periodStart,
-                                  existing,
-                                });
-                                setOverrideAmount(existing?.amount ?? row.limit ?? "");
-                              }}
-                            >
-                              {row.source === "entry"
-                                ? "Change this " + unitNoun[periodUnit]
-                                : "Just this " + unitNoun[periodUnit]}
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        ))
+          );
+        })
       )}
+      {report.data?.rollover ? (
+        <p className="settings-note">
+          Carried-in figures were worked out from {formatDate(report.data.rollover.from)} onward.
+          {report.data.rollover.clipped
+            ? " That is as far back as this page looks, so the carry starts from nothing there rather than from the beginning of the budget."
+            : ""}
+        </p>
+      ) : null}
 
       <div className="panel">
         <div className="panel-header">
@@ -611,8 +733,27 @@ export default function BudgetsPage({ session }: { session: Session }) {
               <tbody>
                 {(plans.data ?? []).map((plan) => (
                   <tr key={plan.id}>
-                    <th scope="row">{plan.categoryName}</th>
-                    <td className="align-right money">{formatMoney(plan.amount, plan.currency)}</td>
+                    <th scope="row">
+                      {plan.categoryName}{" "}
+                      {plan.amountRule === "sinking_fund" ? (
+                        <Badge tone="neutral">
+                          Saving {formatMoney(plan.targetAmount ?? "0", plan.currency)} by{" "}
+                          {periodName(plan.periodUnit, plan.targetDate ?? plan.activeFrom)}
+                        </Badge>
+                      ) : plan.rollover ? (
+                        <Badge tone="neutral">
+                          Carries over
+                          {plan.rolloverCap
+                            ? `, up to ${formatMoney(plan.rolloverCap, plan.currency)}`
+                            : ""}
+                        </Badge>
+                      ) : null}
+                    </th>
+                    <td className="align-right money">
+                      {plan.amountRule === "sinking_fund"
+                        ? "Worked out"
+                        : formatMoney(plan.amount, plan.currency)}
+                    </td>
                     <td>{unitNoun[plan.periodUnit]}</td>
                     <td>
                       {periodName(plan.periodUnit, plan.activeFrom)}
@@ -629,6 +770,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
                           setEditing(plan);
                           setEditAmount(plan.amount);
                           setEditActiveTo(plan.activeTo ?? "");
+                          setEditRollover(plan.rollover);
+                          setEditRolloverCap(plan.rolloverCap ?? "");
                         }}
                       >
                         Change {plan.categoryName}
@@ -672,13 +815,41 @@ export default function BudgetsPage({ session }: { session: Session }) {
         }
       >
         {error ? <Alert kind="error">{error}</Alert> : null}
-        <Field label="Amount">
-          <Input
-            inputMode="decimal"
-            value={editAmount}
-            onChange={(event) => setEditAmount(event.target.value)}
-          />
-        </Field>
+        {editing?.amountRule === "sinking_fund" ? (
+          <p className="settings-note">
+            This one is saving {formatMoney(editing.targetAmount ?? "0", editing.currency)} by{" "}
+            {periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works
+            out its own amount each {unitNoun[editing.periodUnit]}. Delete it and set a plain budget
+            if that is not what you want.
+          </p>
+        ) : (
+          <>
+            <Field label="Amount">
+              <Input
+                inputMode="decimal"
+                value={editAmount}
+                onChange={(event) => setEditAmount(event.target.value)}
+              />
+            </Field>
+            <label className="date-bar-check">
+              <input
+                type="checkbox"
+                checked={editRollover}
+                onChange={(event) => setEditRollover(event.target.checked)}
+              />
+              Carry what is left over into the next {unitNoun[editing?.periodUnit ?? periodUnit]}
+            </label>
+            {editRollover ? (
+              <Field label="Most to carry" hint="Leave blank for no limit.">
+                <Input
+                  inputMode="decimal"
+                  value={editRolloverCap}
+                  onChange={(event) => setEditRolloverCap(event.target.value)}
+                />
+              </Field>
+            ) : null}
+          </>
+        )}
         <Field label="Ends after" hint="Leave blank to keep running.">
           <Input
             type="date"

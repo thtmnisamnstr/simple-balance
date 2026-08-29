@@ -186,8 +186,9 @@
   0.1.4, and `0008_owner_setup_token.sql`,
   `0009_scheduled_notifications.sql`, `0010_drop_covered_user_indexes.sql`,
   `0011_user_theme.sql` and `0012_payee_normalized_indexes.sql` in 0.1.5.
-  `0013_budget_plans_and_entries.sql` is written and unreleased, so it is the
-  one migration here that may still be regenerated; it freezes when it ships.
+  `0013_budget_plans_and_entries.sql` and
+  `0014_budget_rollover_and_targets.sql` are written and unreleased, so they are
+  the ones here that may still be regenerated; they freeze when they ship.
   `tests/migrations.test.ts` holds this list to what is on disk, because a list
   of what may never change is worth nothing if it can quietly fall behind.
   Never edit or regenerate one: someone's database has already run it, and

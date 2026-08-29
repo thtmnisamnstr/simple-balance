@@ -234,10 +234,31 @@ Figures stop at today in your own timezone, whatever range you ask for, and the
 page says which day it used. Nothing here writes to the ledger: a budget is a
 plan, and deleting one changes no balance and no report.
 
-**What is not here yet.** Money left over does not carry into next month, there
-are no savings goals, no budget set from a rule such as an average of what you
-usually spend, no grouping of categories under one budget, no envelopes, and no
-forecast. Those are the next five stories in [the roadmap](roadmap.md).
+**What is left over can carry into the next period.** Tick "Carry what is left
+over" and the budget becomes an envelope: the fifty you did not spend on
+groceries in March is fifty more to spend in April, and going over is carried
+the same way, as a debt against the next period rather than something the
+calendar forgives. A cap holds it inside a number in both directions, for the
+fund nobody ever draws on and the debt nobody ever repays. Nothing is stored
+period by period — the figures are worked out from what you budgeted and what
+you spent — so turning it off leaves nothing behind, and correcting a
+transaction from last year changes every period after it, which is the honest
+answer rather than a comfortable one.
+
+**A budget can be saving up for something.** Put six hundred in "Saving up for"
+with the date you need it by, and there is no amount to type: each period puts
+aside what is still needed divided by the periods left, the figure adjusts as
+the fund fills, and it stops asking once the fund is full. Carrying is part of
+what a fund is, so it is turned on for you.
+
+Carried figures are worked out from the budget's own start. Where that is more
+than ten years of periods back, the page says how far it looked, because a
+number with a boundary is worth having and a boundary nobody mentions is not.
+
+**What is not here yet.** There is no budget set from a rule such as an average
+of what you usually spend, no grouping of categories under one budget, no
+figure for what is left to assign, and no forecast. Those are the next four
+stories in [the roadmap](roadmap.md).
 
 ## How it looks
 

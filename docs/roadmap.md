@@ -589,14 +589,15 @@ for the once-a-year case where the books and the statement have quietly drifted.
 - A completed reconciliation is a record, and reopening one is itself recorded
 - Balances and reports are unaffected except by the adjusting entry
 
-## SB-025 — Rollover and sinking funds
+## SB-025 — Rollover and sinking funds — **done**
 
-**Priority 250. Depends on SB-019.**
+**Priority 250. Depends on SB-019. Built, unreleased, and carrying migration
+0014.**
 
-Two columns on the plan and a recursive fold at read time. Unspent money carries
-forward, overspending carries forward as a debt, and a cap stops either running
-away. A sinking fund is the same machinery with a target and a date, funding
-itself over the periods remaining.
+Two columns on the plan and a fold at read time. Unspent money carries forward,
+overspending carries forward as a debt, and a cap stops either running away. A
+sinking fund is the same machinery with a target and a date, funding itself over
+the periods remaining.
 
 This is the first budget figure that depends on more than one period, which
 means a back-dated correction changes every later period. That is correct and it
@@ -608,6 +609,40 @@ assertions that answer whether an index can serve a query rather than whether
 the planner bothers on a handful of rows. The research behind this story did not
 meet that standard and said so. If the recursive CTE will not hold, the fallback
 is a bounded window with the bound stated on the page, and never a cache.
+
+**How it was met**
+
+The fold is not a recursive CTE and not a cache. It is one widened read and a
+loop: the report already asks for spending and limits per period, so a carry
+asks for the same thing over more periods and walks them in order. Each period's
+available money is its own limit plus what the period before handed it; what it
+does not spend it hands on; what it overspends it hands on as a debt. Nothing is
+stored, so turning rollover off leaves no rows behind and no figure to recompute
+— which is also what lets a back-dated correction change every later period
+correctly rather than only the one it landed in.
+
+**The bound is the fallback the story named, and it is stated.**
+`MAX_ROLLOVER_PERIODS` is 120, so a fold reaches ten years of months or two and
+a half of weeks before it stops, and a report that stopped there says so in
+`rollover.clipped` and on the page. Ten years of months over a hundred thousand
+postings costs **292ms** on the development machine, and
+`tests/integration/budgets-scale.integration.test.ts` holds the shape rather
+than that number: the spending behind a folded report comes from one indexed
+pass with no `SubPlan`, which is what a per-period subquery would look like from
+the database's side, and the carry it produces is checked against the ledger's
+own sum rather than against a number somebody typed.
+
+A sinking fund is the same fold with the amount worked out instead of read: what
+is still needed, over the periods left before the target date. Nothing about it
+is a mode anybody picks. A budget with a target and a date is a sinking fund
+because of what it says, and the stored `amount_rule` column is derived from
+that rather than chosen — the word "method" appears nowhere on the page, which
+is the rule SB-019 set for all six of these stories.
+
+Three refusals rather than three silent behaviours: a fund whose rollover is off
+(it would save nothing), a fund with an amount beside its target (a number
+nothing reads), and a cap on a budget that carries nothing. Each says which half
+is missing.
 
 ## SB-026 — Derived amounts
 

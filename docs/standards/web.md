@@ -496,9 +496,10 @@ Three things in the app are past the threshold and are not components yet:
 - **A bulk-action bar.** Three toolbars, three label sets, three variant
   assignments. Fix the vocabulary at "Edit selected", "Delete selected", "Clear
   selection", "Select all N matching".
-- **A blank-cell placeholder.** An em dash on eight sites
+- **A blank-cell placeholder.** An em dash on ten sites
   (`TransactionBrowser.tsx:829`, `:837`, `:841`, `AccountDetailPage.tsx:101`,
-  `BudgetsPage.tsx:513`, `:520`, `StagingPage.tsx:748`, `:815`), an italic muted
+  `BudgetsPage.tsx:612`, `:618`, `:623`, `:633`, `StagingPage.tsx:748`,
+  `:815`), an italic muted
   word on others, and `Uncategorized` styled `.subtle` on one page and bare on
   another. One of the eight, `TransactionBrowser.tsx:837`, writes the dash as
   literal cell text rather than as a fallback expression. The em-dash and

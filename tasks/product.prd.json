@@ -407,6 +407,31 @@
         "npm test",
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
       ]
+    },
+    {
+      "id": "SB-025",
+      "priority": 250,
+      "title": "Rollover and sinking funds",
+      "dependsOn": [
+        "SB-019"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A budget can carry what a period did not spend into the next one, and an overspend forward as a debt against it",
+        "A cap holds the carry inside a number in both directions, so neither a fund nobody draws on nor a debt nobody repays runs away",
+        "A sinking fund names an amount and a date and works out each period's own figure from what is still needed and how many periods are left",
+        "Nothing is stored per period: every carried figure is folded at read time from the plans, entries and postings that were already there",
+        "Two budgets with a gap between them are two budgets, and no carry crosses the gap",
+        "The fold is bounded, and a report that hit the bound says so rather than reporting a carry that started from nothing part way through",
+        "Reachable over MCP and from the browser on the same fields, and a budget that carries nothing reports exactly what it did before"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
     }
   ]
 }

@@ -554,6 +554,11 @@ export type BudgetPlan = {
   amount: string;
   activeFrom: string;
   activeTo: string | null;
+  rollover: boolean;
+  rolloverCap: string | null;
+  targetAmount: string | null;
+  targetDate: string | null;
+  amountRule: "fixed" | "sinking_fund";
   version: number;
 };
 
@@ -575,6 +580,10 @@ export type BudgetReportRow = {
   actual: string;
   remaining: string | null;
   source: "entry" | "plan" | "none";
+  /** Null when this budget does not carry anything forward. */
+  carriedIn: string | null;
+  available: string | null;
+  carriedOut: string | null;
 };
 
 export type BudgetReport = {
@@ -582,6 +591,8 @@ export type BudgetReport = {
   start: string;
   asOf: string;
   otherPeriodUnits: BudgetPeriodUnitName[];
+  /** Where the carry was folded from, or null when nothing rolls over. */
+  rollover: { from: string; clipped: boolean } | null;
   periods: {
     periodStart: string;
     start: string;
@@ -590,6 +601,8 @@ export type BudgetReport = {
     currency: string;
     budgeted: string;
     spent: string;
+    carriedIn: string;
+    available: string;
     rows: BudgetReportRow[];
   }[];
 };

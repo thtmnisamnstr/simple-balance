@@ -21,6 +21,7 @@ import {
 import { sql } from "drizzle-orm";
 import {
   accountTypes,
+  budgetAmountRules,
   budgetPeriodUnits,
   systemAccountKinds,
   actorSources,
@@ -203,6 +204,7 @@ export const recurrenceWeekendPolicyEnum = pgEnum(
 );
 export const userThemeEnum = pgEnum("user_theme", themes);
 export const budgetPeriodUnitEnum = pgEnum("budget_period_unit", budgetPeriodUnits);
+export const budgetAmountRuleEnum = pgEnum("budget_amount_rule", budgetAmountRules);
 
 export const userPreferences = pgTable(
   "user_preferences",
@@ -1087,6 +1089,31 @@ export const budgetPlans = pgTable(
     amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
     activeFrom: date("active_from").notNull(),
     activeTo: date("active_to"),
+    /**
+     * Whether what a period did not spend belongs to the next one.
+     *
+     * Off is a limit: every period starts again at the amount, and last month
+     * having gone well buys nothing. On is an envelope: the unspent carries
+     * forward and so does the overspend, as a debt against the next period.
+     * Nothing is stored per period either way — the carry is folded at read
+     * time from the same plans, entries and postings the figures already come
+     * from, so turning this on invents no rows and turning it off leaves none
+     * behind.
+     */
+    rollover: boolean("rollover").default(false).notNull(),
+    /**
+     * How far a carry may run in either direction, or null for no limit.
+     *
+     * Symmetric on purpose. A holiday fund that nobody has drawn on for three
+     * years is not a budget any more, and a category three thousand in debt to
+     * itself will never come back inside its limit, so both ends of the same
+     * runaway are the same setting.
+     */
+    rolloverCap: numeric("rollover_cap", { precision: 44, scale: 18 }),
+    /** What a sinking fund is saving up for, with the date it is needed by. */
+    targetAmount: numeric("target_amount", { precision: 44, scale: 18 }),
+    targetDate: date("target_date"),
+    amountRule: budgetAmountRuleEnum("amount_rule").default("fixed").notNull(),
     version: integer("version").default(1).notNull(),
     ...timestamps,
   },
@@ -1113,6 +1140,29 @@ export const budgetPlans = pgTable(
     check(
       "budget_plan_window_check",
       sql`${table.activeTo} is null or ${table.activeTo} >= ${table.activeFrom}`,
+    ),
+    check(
+      "budget_plan_rollover_cap_check",
+      sql`${table.rolloverCap} is null or ${table.rolloverCap} >= 0`,
+    ),
+    check(
+      "budget_plan_target_amount_check",
+      sql`${table.targetAmount} is null or ${table.targetAmount} > 0`,
+    ),
+    // The rule and its parameters, held to each other in the one place both
+    // transports go through. A sinking fund with no target is a fixed budget
+    // wearing the wrong name, and a target with the rule left at fixed is a
+    // number nothing reads.
+    check(
+      "budget_plan_rule_check",
+      sql`(${table.amountRule} = 'sinking_fund') = (${table.targetAmount} is not null and ${table.targetDate} is not null)`,
+    ),
+    // A fund that does not keep what it saved saves nothing: each period would
+    // start again from the target divided by the periods left, and the money
+    // put aside last month would be invisible to this month's figure.
+    check(
+      "budget_plan_sinking_rollover_check",
+      sql`${table.amountRule} <> 'sinking_fund' or ${table.rollover}`,
     ),
   ],
 );

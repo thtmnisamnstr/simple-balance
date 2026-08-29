@@ -7,7 +7,7 @@ keeping.
 | --- | --- | --- | --- |
 | Unit (node) | 73 | `npm test` | nothing |
 | Unit (jsdom) | 36 | `npm test` | nothing |
-| Integration | 54 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 55 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -18,16 +18,16 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 110 pass, 53 skip | **1,083 pass, 591 skip** |
-| `npm test`, database set | 163 pass | **1,674 pass** |
-| `npm run test:integration` | 54 pass | 592 pass |
+| `npm test`, no database | 110 pass, 54 skip | **1,085 pass, 606 skip** |
+| `npm test`, database set | 164 pass | **1,691 pass** |
+| `npm run test:integration` | 55 pass | 607 pass |
 
 The third row is one test larger than the second row's skip count, and the odd
 one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,083 is the number that
+The first row is what CI and `npm run verify` see, and 1,085 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming

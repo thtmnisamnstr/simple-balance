@@ -169,7 +169,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 71
-  descriptions, 20,464 characters, median 246, range 33 to 1,062, and **15 under
+  descriptions, 21,552 characters, median 246, range 33 to 1,417, and **15 under
   100 characters**. The distribution is bimodal and the terse half covers the
   dangerous tools: `list_transactions` is 54 characters and is the entry point to
   the ledger's largest collection, mentioning none of the ordering and cursor
@@ -258,7 +258,7 @@ unrepresentable, so the model's own sampling cannot produce it.
 
 - **Flat over nested, and enums over free text.** A nested object is a shape a
   model has to hold; an enum is a choice it cannot get wrong. Measured: 60
-  enums across the input schemas, and 148 more on the output side, where they
+  enums across the input schemas, and 152 more on the output side, where they
   constrain nothing a model sends but are what
   `tests/mcp-output.test.ts:151-174` exists to guard. Half of that output figure
   is the error code, published once per tool for the reason the errors section
@@ -308,7 +308,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   closing the schemas they share with `/api/v1`, because what a browser may send
   and what an agent may invent are different questions.
 - **Binding, and now true of every field rather than of every parameter.**
-  Measured: **0 of 673 carry none**, having been 146 of 225 at the top level and
+  Measured: **0 of 681 carry none**, having been 146 of 225 at the top level and
   263 of 673 once anybody counted the fields inside `draft`, `shape`, `patch`,
   `selection`, `schedule` and `mapping` — which is to say the fields an agent
   has to fill in to write anything. The measurement said zero for a year because
@@ -347,9 +347,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   `preview_bulk_transaction_selection`, `bulk_edit_transactions` and
   `bulk_delete_transactions`. **Done**, and in one edit rather than five:
   `listQuerySchema.currency` now carries a filter sentence of its own
-  (`src/shared/domain.ts:1514-1518`), and the other four derive from it —
-  `bulkTransactionFilterSchema` by `.omit()` at `:1535` and
-  `stageListQuerySchema` at `:1809`, which is a sixth position nobody had
+  (src/shared/domain.ts:1652-1656`), and the other four derive from it —
+  `bulkTransactionFilterSchema` by `.omit()` at `:1673` and
+  `stageListQuerySchema` at `:1947`, which is a sixth position nobody had
   counted. The shared sentence is untouched, because it is right where an
   account is being opened. `set_preferences`'s `defaultCurrency` was the same
   sentence in a third context and now says what a default is
@@ -362,9 +362,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   "MUST NOT automatically dereference `$ref` values that resolve to a network
   URI" and SHOULD bound schema depth and subschema count as a denial-of-service
   defence, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
-  and a thing clients are told to refuse. Measured: 506 `anyOf` and 7 `oneOf`
-  across the surface. 426 of the 506 are two-member nullable pairs, 127 of them
-  on inputs; 133 of all the `anyOf` are on inputs and 373 on outputs. The 7
+  and a thing clients are told to refuse. Measured: 528 `anyOf` and 7 `oneOf`
+  across the surface. 448 of the 528 are two-member nullable pairs, 133 of them
+  on inputs; 139 of all the `anyOf` are on inputs and 389 on outputs. The 7
   `oneOf` are all on inputs and are the boolean-or-string-literal coercion. So the composition is
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
@@ -433,7 +433,7 @@ The rules:
 - **Binding.** One envelope, from `common.md`:
   `{ result: <success> | { error: { code, message, details? } } }`, published as
   a two-member `anyOf` by `mcpOutputSchema`
-  (`src/server/mcp-output-schemas.ts:96-100`) and returned as both
+  (src/server/mcp-output-schemas.ts:97-101`) and returned as both
   `structuredContent` and a JSON text mirror built from one serialisation
   (`src/server/mcp.ts:232-246`), which is what the specification
   recommends: a tool returning structured content "SHOULD also return the
@@ -482,14 +482,14 @@ The rules:
   `tests/mcp-output.test.ts` holds it: no output schema may declare a `userId`
   property except by named exception.
 - **House.** Describe an output field whose meaning its name does not give — and
-  only those. Measured: **1,577 output properties, 356 with a description**,
+  only those. Measured: **1,605 output properties, 384 with a description**,
   having been 52, and having gone up by forty-eight when the input fields were
   described — a schema shared between a draft and the row it becomes carries its
   sentences both ways. `decimalSchema` and `timestampSchema` were bare `z.string()`,
   so an agent reading `list_accounts` learned that `balance` is "a string": one
   undescribed primitive repeated across more than a thousand properties. Both
   now say what they are, and most of the described count comes from those two
-  plus `versionSchema` (`src/server/mcp-output-schemas.ts:38-53`). The rest of
+  plus `versionSchema` (src/server/mcp-output-schemas.ts:39-54`). The rest of
   the surface is deliberately bare: nearly every undescribed name is `id`,
   `name`, `currency`, `date`, `payee` or `notes`, which already give their
   meaning, and where a sentence would buy nothing and cost the payload budget
@@ -587,9 +587,9 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (`src/shared/domain.ts:2092-2102`) is a `const` array rather than a bare
+  (src/shared/domain.ts:2230-2240`) is a `const` array rather than a bare
   TypeScript union precisely so `toolErrorSchema` can publish it as an enum
-  (`src/server/mcp-output-schemas.ts:88-94`): a closed list exists so a caller
+  (src/server/mcp-output-schemas.ts:89-95`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
   already saved, `VALIDATION_ERROR` means fix the arguments — and it cannot
   branch on a type it cannot see. It is the service half of `apiErrorCodes` and
