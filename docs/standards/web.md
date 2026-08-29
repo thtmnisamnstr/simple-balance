@@ -1318,8 +1318,8 @@ section 4 for the reduced-motion half of the same defect.
 
 Six submit controls are disabled on a computed predicate: forms.tsx:2307`
 (`!splitSettled`), `TemplatesPage.tsx:669` (`!anyChange`), `SettingsPage.tsx:475`
-(`!matches`), `PayeesPage.tsx:189` (`!selectedTarget`), CategoriesPage.tsx:104`
-(`!trimmed`) and CategoriesPage.tsx:387` (`!target || sourceCategories.length
+(`!matches`), `PayeesPage.tsx:189` (`!selectedTarget`), CategoriesPage.tsx:105`
+(`!trimmed`) and CategoriesPage.tsx:394` (`!target || sourceCategories.length
 === 0`). Only the first sits beside a sentence saying which condition is unmet,
 the split remainder line at forms.tsx:756-760`. A disabled submit button always
 says why, next to itself.

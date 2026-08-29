@@ -1038,6 +1038,24 @@ export const categoryMergeSchema = z.object({
   targetExpectedVersion: expectedVersionSchema.describe(
     "The `version` you last read on the category being kept, so a merge into a category somebody else changed is refused rather than applied blind.",
   ),
+  // Optional this release rather than required, which is the one thing that
+  // separates it from the sister route it now matches. `POST /payees/merge`
+  // has always demanded a key; this one has never accepted one, and 0.1.5
+  // clients — the browser included — merge without sending anything. Refusing
+  // those requests on upgrade would break a working client to fix a defect it
+  // was not having. So a key sent is honoured, a key left out behaves exactly
+  // as it did, and a later release may narrow it once every client sends one.
+  //
+  // The versions do not make this redundant. A retry after a timeout arrives
+  // with the versions the caller read before the first attempt, and the first
+  // attempt may well have succeeded: without a key the second call sees rows
+  // that have moved on and fails as stale, which reads as "your merge did not
+  // happen" about a merge that did.
+  idempotencyKey: idempotencyKeySchema
+    .optional()
+    .describe(
+      "Optional. A key you choose to make this merge safe to retry: sending the same key again returns the original result instead of merging twice. Leave it out and the merge behaves as it always has.",
+    ),
 });
 
 // Payees are intentionally derived from transaction text rather than stored in

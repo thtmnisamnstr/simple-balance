@@ -557,6 +557,59 @@ integration("category duplicate detection and merge", () => {
     }
   });
 
+  /**
+   * The retry a merge could not survive before it took a key.
+   *
+   * A caller whose first attempt times out has no way of knowing whether the
+   * merge happened. Asking again with the versions it read is refused as stale
+   * — correctly, since those rows really did move — and that reads as "your
+   * merge did not happen" about one that did. With a key, the second ask
+   * returns the first answer, counts and all.
+   */
+  it("returns the first answer when the same merge is asked for twice", async () => {
+    const target = await createCategory(primary, { name: "Replay Target", kind: "expense" });
+    const source = await createCategory(primary, { name: "Replay Source", kind: "expense" });
+    const request = {
+      sourceCategoryIds: [source.id],
+      targetCategoryId: target.id,
+      expectedVersions: { [source.id]: source.version },
+      targetExpectedVersion: target.version,
+      idempotencyKey: "replay-category-merge-key",
+    };
+
+    const first = await mergeCategories(primary, request);
+    // The same request object, versions and all, exactly as a retrying client
+    // would send it. Without the key this is a STALE_VERSION.
+    const second = await mergeCategories(primary, request);
+    expect(second).toEqual(first);
+
+    // And it merged once. The target moved by one version, not two, and the
+    // source is gone rather than having been looked for a second time.
+    const [targetAfter] = await getDb()
+      .select()
+      .from(categories)
+      .where(eq(categories.id, target.id));
+    expect(targetAfter?.version).toBe(target.version + 1);
+    const remaining = await getDb()
+      .select()
+      .from(categories)
+      .where(inArray(categories.id, [source.id]));
+    expect(remaining).toHaveLength(0);
+
+    // A different merge under the same key is a different request, and is
+    // refused rather than answered with somebody else's result.
+    const third = await createCategory(primary, { name: "Replay Other", kind: "expense" });
+    await expect(
+      mergeCategories(primary, {
+        sourceCategoryIds: [third.id],
+        targetCategoryId: target.id,
+        expectedVersions: { [third.id]: third.version },
+        targetExpectedVersion: target.version + 1,
+        idempotencyKey: "replay-category-merge-key",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT", details: { operation: "category.merge" } });
+  });
+
   it("rolls back stale merges and cannot cross tenant boundaries", async () => {
     const staleTarget = await createCategory(primary, {
       name: "Stale Merge Target",

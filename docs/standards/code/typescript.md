@@ -155,7 +155,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (src/server/db/schema.ts:196),
-and the UI iterates it (src/client/pages/CategoriesPage.tsx:126`).
+and the UI iterates it (src/client/pages/CategoriesPage.tsx:127`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -178,7 +178,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(src/shared/domain.ts:1289`.)
+(src/shared/domain.ts:1307`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant

@@ -23,7 +23,7 @@ correct: three `TypeError`s in the idempotency canonicaliser for payload shapes
 that cannot occur (`src/server/services/helpers.ts:131`, `:147` and `:153`), and
 two `Error`s for a reference count that came back non-numeric after being cast
 to one in SQL (`src/server/services/payees.ts:52` and
-src/server/services/categories.ts:487`).
+src/server/services/categories.ts:495`).
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
 something the caller could have got right".

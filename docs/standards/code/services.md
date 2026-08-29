@@ -290,7 +290,7 @@ the same new category end up on one category rather than two: the second
 lookup sees what the first created.
 ```
 
-(src/server/services/categories.ts:206.)
+(src/server/services/categories.ts:214.)
 
 Run those in parallel and a split naming "Groceries" twice creates two
 categories. The sequence *is* the algorithm. A linter cannot tell that apart
@@ -324,7 +324,7 @@ is the same string for the same value.
 **Binding**, because it is the rule most recently got wrong.
 
 Resolving a category by name never widens the category it finds
-(src/server/services/categories.ts:161).
+(src/server/services/categories.ts:169).
 Widening to `both` was correct while an entry could only name a category of its
 own direction. It stopped being correct when a category running against the
 direction became a refund, and it stopped quietly: `both` agrees with whichever
@@ -333,7 +333,7 @@ instead of lowering the spending.
 
 Where the direction genuinely cannot decide — a name with nothing behind it
 yet — the caller says so with `categoryKind`
-(src/server/services/categories.ts:216),
+(src/server/services/categories.ts:224),
 and that field is ignored when the category already exists, because that one has
 an answer already.
 

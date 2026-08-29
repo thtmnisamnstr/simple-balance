@@ -107,7 +107,13 @@ describe("category merging", () => {
         targetCategoryId: groceries.id,
         expectedVersions: { [grocery.id]: grocery.version },
         targetExpectedVersion: groceries.version,
+        // Whatever the key is, only that one was sent: a merge the user clicked
+        // twice through a timeout has to arrive as the same request both times,
+        // and the versions cannot say so because a successful first attempt
+        // moved them.
+        idempotencyKey: expect.any(String),
       });
     });
+    expect(String(mergeBody!.idempotencyKey).length).toBeGreaterThanOrEqual(8);
   });
 });

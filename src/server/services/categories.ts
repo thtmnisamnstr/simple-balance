@@ -18,7 +18,15 @@ import {
   type CategoryRow,
 } from "../db/schema.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
-import { lockCategoryNamespace, serializeRow, writeAudit, writeAuditMany } from "./helpers.js";
+import {
+  getIdempotent,
+  lockCategoryNamespace,
+  lockIdempotencyKey,
+  serializeRow,
+  setIdempotent,
+  writeAudit,
+  writeAuditMany,
+} from "./helpers.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
 import { resolveCategoryGroup } from "./category-groups.js";
 
@@ -904,7 +912,25 @@ function mergedCategoryKind(rows: CategoryRow[]) {
   return kinds.size === 1 ? rows[0]!.kind : "both";
 }
 
-export async function mergeCategories(actor: Actor, input: unknown, transaction?: DbTransaction) {
+/**
+ * What a merge returns, named because a replay has to return it too.
+ *
+ * The counts are of what that merge moved when it ran, so a stored reply is a
+ * record of the first attempt rather than a fresh count — which is the point:
+ * the caller asked once, and both answers describe the same one merge.
+ */
+export type CategoryMergeResult = {
+  targetCategory: ReturnType<typeof serializeRow<CategoryRow>>;
+  mergedSourceCategoryIds: string[];
+  updatedTransactionCount: number;
+  updatedStagedTransactionCount: number;
+};
+
+export async function mergeCategories(
+  actor: Actor,
+  input: unknown,
+  transaction?: DbTransaction,
+): Promise<CategoryMergeResult> {
   const parsed = categoryMergeSchema.parse(input);
   const sourceCategoryIds = [...new Set(parsed.sourceCategoryIds)];
 
@@ -922,7 +948,28 @@ export async function mergeCategories(actor: Actor, input: unknown, transaction?
     }
   }
 
+  // What the key is a key *to*. A replay is the same merge asked for twice, so
+  // the payload carries the sources and the target and not the versions: the
+  // versions are what the caller had read when it first asked, and a retry that
+  // sent them again would be told its own successful merge was somebody else's
+  // change.
+  const idempotencyPayload = {
+    sourceCategoryIds,
+    targetCategoryId: parsed.targetCategoryId,
+  };
+
   return withTransaction(transaction, async (tx) => {
+    if (parsed.idempotencyKey !== undefined) {
+      await lockIdempotencyKey(tx, actor, "category.merge", parsed.idempotencyKey);
+      const existing = await getIdempotent<CategoryMergeResult>(
+        tx,
+        actor,
+        "category.merge",
+        parsed.idempotencyKey,
+        idempotencyPayload,
+      );
+      if (existing) return existing;
+    }
     await lockCategoryNamespace(tx, actor);
 
     const requestedIds = [parsed.targetCategoryId, ...sourceCategoryIds];
@@ -1399,11 +1446,22 @@ export async function mergeCategories(actor: Actor, input: unknown, transaction?
       },
     });
 
-    return {
+    const response: CategoryMergeResult = {
       targetCategory: serializeRow(updatedTarget),
       mergedSourceCategoryIds: sourceCategoryIds,
       updatedTransactionCount,
       updatedStagedTransactionCount: updatedStages.length,
     };
+    if (parsed.idempotencyKey !== undefined) {
+      await setIdempotent(
+        tx,
+        actor,
+        "category.merge",
+        parsed.idempotencyKey,
+        idempotencyPayload,
+        response,
+      );
+    }
+    return response;
   });
 }

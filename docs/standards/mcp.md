@@ -346,9 +346,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   `preview_bulk_transaction_selection`, `bulk_edit_transactions` and
   `bulk_delete_transactions`. **Done**, and in one edit rather than five:
   `listQuerySchema.currency` now carries a filter sentence of its own
-  (src/shared/domain.ts:1891-1895`), and the other four derive from it —
-  `bulkTransactionFilterSchema` by `.omit()` at `:1912` and
-  `stageListQuerySchema` at `:2186`, which is a sixth position nobody had
+  (src/shared/domain.ts:1909-1913`), and the other four derive from it —
+  `bulkTransactionFilterSchema` by `.omit()` at `:1930` and
+  `stageListQuerySchema` at `:2204`, which is a sixth position nobody had
   counted. The shared sentence is untouched, because it is right where an
   account is being opened. `set_preferences`'s `defaultCurrency` was the same
   sentence in a third context and now says what a default is
@@ -586,7 +586,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (src/shared/domain.ts:2469-2479`) is a `const` array rather than a bare
+  (src/shared/domain.ts:2487-2497`) is a `const` array rather than a bare
   TypeScript union precisely so `toolErrorSchema` can publish it as an enum
   (src/server/mcp-output-schemas.ts:91-97`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it

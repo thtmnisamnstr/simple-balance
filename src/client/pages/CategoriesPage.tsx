@@ -10,8 +10,9 @@ import {
   Tags,
   Trash2,
 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "../router.js";
+import { newIdempotencyKey } from "../idempotency.js";
 import { type CategoryKind, categoryKinds } from "../../shared/domain.js";
 import {
   api,
@@ -287,6 +288,10 @@ export default function CategoriesPage() {
   );
   const target = selectedCategories.find((category) => category.id === targetId);
   const sourceCategories = selectedCategories.filter((category) => category.id !== targetId);
+  // One key per intended merge, not per attempt, so a click that timed out and
+  // was pressed again is the same merge asked for twice rather than two merges.
+  // Replaced on success, because the next merge is a different intention.
+  const mergeIdempotencyKey = useRef(newIdempotencyKey());
   const mergeMutation = useMutation({
     mutationFn: () => {
       if (!target) throw new Error("Choose the category to keep");
@@ -299,10 +304,12 @@ export default function CategoriesPage() {
             sourceCategories.map((category) => [category.id, category.version]),
           ),
           targetExpectedVersion: target.version,
+          idempotencyKey: mergeIdempotencyKey.current,
         }),
       );
     },
     onSuccess: async () => {
+      mergeIdempotencyKey.current = newIdempotencyKey();
       setSelectedIds(new Set());
       setTargetId("");
       await Promise.all([
