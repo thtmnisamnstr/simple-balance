@@ -18,9 +18,9 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 111 pass, 54 skip | **1,089 pass, 631 skip** |
-| `npm test`, database set | 165 pass | **1,720 pass** |
-| `npm run test:integration` | 55 pass | 632 pass |
+| `npm test`, no database | 111 pass, 54 skip | **1,089 pass, 633 skip** |
+| `npm test`, database set | 165 pass | **1,722 pass** |
+| `npm run test:integration` | 55 pass | 634 pass |
 
 The third row is one test larger than the second row's skip count, and the odd
 one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one

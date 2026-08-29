@@ -430,8 +430,8 @@ async function assertNoOverlap(
     const startsInSamePeriod = clash.activeFrom >= window.activeFrom;
     throw validationError(
       startsInSamePeriod
-        ? `That category's budget already starts on ${clash.activeFrom}, which is this period or later. Change that budget's amount instead, or set an amount for one period only.`
-        : `Another budget for this category already covers the period starting ${clash.activeFrom}${
+        ? `That ${target.groupId != null ? "group" : "category"}'s budget already starts on ${clash.activeFrom}, which is this period or later. Change that budget's amount instead, or set an amount for one period only.`
+        : `Another budget for this ${target.groupId != null ? "group" : "category"} already covers the period starting ${clash.activeFrom}${
             clash.activeTo
               ? ` through the one starting ${clash.activeTo}`
               : " and every period after it"
@@ -534,6 +534,7 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
       percentOfIncome: parsed.percentOfIncome ?? null,
       priority: parsed.priority ?? 0,
       amount: parsed.amount,
+      isGroup: parsed.groupId != null,
     });
     const [created] = await tx
       .insert(budgetPlans)
@@ -559,6 +560,29 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
     return planView(created, target);
   });
 }
+
+/**
+ * Whether this patch names a way of working the amount out.
+ *
+ * A patch that names one rule replaces whatever rule the row had, because a
+ * budget works its amount out one way and the alternative is a patch nobody can
+ * write: sending a lookback to a plan that takes a share of income would be
+ * refused for naming two, and clearing the other one first would mean naming a
+ * field the caller never mentioned.
+ */
+const namesAnotherRule = (
+  patch: {
+    lookbackPeriods?: number | null;
+    percentOfPrevious?: string | null;
+    percentOfIncome?: string | null;
+    targetAmount?: string | null;
+  },
+  except: "lookbackPeriods" | "percentOfPrevious" | "percentOfIncome",
+) =>
+  (except !== "lookbackPeriods" && patch.lookbackPeriods != null) ||
+  (except !== "percentOfPrevious" && patch.percentOfPrevious != null) ||
+  (except !== "percentOfIncome" && patch.percentOfIncome != null) ||
+  patch.targetAmount != null;
 
 export async function updateBudgetPlan(
   actor: Actor,
@@ -617,27 +641,35 @@ export async function updateBudgetPlan(
       targetAmount:
         parsed.targetAmount === undefined ? before.targetAmount : (parsed.targetAmount ?? null),
       targetDate: parsed.targetDate === undefined ? before.targetDate : (parsed.targetDate ?? null),
+      // Naming one rule's parameter clears whichever other rule was there,
+      // which is what `update_budget_plan` says it does. Keeping the old one
+      // and letting the pair be refused would be a patch that cannot change a
+      // budget's mind: the only way out would be two calls, and the first would
+      // have to clear a field the caller never mentioned.
       lookbackPeriods:
-        parsed.lookbackPeriods === undefined
-          ? before.ruleLookback
-          : (parsed.lookbackPeriods ?? null),
+        parsed.lookbackPeriods !== undefined
+          ? (parsed.lookbackPeriods ?? null)
+          : namesAnotherRule(parsed, "lookbackPeriods")
+            ? null
+            : before.ruleLookback,
       // The stored column is one percentage and the patch has two names for it,
       // so which one it belongs to depends on the rule the row already carries.
       // Sending the other name is what changes the rule.
       percentOfPrevious:
-        parsed.percentOfPrevious === undefined
-          ? before.amountRule === "incremental"
-            ? before.rulePercent
-            : null
-          : (parsed.percentOfPrevious ?? null),
+        parsed.percentOfPrevious !== undefined
+          ? (parsed.percentOfPrevious ?? null)
+          : namesAnotherRule(parsed, "percentOfPrevious") || before.amountRule !== "incremental"
+            ? null
+            : before.rulePercent,
       percentOfIncome:
-        parsed.percentOfIncome === undefined
-          ? before.amountRule === "percent_of_income"
-            ? before.rulePercent
-            : null
-          : (parsed.percentOfIncome ?? null),
+        parsed.percentOfIncome !== undefined
+          ? (parsed.percentOfIncome ?? null)
+          : namesAnotherRule(parsed, "percentOfIncome") || before.amountRule !== "percent_of_income"
+            ? null
+            : before.rulePercent,
       priority: parsed.priority ?? before.priority,
       amount: parsed.amount === undefined ? before.amount : parsed.amount,
+      isGroup: before.groupId !== null,
     });
     const [updated] = await tx
       .update(budgetPlans)
@@ -743,6 +775,7 @@ async function resolveCarry(
     percentOfIncome: string | null;
     priority: number;
     amount: string;
+    isGroup: boolean;
   },
 ) {
   const isFund = input.targetAmount !== null;
@@ -785,6 +818,11 @@ async function resolveCarry(
   if (isFund && decimal(input.amount).cmp(0) !== 0) {
     throw validationError(
       "A sinking fund works out its own amount each period, from what is still needed and how many periods are left. Set the amount to zero, or remove the target to budget a fixed amount.",
+    );
+  }
+  if (input.priority !== 0 && input.isGroup) {
+    throw validationError(
+      "A funding order is about categories. Ranking a group and the categories under it would spend the same income twice, so a group's budget carries no priority.",
     );
   }
   if (!input.rollover && input.rolloverCap !== null) {
@@ -1308,6 +1346,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
   // one, and both are the same figure.
   const income = new Map<string, string>();
   const incomeRows = await getDb().execute(sql`
+    ${withClause(archived.cte)}
     select
       date_trunc(${unit}, p.date)::date::text as period_start,
       p.currency as currency,
@@ -1315,9 +1354,11 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
     from posting p
     join ledger_account a
       on a.user_id = p.user_id and a.id = p.account_id and a.system_kind = 'income'
+    ${archived.join}
     where p.user_id = ${actor.userId}
       and p.date >= date_trunc(${unit}, ${queryStart}::date)::date
       and p.date <= ${countedTo}::date
+      ${archived.filter}
     group by 1, 2
   `);
   for (const row of incomeRows.rows) {
@@ -1875,14 +1916,15 @@ function derivedAmount(
       return average.cmp(0) <= 0 ? ZERO : canonicalDecimal(average);
     }
     case "incremental": {
-      // The first period has nothing before it, so the plan's own amount is
-      // the base. Every period after steps up from what the period before was
-      // budgeted, which is what makes it compound rather than a flat uplift.
-      const base = context.previousLimit ?? plan.amount;
+      // The first period is the amount as typed. The step is what happens
+      // *between* periods, so applying it to the first would budget more than
+      // the number somebody put in the box that asked for the first period's
+      // amount — which is what the form and the guide both promise.
+      if (context.previousLimit === null) return canonicalDecimal(plan.amount);
       const step = decimal(plan.rulePercent ?? ZERO)
         .div(100)
         .plus(1);
-      const next = decimal(base).times(step);
+      const next = decimal(context.previousLimit).times(step);
       return next.cmp(0) <= 0 ? ZERO : canonicalDecimal(next);
     }
     case "percent_of_income": {

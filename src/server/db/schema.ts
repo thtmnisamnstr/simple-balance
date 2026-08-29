@@ -1262,6 +1262,13 @@ export const budgetPlans = pgTable(
       "budget_plan_rule_check",
       sql`(${table.amountRule} = 'sinking_fund') = (${table.targetAmount} is not null and ${table.targetDate} is not null)`,
     ),
+    // Half a target is not a fund and not a fixed budget either: it is a date
+    // nothing reads sitting on a row. The rule check above passes it, because
+    // both sides come out false, so the pair needs a check of its own.
+    check(
+      "budget_plan_target_pair_check",
+      sql`(${table.targetAmount} is null) = (${table.targetDate} is null)`,
+    ),
     // A fund that does not keep what it saved saves nothing: each period would
     // start again from the target divided by the periods left, and the money
     // put aside last month would be invisible to this month's figure.

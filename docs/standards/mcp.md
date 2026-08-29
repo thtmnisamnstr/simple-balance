@@ -361,9 +361,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   "MUST NOT automatically dereference `$ref` values that resolve to a network
   URI" and SHOULD bound schema depth and subschema count as a denial-of-service
   defence, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
-  and a thing clients are told to refuse. Measured: 568 `anyOf` and 7 `oneOf`
-  across the surface. 483 of the 568 are two-member nullable pairs, 141 of them
-  on inputs; 147 of all the `anyOf` are on inputs and 421 on outputs. The 7
+  and a thing clients are told to refuse. Measured: 592 `anyOf` and 7 `oneOf`
+  across the surface. 507 of the 592 are two-member nullable pairs, 141 of them
+  on inputs; 147 of all the `anyOf` are on inputs and 445 on outputs. The 7
   `oneOf` are all on inputs and are the boolean-or-string-literal coercion. So the composition is
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
@@ -481,7 +481,7 @@ The rules:
   `tests/mcp-output.test.ts` holds it: no output schema may declare a `userId`
   property except by named exception.
 - **House.** Describe an output field whose meaning its name does not give — and
-  only those. Measured: **1,713 output properties, 440 with a description**,
+  only those. Measured: **1,731 output properties, 452 with a description**,
   having been 52, and having gone up by forty-eight when the input fields were
   described — a schema shared between a draft and the row it becomes carries its
   sentences both ways. `decimalSchema` and `timestampSchema` were bare `z.string()`,

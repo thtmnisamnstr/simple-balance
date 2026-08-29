@@ -156,6 +156,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
   // scoped to an account, so money spent on a card since closed is money the
   // budget covered.
   const [includeArchived, setIncludeArchived] = useState(true);
+  // On, like the server's default: the question a budget raises is where the
+  // rest went, and a page that answered it only when asked would be hiding the
+  // gap.
+  const [includeUnbudgeted, setIncludeUnbudgeted] = useState(true);
   // One box for both kinds of target, because a budget is about one thing and
   // asking which kind first would be a mode. The value carries its own kind.
   const [target, setTarget] = useState("");
@@ -195,7 +199,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [editRolloverCap, setEditRolloverCap] = useState("");
 
   const report = useQuery({
-    queryKey: ["budgets", "report", start, end, periodUnit, includeArchived],
+    queryKey: ["budgets", "report", start, end, periodUnit, includeArchived, includeUnbudgeted],
     queryFn: () =>
       api<BudgetReport>(
         `/api/v1/budget-report?${queryString({
@@ -208,6 +212,8 @@ export default function BudgetsPage({ session }: { session: Session }) {
           // in either position while the two behaviours differ by every penny
           // spent through a closed account.
           includeArchived: includeArchived ? "true" : "false",
+          // Both ways for the same reason.
+          includeUnbudgeted: includeUnbudgeted ? "true" : "false",
         })}`,
       ),
   });
@@ -465,6 +471,17 @@ export default function BudgetsPage({ session }: { session: Session }) {
             onChange={(event) => setIncludeArchived(event.target.checked)}
           />
           Count spending through closed accounts
+        </label>
+        {/* The guide has promised this since the first budget shipped and the
+            page never had it: the API took `includeUnbudgeted` and only an
+            agent could send it. */}
+        <label className="date-bar-check">
+          <input
+            type="checkbox"
+            checked={includeUnbudgeted}
+            onChange={(event) => setIncludeUnbudgeted(event.target.checked)}
+          />
+          Show categories with no budget
         </label>
       </div>
 

@@ -75,7 +75,7 @@ it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the six inline `style` props in the client
 (`charts.tsx:270`, `charts.tsx:319`, `components.tsx:500`, `components.tsx:751`,
-BudgetsPage.tsx:675`, `DashboardPage.tsx:194`) are all runtime geometry and are
+BudgetsPage.tsx:692`, `DashboardPage.tsx:194`) are all runtime geometry and are
 correct as they are. The count matters beyond tidiness: it is what
 `src/server/http-security.ts:22-29` reasons about when it declines
 `'unsafe-inline'`.
@@ -498,7 +498,7 @@ Three things in the app are past the threshold and are not components yet:
   selection", "Select all N matching".
 - **A blank-cell placeholder.** An em dash on ten sites
   (`TransactionBrowser.tsx:829`, `:837`, `:841`, `AccountDetailPage.tsx:101`,
-  BudgetsPage.tsx:824`, `:830`, `:835`, `:850`, `StagingPage.tsx:748`,
+  BudgetsPage.tsx:841`, `:847`, `:852`, `:867`, `StagingPage.tsx:748`,
   `:815`), an italic muted
   word on others, and `Uncategorized` styled `.subtle` on one page and bare on
   another. One of the eight, `TransactionBrowser.tsx:837`, writes the dash as
@@ -1319,7 +1319,7 @@ section 4 for the reduced-motion half of the same defect.
 Six submit controls are disabled on a computed predicate: forms.tsx:2307`
 (`!splitSettled`), `TemplatesPage.tsx:669` (`!anyChange`), `SettingsPage.tsx:475`
 (`!matches`), `PayeesPage.tsx:189` (`!selectedTarget`), CategoriesPage.tsx:104`
-(`!trimmed`) and CategoriesPage.tsx:376` (`!target || sourceCategories.length
+(`!trimmed`) and CategoriesPage.tsx:387` (`!target || sourceCategories.length
 === 0`). Only the first sits beside a sentence saying which condition is unmet,
 the split remainder line at forms.tsx:756-760`. A disabled submit button always
 says why, next to itself.

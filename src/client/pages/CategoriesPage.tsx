@@ -187,7 +187,12 @@ export default function CategoriesPage() {
     mutationFn: async (
       input:
         | { action: "create"; name: string; policy: CategoryGroup["policy"] }
-        | { action: "update"; group: CategoryGroup; policy: CategoryGroup["policy"] }
+        | {
+            action: "update";
+            group: CategoryGroup;
+            policy?: CategoryGroup["policy"];
+            name?: string;
+          }
         | { action: "delete"; group: CategoryGroup },
     ) => {
       if (input.action === "create") {
@@ -198,7 +203,13 @@ export default function CategoriesPage() {
       }
       if (input.action === "update") {
         return api<CategoryGroup>(`/api/v1/category-groups/${input.group.id}`, {
-          ...json({ policy: input.policy, expectedVersion: input.group.version }),
+          ...json({
+            // Only what changed. A patch key left out leaves the field alone,
+            // which is what makes renaming and re-policying the same request.
+            ...(input.policy === undefined ? {} : { policy: input.policy }),
+            ...(input.name === undefined ? {} : { name: input.name }),
+            expectedVersion: input.group.version,
+          }),
           method: "PUT",
         });
       }
@@ -443,7 +454,22 @@ export default function CategoriesPage() {
               <tbody>
                 {(groups.data ?? []).map((group) => (
                   <tr key={group.id}>
-                    <th scope="row">{group.name}</th>
+                    <th scope="row">
+                      {/* Renamed in place. The agent surface could rename a
+                          group from the first day it existed and this page
+                          could not, which is the parity rule pointing the other
+                          way. */}
+                      <Input
+                        aria-label={`Name of ${group.name}`}
+                        defaultValue={group.name}
+                        onBlur={(event) => {
+                          const next = event.target.value.trim();
+                          if (next !== "" && next !== group.name) {
+                            groupMutation.mutate({ action: "update", group, name: next });
+                          }
+                        }}
+                      />
+                    </th>
                     <td>
                       <Select
                         aria-label={`How ${group.name} is budgeted`}

@@ -3,7 +3,13 @@ import type { Actor, BudgetPeriodUnit, RecurrenceShape } from "../../shared/doma
 import { forecastQuerySchema, MAX_FORECAST_PERIODS } from "../../shared/domain.js";
 import { occurrencesBetween, todayIn } from "../../shared/recurrence-dates.js";
 import { getDb } from "../db/client.js";
-import { budgetPlans, categories, ledgerAccounts, recurrences } from "../db/schema.js";
+import {
+  budgetPlans,
+  categories,
+  categoryGroups,
+  ledgerAccounts,
+  recurrences,
+} from "../db/schema.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { ruleOf } from "./recurrences.js";
@@ -129,6 +135,38 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
   }));
   const through = periods.at(-1)?.end ?? from;
 
+  // What this period has already spent, by category, so the first period's
+  // budget is not subtracted twice.
+  //
+  // The projection starts from today's balance, which already reflects what the
+  // month has spent so far. Taking the whole of the month's budget off that
+  // again would count the shopping that has already happened twice, and the
+  // first period is the one every reader looks at.
+  const spentThisPeriod = new Map<string, string>();
+  const firstPeriod = periods[0];
+  if (firstPeriod) {
+    const rows = await getDb().execute(sql`
+      select
+        case when p.leg_id is not null then l.category_id else t.category_id end as category_id,
+        p.currency as currency,
+        sum(p.amount)::text as spent
+      from posting p
+      join ledger_account a
+        on a.user_id = p.user_id and a.id = p.account_id and a.system_kind = 'expense'
+      left join transaction_leg l on l.user_id = p.user_id and l.id = p.leg_id
+      left join ledger_transaction t
+        on p.leg_id is null and t.user_id = p.user_id and t.id = p.transaction_id
+      where p.user_id = ${actor.userId}
+        and p.date >= ${firstPeriod.start}::date
+        and p.date <= ${from}::date
+      group by 1, 2
+    `);
+    for (const row of rows.rows) {
+      if (row.category_id === null) continue;
+      spentThisPeriod.set(`${String(row.currency)}:${String(row.category_id)}`, String(row.spent));
+    }
+  }
+
   // What each account holds now, by currency. Archived accounts are closed out
   // to zero by their own postings, so they contribute nothing and need no
   // filtering — the same property every other total here relies on.
@@ -196,6 +234,12 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
     }
     // Never before today: a forecast is about what has not happened yet, and
     // what has is in the postings already.
+    // A ceiling on how many occurrences one recurrence contributes. Daily over
+    // two years of months is 730, so the bound is generous — and a schedule
+    // that hits it is reported rather than quietly cut short, because a
+    // projection missing its last months looks exactly like one with nothing
+    // scheduled in them.
+    const ceiling = MAX_FORECAST_PERIODS * 40;
     const occurrences = occurrencesBetween(
       // `ruleOf` reads the six schedule columns and nothing else, so the narrow
       // row this query selects is all it needs. The cast says that rather than
@@ -203,8 +247,15 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
       ruleOf(row as Parameters<typeof ruleOf>[0]),
       from,
       through,
-      MAX_FORECAST_PERIODS * 40,
+      ceiling,
     );
+    if (occurrences.length === ceiling) {
+      unprojectable.push({
+        id: row.id,
+        name: row.name,
+        reason: `It has more than ${ceiling} occurrences in this window, so the projection stops counting it partway and the later periods are short by whatever it would have added.`,
+      });
+    }
     for (const occurrence of occurrences) {
       // A weekend policy can push a posted date to null — "skip" means this
       // occurrence does not happen at all — and a projection of a date that is
@@ -226,12 +277,21 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
         const bucket = bucketFor(currency, periodStart);
         bucket.spending = canonicalDecimal(decimal(bucket.spending).plus(amount));
         bucket.occurrences += 1;
-        const categoryId = (shape as { categoryId?: string }).categoryId;
-        if (categoryId) {
-          const key = `${currency}:${periodStart}:${categoryId}`;
+        // A split names its categories on its legs and carries none of its
+        // own, so reading `categoryId` alone attributed a split recurrence to
+        // nothing — and a budget it pays every month then counted as entirely
+        // uncovered, spending the same money twice under the pessimistic basis.
+        const legs = (shape as { legs?: { categoryId?: string; amount: string }[] }).legs ?? [];
+        const attributions =
+          legs.length > 0
+            ? legs.map((leg) => ({ categoryId: leg.categoryId, amount: leg.amount }))
+            : [{ categoryId: (shape as { categoryId?: string }).categoryId, amount }];
+        for (const attribution of attributions) {
+          if (!attribution.categoryId) continue;
+          const key = `${currency}:${periodStart}:${attribution.categoryId}`;
           spendingByCategory.set(
             key,
-            canonicalDecimal(decimal(spendingByCategory.get(key) ?? ZERO).plus(amount)),
+            canonicalDecimal(decimal(spendingByCategory.get(key) ?? ZERO).plus(attribution.amount)),
           );
         }
       } else if (shape.type === "transfer" && source && destination) {
@@ -263,22 +323,42 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
   }
 
   // What the budgets intend for each period, per currency, from the plans alone.
-  // A derived amount is not resolved here: it depends on periods that have not
-  // happened, and a forecast that guessed at one would be a projection of a
-  // projection. Those plans contribute their stored amount, which for a fund or
-  // an average is zero, and the page says the figure is what the plans say.
+  //
+  // Only the plans whose amount is the number on them. A trailing average, a
+  // share of income and a sinking fund all work their figure out from periods
+  // that have not happened, so a projection of one would be a projection of a
+  // projection — and their stored amount is zero, which would have quietly
+  // reported them as intending nothing. They are counted in `unprojectable`
+  // instead, so the reply says the budgeted figure is short rather than
+  // implying it is complete.
   const plans = await getDb()
     .select({
+      id: budgetPlans.id,
       categoryId: budgetPlans.categoryId,
+      categoryName: categories.name,
+      groupName: categoryGroups.name,
       currency: budgetPlans.currency,
       amount: budgetPlans.amount,
+      amountRule: budgetPlans.amountRule,
       periodUnit: budgetPlans.periodUnit,
       activeFrom: budgetPlans.activeFrom,
       activeTo: budgetPlans.activeTo,
     })
     .from(budgetPlans)
     .where(and(eq(budgetPlans.userId, actor.userId), eq(budgetPlans.periodUnit, parsed.periodUnit)))
-    .leftJoin(categories, eq(categories.id, budgetPlans.categoryId));
+    .leftJoin(categories, eq(categories.id, budgetPlans.categoryId))
+    .leftJoin(categoryGroups, eq(categoryGroups.id, budgetPlans.groupId));
+
+  for (const plan of plans) {
+    if (plan.amountRule === "fixed" || plan.amountRule === "incremental") continue;
+    if (plan.activeTo !== null && plan.activeTo < firstBucket) continue;
+    unprojectable.push({
+      id: plan.id,
+      name: plan.categoryName ?? plan.groupName ?? "A budget",
+      reason:
+        "Its amount is worked out from periods that have not happened yet, so no projection can say what it intends.",
+    });
+  }
 
   const currencies = new Set<string>([
     ...balances.rows.map((row) => String(row.currency)),
@@ -303,6 +383,11 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
       let uncovered = decimal(ZERO);
       for (const plan of plans) {
         if (plan.currency !== currency) continue;
+        if (plan.amountRule !== "fixed" && plan.amountRule !== "incremental") continue;
+        // A group's budget is a second plan over its categories' spending, and
+        // the budget report reports it beside them rather than among them for
+        // the same reason: adding both would intend the same money twice.
+        if (plan.categoryId === null) continue;
         if (plan.activeFrom > period.start) continue;
         if (plan.activeTo !== null && plan.activeTo < period.start) continue;
         budgeted = budgeted.plus(plan.amount);
@@ -310,10 +395,17 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
         // said to be already covered by a recurrence. Its whole amount is
         // uncovered, which is the safe direction: the pessimistic basis stays
         // pessimistic.
+        // What a recurrence already accounts for, plus — in the period that
+        // has already started — what this category has already spent out of
+        // its budget, which today's balance has already been reduced by.
         const covered = decimal(
           plan.categoryId === null
             ? ZERO
             : (spendingByCategory.get(`${currency}:${period.start}:${plan.categoryId}`) ?? ZERO),
+        ).plus(
+          period.start === firstPeriod?.start && plan.categoryId !== null
+            ? (spentThisPeriod.get(`${currency}:${plan.categoryId}`) ?? ZERO)
+            : ZERO,
         );
         const gap = decimal(plan.amount).minus(covered);
         if (gap.cmp(0) > 0) uncovered = uncovered.plus(gap);

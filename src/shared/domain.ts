@@ -1468,7 +1468,7 @@ const budgetRule = {
     .max(9999)
     .optional()
     .describe(
-      "Which budgets are funded first when a period's income will not cover them all. Lower goes first, the way nice does, and everything defaults to zero, which is every budget equal. It changes no limit: what it decides is the funded figure the report works out for each row.",
+      "Which budgets are funded first when a period's income will not cover them all. Lower goes first, the way nice does. Zero is the default and means unranked, and unranked is funded last — an order names what comes first, and everything in a ledger that never used this is zero. It changes no limit: what it decides is the funded figure the report works out for each row, and it is read for category budgets rather than group ones, because ranking a group and its categories would spend the same income twice.",
     ),
 };
 

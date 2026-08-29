@@ -3,7 +3,13 @@ import type { Actor, BudgetGroupPolicy } from "../../shared/domain.js";
 import { categoryGroupCreateSchema, categoryGroupUpdateSchema } from "../../shared/domain.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
-import { budgetPlans, categories, categoryGroups, type CategoryGroupRow } from "../db/schema.js";
+import {
+  budgetEntries,
+  budgetPlans,
+  categories,
+  categoryGroups,
+  type CategoryGroupRow,
+} from "../db/schema.js";
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import { lockCategoryNamespace, writeAudit } from "./helpers.js";
 
@@ -46,19 +52,24 @@ function groupView(row: CategoryGroupRow, categoryCount: number): CategoryGroupV
 }
 
 export async function listCategoryGroups(actor: Actor): Promise<CategoryGroupView[]> {
+  // A join and a count rather than a correlated subquery. The subquery this
+  // replaced was written as a raw fragment with an alias of its own, and
+  // Drizzle rendered the outer table's columns unqualified inside it: they
+  // bound to the inner alias, so every group counted its own members against
+  // themselves and reported nought. The join says which table each column
+  // belongs to because Drizzle writes both sides.
   const rows = await getDb()
     .select({
       group: categoryGroups,
-      // Counted in SQL rather than by reading every category: a page shows the
-      // number beside the name, and a second query per group is the shape that
-      // looks fine with three groups and is a page load with thirty.
-      categoryCount: sql<number>`(
-        select count(*)::int from ${categories} c
-        where c.user_id = ${categoryGroups.userId} and c.group_id = ${categoryGroups.id}
-      )`,
+      categoryCount: sql<number>`count(${categories.id})::int`,
     })
     .from(categoryGroups)
+    .leftJoin(
+      categories,
+      and(eq(categories.userId, categoryGroups.userId), eq(categories.groupId, categoryGroups.id)),
+    )
     .where(eq(categoryGroups.userId, actor.userId))
+    .groupBy(categoryGroups.id)
     .orderBy(asc(categoryGroups.name));
   return rows.map((row) => groupView(row.group, row.categoryCount));
 }
@@ -140,15 +151,24 @@ export async function updateCategoryGroup(
     // categories added up: the budget would stop being read and nothing on the
     // page would say why. Refused with the way out rather than silently.
     if (parsed.policy === "sum_of_children" && before.policy === "standalone") {
+      // A standing budget or an amount set for one period: both are budgets
+      // about the group, and both would stop being read.
       const [held] = await tx
         .select({ id: budgetPlans.id })
         .from(budgetPlans)
         .where(and(eq(budgetPlans.userId, actor.userId), eq(budgetPlans.groupId, id)))
         .limit(1);
-      if (held) {
+      const [entry] = held
+        ? [undefined]
+        : await tx
+            .select({ id: budgetEntries.id })
+            .from(budgetEntries)
+            .where(and(eq(budgetEntries.userId, actor.userId), eq(budgetEntries.groupId, id)))
+            .limit(1);
+      if (held || entry) {
         throw conflict(
           `${before.name} has a budget of its own, and a group budgeted as its categories added up cannot hold one. Delete that budget first, or leave the group as it is.`,
-          { budgetPlanId: held.id },
+          held ? { budgetPlanId: held.id } : { budgetEntryId: entry!.id },
         );
       }
     }

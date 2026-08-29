@@ -14,6 +14,7 @@ import {
   createCategoryGroup,
   deleteCategoryGroup,
   getCategoryGroup,
+  updateCategoryGroup,
 } from "../../src/server/services/category-groups.js";
 import {
   createBudgetPlan,
@@ -1834,11 +1835,12 @@ integration("budgets", () => {
       const rows = report.periods
         .filter((period) => period.currency === "USD")
         .map((period) => period.rows.find((r) => r.category === "Stepped")!);
-      // The first period steps up from the plan's own amount, and each one
-      // after compounds on the one before rather than on the original.
-      expect(rows[0]!.limit).toBe("110");
-      expect(rows[1]!.limit).toBe("121");
-      expect(rows[2]!.limit).toBe("133.1");
+      // The first period is the amount as typed — the step is what happens
+      // between periods — and each one after compounds on the one before
+      // rather than on the original.
+      expect(rows[0]!.limit).toBe("100");
+      expect(rows[1]!.limit).toBe("110");
+      expect(rows[2]!.limit).toBe("121");
     });
 
     it("budgets a share of what came in the period before", async () => {
@@ -1898,7 +1900,7 @@ integration("budgets", () => {
       const rows = report.periods
         .filter((period) => period.currency === "USD")
         .map((period) => period.rows.find((r) => r.category === "Beaten")!);
-      expect(rows[0]!.limit).toBe("150");
+      expect(rows[0]!.limit).toBe("100");
       // The override stands, and the chain carries on from what it said rather
       // than from what the rule would have produced.
       expect(rows[1]).toMatchObject({ limit: "5", source: "entry" });
@@ -1927,8 +1929,8 @@ integration("budgets", () => {
         .map((period) => period.rows.find((r) => r.category === "Tapering")!);
       // Winding spending down is a budget somebody really sets, and it
       // compounds the same way a step up does.
-      expect(rows[0]!.limit).toBe("90");
-      expect(rows[1]!.limit).toBe("81");
+      expect(rows[0]!.limit).toBe("100");
+      expect(rows[1]!.limit).toBe("90");
 
       await expect(
         createBudgetPlan(actor, {
@@ -1991,6 +1993,24 @@ integration("budgets", () => {
         amount: "42.00",
       });
       expect(back).toMatchObject({ amountRule: "fixed", amount: "42", percentOfIncome: null });
+
+      // And one rule's parameter replaces another's without having to clear it
+      // first, which is what the tool says a patch does. Keeping the old one
+      // and refusing the pair would be a patch nobody could write.
+      const stepped = await updateBudgetPlan(actor, back.id, {
+        expectedVersion: back.version,
+        percentOfPrevious: "5",
+      });
+      expect(stepped).toMatchObject({ amountRule: "incremental", percentOfPrevious: "5" });
+      const averaged = await updateBudgetPlan(actor, stepped.id, {
+        expectedVersion: stepped.version,
+        lookbackPeriods: 2,
+      });
+      expect(averaged).toMatchObject({
+        amountRule: "trailing_average",
+        lookbackPeriods: 2,
+        percentOfPrevious: null,
+      });
     });
   });
 
@@ -2291,6 +2311,58 @@ integration("budgets", () => {
       // not a budget. Both fall out of the foreign keys rather than out of a
       // sweep somebody has to remember to write.
       expect((await listBudgetPlans(actor)).some((entry) => entry.id === plan.id)).toBe(false);
+    });
+
+    it("counts the categories filed under it", async () => {
+      const group = await createCategoryGroup(actor, { name: "Counted", policy: "standalone" });
+      expect((await getCategoryGroup(actor, group.id)).categoryCount).toBe(0);
+      const one = await createCategory(actor, { name: "Counted one", kind: "expense" });
+      const two = await createCategory(actor, { name: "Counted two", kind: "expense" });
+      for (const category of [one, two]) {
+        await updateCategory(actor, category.id, {
+          expectedVersion: category.version,
+          groupId: group.id,
+        });
+      }
+      // The figure a page shows beside the name. It read nought for every group
+      // when it was a correlated subquery whose outer columns bound to the
+      // inner alias — a number that is always the same is the hardest kind of
+      // wrong to notice.
+      expect((await getCategoryGroup(actor, group.id)).categoryCount).toBe(2);
+      const renamed = await updateCategoryGroup(actor, group.id, {
+        expectedVersion: (await getCategoryGroup(actor, group.id)).version,
+        name: "Counted again",
+      });
+      // And the row a write hands back is the row after the write, count
+      // included, rather than the one it read at the start.
+      expect(renamed).toMatchObject({ name: "Counted again", categoryCount: 2 });
+      expect(renamed.version).toBeGreaterThan(group.version);
+    });
+
+    it("refuses to become a summing group while it holds a budget of its own", async () => {
+      const group = await createCategoryGroup(actor, { name: "Switching", policy: "standalone" });
+      const plan = await createBudgetPlan(actor, {
+        groupId: group.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "80.00",
+        activeFrom: "2026-04-01",
+      });
+      await expect(
+        updateCategoryGroup(actor, group.id, {
+          expectedVersion: (await getCategoryGroup(actor, group.id)).version,
+          policy: "sum_of_children",
+        }),
+      ).rejects.toThrow(/budget of its own/i);
+
+      // With the budget gone it may change, because now there is nothing to
+      // stop being read.
+      await deleteBudgetPlan(actor, plan.id, plan.version);
+      const changed = await updateCategoryGroup(actor, group.id, {
+        expectedVersion: (await getCategoryGroup(actor, group.id)).version,
+        policy: "sum_of_children",
+      });
+      expect(changed.policy).toBe("sum_of_children");
     });
 
     it("refuses a second group with the same name, however it is spelled", async () => {

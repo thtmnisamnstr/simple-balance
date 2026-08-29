@@ -1,0 +1,1 @@
+ALTER TABLE "budget_plan" ADD CONSTRAINT "budget_plan_target_pair_check" CHECK (("budget_plan"."target_amount" is null) = ("budget_plan"."target_date" is null));

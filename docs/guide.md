@@ -252,8 +252,9 @@ the fund fills, and it stops asking once the fund is full. Carrying is part of
 what a fund is, so it is turned on for you.
 
 Carried figures are worked out from the budget's own start. Where that is more
-than ten years of periods back, the page says how far it looked, because a
-number with a boundary is worth having and a boundary nobody mentions is not.
+than 120 periods back — ten years of months, or a little over two of weeks —
+the page says how far it looked, because a number with a boundary is worth
+having and a boundary nobody mentions is not.
 
 **A budget can decide its own amount.** Under "Amount decided by" there are
 three alternatives to typing a number, and picking one is all there is to it:

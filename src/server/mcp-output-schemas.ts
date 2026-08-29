@@ -818,8 +818,20 @@ export const recurrenceListResultSchema = z.object({
 export const budgetPlanResultSchema = z
   .object({
     id: z.string().uuid(),
-    categoryId: z.string().uuid(),
-    categoryName: z.string(),
+    // Both nullable, and exactly one is set: a budget is about a category or a
+    // group. Declared non-nullable, every group budget failed its own tool with
+    // an output validation error.
+    categoryId: nullableStringSchema.describe(
+      "The category this budget is about, or null when it is about a group.",
+    ),
+    categoryName: nullableStringSchema,
+    groupId: nullableStringSchema.describe(
+      "The group this budget is about, or null when it is about a category.",
+    ),
+    groupName: nullableStringSchema,
+    targetName: z
+      .string()
+      .describe("What this budget is about, whichever kind it is. Use it to name the budget."),
     currency: z.string().describe("ISO-like code, upper case."),
     periodUnit: z.enum(budgetPeriodUnits),
     amount: z.string().describe("Decimal string. Never a number."),
@@ -878,8 +890,11 @@ export const budgetPlanResultSchema = z
 export const budgetEntryResultSchema = z
   .object({
     id: z.string().uuid(),
-    categoryId: z.string().uuid(),
-    categoryName: z.string(),
+    categoryId: nullableStringSchema,
+    categoryName: nullableStringSchema,
+    groupId: nullableStringSchema,
+    groupName: nullableStringSchema,
+    targetName: z.string(),
     currency: z.string(),
     periodUnit: z.enum(budgetPeriodUnits),
     periodStart: isoDateSchema.describe("First day of the period, already truncated to the unit."),
@@ -1074,7 +1089,7 @@ export const forecastResultSchema = z.object({
           budgetedSpending: z
             .string()
             .describe(
-              "What the budgets intend for this period, reported whether or not the basis uses it: a period whose budgets dwarf its recurrences is one where the projected balance is optimistic, and only this says so.",
+              "What the budgets intend for this period, reported whether or not the basis uses it: a period whose budgets dwarf its recurrences is one where the projected balance is optimistic, and only this says so. It counts the plans whose amount is the number on them — a trailing average, a share of income and a sinking fund work theirs out from periods that have not happened, and are listed in unprojectable instead — and it counts categories rather than groups, so it will not always equal the budget report's own total for the same month.",
             ),
           uncoveredBudget: z
             .string()
