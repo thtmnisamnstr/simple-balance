@@ -57,7 +57,7 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 40 `human` rules across the eight guides** — 35 in the seven that
+**There are 41 `human` rules across the eight guides** — 36 in the seven that
 enforce something, and five in `comments.md`, which argues rather than enforces
 and says so. `tests/standards-citations.test.ts` counts the rows and holds this
 sentence to them, so the number cannot drift by a guide gaining a rule and

@@ -163,7 +163,33 @@ are order-independent.
 
 *Checked by:* `npx vitest run tests/integration/budgets.integration.test.ts --sequence.shuffle`.
 
-### 2.5 An idempotency key generator cannot collide
+### 2.5 An absence is only checked beside a presence
+
+**Binding for the browser tier; house elsewhere.**
+
+`toHaveCount(0)` is true of a page that has not finished loading, of a table
+mid-re-read, and of a subject that was never created. So an assertion that
+something is gone is paired with one that something else is there, in the same
+state, and the pair is what makes the absence mean anything.
+
+The test this comes from checked a control that hides unbudgeted rows by
+asserting that no cell on the page read `—`. Two things were wrong with it and
+CI found both. The dash is not only what an unbudgeted row shows — a budget that
+does not roll over prints one under "carried in" whenever something else in the
+period carries — so the assertion could only pass in the moment between
+unchecking the box and the table coming back with its answer. A fast machine won
+that race and CI's did not, four times. And the report at that point held no
+unbudgeted row at all, so the passes were about nothing either way.
+
+It now makes a category with spending and no budget, watches that row leave, and
+checks a budgeted row is still there in the same breath. Only a table that has
+re-read can satisfy both.
+
+*Checked by:* `human`. A lint rule could find a bare `toHaveCount(0)` but not
+whether the positive beside it is about the same state, which is the whole
+rule.
+
+### 2.6 An idempotency key generator cannot collide
 
 **Binding.** See `services.md` 2.3. Pad the counter, not the string.
 
@@ -355,14 +381,16 @@ cannot do that should leave the number alone and fail loudly instead.
 | 2.2 Outcome, not mechanism | Judgement. A rule banning `toHaveBeenCalledWith` would fire on the tests where the call *is* the outcome, of which `tests/idempotency-key.test.ts` is one. |
 | 2.3 A test only your understanding could have written | Judgement, and the reason for reviewing tests as carefully as code. |
 | 2.4 Order independence, outside budgets | The wider suite does not hold it and is not going to soon. |
-| 2.5 The keys a test builds | Nothing reads the key builders under `tests/`, and the suite cannot: the collision is what makes the test green. |
+| 2.5 An absence beside a presence | Judgement about state, not syntax. A rule could find a bare `toHaveCount(0)`; only a person can say whether the assertion beside it is about the same moment. |
+| 2.6 The keys a test builds | Nothing reads the key builders under `tests/`, and the suite cannot: the collision is what makes the test green. |
 | 5.2 One database per file | Convention. |
 | 5.3 Stubbed globals, if the setting goes | Nothing reads the runner configuration back, and the file that would fail is not the file that changed. |
 
-Nine `human` rules in this guide, and it said four. Three of the difference is
-rules that named no mechanism anywhere on the page, which is the state this
-count exists to make uncomfortable; the rest is one row that read 2.1–2.3 and
-counted once. Two of the nine are worth an attempt: 2.5 is a scan of `tests/`
-for the `padEnd` shape it was, and 5.3 is a test that reads one line of
-`vitest.config.ts`, which is what `tests/theme-tokens.test.ts` already does to a
-stylesheet.
+Ten `human` rules in this guide. It said four when the count was first written,
+and nine was the true figure: three of the difference is rules that named no
+mechanism anywhere on the page, which is the state this count exists to make
+uncomfortable, and the rest is one row that read 2.1–2.3 and counted once. The
+tenth is 2.5, added after CI found the test that rule is about. Two of the ten
+are worth an attempt: 2.6 is a scan of `tests/` for the `padEnd` shape it was,
+and 5.3 is a test that reads one line of `vitest.config.ts`, which is what
+`tests/theme-tokens.test.ts` already does to a stylesheet.

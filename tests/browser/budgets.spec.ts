@@ -483,8 +483,12 @@ test.describe("the budgets page in a browser", () => {
     await expect(page.getByText(carried, { exact: false }).first()).toBeVisible();
 
     await page.goto("/budgets");
-    // Before anything carries, the columns are not there at all.
+    // Before anything carries, the columns are not there at all. The header
+    // that is always there is asserted first, so this is the table having said
+    // its answer rather than the table not being on screen yet — an absence on
+    // its own passes against a page that has not finished loading.
     const report = page.getByRole("table", { name: /Budget against spending/ }).first();
+    await expect(report.getByRole("columnheader", { name: "Spent" })).toBeVisible();
     await expect(report.getByRole("columnheader", { name: "Carried in" })).toHaveCount(0);
 
     // Scoped to the form that sets a budget: the edit dialog carries the same
