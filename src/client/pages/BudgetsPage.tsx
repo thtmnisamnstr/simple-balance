@@ -119,7 +119,12 @@ function rowState(row: BudgetReportRow, partial = false) {
   // that has not finished. Over is still over, and spent is still spent, but
   // there is nothing to say yet about the rest.
   if (partial) return "running" as const;
-  if (fillPercent(row.limit, row.actual) >= 80) return "close" as const;
+  // Against what there was to spend, which for an envelope is its limit plus
+  // what it carried in. `remaining` already counts the carry, so a bar drawn
+  // against the bare limit disagreed with the word beside it: a category that
+  // had rolled money forward showed "nearly there" while its own figure said
+  // most of the money was still available.
+  if (fillPercent(row.available ?? row.limit, row.actual) >= 80) return "close" as const;
   return "within" as const;
 }
 
@@ -228,6 +233,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["budgets"] });
+    // The projection reads the budgets too, and it is on the same page: leaving
+    // it alone meant "budgets intend" and the projected balance sat there
+    // describing a budget that had just been changed.
+    void queryClient.invalidateQueries({ queryKey: ["forecast"] });
   };
 
   // Cleared whenever anything is attempted, so a success from a minute ago
@@ -258,7 +267,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
           rollover,
           ...(rollover && rolloverCap !== "" ? { rolloverCap } : {}),
           ...(targetAmount !== "" ? { targetAmount, targetDate } : {}),
-          ...(rule === "average" && ruleValue !== "" ? { lookbackPeriods: Number(ruleValue) } : {}),
+          // Sent as a number only when it is one. `Number("three")` is NaN,
+          // which JSON writes as null, which the schema reads as "clear the
+          // rule" — so a typo quietly became a fixed budget of nothing.
+          ...(rule === "average" && ruleValue !== "" && Number.isInteger(Number(ruleValue))
+            ? { lookbackPeriods: Number(ruleValue) }
+            : {}),
           ...(rule === "step" && ruleValue !== "" ? { percentOfPrevious: ruleValue } : {}),
           ...(rule === "income" && ruleValue !== "" ? { percentOfIncome: ruleValue } : {}),
           ...(priority !== "" ? { priority: Number(priority) } : {}),
@@ -271,6 +285,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
       );
       setTarget("");
       setAmount("");
+      // Everything that decides what kind of budget this is, because the next
+      // one is a different budget. A checkbox that survived the create made the
+      // one after it carry silently.
+      setRollover(false);
       setRolloverCap("");
       setTargetAmount("");
       setTargetDate("");
@@ -528,7 +546,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
             >
               <Input
                 required
-                inputMode="decimal"
+                // A whole number of periods where the rule counts periods, so
+                // the browser refuses "three" rather than the server refusing it
+                // after the fact.
+                {...(rule === "average"
+                  ? { type: "number", min: 1, max: 24, step: 1 }
+                  : { inputMode: "decimal" as const })}
                 value={ruleValue}
                 onChange={(event) => setRuleValue(event.target.value)}
                 placeholder={rule === "average" ? "3" : "10"}
@@ -560,8 +583,16 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 setTargetAmount(event.target.value);
                 // A fund keeps what it saves or it is not saving. Turning the
                 // carry on here rather than refusing the form later is the
-                // difference between a rule and an obstacle.
-                if (event.target.value !== "") setRollover(true);
+                // difference between a rule and an obstacle. The other rules go
+                // with it for the same reason: a budget works its amount out
+                // one way, and the select that chose the other one is now
+                // hidden, so leaving it set would send two and be refused with
+                // nothing on screen to fix.
+                if (event.target.value !== "") {
+                  setRollover(true);
+                  setRule("fixed");
+                  setRuleValue("");
+                }
               }}
               placeholder="600.00"
             />
@@ -595,17 +626,19 @@ export default function BudgetsPage({ session }: { session: Session }) {
               />
             </Field>
           ) : null}
-          <Field
-            label="Funded first (optional)"
-            hint="Lower goes first when a period's income will not cover everything. Leave blank for unranked, which is funded last."
-          >
-            <Input
-              inputMode="numeric"
-              value={priority}
-              onChange={(event) => setPriority(event.target.value)}
-              placeholder="1"
-            />
-          </Field>
+          {target.startsWith("group:") ? null : (
+            <Field
+              label="Funded first (optional)"
+              hint="Lower goes first when a period's income will not cover everything. Leave blank for unranked, which is funded last."
+            >
+              <Input
+                inputMode="numeric"
+                value={priority}
+                onChange={(event) => setPriority(event.target.value)}
+                placeholder="1"
+              />
+            </Field>
+          )}
           <Button type="submit" loading={createPlan.isPending}>
             Set budget
           </Button>
@@ -666,7 +699,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   {period.partial ? " (so far)" : ""}
                 </h3>
                 <span className="subtle">
-                  {formatMoney(period.budgeted, period.currency)} budgeted.{" "}
+                  {/* Named as the categories' total, because a group's own
+                      budget is beside the rows rather than in them: adding both
+                      would count the same money twice, and a bare "budgeted"
+                      beside a group table showing another figure reads as a
+                      disagreement. */}
+                  {formatMoney(period.budgeted, period.currency)} budgeted across the categories.{" "}
                   {carries
                     ? `${formatMoney(period.carriedIn, period.currency)} carried in, ${formatMoney(period.available, period.currency)} available. `
                     : ""}
@@ -827,7 +865,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                                 >
                                   <span
                                     style={{
-                                      width: `${fillPercent(row.limit, row.actual)}%`,
+                                      width: `${fillPercent(row.available ?? row.limit, row.actual)}%`,
                                     }}
                                   />
                                 </div>
@@ -1107,12 +1145,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
         }
       >
         {error ? <Alert kind="error">{error}</Alert> : null}
-        {editing?.amountRule === "sinking_fund" ? (
+        {editing && editing.amountRule !== "fixed" && editing.amountRule !== "incremental" ? (
           <p className="settings-note">
-            This one is saving {formatMoney(editing.targetAmount ?? "0", editing.currency)} by{" "}
-            {periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works
-            out its own amount each {unitNoun[editing.periodUnit]}. Delete it and set a plain budget
-            if that is not what you want.
+            {editing.amountRule === "sinking_fund"
+              ? `This one is saving ${formatMoney(editing.targetAmount ?? "0", editing.currency)} by ${periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works out its own amount each ${unitNoun[editing.periodUnit]}.`
+              : editing.amountRule === "trailing_average"
+                ? `This one budgets the average of the last ${editing.lookbackPeriods} ${unitNoun[editing.periodUnit]}s, so it works out its own amount and there is nothing here to type.`
+                : `This one takes ${editing.percentOfIncome}% of the income before it, so it works out its own amount and there is nothing here to type.`}{" "}
+            Delete it and set a plain budget if that is not what you want.
           </p>
         ) : (
           <>

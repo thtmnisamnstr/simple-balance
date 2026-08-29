@@ -75,7 +75,7 @@ it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the six inline `style` props in the client
 (`charts.tsx:270`, `charts.tsx:319`, `components.tsx:500`, `components.tsx:751`,
-BudgetsPage.tsx:642`, `DashboardPage.tsx:194`) are all runtime geometry and are
+BudgetsPage.tsx:675`, `DashboardPage.tsx:194`) are all runtime geometry and are
 correct as they are. The count matters beyond tidiness: it is what
 `src/server/http-security.ts:22-29` reasons about when it declines
 `'unsafe-inline'`.
@@ -498,7 +498,7 @@ Three things in the app are past the threshold and are not components yet:
   selection", "Select all N matching".
 - **A blank-cell placeholder.** An em dash on ten sites
   (`TransactionBrowser.tsx:829`, `:837`, `:841`, `AccountDetailPage.tsx:101`,
-  BudgetsPage.tsx:786`, `:792`, `:797`, `:812`, `StagingPage.tsx:748`,
+  BudgetsPage.tsx:824`, `:830`, `:835`, `:850`, `StagingPage.tsx:748`,
   `:815`), an italic muted
   word on others, and `Uncategorized` styled `.subtle` on one page and bare on
   another. One of the eight, `TransactionBrowser.tsx:837`, writes the dash as
