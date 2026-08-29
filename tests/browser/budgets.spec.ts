@@ -692,4 +692,31 @@ test.describe("the budgets page in a browser", () => {
     await page.getByLabel("Counting").selectOption({ label: "Recurring plus what budgets intend" });
     await expect(page.getByRole("columnheader", { name: "Budgets intend" })).toBeVisible();
   });
+
+  /**
+   * Two controls the API had and the page did not.
+   *
+   * Both were found by an audit rather than by anybody using the page, which is
+   * the shape of a parity gap: the agent surface could do it from the first
+   * day, and the guide even said the browser could.
+   */
+  test("hides unbudgeted categories when asked, and renames a group", async () => {
+    await page.goto("/budgets");
+    const report = page.getByRole("table", { name: /Budget against spending/ }).first();
+    await expect(report).toBeVisible();
+    const unbudgeted = page.getByLabel(/Show categories with no budget/);
+    await expect(unbudgeted).toBeChecked();
+    await unbudgeted.uncheck();
+    // Every row left has a budget, which is what the box says it does.
+    await expect(page.getByRole("cell", { name: "—" }).first()).toHaveCount(0);
+    await unbudgeted.check();
+
+    const renamed = `Renamed ${Date.now()}`;
+    await page.goto("/categories");
+    const groupTable = page.getByRole("table", { name: /category groups/i });
+    const nameField = groupTable.getByRole("textbox").first();
+    await nameField.fill(renamed);
+    await nameField.blur();
+    await expect(groupTable.getByRole("textbox", { name: new RegExp(renamed) })).toBeVisible();
+  });
 });
