@@ -136,6 +136,21 @@
   from, including a CSV import.
 - An audit entry records what changed, and for a split that includes the legs:
   relabelling one writes no posting and touches no column on the transaction.
+- Budgeting sits over the ledger and never inside it. An assignment is not a
+  posting: nothing in a budget writes one, so deleting a budget leaves the books
+  exactly as they were, and every budget figure comes from plans, entries and
+  postings alone. A carry is folded at read time and never stored, which is what
+  lets a back-dated correction change every period after it; the fold is bounded
+  by `MAX_ROLLOVER_PERIODS` and a report that hit the bound says so. A budget is
+  about a category or a group and never both, and a group that is budgeted as
+  the sum of its categories may not hold a budget of its own. No method is ever
+  chosen: the parameter is the choice, and `amount_rule` is derived from the row
+  rather than asked for.
+- A forecast is a projection and never a balance. Money dated in the future has
+  not moved, so no figure `src/server/services/forecast.ts` produces may reach a
+  balance, a report total, or the trial balance, nothing but the two transports
+  may import it, and it writes nothing at all.
+  `tests/forecast-boundary.test.ts` holds all three.
 - A guess never overwrites a decision. The browser's detected timezone and
   currency are offered only while `chosen` is false, and that condition travels
   with the write as `ifUnchosen` so it is checked in the transaction that would
@@ -187,7 +202,7 @@
   `0009_scheduled_notifications.sql`, `0010_drop_covered_user_indexes.sql`,
   `0011_user_theme.sql` and `0012_payee_normalized_indexes.sql` in 0.1.5.
   `0013_budget_plans_and_entries.sql`,
-  `0014_budget_rollover_and_targets.sql`, `0015_budget_amount_rules.sql` and
+  `0014_budget_rollover_and_targets.sql`, `0015_budget_amount_rules.sql`,
   `0016_category_groups.sql` and `0017_budget_perimeter.sql` are written and
   unreleased, so they are the ones
   here that may still be regenerated; they freeze when they ship. `0016` is the

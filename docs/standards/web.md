@@ -1281,7 +1281,10 @@ into it could only ever go stale.
 | Nothing at all | 1 | `StagingPage` |
 | A full-screen block | 1 | `App`, session boot |
 
-Today it is twenty `Skeleton` sites and four paragraphs.
+Today it is twenty-one `Skeleton` sites and four paragraphs. The twenty-first is
+the budget page's forecast panel, which arrived with the story that projects
+balances forward; a page that already had a skeleton for its report got one for
+its projection, which is the rule doing its job rather than an exception.
 
 The rule: **`Skeleton` for anything whose shape is known, the full-screen block
 for session boot only, and retire the paragraph.** Fifteen sites moved, and the
