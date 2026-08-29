@@ -266,7 +266,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           // sending what was typed before they switched rules would be a number
           // nothing reads. An incremental budget is the exception: its first
           // period steps up from exactly this amount.
-          amount: targetAmount === "" && rule !== "average" && rule !== "income" ? amount : "0",
+          amount: targetAmount === "" && rule !== "income" ? amount : "0",
           currency,
           periodUnit,
           activeFrom,
@@ -521,10 +521,16 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 ))}
             </Select>
           </Field>
-          {targetAmount === "" && rule !== "average" && rule !== "income" ? (
+          {targetAmount === "" && rule !== "income" ? (
             <Field
               label="Amount"
-              hint={rule === "step" ? "The first period's amount, before the increase." : undefined}
+              hint={
+                rule === "step"
+                  ? "The first period's amount. The increase starts from the one after."
+                  : rule === "average"
+                    ? "Used until there are finished periods to average."
+                    : undefined
+              }
             >
               <Input
                 required
@@ -1162,13 +1168,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
         }
       >
         {error ? <Alert kind="error">{error}</Alert> : null}
-        {editing && editing.amountRule !== "fixed" && editing.amountRule !== "incremental" ? (
+        {editing &&
+        editing.amountRule !== "fixed" &&
+        editing.amountRule !== "incremental" &&
+        editing.amountRule !== "trailing_average" ? (
           <p className="settings-note">
             {editing.amountRule === "sinking_fund"
               ? `This one is saving ${formatMoney(editing.targetAmount ?? "0", editing.currency)} by ${periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works out its own amount each ${unitNoun[editing.periodUnit]}.`
-              : editing.amountRule === "trailing_average"
-                ? `This one budgets the average of the last ${editing.lookbackPeriods} ${unitNoun[editing.periodUnit]}s, so it works out its own amount and there is nothing here to type.`
-                : `This one takes ${editing.percentOfIncome}% of the income before it, so it works out its own amount and there is nothing here to type.`}{" "}
+              : `This one takes ${editing.percentOfIncome}% of the income before it, so it works out its own amount and there is nothing here to type.`}{" "}
             Delete it and set a plain budget if that is not what you want.
           </p>
         ) : (

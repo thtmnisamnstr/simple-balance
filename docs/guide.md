@@ -262,10 +262,12 @@ three alternatives to typing a number, and picking one is all there is to it:
 - **What the last few periods spent.** Say how many, and the budget is their
   average. The period being budgeted is never part of its own average, and
   early on it averages the periods that exist rather than counting the months
-  before you started as nothing.
+  before you started as nothing. The amount you type is what it uses until
+  there is anything to average.
 - **The last period, plus a percentage.** Ten per cent more each month, or a
-  negative number to taper. It compounds on the period before rather than on
-  the original amount, and the amount you type is the first period's.
+  negative number to taper. The amount you type is the first period's, and the
+  increase starts from the one after it, compounding on the period before
+  rather than on the original.
 - **A share of the income before it.** Fifteen per cent of what came in last
   month. Last month rather than this one, because a share of a month still
   running changes every time you look at it.

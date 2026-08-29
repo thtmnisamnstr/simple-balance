@@ -1447,13 +1447,13 @@ const budgetRule = {
     .nullable()
     .optional()
     .describe(
-      "Budget the average of what was actually spent over this many finished periods, rather than a fixed amount. The current period is never part of its own average. Send null to go back to a fixed amount. Refused alongside percentOfPrevious or percentOfIncome, because a budget can only be worked out one way.",
+      "Budget the average of what was actually spent over this many finished periods, rather than a fixed amount. The current period is never part of its own average, and early in a budget's life it averages the periods that exist rather than counting the ones before it started as nothing — until there are none at all, where the plan's own amount is used as the seed. Send null to go back to a fixed amount. Refused alongside percentOfPrevious or percentOfIncome, because a budget can only be worked out one way.",
     ),
   percentOfPrevious: decimalStringSchema
     .nullable()
     .optional()
     .describe(
-      "Budget the previous period's amount plus this percentage — 3 for three per cent more each period, 0 to repeat it, a negative number to taper. The first period of the window uses the plain amount as its base. Send null to go back to a fixed amount.",
+      "Budget the previous period's amount plus this percentage — 3 for three per cent more each period, 0 to repeat it, a negative number down to -100 to taper. The first period of the window is the plain amount itself; the step starts from the period after it. Send null to go back to a fixed amount.",
     ),
   percentOfIncome: decimalStringSchema
     .nullable()
