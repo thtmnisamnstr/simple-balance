@@ -174,7 +174,7 @@ Nothing asserts that `oneLine` refuses a newline.
 subject.
 
 One policy about personal data in log lines, in one process.
-`account-deletion.ts:179-186` logs counts and no address, with the comment
+`account-deletion.ts:180-188` logs counts and no address, with the comment
 "Deliberately without the address: they asked to be gone." `sendMail` follows it:
 every `Message` carries `about`, a fixed phrase naming the kind of message
 (`src/server/mail.ts:97-107`), and that phrase is what the log line carries

@@ -21,8 +21,9 @@ import { log } from "../log.js";
  *
  * Every table that holds somebody's data references auth_user with
  * `on delete cascade`, so removing the person's row removes their ledger with
- * it: accounts, transactions, the postings underneath them, categories, staged
- * rows, import batches, preferences, idempotency records, audit history,
+ * it: accounts, transactions, the postings underneath them, categories and the
+ * groups they are filed under, budgets and the amounts set for one period,
+ * staged rows, import batches, preferences, idempotency records, audit history,
  * sessions, sign-in methods, and any OAuth grant an agent was holding. That is
  * deliberately the whole mechanism. A hand-written list of tables to empty is a
  * list somebody will forget to add to, and the thing it would forget is

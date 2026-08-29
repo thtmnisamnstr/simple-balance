@@ -303,6 +303,35 @@ that group is 50/30/20. The unit of choice is the category, because a global
 mode forces a durable selector, a migration path, and a totals row that means
 two different things depending on it.
 
+### The fourteen methods, and where each one went
+
+All six stories are built, so the claim at the top of this section can be
+checked rather than promised. Nothing below is a mode: each is what the product
+does when a plan carries a particular parameter.
+
+| Method | How it is done | What it needed |
+| --- | --- | --- |
+| A limit per category per period | A plan with an amount | SB-019 |
+| An amount for one period only | A `budget_entry` | SB-019 |
+| Rollover budgeting | `rollover` on the plan | SB-025, one column |
+| A cap on what carries | `rollover_cap` | SB-025, one column |
+| Sinking funds | `target_amount` with `target_date` | SB-025, two columns |
+| Trailing average | `rule_lookback` | SB-026, one column |
+| Incremental budgeting | `rule_percent` as a step on the period before | SB-026, shares a column |
+| Percent-of-income | `rule_percent` as a share of the period before's income | SB-026, shares a column |
+| Priority-order funding | `priority` | SB-026, one column |
+| Pay yourself first | A savings category ranked first | SB-026, no storage |
+| Anti-budget | Budget the savings and rank it first; leave the rest unbudgeted | No storage |
+| Bucket and flex budgeting | A group with its own budget | SB-027 |
+| 50/30/20 | Three groups, each with its own budget | SB-027, no extra storage |
+| Hierarchical budgeting | A group budgeted as the sum of its categories | SB-027 |
+| Zero-based envelopes | Rollover, plus what is left to assign | SB-028, one column |
+| Forecasting | A projection over recurrences and plans | SB-029, no storage |
+
+Five need no storage at all, four are one column each, two share a column, and
+the rest are the same two tables read differently — which is what "mostly
+arithmetic" meant when this section was written before any of it existed.
+
 ### The model
 
 **As designed, across the six stories.** `budget_plan` is the standing
