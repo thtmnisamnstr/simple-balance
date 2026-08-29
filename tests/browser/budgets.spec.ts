@@ -670,4 +670,26 @@ test.describe("the budgets page in a browser", () => {
     await expect(page.getByText(/left to assign/i)).toBeVisible();
     await expect(page.getByText(/£50,000/)).toHaveCount(0);
   });
+
+  /**
+   * The forecast panel, which is the one place this product talks about money
+   * that has not moved.
+   *
+   * The arithmetic is held against the service. What this checks is that the
+   * panel says what it is: a projection, in its own words, and never a balance.
+   */
+  test("projects what happens next, in its own words", async () => {
+    await page.goto("/budgets");
+    const panel = page.getByRole("heading", { name: "What happens next" });
+    await expect(panel).toBeVisible();
+    await expect(
+      page.getByText(/Nothing here has happened yet, and none of it is a balance/i),
+    ).toBeVisible();
+
+    // The horizon is the person's to choose, and changing it re-reads.
+    await page.getByLabel(/Months ahead/).selectOption("12");
+    await expect(page.getByRole("columnheader", { name: "Projected balance" })).toBeVisible();
+    await page.getByLabel("Counting").selectOption({ label: "Recurring plus what budgets intend" });
+    await expect(page.getByRole("columnheader", { name: "Budgets intend" })).toBeVisible();
+  });
 });

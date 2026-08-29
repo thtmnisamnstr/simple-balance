@@ -612,6 +612,29 @@ export type BudgetReportRow = {
   funded: string | null;
 };
 
+export type Forecast = {
+  from: string;
+  periodUnit: BudgetPeriodUnitName;
+  basis: "recurring" | "recurring_and_budgets";
+  unprojectable: { id: string; name: string; reason: string }[];
+  currencies: {
+    currency: string;
+    openingBalance: string;
+    periods: {
+      periodStart: string;
+      start: string;
+      end: string;
+      openingBalance: string;
+      expectedIncome: string;
+      expectedSpending: string;
+      budgetedSpending: string;
+      uncoveredBudget: string;
+      projectedBalance: string;
+      occurrences: number;
+    }[];
+  }[];
+};
+
 export type BudgetGroupRow = {
   groupId: string;
   name: string;

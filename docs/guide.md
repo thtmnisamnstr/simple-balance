@@ -300,8 +300,18 @@ about the money in this account" when you add or edit one. Cards are counted by
 default, because spending on a card empties an envelope even though no cash has
 moved yet.
 
-**What is not here yet.** There is no forecast of what your balances will do
-next. That is the last story in [the roadmap](roadmap.md).
+**"What happens next" projects your balances forward.** It reads the recurring
+transactions that already have dates and amounts, and walks each period from
+what your accounts hold today. Nothing in it has happened: it is what the
+balances would do if nothing changed, and the page never calls a projected
+figure a balance.
+
+Choose how far ahead, and whether to count what your budgets intend as well as
+what is already scheduled. The second is the pessimistic reading and usually the
+more useful one: it adds the part of each budget that no recurring transaction
+already covers, so the rent is never counted twice. A recurring transaction with
+no amount cannot be projected — the page names it, because leaving it out
+silently would make every period look better than it is.
 
 ## How it looks
 

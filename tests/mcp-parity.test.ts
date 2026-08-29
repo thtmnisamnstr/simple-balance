@@ -50,6 +50,7 @@ const COVERED_BY: Record<string, string> = {
   "PUT /api/v1/budget-entries": "set_budget_entry",
   "DELETE /api/v1/budget-entries/:id": "delete_budget_entry",
   "GET /api/v1/budget-report": "get_budget_report",
+  "GET /api/v1/forecast": "get_forecast",
   "GET /api/v1/recurrences": "list_recurrences",
   "GET /api/v1/recurrences/:id": "get_recurrence",
   "POST /api/v1/recurrences": "create_recurrence",

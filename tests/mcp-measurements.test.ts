@@ -130,9 +130,11 @@ describe("what mcp.md says it measured", () => {
    * `NOT_A_TOOL` with the reason, which is a decision worth making in a diff.
    */
   const NOT_A_TOOL: string[] = [
-    // A stored value rather than a tool: it is how a category group says it is
-    // budgeted, and two descriptions name it because the choice has no default.
+    // Stored values rather than tools, each named by a description because the
+    // choice it stands for has no default: how a category group is budgeted,
+    // and what a forecast is projected from.
     "sum_of_children",
+    "recurring_and_budgets",
   ];
 
   it("never sends an agent to a tool that does not exist", () => {

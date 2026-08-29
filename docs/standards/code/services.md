@@ -129,7 +129,7 @@ not hold a one-connection deployment for its whole length, and
 row. A fifth has to argue that nothing will ever want to compose with it.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(src/server/mcp.ts:301-311`, and every `runIdempotentMcpMutation` call under it)
+(src/server/mcp.ts:304-314`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its

@@ -12,6 +12,7 @@ import {
   categoryGroupUpdateSchema,
   budgetPlanUpdateSchema,
   budgetReportQuerySchema,
+  forecastQuerySchema,
   bulkDeleteStageSchema,
   bulkStageEditSchema,
   bulkStageFilterSelectionRequestSchema,
@@ -121,6 +122,7 @@ import {
   setBudgetEntry,
   updateBudgetPlan,
 } from "./services/budgets.js";
+import { getForecast } from "./services/forecast.js";
 import {
   createCategoryGroup,
   deleteCategoryGroup,
@@ -186,6 +188,7 @@ import {
   categoryGroupResultSchema,
   deletedCategoryGroupResultSchema,
   budgetReportResultSchema,
+  forecastResultSchema,
   deletedBudgetResultSchema,
   recurrenceListResultSchema,
   recurrenceResultSchema,
@@ -389,6 +392,7 @@ export const TOOL_SCOPES: ReadonlyMap<string, LedgerTier> = new Map<string, Ledg
   ["get_budget_plan", "ledger:read"],
   ["list_budget_entries", "ledger:read"],
   ["get_budget_report", "ledger:read"],
+  ["get_forecast", "ledger:read"],
   ["create_staged_transaction", "ledger:stage"],
   ["update_staged_transaction", "ledger:stage"],
   ["delete_staged_transactions", "ledger:stage"],
@@ -1089,6 +1093,18 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         annotations: readAnnotations,
       },
       () => runTool(() => listBudgetEntries(actor)),
+    );
+    server.registerTool(
+      "get_forecast",
+      {
+        title: "Project balances forward",
+        description:
+          'What the balances do next if nothing changes, projected from the recurrences that already have dates and amounts. Nothing here is a balance or a report figure: money dated in the future has not moved, and no projection may be reported as though it had. Say "projected" when you pass one on. The projection uses recurrences alone by default; basis recurring_and_budgets also subtracts the part of each category\'s budget its recurrences do not already cover, which is the pessimistic reading. Budgeted figures come back either way, so a period whose budgets dwarf its recurrences can be seen for what it is. Recurrences with no amount are listed in unprojectable rather than counted as nothing — mention them if the figures matter, because the projection is short by whatever they are worth.',
+        inputSchema: forecastQuerySchema.strict(),
+        outputSchema: mcpOutputSchema(forecastResultSchema),
+        annotations: readAnnotations,
+      },
+      (input) => runTool(() => getForecast(actor, input)),
     );
     server.registerTool(
       "get_budget_report",

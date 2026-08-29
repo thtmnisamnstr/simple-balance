@@ -109,6 +109,7 @@ import {
   setBudgetEntry,
   updateBudgetPlan,
 } from "./services/budgets.js";
+import { getForecast } from "./services/forecast.js";
 import {
   createCategoryGroup,
   deleteCategoryGroup,
@@ -1244,6 +1245,7 @@ app.delete("/api/v1/budget-entries/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
   return c.json(await deleteBudgetEntry(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
+app.get("/api/v1/forecast", async (c) => c.json(await getForecast(c.get("actor"), c.req.query())));
 app.get("/api/v1/budget-report", async (c) =>
   c.json(
     await getBudgetReport(

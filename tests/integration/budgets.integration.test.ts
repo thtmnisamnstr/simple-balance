@@ -33,6 +33,8 @@ import { setPreferences } from "../../src/server/services/preferences.js";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
 import { canonicalDecimal, decimal } from "../../src/server/services/helpers.js";
 import { stageCsv } from "../../src/server/services/import-export.js";
+import { createRecurrence } from "../../src/server/services/recurrences.js";
+import { getForecast } from "../../src/server/services/forecast.js";
 import { commitStages, listStages } from "../../src/server/services/staging.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
@@ -2331,6 +2333,147 @@ integration("budgets", () => {
       expect(period.toAssign).toBeNull();
       // The perimeter is still reported, because it is a fact either way.
       expect(period.perimeter).toBe("700");
+    });
+  });
+
+  /**
+   * The forecast, which is the one surface here that talks about money that has
+   * not moved.
+   *
+   * Everything it says is a projection, and `tests/forecast-boundary.test.ts`
+   * holds it to that structurally. What these check is the arithmetic: that a
+   * recurrence lands in the period its posted date falls in, that the balance
+   * it starts from is a real one, and that a budget is never counted twice.
+   */
+  describe("a forecast", () => {
+    it("projects a recurring payment forward from today's balance", async () => {
+      const account = await createAccount(actor, {
+        name: "Forecast current",
+        type: "checking",
+        currency: "DKK",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      });
+      const rent = await createCategory(actor, { name: "Forecast rent", kind: "expense" });
+      await createRecurrence(actor, {
+        name: "Forecast rent",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          categoryId: rent.id,
+          amount: "100.00",
+          payee: "Landlord",
+        },
+      });
+
+      const forecast = await getForecast(actor, { periodUnit: "month", periods: 3 });
+      const currency = forecast.currencies.find((entry) => entry.currency === "DKK")!;
+      expect(currency.openingBalance).toBe("1000");
+      expect(currency.periods).toHaveLength(3);
+
+      // Asserted against itself rather than against a hand-computed month,
+      // because which periods the occurrences fall in depends on what day the
+      // suite runs. What holds whatever the date is: every occurrence is a
+      // hundred, the first period opens on the real balance, and each period
+      // closes on what it opened with less what it expects to spend.
+      const occurrences = currency.periods.reduce((total, period) => total + period.occurrences, 0);
+      expect(occurrences).toBeGreaterThanOrEqual(2);
+      expect(currency.periods[0]!.openingBalance).toBe("1000");
+      for (const period of currency.periods) {
+        expect(period.expectedSpending).toBe(String(period.occurrences * 100));
+        expect(Number(period.projectedBalance)).toBe(
+          Number(period.openingBalance) +
+            Number(period.expectedIncome) -
+            Number(period.expectedSpending),
+        );
+      }
+      expect(Number(currency.periods.at(-1)!.projectedBalance)).toBe(1000 - occurrences * 100);
+      // And nothing was written: a projection is not a proposal.
+      expect(
+        (await listStages(actor, {})).items.some((row) => row.draft.payee === "Landlord"),
+      ).toBe(false);
+    });
+
+    it("counts a budget only where a recurrence does not already cover it", async () => {
+      const account = await createAccount(actor, {
+        name: "Forecast basis",
+        type: "checking",
+        currency: "PLN",
+        openingDate: "2026-01-01",
+        openingBalance: "500.00",
+        idempotencyKey: nextKey(),
+      });
+      const food = await createCategory(actor, { name: "Forecast food", kind: "expense" });
+      await createRecurrence(actor, {
+        name: "Forecast groceries",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          categoryId: food.id,
+          amount: "40.00",
+          payee: "Supermarket",
+        },
+      });
+      await createBudgetPlan(actor, {
+        categoryId: food.id,
+        currency: "PLN",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+      });
+
+      const recurring = await getForecast(actor, { periodUnit: "month", periods: 1 });
+      const both = await getForecast(actor, {
+        periodUnit: "month",
+        periods: 1,
+        basis: "recurring_and_budgets",
+      });
+      const monthOf = (view: typeof recurring) =>
+        view.currencies.find((entry) => entry.currency === "PLN")!.periods[0]!;
+
+      // Whether this month holds the occurrence depends on the day the suite
+      // runs, so the claim is about the relationship rather than about a month:
+      // the part of the budget a recurrence covers is never added twice.
+      const plain = monthOf(recurring);
+      const pessimistic = monthOf(both);
+      expect(plain.budgetedSpending).toBe("100");
+      expect(Number(plain.uncoveredBudget)).toBe(100 - Number(plain.expectedSpending));
+      expect(Number(pessimistic.expectedSpending)).toBe(
+        Number(plain.expectedSpending) + Number(plain.uncoveredBudget),
+      );
+      // Which is a hundred either way: forty dated and sixty not, or nothing
+      // dated and the whole hundred still intended.
+      expect(pessimistic.expectedSpending).toBe("100");
+    });
+
+    it("says which recurrences it could not project", async () => {
+      const account = await createAccount(actor, {
+        name: "Forecast unknown",
+        type: "checking",
+        currency: "HUF",
+        openingDate: "2026-01-01",
+        openingBalance: "100.00",
+        idempotencyKey: nextKey(),
+      });
+      await createRecurrence(actor, {
+        name: "Variable bill",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          payee: "Utility",
+        },
+      });
+
+      const forecast = await getForecast(actor, { periodUnit: "month", periods: 2 });
+      // A schedule with no amount is a real schedule with no figure. Counting
+      // it as nothing would flatter every period it falls in, so it is named.
+      expect(forecast.unprojectable.map((entry) => entry.name)).toContain("Variable bill");
+      const currency = forecast.currencies.find((entry) => entry.currency === "HUF")!;
+      expect(currency.periods[0]!.expectedSpending).toBe("0");
     });
   });
 });

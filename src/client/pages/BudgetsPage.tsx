@@ -13,6 +13,7 @@ import {
   type BudgetReportRow,
   type Category,
   type CategoryGroup,
+  type Forecast,
   type Session,
 } from "../api.js";
 import {
@@ -357,6 +358,22 @@ export default function BudgetsPage({ session }: { session: Session }) {
   // Only categories that can carry spending. An income category has nothing for
   // a limit to be compared against, and the server refuses one, so offering it
   // here would be a refusal nobody could see the cause of.
+  // Its own vocabulary, and deliberately: a projection is not a balance, and
+  // the panel that shows one says "projected" everywhere the rest of the page
+  // says "spent".
+  const [forecastPeriods, setForecastPeriods] = useState("6");
+  const [forecastBasis, setForecastBasis] = useState<Forecast["basis"]>("recurring");
+  const forecast = useQuery({
+    queryKey: ["forecast", periodUnit, forecastPeriods, forecastBasis],
+    queryFn: () =>
+      api<Forecast>(
+        `/api/v1/forecast?${queryString({
+          periodUnit,
+          periods: forecastPeriods,
+          basis: forecastBasis,
+        })}`,
+      ),
+  });
   const groups = useQuery({
     queryKey: ["category-groups"],
     queryFn: () => api<CategoryGroup[]>("/api/v1/category-groups"),
@@ -861,6 +878,106 @@ export default function BudgetsPage({ session }: { session: Session }) {
             : ""}
         </p>
       ) : null}
+
+      <div className="panel">
+        <div className="panel-header">
+          <h3>What happens next</h3>
+          <span className="subtle">
+            Projected from your recurring transactions. Nothing here has happened yet, and none of
+            it is a balance.
+          </span>
+        </div>
+        <div className="date-bar">
+          <Field label={`${unitNounPlural[periodUnit]} ahead`}>
+            <Select
+              value={forecastPeriods}
+              onChange={(event) => setForecastPeriods(event.target.value)}
+            >
+              {["3", "6", "12", "24"].map((count) => (
+                <option key={count} value={count}>
+                  {count}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Counting">
+            <Select
+              value={forecastBasis}
+              onChange={(event) => setForecastBasis(event.target.value as Forecast["basis"])}
+            >
+              <option value="recurring">Recurring transactions only</option>
+              <option value="recurring_and_budgets">Recurring plus what budgets intend</option>
+            </Select>
+          </Field>
+        </div>
+        {forecast.isError ? (
+          <Alert kind="error">
+            The projection could not be worked out, so nothing below is a projection of anything.{" "}
+            {(forecast.error as Error).message}
+          </Alert>
+        ) : forecast.isPending ? (
+          <Skeleton height={120} />
+        ) : (forecast.data?.currencies ?? []).length === 0 ? (
+          <p className="settings-note">
+            Nothing to project yet. A forecast comes from recurring transactions, so set one up and
+            this fills in.
+          </p>
+        ) : (
+          (forecast.data?.currencies ?? []).map((currency) => (
+            <div className="table-wrap" key={currency.currency}>
+              <table className="data-table">
+                <caption className="sr-only">
+                  Projected balances in {currency.currency}, from {forecast.data?.from}
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{unitNoun[periodUnit]}</th>
+                    <th scope="col" className="align-right">
+                      Expected in
+                    </th>
+                    <th scope="col" className="align-right">
+                      Expected out
+                    </th>
+                    <th scope="col" className="align-right">
+                      Budgets intend
+                    </th>
+                    <th scope="col" className="align-right">
+                      Projected balance
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currency.periods.map((period) => (
+                    <tr key={period.periodStart}>
+                      <th scope="row">{periodName(periodUnit, period.periodStart)}</th>
+                      <td className="align-right money">
+                        {formatMoney(period.expectedIncome, currency.currency)}
+                      </td>
+                      <td className="align-right money">
+                        {formatMoney(period.expectedSpending, currency.currency)}
+                      </td>
+                      <td className="align-right money">
+                        {formatMoney(period.budgetedSpending, currency.currency)}
+                      </td>
+                      <td className="align-right money">
+                        {formatMoney(period.projectedBalance, currency.currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))
+        )}
+        {(forecast.data?.unprojectable ?? []).length > 0 ? (
+          <Alert kind="info">
+            {(forecast.data?.unprojectable ?? []).map((entry) => entry.name).join(", ")} could not
+            be projected, so the figures above are short by whatever they are worth. A recurring
+            transaction with no amount proposes a row for you to fill in rather than a figure
+            anything can project.
+          </Alert>
+        ) : null}
+      </div>
 
       <div className="panel">
         <div className="panel-header">

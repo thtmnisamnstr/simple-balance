@@ -507,6 +507,31 @@
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
         "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
       ]
+    },
+    {
+      "id": "SB-029",
+      "priority": 290,
+      "title": "Forecast",
+      "dependsOn": [
+        "SB-016",
+        "SB-025"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "Balances are projected forward from the recurrences that already have dates and amounts, period by period, from what the accounts hold today",
+        "No figure the forecast produces reaches a balance, a report total, or the trial balance, and a test holds that rather than a paragraph",
+        "The forecast writes nothing: no posting, no staged row, no audit event",
+        "A budget is added to the projection only where a recurrence does not already cover it, so nothing is counted twice, and the budgeted figure is reported either way",
+        "A recurrence that cannot be projected is named with the reason rather than counted as nothing",
+        "A transfer within one currency changes no projected total, and one across currencies uses the schedule's own destination amount"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
     }
   ]
 }

@@ -1740,6 +1740,54 @@ export const MAX_REPORT_BUCKETS = 600;
 export const MAX_ROLLOVER_PERIODS = 120;
 
 /**
+ * How far ahead a forecast will project.
+ *
+ * Two years of months. Far enough to see a sinking fund reach its date and a
+ * salary change work through; short enough that nobody mistakes the far end for
+ * a prediction. Every period past the first compounds the assumption that
+ * nothing changes, and the assumption is wrong before the second year.
+ */
+export const MAX_FORECAST_PERIODS = 24;
+
+/**
+ * What a projection is worked out from.
+ *
+ * A recurrence is a dated intention with an amount, so it projects directly. A
+ * budget is what a period intends to spend, which overlaps whatever recurrences
+ * already cover it — projecting both would spend the rent twice. So the default
+ * is the recurrences alone, and the other basis adds only the part of each
+ * category's budget its recurrences do not already account for.
+ */
+export const forecastBases = ["recurring", "recurring_and_budgets"] as const;
+export type ForecastBasis = (typeof forecastBases)[number];
+
+export const forecastQuerySchema = z
+  .object({
+    periodUnit: z
+      .enum(budgetPeriodUnits)
+      .default("month")
+      .describe(
+        "The length of one projected period. The same grid the budget report and every other report bucket by, so a forecast month and a budget month are the same month.",
+      ),
+    periods: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_FORECAST_PERIODS)
+      .default(6)
+      .describe(
+        "How many periods ahead to project, starting with the one today falls in. Every period past the first compounds the assumption that nothing changes, which is why this is capped rather than open.",
+      ),
+    basis: z
+      .enum(forecastBases)
+      .default("recurring")
+      .describe(
+        'What the projected balance is worked out from. "recurring" uses the dated recurrences alone. "recurring_and_budgets" also subtracts the part of each category\'s budget that its recurrences do not already cover, which is the pessimistic reading and the more useful one for a month with a lot of discretionary spending. Budgeted figures are reported either way.',
+      ),
+  })
+  .strict();
+
+/**
  * The most postings one register will list. Refused rather than truncated: a
  * register is read to find the row a balance went wrong on, and one cut short
  * would close on a balance its own last row does not reach.

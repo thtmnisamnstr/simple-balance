@@ -285,8 +285,8 @@ both were nearly free once the engine existed.
 ## SB-019 — Budgeting — **done**
 
 **Priority 190. Depends on SB-018. Built, unreleased, and carrying migration
-0013.** The first of six, and the rest are SB-025 to SB-029, none of them
-started.
+0013.** The first of six. SB-025 to SB-029 are the other five and are all built,
+carrying migrations 0014 to 0017 between them.
 
 Every kind of budgeting, from one model. That sounds like scope and it is
 mostly arithmetic: of the fourteen named methods, five need no storage at all,
@@ -318,18 +318,21 @@ Resolving an amount is three lines. An explicit entry wins; otherwise the plan's
 rule is evaluated; otherwise nothing is budgeted and the row shows what was
 spent against no limit.
 
-**As built, in this story.** `budget_plan` carries the amount, the period unit,
+**As built, in this story.** `budget_plan` carried the amount, the period unit,
 the currency and the window, and nothing else: no rule column, no rollover flag,
-no priority. `budget_entry` is the per-period override, as designed. There is no
-`category_group` table. Resolving an amount is therefore two of the three lines —
-an explicit entry wins, otherwise the plan's amount, otherwise nothing is
-budgeted — and the third line arrives with SB-026, which is the story that gives
-a plan a rule to evaluate.
+no priority. `budget_entry` was the per-period override, as designed. There was
+no `category_group` table. Resolving an amount was therefore two of the three
+lines — an explicit entry wins, otherwise the plan's amount, otherwise nothing
+is budgeted.
 
-That gap is the whole of the difference between "budgeting" and "a budget", and
-it is worth being plain about which this is: a limit per category per period is
-what shipped, and rollover, sinking funds, derived amounts, groups, envelopes
-and forecasting are SB-025 to SB-029.
+**As built across all six.** The third line arrived with SB-026, and the model
+is now the one this section describes: a plan says how the amount is decided
+(fixed, a trailing average, last period plus a percentage, a share of income, or
+a sinking fund's own arithmetic), whether it rolls over and how far, its funding
+priority, and the window it is active in. A target is a category or a group.
+`category_group` exists with the one-level rule and the two policies. Nothing
+materialises a period, nothing stores a carry, and no budget figure comes from
+anywhere but plans, entries and postings.
 
 ### An assignment is not a posting
 
@@ -774,9 +777,10 @@ it is a real balance rather than a balance of the window — and it is one pass
 rather than a correlated subquery per period, which is the shape this repository
 prices out of its reports.
 
-## SB-029 — Forecast
+## SB-029 — Forecast — **done**
 
-**Priority 290. Depends on SB-016 and SB-025.**
+**Priority 290. Depends on SB-016 and SB-025. Built and unreleased. It carries
+no migration: a projection stores nothing.**
 
 Balances projected forward from the recurrences already generating dated
 occurrences and the plans already saying what each period intends.
@@ -785,6 +789,32 @@ Money dated in the future has not moved. So this is a projection surface with
 its own vocabulary, and no figure it produces may reach a balance, a report
 total, or the trial balance. That is the invariant this story is at risk of, and
 it gets a test rather than a paragraph.
+
+**How it was met**
+
+`tests/forecast-boundary.test.ts` is the paragraph made mechanical. Nothing
+outside the two transports may import the forecast, so no balance and no report
+can hold one of its figures; the service writes nothing at all, so no projection
+can become a posting; and a field with `balance` in its name has to be either
+the one fact in the reply — what the accounts hold today — or explicitly
+`projectedBalance`.
+
+The two sources are kept apart because they overlap. A recurrence is a dated
+intention with an amount and projects directly; a budget is what a period
+intends to spend, and most of that is already covered by the recurrences that
+pay it. Counting both would spend the rent twice. So the projection is the
+recurrences, `basis: "recurring_and_budgets"` adds only the part of each
+category's budget its recurrences do not cover, and the budgeted figure is
+reported either way — a period whose budgets dwarf its recurrences is a period
+whose projection is optimistic, and nothing else on the page says so.
+
+Two smaller decisions worth recording. A recurrence with no amount is a real
+schedule with no figure: it comes back in `unprojectable` with the reason,
+because counting it as nothing would quietly flatter every period it falls in. A
+transfer between two accounts in one currency changes no total in that currency
+and is counted nowhere; across currencies it uses the schedule's own destination
+amount, because this ledger holds no exchange rate of its own and a projection
+is not the place to invent one.
 
 ## SB-030 — Programmatic HTTP access
 

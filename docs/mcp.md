@@ -415,6 +415,14 @@ Windows for one category may not overlap: raising a budget means ending the old
 plan and starting another from the next period, which is also what keeps last
 March answering with what last March intended.
 
+`get_forecast` projects the balances forward from the recurrences that already
+have dates and amounts. Nothing it returns is a balance: money dated in the
+future has not moved, and a projection reported as a balance would make the
+ledger claim something happened because somebody expected it to. Say
+"projected". The projection uses recurrences alone unless `basis` asks for the
+budgets as well, and a recurrence with no amount comes back in `unprojectable`
+rather than being counted as nothing.
+
 `list_budget_entries`, `set_budget_entry` and `delete_budget_entry` handle a
 single period. Use one for a one-off, such as a larger food budget in December.
 `periodStart` is truncated to the period unit, so any day inside the period

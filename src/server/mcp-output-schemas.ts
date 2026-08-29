@@ -6,6 +6,7 @@ import {
   budgetAmountRules,
   budgetGroupPolicies,
   budgetPeriodUnits,
+  forecastBases,
   transactionTemplateBulkResultSchema,
   transactionTemplateDraftSchema,
   bulkStageEditResultSchema,
@@ -1034,5 +1035,56 @@ export const categoryGroupResultSchema = z
   .passthrough();
 
 export const deletedCategoryGroupResultSchema = z.object({ id: z.string().uuid() });
+
+export const forecastResultSchema = z.object({
+  from: isoDateSchema.describe(
+    "The day the projection starts from, which is today where this person lives.",
+  ),
+  periodUnit: z.enum(budgetPeriodUnits),
+  basis: z
+    .enum(forecastBases)
+    .describe(
+      "What the projected balance was worked out from. Recurrences alone, or recurrences plus the part of each category's budget they do not already cover.",
+    ),
+  unprojectable: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        name: z.string(),
+        reason: z.string(),
+      }),
+    )
+    .describe(
+      "Recurrences no projection could use, with why. A schedule with no amount is a real schedule with no figure, and leaving it out silently would flatter every period it falls in — say so rather than reporting the balance as though it were complete.",
+    ),
+  currencies: z.array(
+    z.object({
+      currency: z.string(),
+      openingBalance: z
+        .string()
+        .describe("What the accounts in this currency hold today. A fact, not a projection."),
+      periods: z.array(
+        z.object({
+          periodStart: isoDateSchema,
+          start: isoDateSchema,
+          end: isoDateSchema,
+          openingBalance: z.string().describe("What this period is projected to start with."),
+          expectedIncome: z.string(),
+          expectedSpending: z.string(),
+          budgetedSpending: z
+            .string()
+            .describe(
+              "What the budgets intend for this period, reported whether or not the basis uses it: a period whose budgets dwarf its recurrences is one where the projected balance is optimistic, and only this says so.",
+            ),
+          uncoveredBudget: z
+            .string()
+            .describe("The part of budgetedSpending no recurrence in the same category covers."),
+          projectedBalance: z.string(),
+          occurrences: z.number().int(),
+        }),
+      ),
+    }),
+  ),
+});
 
 export const deletedBudgetResultSchema = z.object({ id: z.string().uuid() });

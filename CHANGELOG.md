@@ -144,6 +144,16 @@ is named by the parameter it needs rather than by a method somebody picks, and
 naming two at once is refused. An amount set for a single period still beats all
 of them.
 
+**A forecast.** `GET /api/v1/forecast` and `get_forecast` project the balances
+forward from the recurrences that already have dates and amounts, period by
+period, from what the accounts hold today. Nothing it returns is a balance:
+money dated in the future has not moved, and a test holds that boundary rather
+than a paragraph — nothing outside the two transports may import the forecast,
+the service writes nothing, and a projected figure is named as one. Budgets are
+reported beside the projection and added to it only where a recurrence does not
+already cover them, so the rent is never counted twice, and a recurrence with no
+amount is named rather than counted as nothing.
+
 **A budget that carries is an envelope, and the report says what is left to
 assign**: the money in the accounts the budget is about, less what every
 envelope with money still in it has claimed. An account can be taken out of that
