@@ -144,6 +144,14 @@ is named by the parameter it needs rather than by a method somebody picks, and
 naming two at once is refused. An amount set for a single period still beats all
 of them.
 
+**Categories can be grouped, one level deep.** A group either holds a budget of
+its own or is whatever its categories' budgets add up to, and which of the two
+is declared when the group is made — there is no default, because both are
+defensible and the wrong one silently makes every figure on the page wrong in
+the same direction. A group's line is reported beside the category rows rather
+than among them, so no total counts the same money twice, and deleting a group
+leaves every category where it was.
+
 **And when a period's income will not cover everything, a funding order says
 what comes first.** Lower goes first; anything unranked is funded last. The
 report then shows how much of each budget the income covers and what is left

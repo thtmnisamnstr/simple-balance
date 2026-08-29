@@ -691,9 +691,10 @@ no shortfall figure at all: a report that told everybody their budgets were
 unfunded because income landed in a different period would be true, useless and
 alarming.
 
-## SB-027 — Category groups
+## SB-027 — Category groups — **done**
 
-**Priority 270. Depends on SB-019.**
+**Priority 270. Depends on SB-019. Built, unreleased, and carrying migration
+0016.**
 
 One level. A category belongs to at most one group, and a group may hold a
 budget of its own, which is what bucket budgeting, flex budgeting and 50/30/20
@@ -707,6 +708,35 @@ Arbitrary depth is refused. hledger shows what it costs: spending in an
 unbudgeted grandchild rolls up to the nearest budgeted ancestor, and the totals
 stop agreeing with themselves. One level has no grandchild, so there is nothing
 to misattribute.
+
+**How it was met**
+
+A `category_group` table, a nullable `group_id` on a category, and a budget
+target that is a category or a group and never both. The policy is declared when
+the group is created and has no default, because the whole point of writing this
+story down was that having Monarch's behaviour and expecting hledger's is a page
+of figures all wrong in the same direction. A `sum_of_children` group is refused
+a budget of its own: it already has an amount, and a second one would have an
+equal claim to be the group's with nothing on the page able to say which was
+being shown.
+
+A group's line sits beside the category rows rather than among them. Both are
+readings of the same money, so a period's `budgeted` and `spent` count the
+category rows alone and no total counts a grocery bill twice.
+
+**The one place this departs from the composite-key habit**, and it is written
+where somebody will hit it: a category's group is a single-column foreign key.
+`on delete set null` nulls *every* column of the constraint it is on, so the
+usual `(user_id, id)` pair would null the tenant as well and fail against
+`user_id not null`. PostgreSQL 15 can name the column to clear and Drizzle
+cannot emit that, so the tenant check moved to `resolveCategoryGroup`, on the
+one path that writes the column, with
+`tests/integration/tenant-isolation.integration.test.ts` holding it there.
+
+Deleting a group leaves every category exactly where it was and takes the
+group's own budget with it. Both fall out of the foreign keys rather than out of
+a sweep somebody has to remember, which is what keeps them true of a delete that
+arrives from anywhere.
 
 ## SB-028 — Envelopes
 

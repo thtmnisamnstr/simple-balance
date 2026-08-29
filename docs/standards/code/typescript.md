@@ -46,7 +46,7 @@ declares its fields and assigns them somewhere unreadable erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(src/server/api.ts:960`, `src/server/http-security.ts:160` and `:551`),
+(src/server/api.ts:966`, `src/server/http-security.ts:160` and `:551`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -154,8 +154,8 @@ export type CategoryKind = (typeof categoryKinds)[number];
 (src/shared/domain.ts:97-98.)
 
 The array is the single source: Zod validates from it, the database enum is
-generated from it (src/server/db/schema.ts:195),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:111`).
+generated from it (src/server/db/schema.ts:196),
+and the UI iterates it (src/client/pages/CategoriesPage.tsx:126`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -178,7 +178,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1275`.)
+(src/shared/domain.ts:1283`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant

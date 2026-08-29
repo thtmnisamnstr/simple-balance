@@ -56,11 +56,11 @@ than exempting the labels we add ourselves.
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (src/server/api.ts:227-234`) reads Hono's matched
+one per account. `routeLabel` (src/server/api.ts:233-240`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labelled by its prefix from a fixed list
-(`:225`), and a path that matched nothing at all is one literal, because a
+(`:231`), and a path that matched nothing at all is one literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
 *Checked by:* `tests/metrics.test.ts`, which asks for `/api/v1/accounts/<uuid>`
@@ -71,7 +71,7 @@ paths and insists both land under one name.
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(src/server/api.ts:238`) — registered rather than refusing, so a deployment
+(src/server/api.ts:244`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labelled increment costs about 130ns and does
@@ -116,8 +116,8 @@ produce refusals, is where the label itself is checked.
 ### 1.7 Instrument the seam, not the call sites
 
 **House.** Seventy-one tools are timed and counted by wrapping `registerTool`
-once (`src/server/mcp.ts:543`), and every HTTP request by one middleware mounted
-above everything, including the guards (`:188`). Both are chosen so a tool or a
+once (src/server/mcp.ts:557`), and every HTTP request by one middleware mounted
+above everything, including the guards (`:198`). Both are chosen so a tool or a
 route added tomorrow is instrumented by existing rather than by somebody
 remembering.
 
@@ -213,10 +213,10 @@ The four sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (src/server/api.ts:210`) and never the query string, because a filter carries
+  (src/server/api.ts:216`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
-  (`src/server/mcp.ts:569`) and never the arguments, which are somebody's ledger
+  (src/server/mcp.ts:583`) and never the arguments, which are somebody's ledger
   by definition.
 - **A message** logs `message.about` — "the password reset", "the reminder" —
   and never the recipient or the subject (`src/server/mail.ts:174`, `:180`), and

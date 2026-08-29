@@ -573,4 +573,56 @@ test.describe("the budgets page in a browser", () => {
     await expect(row).toContainText("15% of income");
     await expect(row).toContainText("Worked out");
   });
+
+  /**
+   * A group through both pages, which is the only tier that sees them meet.
+   *
+   * The group is made on Categories, a category is filed under it there, and
+   * the budget page reads it back — three requests through two pages, and the
+   * kind of seam where a field reaches one and not the other.
+   */
+  test("groups categories and budgets the group", async () => {
+    const groupName = `Fixed ${Date.now()}`;
+    const rent = `Rent ${Date.now()}`;
+    await page.goto("/categories");
+    await page.getByLabel("Group name").fill(groupName);
+    await page.getByLabel("Group budget").selectOption("standalone");
+    await page.getByRole("button", { name: "Add group" }).click();
+    await expect(
+      page.getByRole("table", { name: /category groups/i }).getByRole("rowheader", {
+        name: groupName,
+      }),
+    ).toBeVisible();
+
+    await page.getByLabel("Category name").fill(rent);
+    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByRole("button", { name: "Add category" }).click();
+    await page.getByRole("button", { name: `Edit ${rent}` }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Group").selectOption({ label: groupName });
+    await dialog.getByRole("button", { name: "Save" }).click();
+
+    await page.goto("/budgets");
+    const setBudget = page.locator("form.budget-form");
+    await setBudget
+      .getByLabel(/^Category or group/)
+      .selectOption({ label: `${groupName} (group)` });
+    await setBudget.getByLabel(/^Amount$/).fill("1200.00");
+    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Starting/).fill("2026-08-01");
+    await setBudget.getByRole("button", { name: /^set budget$/i }).click();
+
+    await expect(
+      page.getByRole("table", { name: /standing budgets/i }).getByRole("rowheader", {
+        name: new RegExp(groupName),
+      }),
+    ).toBeVisible();
+    // And the group has a line of its own in the report, marked as holding its
+    // own budget rather than adding up its categories.
+    const groupRow = page
+      .getByRole("table", { name: /^Groups for/ })
+      .getByRole("row", { name: new RegExp(groupName) });
+    await expect(groupRow).toContainText("Own budget");
+    await expect(groupRow).toContainText("£1,200.00");
+  });
 });

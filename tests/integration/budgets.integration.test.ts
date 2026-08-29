@@ -8,7 +8,13 @@ import {
   deleteCategory,
   listCategories,
   mergeCategories,
+  updateCategory,
 } from "../../src/server/services/categories.js";
+import {
+  createCategoryGroup,
+  deleteCategoryGroup,
+  getCategoryGroup,
+} from "../../src/server/services/category-groups.js";
 import {
   createBudgetPlan,
   deleteBudgetEntry,
@@ -1991,6 +1997,197 @@ integration("budgets", () => {
       // because income happened to land in another period.
       expect(period.unfunded).toBeNull();
       expect(period.rows.every((r) => r.funded === null)).toBe(true);
+    });
+  });
+
+  /**
+   * Groups, which are a way of reading categories rather than a thing money is
+   * spent on.
+   *
+   * Nothing names a group on a transaction and no posting mentions one, so
+   * everything below is arithmetic over rows the report already had. The two
+   * policies are the point: `standalone` holds a budget of its own and
+   * `sum_of_children` is whatever its categories add up to, and a person who
+   * expects one and is given the other has a page of figures that are all wrong
+   * in the same direction.
+   */
+  describe("a category group", () => {
+    it("adds up what its categories spent, whether or not it is budgeted", async () => {
+      const group = await createCategoryGroup(actor, { name: "Home", policy: "standalone" });
+      const rent = await createCategory(actor, { name: "Home rent", kind: "expense" });
+      const power = await createCategory(actor, { name: "Home power", kind: "expense" });
+      for (const category of [rent, power]) {
+        await updateCategory(actor, category.id, {
+          expectedVersion: category.version,
+          groupId: group.id,
+        });
+      }
+      await spend(rent.id, "800.00", "2026-04-03", "Home rent April");
+      await spend(power.id, "120.00", "2026-04-09", "Home power April");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((p) => p.currency === "USD")!;
+      const row = period.groups.find((entry) => entry.groupId === group.id)!;
+      expect(row).toMatchObject({ name: "Home", policy: "standalone", actual: "920" });
+      // Nothing budgeted the group yet, so it has no limit and says so rather
+      // than reporting nought.
+      expect(row.limit).toBeNull();
+      // And the group is beside the rows rather than among them, so the
+      // period's own totals do not count this money twice.
+      expect(period.rows.some((entry) => entry.categoryId === group.id)).toBe(false);
+    });
+
+    it("budgets a standalone group against everything in it", async () => {
+      const group = await createCategoryGroup(actor, { name: "Going out", policy: "standalone" });
+      const meals = await createCategory(actor, { name: "Meals out", kind: "expense" });
+      await updateCategory(actor, meals.id, {
+        expectedVersion: meals.version,
+        groupId: group.id,
+      });
+      const plan = await createBudgetPlan(actor, {
+        groupId: group.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "150.00",
+        activeFrom: "2026-04-01",
+      });
+      expect(plan).toMatchObject({
+        groupId: group.id,
+        groupName: "Going out",
+        categoryId: null,
+        targetName: "Going out",
+      });
+      await spend(meals.id, "90.00", "2026-04-14", "Dinner April");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const row = report.periods
+        .find((p) => p.currency === "USD")!
+        .groups.find((entry) => entry.groupId === group.id)!;
+      expect(row).toMatchObject({
+        limit: "150",
+        actual: "90",
+        remaining: "60",
+        source: "plan",
+      });
+    });
+
+    it("adds up its categories' budgets when that is what it is", async () => {
+      const group = await createCategoryGroup(actor, { name: "Bills", policy: "sum_of_children" });
+      const water = await createCategory(actor, { name: "Water bill", kind: "expense" });
+      const phone = await createCategory(actor, { name: "Phone bill", kind: "expense" });
+      for (const [category, amount] of [
+        [water, "40.00"],
+        [phone, "25.00"],
+      ] as const) {
+        await updateCategory(actor, category.id, {
+          expectedVersion: category.version,
+          groupId: group.id,
+        });
+        await createBudgetPlan(actor, {
+          categoryId: category.id,
+          currency: "USD",
+          periodUnit: "month",
+          amount,
+          activeFrom: "2026-04-01",
+        });
+      }
+      await spend(water.id, "38.00", "2026-04-06", "Water April");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const row = report.periods
+        .find((p) => p.currency === "USD")!
+        .groups.find((entry) => entry.groupId === group.id)!;
+      // The group's limit is its categories' limits, by construction rather
+      // than by a second figure that could disagree with them.
+      expect(row).toMatchObject({
+        limit: "65",
+        actual: "38",
+        remaining: "27",
+        source: "sum",
+        policy: "sum_of_children",
+      });
+    });
+
+    it("refuses a budget on a group that is already its categories added up", async () => {
+      const group = await createCategoryGroup(actor, { name: "Summed", policy: "sum_of_children" });
+      await expect(
+        createBudgetPlan(actor, {
+          groupId: group.id,
+          currency: "USD",
+          periodUnit: "month",
+          amount: "100.00",
+          activeFrom: "2026-04-01",
+        }),
+      ).rejects.toThrow(/cannot hold a budget of its own/i);
+    });
+
+    it("refuses a budget that names both a category and a group, or neither", async () => {
+      const group = await createCategoryGroup(actor, { name: "Either", policy: "standalone" });
+      const category = await createCategory(actor, { name: "Either category", kind: "expense" });
+      await expect(
+        createBudgetPlan(actor, {
+          categoryId: category.id,
+          groupId: group.id,
+          currency: "USD",
+          periodUnit: "month",
+          amount: "10.00",
+          activeFrom: "2026-04-01",
+        }),
+      ).rejects.toThrow(/exactly one/i);
+      await expect(
+        createBudgetPlan(actor, {
+          currency: "USD",
+          periodUnit: "month",
+          amount: "10.00",
+          activeFrom: "2026-04-01",
+        }),
+      ).rejects.toThrow(/exactly one/i);
+    });
+
+    it("keeps the categories and takes the budget when a group is deleted", async () => {
+      const group = await createCategoryGroup(actor, { name: "Temporary", policy: "standalone" });
+      const category = await createCategory(actor, { name: "Temporary spend", kind: "expense" });
+      await updateCategory(actor, category.id, {
+        expectedVersion: category.version,
+        groupId: group.id,
+      });
+      const plan = await createBudgetPlan(actor, {
+        groupId: group.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "60.00",
+        activeFrom: "2026-04-01",
+      });
+
+      const current = await getCategoryGroup(actor, group.id);
+      await deleteCategoryGroup(actor, group.id, current.version);
+
+      // The category survives, without a group.
+      const categories = await listCategories(actor);
+      expect(categories.find((entry) => entry.id === category.id)).toMatchObject({ groupId: null });
+      // The budget about the group does not, because a budget about nothing is
+      // not a budget. Both fall out of the foreign keys rather than out of a
+      // sweep somebody has to remember to write.
+      expect((await listBudgetPlans(actor)).some((entry) => entry.id === plan.id)).toBe(false);
+    });
+
+    it("refuses a second group with the same name, however it is spelled", async () => {
+      await createCategoryGroup(actor, { name: "Fixed costs", policy: "standalone" });
+      await expect(
+        createCategoryGroup(actor, { name: "  fixed   COSTS ", policy: "standalone" }),
+      ).rejects.toThrow(/already exists/i);
     });
   });
 });

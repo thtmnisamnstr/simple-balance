@@ -4,6 +4,7 @@ import {
   actorSources,
   serviceErrorCodes,
   budgetAmountRules,
+  budgetGroupPolicies,
   budgetPeriodUnits,
   transactionTemplateBulkResultSchema,
   transactionTemplateDraftSchema,
@@ -170,6 +171,9 @@ export const categoryResultSchema = z
     name: z.string(),
     kind: z.enum(categoryKinds),
     archivedAt: categoryArchivedAtSchema,
+    groupId: nullableStringSchema.describe(
+      "The group this category is filed under, or null. Grouping is a way of reading categories together on the budget page; it changes nothing about how an entry posts.",
+    ),
   })
   .passthrough();
 
@@ -933,6 +937,34 @@ export const budgetReportResultSchema = z.object({
       unfunded: nullableStringSchema.describe(
         "The part of the budgeted total this period's income does not cover, once the funding order has been applied. Null where no budget in this period names a priority.",
       ),
+      groups: z
+        .array(
+          z.object({
+            groupId: z.string().uuid(),
+            name: z.string(),
+            policy: z.enum(budgetGroupPolicies),
+            limit: nullableStringSchema.describe(
+              "The group's own budget under standalone, or what its categories add up to under sum_of_children. Null when neither applies.",
+            ),
+            actual: z
+              .string()
+              .describe("What the categories in the group spent between them, signed."),
+            remaining: nullableStringSchema,
+            source: z
+              .enum(["entry", "plan", "sum", "none"])
+              .describe(
+                "Where the limit came from. `sum` means it is the group's categories added up rather than a budget somebody set on the group.",
+              ),
+            carriedIn: nullableStringSchema,
+            available: nullableStringSchema,
+            carriedOut: nullableStringSchema,
+            priority: z.number().int(),
+            funded: nullableStringSchema,
+          }),
+        )
+        .describe(
+          "The category groups, beside the rows rather than among them: a group and its categories are two readings of the same money, so budgeted and spent count the category rows alone. Do not add a group's figure to its members'.",
+        ),
       rows: z.array(
         z.object({
           categoryId: nullableStringSchema.describe("Null is the share of a split nobody filed."),
@@ -970,5 +1002,24 @@ export const budgetReportResultSchema = z.object({
     }),
   ),
 });
+
+export const categoryGroupResultSchema = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    policy: z
+      .enum(budgetGroupPolicies)
+      .describe(
+        "standalone means the group holds a budget of its own; sum_of_children means it is whatever its categories add up to and holds none.",
+      ),
+    categoryCount: z
+      .number()
+      .int()
+      .describe("How many categories are filed under it, so a reply need not be counted."),
+    version: versionSchema,
+  })
+  .passthrough();
+
+export const deletedCategoryGroupResultSchema = z.object({ id: z.string().uuid() });
 
 export const deletedBudgetResultSchema = z.object({ id: z.string().uuid() });

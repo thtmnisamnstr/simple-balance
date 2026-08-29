@@ -23,7 +23,7 @@ correct: three `TypeError`s in the idempotency canonicaliser for payload shapes
 that cannot occur (`src/server/services/helpers.ts:131`, `:147` and `:153`), and
 two `Error`s for a reference count that came back non-numeric after being cast
 to one in SQL (`src/server/services/payees.ts:52` and
-`src/server/services/categories.ts:486`).
+src/server/services/categories.ts:487`).
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
 something the caller could have got right".
@@ -47,8 +47,8 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is four lines.**
-`src/server/api.ts` constructs `AppError` directly at `:987`, `:1032`, `:1041`
-and `:1054`. One carries a code a constructor covers and three carry codes no
+`src/server/api.ts` constructs `AppError` directly at `:993`, `:1038`, `:1047`
+and `:1060`. One carries a code a constructor covers and three carry codes no
 service raises at all: `FORBIDDEN` and `REAUTHENTICATION_REQUIRED` belong to the
 two operations that are reachable from a session and never from a token, which
 is exactly the pair `AGENTS.md` names as the boundary between the surfaces. A
@@ -58,9 +58,9 @@ that `ServiceErrorCode` narrows on purpose.
 So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. This said
 there were two `VALIDATION_ERROR` sites that should use `validationError` and
-did not. One of them now does — the failed password update at `:1066`, which was
+did not. One of them now does — the failed password update at `:1072`, which was
 a 422 with a message and had no reason to spell the constructor out. The other
-cannot: the malformed-body guard at `:987` is a **400**, not a 422, because a
+cannot: the malformed-body guard at `:993` is a **400**, not a 422, because a
 body that is not JSON is a malformed request rather than an impossible one, and
 `validationError` is 422 by definition. That is an exception with a reason
 rather than the defect this paragraph used to call it.

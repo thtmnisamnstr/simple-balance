@@ -279,9 +279,20 @@ order until it runs out. Anything you did not rank is funded last. A budget you
 never ranked is left alone entirely: the column only appears where somebody
 asked the question.
 
-**What is not here yet.** There is no grouping of categories under one budget,
-no figure for what is left to assign, and no forecast. Those are the next three
-stories in [the roadmap](roadmap.md).
+**Categories can be grouped, one level deep.** Make a group on the Categories
+page and say how it is budgeted: either it has a budget of its own, or it is
+whatever the budgets of the categories in it add up to. There is no default,
+because the two answer differently and being given the wrong one makes every
+figure on the page wrong in the same direction. Put a category in a group by
+editing it.
+
+A group's line appears above the categories on the budget page, with what its
+categories spent between them. Nothing on a transaction ever names a group, so
+grouping changes no figure until you budget one, and deleting a group leaves
+every category exactly where it was.
+
+**What is not here yet.** There is no figure for what is left to assign, and no
+forecast. Those are the last two stories in [the roadmap](roadmap.md).
 
 ## How it looks
 

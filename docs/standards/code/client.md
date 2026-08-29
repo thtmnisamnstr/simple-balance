@@ -110,7 +110,7 @@ This is a rule with a scar. A budget row's state — within, close, spent, over 
 was decided with `Number()` on values that are decimal strings, so a row that
 was exactly spent could render as either "spent" or "within" depending on the
 amount. It now compares exactly
-(src/client/pages/BudgetsPage.tsx:115).
+(src/client/pages/BudgetsPage.tsx:116).
 
 *Checked by:* `tests/client-money.test.ts` for the arithmetic;
 `tests/budgets-ui.test.tsx` for that particular row.

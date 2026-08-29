@@ -24,6 +24,10 @@ import {
   updateAccount,
 } from "../../src/server/services/accounts.js";
 import {
+  createCategoryGroup,
+  listCategoryGroups,
+} from "../../src/server/services/category-groups.js";
+import {
   createCategory,
   listCategories,
   updateCategory,
@@ -316,6 +320,50 @@ integration("one tenant cannot reach another", () => {
    * whole suite still green. Tenancy is the one thing AGENTS.md calls
    * non-negotiable, so it is checked here rather than trusted.
    */
+  /**
+   * The group link is the one cross-table reference here that is not composite.
+   *
+   * `on delete set null` sets every column of the constraint it is on, so the
+   * usual `(user_id, id)` pair would null the tenant as well and fail against
+   * `user_id not null`. The database therefore does not stop a category
+   * pointing at somebody else's group; `resolveCategoryGroup` does, on the one
+   * path that writes the column, and this is what holds it to that.
+   */
+  it("refuses to file a category under another tenant's group", async () => {
+    const aliceGroup = await createCategoryGroup(alice, {
+      name: "Alice fixed costs",
+      policy: "standalone",
+    });
+    const malloryCategory = await createCategory(mallory, {
+      name: "Mallory spending",
+      kind: "expense",
+    });
+
+    await expect(
+      updateCategory(mallory, malloryCategory.id, {
+        expectedVersion: malloryCategory.version,
+        groupId: aliceGroup.id,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      createCategory(mallory, {
+        name: "Mallory borrowed group",
+        kind: "expense",
+        groupId: aliceGroup.id,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      createBudgetPlan(mallory, {
+        groupId: aliceGroup.id,
+        amount: "10.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2027-01-01",
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(await listCategoryGroups(mallory)).toEqual([]);
+  });
+
   it("keeps budgets to the tenant that set them", async () => {
     const plan = await createBudgetPlan(alice, {
       categoryId: aliceCategoryId,

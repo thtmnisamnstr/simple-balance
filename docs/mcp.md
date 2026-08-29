@@ -382,8 +382,30 @@ posting, so a budget that is deleted leaves the books exactly as they were, and
 no balance or report moves when one changes.
 
 Amounts resolve in three steps. An explicit entry for the period wins, otherwise
-the plan whose window covers the period says the amount, otherwise the category
-is unbudgeted and the report says what was spent against no limit.
+the plan's rule says the amount — which for most plans is the fixed number on
+it — otherwise the category is unbudgeted and the report says what was spent
+against no limit.
+
+A plan carries how it behaves as well as how much. `rollover` makes it an
+envelope, where what a period does not spend belongs to the next one and an
+overspend is owed by it, with `rolloverCap` holding that carry inside a number
+in both directions. `targetAmount` with `targetDate` makes it a sinking fund,
+which works out each period's figure from what is still needed and how many
+periods are left. `lookbackPeriods`, `percentOfPrevious` and `percentOfIncome`
+each make it work its amount out a different way, and only one of them may be
+named at a time. `priority` decides which budgets a short period funds first.
+None of these is a mode anybody picks: the parameter is the choice, and
+`get_budget_report` is where the worked-out figures appear.
+
+`list_category_groups`, `create_category_group`, `update_category_group` and
+`delete_category_group` handle one level of grouping over categories. A group
+either holds a budget of its own (`standalone`) or is whatever its categories
+add up to (`sum_of_children`), and that is declared when it is created because
+both are defensible and the wrong one silently makes every figure on the page
+wrong in the same direction. Put a category in a group with `update_category`'s
+`groupId`; budget a standalone group by sending `groupId` instead of
+`categoryId` to `create_budget_plan`. Deleting a group leaves its categories
+alone and takes the group's own budget with it.
 
 `list_budget_plans`, `get_budget_plan`, `create_budget_plan`,
 `update_budget_plan` and `delete_budget_plan` handle the standing amounts. One

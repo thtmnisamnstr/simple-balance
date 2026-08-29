@@ -44,6 +44,7 @@ const report: BudgetReport = {
       available: "0",
       income: "0",
       unfunded: null,
+      groups: [],
       rows: [
         {
           categoryId: groceries,
@@ -200,6 +201,7 @@ describe("the budgets page", () => {
           available: "0",
           income: "0",
           unfunded: null,
+          groups: [],
           rows: [
             {
               categoryId: groceries,
@@ -258,11 +260,24 @@ describe("the budgets page", () => {
       id: "55555555-5555-4555-8555-555555555555",
       categoryId: groceries,
       categoryName: "Groceries",
+      groupId: null,
+      groupName: null,
+      // What the page calls the budget, whichever kind of thing it is about.
+      targetName: "Groceries",
       currency: "GBP",
       periodUnit: "month" as const,
       amount: "200",
       activeFrom: "2026-01-01",
       activeTo: null,
+      rollover: false,
+      rolloverCap: null,
+      targetAmount: null,
+      targetDate: null,
+      lookbackPeriods: null,
+      percentOfPrevious: null,
+      percentOfIncome: null,
+      priority: 0,
+      amountRule: "fixed" as const,
       version: 1,
     };
     const calls: { url: string; body: unknown; method?: string }[] = [];

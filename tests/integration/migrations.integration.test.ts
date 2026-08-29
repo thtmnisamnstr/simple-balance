@@ -69,6 +69,7 @@ integration("PostgreSQL migrations", () => {
       "budget_entry",
       "budget_plan",
       "category",
+      "category_group",
       "idempotency_record",
       "import_batch",
       "ledger_account",

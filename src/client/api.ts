@@ -192,6 +192,8 @@ export type Category = {
   id: string;
   name: string;
   kind: CategoryKind;
+  /** The group it is filed under, or null. One level, never a group of groups. */
+  groupId?: string | null;
   archivedAt?: string | null;
   version: number;
 };
@@ -545,10 +547,18 @@ export type { PaginatedPage, Page };
 
 export type BudgetPeriodUnitName = "week" | "month" | "quarter" | "year";
 
+export type CategoryGroup = {
+  id: string;
+  name: string;
+  policy: "standalone" | "sum_of_children";
+  categoryCount: number;
+  version: number;
+};
+
 export type BudgetPlan = {
   id: string;
-  categoryId: string;
-  categoryName: string;
+  /** A budget is about a category or a group, so one of these is always null. */
+  categoryId: string | null;
   currency: string;
   periodUnit: BudgetPeriodUnitName;
   amount: string;
@@ -556,6 +566,10 @@ export type BudgetPlan = {
   activeTo: string | null;
   rollover: boolean;
   rolloverCap: string | null;
+  categoryName: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  targetName: string;
   targetAmount: string | null;
   targetDate: string | null;
   lookbackPeriods: number | null;
@@ -568,8 +582,11 @@ export type BudgetPlan = {
 
 export type BudgetEntry = {
   id: string;
-  categoryId: string;
-  categoryName: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  targetName: string;
   currency: string;
   periodUnit: BudgetPeriodUnitName;
   periodStart: string;
@@ -593,6 +610,21 @@ export type BudgetReportRow = {
   funded: string | null;
 };
 
+export type BudgetGroupRow = {
+  groupId: string;
+  name: string;
+  policy: "standalone" | "sum_of_children";
+  limit: string | null;
+  actual: string;
+  remaining: string | null;
+  source: "entry" | "plan" | "sum" | "none";
+  carriedIn: string | null;
+  available: string | null;
+  carriedOut: string | null;
+  priority: number;
+  funded: string | null;
+};
+
 export type BudgetReport = {
   periodUnit: BudgetPeriodUnitName;
   start: string;
@@ -613,6 +645,7 @@ export type BudgetReport = {
     income: string;
     unfunded: string | null;
     rows: BudgetReportRow[];
+    groups: BudgetGroupRow[];
   }[];
 };
 

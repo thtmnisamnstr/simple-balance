@@ -129,7 +129,11 @@ describe("what mcp.md says it measured", () => {
    * description that needs a snake_case word which is not a tool goes in
    * `NOT_A_TOOL` with the reason, which is a decision worth making in a diff.
    */
-  const NOT_A_TOOL: string[] = [];
+  const NOT_A_TOOL: string[] = [
+    // A stored value rather than a tool: it is how a category group says it is
+    // budgeted, and two descriptions name it because the choice has no default.
+    "sum_of_children",
+  ];
 
   it("never sends an agent to a tool that does not exist", () => {
     const registered = new Set(tools.map((tool) => tool.name));

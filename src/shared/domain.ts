@@ -998,6 +998,14 @@ export const categoryCreateSchema = z.object({
     .describe(
       'Whether this category is for money coming in, money going out, or both. It decides which side of the books an entry naming it posts to, and an entry running against it is a refund rather than a mistake. Prefer "income" or "expense": "both" agrees with whichever direction it is handed, which destroys the signal that makes a refund a refund.',
     ),
+  groupId: z
+    .string()
+    .uuid()
+    .nullable()
+    .optional()
+    .describe(
+      "The group to file this category under, or null for none. One level only: a group holds categories and never other groups. Grouping changes nothing about how an entry posts — it is a way of reading categories together, on the budget page and nowhere else.",
+    ),
 });
 
 export const categoryUpdateSchema = categoryCreateSchema
@@ -1290,6 +1298,54 @@ export type BudgetPeriodUnit = (typeof budgetPeriodUnits)[number];
  * budget, a percentage of income is a share of what came in. Two of them at
  * once is refused, because the row would have to decide which one it meant.
  */
+/**
+ * Whether a group's budget stands on its own or is what its members add up to.
+ *
+ * Declared on the group because both are defensible and picking one silently is
+ * the failure: Monarch's group budget stands alone and hledger's is the sum of
+ * its children, and a person who expects one and gets the other has a page of
+ * figures that are all wrong in the same direction.
+ */
+export const budgetGroupPolicies = ["standalone", "sum_of_children"] as const;
+export type BudgetGroupPolicy = (typeof budgetGroupPolicies)[number];
+
+/**
+ * A group somebody names, with the one decision that cannot be silent.
+ *
+ * The name is normalised the way a category's is, so "Fixed costs" and "fixed
+ * costs" are one group rather than two that split a budget between them.
+ */
+export const categoryGroupCreateSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .describe(
+        "What the group is called, as somebody would write it. Compared without case or spacing, so two spellings of one name are one group.",
+      ),
+    policy: z
+      .enum(budgetGroupPolicies)
+      .describe(
+        "Whether the group holds a budget of its own (standalone) or is whatever its categories add up to (sum_of_children). It has no default because both are defensible and being given the other one silently makes every figure on the page wrong in the same direction.",
+      ),
+  })
+  .strict();
+
+export const categoryGroupUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80).optional().describe("A new name. Left alone if absent."),
+    policy: z
+      .enum(budgetGroupPolicies)
+      .optional()
+      .describe(
+        "Change how the group is budgeted. Moving to sum_of_children while the group has a budget of its own is refused, because that budget would stop being read and nothing would say so.",
+      ),
+    expectedVersion: expectedVersionSchema,
+  })
+  .strict();
+
 export const budgetAmountRules = [
   "fixed",
   "sinking_fund",
@@ -1314,8 +1370,16 @@ const budgetTarget = {
   categoryId: z
     .string()
     .uuid()
+    .optional()
     .describe(
-      "The category this budget is about. One budget per category, currency and period length.",
+      "The category this budget is about. One budget per category, currency and period length. Send this or groupId, never both.",
+    ),
+  groupId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      "The category group this budget is about, for a group that holds a budget of its own. A group budgeted as whatever its categories add up to is refused, because it already has an amount and a second one would have an equal claim to be the group's.",
     ),
   currency: currencyCodeSchema,
   periodUnit: z
@@ -1481,6 +1545,13 @@ const targetIsPositiveMessage = {
 
 const capIsNotNegative = (value: BudgetCarryFields) =>
   value.rolloverCap == null || !value.rolloverCap.trimStart().startsWith("-");
+const oneTarget = (value: { categoryId?: string | undefined; groupId?: string | undefined }) =>
+  (value.categoryId === undefined) !== (value.groupId === undefined);
+const oneTargetMessage = {
+  message: "A budget is about a category or a group. Send exactly one of categoryId and groupId.",
+  path: ["categoryId"],
+};
+
 const capIsNotNegativeMessage = {
   message: "A carry cap cannot be negative. It applies in both directions.",
   path: ["rolloverCap"],
@@ -1555,7 +1626,8 @@ export const budgetPlanCreateSchema = z
   .refine(capIsNotNegative, capIsNotNegativeMessage)
   .refine(oneRuleAtMost, oneRuleAtMostMessage)
   .refine(percentagesAreNumbers, percentagesAreNumbersMessage)
-  .refine(incomeShareIsAShare, incomeShareIsAShareMessage);
+  .refine(incomeShareIsAShare, incomeShareIsAShareMessage)
+  .refine(oneTarget, oneTargetMessage);
 
 export const budgetPlanUpdateSchema = z
   .object({
@@ -1596,7 +1668,8 @@ export const budgetEntrySetSchema = z
     // Absent on the first set, required to change one that is already there.
     expectedVersion: expectedVersionSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine(oneTarget, oneTargetMessage);
 
 export const budgetReportQuerySchema = z
   .object({

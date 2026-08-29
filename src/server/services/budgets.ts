@@ -1,5 +1,10 @@
-import { and, asc, eq, ne, or, sql } from "drizzle-orm";
-import type { Actor, BudgetAmountRule, BudgetPeriodUnit } from "../../shared/domain.js";
+import { and, asc, eq, isNotNull, ne, or, sql } from "drizzle-orm";
+import type {
+  Actor,
+  BudgetAmountRule,
+  BudgetGroupPolicy,
+  BudgetPeriodUnit,
+} from "../../shared/domain.js";
 import {
   budgetEntrySetSchema,
   budgetPlanCreateSchema,
@@ -14,6 +19,7 @@ import {
   budgetEntries,
   budgetPlans,
   categories,
+  categoryGroups,
   type BudgetEntryRow,
   type BudgetPlanRow,
 } from "../db/schema.js";
@@ -38,8 +44,19 @@ import { archivedExclusion, gridQuery, PERIOD_UNITS, withClause } from "./report
 
 export type BudgetPlanView = {
   id: string;
-  categoryId: string;
-  categoryName: string;
+  /**
+   * The target, one of which is always null.
+   *
+   * A budget is about a category or about a group, and the two are the same
+   * budget in every other respect. `targetName` is whichever one it is, so a
+   * page or an agent that only wants to say what this budget is about does not
+   * have to branch.
+   */
+  categoryId: string | null;
+  categoryName: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  targetName: string;
   currency: string;
   periodUnit: BudgetPeriodUnit;
   amount: string;
@@ -68,8 +85,11 @@ export type BudgetPlanView = {
 
 export type BudgetEntryView = {
   id: string;
-  categoryId: string;
-  categoryName: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  targetName: string;
   currency: string;
   periodUnit: BudgetPeriodUnit;
   periodStart: string;
@@ -124,6 +144,33 @@ export type BudgetPeriodRow = {
   funded: string | null;
 };
 
+/**
+ * A group's line in one period.
+ *
+ * Beside the category rows rather than among them, because a group and its
+ * members are two readings of the same money: adding both into one list would
+ * make the period's totals count a grocery bill twice.
+ */
+export type BudgetGroupRow = {
+  groupId: string;
+  name: string;
+  policy: BudgetGroupPolicy;
+  /**
+   * What the group is allowed. Its own budget under `standalone`, and what its
+   * categories add up to under `sum_of_children`.
+   */
+  limit: string | null;
+  /** What its categories spent between them, however the limit was arrived at. */
+  actual: string;
+  remaining: string | null;
+  source: "entry" | "plan" | "sum" | "none";
+  carriedIn: string | null;
+  available: string | null;
+  carriedOut: string | null;
+  priority: number;
+  funded: string | null;
+};
+
 export type BudgetPeriodView = {
   periodStart: string;
   /**
@@ -146,6 +193,13 @@ export type BudgetPeriodView = {
   partial: boolean;
   currency: string;
   rows: BudgetPeriodRow[];
+  /**
+   * The groups, and never inside `rows`.
+   *
+   * `budgeted` and `spent` sum the category rows alone, so a ledger that groups
+   * everything does not report twice what it spent.
+   */
+  groups: BudgetGroupRow[];
   budgeted: string;
   spent: string;
   /** Sum of what was carried into this period. Zero when nothing rolls over. */
@@ -199,11 +253,14 @@ export type BudgetReportView = {
 
 const ZERO = "0";
 
-function planView(row: BudgetPlanRow, categoryName: string): BudgetPlanView {
+function planView(row: BudgetPlanRow, target: BudgetTargetName): BudgetPlanView {
   return {
     id: row.id,
     categoryId: row.categoryId,
-    categoryName,
+    categoryName: row.categoryId === null ? null : target.name,
+    groupId: row.groupId,
+    groupName: row.groupId === null ? null : target.name,
+    targetName: target.name,
     currency: row.currency,
     periodUnit: row.periodUnit,
     amount: canonicalDecimal(row.amount),
@@ -230,11 +287,14 @@ function planView(row: BudgetPlanRow, categoryName: string): BudgetPlanView {
   };
 }
 
-function entryView(row: BudgetEntryRow, categoryName: string): BudgetEntryView {
+function entryView(row: BudgetEntryRow, target: BudgetTargetName): BudgetEntryView {
   return {
     id: row.id,
     categoryId: row.categoryId,
-    categoryName,
+    categoryName: row.categoryId === null ? null : target.name,
+    groupId: row.groupId,
+    groupName: row.groupId === null ? null : target.name,
+    targetName: target.name,
     currency: row.currency,
     periodUnit: row.periodUnit,
     periodStart: row.periodStart,
@@ -243,20 +303,49 @@ function entryView(row: BudgetEntryRow, categoryName: string): BudgetEntryView {
   };
 }
 
+/** What a budget is about, and what to call it on a page. */
+type BudgetTargetName = { kind: "category" | "group"; id: string; name: string };
+
 /**
- * The category exists, belongs to this person, and can carry spending.
+ * The target exists, belongs to this person, and can carry a budget.
  *
  * An archived category may still be budgeted, because archiving hides it from
  * pickers rather than erasing what it did, and a budget report covering last
  * March has to be able to name it. What is refused is budgeting a category that
  * only ever carries income: a limit on it would compare a cap against a figure
  * that never moves.
+ *
+ * A group is refused for a different reason. A `sum_of_children` group *is* its
+ * categories' budgets added up, so a budget of its own would be a second figure
+ * with an equal claim to be the group's, and nothing on the page could say
+ * which of the two it was showing.
  */
-async function requireBudgetableCategory(tx: DbTransaction, actor: Actor, categoryId: string) {
+async function requireBudgetableTarget(
+  tx: DbTransaction,
+  actor: Actor,
+  target: { categoryId?: string | null; groupId?: string | null },
+): Promise<BudgetTargetName> {
+  if (target.groupId != null) {
+    const [group] = await tx
+      .select({ id: categoryGroups.id, name: categoryGroups.name, policy: categoryGroups.policy })
+      .from(categoryGroups)
+      .where(and(eq(categoryGroups.id, target.groupId), eq(categoryGroups.userId, actor.userId)))
+      .limit(1);
+    if (!group) throw notFound("Category group not found");
+    if (group.policy === "sum_of_children") {
+      throw validationError(
+        `${group.name} is budgeted as whatever its categories add up to, so it cannot hold a budget of its own. Budget the categories in it, or change the group to hold its own budget.`,
+      );
+    }
+    return { kind: "group", id: group.id, name: group.name };
+  }
+  if (target.categoryId == null) {
+    throw validationError("A budget is about a category or a group. Name one of them.");
+  }
   const [category] = await tx
     .select({ id: categories.id, name: categories.name, kind: categories.kind })
     .from(categories)
-    .where(and(eq(categories.id, categoryId), eq(categories.userId, actor.userId)))
+    .where(and(eq(categories.id, target.categoryId), eq(categories.userId, actor.userId)))
     .limit(1);
   if (!category) throw notFound("Category not found");
   if (category.kind === "income") {
@@ -264,7 +353,7 @@ async function requireBudgetableCategory(tx: DbTransaction, actor: Actor, catego
       "An income category has no spending to budget. Budget an expense category, or widen this one to both.",
     );
   }
-  return category;
+  return { kind: "category", id: category.id, name: category.name };
 }
 
 /**
@@ -280,7 +369,8 @@ async function assertNoOverlap(
   tx: DbTransaction,
   actor: Actor,
   target: {
-    categoryId: string;
+    categoryId?: string | null;
+    groupId?: string | null;
     currency: string;
     periodUnit: BudgetPeriodUnit;
   },
@@ -297,7 +387,12 @@ async function assertNoOverlap(
     .where(
       and(
         eq(budgetPlans.userId, actor.userId),
-        eq(budgetPlans.categoryId, target.categoryId),
+        // Whichever target this budget is about. The other column is null on
+        // both rows, and `eq` against null matches nothing, so comparing both
+        // would find no clash at all.
+        target.groupId != null
+          ? eq(budgetPlans.groupId, target.groupId)
+          : eq(budgetPlans.categoryId, target.categoryId!),
         eq(budgetPlans.currency, target.currency),
         eq(budgetPlans.periodUnit, target.periodUnit),
       ),
@@ -337,38 +432,72 @@ async function assertNoOverlap(
   }
 }
 
+/**
+ * Both joins are outer, because exactly one of them matches.
+ *
+ * A budget names a category or a group, so an inner join on either would drop
+ * half the budgets — and the one it dropped would be the half somebody had just
+ * created, which is the worst way to find out.
+ */
+const targetNameOf = (categoryName: string | null, groupName: string | null): BudgetTargetName =>
+  groupName !== null
+    ? { kind: "group", id: "", name: groupName }
+    : { kind: "category", id: "", name: categoryName ?? "Unnamed" };
+
 export async function listBudgetPlans(actor: Actor) {
   const rows = await getDb()
-    .select({ plan: budgetPlans, categoryName: categories.name })
+    .select({
+      plan: budgetPlans,
+      categoryName: categories.name,
+      groupName: categoryGroups.name,
+    })
     .from(budgetPlans)
-    .innerJoin(
+    .leftJoin(
       categories,
       and(eq(categories.userId, budgetPlans.userId), eq(categories.id, budgetPlans.categoryId)),
     )
+    .leftJoin(
+      categoryGroups,
+      and(
+        eq(categoryGroups.userId, budgetPlans.userId),
+        eq(categoryGroups.id, budgetPlans.groupId),
+      ),
+    )
     .where(eq(budgetPlans.userId, actor.userId))
-    .orderBy(asc(categories.name), asc(budgetPlans.activeFrom));
-  return rows.map((row) => planView(row.plan, row.categoryName));
+    .orderBy(asc(categories.name), asc(categoryGroups.name), asc(budgetPlans.activeFrom));
+  return rows.map((row) => planView(row.plan, targetNameOf(row.categoryName, row.groupName)));
 }
 
 export async function getBudgetPlan(actor: Actor, id: string) {
   const [row] = await getDb()
-    .select({ plan: budgetPlans, categoryName: categories.name })
+    .select({
+      plan: budgetPlans,
+      categoryName: categories.name,
+      groupName: categoryGroups.name,
+    })
     .from(budgetPlans)
-    .innerJoin(
+    .leftJoin(
       categories,
       and(eq(categories.userId, budgetPlans.userId), eq(categories.id, budgetPlans.categoryId)),
+    )
+    .leftJoin(
+      categoryGroups,
+      and(
+        eq(categoryGroups.userId, budgetPlans.userId),
+        eq(categoryGroups.id, budgetPlans.groupId),
+      ),
     )
     .where(and(eq(budgetPlans.id, id), eq(budgetPlans.userId, actor.userId)))
     .limit(1);
   if (!row) throw notFound("Budget not found");
-  return planView(row.plan, row.categoryName);
+  return planView(row.plan, targetNameOf(row.categoryName, row.groupName));
 }
 
 export async function createBudgetPlan(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = budgetPlanCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await lockCategoryNamespace(tx, actor);
-    const category = await requireBudgetableCategory(tx, actor, parsed.categoryId);
+    const target = await requireBudgetableTarget(tx, actor, parsed);
     // Snapped to the period, both ends. A window is asked for in days and
     // answered in periods, and leaving the two in different units was three
     // defects at once: a budget set on the 23rd covered nothing that month, a
@@ -396,7 +525,8 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
       .insert(budgetPlans)
       .values({
         userId: actor.userId,
-        categoryId: parsed.categoryId,
+        categoryId: parsed.categoryId ?? null,
+        groupId: parsed.groupId ?? null,
         currency: parsed.currency,
         periodUnit: parsed.periodUnit,
         amount: carry.amount,
@@ -412,7 +542,7 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
       entityId: created.id,
       after: created,
     });
-    return planView(created, category.name);
+    return planView(created, target);
   });
 }
 
@@ -434,7 +564,7 @@ export async function updateBudgetPlan(
     if (before.version !== parsed.expectedVersion) {
       throw staleVersion({ currentVersion: before.version });
     }
-    const category = await requireBudgetableCategory(tx, actor, before.categoryId);
+    const target = await requireBudgetableTarget(tx, actor, before);
     const activeFrom = parsed.activeFrom
       ? await truncatePeriod(tx, before.periodUnit, parsed.activeFrom)
       : before.activeFrom;
@@ -456,6 +586,7 @@ export async function updateBudgetPlan(
       actor,
       {
         categoryId: before.categoryId,
+        groupId: before.groupId,
         currency: before.currency,
         periodUnit: before.periodUnit,
       },
@@ -520,7 +651,7 @@ export async function updateBudgetPlan(
       before,
       after: updated,
     });
-    return planView(updated, category.name);
+    return planView(updated, target);
   });
 }
 
@@ -692,7 +823,7 @@ export async function setBudgetEntry(actor: Actor, input: unknown, transaction?:
   const parsed = budgetEntrySetSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await lockCategoryNamespace(tx, actor);
-    const category = await requireBudgetableCategory(tx, actor, parsed.categoryId);
+    const target = await requireBudgetableTarget(tx, actor, parsed);
     const periodStart = await truncatePeriod(tx, parsed.periodUnit, parsed.periodStart);
     const [before] = await tx
       .select()
@@ -700,7 +831,11 @@ export async function setBudgetEntry(actor: Actor, input: unknown, transaction?:
       .where(
         and(
           eq(budgetEntries.userId, actor.userId),
-          eq(budgetEntries.categoryId, parsed.categoryId),
+          // The one this override is about, and never both columns: the other
+          // is null on every row, and `eq` against null matches nothing.
+          parsed.groupId != null
+            ? eq(budgetEntries.groupId, parsed.groupId)
+            : eq(budgetEntries.categoryId, parsed.categoryId!),
           eq(budgetEntries.currency, parsed.currency),
           eq(budgetEntries.periodUnit, parsed.periodUnit),
           eq(budgetEntries.periodStart, periodStart),
@@ -716,7 +851,8 @@ export async function setBudgetEntry(actor: Actor, input: unknown, transaction?:
         .insert(budgetEntries)
         .values({
           userId: actor.userId,
-          categoryId: parsed.categoryId,
+          categoryId: parsed.categoryId ?? null,
+          groupId: parsed.groupId ?? null,
           currency: parsed.currency,
           periodUnit: parsed.periodUnit,
           periodStart,
@@ -730,7 +866,7 @@ export async function setBudgetEntry(actor: Actor, input: unknown, transaction?:
         entityId: created.id,
         after: created,
       });
-      return entryView(created, category.name);
+      return entryView(created, target);
     }
 
     if (parsed.expectedVersion === undefined) {
@@ -764,7 +900,7 @@ export async function setBudgetEntry(actor: Actor, input: unknown, transaction?:
       before,
       after: updated,
     });
-    return entryView(updated, category.name);
+    return entryView(updated, target);
   });
 }
 
@@ -805,15 +941,26 @@ export async function deleteBudgetEntry(
 
 export async function listBudgetEntries(actor: Actor) {
   const rows = await getDb()
-    .select({ entry: budgetEntries, categoryName: categories.name })
+    .select({
+      entry: budgetEntries,
+      categoryName: categories.name,
+      groupName: categoryGroups.name,
+    })
     .from(budgetEntries)
-    .innerJoin(
+    .leftJoin(
       categories,
       and(eq(categories.userId, budgetEntries.userId), eq(categories.id, budgetEntries.categoryId)),
     )
+    .leftJoin(
+      categoryGroups,
+      and(
+        eq(categoryGroups.userId, budgetEntries.userId),
+        eq(categoryGroups.id, budgetEntries.groupId),
+      ),
+    )
     .where(eq(budgetEntries.userId, actor.userId))
-    .orderBy(asc(budgetEntries.periodStart), asc(categories.name));
-  return rows.map((row) => entryView(row.entry, row.categoryName));
+    .orderBy(asc(budgetEntries.periodStart), asc(categories.name), asc(categoryGroups.name));
+  return rows.map((row) => entryView(row.entry, targetNameOf(row.categoryName, row.groupName)));
 }
 
 /**
@@ -966,22 +1113,27 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
       )`,
       // The amount each budgeted category is allowed in each period: the entry
       // if there is one, otherwise the plan whose window covers the period.
+      // A budget names a category or a group, and both travel through here the
+      // same way: the group's own spending is worked out from its categories
+      // afterwards, because spending is recorded against a category and a group
+      // is a way of reading them rather than a thing money is spent on.
       sql`budgeted as (
         select
           g.bucket_start as period_start,
           b.category_id,
+          b.group_id,
           b.currency,
           b.amount,
           b.source
         from grid g
         join lateral (
-          select e.category_id, e.currency, e.amount, 'entry'::text as source
+          select e.category_id, e.group_id, e.currency, e.amount, 'entry'::text as source
           from budget_entry e
           where e.user_id = ${actor.userId}
             and e.period_unit = ${parsed.periodUnit}
             and e.period_start = g.bucket_start
           union all
-          select pl.category_id, pl.currency, pl.amount, 'plan'::text as source
+          select pl.category_id, pl.group_id, pl.currency, pl.amount, 'plan'::text as source
           from budget_plan pl
           where pl.user_id = ${actor.userId}
             and pl.period_unit = ${parsed.periodUnit}
@@ -991,7 +1143,8 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
               select 1
               from budget_entry e2
               where e2.user_id = pl.user_id
-                and e2.category_id = pl.category_id
+                and e2.category_id is not distinct from pl.category_id
+                and e2.group_id is not distinct from pl.group_id
                 and e2.currency = pl.currency
                 and e2.period_unit = pl.period_unit
                 and e2.period_start = g.bucket_start
@@ -1005,7 +1158,8 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
         g.period_end::text as period_end,
         b.currency as currency,
         b.category_id as category_id,
-        coalesce(c.name, 'Uncategorized') as category,
+        b.group_id as group_id,
+        coalesce(c.name, cg.name, 'Uncategorized') as category,
         b.amount::text as limit_amount,
         b.source as source,
         coalesce(s.actual, 0)::text as actual,
@@ -1022,6 +1176,9 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
       left join category c
         on c.user_id = ${actor.userId}
         and c.id = b.category_id
+      left join category_group cg
+        on cg.user_id = ${actor.userId}
+        and cg.id = b.group_id
       ${
         parsed.includeUnbudgeted
           ? sql`
@@ -1031,6 +1188,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
         g.period_end::text as period_end,
         s.currency as currency,
         s.category_id as category_id,
+        null::uuid as group_id,
         coalesce(c.name, 'Uncategorized') as category,
         null as limit_amount,
         'none'::text as source,
@@ -1047,6 +1205,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
           from budgeted b2
           where b2.period_start = s.period_start
             and b2.currency = s.currency
+            and b2.group_id is null
             and b2.category_id is not distinct from s.category_id
         )`
           : sql.empty()
@@ -1077,6 +1236,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
         partial: periodEnd > today,
         currency,
         rows: [],
+        groups: [],
         budgeted: ZERO,
         spent: ZERO,
         carriedIn: ZERO,
@@ -1088,6 +1248,26 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
     }
     const limit = row.limit_amount === null ? null : canonicalDecimal(String(row.limit_amount));
     const actual = canonicalDecimal(String(row.actual));
+    if (row.group_id !== null) {
+      // A group's own budget. Its spending is its categories' and is filled in
+      // once they are all read, which is why this row starts at nothing rather
+      // than at whatever the join found.
+      period.groups.push({
+        groupId: String(row.group_id),
+        name: String(row.category),
+        policy: "standalone",
+        limit,
+        actual: ZERO,
+        remaining: limit,
+        source: String(row.source) as BudgetGroupRow["source"],
+        carriedIn: null,
+        available: limit,
+        carriedOut: null,
+        priority: 0,
+        funded: null,
+      });
+      continue;
+    }
     period.rows.push({
       categoryId: row.category_id === null ? null : String(row.category_id),
       category: String(row.category),
@@ -1130,6 +1310,31 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
     );
   }
 
+  // Which categories belong to which group, and how each group is budgeted.
+  // Read once for the whole report: a group's figures are its categories' rows
+  // added up, and that is arithmetic over rows this already has rather than a
+  // second pass over the postings.
+  const groups = await getDb()
+    .select({
+      id: categoryGroups.id,
+      name: categoryGroups.name,
+      policy: categoryGroups.policy,
+    })
+    .from(categoryGroups)
+    .where(eq(categoryGroups.userId, actor.userId))
+    .orderBy(asc(categoryGroups.name));
+  const membership = new Map<string, string>();
+  if (groups.length > 0) {
+    const members = await getDb()
+      .select({ id: categories.id, groupId: categories.groupId })
+      .from(categories)
+      .where(and(eq(categories.userId, actor.userId), isNotNull(categories.groupId)));
+    for (const member of members) {
+      if (member.groupId !== null) membership.set(member.id, member.groupId);
+    }
+  }
+
+  fillGroupRows(periods, groups, membership);
   foldRollover(periods, folded, carrying, parsed.periodUnit, income);
   allocateByPriority(periods);
 
@@ -1162,6 +1367,71 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
 }
 
 /**
+ * What each group spent, and what a summing group is allowed.
+ *
+ * Two jobs, one pass over the rows that are already there. Every group gets its
+ * categories' spending added up, whether or not it holds a budget: a group with
+ * no budget still answers "what did this lot cost", which is most of why
+ * somebody groups categories at all. A `sum_of_children` group also gets its
+ * limit from those same rows, so its budget is its members' budgets by
+ * construction rather than by a second figure that could disagree with them.
+ *
+ * A `standalone` group's limit is left alone. It came from its own plan or
+ * entry, and the fold may still change it — that is what a group budget that
+ * rolls over or works itself out means.
+ */
+function fillGroupRows(
+  periods: Map<string, BudgetPeriodView>,
+  groups: readonly { id: string; name: string; policy: BudgetGroupPolicy }[],
+  membership: ReadonlyMap<string, string>,
+) {
+  if (groups.length === 0) return;
+  for (const period of periods.values()) {
+    for (const group of groups) {
+      const members = period.rows.filter(
+        (row) => row.categoryId !== null && membership.get(row.categoryId) === group.id,
+      );
+      const existing = period.groups.find((row) => row.groupId === group.id);
+      // A group with no budget and no spending is not a row. Reporting one
+      // would fill a page with groups somebody made for next year.
+      if (members.length === 0 && !existing) continue;
+      const actual = members.reduce((sum, row) => sum.plus(row.actual), decimal(ZERO));
+      const budgetedMembers = members.filter((row) => row.limit !== null);
+      const summed = budgetedMembers.reduce(
+        (sum, row) => sum.plus(row.limit ?? ZERO),
+        decimal(ZERO),
+      );
+      if (existing) {
+        existing.policy = group.policy;
+        existing.actual = canonicalDecimal(actual);
+        existing.remaining =
+          existing.limit === null ? null : canonicalDecimal(decimal(existing.limit).minus(actual));
+        continue;
+      }
+      const limit =
+        group.policy === "sum_of_children" && budgetedMembers.length > 0
+          ? canonicalDecimal(summed)
+          : null;
+      period.groups.push({
+        groupId: group.id,
+        name: group.name,
+        policy: group.policy,
+        limit,
+        actual: canonicalDecimal(actual),
+        remaining: limit === null ? null : canonicalDecimal(decimal(limit).minus(actual)),
+        source: limit === null ? "none" : "sum",
+        carriedIn: null,
+        available: limit,
+        carriedOut: null,
+        priority: 0,
+        funded: null,
+      });
+    }
+    period.groups.sort((left, right) => left.name.localeCompare(right.name));
+  }
+}
+
+/**
  * Every plan for this period unit that carries something forward.
  *
  * Read whole rather than joined into the report query, because the fold is
@@ -1174,6 +1444,7 @@ async function rolloverPlans(actor: Actor, periodUnit: BudgetPeriodUnit) {
   return getDb()
     .select({
       categoryId: budgetPlans.categoryId,
+      groupId: budgetPlans.groupId,
       currency: budgetPlans.currency,
       amount: budgetPlans.amount,
       activeFrom: budgetPlans.activeFrom,
@@ -1262,12 +1533,18 @@ function foldRollover(
   if (carrying.length === 0) return;
   const byTarget = new Map<string, CarryingPlan[]>();
   for (const plan of carrying) {
-    const key = `${plan.categoryId}:${plan.currency}`;
+    // The kind is part of the key. Without it a category and a group that
+    // happened to share an id would fold into each other, and more practically
+    // the lookup below has to know which list to look in.
+    const key =
+      plan.groupId !== null
+        ? `group:${plan.groupId}:${plan.currency}`
+        : `category:${plan.categoryId}:${plan.currency}`;
     byTarget.set(key, [...(byTarget.get(key) ?? []), plan]);
   }
 
   for (const [key, plans] of byTarget) {
-    const [categoryId, currency] = key.split(":") as [string, string];
+    const [kind, targetId, currency] = key.split(":") as ["category" | "group", string, string];
     let carry = decimal(ZERO);
     // What earlier periods of this same budget did, which is what the derived
     // rules are about: an average of what was spent, a step up from what was
@@ -1288,7 +1565,10 @@ function foldRollover(
         continue;
       }
       const period = periods.get(`${periodStart}:${currency}`);
-      const row = period?.rows.find((candidate) => candidate.categoryId === categoryId);
+      const row: BudgetPeriodRow | BudgetGroupRow | undefined =
+        kind === "group"
+          ? period?.groups.find((candidate) => candidate.groupId === targetId)
+          : period?.rows.find((candidate) => candidate.categoryId === targetId);
       // A period the query returned nothing for still moves the carry: a fund
       // with nothing spent and nothing budgeted keeps what it had.
       const carriedIn = plan.rollover ? canonicalDecimal(carry) : null;

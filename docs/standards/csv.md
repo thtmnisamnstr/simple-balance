@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and src/server/api.ts:1390-1412`, which is the
+which reads and writes files, and src/server/api.ts:1407-1429`, which is the
 transport.
 
 ## 1. Why CSV, and why no apology
@@ -144,7 +144,7 @@ product has no export whose first record is not a header.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(src/server/api.ts:1402-1411`). It used to read the server clock, so somebody
+(src/server/api.ts:1419-1428`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 
@@ -568,7 +568,7 @@ Three mechanisms, and they are deliberately not the same strictness:
    (`stagedDuplicateKey`, `src/server/services/transactions.ts:2542-2680`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:1244`, `src/server/services/staging.ts:533-609`).
+   three (src/shared/domain.ts:1252`, `src/server/services/staging.ts:533-609`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a
@@ -659,7 +659,7 @@ Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
 position (`src/client/pages/StagingPage.tsx:719-731`) and a staged row stores no
-source row number (src/server/db/schema.ts:681-800`), so a queue entry is
+source row number (`src/server/db/schema.ts:734-840`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
 *Checked by:* `tests/domain.test.ts` ("reports the file's own line for a row with
@@ -722,7 +722,7 @@ import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
 than by coincidence (`src/server/config-limits.ts:13`,
-`src/shared/domain.ts:1152`). `CSV_MAX_ROWS` may lower it; raising it past the
+src/shared/domain.ts:1160`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.
 

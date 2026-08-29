@@ -20,6 +20,7 @@ import {
 import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import { lockCategoryNamespace, serializeRow, writeAudit, writeAuditMany } from "./helpers.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
+import { resolveCategoryGroup } from "./category-groups.js";
 
 async function findNormalizedNameConflict(
   tx: DbTransaction,
@@ -538,9 +539,13 @@ export async function createCategory(actor: Actor, input: unknown, transaction?:
   return withTransaction(transaction, async (tx) => {
     await lockCategoryNamespace(tx, actor);
     await assertNormalizedNameAvailable(tx, actor, parsed.name);
+    // Checked rather than trusted: a group id that is not this person's must
+    // come back as not found rather than as a foreign key error, and the check
+    // has to happen under the same lock that keeps the namespace still.
+    const groupId = await resolveCategoryGroup(tx, actor, parsed.groupId);
     const [created] = await tx
       .insert(categories)
-      .values({ userId: actor.userId, ...parsed })
+      .values({ userId: actor.userId, ...parsed, groupId })
       .returning();
     await writeAudit(tx, actor, {
       entityType: "category",
@@ -575,9 +580,16 @@ export async function updateCategory(
     if (changes.kind !== undefined && changes.kind !== before.kind) {
       await assertCategoryKindCompatible(tx, actor, id, changes.kind);
     }
+    // Absent leaves the group alone, null takes the category out of one, and an
+    // id moves it. The same three-way patch every other nullable field here
+    // uses, so it reads the same way.
+    const groupId =
+      changes.groupId === undefined
+        ? before.groupId
+        : await resolveCategoryGroup(tx, actor, changes.groupId);
     const [updated] = await tx
       .update(categories)
-      .set({ ...changes, version: expectedVersion + 1, updatedAt: new Date() })
+      .set({ ...changes, groupId, version: expectedVersion + 1, updatedAt: new Date() })
       .where(
         and(
           eq(categories.id, id),

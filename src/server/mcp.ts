@@ -8,6 +8,8 @@ import {
   accountUpdateSchema,
   budgetEntrySetSchema,
   budgetPlanCreateSchema,
+  categoryGroupCreateSchema,
+  categoryGroupUpdateSchema,
   budgetPlanUpdateSchema,
   budgetReportQuerySchema,
   bulkDeleteStageSchema,
@@ -120,6 +122,12 @@ import {
   updateBudgetPlan,
 } from "./services/budgets.js";
 import {
+  createCategoryGroup,
+  deleteCategoryGroup,
+  listCategoryGroups,
+  updateCategoryGroup,
+} from "./services/category-groups.js";
+import {
   createRecurrence,
   deleteRecurrence,
   getRecurrence,
@@ -175,6 +183,8 @@ import {
   transactionTemplateBulkMcpResultSchema,
   budgetEntryResultSchema,
   budgetPlanResultSchema,
+  categoryGroupResultSchema,
+  deletedCategoryGroupResultSchema,
   budgetReportResultSchema,
   deletedBudgetResultSchema,
   recurrenceListResultSchema,
@@ -374,6 +384,7 @@ export const TOOL_SCOPES: ReadonlyMap<string, LedgerTier> = new Map<string, Ledg
   ["export_transactions_csv", "ledger:read"],
   ["list_audit_events", "ledger:read"],
   ["list_connected_agents", "ledger:read"],
+  ["list_category_groups", "ledger:read"],
   ["list_budget_plans", "ledger:read"],
   ["get_budget_plan", "ledger:read"],
   ["list_budget_entries", "ledger:read"],
@@ -383,6 +394,9 @@ export const TOOL_SCOPES: ReadonlyMap<string, LedgerTier> = new Map<string, Ledg
   ["delete_staged_transactions", "ledger:stage"],
   ["bulk_edit_staged_transactions", "ledger:stage"],
   ["stage_csv", "ledger:stage"],
+  ["create_category_group", "ledger:write"],
+  ["update_category_group", "ledger:write"],
+  ["delete_category_group", "ledger:write"],
   ["create_budget_plan", "ledger:write"],
   ["update_budget_plan", "ledger:write"],
   ["delete_budget_plan", "ledger:write"],
@@ -1029,6 +1043,18 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       () => runTool(() => listConnectedApps(actor)),
     );
     server.registerTool(
+      "list_category_groups",
+      {
+        title: "List category groups",
+        description:
+          "List the groups categories can be filed under, with how each is budgeted and how many categories are in it. A group is one level deep and is a way of reading categories together on the budget page: nothing names a group on a transaction and no posting mentions one. A standalone group holds a budget of its own; a sum_of_children group is whatever its categories add up to and cannot hold one.",
+        inputSchema: toolInput({}),
+        outputSchema: mcpOutputSchema(z.array(categoryGroupResultSchema)),
+        annotations: readAnnotations,
+      },
+      () => runTool(() => listCategoryGroups(actor)),
+    );
+    server.registerTool(
       "list_budget_plans",
       {
         title: "List standing budgets",
@@ -1182,6 +1208,73 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
   }
 
   if (scopes.has("ledger:write")) {
+    server.registerTool(
+      "create_category_group",
+      {
+        title: "Create a category group",
+        description:
+          "Create a group to file categories under. policy is the one decision with no default: standalone means the group holds a budget of its own, sum_of_children means it is whatever its categories add up to. Both are defensible and being given the other one silently makes every figure on the page wrong in the same direction, so it has to be said. Put categories in it with update_category's groupId.",
+        inputSchema: categoryGroupCreateSchema
+          .extend({ idempotencyKey: idempotencyKeySchema })
+          .strict(),
+        outputSchema: mcpOutputSchema(categoryGroupResultSchema),
+        annotations: additiveAnnotations,
+      },
+      ({ idempotencyKey, ...input }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(actor, "categoryGroup.create", idempotencyKey, input, (tx) =>
+            createCategoryGroup(actor, input, tx),
+          ),
+        ),
+    );
+    server.registerTool(
+      "update_category_group",
+      {
+        title: "Rename a group or change how it is budgeted",
+        description:
+          "Change a group's name or its policy, using the expected record version. Changing the policy changes which figure the budget page reports for it, so confirm it with the person when they did not ask for this exact change.",
+        inputSchema: categoryGroupUpdateSchema
+          .extend({ id: recordIdSchema, idempotencyKey: idempotencyKeySchema })
+          .strict(),
+        outputSchema: mcpOutputSchema(categoryGroupResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      ({ id, idempotencyKey, ...input }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "categoryGroup.update",
+            idempotencyKey,
+            { id, ...input },
+            (tx) => updateCategoryGroup(actor, id, input, tx),
+          ),
+        ),
+    );
+    server.registerTool(
+      "delete_category_group",
+      {
+        title: "Delete a category group",
+        description:
+          "Delete a group. Its categories stay exactly where they are and lose their group, because the group was a way of reading them rather than a thing they belong to; a budget about the group goes with it, since a budget about nothing is not a budget. No posting and no balance changes either way. Confirm it with the person first. Needs the current version.",
+        inputSchema: toolInput({
+          id: recordIdSchema,
+          expectedVersion: expectedVersionSchema,
+          idempotencyKey: idempotencyKeySchema,
+        }),
+        outputSchema: mcpOutputSchema(deletedCategoryGroupResultSchema),
+        annotations: destructiveAnnotations,
+      },
+      ({ id, expectedVersion, idempotencyKey }) =>
+        runTool(() =>
+          runIdempotentMcpMutation(
+            actor,
+            "categoryGroup.delete",
+            idempotencyKey,
+            { id, expectedVersion },
+            (tx) => deleteCategoryGroup(actor, id, expectedVersion, tx),
+          ),
+        ),
+    );
     server.registerTool(
       "create_budget_plan",
       {

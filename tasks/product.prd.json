@@ -457,6 +457,31 @@
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
         "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
       ]
+    },
+    {
+      "id": "SB-027",
+      "priority": 270,
+      "title": "Category groups",
+      "dependsOn": [
+        "SB-019"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A category belongs to at most one group, and a group holds no groups: one level, so there is no grandchild to misattribute",
+        "Whether a group's budget stands alone or is the sum of its categories is declared on the group and has no default",
+        "A group that adds up its categories cannot hold a budget of its own, because two figures would each have a claim to be the group's",
+        "A group's spending is its categories' spending, and a group's line is reported beside the category rows rather than among them, so no total counts the money twice",
+        "Deleting a group leaves every category where it was, without a group, and takes the group's own budget with it",
+        "Group names are compared the way category names are, so one name is one group",
+        "A category can never be filed under another tenant's group, and a budget can never name one"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
     }
   ]
 }

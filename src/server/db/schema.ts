@@ -22,6 +22,7 @@ import { sql } from "drizzle-orm";
 import {
   accountTypes,
   budgetAmountRules,
+  budgetGroupPolicies,
   budgetPeriodUnits,
   systemAccountKinds,
   actorSources,
@@ -205,6 +206,7 @@ export const recurrenceWeekendPolicyEnum = pgEnum(
 export const userThemeEnum = pgEnum("user_theme", themes);
 export const budgetPeriodUnitEnum = pgEnum("budget_period_unit", budgetPeriodUnits);
 export const budgetAmountRuleEnum = pgEnum("budget_amount_rule", budgetAmountRules);
+export const budgetGroupPolicyEnum = pgEnum("budget_group_policy", budgetGroupPolicies);
 
 export const userPreferences = pgTable(
   "user_preferences",
@@ -308,6 +310,19 @@ export const categories = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     kind: categoryKindEnum("kind").notNull(),
+    /**
+     * At most one group, and never a group of groups.
+     *
+     * A single-column reference, unlike every other cross-table link here,
+     * which pair the tenant with the id. `on delete set null` sets *every*
+     * column of the constraint, so the composite form would null the tenant as
+     * well and fail against `user_id not null` — PostgreSQL 15 can name the
+     * column to clear and Drizzle cannot emit that. What the composite key
+     * bought was a cross-tenant assignment being impossible in the database;
+     * that is checked in `resolveCategoryGroup` instead, on the one path that
+     * writes this column, and `tests/integration/tenant-isolation...` holds it.
+     */
+    groupId: uuid("group_id").references(() => categoryGroups.id, { onDelete: "set null" }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     version: integer("version").default(1).notNull(),
     ...timestamps,
@@ -317,7 +332,45 @@ export const categories = pgTable(
     // categories uses. A bare user_id index would duplicate its first column.
     unique("category_user_name_unique").on(table.userId, table.name),
     unique("category_user_id_id_unique").on(table.userId, table.id),
+    // Deleting a group leaves its categories where they are, ungrouped. The
+    // group was a way of reading them, and removing it is not a reason to lose
+    // what it was reading.
+    index("category_group_idx").on(table.userId, table.groupId),
     check("category_version_check", sql`${table.version} >= 1`),
+  ],
+);
+
+/**
+ * One level of grouping over categories, and one level only.
+ *
+ * Arbitrary depth is refused rather than unimplemented. hledger shows what it
+ * costs: spending in an unbudgeted grandchild rolls up to the nearest budgeted
+ * ancestor, and the totals stop agreeing with themselves. One level has no
+ * grandchild, so there is nothing to misattribute.
+ */
+export const categoryGroups = pgTable(
+  "category_group",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /**
+     * The name with case and spacing taken out, which is what uniqueness is
+     * about. The same normalisation categories and payees already use, so
+     * "Fixed Costs" and "fixed costs" are one group here as they would be one
+     * category there.
+     */
+    normalizedName: text("normalized_name").notNull(),
+    policy: budgetGroupPolicyEnum("policy").notNull(),
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    unique("category_group_user_normalized_unique").on(table.userId, table.normalizedName),
+    unique("category_group_user_id_id_unique").on(table.userId, table.id),
+    check("category_group_version_check", sql`${table.version} >= 1`),
   ],
 );
 
@@ -1083,7 +1136,16 @@ export const budgetPlans = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    categoryId: uuid("category_id").notNull(),
+    /**
+     * The target, which is a category or a group and never both.
+     *
+     * Nullable rather than two tables, because everything else about a budget
+     * — the window, the carry, the rule, the priority — is identical whichever
+     * it points at, and two tables would be the same columns twice with two
+     * copies of the fold to read them.
+     */
+    categoryId: uuid("category_id"),
+    groupId: uuid("group_id"),
     currency: text("currency").notNull(),
     periodUnit: budgetPeriodUnitEnum("period_unit").notNull(),
     amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
@@ -1147,12 +1209,24 @@ export const budgetPlans = pgTable(
       foreignColumns: [categories.userId, categories.id],
       name: "budget_plan_category_fk",
     }).onDelete("cascade"),
-    unique("budget_plan_window_unique").on(
-      table.userId,
-      table.categoryId,
-      table.periodUnit,
-      table.currency,
-      table.activeFrom,
+    foreignKey({
+      columns: [table.userId, table.groupId],
+      foreignColumns: [categoryGroups.userId, categoryGroups.id],
+      name: "budget_plan_group_fk",
+    }).onDelete("cascade"),
+    // Two partial indexes rather than one constraint over both columns.
+    // PostgreSQL counts NULLs as distinct in a unique constraint, so the
+    // original would have let a person write the same group budget as many
+    // times as they liked the moment `category_id` became nullable.
+    uniqueIndex("budget_plan_category_window_unique")
+      .on(table.userId, table.categoryId, table.periodUnit, table.currency, table.activeFrom)
+      .where(sql`${table.categoryId} is not null`),
+    uniqueIndex("budget_plan_group_window_unique")
+      .on(table.userId, table.groupId, table.periodUnit, table.currency, table.activeFrom)
+      .where(sql`${table.groupId} is not null`),
+    check(
+      "budget_plan_target_check",
+      sql`(${table.categoryId} is null) <> (${table.groupId} is null)`,
     ),
     // Zero is a budget, and a useful one: it says any spending here is over.
     check("budget_plan_amount_check", sql`${table.amount} >= 0`),
@@ -1228,7 +1302,9 @@ export const budgetEntries = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    categoryId: uuid("category_id").notNull(),
+    /** A category or a group, and never both. See `budgetPlans` above. */
+    categoryId: uuid("category_id"),
+    groupId: uuid("group_id"),
     currency: text("currency").notNull(),
     periodUnit: budgetPeriodUnitEnum("period_unit").notNull(),
     // Always the first day of the period it names, truncated the same way the
@@ -1245,12 +1321,20 @@ export const budgetEntries = pgTable(
       foreignColumns: [categories.userId, categories.id],
       name: "budget_entry_category_fk",
     }).onDelete("cascade"),
-    unique("budget_entry_period_unique").on(
-      table.userId,
-      table.categoryId,
-      table.periodUnit,
-      table.periodStart,
-      table.currency,
+    foreignKey({
+      columns: [table.userId, table.groupId],
+      foreignColumns: [categoryGroups.userId, categoryGroups.id],
+      name: "budget_entry_group_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("budget_entry_category_period_unique")
+      .on(table.userId, table.categoryId, table.periodUnit, table.periodStart, table.currency)
+      .where(sql`${table.categoryId} is not null`),
+    uniqueIndex("budget_entry_group_period_unique")
+      .on(table.userId, table.groupId, table.periodUnit, table.periodStart, table.currency)
+      .where(sql`${table.groupId} is not null`),
+    check(
+      "budget_entry_target_check",
+      sql`(${table.categoryId} is null) <> (${table.groupId} is null)`,
     ),
     check("budget_entry_amount_check", sql`${table.amount} >= 0`),
     check("budget_entry_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
@@ -1263,5 +1347,6 @@ export type TransactionRow = typeof transactions.$inferSelect;
 export type TransactionLegRow = typeof transactionLegs.$inferSelect;
 export type StagedTransactionRow = typeof stagedTransactions.$inferSelect;
 export type RecurrenceRow = typeof recurrences.$inferSelect;
+export type CategoryGroupRow = typeof categoryGroups.$inferSelect;
 export type BudgetPlanRow = typeof budgetPlans.$inferSelect;
 export type BudgetEntryRow = typeof budgetEntries.$inferSelect;

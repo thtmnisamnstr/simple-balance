@@ -109,6 +109,12 @@ import {
   setBudgetEntry,
   updateBudgetPlan,
 } from "./services/budgets.js";
+import {
+  createCategoryGroup,
+  deleteCategoryGroup,
+  listCategoryGroups,
+  updateCategoryGroup,
+} from "./services/category-groups.js";
 import { AppError, validationError } from "./services/errors.js";
 import {
   exportTransactionsCsv,
@@ -1204,6 +1210,17 @@ app.put("/api/v1/recurrences/:id", async (c) =>
 app.delete("/api/v1/recurrences/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
   return c.json(await deleteRecurrence(c.get("actor"), pathId(c), parsed.expectedVersion));
+});
+app.get("/api/v1/category-groups", async (c) => c.json(await listCategoryGroups(c.get("actor"))));
+app.post("/api/v1/category-groups", async (c) =>
+  c.json(await createCategoryGroup(c.get("actor"), await body(c)), 201),
+);
+app.put("/api/v1/category-groups/:id", async (c) =>
+  c.json(await updateCategoryGroup(c.get("actor"), pathId(c), await body(c))),
+);
+app.delete("/api/v1/category-groups/:id", async (c) => {
+  const parsed = versionedMutationSchema.parse(await body(c));
+  return c.json(await deleteCategoryGroup(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
 app.get("/api/v1/budget-plans", async (c) => c.json(await listBudgetPlans(c.get("actor"))));
 app.get("/api/v1/budget-plans/:id", async (c) =>

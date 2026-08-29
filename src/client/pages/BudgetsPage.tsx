@@ -12,6 +12,7 @@ import {
   type BudgetReport,
   type BudgetReportRow,
   type Category,
+  type CategoryGroup,
   type Session,
 } from "../api.js";
 import {
@@ -149,7 +150,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
   // scoped to an account, so money spent on a card since closed is money the
   // budget covered.
   const [includeArchived, setIncludeArchived] = useState(true);
-  const [categoryId, setCategoryId] = useState("");
+  // One box for both kinds of target, because a budget is about one thing and
+  // asking which kind first would be a mode. The value carries its own kind.
+  const [target, setTarget] = useState("");
   const [amount, setAmount] = useState("");
   // Somebody with one currency should never have to type it. It is still a
   // field rather than a fixed value, because a ledger holding two currencies
@@ -238,7 +241,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
       api<BudgetPlan>(
         "/api/v1/budget-plans",
         json({
-          categoryId,
+          ...(target.startsWith("group:")
+            ? { groupId: target.slice("group:".length) }
+            : { categoryId: target.slice("category:".length) }),
           // Zero wherever the amount box is hidden, which is every rule that
           // works the figure out for itself. Sending an empty box would be
           // refused by the schema for a field the person was never shown, and
@@ -261,9 +266,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
     onSuccess: (plan) => {
       setError("");
       setNotice(
-        `Budgeting ${formatMoney(plan.amount, plan.currency)} for ${plan.categoryName} every ${unitNoun[plan.periodUnit]}, from ${formatDate(plan.activeFrom)}.`,
+        `Budgeting ${formatMoney(plan.amount, plan.currency)} for ${plan.targetName} every ${unitNoun[plan.periodUnit]}, from ${formatDate(plan.activeFrom)}.`,
       );
-      setCategoryId("");
+      setTarget("");
       setAmount("");
       setRolloverCap("");
       setTargetAmount("");
@@ -352,6 +357,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
   // Only categories that can carry spending. An income category has nothing for
   // a limit to be compared against, and the server refuses one, so offering it
   // here would be a refusal nobody could see the cause of.
+  const groups = useQuery({
+    queryKey: ["category-groups"],
+    queryFn: () => api<CategoryGroup[]>("/api/v1/category-groups"),
+  });
   const budgetable = (categories.data ?? []).filter(
     (category) => category.kind !== "income" && !category.archivedAt,
   );
@@ -440,18 +449,24 @@ export default function BudgetsPage({ session }: { session: Session }) {
             createPlan.mutate();
           }}
         >
-          <Field label="Category">
-            <Select
-              required
-              value={categoryId}
-              onChange={(event) => setCategoryId(event.target.value)}
-            >
-              <option value="">Choose a category</option>
+          <Field label="Category or group">
+            <Select required value={target} onChange={(event) => setTarget(event.target.value)}>
+              <option value="">Choose what to budget</option>
               {budgetable.map((category) => (
-                <option key={category.id} value={category.id}>
+                <option key={category.id} value={`category:${category.id}`}>
                   {category.name}
                 </option>
               ))}
+              {/* Only the groups that hold a budget of their own. A group that
+                  adds up its categories already has an amount, and offering it
+                  here would ask for a second one with an equal claim. */}
+              {(groups.data ?? [])
+                .filter((group) => group.policy === "standalone")
+                .map((group) => (
+                  <option key={group.id} value={`group:${group.id}`}>
+                    {group.name} (group)
+                  </option>
+                ))}
             </Select>
           </Field>
           {targetAmount === "" && rule !== "average" && rule !== "income" ? (
@@ -644,6 +659,52 @@ export default function BudgetsPage({ session }: { session: Session }) {
                     : ""}
                 </span>
               </div>
+              {period.groups.length > 0 ? (
+                <div className="table-wrap">
+                  <table className="data-table">
+                    <caption className="sr-only">
+                      Groups for {period.start} to {period.end} in {period.currency}
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Group</th>
+                        <th scope="col" className="align-right">
+                          Budget
+                        </th>
+                        <th scope="col" className="align-right">
+                          Spent
+                        </th>
+                        <th scope="col" className="align-right">
+                          Remaining
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {period.groups.map((group) => (
+                        <tr key={group.groupId}>
+                          <th scope="row">
+                            {group.name}{" "}
+                            <Badge tone="neutral">
+                              {group.policy === "sum_of_children" ? "Adds up" : "Own budget"}
+                            </Badge>
+                          </th>
+                          <td className="align-right money">
+                            {group.limit === null ? "—" : formatMoney(group.limit, period.currency)}
+                          </td>
+                          <td className="align-right money">
+                            {formatMoney(group.actual, period.currency)}
+                          </td>
+                          <td className="align-right money">
+                            {group.remaining === null
+                              ? "—"
+                              : formatMoney(group.remaining, period.currency)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
               <div className="table-wrap">
                 <table className="data-table">
                   <caption className="sr-only">
@@ -824,7 +885,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 {(plans.data ?? []).map((plan) => (
                   <tr key={plan.id}>
                     <th scope="row">
-                      {plan.categoryName}{" "}
+                      {plan.targetName}{" "}
                       {plan.amountRule === "sinking_fund" ? (
                         <Badge tone="neutral">
                           Saving {formatMoney(plan.targetAmount ?? "0", plan.currency)} by{" "}
@@ -877,13 +938,13 @@ export default function BudgetsPage({ session }: { session: Session }) {
                           setEditRolloverCap(plan.rolloverCap ?? "");
                         }}
                       >
-                        Change {plan.categoryName}
+                        Change {plan.targetName}
                       </Button>
                       <Button
                         variant="ghost"
                         onClick={() => remove.ask(plan, () => deletePlan.mutate(plan))}
                       >
-                        Delete {plan.categoryName}
+                        Delete {plan.targetName}
                       </Button>
                     </td>
                   </tr>
@@ -896,7 +957,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
 
       <Modal
         open={editing !== null}
-        title={editing ? `Budget for ${editing.categoryName}` : "Budget"}
+        title={editing ? `Budget for ${editing.targetName}` : "Budget"}
         description="Changing the amount changes every period this budget covers, past ones included. To leave what earlier periods intended alone, give it an end date and set a new budget starting after it."
         onClose={() => setEditing(null)}
         footer={
@@ -996,7 +1057,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
               <tbody>
                 {(entries.data ?? []).map((entry) => (
                   <tr key={entry.id}>
-                    <th scope="row">{entry.categoryName}</th>
+                    <th scope="row">{entry.targetName}</th>
                     <td className="align-right money">
                       {formatMoney(entry.amount, entry.currency)}
                     </td>
@@ -1007,7 +1068,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                         loading={clearEntry.isPending}
                         onClick={() => clearEntry.mutate(entry)}
                       >
-                        Remove {entry.categoryName} override
+                        Remove {entry.targetName} override
                       </Button>
                     </td>
                   </tr>
@@ -1071,7 +1132,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
       <ConfirmDialog
         open={remove.open}
         title={
-          remove.value ? `Delete the ${remove.value.categoryName} budget?` : "Delete this budget?"
+          remove.value ? `Delete the ${remove.value.targetName} budget?` : "Delete this budget?"
         }
         confirmLabel="Delete budget"
         onConfirm={remove.confirm}
