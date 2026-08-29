@@ -42,6 +42,8 @@ const report: BudgetReport = {
       spent: "845",
       carriedIn: "0",
       available: "0",
+      income: "0",
+      unfunded: null,
       rows: [
         {
           categoryId: groceries,
@@ -53,6 +55,8 @@ const report: BudgetReport = {
           carriedIn: null,
           available: null,
           carriedOut: null,
+          priority: 0,
+          funded: null,
         },
         {
           categoryId: rent,
@@ -64,6 +68,8 @@ const report: BudgetReport = {
           carriedIn: null,
           available: null,
           carriedOut: null,
+          priority: 0,
+          funded: null,
         },
         {
           categoryId: transport,
@@ -75,6 +81,8 @@ const report: BudgetReport = {
           carriedIn: null,
           available: null,
           carriedOut: null,
+          priority: 0,
+          funded: null,
         },
         {
           categoryId: null,
@@ -86,6 +94,8 @@ const report: BudgetReport = {
           carriedIn: null,
           available: null,
           carriedOut: null,
+          priority: 0,
+          funded: null,
         },
       ],
     },
@@ -188,6 +198,8 @@ describe("the budgets page", () => {
           spent: "0",
           carriedIn: "0",
           available: "0",
+          income: "0",
+          unfunded: null,
           rows: [
             {
               categoryId: groceries,
@@ -199,6 +211,8 @@ describe("the budgets page", () => {
               carriedIn: null,
               available: null,
               carriedOut: null,
+              priority: 0,
+              funded: null,
             },
           ],
         },
@@ -467,6 +481,8 @@ describe("the budgets page", () => {
               carriedIn: "60",
               available: "260",
               carriedOut: "15",
+              priority: 0,
+              funded: null,
             },
           ],
         },
@@ -495,6 +511,8 @@ describe("the budgets page", () => {
               carriedIn: "10",
               available: "210",
               carriedOut: "0",
+              priority: 0,
+              funded: null,
             },
           ],
         },
@@ -502,5 +520,40 @@ describe("the budgets page", () => {
     });
     renderBudgets();
     expect(await screen.findByText(/as far back as this page looks/i)).toBeInTheDocument();
+  });
+
+  /**
+   * The funded column, which is the funding order made visible.
+   *
+   * Same rule as the carry columns and for the same reason: a ledger that never
+   * ranked anything should not be told its budgets are unfunded because income
+   * happened to land in another period.
+   */
+  it("shows what the income funds only where somebody ranked something", async () => {
+    stub(report);
+    renderBudgets();
+    expect(await screen.findByRole("rowheader", { name: /Groceries/ })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Funded" })).not.toBeInTheDocument();
+
+    stub({
+      ...report,
+      periods: [
+        {
+          ...report.periods[0]!,
+          income: "150",
+          unfunded: "550",
+          rows: [
+            {
+              ...report.periods[0]!.rows[0]!,
+              priority: 1,
+              funded: "150",
+            },
+          ],
+        },
+      ],
+    });
+    renderBudgets();
+    expect(await screen.findByRole("columnheader", { name: "Funded" })).toBeInTheDocument();
+    expect(screen.getByText(/came in, leaving/i)).toBeInTheDocument();
   });
 });

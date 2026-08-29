@@ -432,6 +432,31 @@
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
         "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
       ]
+    },
+    {
+      "id": "SB-026",
+      "priority": 260,
+      "title": "Derived amounts",
+      "dependsOn": [
+        "SB-019"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A budget can be the average of what the last few finished periods actually spent, and never includes the period it is budgeting",
+        "A budget can be the previous period's amount plus a percentage, compounding rather than repeating a flat uplift",
+        "A budget can be a share of the income that arrived in the previous whole period, because a share of an unfinished period changes every time it is read",
+        "An amount somebody set for one period beats every rule, and the chain carries on from what they set",
+        "A budget names one way of working out its amount, and naming two is refused rather than resolved",
+        "A funding order decides which budgets a short period covers first, with unranked funded last, and it changes no limit",
+        "A ledger that never named a priority is told nothing about funding, rather than being told its budgets are unfunded"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
     }
   ]
 }

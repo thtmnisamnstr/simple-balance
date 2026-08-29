@@ -644,9 +644,10 @@ Three refusals rather than three silent behaviours: a fund whose rollover is off
 nothing reads), and a cap on a budget that carries nothing. Each says which half
 is missing.
 
-## SB-026 — Derived amounts
+## SB-026 — Derived amounts — **done**
 
-**Priority 260. Depends on SB-019.**
+**Priority 260. Depends on SB-019. Built, unreleased, and carrying migration
+0015.**
 
 A trailing average of what was actually spent, last period plus a percentage, a
 share of income, and a funding order for when there is not enough to go round.
@@ -656,6 +657,39 @@ Deliberately few, and typed rather than a language. Actual built a template
 grammar in a free-text field and is migrating away from it. The position here is
 already that the agent is the rules engine, and a stage-scoped agent proposing a
 limit from a trailing window is the most natural thing on this surface.
+
+**How it was met**
+
+Two columns, as designed: a lookback and a percentage, with the rule derived
+from whichever one the row carries. Three rules and no chooser — a lookback is a
+trailing average, a percentage of the last period is an incremental budget, a
+percentage of income is a share of what came in — and naming two of them is
+refused rather than resolved, because a row that named both would have to decide
+which one it meant.
+
+The evaluator is a `switch` in the same fold SB-025 built, over aggregates the
+report already reads. A trailing average uses the finished periods before this
+one and never this one, or a budget would chase the spending it is meant to be
+measuring; it averages the periods that exist rather than treating the ones
+before the budget started as zeroes. An incremental budget compounds on the
+period before rather than on the original amount. A share of income takes the
+period before, because a share of a period still running is a figure that
+changes every time somebody looks at it.
+
+An amount somebody typed for one period beats every rule, and the chain carries
+on from what they typed. That falls out of the fold reading the resolved limit
+rather than the plan's column, and it is the behaviour anybody would expect from
+an override that did not have to be argued for.
+
+**The funding order is the fourth rule, and the one with an opinion.** Lower
+goes first; zero means unranked, and unranked is funded last — because a funding
+order names what comes first, and every budget in a ledger that never used the
+feature defaults to zero. Whether a period funds anything is answered per period
+rather than per report, so a priority set on a budget starting in June says
+nothing about March. A ledger that never ranked anything gets `funded: null` and
+no shortfall figure at all: a report that told everybody their budgets were
+unfunded because income landed in a different period would be true, useless and
+alarming.
 
 ## SB-027 — Category groups
 

@@ -1284,8 +1284,19 @@ export type BudgetPeriodUnit = (typeof budgetPeriodUnits)[number];
  * fund" from a list. The column exists so the check constraints can hold the
  * parameters to the shape they belong to, and so a reader of the row can tell
  * which arithmetic produced the figure.
+ *
+ * Each rule is named by the parameter it needs and by nothing else: a lookback
+ * is a trailing average, a percentage of the last period is an incremental
+ * budget, a percentage of income is a share of what came in. Two of them at
+ * once is refused, because the row would have to decide which one it meant.
  */
-export const budgetAmountRules = ["fixed", "sinking_fund"] as const;
+export const budgetAmountRules = [
+  "fixed",
+  "sinking_fund",
+  "trailing_average",
+  "incremental",
+  "percent_of_income",
+] as const;
 export type BudgetAmountRule = (typeof budgetAmountRules)[number];
 
 /**
@@ -1357,6 +1368,40 @@ export const queryBooleanSchema = queryBoolean(false);
  * same machinery into a sinking fund, which funds itself over the periods
  * between now and the date it is needed.
  */
+const budgetRule = {
+  lookbackPeriods: z
+    .number()
+    .int()
+    .min(1)
+    .max(24)
+    .nullable()
+    .optional()
+    .describe(
+      "Budget the average of what was actually spent over this many finished periods, rather than a fixed amount. The current period is never part of its own average. Send null to go back to a fixed amount. Refused alongside percentOfPrevious or percentOfIncome, because a budget can only be worked out one way.",
+    ),
+  percentOfPrevious: decimalStringSchema
+    .nullable()
+    .optional()
+    .describe(
+      "Budget the previous period's amount plus this percentage — 3 for three per cent more each period, 0 to repeat it, a negative number to taper. The first period of the window uses the plain amount as its base. Send null to go back to a fixed amount.",
+    ),
+  percentOfIncome: decimalStringSchema
+    .nullable()
+    .optional()
+    .describe(
+      "Budget this percentage of the income that arrived in the previous whole period. The previous one rather than this one, because a share of a period that has not finished is a figure that changes every time you look at it. Send null to go back to a fixed amount.",
+    ),
+  priority: z
+    .number()
+    .int()
+    .min(0)
+    .max(9999)
+    .optional()
+    .describe(
+      "Which budgets are funded first when a period's income will not cover them all. Lower goes first, the way nice does, and everything defaults to zero, which is every budget equal. It changes no limit: what it decides is the funded figure the report works out for each row.",
+    ),
+};
+
 const budgetCarry = {
   rollover: z
     .boolean()
@@ -1441,6 +1486,50 @@ const capIsNotNegativeMessage = {
   path: ["rolloverCap"],
 };
 
+type BudgetRuleFields = {
+  lookbackPeriods?: number | null | undefined;
+  percentOfPrevious?: string | null | undefined;
+  percentOfIncome?: string | null | undefined;
+  targetAmount?: string | null | undefined;
+};
+
+/**
+ * One way of working out the amount, or none.
+ *
+ * Each rule is named by the parameter it needs, so two parameters is a row that
+ * cannot say which arithmetic it meant. The target belongs in the count: a
+ * sinking fund is a derived amount too, and a fund with a trailing average
+ * beside it is the same contradiction one story later.
+ */
+const oneRuleAtMost = (value: BudgetRuleFields) =>
+  [
+    value.lookbackPeriods,
+    value.percentOfPrevious,
+    value.percentOfIncome,
+    value.targetAmount,
+  ].filter((parameter) => parameter != null).length <= 1;
+const oneRuleAtMostMessage = {
+  message:
+    "A budget works out its amount one way. Send a lookback, a percentage of the last period, a percentage of income, or a savings target — not two of them.",
+  path: ["lookbackPeriods"],
+};
+
+const percentagesAreNumbers = (value: BudgetRuleFields) =>
+  [value.percentOfPrevious, value.percentOfIncome].every(
+    (percent) => percent == null || /^[+-]?\d+(\.\d+)?$/.test(percent.trim()),
+  );
+const percentagesAreNumbersMessage = {
+  message: "A percentage is a plain number, such as 3 or 12.5. Leave the per-cent sign out.",
+  path: ["percentOfIncome"],
+};
+
+const incomeShareIsAShare = (value: BudgetRuleFields) =>
+  value.percentOfIncome == null || Number(value.percentOfIncome) >= 0;
+const incomeShareIsAShareMessage = {
+  message: "A share of income cannot be negative.",
+  path: ["percentOfIncome"],
+};
+
 export const budgetPlanCreateSchema = z
   .object({
     ...budgetTarget,
@@ -1453,6 +1542,7 @@ export const budgetPlanCreateSchema = z
         "The last period this budget applies to, named by any date inside it: the value is snapped back to that period's first day, and the budget covers the whole of it. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
       ),
     ...budgetCarry,
+    ...budgetRule,
   })
   .strict()
   .refine((value) => value.activeTo == null || value.activeTo >= value.activeFrom, {
@@ -1462,7 +1552,10 @@ export const budgetPlanCreateSchema = z
   .refine(carryHalves, carryHalvesMessage)
   .refine(sinkingFundRolls, sinkingFundRollsMessage)
   .refine(targetIsPositive, targetIsPositiveMessage)
-  .refine(capIsNotNegative, capIsNotNegativeMessage);
+  .refine(capIsNotNegative, capIsNotNegativeMessage)
+  .refine(oneRuleAtMost, oneRuleAtMostMessage)
+  .refine(percentagesAreNumbers, percentagesAreNumbersMessage)
+  .refine(incomeShareIsAShare, incomeShareIsAShareMessage);
 
 export const budgetPlanUpdateSchema = z
   .object({
@@ -1477,6 +1570,7 @@ export const budgetPlanUpdateSchema = z
         "The last period this budget applies to, named by any date inside it: the value is snapped back to that period's first day, and the budget covers the whole of it. Present and null ends an open-ended budget; absent leaves whatever is there alone.",
       ),
     ...budgetCarry,
+    ...budgetRule,
     expectedVersion: expectedVersionSchema,
   })
   .strict()
@@ -1488,7 +1582,10 @@ export const budgetPlanUpdateSchema = z
   .refine(carryHalves, carryHalvesMessage)
   .refine(sinkingFundRolls, sinkingFundRollsMessage)
   .refine(targetIsPositive, targetIsPositiveMessage)
-  .refine(capIsNotNegative, capIsNotNegativeMessage);
+  .refine(capIsNotNegative, capIsNotNegativeMessage)
+  .refine(oneRuleAtMost, oneRuleAtMostMessage)
+  .refine(percentagesAreNumbers, percentagesAreNumbersMessage)
+  .refine(incomeShareIsAShare, incomeShareIsAShareMessage);
 
 /** One period's amount, overriding whatever a plan would have said. */
 export const budgetEntrySetSchema = z

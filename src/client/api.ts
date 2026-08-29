@@ -558,7 +558,11 @@ export type BudgetPlan = {
   rolloverCap: string | null;
   targetAmount: string | null;
   targetDate: string | null;
-  amountRule: "fixed" | "sinking_fund";
+  lookbackPeriods: number | null;
+  percentOfPrevious: string | null;
+  percentOfIncome: string | null;
+  priority: number;
+  amountRule: "fixed" | "sinking_fund" | "trailing_average" | "incremental" | "percent_of_income";
   version: number;
 };
 
@@ -584,6 +588,9 @@ export type BudgetReportRow = {
   carriedIn: string | null;
   available: string | null;
   carriedOut: string | null;
+  priority: number;
+  /** Null unless some budget in the period names a funding order. */
+  funded: string | null;
 };
 
 export type BudgetReport = {
@@ -603,6 +610,8 @@ export type BudgetReport = {
     spent: string;
     carriedIn: string;
     available: string;
+    income: string;
+    unfunded: string | null;
     rows: BudgetReportRow[];
   }[];
 };

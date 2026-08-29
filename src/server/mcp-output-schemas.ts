@@ -837,10 +837,29 @@ export const budgetPlanResultSchema = z
       .describe(
         "First day of the period the target is needed by, snapped like the window, or null when there is no target.",
       ),
+    lookbackPeriods: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        "How many finished periods a trailing average looks back over, or null under any other rule.",
+      ),
+    percentOfPrevious: nullableStringSchema.describe(
+      'The percentage added to the previous period\'s amount, when that is the rule. A decimal string: "10" is ten per cent more each period.',
+    ),
+    percentOfIncome: nullableStringSchema.describe(
+      "The percentage of the previous whole period's income this budget takes, when that is the rule.",
+    ),
+    priority: z
+      .number()
+      .int()
+      .describe(
+        "Which budgets are funded first when a period's income will not cover them all. Lower goes first; zero means unranked, and unranked is funded last. It changes no limit.",
+      ),
     amountRule: z
       .enum(budgetAmountRules)
       .describe(
-        "How the per-period amount is arrived at. Derived from the row rather than chosen: a budget with a target and a date is a sinking fund, and everything else is fixed. A fund's own amount column is zero, because each period's figure is worked out from what is still needed and how many periods are left.",
+        "How the per-period amount is arrived at. Derived from the row rather than chosen: a lookback makes it a trailing average, a percentage of the last period makes it incremental, a percentage of income makes it a share of what came in, a target and a date make it a sinking fund, and everything else is fixed. Under every rule but incremental the amount column is ignored; get_budget_report is where the worked-out figure appears.",
       ),
     version: versionSchema,
   })
@@ -906,6 +925,14 @@ export const budgetReportResultSchema = z.object({
       available: z
         .string()
         .describe("Sum of budgeted and carriedIn, which is what there was to spend."),
+      income: z
+        .string()
+        .describe(
+          "What arrived in this period in this currency, from the income side of the books. Reported whether or not anything uses it, because a percentage of income and a funding order are both worked out from it.",
+        ),
+      unfunded: nullableStringSchema.describe(
+        "The part of the budgeted total this period's income does not cover, once the funding order has been applied. Null where no budget in this period names a priority.",
+      ),
       rows: z.array(
         z.object({
           categoryId: nullableStringSchema.describe("Null is the share of a split nobody filed."),
@@ -930,6 +957,13 @@ export const budgetReportResultSchema = z.object({
           ),
           carriedOut: nullableStringSchema.describe(
             "What this period hands to the next, after any cap. Provisional while the period is still running, for the same reason actual is. Null when this budget does not roll over.",
+          ),
+          priority: z
+            .number()
+            .int()
+            .describe("Lower is funded first. Zero means unranked, which is funded last."),
+          funded: nullableStringSchema.describe(
+            "How much of this row's limit the period's income covers, filled in priority order. Null where no budget in this period names a priority, because a ledger that never asked the question should not be told its budgets are unfunded.",
           ),
         }),
       ),

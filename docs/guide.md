@@ -255,9 +255,32 @@ Carried figures are worked out from the budget's own start. Where that is more
 than ten years of periods back, the page says how far it looked, because a
 number with a boundary is worth having and a boundary nobody mentions is not.
 
-**What is not here yet.** There is no budget set from a rule such as an average
-of what you usually spend, no grouping of categories under one budget, no
-figure for what is left to assign, and no forecast. Those are the next four
+**A budget can decide its own amount.** Under "Amount decided by" there are
+three alternatives to typing a number, and picking one is all there is to it:
+
+- **What the last few periods spent.** Say how many, and the budget is their
+  average. The period being budgeted is never part of its own average, and
+  early on it averages the periods that exist rather than counting the months
+  before you started as nothing.
+- **The last period, plus a percentage.** Ten per cent more each month, or a
+  negative number to taper. It compounds on the period before rather than on
+  the original amount, and the amount you type is the first period's.
+- **A share of the income before it.** Fifteen per cent of what came in last
+  month. Last month rather than this one, because a share of a month still
+  running changes every time you look at it.
+
+An amount you set for a single period beats any of them, and the chain carries
+on from what you set.
+
+**When there is not enough to go round, you can say what comes first.**
+"Funded first" takes a number — lower goes first — and the report then shows how
+much of each budget the period's income actually covers, filling them in that
+order until it runs out. Anything you did not rank is funded last. A budget you
+never ranked is left alone entirely: the column only appears where somebody
+asked the question.
+
+**What is not here yet.** There is no grouping of categories under one budget,
+no figure for what is left to assign, and no forecast. Those are the next three
 stories in [the roadmap](roadmap.md).
 
 ## How it looks

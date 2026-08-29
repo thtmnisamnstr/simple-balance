@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, or, sql } from "drizzle-orm";
 import type { Actor, BudgetAmountRule, BudgetPeriodUnit } from "../../shared/domain.js";
 import {
   budgetEntrySetSchema,
@@ -50,6 +50,14 @@ export type BudgetPlanView = {
   rolloverCap: string | null;
   targetAmount: string | null;
   targetDate: string | null;
+  /** Periods a trailing average looks back over, or null for any other rule. */
+  lookbackPeriods: number | null;
+  /** The percentage added to the previous period, when that is the rule. */
+  percentOfPrevious: string | null;
+  /** The share of the previous period's income, when that is the rule. */
+  percentOfIncome: string | null;
+  /** Lower is funded first when a period's income will not cover everything. */
+  priority: number;
   /**
    * Which arithmetic produces the amount. Derived from the row rather than
    * chosen: a plan with a target is a sinking fund because of what it says.
@@ -103,6 +111,17 @@ export type BudgetPeriodRow = {
    * `actual` is: the period has not finished spending.
    */
   carriedOut: string | null;
+  /** Lower is funded first. Zero unless somebody set an order. */
+  priority: number;
+  /**
+   * How much of this row's limit the period's income actually covers.
+   *
+   * Null unless a funding order is in play, which is what setting any priority
+   * turns on. Without one, "funded" would be a figure about every budget in
+   * every ledger, and on a ledger with no income recorded in a period it would
+   * read as though nothing were affordable.
+   */
+  funded: string | null;
 };
 
 export type BudgetPeriodView = {
@@ -133,6 +152,20 @@ export type BudgetPeriodView = {
   carriedIn: string;
   /** Sum of `available`, which is `budgeted` plus `carriedIn`. */
   available: string;
+  /**
+   * What arrived in this period, in this currency, from the income side.
+   *
+   * A fact rather than a budget, and reported whether or not anything uses it:
+   * a percentage of income is worked out from the period before this one, and a
+   * funding order is worked out from this one.
+   */
+  income: string;
+  /**
+   * The part of the budgeted total this period's income does not cover.
+   *
+   * Null unless a funding order is in play, for the same reason `funded` is.
+   */
+  unfunded: string | null;
 };
 
 export type BudgetReportView = {
@@ -180,6 +213,18 @@ function planView(row: BudgetPlanRow, categoryName: string): BudgetPlanView {
     rolloverCap: row.rolloverCap === null ? null : canonicalDecimal(row.rolloverCap),
     targetAmount: row.targetAmount === null ? null : canonicalDecimal(row.targetAmount),
     targetDate: row.targetDate,
+    lookbackPeriods: row.ruleLookback,
+    // One stored column, two names, and the rule decides which one it answers
+    // to. A reader should never have to know that they share a column.
+    percentOfPrevious:
+      row.amountRule === "incremental" && row.rulePercent !== null
+        ? canonicalDecimal(row.rulePercent)
+        : null,
+    percentOfIncome:
+      row.amountRule === "percent_of_income" && row.rulePercent !== null
+        ? canonicalDecimal(row.rulePercent)
+        : null,
+    priority: row.priority,
     amountRule: row.amountRule,
     version: row.version,
   };
@@ -341,6 +386,10 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
       rolloverCap: parsed.rolloverCap ?? null,
       targetAmount: parsed.targetAmount ?? null,
       targetDate: parsed.targetDate ?? null,
+      lookbackPeriods: parsed.lookbackPeriods ?? null,
+      percentOfPrevious: parsed.percentOfPrevious ?? null,
+      percentOfIncome: parsed.percentOfIncome ?? null,
+      priority: parsed.priority ?? 0,
       amount: parsed.amount,
     });
     const [created] = await tx
@@ -423,6 +472,26 @@ export async function updateBudgetPlan(
       targetAmount:
         parsed.targetAmount === undefined ? before.targetAmount : (parsed.targetAmount ?? null),
       targetDate: parsed.targetDate === undefined ? before.targetDate : (parsed.targetDate ?? null),
+      lookbackPeriods:
+        parsed.lookbackPeriods === undefined
+          ? before.ruleLookback
+          : (parsed.lookbackPeriods ?? null),
+      // The stored column is one percentage and the patch has two names for it,
+      // so which one it belongs to depends on the rule the row already carries.
+      // Sending the other name is what changes the rule.
+      percentOfPrevious:
+        parsed.percentOfPrevious === undefined
+          ? before.amountRule === "incremental"
+            ? before.rulePercent
+            : null
+          : (parsed.percentOfPrevious ?? null),
+      percentOfIncome:
+        parsed.percentOfIncome === undefined
+          ? before.amountRule === "percent_of_income"
+            ? before.rulePercent
+            : null
+          : (parsed.percentOfIncome ?? null),
+      priority: parsed.priority ?? before.priority,
       amount: parsed.amount === undefined ? before.amount : parsed.amount,
     });
     const [updated] = await tx
@@ -524,10 +593,25 @@ async function resolveCarry(
     rolloverCap: string | null;
     targetAmount: string | null;
     targetDate: string | null;
+    lookbackPeriods: number | null;
+    percentOfPrevious: string | null;
+    percentOfIncome: string | null;
+    priority: number;
     amount: string;
   },
 ) {
   const isFund = input.targetAmount !== null;
+  const named = [
+    input.targetAmount === null ? null : "a savings target",
+    input.lookbackPeriods === null ? null : "a lookback",
+    input.percentOfPrevious === null ? null : "a percentage of the last period",
+    input.percentOfIncome === null ? null : "a percentage of income",
+  ].filter((rule): rule is string => rule !== null);
+  if (named.length > 1) {
+    throw validationError(
+      `A budget works out its amount one way, and this one names ${named.join(" and ")}. Send one of them, or none for a fixed amount.`,
+    );
+  }
   if (isFund && input.targetDate === null) {
     throw validationError(
       "A sinking fund needs both an amount to save and a date to have it by. Send both, or neither.",
@@ -563,14 +647,31 @@ async function resolveCarry(
       "A carry cap only means something when rollover is on, and this budget does not carry anything forward.",
     );
   }
-  const amountRule: BudgetAmountRule = isFund ? "sinking_fund" : "fixed";
+  const amountRule: BudgetAmountRule = isFund
+    ? "sinking_fund"
+    : input.lookbackPeriods !== null
+      ? "trailing_average"
+      : input.percentOfPrevious !== null
+        ? "incremental"
+        : input.percentOfIncome !== null
+          ? "percent_of_income"
+          : "fixed";
+  // One column for two percentages, because a row is only ever one of the two
+  // rules that use it. Which one it is is the rule's own business.
+  const rulePercent = input.percentOfPrevious ?? input.percentOfIncome ?? null;
   return {
+    // A derived amount keeps what was sent, and every rule but `incremental`
+    // ignores it. That one uses it as the base for its first period, which is
+    // the only figure in the chain nothing earlier can supply.
     amount: canonicalDecimal(input.amount),
     columns: {
       rollover: input.rollover,
       rolloverCap: input.rolloverCap === null ? null : canonicalDecimal(input.rolloverCap),
       targetAmount: input.targetAmount === null ? null : canonicalDecimal(input.targetAmount),
       targetDate,
+      ruleLookback: input.lookbackPeriods,
+      rulePercent: rulePercent === null ? null : canonicalDecimal(rulePercent),
+      priority: input.priority,
       amountRule,
     },
   };
@@ -980,6 +1081,8 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
         spent: ZERO,
         carriedIn: ZERO,
         available: ZERO,
+        income: ZERO,
+        unfunded: null,
       };
       periods.set(key, period);
     }
@@ -995,10 +1098,40 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
       carriedIn: null,
       available: limit,
       carriedOut: null,
+      priority: 0,
+      funded: null,
     });
   }
 
-  foldRollover(periods, folded, carrying, parsed.periodUnit);
+  // What came in, per period and currency, from the income counter-account.
+  // Read once for the whole folded range rather than per plan: a percentage of
+  // income asks about the period before, and a funding order asks about this
+  // one, and both are the same figure.
+  const income = new Map<string, string>();
+  const incomeRows = await getDb().execute(sql`
+    select
+      date_trunc(${unit}, p.date)::date::text as period_start,
+      p.currency as currency,
+      (-sum(p.amount))::text as income
+    from posting p
+    join ledger_account a
+      on a.user_id = p.user_id and a.id = p.account_id and a.system_kind = 'income'
+    where p.user_id = ${actor.userId}
+      and p.date >= date_trunc(${unit}, ${queryStart}::date)::date
+      and p.date <= ${countedTo}::date
+    group by 1, 2
+  `);
+  for (const row of incomeRows.rows) {
+    income.set(`${String(row.period_start)}:${String(row.currency)}`, String(row.income));
+  }
+  for (const period of periods.values()) {
+    period.income = canonicalDecimal(
+      income.get(`${period.periodStart}:${period.currency}`) ?? ZERO,
+    );
+  }
+
+  foldRollover(periods, folded, carrying, parsed.periodUnit, income);
+  allocateByPriority(periods);
 
   // Totalled after the fold, because the fold is what decides three of the four
   // figures. Summing while reading the rows would have had to be undone.
@@ -1042,11 +1175,16 @@ async function rolloverPlans(actor: Actor, periodUnit: BudgetPeriodUnit) {
     .select({
       categoryId: budgetPlans.categoryId,
       currency: budgetPlans.currency,
+      amount: budgetPlans.amount,
       activeFrom: budgetPlans.activeFrom,
       activeTo: budgetPlans.activeTo,
+      rollover: budgetPlans.rollover,
       rolloverCap: budgetPlans.rolloverCap,
       targetAmount: budgetPlans.targetAmount,
       targetDate: budgetPlans.targetDate,
+      ruleLookback: budgetPlans.ruleLookback,
+      rulePercent: budgetPlans.rulePercent,
+      priority: budgetPlans.priority,
       amountRule: budgetPlans.amountRule,
     })
     .from(budgetPlans)
@@ -1054,7 +1192,16 @@ async function rolloverPlans(actor: Actor, periodUnit: BudgetPeriodUnit) {
       and(
         eq(budgetPlans.userId, actor.userId),
         eq(budgetPlans.periodUnit, periodUnit),
-        eq(budgetPlans.rollover, true),
+        // Everything the fold has to walk period by period: a budget that
+        // carries, one that works its own amount out, and one that named a
+        // funding order — the last of those because the order is a property of
+        // the plan and the row it lands on has to be told. A plain fixed budget
+        // is answered by the report's own query and needs none of this.
+        or(
+          eq(budgetPlans.rollover, true),
+          ne(budgetPlans.amountRule, "fixed"),
+          ne(budgetPlans.priority, 0),
+        ),
       ),
     );
 }
@@ -1110,6 +1257,7 @@ function foldRollover(
   ordered: readonly string[],
   carrying: readonly CarryingPlan[],
   unit: BudgetPeriodUnit,
+  income: ReadonlyMap<string, string>,
 ) {
   if (carrying.length === 0) return;
   const byTarget = new Map<string, CarryingPlan[]>();
@@ -1121,6 +1269,12 @@ function foldRollover(
   for (const [key, plans] of byTarget) {
     const [categoryId, currency] = key.split(":") as [string, string];
     let carry = decimal(ZERO);
+    // What earlier periods of this same budget did, which is what the derived
+    // rules are about: an average of what was spent, a step up from what was
+    // budgeted, a share of what came in.
+    const history: ReturnType<typeof decimal>[] = [];
+    let previousLimit: string | null = null;
+    let previousIncome: string | null = null;
     for (const periodStart of ordered) {
       const plan = plans.find(
         (candidate) =>
@@ -1129,18 +1283,28 @@ function foldRollover(
       );
       if (!plan) {
         carry = decimal(ZERO);
+        history.length = 0;
+        previousLimit = null;
         continue;
       }
       const period = periods.get(`${periodStart}:${currency}`);
       const row = period?.rows.find((candidate) => candidate.categoryId === categoryId);
       // A period the query returned nothing for still moves the carry: a fund
       // with nothing spent and nothing budgeted keeps what it had.
-      const carriedIn = canonicalDecimal(carry);
+      const carriedIn = plan.rollover ? canonicalDecimal(carry) : null;
       let limit = row?.limit === null || row?.limit === undefined ? ZERO : row.limit;
-      if (plan.amountRule === "sinking_fund" && row?.source !== "entry") {
-        limit = sinkingFundAmount(plan, unit, periodStart, carry);
+      // An override is an amount somebody typed for this period, and no rule
+      // outranks that. Every derived rule steps aside for one.
+      if (row?.source !== "entry" && plan.amountRule !== "fixed") {
+        limit = derivedAmount(plan, unit, periodStart, carry, {
+          history,
+          income: income.get(`${periodStart}:${currency}`) ?? null,
+          previousLimit,
+          previousIncome,
+        });
       }
-      const available = decimal(limit).plus(carry);
+      previousLimit = limit;
+      const available = plan.rollover ? decimal(limit).plus(carry) : decimal(limit);
       const actual = decimal(row?.actual ?? ZERO);
       const capped = applyCap(available.minus(actual), plan.rolloverCap);
       if (row) {
@@ -1148,10 +1312,60 @@ function foldRollover(
         row.limit = limit;
         row.available = canonicalDecimal(available);
         row.remaining = canonicalDecimal(available.minus(actual));
-        row.carriedOut = canonicalDecimal(capped);
+        row.carriedOut = plan.rollover ? canonicalDecimal(capped) : null;
+        row.priority = plan.priority;
       }
-      carry = capped;
+      // What this period spent, kept for the trailing averages that will ask
+      // about it a few periods from now.
+      history.push(actual);
+      previousIncome = income.get(`${periodStart}:${currency}`) ?? null;
+      carry = plan.rollover ? capped : decimal(ZERO);
     }
+  }
+}
+
+/**
+ * Who gets paid when the money that came in will not cover what was budgeted.
+ *
+ * The funding order, which is the whole of "pay yourself first", "priority
+ * budgeting" and the half of an anti-budget that says savings come off the top.
+ * Rows are filled in priority order until the period's income runs out; what is
+ * left over is the shortfall, and it is reported rather than spread thinly.
+ *
+ * Off unless somebody set a priority, and that is the whole of the opt-in.
+ * Otherwise every ledger would grow a figure saying its budgets were unfunded
+ * in every period where income happened to land in a different one — which is
+ * true, useless, and alarming.
+ *
+ * Ordered rather than sorted in SQL, because the order is a property of the
+ * plans rather than of the rows: two categories at the same priority are filled
+ * in the order the report already puts them in, which is by name.
+ */
+function allocateByPriority(periods: Map<string, BudgetPeriodView>) {
+  for (const period of periods.values()) {
+    // Per period rather than per report. A funding order set on a budget that
+    // starts in June says nothing about March, and a report spanning both
+    // should not answer for a period where nobody asked the question.
+    if (!period.rows.some((row) => row.priority !== 0)) continue;
+    let pool = decimal(period.income);
+    let unfunded = decimal(ZERO);
+    // Zero is "not ordered", and not ordered goes last. A funding order names
+    // what comes first; a budget nobody ranked is not more important than the
+    // one somebody deliberately put at the top, which is what sorting zero
+    // first would have meant — and every budget in the ledger defaults to zero.
+    const rank = (row: BudgetPeriodRow) =>
+      row.priority === 0 ? Number.MAX_SAFE_INTEGER : row.priority;
+    const ordered = [...period.rows]
+      .filter((row) => row.limit !== null)
+      .sort((left, right) => rank(left) - rank(right));
+    for (const row of ordered) {
+      const wanted = decimal(row.limit ?? ZERO);
+      const funded = pool.cmp(wanted) >= 0 ? wanted : pool.cmp(0) > 0 ? pool : decimal(ZERO);
+      row.funded = canonicalDecimal(funded);
+      unfunded = unfunded.plus(wanted.minus(funded));
+      pool = pool.minus(funded);
+    }
+    period.unfunded = canonicalDecimal(unfunded);
   }
 }
 
@@ -1172,6 +1386,73 @@ function applyCap(carry: ReturnType<typeof decimal>, cap: string | null) {
  * period has arrived — a fund that is short on the day it is needed asks for
  * the shortfall rather than a share of it.
  */
+/**
+ * The amount a rule works out for one period.
+ *
+ * Four rules and one shape: each answers "what should this period budget",
+ * from figures the report has already read. None of them is a mode anybody
+ * picked — the row carries a lookback, a percentage or a target, and that is
+ * what makes it the rule it is.
+ *
+ * The order they are tried in does not matter, because the constraints make
+ * them mutually exclusive; the `switch` is exhaustive so a rule added later
+ * fails to compile rather than falling through to a fixed amount.
+ */
+function derivedAmount(
+  plan: CarryingPlan,
+  unit: BudgetPeriodUnit,
+  periodStart: string,
+  carry: ReturnType<typeof decimal>,
+  context: {
+    history: readonly ReturnType<typeof decimal>[];
+    income: string | null;
+    previousLimit: string | null;
+    previousIncome: string | null;
+  },
+): string {
+  switch (plan.amountRule) {
+    case "sinking_fund":
+      return sinkingFundAmount(plan, unit, periodStart, carry);
+    case "trailing_average": {
+      // The finished periods before this one, and never this one: a period is
+      // not part of its own average, or the budget would chase the spending it
+      // is meant to be measuring. Fewer periods than asked for is the honest
+      // answer early in a budget's life — averaging over the periods that
+      // exist beats treating the ones before it started as zeroes.
+      const window = context.history.slice(-(plan.ruleLookback ?? 1));
+      if (window.length === 0) return canonicalDecimal(plan.amount);
+      const total = window.reduce((sum, value) => sum.plus(value), decimal(ZERO));
+      const average = total.div(window.length);
+      // Spending is signed and a refunded period can end up negative. A budget
+      // of less than nothing is not a budget, so the floor is zero.
+      return average.cmp(0) <= 0 ? ZERO : canonicalDecimal(average);
+    }
+    case "incremental": {
+      // The first period has nothing before it, so the plan's own amount is
+      // the base. Every period after steps up from what the period before was
+      // budgeted, which is what makes it compound rather than a flat uplift.
+      const base = context.previousLimit ?? plan.amount;
+      const step = decimal(plan.rulePercent ?? ZERO)
+        .div(100)
+        .plus(1);
+      const next = decimal(base).times(step);
+      return next.cmp(0) <= 0 ? ZERO : canonicalDecimal(next);
+    }
+    case "percent_of_income": {
+      // The period before, not this one. A share of a period still running is
+      // a figure that changes every time somebody looks at it, and a budget
+      // that moves while you are spending against it is not a budget.
+      if (context.previousIncome === null) return ZERO;
+      const share = decimal(context.previousIncome).times(
+        decimal(plan.rulePercent ?? ZERO).div(100),
+      );
+      return share.cmp(0) <= 0 ? ZERO : canonicalDecimal(share);
+    }
+    case "fixed":
+      return canonicalDecimal(plan.amount);
+  }
+}
+
 function sinkingFundAmount(
   plan: CarryingPlan,
   unit: BudgetPeriodUnit,

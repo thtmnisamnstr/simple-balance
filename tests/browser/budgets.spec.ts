@@ -491,7 +491,7 @@ test.describe("the budgets page in a browser", () => {
     //field and a closed `<dialog>` is still in the document.
     const setBudget = page.locator("form.budget-form");
     await setBudget.getByLabel(/^Category/).selectOption({ label: carried });
-    await setBudget.getByLabel(/^Amount/).fill("100.00");
+    await setBudget.getByLabel(/^Amount$/).fill("100.00");
     await setBudget.getByLabel(/^Currency/).selectOption("GBP");
     await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
     await setBudget.getByLabel(/^Carry what is left over/).check();
@@ -529,7 +529,7 @@ test.describe("the budgets page in a browser", () => {
     // Typing a target hides the amount box, because a fund works out its own
     // figure, and turns the carry on, because a fund that does not keep what it
     // saved saves nothing.
-    await expect(setBudget.getByLabel(/^Amount/)).toHaveCount(0);
+    await expect(setBudget.getByLabel(/^Amount$/)).toHaveCount(0);
     await expect(setBudget.getByLabel(/^Carry what is left over/)).toBeChecked();
     await setBudget.getByLabel(/^Needed by/).fill("2026-12-20");
     await setBudget.getByLabel(/^Currency/).selectOption("GBP");
@@ -541,6 +541,36 @@ test.describe("the budgets page in a browser", () => {
     await expect(row).toContainText("Saving £600.00 by December 2026");
     // The amount column says what it is rather than showing a zero somebody
     // would read as "budget nothing".
+    await expect(row).toContainText("Worked out");
+  });
+
+  /**
+   * A worked-out amount through the form, which is the only tier that can show
+   * the select reaching the server. The arithmetic itself is held against the
+   * service in the integration suite.
+   */
+  test("budgets a share of the income before it, without asking for an amount", async () => {
+    const share = `Share ${Date.now()}`;
+    await page.goto("/categories");
+    await page.getByLabel("Category name").fill(share);
+    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByRole("button", { name: "Add category" }).click();
+    await expect(page.getByText(share, { exact: false }).first()).toBeVisible();
+
+    await page.goto("/budgets");
+    const setBudget = page.locator("form.budget-form");
+    await setBudget.getByLabel(/^Category/).selectOption({ label: share });
+    await setBudget.getByLabel("Amount decided by").selectOption("income");
+    // The amount box goes away, because the amount is not somebody's to type.
+    await expect(setBudget.getByLabel(/^Amount$/)).toHaveCount(0);
+    await setBudget.getByLabel(/Share of income/).fill("15");
+    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
+    await setBudget.getByRole("button", { name: /^set budget$/i }).click();
+
+    const standing = page.getByRole("table", { name: /standing budgets/i });
+    const row = standing.getByRole("row", { name: new RegExp(share) });
+    await expect(row).toContainText("15% of income");
     await expect(row).toContainText("Worked out");
   });
 });

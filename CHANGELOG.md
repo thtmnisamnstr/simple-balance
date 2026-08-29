@@ -137,6 +137,20 @@ periods left, the figure adjusts as the fund fills, and it asks for nothing once
 it is full. There is no amount to type and no method to pick — a budget with a
 target and a date is a sinking fund because of what it says.
 
+**A budget can work out its own amount three more ways**: the average of what
+the last few finished periods actually spent, the previous period's amount plus
+a percentage, or a share of the income that arrived in the period before. Each
+is named by the parameter it needs rather than by a method somebody picks, and
+naming two at once is refused. An amount set for a single period still beats all
+of them.
+
+**And when a period's income will not cover everything, a funding order says
+what comes first.** Lower goes first; anything unranked is funded last. The
+report then shows how much of each budget the income covers and what is left
+unfunded. A ledger that never ranked anything is told none of this, rather than
+being told its budgets are unfunded because income happened to land in another
+period.
+
 ### Changed
 
 A numeric setting outside its range says so at startup instead of falling back

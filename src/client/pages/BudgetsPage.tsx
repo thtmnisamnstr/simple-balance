@@ -68,6 +68,14 @@ const unitNoun: Record<BudgetPeriodUnitName, string> = {
   year: "year",
 };
 
+/** Only the plural is irregular enough to be worth a second map. */
+const unitNounPlural: Record<BudgetPeriodUnitName, string> = {
+  week: "Weeks",
+  month: "Months",
+  quarter: "Quarters",
+  year: "Years",
+};
+
 /**
  * How far through a limit the spending has got, as a width.
  *
@@ -156,6 +164,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [rolloverCap, setRolloverCap] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
   const [targetDate, setTargetDate] = useState("");
+  // One select and one box, because the rules are alternatives rather than a
+  // set of switches. The select is not a "method": each option names what it
+  // does to the amount, and picking one is what makes the budget that kind.
+  const [rule, setRule] = useState<"fixed" | "average" | "step" | "income">("fixed");
+  const [ruleValue, setRuleValue] = useState("");
+  const [priority, setPriority] = useState("");
   const remove = useConfirm<BudgetPlan>();
   const [editing, setEditing] = useState<BudgetPlan | null>(null);
   const [override, setOverride] = useState<{
@@ -225,16 +239,23 @@ export default function BudgetsPage({ session }: { session: Session }) {
         "/api/v1/budget-plans",
         json({
           categoryId,
-          // A fund works out its own figure each period, so the amount box is
-          // hidden and zero is what the server is told. Sending what was typed
-          // would be a number nothing reads.
-          amount: targetAmount === "" ? amount : "0",
+          // Zero wherever the amount box is hidden, which is every rule that
+          // works the figure out for itself. Sending an empty box would be
+          // refused by the schema for a field the person was never shown, and
+          // sending what was typed before they switched rules would be a number
+          // nothing reads. An incremental budget is the exception: its first
+          // period steps up from exactly this amount.
+          amount: targetAmount === "" && rule !== "average" && rule !== "income" ? amount : "0",
           currency,
           periodUnit,
           activeFrom,
           rollover,
           ...(rollover && rolloverCap !== "" ? { rolloverCap } : {}),
           ...(targetAmount !== "" ? { targetAmount, targetDate } : {}),
+          ...(rule === "average" && ruleValue !== "" ? { lookbackPeriods: Number(ruleValue) } : {}),
+          ...(rule === "step" && ruleValue !== "" ? { percentOfPrevious: ruleValue } : {}),
+          ...(rule === "income" && ruleValue !== "" ? { percentOfIncome: ruleValue } : {}),
+          ...(priority !== "" ? { priority: Number(priority) } : {}),
         }),
       ),
     onSuccess: (plan) => {
@@ -247,6 +268,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
       setRolloverCap("");
       setTargetAmount("");
       setTargetDate("");
+      setRule("fixed");
+      setRuleValue("");
+      setPriority("");
       invalidate();
     },
     onError: (cause: Error) => setError(cause.message),
@@ -430,14 +454,52 @@ export default function BudgetsPage({ session }: { session: Session }) {
               ))}
             </Select>
           </Field>
-          {targetAmount === "" ? (
-            <Field label="Amount">
+          {targetAmount === "" && rule !== "average" && rule !== "income" ? (
+            <Field
+              label="Amount"
+              hint={rule === "step" ? "The first period's amount, before the increase." : undefined}
+            >
               <Input
                 required
                 inputMode="decimal"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
                 placeholder="200.00"
+              />
+            </Field>
+          ) : null}
+          {targetAmount === "" ? (
+            <Field label="Amount decided by">
+              <Select
+                value={rule}
+                onChange={(event) => {
+                  setRule(event.target.value as typeof rule);
+                  setRuleValue("");
+                }}
+              >
+                <option value="fixed">The amount above, every period</option>
+                <option value="average">What the last few periods spent</option>
+                <option value="step">The last period, plus a percentage</option>
+                <option value="income">A share of the income before it</option>
+              </Select>
+            </Field>
+          ) : null}
+          {targetAmount === "" && rule !== "fixed" ? (
+            <Field
+              label={
+                rule === "average"
+                  ? `${unitNounPlural[periodUnit]} to average`
+                  : rule === "step"
+                    ? "Increase each period by (%)"
+                    : "Share of income (%)"
+              }
+            >
+              <Input
+                required
+                inputMode="decimal"
+                value={ruleValue}
+                onChange={(event) => setRuleValue(event.target.value)}
+                placeholder={rule === "average" ? "3" : "10"}
               />
             </Field>
           ) : null}
@@ -501,6 +563,17 @@ export default function BudgetsPage({ session }: { session: Session }) {
               />
             </Field>
           ) : null}
+          <Field
+            label="Funded first (optional)"
+            hint="Lower goes first when a period's income will not cover everything. Leave blank for unranked, which is funded last."
+          >
+            <Input
+              inputMode="numeric"
+              value={priority}
+              onChange={(event) => setPriority(event.target.value)}
+              placeholder="1"
+            />
+          </Field>
           <Button type="submit" loading={createPlan.isPending}>
             Set budget
           </Button>
@@ -549,6 +622,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
           // dashes says a budget has a feature it does not have, and every
           // ledger that has never ticked the box would grow two of them.
           const carries = period.rows.some((row) => row.carriedIn !== null);
+          // Same rule as the carry columns: the funded figure appears only
+          // where somebody set an order, so a ledger that never did is not told
+          // its budgets are unfunded because income landed in another period.
+          const ranked = period.unfunded !== null;
           return (
             <div className="panel" key={`${period.periodStart}:${period.currency}`}>
               <div className="panel-header">
@@ -562,6 +639,9 @@ export default function BudgetsPage({ session }: { session: Session }) {
                     ? `${formatMoney(period.carriedIn, period.currency)} carried in, ${formatMoney(period.available, period.currency)} available. `
                     : ""}
                   {formatMoney(period.spent, period.currency)} spent in total, budgeted or not.
+                  {ranked
+                    ? ` ${formatMoney(period.income, period.currency)} came in, leaving ${formatMoney(period.unfunded ?? "0", period.currency)} of the budget unfunded.`
+                    : ""}
                 </span>
               </div>
               <div className="table-wrap">
@@ -584,6 +664,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
                             Available
                           </th>
                         </>
+                      ) : null}
+                      {ranked ? (
+                        <th scope="col" className="align-right">
+                          Funded
+                        </th>
                       ) : null}
                       <th scope="col" className="align-right">
                         Spent
@@ -624,6 +709,11 @@ export default function BudgetsPage({ session }: { session: Session }) {
                                   : formatMoney(row.available, period.currency)}
                               </td>
                             </>
+                          ) : null}
+                          {ranked ? (
+                            <td className="align-right money">
+                              {row.funded === null ? "—" : formatMoney(row.funded, period.currency)}
+                            </td>
                           ) : null}
                           <td className="align-right money">
                             {formatMoney(row.actual, period.currency)}
@@ -747,12 +837,25 @@ export default function BudgetsPage({ session }: { session: Session }) {
                             ? `, up to ${formatMoney(plan.rolloverCap, plan.currency)}`
                             : ""}
                         </Badge>
-                      ) : null}
+                      ) : null}{" "}
+                      {plan.amountRule === "trailing_average" ? (
+                        <Badge tone="neutral">
+                          Average of {plan.lookbackPeriods} {unitNoun[plan.periodUnit]}
+                          {plan.lookbackPeriods === 1 ? "" : "s"}
+                        </Badge>
+                      ) : plan.amountRule === "incremental" ? (
+                        <Badge tone="neutral">+{plan.percentOfPrevious}% each period</Badge>
+                      ) : plan.amountRule === "percent_of_income" ? (
+                        <Badge tone="neutral">{plan.percentOfIncome}% of income</Badge>
+                      ) : null}{" "}
+                      {plan.priority === 0 ? null : (
+                        <Badge tone="neutral">Funded {plan.priority}</Badge>
+                      )}
                     </th>
                     <td className="align-right money">
-                      {plan.amountRule === "sinking_fund"
-                        ? "Worked out"
-                        : formatMoney(plan.amount, plan.currency)}
+                      {plan.amountRule === "fixed" || plan.amountRule === "incremental"
+                        ? formatMoney(plan.amount, plan.currency)
+                        : "Worked out"}
                     </td>
                     <td>{unitNoun[plan.periodUnit]}</td>
                     <td>

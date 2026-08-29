@@ -1113,6 +1113,27 @@ export const budgetPlans = pgTable(
     /** What a sinking fund is saving up for, with the date it is needed by. */
     targetAmount: numeric("target_amount", { precision: 44, scale: 18 }),
     targetDate: date("target_date"),
+    /**
+     * How many finished periods a trailing average looks back over.
+     *
+     * Bounded by a check rather than by taste: an average over four hundred
+     * periods is a fold over four hundred periods, and the one thing this
+     * design will not do is let a budget's arithmetic grow without a bound
+     * somebody can see.
+     */
+    ruleLookback: integer("rule_lookback"),
+    /**
+     * The percentage an incremental budget adds to the last period, or the
+     * share of income a percent-of-income budget takes. One column for two
+     * rules, because a row is only ever one of them.
+     */
+    rulePercent: numeric("rule_percent", { precision: 9, scale: 4 }),
+    /**
+     * Which budgets are funded first when a period's income will not cover
+     * them all. Lower goes first, the way `nice` does, and the default of zero
+     * means a ledger that never sets one has every budget equal.
+     */
+    priority: integer("priority").default(0).notNull(),
     amountRule: budgetAmountRuleEnum("amount_rule").default("fixed").notNull(),
     version: integer("version").default(1).notNull(),
     ...timestamps,
@@ -1163,6 +1184,31 @@ export const budgetPlans = pgTable(
     check(
       "budget_plan_sinking_rollover_check",
       sql`${table.amountRule} <> 'sinking_fund' or ${table.rollover}`,
+    ),
+    // Each rule holds exactly the parameter it is named for, and the others
+    // hold none. A trailing average with a percentage beside it is a row that
+    // cannot say what it meant.
+    // Compared as text, and this is not a style choice. `ALTER TYPE ... ADD
+    // VALUE` and a constraint naming the value it added cannot share a
+    // transaction — PostgreSQL refuses with `unsafe use of new value of enum
+    // type`, and every migration runs in one. Casting to text means the
+    // constraint never touches the new enum value, so the rules and the
+    // vocabulary they are about can arrive together.
+    check(
+      "budget_plan_lookback_check",
+      sql`(${table.amountRule}::text = 'trailing_average') = (${table.ruleLookback} is not null)`,
+    ),
+    check(
+      "budget_plan_percent_check",
+      sql`(${table.amountRule}::text in ('incremental', 'percent_of_income')) = (${table.rulePercent} is not null)`,
+    ),
+    check(
+      "budget_plan_lookback_range_check",
+      sql`${table.ruleLookback} is null or (${table.ruleLookback} >= 1 and ${table.ruleLookback} <= 24)`,
+    ),
+    check(
+      "budget_plan_percent_range_check",
+      sql`${table.rulePercent} is null or (${table.rulePercent} >= 0 and ${table.rulePercent} <= 1000)`,
     ),
   ],
 );

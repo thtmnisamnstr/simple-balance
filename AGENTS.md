@@ -186,9 +186,10 @@
   0.1.4, and `0008_owner_setup_token.sql`,
   `0009_scheduled_notifications.sql`, `0010_drop_covered_user_indexes.sql`,
   `0011_user_theme.sql` and `0012_payee_normalized_indexes.sql` in 0.1.5.
-  `0013_budget_plans_and_entries.sql` and
-  `0014_budget_rollover_and_targets.sql` are written and unreleased, so they are
-  the ones here that may still be regenerated; they freeze when they ship.
+  `0013_budget_plans_and_entries.sql`,
+  `0014_budget_rollover_and_targets.sql` and `0015_budget_amount_rules.sql` are
+  written and unreleased, so they are the ones here that may still be
+  regenerated; they freeze when they ship.
   `tests/migrations.test.ts` holds this list to what is on disk, because a list
   of what may never change is worth nothing if it can quietly fall behind.
   Never edit or regenerate one: someone's database has already run it, and
@@ -233,7 +234,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 17.3% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 17.7% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelised.** Legs resolve one at a time so two
