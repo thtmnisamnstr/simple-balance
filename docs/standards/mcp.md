@@ -169,7 +169,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 76
-  descriptions, 24,853 characters, median 261, range 33 to 1,890, and **15 under
+  descriptions, 24,930 characters, median 261, range 33 to 1,890, and **15 under
   100 characters**. The distribution is bimodal and the terse half covers the
   dangerous tools: `list_transactions` is 54 characters and is the entry point to
   the ledger's largest collection, mentioning none of the ordering and cursor

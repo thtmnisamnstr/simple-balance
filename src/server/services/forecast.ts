@@ -73,11 +73,14 @@ export type ForecastView = {
   basis: "recurring" | "recurring_and_budgets";
   currencies: ForecastCurrency[];
   /**
-   * Recurrences that could not be projected, and why.
+   * What could not be projected, and why.
    *
-   * A recurrence with no amount proposes a row for somebody to fill in, so it
-   * is a real schedule with no figure — projecting it as nothing would quietly
-   * flatter every period it falls in.
+   * Recurrences and budgets both land here, and for the same reason: each is a
+   * real intention with no figure a projection can use. A recurrence with no
+   * amount proposes a row for somebody to fill in; a budget whose amount is an
+   * average or a share works it out from periods that have not happened.
+   * Counting either as nothing would quietly flatter every period it falls in,
+   * so they are named instead.
    */
   unprojectable: { id: string; name: string; reason: string }[];
 };

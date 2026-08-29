@@ -1070,7 +1070,7 @@ export const forecastResultSchema = z.object({
       }),
     )
     .describe(
-      "Recurrences no projection could use, with why. A schedule with no amount is a real schedule with no figure, and leaving it out silently would flatter every period it falls in — say so rather than reporting the balance as though it were complete.",
+      "Recurrences and budgets no projection could use, with why. A schedule with no amount is a real schedule with no figure, and a budget whose amount is an average or a share of income works it out from periods that have not happened; leaving either out silently would flatter every period it falls in — say so rather than reporting the balance as though it were complete.",
     ),
   currencies: z.array(
     z.object({
