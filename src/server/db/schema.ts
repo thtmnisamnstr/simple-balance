@@ -270,6 +270,16 @@ export const ledgerAccounts = pgTable(
     // Set only on the server-owned counter-accounts that balance deposits,
     // withdrawals, and cross-currency transfers. Null means a real account.
     systemKind: systemAccountKindEnum("system_kind"),
+    /**
+     * Whether the money here is money the budget is about.
+     *
+     * On by default and on for credit cards, which is the decision worth
+     * writing down: a card sits outside the cash flow statement's set on
+     * purpose, and leaving it out here too would mean spending on a card
+     * empties an envelope while no cash leaves the perimeter — so the page
+     * would say there is more money to assign than there is.
+     */
+    inBudget: boolean("in_budget").default(true).notNull(),
     currency: text("currency").notNull(),
     institution: text("institution"),
     notes: text("notes"),

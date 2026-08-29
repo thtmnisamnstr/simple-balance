@@ -169,7 +169,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 75
-  descriptions, 23,861 characters, median 249, range 33 to 1,890, and **15 under
+  descriptions, 24,064 characters, median 249, range 33 to 1,890, and **15 under
   100 characters**. The distribution is bimodal and the terse half covers the
   dangerous tools: `list_transactions` is 54 characters and is the entry point to
   the ledger's largest collection, mentioning none of the ordering and cursor
@@ -307,7 +307,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   closing the schemas they share with `/api/v1`, because what a browser may send
   and what an agent may invent are different questions.
 - **Binding, and now true of every field rather than of every parameter.**
-  Measured: **0 of 704 carry none**, having been 146 of 225 at the top level and
+  Measured: **0 of 706 carry none**, having been 146 of 225 at the top level and
   263 of 673 once anybody counted the fields inside `draft`, `shape`, `patch`,
   `selection`, `schedule` and `mapping` — which is to say the fields an agent
   has to fill in to write anything. The measurement said zero for a year because
@@ -346,9 +346,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   `preview_bulk_transaction_selection`, `bulk_edit_transactions` and
   `bulk_delete_transactions`. **Done**, and in one edit rather than five:
   `listQuerySchema.currency` now carries a filter sentence of its own
-  (src/shared/domain.ts:1822-1826`), and the other four derive from it —
-  `bulkTransactionFilterSchema` by `.omit()` at `:1843` and
-  `stageListQuerySchema` at `:2117`, which is a sixth position nobody had
+  (src/shared/domain.ts:1828-1832`), and the other four derive from it —
+  `bulkTransactionFilterSchema` by `.omit()` at `:1849` and
+  `stageListQuerySchema` at `:2123`, which is a sixth position nobody had
   counted. The shared sentence is untouched, because it is right where an
   account is being opened. `set_preferences`'s `defaultCurrency` was the same
   sentence in a third context and now says what a default is
@@ -361,9 +361,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   "MUST NOT automatically dereference `$ref` values that resolve to a network
   URI" and SHOULD bound schema depth and subschema count as a denial-of-service
   defence, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
-  and a thing clients are told to refuse. Measured: 566 `anyOf` and 7 `oneOf`
-  across the surface. 482 of the 566 are two-member nullable pairs, 141 of them
-  on inputs; 147 of all the `anyOf` are on inputs and 419 on outputs. The 7
+  and a thing clients are told to refuse. Measured: 567 `anyOf` and 7 `oneOf`
+  across the surface. 483 of the 567 are two-member nullable pairs, 141 of them
+  on inputs; 147 of all the `anyOf` are on inputs and 420 on outputs. The 7
   `oneOf` are all on inputs and are the boolean-or-string-literal coercion. So the composition is
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
@@ -481,7 +481,7 @@ The rules:
   `tests/mcp-output.test.ts` holds it: no output schema may declare a `userId`
   property except by named exception.
 - **House.** Describe an output field whose meaning its name does not give — and
-  only those. Measured: **1,680 output properties, 423 with a description**,
+  only those. Measured: **1,687 output properties, 430 with a description**,
   having been 52, and having gone up by forty-eight when the input fields were
   described — a schema shared between a draft and the row it becomes carries its
   sentences both ways. `decimalSchema` and `timestampSchema` were bare `z.string()`,
@@ -586,7 +586,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (src/shared/domain.ts:2400-2410`) is a `const` array rather than a bare
+  (src/shared/domain.ts:2406-2416`) is a `const` array rather than a bare
   TypeScript union precisely so `toolErrorSchema` can publish it as an enum
   (src/server/mcp-output-schemas.ts:90-96`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it

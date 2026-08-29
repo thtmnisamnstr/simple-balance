@@ -291,8 +291,17 @@ categories spent between them. Nothing on a transaction ever names a group, so
 grouping changes no figure until you budget one, and deleting a group leaves
 every category exactly where it was.
 
-**What is not here yet.** There is no figure for what is left to assign, and no
-forecast. Those are the last two stories in [the roadmap](roadmap.md).
+**A budget that carries is an envelope, and the page says what is left to
+assign.** That figure is the money in the accounts the budget is about, less
+what every envelope with money still in it has already claimed. It sits below
+your bank balance on purpose, for two reasons: envelopes have claimed the rest,
+and an account can be left out of the budget entirely — untick "The budget is
+about the money in this account" when you add or edit one. Cards are counted by
+default, because spending on a card empties an envelope even though no cash has
+moved yet.
+
+**What is not here yet.** There is no forecast of what your balances will do
+next. That is the last story in [the roadmap](roadmap.md).
 
 ## How it looks
 

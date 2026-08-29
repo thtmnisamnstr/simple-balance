@@ -104,6 +104,10 @@ export function AccountForm({
   );
   const [institution, setInstitution] = useState(account?.institution ?? "");
   const [notes, setNotes] = useState(account?.notes ?? "");
+  // On by default, and on for a card. A card is inside the budget's perimeter
+  // because spending on one empties an envelope; leaving cards out would say
+  // there is more money to assign than there is.
+  const [inBudget, setInBudget] = useState(account?.inBudget ?? true);
 
   const changeAccountType = (nextType: UserAccountType) => {
     const wasLiability = liabilityAccountTypes.has(type);
@@ -146,6 +150,7 @@ export function AccountForm({
         openingBalance: signedOpening,
         institution: institution || null,
         notes: notes || null,
+        inBudget,
         ...(account ? { expectedVersion: account.version } : {}),
       };
       return account
@@ -249,6 +254,19 @@ export function AccountForm({
       <Field label="Notes" hint="Optional">
         <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
       </Field>
+      <label className="date-bar-check">
+        <input
+          type="checkbox"
+          checked={inBudget}
+          onChange={(event) => setInBudget(event.target.checked)}
+        />
+        The budget is about the money in this account
+      </label>
+      <p className="settings-note">
+        On for everything by default, cards included: spending on a card empties an envelope, so
+        leaving cards out would say there is more money to assign than there is. Turn it off for
+        something the budget should not see, such as a pension. It changes no balance and no report.
+      </p>
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel

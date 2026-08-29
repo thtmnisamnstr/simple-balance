@@ -657,6 +657,17 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   {ranked
                     ? ` ${formatMoney(period.income, period.currency)} came in, leaving ${formatMoney(period.unfunded ?? "0", period.currency)} of the budget unfunded.`
                     : ""}
+                  {period.toAssign === null ? null : (
+                    <>
+                      {" "}
+                      <strong>
+                        {formatMoney(period.toAssign, period.currency)} left to assign
+                      </strong>
+                      , out of {formatMoney(period.perimeter, period.currency)} in the accounts this
+                      budget is about. It sits below your bank balance because envelopes have
+                      already claimed the rest, and because accounts can be left out.
+                    </>
+                  )}
                 </span>
               </div>
               {period.groups.length > 0 ? (

@@ -58,7 +58,7 @@ bug.
 ### 2.1 Money is `numeric(44, 18)`
 
 **Binding.** `AGENTS.md`. Every amount column, without exception
-(src/server/db/schema.ts:277).
+(src/server/db/schema.ts:287).
 Drizzle returns `numeric` as a string, which is exactly what the rest of the
 codebase wants, so nothing casts.
 

@@ -18,9 +18,9 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 110 pass, 54 skip | **1,086 pass, 622 skip** |
-| `npm test`, database set | 164 pass | **1,708 pass** |
-| `npm run test:integration` | 55 pass | 623 pass |
+| `npm test`, no database | 110 pass, 54 skip | **1,086 pass, 625 skip** |
+| `npm test`, database set | 164 pass | **1,711 pass** |
+| `npm run test:integration` | 55 pass | 626 pass |
 
 The third row is one test larger than the second row's skip count, and the odd
 one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
@@ -304,9 +304,9 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:294` `` |
-| Bare filename | `` `forms.tsx:294` `` — resolved by basename |
-| Continuation | `` `:558` `` — inherits the last file the prose named |
+| Full path | `` src/client/forms.tsx:312` `` |
+| Bare filename | `` forms.tsx:312` `` — resolved by basename |
+| Continuation | `` `:576` `` — inherits the last file the prose named |
 
 The test knew only the first for a while, and that gap was expensive. Adopting
 the formatter moved every line in `src`; the relocation pass repaired the

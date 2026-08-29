@@ -136,6 +136,11 @@ export const accountResultSchema = z
     archivedAt: accountArchivedAtSchema,
     balance: decimalSchema,
     balancePresentation: balancePresentationSchema,
+    inBudget: z
+      .boolean()
+      .describe(
+        "Whether the money here is money the budget is about. On by default, including for credit cards, because spending on a card empties an envelope. It changes no balance and no report — only the budget report's figure for what is left to assign.",
+      ),
   })
   .passthrough();
 
@@ -937,6 +942,14 @@ export const budgetReportResultSchema = z.object({
       unfunded: nullableStringSchema.describe(
         "The part of the budgeted total this period's income does not cover, once the funding order has been applied. Null where no budget in this period names a priority.",
       ),
+      toAssign: nullableStringSchema.describe(
+        "Money inside the budget's perimeter that no envelope has claimed: what the perimeter holds, less every envelope with money left in it. Null where nothing in this period rolls over, because a budget that does not carry is a limit rather than a claim on cash. It sits below the bank balance on purpose — accounts can be taken out of the perimeter, and envelopes have claimed the rest.",
+      ),
+      perimeter: z
+        .string()
+        .describe(
+          "What the accounts the budget is about held at the end of this period, in this currency. Accounts with inBudget false are not in it.",
+        ),
       groups: z
         .array(
           z.object({

@@ -505,6 +505,7 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
       notes: row.notes,
       openingDate: row.opening_date,
       openingBalance: String(row.opening_balance),
+      inBudget: row.in_budget,
       archivedAt: timestamp(row.archived_at),
       version: row.version,
       createdAt: timestamp(row.created_at),

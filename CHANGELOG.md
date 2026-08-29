@@ -144,6 +144,13 @@ is named by the parameter it needs rather than by a method somebody picks, and
 naming two at once is refused. An amount set for a single period still beats all
 of them.
 
+**A budget that carries is an envelope, and the report says what is left to
+assign**: the money in the accounts the budget is about, less what every
+envelope with money still in it has claimed. An account can be taken out of that
+perimeter with `inBudget`, which changes no balance and no report; cards are in
+it by default, because spending on a card empties an envelope while no cash has
+moved. An overspent envelope claims nothing, since the money has already left.
+
 **Categories can be grouped, one level deep.** A group either holds a budget of
 its own or is whatever its categories' budgets add up to, and which of the two
 is declared when the group is made — there is no default, because both are

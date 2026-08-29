@@ -220,6 +220,20 @@ export type BudgetPeriodView = {
    * Null unless a funding order is in play, for the same reason `funded` is.
    */
   unfunded: string | null;
+  /**
+   * Money inside the budget's perimeter that no envelope has claimed.
+   *
+   * Null unless something in this period rolls over, because a budget that does
+   * not carry is a limit rather than a claim on cash, and a ledger with no
+   * envelopes has nothing to assign.
+   *
+   * It sits below the bank balance for two reasons and the page says both: an
+   * account can be taken out of the perimeter, and every envelope with money
+   * left in it has already claimed part of what is there.
+   */
+  toAssign: string | null;
+  /** What the accounts inside the perimeter held at the end of this period. */
+  perimeter: string;
 };
 
 export type BudgetReportView = {
@@ -1243,6 +1257,8 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
         available: ZERO,
         income: ZERO,
         unfunded: null,
+        toAssign: null,
+        perimeter: ZERO,
       };
       periods.set(key, period);
     }
@@ -1334,9 +1350,73 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
     }
   }
 
+  // What the accounts the budget is about held at the end of each period.
+  //
+  // Everything before the grid is folded into its first bucket, so a running
+  // total over the buckets is a real balance rather than a balance of the
+  // window. A correlated subquery per period would have been the obvious
+  // alternative and is the shape this repository prices out of its reports.
+  const perimeterRows = await getDb().execute(sql`
+    with grid as (${gridQuery(parsed.periodUnit, queryStart, asOf)}),
+    deltas as (
+      select
+        greatest(date_trunc(${unit}, p.date)::date, date_trunc(${unit}, ${queryStart}::date)::date)
+          as bucket,
+        p.currency as currency,
+        sum(p.amount) as delta
+      from posting p
+      join ledger_account a
+        on a.user_id = p.user_id
+        and a.id = p.account_id
+        and a.system_kind is null
+        and a.in_budget
+      where p.user_id = ${actor.userId}
+        and p.date <= ${countedTo}::date
+      group by 1, 2
+    ), currencies as (
+      select distinct currency from deltas
+    )
+    select
+      g.bucket_start::text as period_start,
+      c.currency as currency,
+      sum(coalesce(d.delta, 0)) over (
+        partition by c.currency order by g.bucket_start
+      )::text as balance
+    from grid g
+    cross join currencies c
+    left join deltas d on d.bucket = g.bucket_start and d.currency = c.currency
+  `);
+  // The grid is built again here rather than shared with the report query
+  // above: they are two statements, and a CTE cannot cross that boundary.
+  const perimeter = new Map<string, string>();
+  for (const row of perimeterRows.rows) {
+    perimeter.set(`${String(row.period_start)}:${String(row.currency)}`, String(row.balance));
+  }
+
   fillGroupRows(periods, groups, membership);
   foldRollover(periods, folded, carrying, parsed.periodUnit, income);
   allocateByPriority(periods);
+
+  // What is left to assign, which is the envelope question and the last figure
+  // that depends on all the others: what the perimeter holds, less what every
+  // envelope with money in it has already claimed.
+  //
+  // Only positive envelope balances claim anything. An envelope that is
+  // overspent has already taken its money out of the accounts — counting it
+  // again here would take it twice.
+  for (const period of periods.values()) {
+    period.perimeter = canonicalDecimal(
+      perimeter.get(`${period.periodStart}:${period.currency}`) ?? ZERO,
+    );
+    const envelopes = [...period.rows, ...period.groups].filter((row) => row.carriedIn !== null);
+    if (envelopes.length === 0) continue;
+    const claimed = envelopes.reduce(
+      (total, row) =>
+        decimal(row.remaining ?? ZERO).cmp(0) > 0 ? total.plus(row.remaining ?? ZERO) : total,
+      decimal(ZERO),
+    );
+    period.toAssign = canonicalDecimal(decimal(period.perimeter).minus(claimed));
+  }
 
   // Totalled after the fold, because the fold is what decides three of the four
   // figures. Summing while reading the rows would have had to be undone.

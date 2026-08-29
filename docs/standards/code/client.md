@@ -40,7 +40,7 @@ and shows the person the row they just changed, unchanged.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1598-1605` and `:1666`), and every one of them would be a
+(src/client/forms.tsx:1616-1623` and `:1684`), and every one of them would be a
 synchronisation bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been

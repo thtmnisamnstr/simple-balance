@@ -164,6 +164,8 @@ export type Account = {
   institution?: string | null;
   notes?: string | null;
   archivedAt?: string | null;
+  /** Whether the budget's "left to assign" figure counts this account. */
+  inBudget?: boolean;
   version: number;
   balance: string;
   balancePresentation: { label: string; amount: string };
@@ -644,6 +646,8 @@ export type BudgetReport = {
     available: string;
     income: string;
     unfunded: string | null;
+    toAssign: string | null;
+    perimeter: string;
     rows: BudgetReportRow[];
     groups: BudgetGroupRow[];
   }[];

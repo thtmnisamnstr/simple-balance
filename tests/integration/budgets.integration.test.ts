@@ -2190,4 +2190,147 @@ integration("budgets", () => {
       ).rejects.toThrow(/already exists/i);
     });
   });
+
+  /**
+   * Envelopes, which are SB-025's fold read differently plus one figure.
+   *
+   * "What is left to assign" is the whole of this story, and the perimeter is
+   * why it is not simply the bank balance: a card is inside the perimeter
+   * because spending on one empties an envelope, and an account somebody takes
+   * out of it is money the budget is not about.
+   */
+  describe("what is left to assign", () => {
+    it("is what the perimeter holds, less what the envelopes have claimed", async () => {
+      const spending = await createCategory(actor, { name: "Envelope food", kind: "expense" });
+      const account = await createAccount(actor, {
+        name: "Envelope current",
+        type: "checking",
+        // A currency of this test's own. Every figure here is about a whole
+        // ledger rather than one category, so sharing a currency with another
+        // test in this file would make it depend on what that test spent.
+        currency: "NOK",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      });
+      await createBudgetPlan(actor, {
+        categoryId: spending.id,
+        currency: "NOK",
+        periodUnit: "month",
+        amount: "300.00",
+        activeFrom: "2026-05-01",
+        rollover: true,
+      });
+      await createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          categoryId: spending.id,
+          amount: "120.00",
+          date: "2026-05-04",
+          payee: "Envelope shop",
+          description: null,
+        },
+        nextKey(),
+      );
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-05-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((entry) => entry.currency === "NOK")!;
+      // A thousand opened, a hundred and twenty spent.
+      expect(period.perimeter).toBe("880");
+      // The envelope holds 300 less the 120 spent, so 180 is claimed and the
+      // rest is unassigned.
+      expect(period.rows.find((row) => row.category === "Envelope food")!.remaining).toBe("180");
+      expect(period.toAssign).toBe("700");
+    });
+
+    it("leaves an account out of the perimeter when it is taken out", async () => {
+      const spending = await createCategory(actor, { name: "Perimeter food", kind: "expense" });
+      const inside = await createAccount(actor, {
+        name: "Perimeter current",
+        type: "checking",
+        currency: "CHF",
+        openingDate: "2026-01-01",
+        openingBalance: "500.00",
+        idempotencyKey: nextKey(),
+      });
+      await createAccount(actor, {
+        name: "Perimeter pension",
+        type: "investment",
+        currency: "CHF",
+        openingDate: "2026-01-01",
+        openingBalance: "90000.00",
+        inBudget: false,
+        idempotencyKey: nextKey(),
+      });
+      await createBudgetPlan(actor, {
+        categoryId: spending.id,
+        currency: "CHF",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-05-01",
+        rollover: true,
+      });
+      await createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          fromAccountId: inside.id,
+          categoryId: spending.id,
+          amount: "10.00",
+          date: "2026-05-06",
+          payee: "Perimeter shop",
+          description: null,
+        },
+        nextKey(),
+      );
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-05-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((entry) => entry.currency === "CHF")!;
+      // The pension is ninety thousand and none of it is the budget's business.
+      expect(period.perimeter).toBe("490");
+      expect(period.toAssign).toBe("400");
+    });
+
+    it("says nothing about assigning where nothing rolls over", async () => {
+      const spending = await createCategory(actor, { name: "Plain limit", kind: "expense" });
+      await createAccount(actor, {
+        name: "Plain current",
+        type: "checking",
+        currency: "SEK",
+        openingDate: "2026-01-01",
+        openingBalance: "700.00",
+        idempotencyKey: nextKey(),
+      });
+      await createBudgetPlan(actor, {
+        categoryId: spending.id,
+        currency: "SEK",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-05-01",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-05-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((entry) => entry.currency === "SEK")!;
+      // A budget that does not carry is a limit rather than a claim on cash, so
+      // a ledger without envelopes is told nothing rather than being told its
+      // whole balance is unassigned.
+      expect(period.toAssign).toBeNull();
+      // The perimeter is still reported, because it is a fact either way.
+      expect(period.perimeter).toBe("700");
+    });
+  });
 });

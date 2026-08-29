@@ -122,7 +122,7 @@ codebase writes. Neither number is zero and neither should be: a `!` after a
 lookup that a database constraint guarantees is honest, and the alternative is a
 branch that cannot be reached and cannot be tested.
 
-The single `as unknown as` is at `accounts.ts:512`, building the row an
+The single `as unknown as` is at accounts.ts:513`, building the row an
 archived account would have had so the caller sees the shape it expects; the
 alternative was making every field optional for one call site. It was three when
 this was written and two of the three went while the code was being brought to
@@ -178,7 +178,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(src/shared/domain.ts:1283`.)
+(src/shared/domain.ts:1289`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant

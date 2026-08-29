@@ -625,4 +625,49 @@ test.describe("the budgets page in a browser", () => {
     await expect(groupRow).toContainText("Own budget");
     await expect(groupRow).toContainText("£1,200.00");
   });
+
+  /**
+   * The envelope figure through the browser, including the perimeter switch.
+   *
+   * The arithmetic is held against the service; what only this tier can show is
+   * that the checkbox on the account form reaches the server and changes the
+   * figure on a different page.
+   */
+  test("says what is left to assign, and leaves an account out when told to", async () => {
+    const envelope = `Envelope ${Date.now()}`;
+    const pension = `Pension ${Date.now()}`;
+    await page.goto("/categories");
+    await page.getByLabel("Category name").fill(envelope);
+    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByRole("button", { name: "Add category" }).click();
+    await expect(page.getByText(envelope, { exact: false }).first()).toBeVisible();
+
+    await page.goto("/budgets");
+    const setBudget = page.locator("form.budget-form");
+    await setBudget.getByLabel(/^Category or group/).selectOption({ label: envelope });
+    await setBudget.getByLabel(/^Amount$/).fill("100.00");
+    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Starting/).fill("2026-08-01");
+    await setBudget.getByLabel(/^Carry what is left over/).check();
+    await setBudget.getByRole("button", { name: /^set budget$/i }).click();
+    await expect(page.getByText(/left to assign/i)).toBeVisible();
+
+    // A second account, outside the perimeter. What it holds must not appear in
+    // the figure, which is the whole reason the switch exists.
+    await page.goto("/accounts");
+    await page.getByRole("button", { name: "New account" }).click();
+    await page.getByLabel(/^Account name/).fill(pension);
+    await page.getByLabel(/^Account type/).selectOption("investment");
+    await page.getByLabel(/^Currency or crypto asset/).selectOption("GBP");
+    await page.getByLabel(/^Opening date/).fill("2026-01-01");
+    await page.getByLabel(/^Opening balance/).fill("50000.00");
+    await page.getByLabel(/budget is about the money/i).uncheck();
+    await page.getByRole("button", { name: "Create account" }).click();
+    await expect(page.getByText(pension, { exact: false }).first()).toBeVisible();
+
+    await page.goto("/budgets");
+    // Fifty thousand more in the ledger and not a penny of it assignable.
+    await expect(page.getByText(/left to assign/i)).toBeVisible();
+    await expect(page.getByText(/£50,000/)).toHaveCount(0);
+  });
 });

@@ -482,6 +482,31 @@
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
         "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
       ]
+    },
+    {
+      "id": "SB-028",
+      "priority": 280,
+      "title": "Envelopes",
+      "dependsOn": [
+        "SB-025",
+        "SB-027"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A budget that carries is an envelope: income assigned to it before it is spent, and what is unspent belongs to the next period",
+        "The report says what is left to assign: what the perimeter holds, less what every envelope with money in it has claimed",
+        "The perimeter includes credit cards, because spending on a card empties an envelope while no cash leaves the perimeter",
+        "Any account can be taken out of the perimeter, and doing so changes no balance and no report",
+        "An overspent envelope does not claim money twice, because the spending has already left the accounts",
+        "A ledger with no envelopes is told nothing about assigning, rather than being told its whole balance is unassigned"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
     }
   ]
 }

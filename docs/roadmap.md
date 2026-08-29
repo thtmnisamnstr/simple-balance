@@ -738,9 +738,10 @@ group's own budget with it. Both fall out of the foreign keys rather than out of
 a sweep somebody has to remember, which is what keeps them true of a delete that
 arrives from anywhere.
 
-## SB-028 — Envelopes
+## SB-028 — Envelopes — **done**
 
-**Priority 280. Depends on SB-025 and SB-027.**
+**Priority 280. Depends on SB-025 and SB-027. Built, unreleased, and carrying
+migration 0017.**
 
 Income assigned to categories before it is spent, and what is unspent rolls
 forward. It is SB-025's fold read differently, plus one figure: what is left to
@@ -752,6 +753,26 @@ would mean spending on a card empties an envelope while no cash leaves the
 perimeter, so the product would say there is more money than there is. Each
 account can be taken out of the perimeter, and the page explains why the figure
 sits below the bank balance.
+
+**How it was met**
+
+One column — `ledger_account.in_budget`, on by default and on for cards — and
+one figure. What is left to assign is what the perimeter held at the end of the
+period, less every envelope with money still in it. An overspent envelope claims
+nothing, because the money has already left the accounts and counting it again
+would take it twice.
+
+An envelope is a budget that carries, so this story added no new kind of budget:
+it is SB-025's fold read differently, exactly as the plan said. A budget that
+does not carry is a limit rather than a claim on cash, which is why a ledger
+with no envelopes is told nothing about assigning rather than being told its
+whole balance is unassigned.
+
+The perimeter balance is a running total over the same grid the rest of the
+report uses, with everything before the window folded into its first bucket, so
+it is a real balance rather than a balance of the window — and it is one pass
+rather than a correlated subquery per period, which is the shape this repository
+prices out of its reports.
 
 ## SB-029 — Forecast
 

@@ -983,6 +983,12 @@ export const accountCreateSchema = z.object({
     .describe(
       "Anything worth remembering about this account. A label for the person; nothing is derived from it.",
     ),
+  inBudget: z
+    .boolean()
+    .optional()
+    .describe(
+      "Whether the money in this account is money the budget is about. On by default, including for credit cards: spending on a card empties an envelope, so leaving cards out would say there is more money to assign than there is. Turn it off for an account the budget should not see, such as a mortgage or a pension. It changes no balance and no report — only the figure for what is left to assign.",
+    ),
 });
 
 export const accountUpdateSchema = accountCreateSchema

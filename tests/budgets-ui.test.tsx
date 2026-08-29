@@ -45,6 +45,8 @@ const report: BudgetReport = {
       income: "0",
       unfunded: null,
       groups: [],
+      toAssign: null,
+      perimeter: "0",
       rows: [
         {
           categoryId: groceries,
@@ -202,6 +204,8 @@ describe("the budgets page", () => {
           income: "0",
           unfunded: null,
           groups: [],
+          toAssign: null,
+          perimeter: "0",
           rows: [
             {
               categoryId: groceries,
