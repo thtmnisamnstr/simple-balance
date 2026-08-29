@@ -3,7 +3,7 @@
 `src/server/services` is where the rules live. Everything above it — the HTTP
 routes, the MCP tools, the scheduler — is transport.
 
-290 top-level declarations across 22 modules, 148 of them exported functions.
+310 top-level declarations across 24 modules, 155 of them exported functions.
 This guide is what they have in common.
 
 ## 1. Shape
@@ -11,32 +11,32 @@ This guide is what they have in common.
 ### 1.1 A service function takes an actor first
 
 **Binding.** Three shapes, and which one a function has says what it is. All
-three rows count the same 290 declarations — everything at the top level of the
+three rows count the same 310 declarations — everything at the top level of the
 directory, exported or not — because the second shape is mostly not exported and
 a table that counted only entry points would report the helpers as a handful:
 
 | First parameter | What it is | Count |
 | --- | --- | --- |
-| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 84 |
-| `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 60 |
-| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 146 |
+| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 91 |
+| `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 61 |
+| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 158 |
 
 The three add up because they are one population read one way. Splitting them
-by export tells you something the totals hide: 76 of the 84 are exported and 29
-of the 60 are, which is the shape working. An entry point is reachable and a
+by export tells you something the totals hide: 82 of the 91 are exported and 30
+of the 61 are, which is the shape working. An entry point is reachable and a
 helper mostly is not.
 
-The third row is the one to read carefully, because *mostly* is doing work: 131
-of the 146 touch no database at all, and the other 15 do. Most of those are the
+The third row is the one to read carefully, because *mostly* is doing work: 137
+of the 158 touch no database at all, and the other 21 do. Most of those are the
 second row under another name:
 `selectBulkFilterRows(executor: Database | DbTransaction, …)` and
 `legsByTransaction(db, …)` are helpers whose first parameter is spelled to admit
 the pool as well. The rest are entry points with no actor to take, either
 because no request made them run (`runDueNotifications`, `runDueRecurrences`) or
-because of the exception below. None of the 15 is a fourth shape, and a
+because of the exception below. None of the 21 is a fourth shape, and a
 genuinely new one belongs in the table rather than in this paragraph.
 
-There are 178 `userId, actor.userId` comparisons in this directory, which is
+There are 193 `userId, actor.userId` comparisons in this directory, which is
 roughly one per query, and that is the right ratio.
 
 `AGENTS.md` is the authority: "Never accept a public `userId`. Derive it from
@@ -108,11 +108,11 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
 
 `withTransaction` joins the caller's transaction when it is given one and opens
 its own when it is not
-(src/server/db/client.ts:109). 38 declarations here take that parameter. 37 of
-them are mutations, and every one of those 37 goes through the helper, which is
+(src/server/db/client.ts:109). 41 declarations here take that parameter. 40 of
+them are mutations, and every one of those 40 goes through the helper, which is
 the claim worth making and not the same one as the count of the parameter.
 
-The thirty-eighth is `listConnectedApps`
+The odd one out is `listConnectedApps`
 (src/server/services/connected-apps.ts:40),
 which runs two selects and joins with `transaction ?? getDb()`. Wrapping a read
 in a transaction of its own would buy nothing, so the helper is asked of
@@ -277,9 +277,9 @@ nothing tells you.
 ### 3.2 Awaiting in a loop is sometimes the point
 
 **Contested**, and this is the entry that made the whole `perf` lint category
-not worth having. `no-await-in-loop` finds 51 sites in this directory and 157
+not worth having. `no-await-in-loop` finds 51 sites in this directory and 163
 across the whole repository; the count quoted in `index.md`, where the category
-was declined, is the repository-wide one. The 106 sites outside this directory
+was declined, is the repository-wide one. The 112 sites outside this directory
 are almost all tests, most of them integration tests awaiting one request at a
 time, which is a different thing from a service resolving names in order. Some
 of the 51 here are opportunities. At least one is load-bearing:

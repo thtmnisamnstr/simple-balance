@@ -64,7 +64,7 @@ the setting on this list most worth having, because indexing into an array or a
 record is exactly where an `undefined` arrives unannounced.
 
 It is not, as this section used to claim, where the non-null assertions counted
-in 2.2 came from. Twenty of those 144 sit on an index or a lookup, and most of
+in 2.2 came from. Twenty of those 146 sit on an index or a lookup, and most of
 the twenty are `.at(-1)`, a `Map.get` or a regular expression group, all of
 which hand back `undefined` with the flag off. So it is the flag that would add
 to that count rather than the flag that explains it, which is what 2.2 says from
@@ -114,7 +114,7 @@ that never had anything to find.
 
 ### 2.2 Assertions are rare and each has a reason
 
-**House.** One `as unknown as` in the whole of `src`, and **144 non-null
+**House.** One `as unknown as` in the whole of `src`, and **146 non-null
 assertions across 33 files**, counted with
 `npx oxlint -D typescript/no-non-null-assertion src` for the reason 2.1 gives:
 a `!` is punctuation, and a grep meets it in `!==` and in every negation this
@@ -128,7 +128,7 @@ alternative was making every field optional for one call site. It was three when
 this was written and two of the three went while the code was being brought to
 this guide, which is the number moving the right way.
 
-144 is higher than it looks like it should be, and 1.4 is why it is not higher
+146 is higher than it looks like it should be, and 1.4 is why it is not higher
 still: without `noUncheckedIndexedAccess`, indexing an array gives a
 non-optional type, so all but twenty of these were written for some reason other
 than an index. Adopting that flag would raise this number a great deal before
