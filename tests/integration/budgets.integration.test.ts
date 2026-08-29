@@ -1625,6 +1625,39 @@ integration("budgets", () => {
       expect(rows[4]!.limit).toBe("0");
     });
 
+    it("stops asking once its date has gone", async () => {
+      const category = await createCategory(actor, { name: "Spent fund", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        rollover: true,
+        targetAmount: "200.00",
+        targetDate: "2026-02-20",
+      });
+      // Saved in January and February, then spent on the thing it was for.
+      await spend(category.id, "200.00", "2026-03-04", "Spent fund purchase");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Spent fund")!);
+      expect(rows[0]!.limit).toBe("100");
+      expect(rows[1]!.limit).toBe("100");
+      // March spends it. April and May ask for nothing: the date has gone, and
+      // another one is another budget. Without this the fund asked for its
+      // whole target again every period for ever.
+      expect(rows[2]!.limit).toBe("0");
+      expect(rows[3]!.limit).toBe("0");
+      expect(rows[4]!.limit).toBe("0");
+    });
+
     it("asks for the whole shortfall in the period it is needed", async () => {
       const category = await createCategory(actor, { name: "Boiler", kind: "expense" });
       await createBudgetPlan(actor, {
@@ -1870,6 +1903,43 @@ integration("budgets", () => {
       // than from what the rule would have produced.
       expect(rows[1]).toMatchObject({ limit: "5", source: "entry" });
       expect(rows[2]!.limit).toBe("7.5");
+    });
+
+    it("lets an incremental budget taper, and refuses one that goes below nothing", async () => {
+      const category = await createCategory(actor, { name: "Tapering", kind: "expense" });
+      const plan = await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+        percentOfPrevious: "-10",
+      });
+      expect(plan).toMatchObject({ amountRule: "incremental", percentOfPrevious: "-10" });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Tapering")!);
+      // Winding spending down is a budget somebody really sets, and it
+      // compounds the same way a step up does.
+      expect(rows[0]!.limit).toBe("90");
+      expect(rows[1]!.limit).toBe("81");
+
+      await expect(
+        createBudgetPlan(actor, {
+          categoryId: category.id,
+          currency: "EUR",
+          periodUnit: "month",
+          amount: "100.00",
+          activeFrom: "2026-01-01",
+          percentOfPrevious: "-150",
+        }),
+      ).rejects.toThrow(/less than nothing/i);
     });
 
     it("refuses a budget that names two ways of working out its amount", async () => {
@@ -2120,6 +2190,44 @@ integration("budgets", () => {
         source: "sum",
         policy: "sum_of_children",
       });
+    });
+
+    it("counts a group's unbudgeted categories even when the report leaves them out", async () => {
+      const group = await createCategoryGroup(actor, {
+        name: "Half budgeted",
+        policy: "standalone",
+      });
+      const budgeted = await createCategory(actor, { name: "Half budgeted rent", kind: "expense" });
+      const loose = await createCategory(actor, { name: "Half budgeted extras", kind: "expense" });
+      for (const category of [budgeted, loose]) {
+        await updateCategory(actor, category.id, {
+          expectedVersion: category.version,
+          groupId: group.id,
+        });
+      }
+      await createBudgetPlan(actor, {
+        categoryId: budgeted.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "500.00",
+        activeFrom: "2026-04-01",
+      });
+      await spend(budgeted.id, "480.00", "2026-04-11", "Half rent");
+      await spend(loose.id, "35.00", "2026-04-12", "Half extras");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+        includeUnbudgeted: false,
+      });
+      const period = report.periods.find((p) => p.currency === "USD")!;
+      // The unbudgeted category is not in the rows, because the caller asked
+      // for only what is budgeted — and the group still counts what it spent,
+      // because a group's spending is its categories' whether or not somebody
+      // budgeted each one.
+      expect(period.rows.some((row) => row.category === "Half budgeted extras")).toBe(false);
+      expect(period.groups.find((row) => row.groupId === group.id)!.actual).toBe("515");
     });
 
     it("refuses a budget on a group that is already its categories added up", async () => {

@@ -1607,6 +1607,19 @@ const incomeShareIsAShareMessage = {
   path: ["percentOfIncome"],
 };
 
+/**
+ * A taper is a real budget and is allowed; a period budgeting less than nothing
+ * is not. Refused here rather than by the check constraint, which would arrive
+ * as a 500 with a stack trace for what is only ever a mistyped percentage.
+ */
+const stepIsNotBelowNothing = (value: BudgetRuleFields) =>
+  value.percentOfPrevious == null || Number(value.percentOfPrevious) >= -100;
+const stepIsNotBelowNothingMessage = {
+  message:
+    "A step down of more than a hundred per cent would budget less than nothing. Use -100 to taper to zero.",
+  path: ["percentOfPrevious"],
+};
+
 export const budgetPlanCreateSchema = z
   .object({
     ...budgetTarget,
@@ -1633,6 +1646,7 @@ export const budgetPlanCreateSchema = z
   .refine(oneRuleAtMost, oneRuleAtMostMessage)
   .refine(percentagesAreNumbers, percentagesAreNumbersMessage)
   .refine(incomeShareIsAShare, incomeShareIsAShareMessage)
+  .refine(stepIsNotBelowNothing, stepIsNotBelowNothingMessage)
   .refine(oneTarget, oneTargetMessage);
 
 export const budgetPlanUpdateSchema = z
@@ -1663,7 +1677,8 @@ export const budgetPlanUpdateSchema = z
   .refine(capIsNotNegative, capIsNotNegativeMessage)
   .refine(oneRuleAtMost, oneRuleAtMostMessage)
   .refine(percentagesAreNumbers, percentagesAreNumbersMessage)
-  .refine(incomeShareIsAShare, incomeShareIsAShareMessage);
+  .refine(incomeShareIsAShare, incomeShareIsAShareMessage)
+  .refine(stepIsNotBelowNothing, stepIsNotBelowNothingMessage);
 
 /** One period's amount, overriding whatever a plan would have said. */
 export const budgetEntrySetSchema = z

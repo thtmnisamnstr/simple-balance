@@ -1194,8 +1194,12 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
         on cg.user_id = ${actor.userId}
         and cg.id = b.group_id
       ${
-        parsed.includeUnbudgeted
-          ? sql`
+        // Always read, and dropped after the groups have counted them when the
+        // caller did not ask for them. A group's spending is its categories'
+        // spending whether or not each category has a budget, so dropping these
+        // rows in SQL made a group of half-budgeted categories report less than
+        // it spent.
+        sql`
       union all
       select
         g.bucket_start::text as period_start,
@@ -1222,7 +1226,6 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
             and b2.group_id is null
             and b2.category_id is not distinct from s.category_id
         )`
-          : sql.empty()
       }
     ) rows
     -- Ordered out here rather than inside, because PostgreSQL will only sort a
@@ -1394,7 +1397,15 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
   }
 
   fillGroupRows(periods, groups, membership);
+  if (!parsed.includeUnbudgeted) {
+    // After the groups have counted them, because a group's spending is its
+    // categories' whether or not somebody budgeted each one.
+    for (const period of periods.values()) {
+      period.rows = period.rows.filter((row) => row.limit !== null);
+    }
+  }
   foldRollover(periods, folded, carrying, parsed.periodUnit, income);
+  sumChildBudgets(periods, groups, membership);
   allocateByPriority(periods);
 
   // What is left to assign, which is the envelope question and the last figure
@@ -1408,13 +1419,26 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
     period.perimeter = canonicalDecimal(
       perimeter.get(`${period.periodStart}:${period.currency}`) ?? ZERO,
     );
-    const envelopes = [...period.rows, ...period.groups].filter((row) => row.carriedIn !== null);
-    if (envelopes.length === 0) continue;
-    const claimed = envelopes.reduce(
-      (total, row) =>
-        decimal(row.remaining ?? ZERO).cmp(0) > 0 ? total.plus(row.remaining ?? ZERO) : total,
-      decimal(ZERO),
-    );
+    const envelopes = period.rows.filter((row) => row.carriedIn !== null);
+    const groupEnvelopes = period.groups.filter((row) => row.carriedIn !== null);
+    if (envelopes.length === 0 && groupEnvelopes.length === 0) continue;
+    const positive = (row: { remaining: string | null }) =>
+      decimal(row.remaining ?? ZERO).cmp(0) > 0 ? decimal(row.remaining ?? ZERO) : decimal(ZERO);
+    let claimed = envelopes.reduce((total, row) => total.plus(positive(row)), decimal(ZERO));
+    // A group's envelope claims only what its categories have not claimed
+    // already. Adding both would count the same money twice: a group budget and
+    // the budgets of the categories under it are two plans over one set of
+    // spending, and somebody who runs both is not saying they have twice the
+    // money. The same "uncovered" reading the forecast uses for budgets a
+    // recurrence already pays.
+    for (const group of groupEnvelopes) {
+      const members = period.rows.filter(
+        (row) => row.categoryId !== null && membership.get(row.categoryId) === group.groupId,
+      );
+      const byMembers = members.reduce((total, row) => total.plus(positive(row)), decimal(ZERO));
+      const extra = positive(group).minus(byMembers);
+      if (extra.cmp(0) > 0) claimed = claimed.plus(extra);
+    }
     period.toAssign = canonicalDecimal(decimal(period.perimeter).minus(claimed));
   }
 
@@ -1442,7 +1466,11 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
     // out what they handed forward and are not part of the answer.
     periods: [...periods.values()].filter((period) => period.periodStart >= firstReported),
     otherPeriodUnits: await otherUnits(actor, parsed.periodUnit),
-    rollover: carrying.length === 0 ? null : { from: queryStart, clipped },
+    // Null unless something in this report really carries. `carrying` also
+    // holds the plans that only work out an amount or name a funding order, and
+    // reporting a fold to a ledger with no envelopes in it would be answering a
+    // question nobody asked.
+    rollover: carrying.some((plan) => plan.rollover) ? { from: queryStart, clipped } : null,
   };
 }
 
@@ -1487,11 +1515,6 @@ function fillGroupRows(
       // would fill a page with groups somebody made for next year.
       if (members.length === 0 && !existing) continue;
       const actual = members.reduce((sum, row) => sum.plus(row.actual), decimal(ZERO));
-      const budgetedMembers = members.filter((row) => row.limit !== null);
-      const summed = budgetedMembers.reduce(
-        (sum, row) => sum.plus(row.limit ?? ZERO),
-        decimal(ZERO),
-      );
       if (existing) {
         existing.policy = group.policy;
         existing.actual = canonicalDecimal(actual);
@@ -1499,26 +1522,75 @@ function fillGroupRows(
           existing.limit === null ? null : canonicalDecimal(decimal(existing.limit).minus(actual));
         continue;
       }
-      const limit =
-        group.policy === "sum_of_children" && budgetedMembers.length > 0
-          ? canonicalDecimal(summed)
-          : null;
+      // A row with no limit yet. `sumChildBudgets` fills one in below for a
+      // group that is its categories added up, once the fold has decided what
+      // those categories are allowed.
       period.groups.push({
         groupId: group.id,
         name: group.name,
         policy: group.policy,
-        limit,
+        limit: null,
         actual: canonicalDecimal(actual),
-        remaining: limit === null ? null : canonicalDecimal(decimal(limit).minus(actual)),
-        source: limit === null ? "none" : "sum",
+        remaining: null,
+        source: "none",
         carriedIn: null,
-        available: limit,
+        available: null,
         carriedOut: null,
         priority: 0,
         funded: null,
       });
     }
     period.groups.sort((left, right) => left.name.localeCompare(right.name));
+  }
+}
+
+/**
+ * What a group that is its categories added up is allowed, after the fold.
+ *
+ * After, and that is the whole reason this is a second pass. A member's limit
+ * is not final until the fold has run: a trailing average, an incremental step
+ * and a sinking fund's contribution are all worked out there, and summing
+ * before it would add up the plans' stored amounts — which for three of the
+ * five rules is zero. The group would have read as budgeting nothing while
+ * every category under it budgeted something.
+ *
+ * A `standalone` group is left alone: its limit came from its own plan and the
+ * fold may have changed it, which is what a group budget that rolls over means.
+ */
+function sumChildBudgets(
+  periods: Map<string, BudgetPeriodView>,
+  groups: readonly { id: string; policy: BudgetGroupPolicy }[],
+  membership: ReadonlyMap<string, string>,
+) {
+  const summing = groups.filter((group) => group.policy === "sum_of_children");
+  if (summing.length === 0) return;
+  for (const period of periods.values()) {
+    for (const group of summing) {
+      const row = period.groups.find((candidate) => candidate.groupId === group.id);
+      if (!row) continue;
+      const budgeted = period.rows.filter(
+        (member) =>
+          member.categoryId !== null &&
+          membership.get(member.categoryId) === group.id &&
+          member.limit !== null,
+      );
+      if (budgeted.length === 0) continue;
+      const limit = canonicalDecimal(
+        budgeted.reduce((sum, member) => sum.plus(member.limit ?? ZERO), decimal(ZERO)),
+      );
+      // The available money adds up too, so a group of envelopes reports what
+      // its envelopes hold rather than what they were allowed this period.
+      const available = canonicalDecimal(
+        budgeted.reduce(
+          (sum, member) => sum.plus(member.available ?? member.limit ?? ZERO),
+          decimal(ZERO),
+        ),
+      );
+      row.limit = limit;
+      row.available = available;
+      row.remaining = canonicalDecimal(decimal(available).minus(row.actual));
+      row.source = "sum";
+    }
   }
 }
 
@@ -1653,6 +1725,10 @@ function foldRollover(
         carry = decimal(ZERO);
         history.length = 0;
         previousLimit = null;
+        // Everything the derived rules read resets together. Leaving the income
+        // behind would let a budget that starts in September take a share of
+        // the last month the *previous* budget saw.
+        previousIncome = null;
         continue;
       }
       const period = periods.get(`${periodStart}:${currency}`);
@@ -1831,10 +1907,17 @@ function sinkingFundAmount(
   carry: ReturnType<typeof decimal>,
 ) {
   if (plan.targetAmount === null || plan.targetDate === null) return ZERO;
+  const periodsLeft = periodsBetween(unit, periodStart, plan.targetDate) + 1;
+  // Past its date, a fund asks for nothing at all. The money is either still
+  // there or it was spent on the thing it was for; either way the date has gone
+  // and another one is another budget. Without this a fund that was spent asked
+  // for its whole target again, every period, for ever.
+  if (periodsLeft <= 0) return ZERO;
   const needed = decimal(plan.targetAmount).minus(carry);
   if (needed.cmp(0) <= 0) return ZERO;
-  const periodsLeft = periodsBetween(unit, periodStart, plan.targetDate) + 1;
-  if (periodsLeft <= 1) return canonicalDecimal(needed);
+  // The period it is needed in asks for whatever is still short rather than a
+  // share of it.
+  if (periodsLeft === 1) return canonicalDecimal(needed);
   return canonicalDecimal(needed.div(periodsLeft));
 }
 

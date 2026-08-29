@@ -389,10 +389,10 @@ add it.
   [`common.md`](common.md#naming).
 - **House, and a live gap.** Unknown query parameters and unknown body fields
   are an error. Newer schemas are `.strict()`; the older core ones are not.
-  `listQuerySchema` (src/shared/domain.ts:1823-1892`) accepts anything, so
+  `listQuerySchema` (src/shared/domain.ts:1838-1907`) accepts anything, so
   `?sortt=date` returns page one in the default order with a 200, which is the
   wrong answer delivered confidently. The bulk filter schema derived from it
-  **is** strict (src/shared/domain.ts:1897-1899`), so the two disagree about
+  **is** strict (src/shared/domain.ts:1912-1914`), so the two disagree about
   the same parameter set. Make `listQuerySchema` strict. The two staged
   selection schemas were the same disagreement between callers rather than
   between schemas, and are strict now; see [the bulk selection
@@ -439,7 +439,7 @@ only for template mass edits.
   and reading it as "clear this" turns a mis-click into a data loss.
 
 The budgeting schemas already follow it: `activeTo` present and null ends a
-plan, absent leaves it alone (src/shared/domain.ts:1641-1669`). So does the
+plan, absent leaves it alone (src/shared/domain.ts:1655-1684`). So does the
 template mass edit, whose schema comment says why blank and absent have to stay
 different: "blank and absent being different is the whole of what a stored draft
 records" (`src/shared/domain.ts:807-814`).
@@ -447,9 +447,9 @@ records" (`src/shared/domain.ts:807-814`).
 **Where the code disagrees.** Three patch schemas answer this question and two
 of them read `""` as a clear rather than refusing it. The transaction bulk patch
 carries `.transform((value) => (value === "" ? null : value))` on `description`
-and `notes` (src/shared/domain.ts:2055-2066`), pinned by
+and `notes` (src/shared/domain.ts:2070-2081`), pinned by
 `tests/domain.test.ts:142-149`, and the staged bulk patch carries the identical
-transform on the same two fields (src/shared/domain.ts:2012-2023`). The
+transform on the same two fields (src/shared/domain.ts:2027-2038`). The
 template mass edit (`:814-830`) is the only one of the three that refuses the
 empty string. So fixing only the transaction path leaves the same defect on the
 staged one. There is an argument for the
@@ -474,10 +474,10 @@ or that the two patch schemas agree with each other.
 - **House.** A single resource is returned as the object itself, with no
   envelope. A collection is returned as one of two envelopes and no third.
 - **House.** Two list envelopes:
-  - `Page<T>`: `{items, nextCursor}` (src/shared/domain.ts:2502-2506`), where
+  - `Page<T>`: `{items, nextCursor}` (src/shared/domain.ts:2517-2521`), where
     callers only stream forward.
   - `PaginatedPage<T>`: `Page<T>` plus `{page, pageSize, totalCount,
-    totalPages}` (src/shared/domain.ts:2508-2513`).
+    totalPages}` (src/shared/domain.ts:2523-2528`).
 - **House.** `201 Created` on a create that mints a row, `200 OK` on everything
   else that succeeds. No route returns `204`; every response has a body,
   because an MCP tool result cannot be empty and the two transports return the
@@ -635,7 +635,7 @@ and for the code each of those refusals names being a member of `apiErrorCodes`.
 ### Rules that hold either way
 
 - **House.** The published enumeration is frozen contract, and it is complete.
-  `apiErrorCodes` (src/shared/domain.ts:2457-2492`) is the sum of two lists
+  `apiErrorCodes` (src/shared/domain.ts:2472-2507`) is the sum of two lists
   held apart on purpose: `serviceErrorCodes`, the nine an `AppError` can carry,
   and `transportErrorCodes`, the five the middleware refuses with before a route
   runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:171`, `:235`),
@@ -819,13 +819,13 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   list query, the bulk filter selection and the MCP tool, and adding one changes
   what a fingerprint covers.
 - **House.** Sorting is `sort` plus `direction`, with `direction` one of `asc`
-  or `desc` (src/shared/domain.ts:1826-1837`). If multi-key sorting ever
+  or `desc` (src/shared/domain.ts:1841-1852`). If multi-key sorting ever
   arrives it becomes `sort=-date,payee`, following JSON:API and Zalando rule
   137, rather than a second parameter, because a second parameter cannot express
   precedence.
 - **Binding.** Order is presentation and never scopes a write. `sort`,
   `direction`, `cursor`, `page` and `limit` are omitted from every bulk filter
-  schema (src/shared/domain.ts:1897-1899`), so two requests selecting the same
+  schema (src/shared/domain.ts:1912-1914`), so two requests selecting the same
   rows in different orders are the same selection.
 
 *Checked by:* the bulk filter schemas being `.strict()` in `src/shared/domain.ts`,
@@ -872,7 +872,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
 - **House, one named exception.** `PUT /api/v1/budget-entries` is an upsert and
   its `expectedVersion` is optional: absent on the first set for a period,
   required to change one that is already there
-  (src/shared/domain.ts:1672-1681`).
+  (src/shared/domain.ts:1687-1696`).
 - **Binding.** `AGENTS.md`: "Any write that changes a leg must bump the parent
   transaction's `version` in the same transaction." A version that does not move when a leg moves would
   let a bulk selection fingerprint describe a row that has changed underneath
@@ -935,8 +935,8 @@ so a second submit fails rather than duplicating."
   rows. Today `POST /transactions` and `POST /staged-transactions` take a key
   (src/shared/domain.ts:1100-1104` and `:1144-1149`) and `POST /accounts`,
   `POST /categories`, `POST /recurrences`, `POST /transaction-templates` and
-  `POST /categories/merge` do not (`src/shared/domain.ts:958`, `:998`, `:3000`,
-  `:3035`, `:1021`). The MCP tools for the same operations all require one.
+  `POST /categories/merge` do not (`src/shared/domain.ts:958`, `:998`, `:3015`,
+  `:3050`, `:1021`). The MCP tools for the same operations all require one.
   The four creates are protected by a unique name, which is the `AGENTS.md`
   carve-out. `POST /categories/merge` is protected by nothing, and the sister
   route `POST /payees/merge` does take a key
@@ -972,7 +972,7 @@ edit, a mass delete, a commit, and a CSV import."
 
 - **House, scoped to what the invariant above covers: transaction and staged
   mass edits.** Two selection shapes and no third for those
-  (src/shared/domain.ts:1983-1986`):
+  (src/shared/domain.ts:1998-2001`):
   - `{"mode": "ids", "items": [{"id", "expectedVersion"}]}` for rows the caller
     can see.
   - `{"mode": "filter", "filter", "excludedIds", "expectedCount",

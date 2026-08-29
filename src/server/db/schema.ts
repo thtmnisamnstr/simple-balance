@@ -1290,9 +1290,15 @@ export const budgetPlans = pgTable(
       "budget_plan_lookback_range_check",
       sql`${table.ruleLookback} is null or (${table.ruleLookback} >= 1 and ${table.ruleLookback} <= 24)`,
     ),
+    // A taper is a real budget — "ten per cent less each month" is how somebody
+    // winds spending down — so an incremental plan may carry a negative
+    // percentage, floored at -100 because a period cannot budget less than
+    // nothing. A share of income may not: a negative share is not a share.
     check(
       "budget_plan_percent_range_check",
-      sql`${table.rulePercent} is null or (${table.rulePercent} >= 0 and ${table.rulePercent} <= 1000)`,
+      sql`${table.rulePercent} is null
+        or (${table.amountRule}::text = 'incremental' and ${table.rulePercent} >= -100 and ${table.rulePercent} <= 1000)
+        or (${table.amountRule}::text = 'percent_of_income' and ${table.rulePercent} >= 0 and ${table.rulePercent} <= 1000)`,
     ),
   ],
 );

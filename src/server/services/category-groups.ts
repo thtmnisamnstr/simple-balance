@@ -3,8 +3,8 @@ import type { Actor, BudgetGroupPolicy } from "../../shared/domain.js";
 import { categoryGroupCreateSchema, categoryGroupUpdateSchema } from "../../shared/domain.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
-import { categories, categoryGroups, type CategoryGroupRow } from "../db/schema.js";
-import { duplicate, notFound, staleVersion, validationError } from "./errors.js";
+import { budgetPlans, categories, categoryGroups, type CategoryGroupRow } from "../db/schema.js";
+import { conflict, duplicate, notFound, staleVersion, validationError } from "./errors.js";
 import { lockCategoryNamespace, writeAudit } from "./helpers.js";
 
 /**
@@ -136,6 +136,22 @@ export async function updateCategoryGroup(
     if (before.version !== parsed.expectedVersion) {
       throw staleVersion({ currentVersion: before.version });
     }
+    // A group that holds a budget of its own cannot become one that is its
+    // categories added up: the budget would stop being read and nothing on the
+    // page would say why. Refused with the way out rather than silently.
+    if (parsed.policy === "sum_of_children" && before.policy === "standalone") {
+      const [held] = await tx
+        .select({ id: budgetPlans.id })
+        .from(budgetPlans)
+        .where(and(eq(budgetPlans.userId, actor.userId), eq(budgetPlans.groupId, id)))
+        .limit(1);
+      if (held) {
+        throw conflict(
+          `${before.name} has a budget of its own, and a group budgeted as its categories added up cannot hold one. Delete that budget first, or leave the group as it is.`,
+          { budgetPlanId: held.id },
+        );
+      }
+    }
     const name = parsed.name === undefined ? before.name : parsed.name.trim();
     const normalizedName = normalizeHumanName(name);
     if (normalizedName === "") throw validationError("A group needs a name.");
@@ -182,7 +198,18 @@ export async function updateCategoryGroup(
       before,
       after: updated,
     });
-    return getCategoryGroup(actor, id);
+    // Counted on this transaction rather than by calling `getCategoryGroup`,
+    // which reads through `getDb()`. That would be two defects in one line: the
+    // read happens outside this transaction and so returns the row as it was,
+    // version and all, and on a one-connection pool it would be waiting for the
+    // connection this transaction is holding.
+    const [counted] = await tx
+      .select({
+        count: sql<number>`count(*)::int`,
+      })
+      .from(categories)
+      .where(and(eq(categories.userId, actor.userId), eq(categories.groupId, id)));
+    return groupView(updated, counted?.count ?? 0);
   });
 }
 
