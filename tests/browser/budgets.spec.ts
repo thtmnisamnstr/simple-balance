@@ -701,15 +701,50 @@ test.describe("the budgets page in a browser", () => {
    * day, and the guide even said the browser could.
    */
   test("hides unbudgeted categories when asked, and renames a group", async () => {
+    // A category with spending and no budget, which is the only kind of row the
+    // box is about: a category with neither is in nobody's report to begin
+    // with, so a run without one checks the box against nothing.
+    const unnamed = `Unbudgeted ${Date.now()}`;
+    await page.goto("/categories");
+    await page.getByLabel("Category name").fill(unnamed);
+    await page.getByLabel("Category applies to").selectOption("expense");
+    await page.getByRole("button", { name: "Add category" }).click();
+    await expect(page.getByText(unnamed, { exact: false }).first()).toBeVisible();
+
+    await page.goto("/transactions");
+    await page.getByRole("button", { name: "Add transaction" }).first().click();
+    const spend = page.getByRole("dialog");
+    await spend.getByRole("radio", { name: /withdrawal/i }).check();
+    await spend
+      .getByRole("combobox", { name: "Account", exact: true })
+      .selectOption({ label: `${account} · GBP` });
+    await spend
+      .getByRole("textbox", { name: /^Amount/ })
+      .first()
+      .fill("7.00");
+    await spend.getByRole("textbox", { name: /^Date/ }).fill("2026-08-07");
+    await spend.getByRole("combobox", { name: "Payee" }).fill("Nowhere in particular");
+    await spend.getByPlaceholder(/type to search or add/i).fill(unnamed);
+    await spend.getByRole("button", { name: /^Commit transaction$/ }).click();
+
     await page.goto("/budgets");
     const report = page.getByRole("table", { name: /Budget against spending/ }).first();
     await expect(report).toBeVisible();
+    const withoutBudget = report.getByRole("row", { name: new RegExp(unnamed) });
+    const withBudget = report.getByRole("row", { name: new RegExp(groceries) });
+    await expect(withoutBudget).toHaveCount(1);
     const unbudgeted = page.getByLabel(/Show categories with no budget/);
     await expect(unbudgeted).toBeChecked();
     await unbudgeted.uncheck();
-    // Every row left has a budget, which is what the box says it does.
-    await expect(page.getByRole("cell", { name: "—" }).first()).toHaveCount(0);
+    // The budgeted row first, and then the unbudgeted one gone. Asserting only
+    // the absence would pass against the table mid-re-read, when every row is
+    // absent — which is how the em-dash assertion this replaces came to pass on
+    // one machine and fail on a slower one. The two together can only hold of a
+    // table that has the new answer in it.
+    await expect(withBudget).toHaveCount(1);
+    await expect(withoutBudget).toHaveCount(0);
     await unbudgeted.check();
+    await expect(withoutBudget).toHaveCount(1);
 
     const renamed = `Renamed ${Date.now()}`;
     await page.goto("/categories");
