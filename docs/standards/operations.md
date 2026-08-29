@@ -716,7 +716,7 @@ All four images set `title`, `description`, `version`, `licenses`, `source`,
 `deploy/docker/server.Dockerfile:45-53`,
 `deploy/docker/scheduler.Dockerfile:45-53`,
 `deploy/docker/frontend.Dockerfile:31-39`). `AGPL-3.0-only` is a valid SPDX
-expression, and `.github/workflows/release.yml:210-218` restates it rather than
+expression, and `.github/workflows/release.yml:244-252` restates it rather than
 letting `metadata-action` derive the deprecated `AGPL-3.0` from GitHub's
 detection, with the reason in a comment: v0.1.0 shipped carrying the derived one.
 
@@ -731,7 +731,7 @@ Those two have none, and a Dockerfile cannot emit a label conditionally, so a
 defaulted `ARG` would give every hand-built image
 `org.opencontainers.image.revision=""`, which reads to a consumer as known and
 empty rather than as absent. They belong to the builder that knows them, which is
-`.github/workflows/release.yml:203-220`, where `docker/metadata-action` supplies
+`.github/workflows/release.yml:237-252`, where `docker/metadata-action` supplies
 both on a published image.
 
 **Settled, and it took the decision it was waiting on.** `base.digest` was
@@ -1043,6 +1043,47 @@ exception when it fails. **The documented run command is the security surface
 most people copy**, which is why it is the thing under test rather than the thing
 described.
 
+### What the release pipeline runs, and where it can write
+
+**House.** The gates run against the exact commit being published, and that
+commit is one the default branch already carries.
+
+`release.yml` resolves the tag to a SHA once and hands it to `verify.yml`, so a
+tag moved between the two jobs cannot verify one commit and ship another. The
+cost of that design is the part worth writing down: a release event and a
+dispatch both run in the default branch's context, so the suites, `npm ci` and
+the Playwright browser all execute that commit's own code in a workflow whose
+Actions cache scope is the default branch's. A tag pointing at a commit nobody
+merged would be unreviewed code holding a token that writes the cache every
+later run on the default branch restores from. That is CodeQL's
+`actions/cache-poisoning/poisonable-step`, and it is a real step up from "can
+push a tag" to "can plant something in the default branch's build".
+
+**Settled by making the premise false rather than by not testing the tag.**
+`.github/workflows/release.yml:119-151` compares the resolved SHA against the
+default branch and refuses anything the branch does not already contain:
+`behind` and `identical` pass, `ahead` and `diverged` do not. So the code that
+runs in that context is code the default branch already has, and there is
+nothing untrusted left to poison anything with. A release cut from a branch that
+was never merged is refused, in those words, and that is the intended answer.
+
+The alternative — dropping the ref and letting the release trust a `verify` run
+from some earlier commit — was declined. "A tag can never ship an image that
+would have failed the gates" is worth more than the finding, and this keeps
+both.
+
+The npm cache stays off whenever a ref is passed
+(`.github/workflows/verify.yml:64`, `:110` and `:220`), which was the earlier guard and is still
+right, but it was never sufficient on its own: the token exists for the job
+whether or not this workflow chooses to cache with it.
+
+*Checked by:* `human`, and by the refusal itself the first time somebody tries
+to publish an unmerged commit. Nothing in the suite runs a workflow file, and a
+test that asserted the shell string would pin the spelling rather than the
+behaviour. The four alerts CodeQL raised for this on the default branch, and the
+two the browser job added, are dismissed against this paragraph rather than left
+open to be rediscovered.
+
 ### One process, one database
 
 **Binding.** `AGENTS.md`: "PostgreSQL is the only persistent dependency. Do not
@@ -1143,6 +1184,10 @@ Review only, because no test can judge them:
   disclosure is a judgement about a reader.
 - Whether a variable's documentation answers the seventh question, "what happens
   when it is wrong", in words an operator can act on.
+- Whether the release still refuses a tag the default branch does not contain.
+  Nothing in the suite runs a workflow file, and a test that asserted the shell
+  string would pin its spelling rather than its behaviour. The refusal itself is
+  the check, and it happens the first time somebody tries.
 
 A rule in neither list is a rule nobody is responsible for, and that is a defect
 in this guide rather than in the code.

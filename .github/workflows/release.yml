@@ -115,6 +115,40 @@ jobs:
             [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
             *) echo "Could not resolve $TAG to a commit" >&2; exit 1 ;;
           esac
+
+          # And that commit has to be one the default branch already has.
+          #
+          # `verify` runs this commit's own code — `npm ci`, the suites, the
+          # Playwright browser — in a workflow whose Actions cache scope is the
+          # default branch's, because a release event and a dispatch both run in
+          # that context. A tag pointing at a commit nobody merged would
+          # therefore execute unreviewed code with write access to the cache
+          # every later run on the default branch restores from, which is
+          # CodeQL's `actions/cache-poisoning/poisonable-step` and is a real
+          # step up from "can push a tag" to "can plant something in main's
+          # build".
+          #
+          # Refusing here rather than not verifying the tag: the gates running
+          # against the exact commit being shipped is the reason this job
+          # resolves a SHA at all, and it is worth more than the finding. So the
+          # code that runs is code the default branch already carries, and there
+          # is nothing untrusted left to poison anything with.
+          #
+          # A release cut from a branch that was never merged is refused by
+          # this, and that is the intended answer rather than a side effect.
+          default_branch="$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)"
+          reachable="$(gh api "repos/$GITHUB_REPOSITORY/compare/$default_branch...$sha" --jq .status)"
+          case "$reachable" in
+            # `behind` means the default branch has this commit and has moved on
+            # since; `identical` means the tag is its tip. Anything else —
+            # `ahead`, `diverged` — is a commit it does not have.
+            behind | identical) ;;
+            *)
+              echo "$TAG resolves to $sha, which $default_branch does not contain ($reachable)." >&2
+              echo "Merge it first: the release gates run its code where they can write $default_branch's build cache." >&2
+              exit 1
+              ;;
+          esac
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   # The same gates every pull request runs, against the exact commit being
