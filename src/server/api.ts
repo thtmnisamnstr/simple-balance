@@ -279,7 +279,20 @@ app.onError((error, c) => {
         error: {
           code: "VALIDATION_ERROR",
           message: "Request validation failed",
-          details: error.issues,
+          // `field` beside the issue rather than instead of it. `http.md` says
+          // a field error is `{field, message}` with a dotted path, which is
+          // what `zodIssues()` produces and what the MCP surface has always
+          // sent; this transport shipped Zod's own issue objects, putting the
+          // validator's discriminators on the wire as public contract.
+          //
+          // Both, because 0.1.5 shipped the raw issues and a client reading
+          // `path` still works. Dropping `path` is a later release's job, after
+          // the documented shape has been in the field — the same rule the
+          // renamed routes follow.
+          details: error.issues.map((issue) => ({
+            ...issue,
+            field: issue.path.join(".") || "draft",
+          })),
         },
       },
       422,
@@ -345,13 +358,28 @@ const setupCodeAttempts = createAttemptLimiter({
   windowMs: 15 * 60 * 1000,
 });
 
+/**
+ * The auth, consent and setup routes' error shape, in both spellings.
+ *
+ * `docs/standards/http.md` asks for one envelope on every route this process
+ * serves, and these fourteen answer with a flat `{code, message}` — a shape the
+ * browser's own reader cannot see, because it looks inside `error`. Adding the
+ * envelope rather than replacing the flat pair is what keeps 0.1.5's clients
+ * working: anything reading `body.code` still finds it, anything reading
+ * `body.error.code` now does too. Dropping the flat half is a later release's
+ * job, after the envelope has been in the field, which is the rule the renamed
+ * routes already follow.
+ */
+const transportError = (code: string, message: string) => ({
+  code,
+  message,
+  error: { code, message },
+});
+
 let localBootstrapBusy = false;
 app.post("/api/auth/sign-up/email", async (c) => {
   if (!getConfig().localAuthEnabled) {
-    return c.json(
-      { code: "LOCAL_AUTH_DISABLED", message: "Local authentication is disabled" },
-      403,
-    );
+    return c.json(transportError("LOCAL_AUTH_DISABLED", "Local authentication is disabled"), 403);
   }
   const contentType = c.req.header("content-type") ?? "";
   const payload = contentType.includes("application/x-www-form-urlencoded")
@@ -376,12 +404,12 @@ app.post("/api/auth/sign-up/email", async (c) => {
 
   if (!(await isLocalBootstrapOpen())) {
     return c.json(
-      {
-        code: "REGISTRATION_CLOSED",
-        message: isRegistrationClosed()
+      transportError(
+        "REGISTRATION_CLOSED",
+        isRegistrationClosed()
           ? "This instance is not accepting new accounts."
           : "That email address is not allowed to register here.",
-      },
+      ),
       403,
     );
   }
@@ -393,19 +421,16 @@ app.post("/api/auth/sign-up/email", async (c) => {
   const setupCaller = countableClientAddress(c.req.raw, c, getConfig().trustProxy);
   if (!(await setupCodeAttempts.take(setupCaller))) {
     return c.json(
-      {
-        code: "TOO_MANY_SETUP_ATTEMPTS",
-        message: "Too many setup attempts. Wait a few minutes and try again.",
-      },
+      transportError(
+        "TOO_MANY_SETUP_ATTEMPTS",
+        "Too many setup attempts. Wait a few minutes and try again.",
+      ),
       429,
     );
   }
   if (!(await isOwnerSetupTokenValid(field("setupToken")))) {
     return c.json(
-      {
-        code: "INVALID_SETUP_TOKEN",
-        message: "The setup code is missing or invalid.",
-      },
+      transportError("INVALID_SETUP_TOKEN", "The setup code is missing or invalid."),
       403,
     );
   }
@@ -414,10 +439,7 @@ app.post("/api/auth/sign-up/email", async (c) => {
   // that the rule already admits returned above without coming near this lock.
   if (localBootstrapBusy) {
     return c.json(
-      {
-        code: "REGISTRATION_BUSY",
-        message: "Setup is already in progress. Try again.",
-      },
+      transportError("REGISTRATION_BUSY", "Setup is already in progress. Try again."),
       409,
     );
   }
@@ -433,10 +455,10 @@ app.post("/api/auth/sign-up/email", async (c) => {
     acquired = result.rows[0]?.acquired === true;
     if (!acquired) {
       return c.json(
-        {
-          code: "REGISTRATION_BUSY",
-          message: "Setup is already in progress on another instance. Try again.",
-        },
+        transportError(
+          "REGISTRATION_BUSY",
+          "Setup is already in progress on another instance. Try again.",
+        ),
         409,
       );
     }
@@ -444,12 +466,12 @@ app.post("/api/auth/sign-up/email", async (c) => {
     // loser's code no longer buys anything the rule would not have given them.
     if (!(await isLocalBootstrapOpen())) {
       return c.json(
-        {
-          code: "REGISTRATION_CLOSED",
-          message: isRegistrationClosed()
+        transportError(
+          "REGISTRATION_CLOSED",
+          isRegistrationClosed()
             ? "This instance is not accepting new accounts."
             : "That email address is not allowed to register here.",
-        },
+        ),
         403,
       );
     }
@@ -481,10 +503,7 @@ app.post("/api/auth/change-password", async (c) => {
 
 app.on(["GET", "POST"], "/api/auth/callback/google", async (c) => {
   if (!getConfig().googleAuthEnabled) {
-    return c.json(
-      { code: "GOOGLE_AUTH_DISABLED", message: "Google authentication is disabled" },
-      404,
-    );
+    return c.json(transportError("GOOGLE_AUTH_DISABLED", "Google authentication is disabled"), 404);
   }
   return getAuth().handler(authRequest(c));
 });
@@ -639,7 +658,7 @@ app.get("/api/auth/mcp/authorize", (c) => {
 // let anything that ever saw one access token — a proxy, a log — trade it for
 // seven days of access. Nothing here calls it.
 app.on(["GET", "POST"], "/api/auth/mcp/get-session", (c) =>
-  c.json({ code: "NOT_FOUND", message: "No such endpoint" }, 404),
+  c.json(transportError("NOT_FOUND", "No such endpoint"), 404),
 );
 
 function consentCodeFromCookie(c: Context) {
@@ -718,25 +737,25 @@ async function pendingConsent(consentCode: string) {
 app.get("/api/auth/oauth2/consent-request", async (c) => {
   const identity = await getWebIdentity(c.req.raw.headers);
   if (!identity) {
-    return c.json({ code: "UNAUTHORIZED", message: "Sign in is required" }, 401);
+    return c.json(transportError("UNAUTHORIZED", "Sign in is required"), 401);
   }
   const consentCode = c.req.query("consent_code") || consentCodeFromCookie(c);
   const pending = consentCode ? await pendingConsent(consentCode) : null;
   if (!pending || !pending.requireConsent || pending.expiresAt < new Date()) {
     return c.json(
-      {
-        code: "CONSENT_NOT_PENDING",
-        message: "That authorization request has expired or was already answered.",
-      },
+      transportError(
+        "CONSENT_NOT_PENDING",
+        "That authorization request has expired or was already answered.",
+      ),
       404,
     );
   }
   if (pending.userId && pending.userId !== identity.user.id) {
     return c.json(
-      {
-        code: "CONSENT_NOT_YOURS",
-        message: "That authorization request was started by a different account.",
-      },
+      transportError(
+        "CONSENT_NOT_YOURS",
+        "That authorization request was started by a different account.",
+      ),
       403,
     );
   }
@@ -767,17 +786,17 @@ app.get("/api/auth/oauth2/consent-request", async (c) => {
 app.post("/api/auth/oauth2/consent", async (c) => {
   const identity = await getWebIdentity(c.req.raw.headers);
   if (!identity) {
-    return c.json({ code: "UNAUTHORIZED", message: "Sign in is required" }, 401);
+    return c.json(transportError("UNAUTHORIZED", "Sign in is required"), 401);
   }
   const consentCode = await pendingConsentCode(c);
   if (consentCode) {
     const owner = (await pendingConsent(consentCode))?.userId;
     if (owner && owner !== identity.user.id) {
       return c.json(
-        {
-          code: "CONSENT_NOT_YOURS",
-          message: "That authorization request was started by a different account.",
-        },
+        transportError(
+          "CONSENT_NOT_YOURS",
+          "That authorization request was started by a different account.",
+        ),
         403,
       );
     }
