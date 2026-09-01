@@ -10,9 +10,11 @@ import {
   recurrences,
   stagedTransactions,
   transactions,
+  transactionTemplates,
   user,
 } from "../../src/server/db/schema.js";
 import { createRecurrence } from "../../src/server/services/recurrences.js";
+import { createTransactionTemplate } from "../../src/server/services/transaction-templates.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
   createCategory,
@@ -555,6 +557,92 @@ integration("category duplicate detection and merge", () => {
         expect(leg.categoryId).toBe(target.id);
       }
     }
+    // A rewrite that leaves no record is invisible to whoever wonders why
+    // their recurrence changed category, so each rewritten row is audited
+    // like the transaction and staged rewrites already were.
+    const recurrenceAudits = await db
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.userId, primary.userId),
+          eq(auditEvents.operation, "category_merge"),
+          eq(auditEvents.entityType, "recurrence"),
+        ),
+      );
+    expect(recurrenceAudits.map((event: { entityId: string }) => event.entityId).sort()).toEqual(
+      [plain.id, split.id].sort(),
+    );
+  });
+
+  /**
+   * The reference one door along from the recurrence: a template's draft.
+   *
+   * deleteCategory refuses while a template names the category — "what is
+   * left is a template that cannot be saved and cannot be used" — and for a
+   * while the merge hard-deleted the source without rewriting drafts,
+   * producing exactly that state through the sibling door.
+   */
+  it("rewrites template drafts when merging, and audits the rewrite", async () => {
+    const db = getDb();
+    const [target, source] = await db
+      .insert(categories)
+      .values([
+        { userId: primary.userId, name: "Template Energy", kind: "expense" },
+        { userId: primary.userId, name: " template   energy ", kind: "expense" },
+      ])
+      .returning();
+
+    const plain = await createTransactionTemplate(primary, {
+      name: "Merge template plain",
+      draft: { type: "withdrawal", fromAccountId: accountId, categoryId: source.id },
+    });
+    const split = await createTransactionTemplate(primary, {
+      name: "Merge template split",
+      draft: {
+        type: "withdrawal",
+        fromAccountId: accountId,
+        legs: [{ categoryId: source.id }, { categoryId: target.id }],
+      },
+    });
+
+    await mergeCategories(primary, {
+      sourceCategoryIds: [source.id],
+      targetCategoryId: target.id,
+      expectedVersions: { [source.id]: source.version },
+      targetExpectedVersion: target.version,
+    });
+
+    const after = await db
+      .select()
+      .from(transactionTemplates)
+      .where(inArray(transactionTemplates.id, [plain.id, split.id]));
+    for (const row of after) {
+      const draft = row.draft as {
+        categoryId?: string;
+        legs?: { categoryId?: string }[];
+      };
+      expect(draft.categoryId ?? target.id).toBe(target.id);
+      for (const leg of draft.legs ?? []) {
+        expect(leg.categoryId).toBe(target.id);
+      }
+    }
+    // And the source is really gone, so a draft left pointing at it would
+    // have been the unusable-template state, not a cosmetic mismatch.
+    expect(await db.select().from(categories).where(eq(categories.id, source.id))).toHaveLength(0);
+    const templateAudits = await db
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.userId, primary.userId),
+          eq(auditEvents.operation, "category_merge"),
+          eq(auditEvents.entityType, "transaction_template"),
+        ),
+      );
+    expect(templateAudits.map((event: { entityId: string }) => event.entityId).sort()).toEqual(
+      [plain.id, split.id].sort(),
+    );
   });
 
   /**

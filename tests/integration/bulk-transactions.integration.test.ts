@@ -378,6 +378,73 @@ integration("atomic committed transaction bulk editing", () => {
     );
   });
 
+  /**
+   * The other half of the refund refusal. Patching a category that runs
+   * against the rows' direction was already refused; patching a *direction*
+   * that runs against the rows' retained categories is the identical reversal
+   * arriving through the other field, and for a while it went through
+   * silently — every deposit carrying an income category flipped into a
+   * refund, moving money between the two counter-accounts for rows nobody
+   * looked at.
+   */
+  it("refuses a type flip that would turn retained categories into refunds", async () => {
+    const incomeCategoryId = (await createCategory(actor, { name: "Bulk Income", kind: "income" }))
+      .id;
+    const paycheck = await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        date: "2027-03-01",
+        payee: "Refund flip employer",
+        description: null,
+        toAccountId: checkingId,
+        categoryId: incomeCategoryId,
+        amount: "500",
+      },
+      "bulk-refund-flip-deposit",
+    );
+    await expect(
+      bulkEditTransactions(actor, {
+        selection: explicitSelection([paycheck]),
+        patch: { type: "withdrawal" as const },
+        idempotencyKey: "bulk-refund-flip",
+        allowDuplicates: true,
+      }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      details: { fields: ["type"], reversedCount: 1 },
+    });
+    // Refused means untouched: same type, same version, nothing reposted.
+    expect(await getTransaction(actor, paycheck.id)).toMatchObject({
+      type: "deposit",
+      version: paycheck.version,
+    });
+
+    // A row whose category agrees with the new direction still flips: the
+    // refusal is about reversals, not about the type field.
+    const spend = await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        date: "2027-03-02",
+        payee: "Refund flip shop",
+        description: null,
+        toAccountId: checkingId,
+        categoryId: bothCategoryId,
+        amount: "40",
+      },
+      "bulk-refund-flip-both",
+    );
+    const flipped = await bulkEditTransactions(actor, {
+      selection: explicitSelection([spend]),
+      patch: { type: "withdrawal" as const },
+      idempotencyKey: "bulk-refund-flip-allowed",
+      allowDuplicates: true,
+    });
+    expect(flipped.updatedCount).toBe(1);
+    expect(await getTransaction(actor, spend.id)).toMatchObject({ type: "withdrawal" });
+  });
+
   it("rejects transfer conversion and cross-currency reassignment atomically", async () => {
     const transfer = await createTransaction(
       actor,

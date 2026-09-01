@@ -10,7 +10,12 @@ import {
   transactionDraftSchema,
 } from "../../shared/domain.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
-import { stagedTransactions, transactions } from "../db/schema.js";
+import {
+  recurrences,
+  stagedTransactions,
+  transactionTemplates,
+  transactions,
+} from "../db/schema.js";
 import { notFound, validationError } from "./errors.js";
 import { stagedDuplicateKey } from "./transactions.js";
 import {
@@ -413,6 +418,103 @@ export async function mergePayees(actor: Actor, input: unknown, transaction?: Db
         entityId: updated.id,
         operation: "payee_merge",
         before: serializeRow(stagedBeforeById.get(updated.id)),
+        after: serializeRow(updated),
+      });
+    }
+
+    // The standing references. A recurrence's shape and a template's draft
+    // both carry a payee spelling, and a payee is nothing but its spelling —
+    // there is no id to survive the merge. Left alone, a recurrence re-creates
+    // the merged-away spelling on its next occurrence and the merge undoes
+    // itself; a template refills the form with it. The category merge learned
+    // this the hard way for its own references, and the version stays where it
+    // is for the reason given there: a merge relabels what the row points at
+    // without changing what somebody configured.
+    const recurrenceRowsBefore = await tx
+      .select()
+      .from(recurrences)
+      .where(
+        and(
+          eq(recurrences.userId, actor.userId),
+          inArray(sql<string>`${recurrences.shape} ->> 'payee'`, sourcePayees),
+        ),
+      )
+      .orderBy(recurrences.id)
+      .for("update");
+    const updatedRecurrences = recurrenceRowsBefore.length
+      ? await tx
+          .update(recurrences)
+          .set({
+            shape: sql`jsonb_set(
+              ${recurrences.shape},
+              '{payee}',
+              to_jsonb(${parsed.targetPayee}::text),
+              true
+            )`,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(recurrences.userId, actor.userId),
+              inArray(
+                recurrences.id,
+                recurrenceRowsBefore.map((row) => row.id),
+              ),
+            ),
+          )
+          .returning()
+      : [];
+    for (const updated of updatedRecurrences) {
+      await writeAudit(tx, actor, {
+        entityType: "recurrence",
+        entityId: updated.id,
+        operation: "payee_merge",
+        before: serializeRow(recurrenceRowsBefore.find((row) => row.id === updated.id)),
+        after: serializeRow(updated),
+      });
+    }
+    // A template's payee is optional, so only rows that carry one match.
+    const templateRowsBefore = await tx
+      .select()
+      .from(transactionTemplates)
+      .where(
+        and(
+          eq(transactionTemplates.userId, actor.userId),
+          sql`jsonb_typeof(${transactionTemplates.draft} -> 'payee') = 'string'`,
+          inArray(sql<string>`${transactionTemplates.draft} ->> 'payee'`, sourcePayees),
+        ),
+      )
+      .orderBy(transactionTemplates.id)
+      .for("update");
+    const updatedTemplates = templateRowsBefore.length
+      ? await tx
+          .update(transactionTemplates)
+          .set({
+            draft: sql`jsonb_set(
+              ${transactionTemplates.draft},
+              '{payee}',
+              to_jsonb(${parsed.targetPayee}::text),
+              true
+            )`,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(transactionTemplates.userId, actor.userId),
+              inArray(
+                transactionTemplates.id,
+                templateRowsBefore.map((row) => row.id),
+              ),
+            ),
+          )
+          .returning()
+      : [];
+    for (const updated of updatedTemplates) {
+      await writeAudit(tx, actor, {
+        entityType: "transaction_template",
+        entityId: updated.id,
+        operation: "payee_merge",
+        before: serializeRow(templateRowsBefore.find((row) => row.id === updated.id)),
         after: serializeRow(updated),
       });
     }

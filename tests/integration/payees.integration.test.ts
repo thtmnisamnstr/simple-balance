@@ -7,7 +7,14 @@ import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
 import { createMcpServer } from "../../src/server/mcp.js";
-import { auditEvents, stagedTransactions, transactions, user } from "../../src/server/db/schema.js";
+import {
+  auditEvents,
+  recurrences,
+  stagedTransactions,
+  transactions,
+  transactionTemplates,
+  user,
+} from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
   listDuplicatePayees,
@@ -20,6 +27,8 @@ import {
 } from "../../src/server/services/payees.js";
 import { cleanHumanName, normalizeHumanName } from "../../src/shared/names.js";
 import { createStage, getStage, updateStage } from "../../src/server/services/staging.js";
+import { createRecurrence } from "../../src/server/services/recurrences.js";
+import { createTransactionTemplate } from "../../src/server/services/transaction-templates.js";
 import { createTransaction, getTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -581,5 +590,88 @@ integration("derived payee management", () => {
     // One payee now, so one fingerprint — and the queue can see they repeat.
     expect(await keyOf(two.id)).toBe(await keyOf(one.id));
     expect(await keyOf(two.id)).toContain("Rekey Spelling One".toLowerCase());
+  });
+
+  /**
+   * The standing references. A payee is nothing but its spelling — there is
+   * no id to survive a merge — so a recurrence left holding the old spelling
+   * re-creates the merged-away payee on its next occurrence and the merge
+   * quietly undoes itself, and a template refills the form with it.
+   */
+  it("rewrites recurrence shapes and template drafts to the merged spelling", async () => {
+    const spent = await createTransaction(
+      primary,
+      {
+        type: "withdrawal",
+        date: "2026-02-01",
+        payee: "Old Electric Co",
+        description: null,
+        fromAccountId: primaryAccountId,
+        amount: "60.00",
+      },
+      "payee-standing-merge-txn",
+    );
+    const kept = await createTransaction(
+      primary,
+      {
+        type: "withdrawal",
+        date: "2026-02-02",
+        payee: "New Electric",
+        description: null,
+        fromAccountId: primaryAccountId,
+        amount: "61.00",
+      },
+      "payee-standing-merge-keep",
+    );
+    const recurrence = await createRecurrence(primary, {
+      name: "Standing electric",
+      shape: {
+        type: "withdrawal",
+        payee: "Old Electric Co",
+        fromAccountId: primaryAccountId,
+        amount: "60.00",
+      },
+      schedule: { frequency: "monthly", anchorDate: "2030-01-05" },
+    });
+    const template = await createTransactionTemplate(primary, {
+      name: "Standing electric template",
+      draft: { type: "withdrawal", payee: "Old Electric Co", fromAccountId: primaryAccountId },
+    });
+
+    await mergePayees(primary, {
+      sourcePayees: ["Old Electric Co"],
+      targetPayee: "New Electric",
+      idempotencyKey: "payee-standing-merge",
+    });
+    expect(await getTransaction(primary, spent.id)).toMatchObject({ payee: "New Electric" });
+    expect(await getTransaction(primary, kept.id)).toMatchObject({
+      payee: "New Electric",
+      version: kept.version,
+    });
+
+    const [shapeRow] = await getDb()
+      .select()
+      .from(recurrences)
+      .where(eq(recurrences.id, recurrence.id));
+    expect((shapeRow!.shape as { payee: string }).payee).toBe("New Electric");
+    const [draftRow] = await getDb()
+      .select()
+      .from(transactionTemplates)
+      .where(eq(transactionTemplates.id, template.id));
+    expect((draftRow!.draft as { payee?: string }).payee).toBe("New Electric");
+
+    const rewriteAudits = await getDb()
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.userId, primary.userId),
+          eq(auditEvents.operation, "payee_merge"),
+          inArray(auditEvents.entityType, ["recurrence", "transaction_template"]),
+        ),
+      );
+    expect(rewriteAudits.map((event) => event.entityId).sort()).toEqual(
+      [recurrence.id, template.id].sort(),
+    );
   });
 });

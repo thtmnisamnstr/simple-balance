@@ -443,6 +443,24 @@ export function presentAccountBalance(type: AccountType, balance: string) {
  * balance in its place would report a figure that stopped being true the moment
  * the first transaction landed.
  */
+/**
+ * The where-clause every by-id account read and write shares.
+ *
+ * The income, expense, exchange and equity accounts are the ledger's own
+ * bookkeeping. Every listing hides them, so a path that takes an id must not
+ * be the exception that puts them on show — and a path that *writes* by id
+ * must not be the exception that hands them over. The clause lives in one
+ * place because the defect it closes was exactly the guard existing on the
+ * read and not on its sibling writes.
+ */
+function userAccountById(actor: Actor, id: string) {
+  return and(
+    eq(ledgerAccounts.id, id),
+    eq(ledgerAccounts.userId, actor.userId),
+    isNull(ledgerAccounts.systemKind),
+  );
+}
+
 async function currentBalance(tx: Pick<DbTransaction, "execute">, actor: Actor, accountId: string) {
   const result = await tx.execute(sql`
     select coalesce(sum(p.amount), 0)::text as balance
@@ -520,16 +538,7 @@ export async function getAccount(actor: Actor, id: string) {
   const [account] = await db
     .select()
     .from(ledgerAccounts)
-    .where(
-      and(
-        eq(ledgerAccounts.id, id),
-        eq(ledgerAccounts.userId, actor.userId),
-        // The income, expense, exchange and equity accounts are the ledger's
-        // own bookkeeping. Every other path hides them, so fetching one by id
-        // should not be the exception that puts them on show.
-        isNull(ledgerAccounts.systemKind),
-      ),
-    )
+    .where(userAccountById(actor, id))
     .limit(1);
   if (!account) throw notFound("Account not found");
   return accountView(account, await currentBalance(db, actor, account.id));
@@ -571,6 +580,10 @@ export async function getAccountBalances(
       and p.user_id = a.user_id
     where a.id = ${id}::uuid
       and a.user_id = ${actor.userId}
+      -- The register is for the person's own accounts. A counter-account's
+      -- register is the trial balance's business, which reads system rows on
+      -- purpose; here the id answers not-found like every other account path.
+      and a.system_kind is null
     group by a.id
   `);
   const row = result.rows[0];
@@ -656,7 +669,16 @@ export async function updateAccount(
     const [before] = await tx
       .select()
       .from(ledgerAccounts)
-      .where(and(eq(ledgerAccounts.id, id), eq(ledgerAccounts.userId, actor.userId)))
+      // The same exclusion `getAccount` carries, and here it is load-bearing
+      // rather than cosmetic: the trial balance publishes counter-account ids
+      // to their own owner, and a stale-version refusal reveals the current
+      // version to retry with. Without this line, that pair of facts lets a
+      // person rename the ledger's own income account, give it an opening
+      // balance (which posts real money against equity), archive it (which
+      // sweeps every income posting to equity on each later repost), or delete
+      // it. Counter-accounts are server-owned; every write answers "not found"
+      // exactly as the reads do, so their existence is never confirmed.
+      .where(userAccountById(actor, id))
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
@@ -718,7 +740,10 @@ export async function setAccountArchived(
     const [before] = await tx
       .select()
       .from(ledgerAccounts)
-      .where(and(eq(ledgerAccounts.id, id), eq(ledgerAccounts.userId, actor.userId)))
+      // Archiving a counter-account would post its whole balance out to
+      // equity and re-close it on every later repost — see `updateAccount`
+      // for why the id can be known and the version guessed.
+      .where(userAccountById(actor, id))
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
@@ -768,7 +793,8 @@ export async function deleteAccount(
     const [before] = await tx
       .select()
       .from(ledgerAccounts)
-      .where(and(eq(ledgerAccounts.id, id), eq(ledgerAccounts.userId, actor.userId)))
+      // Counter-accounts are excluded here too; see `updateAccount`.
+      .where(userAccountById(actor, id))
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });

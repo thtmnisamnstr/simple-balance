@@ -1182,13 +1182,41 @@ export async function mergeCategories(
           .returning()
       : [];
 
-    // A standing instruction is a reference too, and the only one that keeps
-    // producing rows after the merge. Left naming a hard-deleted id it would
-    // propose a flagged row on every occurrence from here on. The version is
+    // A standing instruction is a reference too, and one that keeps producing
+    // rows after the merge. Left naming a hard-deleted id it would propose a
+    // flagged row on every occurrence from here on. The version is
     // deliberately not bumped: a merge relabels what a recurrence points at
     // without changing what somebody configured, and bumping it would make
-    // every open form stale for a reason nobody can see.
-    await tx
+    // every open form stale for a reason nobody can see. Selected first, and
+    // for update, so the audit entry below can say what each one held —
+    // the transaction and staged rewrites already do, and a rewrite that
+    // leaves no record is invisible to the person wondering why their
+    // recurrence changed category.
+    const recurrenceRowsBefore = await tx
+      .select()
+      .from(recurrences)
+      .where(
+        and(
+          eq(recurrences.userId, actor.userId),
+          or(
+            sql`${recurrences.shape} ->> 'categoryId' in (${sourceIdList})`,
+            sql`exists (
+              select 1
+              from jsonb_array_elements(
+                case
+                  when jsonb_typeof(${recurrences.shape} -> 'legs') = 'array'
+                    then ${recurrences.shape} -> 'legs'
+                  else '[]'::jsonb
+                end
+              ) as leg
+              where leg ->> 'categoryId' in (${sourceIdList})
+            )`,
+          )!,
+        ),
+      )
+      .orderBy(recurrences.id)
+      .for("update");
+    const updatedRecurrences = await tx
       .update(recurrences)
       .set({
         shape: sql`
@@ -1225,14 +1253,35 @@ export async function mergeCategories(
       .where(
         and(
           eq(recurrences.userId, actor.userId),
+          inArray(
+            recurrences.id,
+            recurrenceRowsBefore.map((row) => row.id),
+          ),
+        ),
+      )
+      .returning();
+
+    // A template is the same standing reference one door along. deleteCategory
+    // refuses while a template names the category — "what is left is a
+    // template that cannot be saved and cannot be used" — and a merge that
+    // hard-deletes the source produces exactly that state unless it rewrites
+    // the draft too. The predicate is countCategoryUses' own, and the rewrite
+    // is the staged-draft rewrite's shape; the version stays where it is for
+    // the recurrence's reason.
+    const templateRowsBefore = await tx
+      .select()
+      .from(transactionTemplates)
+      .where(
+        and(
+          eq(transactionTemplates.userId, actor.userId),
           or(
-            sql`${recurrences.shape} ->> 'categoryId' in (${sourceIdList})`,
+            sql`${transactionTemplates.draft} ->> 'categoryId' in (${sourceIdList})`,
             sql`exists (
               select 1
               from jsonb_array_elements(
                 case
-                  when jsonb_typeof(${recurrences.shape} -> 'legs') = 'array'
-                    then ${recurrences.shape} -> 'legs'
+                  when jsonb_typeof(${transactionTemplates.draft} -> 'legs') = 'array'
+                    then ${transactionTemplates.draft} -> 'legs'
                   else '[]'::jsonb
                 end
               ) as leg
@@ -1240,7 +1289,55 @@ export async function mergeCategories(
             )`,
           )!,
         ),
-      );
+      )
+      .orderBy(transactionTemplates.id)
+      .for("update");
+    const updatedTemplates = templateRowsBefore.length
+      ? await tx
+          .update(transactionTemplates)
+          .set({
+            draft: sql`
+              case
+                when ${transactionTemplates.draft} ->> 'categoryId' in (${sourceIdList})
+                  then jsonb_set(
+                    ${transactionTemplates.draft},
+                    '{categoryId}',
+                    to_jsonb(${target.id}::text),
+                    true
+                  )
+                when jsonb_typeof(${transactionTemplates.draft} -> 'legs') = 'array'
+                  then jsonb_set(
+                    ${transactionTemplates.draft},
+                    '{legs}',
+                    (
+                      select coalesce(jsonb_agg(
+                        case
+                          when leg ->> 'categoryId' in (${sourceIdList})
+                            then jsonb_set(leg, '{categoryId}', to_jsonb(${target.id}::text), true)
+                          else leg
+                        end
+                        order by position
+                      ), '[]'::jsonb)
+                      from jsonb_array_elements(${transactionTemplates.draft} -> 'legs')
+                        with ordinality as elements(leg, position)
+                    ),
+                    true
+                  )
+                else ${transactionTemplates.draft}
+              end`,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(transactionTemplates.userId, actor.userId),
+              inArray(
+                transactionTemplates.id,
+                templateRowsBefore.map((row) => row.id),
+              ),
+            ),
+          )
+          .returning()
+      : [];
 
     // A merge moves what a source held onto the target, and a budget is
     // something it held. Left alone, the composite foreign key took every plan
@@ -1420,6 +1517,20 @@ export async function mergeCategories(
         entityId: updated.id,
         operation: "category_merge",
         before: serializeRow(stagedBeforeById.get(updated.id)),
+        after: serializeRow(updated),
+      })),
+      ...updatedRecurrences.map((updated) => ({
+        entityType: "recurrence",
+        entityId: updated.id,
+        operation: "category_merge",
+        before: serializeRow(recurrenceRowsBefore.find((row) => row.id === updated.id)),
+        after: serializeRow(updated),
+      })),
+      ...updatedTemplates.map((updated) => ({
+        entityType: "transaction_template",
+        entityId: updated.id,
+        operation: "category_merge",
+        before: serializeRow(templateRowsBefore.find((row) => row.id === updated.id)),
         after: serializeRow(updated),
       })),
       ...sources.map((source) => ({

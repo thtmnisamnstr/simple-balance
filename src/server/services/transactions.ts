@@ -1875,7 +1875,18 @@ export async function bulkEditTransactions(
         ...draftAccountIds(draft),
       ]),
     );
-    if (snapshotDrafts.some(({ row, draft }) => Boolean(row.categoryId || draft.categoryId))) {
+    // A split row carries its categories on the legs, with `categoryId` null
+    // on both the row and the draft — so the legs are part of the question,
+    // exactly as `lockStagedDraftReferences` already reads them for staged
+    // rows. Missing them here skipped this lock, and `prepareTransaction`
+    // then took it per row *after* the payee lock below: the ABBA inversion
+    // the ordering comment in helpers.ts exists to prevent.
+    if (
+      snapshotDrafts.some(
+        ({ row, draft }) =>
+          Boolean(row.categoryId || draft.categoryId) || draft.legs?.some((leg) => leg.categoryId),
+      )
+    ) {
       await lockCategoryNamespace(tx, actor);
     }
     await lockPayeeNamespace(tx, actor);
@@ -1924,18 +1935,30 @@ export async function bulkEditTransactions(
     // would move money between the two counter-accounts for rows nobody looked
     // at. Refused for the same reason a bulk edit will not flatten a split: not
     // because it cannot be done, but because it cannot be done silently.
+    // The check covers both halves of the pair: a patched category against
+    // each row's direction, and a patched direction against each row's
+    // *retained* category. It used to run only when the patch named a
+    // category, so `patch: { type: "withdrawal" }` over deposits that carry
+    // income categories flipped every one into a refund with no refusal — the
+    // identical reversal the categoryId branch exists to stop, arriving
+    // through the other field.
     const patchedKind = parsed.patch.categoryId
       ? references.categories.get(parsed.patch.categoryId)?.kind
       : undefined;
-    if (patchedKind) {
-      const reversed = lockedRows.filter((row) =>
-        reversesEntry(parsed.patch.type ?? row.type, patchedKind),
-      );
+    if (patchedKind !== undefined || parsed.patch.type !== undefined) {
+      const reversed = lockedRows.filter((row) => {
+        const kind =
+          patchedKind ??
+          (row.categoryId ? references.categories.get(row.categoryId)?.kind : undefined);
+        return kind !== undefined && reversesEntry(parsed.patch.type ?? row.type, kind);
+      });
       if (reversed.length > 0) {
         throw validationError(
-          `That category runs against the direction of ${reversed.length} of these transactions, which would make each one a refund. Change those individually.`,
+          patchedKind !== undefined
+            ? `That category runs against the direction of ${reversed.length} of these transactions, which would make each one a refund. Change those individually.`
+            : `That direction runs against the category on ${reversed.length} of these transactions, which would make each one a refund. Change those individually.`,
           {
-            fields: ["categoryId"],
+            fields: [patchedKind !== undefined ? "categoryId" : "type"],
             reversedCount: reversed.length,
           },
         );

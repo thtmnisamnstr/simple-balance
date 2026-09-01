@@ -9,8 +9,10 @@ import {
   createAccount,
   deleteAccount,
   getAccount,
+  getAccountBalances,
   reconcileArchivedAccountClosings,
   setAccountArchived,
+  updateAccount,
 } from "../../src/server/services/accounts.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import {
@@ -229,6 +231,62 @@ integration("archiving an account closes its balance out to equity", () => {
     await setTransactionDeleted(actor, spend.id, deleted.version, false);
     expect((await getAccount(actor, closed.id)).balance).toBe("0");
     expect(await ledgerSumsToZero()).toEqual(["USD=0"]);
+  });
+
+  /**
+   * Counter-accounts answer every account write with not-found.
+   *
+   * Their ids are not secret — the trial balance publishes them to their own
+   * owner — and a stale-version refusal reveals the current version to retry
+   * with. So the guard has to be the same one the reads use: the row does not
+   * exist on this path. Archiving one would post its whole balance to equity
+   * and re-close it on every later repost; renaming or re-opening one is the
+   * ledger's own bookkeeping handed to whoever asks.
+   */
+  it("answers not-found for every write against a counter-account", async () => {
+    const checking = await openAccount("Counter Guard Checking", "100.00");
+    // The income counter-account exists once a deposit has needed it.
+    await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        date: "2026-01-02",
+        payee: "Counter guard employer",
+        description: null,
+        toAccountId: checking.id,
+        amount: "50.00",
+      },
+      nextKey(),
+    );
+    const [income] = await getDb()
+      .select({ id: ledgerAccounts.id, version: ledgerAccounts.version })
+      .from(ledgerAccounts)
+      .where(
+        and(
+          eq(ledgerAccounts.userId, actor.userId),
+          eq(ledgerAccounts.systemKind, "income"),
+          eq(ledgerAccounts.currency, "USD"),
+        ),
+      );
+    expect(income).toBeDefined();
+
+    await expect(
+      updateAccount(actor, income!.id, { expectedVersion: income!.version, name: "Mine now" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      setAccountArchived(actor, income!.id, income!.version, true),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(deleteAccount(actor, income!.id, income!.version)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(getAccountBalances(actor, income!.id, {})).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    // And not-found before stale-version: a wrong guess at the version must
+    // not come back with the right one to retry with.
+    await expect(
+      updateAccount(actor, income!.id, { expectedVersion: income!.version + 7, name: "Mine" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("writes nothing extra when an empty account is archived", async () => {
