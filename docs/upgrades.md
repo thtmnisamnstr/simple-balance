@@ -12,25 +12,29 @@ configuration has to change. Five things are worth knowing.
 budget tables, the category-group table and the types they use; they add
 columns to `budget_plan`, `budget_entry`, `category` and `ledger_account` —
 every one nullable or with a default, so nothing is backfilled; they add
-indexes; and two of them swap a check constraint on the new budget tables for
-a wider one, which touches no data because the tables the checks sit on ship
-in this same release. The pause is the length of a handful of `create table`,
+indexes; one swaps a check constraint on the new budget tables for a wider
+one and another trades two unique constraints for partial unique indexes,
+touching no data because the tables they sit on ship in this same release. The pause is the length of a handful of `create table`,
 `alter table` and `create index` statements whatever the size of your ledger.
 The one new column on an existing table anybody will notice is
 `ledger_account.in_budget`, which defaults to true: every account you already
 have is inside the budget's perimeter, which is what the budget page assumes
 until you say otherwise.
 
-**Settings that used to fail in silence now say so.** A bounded integer out of
-range — `CSV_MAX_ROWS=50000`, `DATABASE_POOL_SIZE=0`, an empty
-`RECURRENCE_TICK_SECONDS`, and the three other bounded numbers beside them —
+**Settings that used to fail in silence now say so, and one that refused now
+warns.** A bounded integer out of range — `CSV_MAX_ROWS=50000`,
+`RECURRENCE_TICK_SECONDS=0`, and the three other bounded numbers beside them —
 used to fall back to its default without a word. It still starts the container
 and still runs on the default, but it now names itself in the log with the
-value it was given and the number in force instead.
-So does a name set both ways, such as `DATABASE_URL` beside
-`DATABASE_URL_FILE`, where the environment variable wins as it always did. If
-you have been carrying one of these, this release tells you so for the first
-time; the release that refuses it is a later one.
+value it was given and the number in force instead. So does a name set both
+ways, such as `DATABASE_URL` beside `DATABASE_URL_FILE`, where the environment
+variable wins as it always did. `DATABASE_POOL_SIZE` moved the other way:
+0.1.5 refused to start over an out-of-range value, and this release starts,
+warns, and runs on the default, so a container that would not boot yesterday
+boots today. An empty value stays as quiet as ever on purpose, because
+`.env.example` ships blanks and a blank means the default. If you have been
+carrying one of these, this release tells you so for the first time; the
+release that refuses it is a later one.
 
 **Four `/api/v1` paths were renamed and the old spellings still answer.**
 `POST /accounts/{id}/archive` is now `/archived`, `POST /categories/{id}/archive`

@@ -362,6 +362,12 @@ export async function runDueRecurrences(
            coalesce(p.timezone, 'UTC') as timezone
       from ${recurrences} r
       left join user_preferences p on p.user_id = r.user_id
+     -- The database date here bounds candidates, it decides nothing: +1 is
+     -- wide enough to catch every zone ahead of UTC, a zone behind just waits
+     -- for a later tick, and whether a row is really due is answered per row
+     -- below by todayIn against the person's own timezone. Narrowing this to
+     -- "ask the database what day it is for them" is AGENTS.md's forbidden
+     -- move, not a fix.
      where r.next_occurrence_date <= ((now() at time zone 'UTC')::date + 1)
      -- Most overdue first, so a page full of rows that are a day early can
      -- never starve one that is a month late.

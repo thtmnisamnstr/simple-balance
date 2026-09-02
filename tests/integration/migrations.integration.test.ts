@@ -171,7 +171,7 @@ integration("PostgreSQL migrations", () => {
   });
 
   /**
-   * A database left by the previous release takes this one's migrations.
+   * A database left by an earlier release takes this one's migrations.
    *
    * Every other case here starts from empty, which is the one shape no real
    * deployment has. `AGENTS.md` says a release upgrades cleanly from the one
@@ -181,12 +181,12 @@ integration("PostgreSQL migrations", () => {
    * Built faithfully rather than by deleting a journal row: the tables that
    * migration created would still be there, which is a torn upgrade rather than
    * a previous release, and re-running the migration against its own objects
-   * fails on `CREATE TYPE`. So this applies every migration but the last by
+   * fails on `CREATE TYPE`. So this applies a prefix of the migrations by
    * hand, into a database of its own, recording each one the way the migrator
    * would — the file's SHA-256, which is what it compares against.
    */
-  it("applies only what is new to a database left by the release before", async () => {
-    const scratch = `${databaseName}_upgrade`;
+  async function upgradesFrom(prefix: number, scratchLabel: string) {
+    const scratch = `${databaseName}_${scratchLabel}`;
     await adminClient.query(`create database "${scratch}"`);
     const previousRelease = new PgClient({
       connectionString: new URL(`/${scratch}`, connection!).toString(),
@@ -198,8 +198,9 @@ integration("PostgreSQL migrations", () => {
       const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", folder), "utf8")) as {
         entries: { tag: string; when: number }[];
       };
-      const upToPrevious = journal.entries.slice(0, -1);
+      const upToPrevious = journal.entries.slice(0, prefix);
       expect(upToPrevious.length).toBeGreaterThan(0);
+      expect(upToPrevious.length).toBeLessThan(journal.entries.length);
 
       await previousRelease.query(`create schema if not exists drizzle`);
       await previousRelease.query(
@@ -220,11 +221,10 @@ integration("PostgreSQL migrations", () => {
         );
       }
 
-      // What a 0.1.5 database looks like: everything but the newest migration.
       const before = await previousRelease.query<{ count: string }>(
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
-      expect(Number(before.rows[0]?.count)).toBe(journal.entries.length - 1);
+      expect(Number(before.rows[0]?.count)).toBe(prefix);
 
       const restore = process.env.DATABASE_URL;
       process.env.DATABASE_URL = new URL(`/${scratch}`, connection!).toString();
@@ -243,6 +243,25 @@ integration("PostgreSQL migrations", () => {
       await previousRelease.end();
       await adminClient.query(`drop database if exists "${scratch}"`);
     }
+  }
+
+  // What a 0.1.5 database actually looks like: 0000 through 0012, the frozen
+  // list in AGENTS.md, and nothing after. This is the upgrade a real
+  // deployment performs, so it is the one that runs every unreleased
+  // migration in one startup. The number moves when a release ships and
+  // freezes more of the directory; the guard above fails rather than testing
+  // nothing if it is ever left equal to the whole journal.
+  it("applies every unreleased migration to a database left by 0.1.5", async () => {
+    await upgradesFrom(13, "upgrade_shipped");
+  });
+
+  // The narrower case, kept because it stays honest whatever ships next: a
+  // database missing only the newest migration gets exactly that one.
+  it("applies only the newest migration to a database missing just it", async () => {
+    const journal = JSON.parse(
+      readFileSync(new URL("../../drizzle/meta/_journal.json", import.meta.url), "utf8"),
+    ) as { entries: unknown[] };
+    await upgradesFrom(journal.entries.length - 1, "upgrade_newest");
   });
 
   it("can rerun startup migrations without changing the schema history", async () => {

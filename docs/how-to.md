@@ -204,7 +204,8 @@ stops being useful. Each step works on its own.
 
 A budget is a standing instruction: one line covers every month until you end
 it. December is allowed to be different. Press **Just this month** on the row
-to override a single period, and clear the override to fall back.
+to override a single period (once an override exists the button reads **Change
+this month**), and clear the override to fall back.
 
 Add categories one at a time as the numbers teach you something. A category
 you budgeted and never spent on still shows, at zero. That is usually the
@@ -218,7 +219,7 @@ more grocery money in April, and overspending carries forward too, as a debt
 the calendar does not forgive. This is the whole of "envelope budgeting".
 Money you did not spend stays earmarked instead of evaporating at month end.
 
-Once anything carries, the page shows **Left to assign**: what the accounts
+Once anything carries, the page says what is left to assign: what the accounts
 your budget is about hold, minus what the envelopes have already claimed.
 Getting that figure to zero is "zero-based budgeting", where every pound has a
 job. Two dials control whose money counts:

@@ -797,7 +797,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:27,68`; `src/server/scheduler.ts:67,74`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:73`). So the generous number is `--start-period`, currently
+(`docs/upgrades.md:78-79`). So the generous number is `--start-period`, currently
 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the shutdown
 deadline.
 
