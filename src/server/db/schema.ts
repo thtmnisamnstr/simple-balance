@@ -346,6 +346,12 @@ export const categories = pgTable(
     // group was a way of reading them, and removing it is not a reason to lose
     // what it was reading.
     index("category_group_idx").on(table.userId, table.groupId),
+    // For the SET NULL action itself. The foreign key is single-column (the
+    // 0016 comment says why the tenant cannot be in it), so its referential
+    // update runs `where group_id = $1` with no user_id — which the composite
+    // above, led by the tenant, cannot serve. Without this, every group
+    // delete sequentially scanned the whole cross-tenant category table.
+    index("category_group_reference_idx").on(table.groupId),
     check("category_version_check", sql`${table.version} >= 1`),
   ],
 );
@@ -799,6 +805,12 @@ export const stagedTransactions = pgTable(
       table.id,
     ),
     index("staged_user_import_batch_idx").on(table.userId, table.importBatchId),
+    // For the two NO ACTION foreign keys onto ledger_transaction. Deleting a
+    // transaction (an account deletion's cascade deletes thousands) makes
+    // PostgreSQL check both references per deleted row, and with no index the
+    // check is a sequential scan of the queue for every transaction removed.
+    index("staged_duplicate_of_reference_idx").on(table.userId, table.duplicateOfId),
+    index("staged_committed_reference_idx").on(table.userId, table.committedTransactionId),
     // Finding the rows that share a fingerprint is a grouped lookup.
     index("staged_user_duplicate_key_idx").on(table.userId, table.duplicateKey),
     // The same expression over the draft's payee, for the same reason: the

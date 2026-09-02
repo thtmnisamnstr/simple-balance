@@ -90,7 +90,11 @@ async function main() {
   const server = serve({
     fetch: health.fetch,
     port: config.port,
-    hostname: "0.0.0.0",
+    // Loopback outside production, exactly as the API entrypoint binds: this
+    // little server carries /metrics when metrics are on, and a development
+    // scheduler answering every interface publishes counters to whoever is on
+    // the network without anybody deciding that.
+    hostname: config.isProduction ? "0.0.0.0" : "127.0.0.1",
   });
   log.info(`Simple Balance scheduler listening on port ${config.port} for health checks only`);
 

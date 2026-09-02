@@ -122,6 +122,8 @@ export type AuthPublicOptions = {
   localRegistrationOpen: boolean;
   awaitingFirstAccount: boolean;
   setupTokenRequired: boolean;
+  /** The claim path would accept a code, so the form offers the field. */
+  setupTokenOffered: boolean;
   passwordResetAvailable: boolean;
   /** Whether this deployment can send mail at all, so reminders can arrive. */
   notificationsAvailable: boolean;
@@ -137,7 +139,8 @@ export type UserAuthState = {
   googleLinked: boolean;
 };
 
-export type Theme = "system" | "light" | "dark";
+import type { Theme } from "../shared/domain.js";
+export type { Theme } from "../shared/domain.js";
 
 export type Preferences = {
   userId: string;

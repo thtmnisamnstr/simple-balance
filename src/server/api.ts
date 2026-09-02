@@ -866,6 +866,11 @@ const authorizationServerMetadata = async (c: Context) => {
   discoveryHeaders(c);
   const response = await oAuthDiscoveryMetadata(getAuth())(c.req.raw);
   const metadata = (await response.json()) as Record<string, unknown>;
+  // Better Auth's document advertises a userinfo endpoint its MCP plugin
+  // never registers, so the URL answered 404 to any client that believed the
+  // discovery. The field is optional in OpenID discovery; a document that
+  // omits it is honest, and one that names a dead endpoint is not.
+  delete metadata.userinfo_endpoint;
   return c.json({ ...metadata, scopes_supported: authorizationServerScopes });
 };
 
@@ -889,9 +894,10 @@ app.get("/.well-known/oauth-authorization-server/mcp", authorizationServerMetada
 app.get("/.well-known/oauth-protected-resource/mcp/", protectedResourceMetadata);
 app.get("/.well-known/oauth-authorization-server/mcp/", authorizationServerMetadata);
 
-// This deployment issues id tokens and answers userinfo, so a client that
-// discovers the OpenID way rather than the OAuth way is asking a fair question
-// and gets the same answer.
+// This deployment issues id tokens, so a client that discovers the OpenID way
+// rather than the OAuth way is asking a fair question and gets the same
+// answer — minus the userinfo endpoint the handler strips, which Better Auth
+// advertises without registering.
 app.get("/.well-known/openid-configuration", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp/", authorizationServerMetadata);
@@ -928,10 +934,20 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
     const identity = await actorFromMcpSession(session);
     if (!identity) {
       await rejectRequestBody(c);
-      return new Response("Forbidden", {
-        status: 403,
-        headers: { Connection: "close" },
-      });
+      // JSON-RPC like every other refusal this endpoint sends: the 401 and
+      // the insufficient-scope error are structured, and a bare text/plain
+      // "Forbidden" was the one answer an MCP client could not parse.
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32000, message: "Forbidden: this token's user may not use the ledger" },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json", Connection: "close" },
+        },
+      );
     }
 
     c.req.raw = request;

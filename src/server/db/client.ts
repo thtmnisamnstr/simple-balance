@@ -84,6 +84,13 @@ export function getAuthBootstrapLockPool() {
       max: 1,
       connectionTimeoutMillis: 10_000,
     });
+    // Same handler the main pool has, for the same reason: an idle client's
+    // connection dropping emits 'error' on the pool, and unhandled that is an
+    // uncaught exception that takes the process down for a blip the next
+    // query would simply have retried through.
+    authBootstrapLockPool.on("error", (error) => {
+      log.failure("Idle auth bootstrap client error", error);
+    });
   }
   return authBootstrapLockPool;
 }

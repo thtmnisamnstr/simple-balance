@@ -395,8 +395,6 @@ export function normalizeCsvRows(
 
     const debitReadable = debitPresent && (bothColumnsMapped || !debit!.startsWith("-"));
     const creditReadable = creditPresent && (bothColumnsMapped || !credit!.startsWith("-"));
-    const signedDebit = debitReadable;
-    const signedCredit = creditReadable;
     let type: "deposit" | "withdrawal";
     let amount: string | null;
     if (mapping.amount && signedAmount) {
@@ -405,10 +403,10 @@ export function normalizeCsvRows(
     } else if (debitPresent && creditPresent) {
       type = "withdrawal";
       amount = null;
-    } else if (signedDebit) {
+    } else if (debitReadable) {
       type = "withdrawal";
       amount = debit!.replace(/^-/, "");
-    } else if (signedCredit) {
+    } else if (creditReadable) {
       type = "deposit";
       amount = credit!.replace(/^-/, "");
     } else {

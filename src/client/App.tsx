@@ -362,10 +362,17 @@ function SignIn({ error }: { error?: Error }) {
                 />
               </Field>
             ) : null}
-            {setup && options.data.setupTokenRequired ? (
-              <Field label="Setup code" hint="Copy this one-time code from the server startup logs">
+            {setup && (options.data.setupTokenRequired || options.data.setupTokenOffered) ? (
+              <Field
+                label="Setup code"
+                hint={
+                  options.data.setupTokenRequired
+                    ? "Copy this one-time code from the server startup logs"
+                    : "Only needed to claim this server with an address its allow list turns away. Copy it from the server startup logs; leave it blank otherwise."
+                }
+              >
                 <Input
-                  required
+                  required={options.data.setupTokenRequired}
                   name="setupToken"
                   autoComplete="one-time-code"
                   value={setupToken}

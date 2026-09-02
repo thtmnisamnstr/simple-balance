@@ -203,9 +203,9 @@
   `0011_user_theme.sql` and `0012_payee_normalized_indexes.sql` in 0.1.5.
   `0013_budget_plans_and_entries.sql`,
   `0014_budget_rollover_and_targets.sql`, `0015_budget_amount_rules.sql`,
-  `0016_category_groups.sql`, `0017_budget_perimeter.sql` and
-  `0018_incremental_taper.sql` and `0019_budget_target_pair.sql` are written and
-  unreleased, so they are the ones
+  `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
+  `0018_incremental_taper.sql`, `0019_budget_target_pair.sql` and
+  `0020_reference_indexes.sql` are written and unreleased, so they are the ones
   here that may still be regenerated; they freeze when they ship. `0016` is the
   one exception to the composite-key habit and says why in the schema: a
   category's group is a single-column reference, because `on delete set null`

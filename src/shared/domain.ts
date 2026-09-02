@@ -1080,7 +1080,12 @@ export const payeeListQuerySchema = z.object({
 });
 
 export const payeeSummarySchema = z.object({
-  name: payeeNameSchema,
+  // Looser than payeeNameSchema on purpose: this validates what is read BACK.
+  // A staged draft's payee is deliberately admitted raw — the queue is where
+  // a bad import goes to be fixed — so one staged row holding a control
+  // character must make that row's issues list longer, not break the whole
+  // payee listing for its owner at the read-validation step.
+  name: z.string().min(1).max(500),
   normalizedName: z.string().min(1).max(500),
   transactionCount: z.number().int().nonnegative(),
   stagedTransactionCount: z.number().int().nonnegative(),
@@ -1348,14 +1353,9 @@ export type BudgetGroupPolicy = (typeof budgetGroupPolicies)[number];
  */
 export const categoryGroupCreateSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(1)
-      .max(80)
-      .describe(
-        "What the group is called, as somebody would write it. Compared without case or spacing, so two spellings of one name are one group.",
-      ),
+    name: oneLine(z.string().trim().min(1).max(80)).describe(
+      "What the group is called, as somebody would write it. Compared without case or spacing, so two spellings of one name are one group.",
+    ),
     policy: z
       .enum(budgetGroupPolicies)
       .describe(
@@ -1366,7 +1366,9 @@ export const categoryGroupCreateSchema = z
 
 export const categoryGroupUpdateSchema = z
   .object({
-    name: z.string().trim().min(1).max(80).optional().describe("A new name. Left alone if absent."),
+    name: oneLine(z.string().trim().min(1).max(80))
+      .optional()
+      .describe("A new name. Left alone if absent."),
     policy: z
       .enum(budgetGroupPolicies)
       .optional()
@@ -1625,10 +1627,13 @@ const percentagesAreNumbersMessage = {
   path: ["percentOfIncome"],
 };
 
+// Both ends, because the database checks both: a floor-only refinement let a
+// mistyped 10000 pass Zod and die on the check constraint as a 500.
 const incomeShareIsAShare = (value: BudgetRuleFields) =>
-  value.percentOfIncome == null || Number(value.percentOfIncome) >= 0;
+  value.percentOfIncome == null ||
+  (Number(value.percentOfIncome) >= 0 && Number(value.percentOfIncome) <= 1000);
 const incomeShareIsAShareMessage = {
-  message: "A share of income cannot be negative.",
+  message: "A share of income is between 0 and 1000 per cent.",
   path: ["percentOfIncome"],
 };
 
@@ -1638,10 +1643,11 @@ const incomeShareIsAShareMessage = {
  * as a 500 with a stack trace for what is only ever a mistyped percentage.
  */
 const stepIsNotBelowNothing = (value: BudgetRuleFields) =>
-  value.percentOfPrevious == null || Number(value.percentOfPrevious) >= -100;
+  value.percentOfPrevious == null ||
+  (Number(value.percentOfPrevious) >= -100 && Number(value.percentOfPrevious) <= 1000);
 const stepIsNotBelowNothingMessage = {
   message:
-    "A step down of more than a hundred per cent would budget less than nothing. Use -100 to taper to zero.",
+    "A step is between -100 and 1000 per cent. A step down of more than a hundred per cent would budget less than nothing; use -100 to taper to zero.",
   path: ["percentOfPrevious"],
 };
 
@@ -2068,11 +2074,7 @@ const bulkTransactionPatchSchema = z
       .describe(
         "Moves every selected entry to this date. The correction is appended at the new date rather than written over the old postings, so any balance read between the two changes. A date after today counts toward no balance or cash flow until it arrives.",
       ),
-    payee: z
-      .string()
-      .trim()
-      .min(1, "Payee is required")
-      .max(160)
+    payee: oneLine(z.string().trim().min(1, "Payee is required").max(160))
       .optional()
       .describe(
         'Renames the payee on every selected row to this one, canonicalised against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
@@ -2092,20 +2094,14 @@ const bulkTransactionPatchSchema = z
       .describe(
         "Moves every selected entry to this account, on the side its type reads: destination for a deposit, source for a withdrawal. A selection holding a transfer is refused, and so is an account in another currency, since a bulk edit never re-denominates money.",
       ),
-    description: z
-      .string()
-      .trim()
-      .max(240)
+    description: freeText(z.string().trim().max(240))
       .nullable()
       .optional()
       .transform((value) => (value === "" ? null : value))
       .describe(
         "Replaces the description on every selected row; null, or an empty string, clears it. It overwrites rather than appends, so whatever each row said is gone. Leave the key out to keep what is there.",
       ),
-    notes: z
-      .string()
-      .trim()
-      .max(4_000)
+    notes: freeText(z.string().trim().max(4_000))
       .nullable()
       .optional()
       .transform((value) => (value === "" ? null : value))
@@ -2379,11 +2375,7 @@ const bulkStagePatchSchema = z
       .describe(
         "Sets the draft date on every selected row. Nothing posts, so no balance moves; this is the date the row carries when it is committed, and one dated ahead of today counts toward nothing until that day.",
       ),
-    payee: z
-      .string()
-      .trim()
-      .min(1, "Payee is required")
-      .max(160)
+    payee: oneLine(z.string().trim().min(1, "Payee is required").max(160))
       .optional()
       .describe(
         'Renames the payee on every selected row to this one, canonicalised against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
@@ -2403,20 +2395,14 @@ const bulkStagePatchSchema = z
       .describe(
         "Sets the account on every selected draft, on the side its type reads. A selection holding a transfer is refused, and so is a row that does not yet say which way the money went unless you set type in the same patch.",
       ),
-    description: z
-      .string()
-      .trim()
-      .max(240)
+    description: freeText(z.string().trim().max(240))
       .nullable()
       .optional()
       .transform((value) => (value === "" ? null : value))
       .describe(
         "Replaces the description on every selected row; null, or an empty string, clears it. It overwrites rather than appends, so whatever each row said is gone. Leave the key out to keep what is there.",
       ),
-    notes: z
-      .string()
-      .trim()
-      .max(4_000)
+    notes: freeText(z.string().trim().max(4_000))
       .nullable()
       .optional()
       .transform((value) => (value === "" ? null : value))
@@ -3150,7 +3136,7 @@ export const recurrenceUpdateSchema = z
     schedule: recurrenceSchedulePatchSchema
       .optional()
       .describe(
-        "When it comes round. Sent whole, like the shape: a schedule missing a field is a schedule that no longer has it, rather than one that kept it.",
+        "When it comes round. A field left out keeps what is stored — the patch is merged onto the saved schedule and the result re-checked whole — so send only what changes.",
       ),
     notifyOnCreate: recurrenceNotifySchema.optional(),
     expectedVersion: expectedVersionSchema,

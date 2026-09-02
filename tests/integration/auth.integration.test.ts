@@ -123,6 +123,9 @@ integration("embedded local authentication", () => {
       localRegistrationOpen: true,
       awaitingFirstAccount: true,
       setupTokenRequired: true,
+      // Required implies offered: the form shows the field either way, and
+      // this flag is what makes it optional on a list-mode claim.
+      setupTokenOffered: true,
       passwordResetAvailable: false,
       emailVerificationRequired: false,
       // Not gated on local auth, unlike the two above, but false here for the

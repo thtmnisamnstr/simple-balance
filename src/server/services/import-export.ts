@@ -235,38 +235,30 @@ function appExportDraft(row: Record<string, string>, accountId: string): CsvStag
       ],
     };
   }
+  // Parsed once and validated twice. The two schemas are deliberate — a
+  // reference that is too long or the wrong shape costs the reference and not
+  // the row's payee, description and notes, same rule as the split below —
+  // but the JSON.parse behind them is one string read one time.
+  const roundtripJson = (() => {
+    try {
+      return JSON.parse(row.roundtrip_text_json) as unknown;
+    } catch {
+      return null;
+    }
+  })();
   const protectedText = z
     .object({
       payee: z.string().trim().min(1).max(160),
       description: z.string().nullable(),
       notes: z.string().nullable(),
     })
-    .safeParse(
-      (() => {
-        try {
-          return JSON.parse(row.roundtrip_text_json);
-        } catch {
-          return null;
-        }
-      })(),
-    );
-  // Read on its own rather than widened into the object above, so a reference
-  // that is too long or the wrong shape costs the reference and not the row's
-  // payee, description and notes. Same rule as the split below.
+    .safeParse(roundtripJson);
   const roundtripExtras = z
     .object({
       externalId: z.string().max(200).nullable().optional(),
       categoryName: z.string().trim().min(1).max(120).nullable().optional(),
     })
-    .safeParse(
-      (() => {
-        try {
-          return JSON.parse(row.roundtrip_text_json);
-        } catch {
-          return null;
-        }
-      })(),
-    );
+    .safeParse(roundtripJson);
   const legs = parseExportedLegs(row[APP_CSV_LEGS_COLUMN]);
   // An unreadable split costs the split, not the row. Returning here threw away
   // the date, payee, amount and account the file stated perfectly clearly, and
@@ -284,8 +276,16 @@ function appExportDraft(row: Record<string, string>, accountId: string): CsvStag
       : [];
   const common = {
     date: row.date,
-    payee: protectedText.success ? protectedText.data.payee : row.payee,
-    description: protectedText.success ? protectedText.data.description : row.description || null,
+    // The fallbacks go through restoreNeutralizedCell like category_name and
+    // external_id beside them: a file written before the JSON column carries
+    // the neutraliser's apostrophe in its visible cells, and keeping it filed
+    // "'=SUM(...)" under a payee nobody typed.
+    payee: protectedText.success
+      ? protectedText.data.payee
+      : restoreNeutralizedCell(row.payee || ""),
+    description: protectedText.success
+      ? protectedText.data.description
+      : restoreNeutralizedCell(row.description || "") || null,
     // A split says which categories the money went to, one per leg, so the
     // row's single category is left off rather than sent alongside them.
     ...(legs
@@ -301,7 +301,9 @@ function appExportDraft(row: Record<string, string>, accountId: string): CsvStag
             (roundtripExtras.success ? roundtripExtras.data.categoryName : undefined) ??
             (cleanHumanName(restoreNeutralizedCell(row.category_name || "")) || null),
         }),
-    notes: protectedText.success ? protectedText.data.notes : row.notes || null,
+    notes: protectedText.success
+      ? protectedText.data.notes
+      : restoreNeutralizedCell(row.notes || "") || null,
     // Never the source ledger's own primary key, which means nothing here and
     // made the duplicate check key on a foreign identity.
     externalId:
@@ -795,7 +797,11 @@ export async function stageCsv(
       `CSV exceeds the ${maxRows}-row limit. A larger export can be filtered by date and imported one range at a time.`,
     );
   }
-  if (parsedCsv.errors.some((error) => error.code === "MissingQuotes")) {
+  if (
+    parsedCsv.errors.some(
+      (error) => error.code === "MissingQuotes" || error.code === "InvalidQuotes",
+    )
+  ) {
     throw validationError(
       "CSV contains malformed quoted data",
       // Through the same helper the preview uses, so an API caller and a person
