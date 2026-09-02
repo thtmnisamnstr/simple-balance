@@ -207,9 +207,11 @@ describe("editing staged fields in place", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Edit the category of Corner shop" }),
     );
-    const editor = screen.getByPlaceholderText(/type to search or add/i);
+    const editor = screen.getByLabelText("Category of Corner shop");
     fireEvent.change(editor, { target: { value: "Groceries" } });
-    fireEvent.keyDown(editor, { key: "Enter" });
+    // Blur, not Enter: the datalist's own pick lands on Enter, and committing
+    // on the keydown raced the picked value — so blur is the commit gesture.
+    fireEvent.blur(editor);
     await waitFor(() => expect(puts).toHaveLength(1));
     // The picker's contract carried through: a name that matches a live
     // category travels as its id, and the name key is settled to null so the
@@ -218,6 +220,34 @@ describe("editing staged fields in place", () => {
       draft: { categoryId: groceries.id, categoryName: null },
       expectedVersion: 4,
     });
+  });
+
+  it("writes nothing when the value did not change", async () => {
+    const puts = stubQueue();
+    renderStaging();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit the payee of Corner shop" }));
+    const editor = screen.getByPlaceholderText(/merchant, employer/i);
+    // Opened and left alone: a same-value blur must not bump the version,
+    // invalidate a bulk selection's fingerprint, or write an audit entry
+    // saying an edit happened.
+    fireEvent.blur(editor);
+    await screen.findByRole("button", { name: "Edit the payee of Corner shop" });
+    expect(puts).toHaveLength(0);
+  });
+
+  it("drops a stored categoryKind when the category is re-chosen inline", async () => {
+    const puts = stubQueue();
+    renderStaging();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Edit the category of Corner shop" }),
+    );
+    const editor = screen.getByLabelText("Category of Corner shop");
+    fireEvent.change(editor, { target: { value: "Groceries" } });
+    fireEvent.blur(editor);
+    await waitFor(() => expect(puts).toHaveLength(1));
+    // The stored kind was somebody's answer about the OLD name; riding along
+    // it would file a brand-new category on a side nobody chose here.
+    expect(puts[0]!.body).toMatchObject({ draft: { categoryKind: null } });
   });
 
   it("offers no category or amount editor on a split", async () => {

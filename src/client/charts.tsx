@@ -15,6 +15,14 @@ type Series = {
   key: string;
   label: string;
   values: string[];
+  /**
+   * Which colour this series keeps, when the list it came from can shrink.
+   * Colours were dealt by array position, so excluding one category from the
+   * categories report recoloured every line and swatch after it — the moment
+   * somebody most wants to compare before and after is the moment everything
+   * changed clothes. Left out, position still decides.
+   */
+  paint?: number;
 };
 
 type ChartProps = {
@@ -368,7 +376,7 @@ export function LineChart({ buckets, series, currency, title, bucket }: ChartPro
         {series.map((entry, index) => (
           <polyline
             key={entry.key}
-            className={`chart-line ${seriesClass(index)}`}
+            className={`chart-line ${seriesClass(entry.paint ?? index)}`}
             vectorEffect="non-scaling-stroke"
             points={entry.values
               .map(
@@ -423,7 +431,7 @@ export function BarChart({ buckets, series, currency, title, bucket }: ChartProp
             return (
               <rect
                 key={`${bucket.start}-${entry.key}`}
-                className={`chart-bar ${seriesClass(index)}`}
+                className={`chart-bar ${seriesClass(entry.paint ?? index)}`}
                 x={position * groupWidth + groupWidth * 0.15 + index * barWidth}
                 y={Math.min(top, baseline)}
                 width={barWidth}
@@ -447,7 +455,10 @@ export function ChartLegend({ series }: { series: Series[] }) {
     <ul className="chart-legend">
       {series.map((entry, index) => (
         <li key={entry.key}>
-          <span className={`chart-swatch ${seriesClass(index)}`} aria-hidden="true" />
+          <span
+            className={`chart-swatch ${seriesClass(entry.paint ?? index)}`}
+            aria-hidden="true"
+          />
           {entry.label}
         </li>
       ))}

@@ -541,7 +541,7 @@ describe("excluding categories from the categories report", () => {
     expect(footer).not.toHaveTextContent("$1,000.00");
 
     // Named where it can be undone, and undone.
-    fireEvent.click(screen.getByRole("button", { name: "Rent ×" }));
+    fireEvent.click(screen.getByRole("button", { name: "Put Rent back" }));
     expect(await screen.findByRole("rowheader", { name: /Rent/ })).toBeInTheDocument();
     const restored = screen.getByRole("rowheader", { name: "Total filed" }).closest("tr")!;
     expect(restored).toHaveTextContent("$1,000.00");

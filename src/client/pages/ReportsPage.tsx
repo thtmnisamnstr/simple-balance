@@ -62,7 +62,15 @@ export default function ReportsPage() {
    * Excluding the one huge category (rent, a tax bill) is what makes the
    * remaining lines readable, which is the whole reason it exists.
    */
-  const [excluded, setExcluded] = useState<Map<string, string>>(new Map());
+  const [exclusions, setExclusions] = useState<{ report: ReportName; map: Map<string, string> }>({
+    report,
+    map: new Map(),
+  });
+  // Derived, not effect-synced: a set left over from another visit to the
+  // categories tab must not silently thin THIS visit's rows either, so any
+  // report switch reads as empty and the state is re-keyed on the next write.
+  const excluded = exclusions.report === report ? exclusions.map : new Map<string, string>();
+  const setExcluded = (map: Map<string, string>) => setExclusions({ report, map });
   const excludable = report === "categories";
 
   const query = useQuery({
@@ -186,6 +194,7 @@ export default function ReportsPage() {
               key={key}
               type="button"
               className="link-button"
+              aria-label={`Put ${label} back`}
               onClick={() => {
                 const next = new Map(excluded);
                 next.delete(key);
@@ -236,6 +245,10 @@ export default function ReportsPage() {
               key: entry.key,
               label: entry.label,
               values: entry.values,
+              // The colour it had before anything was excluded, so a line
+              // does not change clothes at exactly the moment somebody is
+              // comparing the view with and without a category.
+              paint: currency.rows.indexOf(entry),
             }));
             return (
               <section className="panel" key={currency.currency}>
@@ -288,7 +301,11 @@ export default function ReportsPage() {
                     <tbody>
                       {rows.map((entry) => (
                         <tr key={entry.key}>
-                          <th scope="row">
+                          {/* Named as the label alone: content naming would
+                              read every rowheader as "Rent Actions for Rent",
+                              the menu's own label included. The menu button
+                              keeps its name for when it is reached. */}
+                          <th scope="row" aria-label={excludable ? entry.label : undefined}>
                             {excludable ? (
                               <span className="report-row-heading">
                                 <span>

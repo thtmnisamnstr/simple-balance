@@ -520,28 +520,52 @@ export default function StagingPage() {
   // the blur handler's closure still holds the pre-Escape state — so without
   // this, cancelling could commit. Set before the state change, read first.
   const inlineCancelled = useRef(false);
+  // Where focus goes when an editor closes. Commit, refusal and Escape all
+  // removed the focused element and stranded keyboard users on <body>; the
+  // trigger the editor replaced is the honest place to land.
+  const focusAfterInline = useRef<{ id: string; field: string } | null>(null);
+  useEffect(() => {
+    if (inline || !focusAfterInline.current) return;
+    const { id, field } = focusAfterInline.current;
+    focusAfterInline.current = null;
+    document.querySelector<HTMLButtonElement>(`[data-inline-trigger="${field}:${id}"]`)?.focus();
+  });
   const inlineMutation = useMutation({
-    mutationFn: ({ stage, draft }: { stage: StagedTransaction; draft: Record<string, unknown> }) =>
+    mutationFn: ({
+      stage,
+      draft,
+    }: {
+      stage: StagedTransaction;
+      draft: Record<string, unknown>;
+      field: "date" | "payee" | "category" | "amount";
+    }) =>
       api(`/api/v1/staged-transactions/${stage.id}`, {
         ...json({ draft, expectedVersion: stage.version }),
         method: "PUT",
       }),
-    onSuccess: async () => {
+    onSuccess: async (_result, variables) => {
       inlineInFlight.current = false;
-      setInline(null);
+      // Only the editor this write belongs to. A second cell opened while the
+      // PUT was in flight is somebody already doing the next thing, and
+      // closing it under them threw their keystrokes away.
+      setInline((current) => (current && current.id === variables.stage.id ? null : current));
       setInlineError("");
+      focusAfterInline.current = { id: variables.stage.id, field: variables.field };
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["categories"] }),
         queryClient.invalidateQueries({ queryKey: ["payees"] }),
       ]);
     },
-    // The editor closes either way: on a refusal the row still shows what the
-    // server holds, and the message says why the change did not take.
-    onError: (cause: Error) => {
+    // The editor closes either way: the message says why the change did not
+    // take, and the list refetches so the row shows what the server really
+    // holds — a version conflict means somebody else moved it.
+    onError: async (cause: Error, variables) => {
       inlineInFlight.current = false;
-      setInline(null);
+      setInline((current) => (current && current.id === variables.stage.id ? null : current));
       setInlineError(cause.message);
+      focusAfterInline.current = { id: variables.stage.id, field: variables.field };
+      await queryClient.invalidateQueries({ queryKey: ["staged"] });
     },
   });
   const commitInline = (
@@ -549,21 +573,41 @@ export default function StagingPage() {
     override?: { value?: string; categoryName?: string },
   ) => {
     if (!inline || inlineInFlight.current || inlineCancelled.current) return;
-    inlineInFlight.current = true;
     const value = override?.value ?? inline.value;
     const categoryName = override?.categoryName ?? inline.categoryName;
-    const draft = { ...(stage.draft as Record<string, unknown>) };
+    const source = stage.draft as Record<string, unknown>;
+    // Emptying a date or an amount in place reads as abandoning the edit, not
+    // as a request to erase the field: the modal is where a deliberate clear
+    // belongs, beside everything else the emptiness affects.
+    if ((inline.field === "date" || inline.field === "amount") && !value.trim()) {
+      cancelInline();
+      return;
+    }
+    const draft = { ...source };
     if (inline.field === "date") draft.date = value;
     if (inline.field === "payee") draft.payee = value;
     if (inline.field === "amount") draft.amount = value;
     if (inline.field === "category") {
       // The picker's contract: an id when the name matched a live category,
       // otherwise the name travels and the commit resolves or creates it.
-      // Both keys are settled here so the draft never carries two answers.
+      // Both keys are settled here so the draft never carries two answers —
+      // and a stored categoryKind goes, because it was somebody's answer
+      // about the OLD name, and riding along with a new one it would file a
+      // brand-new category on a side nobody chose here. Choosing a side for
+      // a new name is the modal's question.
       draft.categoryId = value || null;
       draft.categoryName = value ? null : categoryName.trim() || null;
+      draft.categoryKind = null;
     }
-    inlineMutation.mutate({ stage, draft });
+    // Nothing moved, nothing written: a same-value blur must not bump the
+    // version, invalidate a bulk selection's fingerprint, or add an audit
+    // entry saying an edit happened.
+    if (JSON.stringify(draft) === JSON.stringify(source)) {
+      cancelInline();
+      return;
+    }
+    inlineInFlight.current = true;
+    inlineMutation.mutate({ stage, draft, field: inline.field });
   };
   const openInline = (
     stage: StagedTransaction,
@@ -577,6 +621,7 @@ export default function StagingPage() {
   };
   const cancelInline = () => {
     inlineCancelled.current = true;
+    if (inline) focusAfterInline.current = { id: inline.id, field: inline.field };
     setInline(null);
   };
   const inlineFor = (stage: StagedTransaction, field: "date" | "payee" | "category" | "amount") =>
@@ -869,6 +914,7 @@ export default function StagingPage() {
                           type="button"
                           className="inline-edit"
                           aria-label={`Edit the date of ${payee}`}
+                          data-inline-trigger={`date:${stage.id}`}
                           onClick={() => openInline(stage, "date", date)}
                         >
                           {date
@@ -883,6 +929,7 @@ export default function StagingPage() {
                       {inlineFor(stage, "payee") ? (
                         <PayeeInput
                           autoFocus
+                          ariaLabel={`Payee of ${payee}`}
                           value={inline!.value}
                           onChange={(next: string) => setInline({ ...inline!, value: next })}
                           onCommit={(finalValue: string) =>
@@ -895,6 +942,7 @@ export default function StagingPage() {
                           type="button"
                           className="inline-edit"
                           aria-label={`Edit the payee of ${payee}`}
+                          data-inline-trigger={`payee:${stage.id}`}
                           onClick={() => openInline(stage, "payee", stagedString(draft.payee))}
                         >
                           <strong>{payee}</strong>
@@ -938,20 +986,19 @@ export default function StagingPage() {
                           // within it". The real control is the input inside;
                           // this wrapper only listens to events bubbling from
                           // it, which is the shape code/index.md's two named
-                          // jsx-a11y exceptions already carry.
+                          // jsx-a11y exceptions already carry. Enter is
+                          // deliberately NOT a commit here: picking from the
+                          // datalist lands on Enter too, and committing on
+                          // the keydown raced the picked value — creating a
+                          // category named by the half-typed prefix. Blur is
+                          // the commit gesture; Escape cancels.
                           role="presentation"
                           onBlur={(event) => {
-                            // Focus leaving the whole editor commits; moving
-                            // between the input and its list does not.
                             if (!event.currentTarget.contains(event.relatedTarget)) {
                               commitInline(stage);
                             }
                           }}
                           onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              commitInline(stage);
-                            }
                             if (event.key === "Escape") cancelInline();
                           }}
                         >
@@ -959,6 +1006,8 @@ export default function StagingPage() {
                             categories={categories.data ?? []}
                             categoryId={inline!.value}
                             categoryName={inline!.categoryName}
+                            ariaLabel={`Category of ${payee}`}
+                            autoFocus
                             onChange={(nextId: string, nextName: string) =>
                               setInline({ ...inline!, value: nextId, categoryName: nextName })
                             }
@@ -969,6 +1018,7 @@ export default function StagingPage() {
                           type="button"
                           className="inline-edit"
                           aria-label={`Edit the category of ${payee}`}
+                          data-inline-trigger={`category:${stage.id}`}
                           onClick={() =>
                             openInline(
                               stage,
@@ -1035,6 +1085,7 @@ export default function StagingPage() {
                           type="button"
                           className="inline-edit inline-edit-money"
                           aria-label={`Edit the amount of ${payee}`}
+                          data-inline-trigger={`amount:${stage.id}`}
                           onClick={() => openInline(stage, "amount", stagedString(draft.amount))}
                         >
                           {summary.amount && summary.currency ? (

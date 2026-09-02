@@ -300,11 +300,14 @@ export function PayeeInput({
   onChange,
   onCommit,
   onCancel,
+  ariaLabel,
   required = false,
   autoFocus = false,
 }: {
   value: string;
   onChange: (next: string) => void;
+  /** For the queue's inline cells, whose input has no <label> around it. */
+  ariaLabel?: string;
   /**
    * For the queue's click-to-edit cells, which have no Save button: called
    * with the final snapped spelling on blur or Enter. A form leaves both of
@@ -331,6 +334,7 @@ export function PayeeInput({
       <Input
         autoFocus={autoFocus}
         required={required}
+        aria-label={ariaLabel}
         list={listId}
         value={value}
         onChange={(event) => onChange(matching(event.target.value) ?? event.target.value)}
@@ -585,11 +589,16 @@ export function CategoryPicker({
   categoryId,
   categoryName,
   onChange,
+  ariaLabel,
+  autoFocus = false,
 }: {
   categories: Category[];
   categoryId: string;
   categoryName: string;
   onChange: (categoryId: string, categoryName: string) => void;
+  /** For the queue's inline cells, whose input has no <label> around it. */
+  ariaLabel?: string;
+  autoFocus?: boolean;
 }) {
   const listId = useId();
   const compatible = useMemo(
@@ -619,6 +628,8 @@ export function CategoryPicker({
     <div className="category-picker">
       <Input
         list={listId}
+        aria-label={ariaLabel}
+        autoFocus={autoFocus}
         value={categoryName}
         onChange={(event) => {
           const next = event.target.value;
@@ -1502,6 +1513,9 @@ export function TransactionForm({
       return {
         ...source,
         externalId: "",
+        // Provenance is the source's, not the copy's: this row was made by
+        // cloning, not by the template that made the original.
+        templateId: "",
         legs: source.legs.map((leg) => ({ ...leg, id: "" })),
       };
     }
