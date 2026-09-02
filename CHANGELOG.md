@@ -325,6 +325,79 @@ without a reason beside it.
 
 ### Fixed
 
+A whole-repository audit before this release ran seventy reviewers over every
+file and confirmed 112 defects; every one is fixed. The ones a person could
+have met:
+
+**The ledger's own counter-accounts obeyed writes.** Their ids are published
+to their owner by the trial balance, and a wrong version guess leaked the real
+one to retry with — from there a person could rename the income account, hand
+it an opening balance, archive it (which posts its whole balance to equity and
+re-shunts every later income posting the same way), or delete it. Every by-id
+account path now shares the read's exclusion: a counter-account answers
+not-found, before the version is even looked at.
+
+**A bulk edit could make refunds through the other field.** Patching a
+category that runs against the rows' direction was refused; patching a
+direction that runs against the rows' kept categories was not, so
+`patch: {type: "withdrawal"}` over deposits carrying income categories flipped
+every row into a refund silently. Both halves of the pair refuse now.
+
+**Merges left standing references behind.** A category merge rewrote
+transactions, staged rows, recurrences and budgets, then hard-deleted the
+source out from under template drafts, leaving templates that cannot be saved
+or used. A payee merge rewrote neither standing reference, so a recurrence
+re-created the merged-away spelling on its next occurrence and the merge
+undid itself on a schedule. Both merges rewrite both now, audited like the
+rest.
+
+**Budget arithmetic, four ways.** A sinking fund accepted a carry cap below
+its own target and the cap then discarded each period's saving; the pair is
+refused with the way out named. "Left to assign" netted a group envelope's
+claim against members that claim nothing and came back overstated. A
+share-of-income budget's first period always read zero because the income
+query never looked one period back. And the forecast projected an incremental
+budget flat at its base while the report compounded it, so the two surfaces
+answered the same month with different figures — the projection compounds now,
+counts a cross-currency arrival as an occurrence, and names the period units
+it did not read instead of counting them as nothing intended.
+
+**The queue and the browser, in smaller ways.** The staged list's search
+matched JSON keys, so searching "date" matched every row; its account filter
+matched a UUID anywhere in the draft; both filters read the real fields now.
+Links that promise rows — the post-import review link, the recurrence
+waiting-count — pin the date range that makes those rows visible instead of
+opening a this-month queue that hides them. Removing a middle split leg no
+longer leaves focus on a button that deletes its neighbour. A refused group
+rename no longer stays on screen looking accepted. Restoring an archived
+account asks before it moves money, exactly as archiving always did. The
+category picker no longer snaps a typed name onto an archived category's id
+the server then refuses — the name travels, and revives it, by design. Ledger
+writes refresh the budgets page instead of leaving it stale. Timestamps on
+Activity and connected agents render where you live, not where the browser
+happens to be. And a template holding a cross-currency transfer keeps its
+received amount through the browser's editor instead of losing it on every
+save; the recurrence form now refuses the mixed split the commit would have
+refused every month for ever.
+
+**Quietly wrong plumbing.** Better Auth's own rate-limit sweeper deleted the
+shared brute-force tally ten seconds into its fifteen-minute window; the rows
+now carry their expiry and survive it. A reminder whose relay refused the
+message counted as neither sent nor failed while its occurrence was already
+consumed; refusals count and warn. A malformed recurrence leg amount was a 500
+instead of a validation message. Every catch that logged a database error
+whole — whose message embeds someone's payees and amounts — goes through the
+narrowing logger. And the deferred category kind on a CSV split rode on the
+row, one slot for two answers, so one split naming two new categories gave
+whichever vote wrote last to both.
+
+**Deployment.** The GCP program selected the GKE ingress controller through a
+field GKE ignores, so no load balancer was ever provisioned; the class travels
+as the annotation GKE reads. The EKS program enabled three autoscalers with no
+metrics-server to feed them; it ships one. The Helm chart's third line-up rule
+(upload size versus CSV limit) is now really checked at render time. Three new
+indexes back the referential actions that scanned whole tables.
+
 The list of dates on a recurrence form could go on describing a schedule that
 was no longer on screen. It walked the rule the parser produced while its
 dependency array named the raw fields, and those are not the same set: an

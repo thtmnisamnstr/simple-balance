@@ -1,7 +1,9 @@
 # Using it
 
 What each part of Simple Balance is for, and the decisions behind the ones that
-are not obvious. Read it end to end once, or jump to what you are doing.
+are not obvious. Read it end to end once, or jump to what you are doing. For
+step-by-step instructions — which buttons, in what order, and a budgeting
+walkthrough that starts from nothing — see [How to use it](how-to.md).
 
 - [Accounts and transactions](#accounts-and-transactions)
 - [Splitting one receipt across categories](#splitting-one-receipt-across-categories)

@@ -51,7 +51,8 @@ able to do anything dangerous, or get around the step where you check its work.
 - Email and password, Google, or both, and any number of people on one
   deployment, each with their own separate books
 
-There is a walkthrough of all of it in [the guide](docs/guide.md).
+[How to use it](docs/how-to.md) is the step-by-step manual, budgeting
+included; [the guide](docs/guide.md) explains the decisions behind it.
 
 ## Run it locally
 
@@ -236,6 +237,8 @@ why, market prices among it. Tags are neither built nor planned.
 
 ## More
 
+- [How to use it](docs/how-to.md): step-by-step instructions, from the first
+  account to a full budget
 - [Guide](docs/guide.md): every feature, and the decisions behind the ones that
   are not obvious
 - [Architecture](docs/architecture.md): how it fits together, and what the ledger
