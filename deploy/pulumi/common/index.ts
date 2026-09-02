@@ -190,7 +190,14 @@ export interface AppArgs {
   provider: k8s.Provider;
   settings: Settings;
   issuerName: string;
-  ingressClassName: string;
+  /**
+   * Left out for a controller that does not read `spec.ingressClassName`.
+   * GKE's built-in controller is one: it honours only the legacy
+   * `kubernetes.io/ingress.class` annotation, so the GCP program passes the
+   * annotation instead and omits this — a class name here selected nothing,
+   * and no load balancer was ever provisioned.
+   */
+  ingressClassName?: string;
   ingressAnnotations?: Record<string, pulumi.Input<string>>;
   dependsOn?: pulumi.Resource[];
 }

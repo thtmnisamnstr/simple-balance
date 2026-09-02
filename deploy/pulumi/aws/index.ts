@@ -8,6 +8,7 @@ import * as sb from "../common";
 const loadBalancerControllerVersion = "3.5.0";
 const ingressNginxVersion = "4.15.1";
 const clusterAutoscalerVersion = "9.59.0";
+const metricsServerVersion = "3.14.0";
 
 const settings = sb.readSettings();
 
@@ -370,6 +371,29 @@ const clusterAutoscaler = new k8s.helm.v3.Release(
   { provider: k8sProvider, dependsOn: [nodeGroup] },
 );
 
+// The chart's HorizontalPodAutoscalers read CPU and memory through the metrics
+// API, and a stock EKS cluster does not serve it — GKE ships this as an addon,
+// EKS leaves it to be installed. Without it all three HPAs the common program
+// enables sit at "unknown" and nothing ever scales, silently.
+const metricsServer = new k8s.helm.v3.Release(
+  "metrics-server",
+  {
+    name: "metrics-server",
+    chart: "metrics-server",
+    version: metricsServerVersion,
+    repositoryOpts: { repo: "https://kubernetes-sigs.github.io/metrics-server/" },
+    namespace: "kube-system",
+    values: {
+      resources: {
+        requests: { cpu: "50m", memory: "100Mi" },
+        limits: { cpu: "100m", memory: "200Mi" },
+      },
+    },
+    timeout: 600,
+  },
+  { provider: k8sProvider, dependsOn: [nodeGroup] },
+);
+
 // An ALB can only serve a certificate that lives in ACM, and cert-manager
 // issues into a Kubernetes Secret. So the load balancer controller does what it
 // is good at here, which is putting a network load balancer in front of a
@@ -424,7 +448,7 @@ const app = sb.simpleBalance({
   settings,
   issuerName: certManager.issuerName,
   ingressClassName: "nginx",
-  dependsOn: [certManager.clusterIssuer, ingressNginx, clusterAutoscaler],
+  dependsOn: [certManager.clusterIssuer, ingressNginx, clusterAutoscaler, metricsServer],
 });
 
 // Read back rather than exported from the release, because the address is the

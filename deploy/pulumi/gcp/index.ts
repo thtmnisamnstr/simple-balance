@@ -211,8 +211,11 @@ const app = sb.simpleBalance({
   provider: k8sProvider,
   settings,
   issuerName: certManager.issuerName,
-  ingressClassName: "gce",
   ingressAnnotations: {
+    // The legacy annotation, not spec.ingressClassName: GKE's built-in
+    // controller ignores the field, so a class set only there provisions no
+    // load balancer and the deployment never gets an address.
+    "kubernetes.io/ingress.class": "gce",
     "kubernetes.io/ingress.global-static-ip-name": ingressAddress.name,
     // Explicit because the HTTP-01 challenge is answered over plain HTTP, on
     // this Ingress, every time the certificate is renewed.

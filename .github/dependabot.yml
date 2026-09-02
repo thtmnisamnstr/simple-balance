@@ -69,6 +69,23 @@ updates:
   # until it is done rather than letting an image ship claiming a base it was
   # not built on, so the pull request says what is left to do instead of being
   # merged half-finished.
+  # Its own entry rather than a third directory above: the Pulumi programs are
+  # a separate npm project with a separate lockfile, nothing mirrors them, and
+  # their pins are exact — a pin nothing watches is a base image that ages
+  # in place, and the same holds for a provider SDK.
+  - package-ecosystem: npm
+    directories:
+      - "/deploy/pulumi"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      pulumi:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: docker
     directories:
       - "/"

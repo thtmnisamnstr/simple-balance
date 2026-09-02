@@ -21,8 +21,9 @@ name: simple-balance-distributed
 # The node processes bind 3000 as the `node` user and nginx binds 8080 as uid
 # 101, all unprivileged ports, and no setuid binary is involved, so dropping
 # every capability costs nothing and no-new-privileges closes the other route a
-# container escape usually takes. The chart says the same in Kubernetes spelling
-# at deploy/helm/simple-balance/values.yaml:206-213.
+# container escape usually takes. The chart says the same in Kubernetes
+# spelling in each tier's podSecurityContext and containerSecurityContext
+# blocks (deploy/helm/simple-balance/values.yaml, `runAsNonRoot` onward).
 x-hardening: &hardening
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]

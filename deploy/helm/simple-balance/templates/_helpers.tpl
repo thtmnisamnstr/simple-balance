@@ -191,6 +191,27 @@ this project has published.
 {{- if not (eq (empty $c.mail.host) (empty $c.mail.from)) }}
 {{- fail "config.mail.host and config.mail.from are set together or not at all. Half a mail configuration is a deployment that believes it can send a password reset and cannot." }}
 {{- end }}
+{{/*
+The third line-up rule, checked like the other two rather than trusted to a
+comment: a CSV travels as a JSON string, so the API's body limit on the import
+routes is csvMaxBytes x 6 plus 64 KiB, and nginx has to accept at least that or
+an import inside the documented limit dies at the proxy with a 413 the API
+never sees.
+*/}}
+{{- $upload := .Values.frontend.maxUploadSize | toString | lower }}
+{{- if not (regexMatch "^[0-9]+[kmg]?$" $upload) }}
+{{- fail (printf "frontend.maxUploadSize must be an nginx size such as 61m. Got %q." $upload) }}
+{{- end }}
+{{- $uploadDigits := regexFind "^[0-9]+" $upload | int64 }}
+{{- $uploadUnit := regexFind "[kmg]$" $upload }}
+{{- $uploadBytes := $uploadDigits }}
+{{- if eq $uploadUnit "k" }}{{- $uploadBytes = mul $uploadDigits 1024 }}{{- end }}
+{{- if eq $uploadUnit "m" }}{{- $uploadBytes = mul $uploadDigits 1048576 }}{{- end }}
+{{- if eq $uploadUnit "g" }}{{- $uploadBytes = mul $uploadDigits 1073741824 }}{{- end }}
+{{- $csvBodyBytes := add (mul (int64 $c.csvMaxBytes) 6) 65536 }}
+{{- if lt (int64 $uploadBytes) $csvBodyBytes }}
+{{- fail (printf "frontend.maxUploadSize (%s) is below what config.csvMaxBytes needs: a CSV travels as a JSON string, so the API accepts up to %d bytes on the import routes and nginx must too. Raise frontend.maxUploadSize to at least that." $upload (int64 $csvBodyBytes)) }}
+{{- end }}
 {{- if .Values.secret.create }}
 {{- if not .Values.secret.databaseUrl }}
 {{- fail "secret.databaseUrl is required when secret.create is true. The database is bring your own; nothing in this chart provisions one." }}

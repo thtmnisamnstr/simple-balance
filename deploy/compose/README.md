@@ -135,8 +135,11 @@ policies. The differences here are the ones a single machine forces:
   should take one command.
 - The chart runs two API replicas and one scheduler; this runs one API and two
   schedulers, which is the arrangement that shows the scheduler dividing work.
-- nginx gets `SIGQUIT` here rather than the chart's preStop hook, because
-  `docker compose down` sends `SIGTERM`, which nginx reads as a *fast* shutdown.
+- nginx's graceful stop is stated as `stop_signal: SIGQUIT` rather than the
+  chart's preStop hook. The image already declares SIGQUIT and compose would
+  honour that, but the reason the frontend can stop without cutting a response
+  is worth stating where somebody reading the file will find it — nginx reads
+  SIGQUIT as a graceful shutdown and SIGTERM as a fast one.
 - The tmpfs mounts carry `uid=101`, which the chart's emptyDirs do not need.
   Docker gives a tmpfs the mode of the directory it covers and leaves it owned
   by root, and an unwritable `/etc/nginx/conf.d` means the entrypoint never
