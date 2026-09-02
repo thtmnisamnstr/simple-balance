@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { todayIn } from "../../src/shared/recurrence-dates.js";
 
 /**
  * The budgets page, in a browser, through the real API.
@@ -15,6 +16,31 @@ import { expect, test, type Page } from "@playwright/test";
  * So these specs assert what the screen says after a round trip, and in two
  * places what actually went over the wire.
  */
+
+/**
+ * Dates derived from today, never typed. The story spends money and reads the
+ * default this-month report, and a spend hard-coded to August fell out of the
+ * range the day the clock crossed into September: the suite was green for a
+ * month and then red with no diff. Spending happens today; the standing budget
+ * starts mid-way through LAST month, so it covers this month and still
+ * exercises the snapping rule the second test is about.
+ */
+const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const today = todayIn(timezone);
+const monthNameOf = (isoDate: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${isoDate.slice(0, 7)}-01T00:00:00Z`));
+const currentMonthName = monthNameOf(today);
+const lastMonthStart = (() => {
+  const [year, month] = today.split("-").map(Number) as [number, number];
+  const index = year * 12 + (month - 1) - 1;
+  return `${String(Math.floor(index / 12)).padStart(4, "0")}-${String((index % 12) + 1).padStart(2, "0")}-01`;
+})();
+const lastMonthMid = `${lastMonthStart.slice(0, 8)}14`;
+const lastMonthName = monthNameOf(lastMonthStart);
 
 const account = `Checking ${Date.now()}`;
 const groceries = `Groceries ${Date.now()}`;
@@ -131,14 +157,14 @@ test.describe("the budgets page in a browser", () => {
       .first()
       .fill("200.00");
     await page.getByLabel(/^Currency/).selectOption("GBP");
-    await page.getByLabel(/^Starting/).fill("2026-08-14");
+    await page.getByLabel(/^Starting/).fill(lastMonthMid);
     await page.getByRole("button", { name: /^set budget$/i }).click();
 
     await expect(page.getByText(/budgeting £200\.00/i)).toBeVisible();
-    // The standing budgets table names August, not 2026-08-01.
+    // The standing budgets table names the month, not the raw stored date.
     const standing = page.getByRole("table", { name: /standing budgets/i });
-    await expect(standing.getByText(/August 2026 onward/)).toBeVisible();
-    await expect(standing.getByText("2026-08-01")).toHaveCount(0);
+    await expect(standing.getByText(new RegExp(`${lastMonthName} onward`))).toBeVisible();
+    await expect(standing.getByText(lastMonthStart)).toHaveCount(0);
   });
 
   test("shows the budget against real spending, and marks the month unfinished", async () => {
@@ -156,7 +182,7 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("textbox", { name: /^Amount/ })
       .first()
       .fill("45.00");
-    await form.getByRole("textbox", { name: /^Date/ }).fill("2026-08-03");
+    await form.getByRole("textbox", { name: /^Date/ }).fill(today);
     await form.getByRole("combobox", { name: "Payee" }).fill("Corner shop");
     await form.getByPlaceholder(/type to search or add/i).fill(groceries);
     await form.getByRole("button", { name: /^Commit transaction$/ }).click();
@@ -192,7 +218,7 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("textbox", { name: /^Amount/ })
       .first()
       .fill("12.00");
-    await form.getByRole("textbox", { name: /^Date/ }).fill("2026-08-05");
+    await form.getByRole("textbox", { name: /^Date/ }).fill(today);
     await form.getByRole("combobox", { name: "Payee" }).fill("Corner shop refund");
     // The picker must offer a spending category on a deposit at all. It used to
     // hide it, which is how a refund was impossible to enter.
@@ -221,7 +247,7 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("textbox", { name: /^Amount/ })
       .first()
       .fill("3.00");
-    await second.getByRole("textbox", { name: /^Date/ }).fill("2026-08-06");
+    await second.getByRole("textbox", { name: /^Date/ }).fill(today);
     await second.getByRole("combobox", { name: "Payee" }).fill("Second refund");
     await second.getByPlaceholder(/type to search or add/i).fill(groceries);
     await second.getByRole("button", { name: /^Commit transaction$/ }).click();
@@ -269,7 +295,7 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("textbox", { name: /^Amount/ })
       .first()
       .fill("80.00");
-    await form.getByRole("textbox", { name: /^Date/ }).fill("2026-08-06");
+    await form.getByRole("textbox", { name: /^Date/ }).fill(today);
     await form.getByRole("combobox", { name: "Payee" }).fill("Card shop");
     await form.getByPlaceholder(/type to search or add/i).fill(groceries);
     await form.getByRole("button", { name: /^Commit transaction$/ }).click();
@@ -327,7 +353,7 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("textbox", { name: /^Amount/ })
       .first()
       .fill("50.00");
-    await form.getByRole("textbox", { name: /^Date/ }).fill("2026-08-07");
+    await form.getByRole("textbox", { name: /^Date/ }).fill(today);
     await form.getByRole("combobox", { name: "Payee" }).fill("Mixed split");
     await form.getByRole("button", { name: /split/i }).click();
 
@@ -350,7 +376,9 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("row", { name: new RegExp(groceries) });
     await row.getByRole("button", { name: /just this month/i }).click();
 
-    const dialog = page.getByRole("dialog", { name: new RegExp(`${groceries}, August 2026`) });
+    const dialog = page.getByRole("dialog", {
+      name: new RegExp(`${groceries}, ${currentMonthName}`),
+    });
     await dialog.getByLabel(/^Amount/).fill("300.00");
     await dialog.getByRole("button", { name: /^save$/i }).click();
 
@@ -358,12 +386,12 @@ test.describe("the budgets page in a browser", () => {
     await expect(row.getByText(/this month only/i)).toBeVisible();
     // Listed where it can be found again, rather than only on the month it changed.
     await expect(page.getByRole("table", { name: /amounts set for one period/i })).toContainText(
-      "August 2026",
+      currentMonthName,
     );
 
     await row.getByRole("button", { name: /change this month/i }).click();
     await page
-      .getByRole("dialog", { name: new RegExp(`${groceries}, August 2026`) })
+      .getByRole("dialog", { name: new RegExp(`${groceries}, ${currentMonthName}`) })
       .getByRole("button", { name: /use the standing budget/i })
       .click();
     await expect(row).toContainText("£200.00");
@@ -730,7 +758,7 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("textbox", { name: /^Amount/ })
       .first()
       .fill("7.00");
-    await spend.getByRole("textbox", { name: /^Date/ }).fill("2026-08-07");
+    await spend.getByRole("textbox", { name: /^Date/ }).fill(today);
     await spend.getByRole("combobox", { name: "Payee" }).fill("Nowhere in particular");
     await spend.getByPlaceholder(/type to search or add/i).fill(unnamed);
     await spend.getByRole("button", { name: /^Commit transaction$/ }).click();
