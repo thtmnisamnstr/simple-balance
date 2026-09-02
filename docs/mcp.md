@@ -247,7 +247,7 @@ writes an audit event for the deletion. It happens on `update_transaction`,
 `bulk_edit_staged_transactions`, and only for a category the edit itself moved
 off: one that was already standing empty is left alone, so a category made ahead
 of time survives. Anything else still naming it keeps it — another transaction, a
-staged row, a recurrence, or a template — and a caller holding only
+staged row, a recurrence, a template, or a budget — and a caller holding only
 `ledger:stage` never triggers it, on the same rule that stops that scope creating
 a category. If you cached a category id before an edit, read it back afterwards
 rather than assuming it is still there.

@@ -95,4 +95,22 @@ describe("testing.md file counts", () => {
     // want of a database it should not need — reads as a healthy green run.
     expect(skipped!).toBeLessThanOrEqual(integration.length);
   });
+
+  it("counts the browser tier the way 1.2 says it is sized", () => {
+    // The prose said eleven while the file held eighteen, and nothing noticed:
+    // this section's whole argument is "small on purpose", so the number in it
+    // is a claim about restraint and has to be the real one.
+    const spec = readFileSync(path.join(repoRoot, "tests/browser/budgets.spec.ts"), "utf8");
+    const tests = [...spec.matchAll(/^\s*test\("/gm)].length;
+    const words: Record<number, string> = {
+      11: "Eleven",
+      18: "Eighteen",
+      19: "Nineteen",
+      20: "Twenty",
+      21: "Twenty-one",
+    };
+    expect(guide, `the browser tier holds ${tests} tests`).toContain(
+      `${words[tests] ?? String(tests)} tests, one file, one worker`,
+    );
+  });
 });

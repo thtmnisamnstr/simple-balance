@@ -505,7 +505,7 @@ Secret is consumed through `envFrom` too
 chart declares no volume or volume mount on either workload, so the file has to
 be placed by something else and named through `config.extraEnv`. The compose
 file writes `DATABASE_URL` inline and makes `AUTH_SECRET` a required
-interpolation (`deploy/compose/compose.distributed.yml:45`, `:60`), so both have
+interpolation (`deploy/compose/compose.distributed.yml:48`, `:63`), so both have
 to be edited out first. A plain `docker run` reaches the form with a bind mount
 and nothing else, which is the path `README.md` documents. The application
 supports it everywhere; the two orchestrated paths this section argues from do
@@ -679,7 +679,7 @@ reason.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT` and `SB_MAX_UPLOAD_SIZE`
 (`docs/deployment.md:528-530`) belong to the nginx container, and neither example
 file configures it: the root file serves the single container, which has no
 nginx in it, and the compose recipe sets all three on the frontend service
-itself (`deploy/compose/compose.distributed.yml:196-200`), where a value can
+itself (`deploy/compose/compose.distributed.yml:199-203`), where a value can
 carry the reason it is what it is. Their defaults are in the image
 (`deploy/docker/frontend.Dockerfile:49-54`), so a deployment that changes none of
 them has nothing to write down. This is the same shape as `POSTGRES_PASSWORD`
@@ -739,7 +739,7 @@ absent because the bases were pinned by tag, and pinning by digest was refused
 while nothing watched Docker: `.github/dependabot.yml` covered npm and GitHub
 Actions only, so a pin would have frozen `node:24-alpine` on the day somebody
 typed it. That is the objection the fix has to answer rather than route around,
-so the watcher came first. `.github/dependabot.yml:60-83` now watches Docker over
+so the watcher came first. `.github/dependabot.yml:89-104` now watches Docker over
 both directories, grouped into one pull request because all four images share a
 base and four bumps of one digest is four reviews of one decision.
 
@@ -794,7 +794,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:27,68`; `src/server/scheduler.ts:67,74`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:23`). So the generous number is `--start-period`, currently
+(`docs/upgrades.md:73`). So the generous number is `--start-period`, currently
 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the shutdown
 deadline.
 
@@ -986,7 +986,7 @@ which is the case most implementations miss and the one that makes Ctrl-C twice
 behave the way a person expects. The compose file sets
 `stop_grace_period: 30s` with a comment saying it is "Longer than the 10s drain
 the process gives itself on SIGTERM (DEFAULT_SHUTDOWN_DEADLINE_MS), so it is not
-killed mid-drain" (`deploy/compose/compose.distributed.yml:154-156`), and the
+killed mid-drain" (`deploy/compose/compose.distributed.yml:157-159`), and the
 chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:217`).
 

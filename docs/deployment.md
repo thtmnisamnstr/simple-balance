@@ -172,7 +172,7 @@ consistent with the existing refusal when `SMTP_USERNAME` is set without
 you to expect while rotating a mail secret.
 
 And the shipped deployment paths do not use the form yet, so on both of them it
-takes work you do yourself. The Helm chart in `deploy/helm` writes all six into
+takes work you do yourself. The Helm chart in `deploy/helm` writes all seven into
 a Secret that reaches both workloads through `envFrom`, and it has no volume or
 volume-mount values of its own, so `secret.create=false` is not enough on its
 own: an existing Secret is still consumed through `envFrom`. Something outside

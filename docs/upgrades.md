@@ -8,15 +8,18 @@ keep, so upgrading is swapping it for a newer one.
 Nothing refuses to start that 0.1.5 accepted, and nothing about an existing
 configuration has to change. Four things are worth knowing.
 
-**Five migrations run at startup, and they only add.** They create the budget
-tables, the category-group table and the types they use, and they add columns to
-`budget_plan`, `budget_entry`, `category` and `ledger_account` — every one of
-them nullable or with a default, so no existing row is rewritten and nothing is
-backfilled. The pause is the length of a handful of `create table` and `alter
-table ... add column` statements whatever the size of your ledger. The one new
-column on an existing table anybody will notice is `ledger_account.in_budget`,
-which defaults to true: every account you already have is inside the budget's
-perimeter, which is what the budget page assumes until you say otherwise.
+**Eight migrations run at startup, and none rewrites a row.** They create the
+budget tables, the category-group table and the types they use; they add
+columns to `budget_plan`, `budget_entry`, `category` and `ledger_account` —
+every one nullable or with a default, so nothing is backfilled; they add
+indexes; and two of them swap a check constraint on the new budget tables for
+a wider one, which touches no data because the tables the checks sit on ship
+in this same release. The pause is the length of a handful of `create table`,
+`alter table` and `create index` statements whatever the size of your ledger.
+The one new column on an existing table anybody will notice is
+`ledger_account.in_budget`, which defaults to true: every account you already
+have is inside the budget's perimeter, which is what the budget page assumes
+until you say otherwise.
 
 **Two settings that used to be refused are now warnings.** A bounded integer out
 of range — `CSV_MAX_ROWS=50000`, `DATABASE_POOL_SIZE=0`, an empty

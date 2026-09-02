@@ -176,7 +176,7 @@ codebase rather than about accessibility:
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
-src/client/forms.tsx:506`, and both that and `click-events-have-key-events` at
+`src/client/forms.tsx:506`, and both that and `click-events-have-key-events` at
 `src/client/components.tsx:497`. Both are elements catching events that bubble
 from real controls inside them.
 

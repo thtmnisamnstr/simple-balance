@@ -285,7 +285,7 @@ import. Importing a EUR export into a USD account produces USD rows, and the
 file cannot stop it, because the alternative is a ledger inventing an account it
 was not given.
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:666` for the
+*Checked by:* `tests/integration/import-export.integration.test.ts:667` for the
 account half. The currency half follows from it and has no test of its own.
 
 ### Empty and zero
@@ -338,7 +338,7 @@ install resolves none of. `transaction_id` is the same, and the comment at
 not treated that way, which is that the duplicate check keyed on a foreign
 ledger's primary key.
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:666`, which
+*Checked by:* `tests/integration/import-export.integration.test.ts:667`, which
 imports an export into a different account and asserts the rows land there
 rather than in the account the file names.
 
@@ -371,7 +371,7 @@ defines format evolution, so this is our own invention. The rules for it:
 Today the token is `simple-balance-csv-1` (`src/shared/csv.ts:5`).
 
 *Not checked mechanically.* Nothing pins `APP_CSV_FORMAT` against a change made
-for an additive reason. `tests/integration/import-export.integration.test.ts:629`
+for an additive reason. `tests/integration/import-export.integration.test.ts:630`
 asserts the current literal in passing, and the recognition-set test at
 `tests/integration/csv-roundtrip-fidelity.integration.test.ts:217-237` catches a
 new required column, but neither would notice a token bump the rules above
@@ -414,7 +414,7 @@ threw away a date, payee, amount and account the file had stated perfectly
 clearly.
 
 *Checked by:* `tests/integration/splits-roundtrip.integration.test.ts:105-163`,
-`tests/integration/import-export.integration.test.ts:788` ("stages a row whose
+`tests/integration/import-export.integration.test.ts:789` ("stages a row whose
 split cannot be read, without the split").
 
 **Multi-currency.** A cross-currency transfer exports both amounts and the rate
@@ -428,7 +428,7 @@ right refusal. A rate is a fact about a movement, not a preference.
 **Binding.** `AGENTS.md`: "Preserve audit history, transaction provenance, and
 cross-currency CSV round trips."
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:600` ("marks
+*Checked by:* `tests/integration/import-export.integration.test.ts:601` ("marks
 exports explicitly and asks for both accounts of a transfer"), which exports a
 110 EUR-for-100 transfer and reads it back. Only the export half. Nothing
 commits a restored cross-currency transfer into two accounts of different
@@ -459,7 +459,7 @@ install, then commit the queue. **Preserved:**
 - The split, leg by leg, by category name, with each leg's note.
 
 *Checked by:* `tests/integration/csv-roundtrip-fidelity.integration.test.ts` end
-to end, and `tests/integration/import-export.integration.test.ts:841` ("lets a
+to end, and `tests/integration/import-export.integration.test.ts:842` ("lets a
 different person import an export of someone else's ledger").
 
 **Deliberately not preserved:**
@@ -545,8 +545,8 @@ they are reached from, including a CSV import." A `ledger:stage` caller gets
 came with. The commit, which needs `ledger:write` anyway, is what makes the
 category.
 
-*Checked by:* `tests/integration/import-export.integration.test.ts:141`, `:332`
-(concurrent creation of the same normalized name), `:514` (never resolved
+*Checked by:* `tests/integration/import-export.integration.test.ts:142`, `:333`
+(concurrent creation of the same normalized name), `:515` (never resolved
 through another tenant), and
 `tests/integration/mcp-scope-boundaries.integration.test.ts`.
 
@@ -625,7 +625,7 @@ is all-or-nothing at its own level:
   selection, refuses the whole selection.
 
 *Checked by:* `tests/bulk-row-cap.test.ts` for the caps,
-`tests/integration/import-export.integration.test.ts:104` for the idempotent
+`tests/integration/import-export.integration.test.ts:105` for the idempotent
 replay that binds a stage to the file and mapping it was run against, and
 `tests/integration/duplicates.integration.test.ts:279` ("detects selected staged
 duplicates in dry runs and commits atomically only with override") for the
@@ -638,7 +638,7 @@ fault (`simple_balance_format`, `legs_json`) and the draft field for a value
 fault (`date`, `amount`, `payee`, `account`).
 
 *Checked by:* `tests/domain.test.ts` ("keeps what it read from a row it could
-not finish"), `tests/integration/import-export.integration.test.ts:592`.
+not finish"), `tests/integration/import-export.integration.test.ts:593`.
 
 **House. A row number is the file's own line.** Rows count from one with the
 header as row 1, which is RFC 7111's convention, and `csvFileLine`
@@ -827,7 +827,7 @@ gap in the visible cell.
 *Checked by:* `tests/domain.test.ts` ("neutralizes spreadsheet formulas only in
 designated free-text columns"),
 `tests/integration/csv-roundtrip-fidelity.integration.test.ts:164-200`,
-`tests/integration/import-export.integration.test.ts:935` ("round-trips
+`tests/integration/import-export.integration.test.ts:936` ("round-trips
 formula-like text without exposing formulas or changing data").
 
 ## 14. What the field does, and what we deliberately lack

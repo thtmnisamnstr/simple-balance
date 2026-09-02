@@ -1021,7 +1021,7 @@ edit, a mass delete, a commit, and a CSV import."
   told to read the row again and retry sends the same payload back. Both
   services now refuse it by name with the offending id in the details
   (`src/server/services/staging.ts:1001-1019`), the way `mergeCategories`
-  (src/server/services/categories.ts:943-949`) already did with the identical
+  (src/server/services/categories.ts:928-934`) already did with the identical
   encoding, and a repeated id is refused as a duplicate rather than reported as
   a missing row. A superset map is still accepted: naming a version the caller
   did not select harms nothing, and refusing it would break a working request to

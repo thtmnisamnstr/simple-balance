@@ -84,7 +84,7 @@ the containers and deletes it.
 npm run verify
 ```
 
-That is typecheck, unit tests, and both builds. The integration suite needs
+That is typecheck, lint, the formatter's check, unit tests, and both builds. The integration suite needs
 PostgreSQL, which `compose.dev.yml` already gave you along with a separate
 database for it:
 

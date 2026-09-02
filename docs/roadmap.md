@@ -286,11 +286,13 @@ both were nearly free once the engine existed.
 
 **Priority 190. Depends on SB-018. Built, unreleased, and carrying migration
 0013.** The first of six. SB-025 to SB-029 are the other five and are all built,
-carrying migrations 0014 to 0017 between them.
+carrying migrations 0014 to 0019 between them, with 0020 adding the indexes the
+audit priced.
 
 Every kind of budgeting, from one model. That sounds like scope and it is
-mostly arithmetic: of the fourteen named methods, five need no storage at all,
-three need one column each, and the rest are the same two tables read
+mostly arithmetic: of the sixteen rows in the table below, four need no storage
+at all, five are one column each, two share a column, the sinking fund takes
+two, and the rest are the same two tables — and the group table — read
 differently. The expensive decision was never which methods to support. It was
 whether an assignment is a posting, and it is not.
 
@@ -304,6 +306,10 @@ mode forces a durable selector, a migration path, and a totals row that means
 two different things depending on it.
 
 ### The fourteen methods, and where each one went
+
+Sixteen rows for fourteen named methods, because the build added two the survey
+had folded into others: an amount for one period only, and 50/30/20 as a
+reading of three groups.
 
 All six stories are built, so the claim at the top of this section can be
 checked rather than promised. Nothing below is a mode: each is what the product
@@ -328,9 +334,10 @@ does when a plan carries a particular parameter.
 | Zero-based envelopes | Rollover, plus what is left to assign | SB-028, one column |
 | Forecasting | A projection over recurrences and plans | SB-029, no storage |
 
-Five need no storage at all, four are one column each, two share a column, and
-the rest are the same two tables read differently — which is what "mostly
-arithmetic" meant when this section was written before any of it existed.
+Four need no storage at all, five are one column each, two share a column, the
+sinking fund takes two, and the rest are the same two tables — and the group
+table — read differently: which is what "mostly arithmetic" meant when this
+section was written before any of it existed.
 
 ### The model
 

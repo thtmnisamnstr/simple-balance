@@ -11,6 +11,7 @@ are not obvious. Read it end to end once, or jump to what you are doing.
 - [Reminders](#reminders)
 - [Changing many rows at once](#changing-many-rows-at-once)
 - [Reading it back](#reading-it-back)
+- [Budgets](#budgets)
 - [How it looks](#how-it-looks)
 - [Signing in, and leaving](#signing-in-and-leaving)
 
@@ -169,8 +170,8 @@ whole batch, and the rows it repairs come back ready to commit.
 Categories and payees match case-insensitively, flag their own near-duplicates,
 and merge by rewriting every reference at once. Recategorising the last
 transaction off a category removes that category, unless something still names
-it — a recurrence or a template — or unless it was made ahead of time and is
-standing empty on purpose.
+it — a recurrence, a template, or a budget — or unless it was made ahead of
+time and is standing empty on purpose.
 
 ## Reading it back
 
