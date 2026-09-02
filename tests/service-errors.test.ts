@@ -46,6 +46,22 @@ const IMPOSSIBLE = [
     message: "Database returned an invalid category reference count",
     because: "The same cast, and the same failure if it is ever removed.",
   },
+  {
+    where: "src/server/services/budgets.ts",
+    message: "Budget insert returned no row",
+    because:
+      "A plain insert().returning() either throws or returns the row; empty means the driver broke. Dressed as a 422 it told somebody their input was wrong.",
+  },
+  {
+    where: "src/server/services/budgets.ts",
+    message: "Budget entry insert returned no row",
+    because: "The same impossibility one table over.",
+  },
+  {
+    where: "src/server/services/category-groups.ts",
+    message: "Category group insert returned no row",
+    because: "The same impossibility again.",
+  },
 ];
 
 type Throw = { where: string; text: string };

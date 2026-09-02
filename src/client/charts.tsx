@@ -3,6 +3,7 @@ import type { ReportBucket } from "../shared/domain.js";
 import {
   formatDate,
   formatMoney,
+  formatMonth,
   isNegativeMoney,
   isPositiveMoney,
   moneyExtent,
@@ -209,13 +210,7 @@ export function bucketLabel(start: string, bucket: ReportBucket): string {
     return Number.isFinite(quarter) ? `Q${quarter} ${year}` : formatDate(start);
   }
   if (bucket === "month") {
-    const named = new Date(`${start.slice(0, 10)}T00:00:00Z`);
-    if (Number.isNaN(named.getTime())) return formatDate(start);
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      year: "numeric",
-      timeZone: "UTC",
-    }).format(named);
+    return formatMonth(start);
   }
   // A week, or an ungrouped range: the day is the thing that identifies it, and
   // the year is already on the caption under the chart.

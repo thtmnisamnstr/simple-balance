@@ -97,10 +97,10 @@ const fixture = (lines: string[]): Declaration[] => {
 
 describe("reading the service layer", () => {
   it("finds both shapes the guide counts", () => {
-    // 60 take the required parameter, which is the one number `services.md` 2.1
-    // states; 38 take the optional one, which it does not. Both are held as a
-    // floor rather than an equality, because the point is that the reader is
-    // finding them, not that the directory has stopped growing.
+    // Both shapes exist in numbers services.md 2.1 quotes and the directory
+    // keeps growing past, so they are held as floors rather than equalities:
+    // the point is that the reader is finding them, not that the directory
+    // has stopped moving.
     expect(composable.length).toBeGreaterThanOrEqual(30);
     expect(helpers.length).toBeGreaterThanOrEqual(50);
   });

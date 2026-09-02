@@ -309,6 +309,19 @@ export function moneyScalePercent(amount: string, low: string, high: string): st
  * this cannot read is shown as it arrived, which is also what somebody needs to
  * see in order to fix it.
  */
+/**
+ * A month named for an axis: "Aug 2026".
+ *
+ * Here rather than in charts.tsx because web.md 10.4's own check is a grep for
+ * `Intl.DateTimeFormat` outside this module — every date rendering shares one
+ * gate, and the axis label was the one path around it.
+ */
+export function formatMonth(value: string) {
+  const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(day.getTime())) return formatDate(value);
+  return dateFormat({ month: "short", year: "numeric", timeZone: "UTC" }).format(day);
+}
+
 export function formatDate(value: string) {
   const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(day.getTime())) return value;

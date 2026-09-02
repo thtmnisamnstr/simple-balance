@@ -24,7 +24,7 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
     armed.push({ delay, fire: callback, timer });
     return timer;
   });
-  const logger = { debug: vi.fn(), info: vi.fn(), error: vi.fn() };
+  const logger = { debug: vi.fn(), info: vi.fn(), error: vi.fn(), failure: vi.fn() };
   const runTick = vi.fn(async () => nothing);
   // Stubbed, or the default reaches the real sweep and the real database. It
   // would be swallowed by the loop's own guard, which is exactly why leaving it
@@ -119,7 +119,9 @@ describe("the recurrence scheduler loop", () => {
     });
 
     await harness.fireLast();
-    expect(harness.logger.error).toHaveBeenCalledWith(
+    // Through the narrowing log, because a tick's error can be a database
+    // error whose message carries someone's draft in its bound parameters.
+    expect(harness.logger.failure).toHaveBeenCalledWith(
       "Recurrence scheduler tick failed",
       expect.any(Error),
     );
@@ -229,7 +231,7 @@ describe("the recurrence scheduler loop", () => {
 
     await harness.fireLast();
 
-    expect(harness.logger.error).toHaveBeenCalledWith(
+    expect(harness.logger.failure).toHaveBeenCalledWith(
       "Template reminder sweep failed",
       expect.any(Error),
     );

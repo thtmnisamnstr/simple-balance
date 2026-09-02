@@ -555,7 +555,9 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
         ...carry.columns,
       })
       .returning();
-    if (!created) throw validationError("Budget could not be created");
+    // Impossible, not invalid: a plain insert with returning() either throws
+    // or hands back the row, so an empty result means the driver broke.
+    if (!created) throw new Error("Budget insert returned no row");
     await writeAudit(tx, actor, {
       operation: "budgetPlan.create",
       entityType: "budget_plan",
@@ -928,7 +930,8 @@ export async function setBudgetEntry(actor: Actor, input: unknown, transaction?:
           amount: canonicalDecimal(parsed.amount),
         })
         .returning();
-      if (!created) throw validationError("Budget could not be set");
+      // Same impossibility as the plan insert above.
+      if (!created) throw new Error("Budget entry insert returned no row");
       await writeAudit(tx, actor, {
         operation: "budgetEntry.create",
         entityType: "budget_entry",

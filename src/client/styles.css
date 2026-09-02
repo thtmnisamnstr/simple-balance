@@ -2585,6 +2585,12 @@ input[type="radio"] {
   gap: 6px;
 }
 
+.report-exclusions {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .report-exclusions .link-button {
   margin-inline-end: 10px;
 }

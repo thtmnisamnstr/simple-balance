@@ -310,8 +310,8 @@ export function PayeeInput({
   ariaLabel?: string;
   /**
    * For the queue's click-to-edit cells, which have no Save button: called
-   * with the final snapped spelling on blur or Enter. A form leaves both of
-   * these out and commits on its own submit, as it always has.
+   * with the final snapped spelling on blur. A form leaves both of these out
+   * and commits on its own submit, as it always has.
    */
   onCommit?: (finalValue: string) => void;
   onCancel?: () => void;
@@ -347,12 +347,10 @@ export function PayeeInput({
           onCommit?.(snapped);
         }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && onCommit) {
-            event.preventDefault();
-            const snapped = matching(value) ?? value.trim().replace(/\s+/gu, " ");
-            onChange(snapped);
-            onCommit(snapped);
-          }
+          // Enter is deliberately not a commit: picking from the datalist
+          // lands on Enter too, and committing on the keydown raced the
+          // picked spelling — the category picker learned the same lesson.
+          // Blur commits; Escape cancels.
           if (event.key === "Escape") onCancel?.();
         }}
         placeholder="Merchant, employer, person…"

@@ -126,7 +126,8 @@ export async function createCategoryGroup(
         policy: parsed.policy,
       })
       .returning();
-    if (!created) throw validationError("Group could not be created");
+    // Impossible, not invalid: insert().returning() either throws or returns.
+    if (!created) throw new Error("Category group insert returned no row");
     await writeAudit(tx, actor, {
       operation: "categoryGroup.create",
       entityType: "category_group",

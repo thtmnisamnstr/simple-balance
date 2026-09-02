@@ -18,12 +18,14 @@ import { todayIn } from "../../src/shared/recurrence-dates.js";
  */
 
 /**
- * Dates derived from today, never typed. The story spends money and reads the
- * default this-month report, and a spend hard-coded to August fell out of the
- * range the day the clock crossed into September: the suite was green for a
- * month and then red with no diff. Spending happens today; the standing budget
- * starts mid-way through LAST month, so it covers this month and still
- * exercises the snapping rule the second test is about.
+ * Anything read against the DEFAULT this-month range derives its dates from
+ * today. A spend hard-coded to August fell out of that range the day the
+ * clock crossed into September: the suite was green for a month and then red
+ * with no diff. Spending happens today; the standing budget starts mid-way
+ * through LAST month, so it covers this month and still exercises the
+ * snapping rule the second test is about. Tests that set an explicit range
+ * keep fixed dates on purpose — a wholly past range is stable however far
+ * the clock moves.
  */
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const today = todayIn(timezone);
@@ -41,6 +43,16 @@ const lastMonthStart = (() => {
 })();
 const lastMonthMid = `${lastMonthStart.slice(0, 8)}14`;
 const lastMonthName = monthNameOf(lastMonthStart);
+/**
+ * Whether today's month is still running. The report marks a period "So far"
+ * only while its end is ahead of today, so on the last day of a month the
+ * badge is legitimately absent — an assertion that always expected it failed
+ * one day in every month.
+ */
+const monthStillRunning = (() => {
+  const [year, month, day] = today.split("-").map(Number) as [number, number, number];
+  return day < new Date(Date.UTC(year, month, 0)).getUTCDate();
+})();
 
 const account = `Checking ${Date.now()}`;
 const groceries = `Groceries ${Date.now()}`;
@@ -195,8 +207,13 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("row", { name: new RegExp(groceries) });
     await expect(row).toContainText("£200.00");
     await expect(row).toContainText("£45.00");
-    // A month that has not finished is not a month somebody stayed within.
-    await expect(row.getByText("So far")).toBeVisible();
+    // A month that has not finished is not a month somebody stayed within —
+    // and on its last day it counts as finished, so the badge is rightly gone.
+    if (monthStillRunning) {
+      await expect(row.getByText("So far")).toBeVisible();
+    } else {
+      await expect(row.getByText("So far")).toHaveCount(0);
+    }
   });
 
   /**
@@ -260,11 +277,6 @@ test.describe("the budgets page in a browser", () => {
     ).toContainText("£30.00");
   });
 
-  /**
-   * The defect no other tier could see. The box sends its state both ways now;
-   * before, unchecked sent nothing and the server default answered instead, so
-   * the figure never moved.
-   */
   /**
    * The defect no other tier could see. The box sends its state both ways now;
    * before, unchecked sent nothing and the server default answered instead, so

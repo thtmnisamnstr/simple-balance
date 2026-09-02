@@ -1105,7 +1105,13 @@ app.post("/api/v1/auth/local-password", async (c) => {
       body: { newPassword: parsed.newPassword },
     });
   } catch (error) {
-    throw validationError(error instanceof Error ? error.message : "Password could not be updated");
+    // The product's own sentence, never the library's: an exception message is
+    // written for a stack trace, and this one lands on the settings screen.
+    // The narrowed error still reaches the log for the operator.
+    log.failure("Setting a password was refused", error);
+    throw validationError(
+      "The password could not be set. Check the new password meets the length rule and try again.",
+    );
   }
   return c.json(await getUserAuthState(userId));
 });

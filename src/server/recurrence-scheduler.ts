@@ -51,6 +51,8 @@ type SchedulerLogger = {
   debug: (message: string) => void;
   info: (message: string) => void;
   error: (message: string, error?: unknown) => void;
+  /** The narrowing log for caught database errors; see log.failure. */
+  failure: (context: string, error: unknown) => void;
 };
 
 export type RecurrenceScheduler = { enabled: boolean; stop: () => Promise<void> };
@@ -135,7 +137,7 @@ export function createRecurrenceScheduler(
           sweepFailed = reminders.failed;
         } catch (error) {
           reminderSweeps.inc({ outcome: "swept_failed" });
-          logger.error("Template reminder sweep failed", error);
+          logger.failure("Template reminder sweep failed", error);
         }
         // Said out loud, and not only counted.
         //
@@ -170,7 +172,7 @@ export function createRecurrenceScheduler(
         // stop the next one. A database that is down comes back; a loop that
         // died does not, and a silently stopped scheduler is the whole failure
         // this feature exists to avoid.
-        logger.error("Recurrence scheduler tick failed", error);
+        logger.failure("Recurrence scheduler tick failed", error);
         return false;
       } finally {
         stopTimer();

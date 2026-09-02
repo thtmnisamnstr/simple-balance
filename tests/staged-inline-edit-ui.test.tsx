@@ -154,7 +154,7 @@ describe("editing staged fields in place", () => {
   it("edits the payee where it is, sending the whole draft and the version", async () => {
     const puts = stubQueue();
     renderStaging();
-    fireEvent.click(await screen.findByRole("button", { name: "Edit the payee of Corner shop" }));
+    fireEvent.click(await screen.findByRole("button", { name: /edit the payee of Corner shop$/i }));
     const editor = screen.getByPlaceholderText(/merchant, employer/i);
     expect(editor).toHaveValue("Corner shop");
     fireEvent.change(editor, { target: { value: "Corner Bakery" } });
@@ -172,13 +172,13 @@ describe("editing staged fields in place", () => {
   it("edits the date, and Escape closes without writing", async () => {
     const puts = stubQueue();
     renderStaging();
-    fireEvent.click(await screen.findByRole("button", { name: "Edit the date of Corner shop" }));
+    fireEvent.click(await screen.findByRole("button", { name: /edit the date of Corner shop$/i }));
     const editor = screen.getByLabelText("Date of Corner shop");
     expect(editor).toHaveValue("2026-07-30");
     fireEvent.keyDown(editor, { key: "Escape" });
     expect(puts).toHaveLength(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit the date of Corner shop" }));
+    fireEvent.click(screen.getByRole("button", { name: /edit the date of Corner shop$/i }));
     const reopened = screen.getByLabelText("Date of Corner shop");
     fireEvent.change(reopened, { target: { value: "2026-07-15" } });
     fireEvent.keyDown(reopened, { key: "Enter" });
@@ -192,8 +192,10 @@ describe("editing staged fields in place", () => {
   it("edits the amount in place", async () => {
     const puts = stubQueue();
     renderStaging();
-    fireEvent.click(await screen.findByRole("button", { name: "Edit the amount of Corner shop" }));
-    const editor = screen.getByLabelText("Amount of Corner shop");
+    fireEvent.click(
+      await screen.findByRole("button", { name: /edit the amount of Corner shop$/i }),
+    );
+    const editor = screen.getByLabelText("Amount of Corner shop in USD");
     expect(editor).toHaveValue("10.00");
     fireEvent.change(editor, { target: { value: "12.50" } });
     fireEvent.blur(editor);
@@ -205,7 +207,7 @@ describe("editing staged fields in place", () => {
     const puts = stubQueue();
     renderStaging();
     fireEvent.click(
-      await screen.findByRole("button", { name: "Edit the category of Corner shop" }),
+      await screen.findByRole("button", { name: /edit the category of Corner shop$/i }),
     );
     const editor = screen.getByLabelText("Category of Corner shop");
     fireEvent.change(editor, { target: { value: "Groceries" } });
@@ -225,13 +227,13 @@ describe("editing staged fields in place", () => {
   it("writes nothing when the value did not change", async () => {
     const puts = stubQueue();
     renderStaging();
-    fireEvent.click(await screen.findByRole("button", { name: "Edit the payee of Corner shop" }));
+    fireEvent.click(await screen.findByRole("button", { name: /edit the payee of Corner shop$/i }));
     const editor = screen.getByPlaceholderText(/merchant, employer/i);
     // Opened and left alone: a same-value blur must not bump the version,
     // invalidate a bulk selection's fingerprint, or write an audit entry
     // saying an edit happened.
     fireEvent.blur(editor);
-    await screen.findByRole("button", { name: "Edit the payee of Corner shop" });
+    await screen.findByRole("button", { name: /edit the payee of Corner shop$/i });
     expect(puts).toHaveLength(0);
   });
 
@@ -239,7 +241,7 @@ describe("editing staged fields in place", () => {
     const puts = stubQueue();
     renderStaging();
     fireEvent.click(
-      await screen.findByRole("button", { name: "Edit the category of Corner shop" }),
+      await screen.findByRole("button", { name: /edit the category of Corner shop$/i }),
     );
     const editor = screen.getByLabelText("Category of Corner shop");
     fireEvent.change(editor, { target: { value: "Groceries" } });
@@ -253,16 +255,18 @@ describe("editing staged fields in place", () => {
   it("offers no category or amount editor on a split", async () => {
     stubQueue();
     renderStaging();
-    await screen.findByRole("button", { name: "Edit the payee of Split shop" });
+    await screen.findByRole("button", { name: /edit the payee of Split shop$/i });
     // A split's categories and total live on its legs; the modal is the only
     // honest editor for them. Date and payee still edit in place.
     expect(
-      screen.queryByRole("button", { name: "Edit the category of Split shop" }),
+      screen.queryByRole("button", { name: /edit the category of Split shop$/i }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Edit the amount of Split shop" }),
+      screen.queryByRole("button", { name: /edit the amount of Split shop$/i }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit the date of Split shop" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /edit the date of Split shop$/i }),
+    ).toBeInTheDocument();
   });
 
   it("clones a staged row into the stage form, prefilled", async () => {

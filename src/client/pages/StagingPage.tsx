@@ -599,19 +599,32 @@ export default function StagingPage() {
     if (inline.field === "category") {
       // The picker's contract: an id when the name matched a live category,
       // otherwise the name travels and the commit resolves or creates it.
-      // Both keys are settled here so the draft never carries two answers —
-      // and a stored categoryKind goes, because it was somebody's answer
-      // about the OLD name, and riding along with a new one it would file a
-      // brand-new category on a side nobody chose here. Choosing a side for
-      // a new name is the modal's question.
+      // Both keys are settled here so the draft never carries two answers.
       draft.categoryId = value || null;
       draft.categoryName = value ? null : categoryName.trim() || null;
-      draft.categoryKind = null;
+      // The stored categoryKind goes ONLY when the category really changed:
+      // it was somebody's answer about the old name, and riding along with a
+      // new one it would file a brand-new category on a side nobody chose
+      // here. On an untouched blur it stays — nulling it unconditionally
+      // stripped a deferred import's kind from a row nobody edited.
+      const changed =
+        (draft.categoryId ?? null) !== (source.categoryId ?? null) ||
+        (draft.categoryName ?? null) !== (source.categoryName ?? null);
+      if (changed) draft.categoryKind = null;
     }
     // Nothing moved, nothing written: a same-value blur must not bump the
     // version, invalidate a bulk selection's fingerprint, or add an audit
-    // entry saying an edit happened.
-    if (JSON.stringify(draft) === JSON.stringify(source)) {
+    // entry saying an edit happened. Compared with absent and null treated as
+    // one answer, because settling the category keys writes explicit nulls
+    // onto a draft that may never have carried the keys at all — and gaining
+    // three null keys is not an edit.
+    const normalized = (record: Record<string, unknown>) =>
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(record).filter(([, entry]) => entry !== null && entry !== undefined),
+        ),
+      );
+    if (normalized(draft) === normalized(source)) {
       cancelInline();
       return;
     }
@@ -922,7 +935,11 @@ export default function StagingPage() {
                         <button
                           type="button"
                           className="inline-edit"
-                          aria-label={`Edit the date of ${payee}`}
+                          aria-label={`${
+                            date && isoDateSchema.safeParse(date).success
+                              ? formatDate(date)
+                              : date || "No date"
+                          } — edit the date of ${payee}`}
                           data-inline-trigger={`date:${stage.id}`}
                           onClick={() => openInline(stage, "date", date)}
                         >
@@ -1026,7 +1043,10 @@ export default function StagingPage() {
                         <button
                           type="button"
                           className="inline-edit"
-                          aria-label={`Edit the category of ${payee}`}
+                          aria-label={`${
+                            categoryNames.get(stagedString(draft.categoryId)) ??
+                            (stagedString(draft.categoryName).trim() || "Uncategorized")
+                          } — edit the category of ${payee}`}
                           data-inline-trigger={`category:${stage.id}`}
                           onClick={() =>
                             openInline(
@@ -1075,7 +1095,11 @@ export default function StagingPage() {
                         <Input
                           inputMode="decimal"
                           autoFocus
-                          aria-label={`Amount of ${payee}`}
+                          aria-label={
+                            summary.currency
+                              ? `Amount of ${payee} in ${summary.currency}`
+                              : `Amount of ${payee}`
+                          }
                           pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
                           value={inline!.value}
                           onChange={(event) => setInline({ ...inline!, value: event.target.value })}
@@ -1093,7 +1117,11 @@ export default function StagingPage() {
                         <button
                           type="button"
                           className="inline-edit inline-edit-money"
-                          aria-label={`Edit the amount of ${payee}`}
+                          aria-label={`${
+                            summary.amount && summary.currency
+                              ? formatMoney(summary.amount, summary.currency)
+                              : "No amount"
+                          } — edit the amount of ${payee}`}
                           data-inline-trigger={`amount:${stage.id}`}
                           onClick={() => openInline(stage, "amount", stagedString(draft.amount))}
                         >

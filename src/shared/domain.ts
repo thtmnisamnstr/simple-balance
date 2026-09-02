@@ -1203,9 +1203,9 @@ export const stageUpdateSchema = z.object({
 });
 
 /**
- * Strict for the reason `bulkDeleteStageSchema` below is: HTTP used to drop an
- * unrecognised key that MCP refused by name, and this is the route that puts
- * money in the books.
+ * Open for the reason `bulkDeleteStageSchema` below spells out: strictness
+ * lives at the tool boundary, not here, and this being the route that puts
+ * money in the books does not change whose job it is.
  */
 export const commitStageSchema = z.object({
   stagedIds: z

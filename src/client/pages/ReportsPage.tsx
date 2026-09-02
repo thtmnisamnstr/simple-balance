@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { BarChart, ChartLegend, LineChart } from "../charts.js";
 import { api, queryString, type Report } from "../api.js";
 import {
@@ -66,6 +66,9 @@ export default function ReportsPage() {
     report,
     map: new Map(),
   });
+  // Excluding removes the row the control sat on, and restoring removes the
+  // pill: both would otherwise strand keyboard focus on <body>.
+  const exclusionsNote = useRef<HTMLParagraphElement>(null);
   // Derived, not effect-synced: a set left over from another visit to the
   // categories tab must not silently thin THIS visit's rows either, so any
   // report switch reads as empty and the state is re-keyed on the next write.
@@ -187,7 +190,7 @@ export default function ReportsPage() {
       ) : null}
 
       {excludable && excluded.size ? (
-        <p className="settings-note report-exclusions">
+        <p className="report-exclusions" tabIndex={-1} ref={exclusionsNote}>
           Left out of this view:{" "}
           {[...excluded.entries()].map(([key, label]) => (
             <button
@@ -199,12 +202,27 @@ export default function ReportsPage() {
                 const next = new Map(excluded);
                 next.delete(key);
                 setExcluded(next);
+                requestAnimationFrame(() => {
+                  // The note survives while pills remain; when the last one
+                  // goes, the current report tab is the honest landing.
+                  if (next.size) exclusionsNote.current?.focus();
+                  else document.querySelector<HTMLElement>(".report-tabs .is-current")?.focus();
+                });
               }}
             >
               {label} ×
             </button>
           ))}{" "}
-          <button type="button" className="link-button" onClick={() => setExcluded(new Map())}>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              setExcluded(new Map());
+              requestAnimationFrame(() =>
+                document.querySelector<HTMLElement>(".report-tabs .is-current")?.focus(),
+              );
+            }}
+          >
             Put all back
           </button>
         </p>
@@ -316,9 +334,13 @@ export default function ReportsPage() {
                                 </span>
                                 <RowMenu label={`Actions for ${entry.label}`}>
                                   <button
-                                    onClick={() =>
-                                      setExcluded(new Map(excluded).set(entry.key, entry.label))
-                                    }
+                                    onClick={() => {
+                                      setExcluded(new Map(excluded).set(entry.key, entry.label));
+                                      // The row this control lived on is
+                                      // leaving; the pills that undo it are
+                                      // where a keyboard user lands.
+                                      requestAnimationFrame(() => exclusionsNote.current?.focus());
+                                    }}
                                   >
                                     Exclude from this view
                                   </button>
