@@ -302,7 +302,10 @@ export async function reconcileArchivedAccountClosings() {
       // even though Intl did, and this runs before the server starts serving.
       // Letting that reach the caller takes the whole deployment down, for
       // everybody, on every boot.
-      log.error(
+      // Through log.failure, never whole: the failing insert's bound
+      // parameters are this person's balances, and this loop writes into the
+      // startup log of a container an operator reads.
+      log.failure(
         `Could not re-close archived account ${account.id}. Its balance may be ` +
           "missing from that person's totals until it is archived again.",
         error,

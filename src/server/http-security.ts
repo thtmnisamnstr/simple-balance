@@ -365,7 +365,7 @@ export function createAttemptLimiter(options: {
         // than the shared one by the replica count, and it is a great deal
         // better than the alternative here, which is refusing every sign-in on
         // a deployment whose database is having a bad minute.
-        log.error("The shared attempt limiter could not be reached", error);
+        log.failure("The shared attempt limiter could not be reached", error);
         return true;
       }
     },
@@ -375,7 +375,7 @@ export function createAttemptLimiter(options: {
       try {
         await store.clear(key);
       } catch (error) {
-        log.error("The shared attempt limiter could not be cleared", error);
+        log.failure("The shared attempt limiter could not be cleared", error);
       }
     },
   };
@@ -399,17 +399,25 @@ export const postgresAttemptStore: AttemptStore = {
   async take(key, max, windowMs, now) {
     const { getDb } = await import("./db/client.js");
     const { sql } = await import("drizzle-orm");
+    // `last_request` holds the window's END, not its start. The table is
+    // shared with Better Auth, whose own sweeper deletes any row whose
+    // last_request looks older than its ten-second sign-in window — and a
+    // fifteen-minute attempt window pinned at its start looked ancient ten
+    // seconds in, so two sign-in requests eleven seconds apart silently
+    // deleted the shared brute-force tally and left only the per-process one.
+    // Stored as the future expiry, the row outlives every sweep until the
+    // window is really over, and then the sweeper reaps it for free.
     const result = await getDb().execute<{ count: number }>(sql`
       insert into auth_rate_limit (id, key, count, last_request)
-      values (${`attempt:${key}`}, ${`attempt:${key}`}, 1, ${now})
+      values (${`attempt:${key}`}, ${`attempt:${key}`}, 1, ${now + windowMs})
       on conflict (key) do update
         set count = case
-              when auth_rate_limit.last_request <= ${now - windowMs} then 1
+              when auth_rate_limit.last_request <= ${now} then 1
               else auth_rate_limit.count + 1
             end,
             last_request = case
-              when auth_rate_limit.last_request <= ${now - windowMs}
-                then ${now}
+              when auth_rate_limit.last_request <= ${now}
+                then ${now + windowMs}
               else auth_rate_limit.last_request
             end
       returning count

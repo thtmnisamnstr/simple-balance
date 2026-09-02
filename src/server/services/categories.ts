@@ -226,12 +226,16 @@ export async function resolveDraftCategory<T extends TransactionDraft>(
 
   if (draft.legs?.some((leg) => leg.categoryName && !leg.categoryId)) {
     const legs = [];
-    for (const { categoryName: legName, ...leg } of draft.legs) {
+    for (const { categoryName: legName, categoryKind: legKind, ...leg } of draft.legs) {
       if (!legName || leg.categoryId) {
         legs.push(leg);
         continue;
       }
-      const category = await resolveCategoryByName(tx, actor, legName, kind);
+      // A leg's own answer first. One split can name two new categories whose
+      // kinds differ — a purchase leg beside a refund leg in the same file —
+      // and a single row-level kind gave whichever group wrote last to every
+      // leg of the row.
+      const category = await resolveCategoryByName(tx, actor, legName, legKind ?? kind);
       legs.push({ ...leg, categoryId: category.id });
     }
     resolved.legs = legs;

@@ -409,7 +409,10 @@ export async function runDueRecurrences(
       // skipping it loses nothing. The recurrence stays past due with nothing
       // proposed, which is exactly what the Recurring page reports.
       failed += 1;
-      log.error(`Recurrence ${row.id} could not be proposed`, error);
+      // log.failure, not the error whole: the failing insert binds the staged
+      // draft — payee, amount, notes, the recurrence's own name — and a
+      // Drizzle error prints its bound parameters in the message.
+      log.failure(`Recurrence ${row.id} could not be proposed`, error);
     }
   }
   return { examined, proposed, failed, notified, capped };

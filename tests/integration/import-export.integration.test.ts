@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import Papa from "papaparse";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -13,7 +13,12 @@ import {
   listActiveImportBatches,
   stageCsv,
 } from "../../src/server/services/import-export.js";
-import { createStage, getStage, listStages } from "../../src/server/services/staging.js";
+import {
+  commitStages,
+  createStage,
+  getStage,
+  listStages,
+} from "../../src/server/services/staging.js";
 import {
   createTransaction,
   setTransactionDeleted,
@@ -389,6 +394,85 @@ integration("CSV import and export identification", () => {
       .sample[0]!.draft;
     expect(stagedSample?.categoryId).toEqual(expect.any(String));
     expect(stagedSample?.categoryName).toBeUndefined();
+  });
+
+  /**
+   * One split, two new categories, two different kinds.
+   *
+   * The kind a deferred category will be created as rides on the leg that
+   * names it, never on the row. Carried at row level, one split naming two
+   * new categories had a single slot for two answers: whichever vote wrote
+   * last decided both, and the commit gave its kind to every leg of the row.
+   */
+  it("carries a deferred category kind per leg, not per row", async () => {
+    const exported = [
+      "date,payee,category,amount",
+      // Two deposits vote DeferAlpha income, so the row-level kind on these
+      // plain rows still works exactly as before.
+      "2026-11-02,Employer,DeferAlpha,250",
+      "2026-11-03,Employer,DeferAlpha,250",
+    ].join("\n");
+    const staged = (await stageCsv(
+      actor,
+      {
+        csv: exported,
+        fileName: "defer-votes.csv",
+        idempotencyKey: "csv-defer-per-leg-plain",
+        defaultAccountId: checkingId,
+        mapping: { date: "date", payee: "payee", category: "category", amount: "amount" },
+        dateFormat: "YMD" as const,
+        decimalSeparator: "." as const,
+      },
+      undefined,
+      { mayMutateCategories: false },
+    )) as { sample: { draft: Record<string, unknown> | null }[] };
+    expect(staged.sample[0]!.draft).toMatchObject({
+      categoryName: "DeferAlpha",
+      categoryKind: "income",
+    });
+
+    // A split whose legs carry their own kinds: one category that covers both
+    // directions beside a plain spending one. A row-level slot cannot say
+    // that — the last writer decided both categories.
+    const stage = await createStage(actor, {
+      draft: {
+        type: "withdrawal",
+        date: "2026-11-04",
+        payee: "Mixed split",
+        fromAccountId: checkingId,
+        amount: "100.00",
+        legs: [
+          { categoryName: "DeferBoth", categoryKind: "both", amount: "40.00" },
+          { categoryName: "DeferBeta", categoryKind: "expense", amount: "60.00" },
+        ],
+      },
+      idempotencyKey: "csv-defer-per-leg-split",
+    });
+    // The kinds survive staging leg by leg.
+    const storedLegs = (
+      (await getStage(actor, stage.id)).draft as {
+        legs: { categoryName?: string; categoryKind?: string }[];
+      }
+    ).legs;
+    expect(storedLegs.map((leg) => leg.categoryKind)).toEqual(["both", "expense"]);
+
+    await commitStages(actor, {
+      stagedIds: [stage.id],
+      expectedVersions: { [stage.id]: stage.version },
+      idempotencyKey: "csv-defer-per-leg-commit",
+    });
+    const created = await getDb()
+      .select()
+      .from(categories)
+      .where(
+        and(
+          eq(categories.userId, actor.userId),
+          inArray(categories.name, ["DeferBoth", "DeferBeta"]),
+        ),
+      );
+    const kinds = new Map(created.map((category) => [category.name, category.kind]));
+    expect(kinds.get("DeferBoth")).toBe("both");
+    expect(kinds.get("DeferBeta")).toBe("expense");
   });
 
   it("serializes concurrent creation of the same normalized import category", async () => {

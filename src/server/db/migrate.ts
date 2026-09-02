@@ -160,7 +160,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   runMigrations()
     .then(() => closeDb())
     .catch(async (error) => {
-      log.error(error);
+      log.failure("Migrations failed", error);
       await closeDb();
       process.exitCode = 1;
     });

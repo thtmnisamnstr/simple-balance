@@ -103,7 +103,10 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  log.error(error);
+  // log.failure, not the error whole: a Drizzle error escaping main() prints
+  // the failing statement's bound parameters, and startup runs the archived
+  // re-close repair over every tenant's balances before it serves.
+  log.failure("The server could not start", error);
   await closeDb();
   process.exitCode = 1;
 });

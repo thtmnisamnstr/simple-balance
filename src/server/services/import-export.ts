@@ -593,9 +593,11 @@ async function resolveImportedCategories(
       const target = stageTarget(rows[rowIndex]);
       if (!Array.isArray(target?.legs)) continue;
       const legs = (target.legs as Record<string, unknown>[]).map((leg, index) =>
-        index === legIndex ? { ...leg, categoryId, categoryName: undefined } : leg,
+        index === legIndex
+          ? { ...leg, categoryId, categoryName: undefined, categoryKind: undefined }
+          : leg,
       );
-      writeTarget(rowIndex, { legs, categoryKind: undefined });
+      writeTarget(rowIndex, { legs });
     }
   };
 
@@ -625,13 +627,20 @@ async function resolveImportedCategories(
         categoryKind: group.kind,
       });
     }
+    // The kind rides on the leg it belongs to, never on the row. Two legs of
+    // one split can name two new categories whose votes differ — a purchase
+    // beside its refund — and a row-level kind was one slot for two answers:
+    // whichever group deferred last overwrote the other, and the commit gave
+    // its kind to every leg of the row.
     for (const { rowIndex, legIndex } of group.legTargets) {
       const target = stageTarget(rows[rowIndex]);
       if (!Array.isArray(target?.legs)) continue;
       const legs = (target.legs as Record<string, unknown>[]).map((leg, index) =>
-        index === legIndex ? { ...leg, categoryName: group.inputName } : leg,
+        index === legIndex
+          ? { ...leg, categoryName: group.inputName, categoryKind: group.kind }
+          : leg,
       );
-      writeTarget(rowIndex, { legs, categoryKind: group.kind });
+      writeTarget(rowIndex, { legs });
     }
   };
 

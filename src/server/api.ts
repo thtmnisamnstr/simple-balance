@@ -594,7 +594,7 @@ app.post("/api/auth/mcp/register", async (c) => {
   if (now - lastPruneAt >= PRUNE_INTERVAL_MS) {
     lastPruneAt = now;
     void pruneAbandonedClients().catch((error) => {
-      log.error("Could not prune abandoned OAuth clients", error);
+      log.failure("Could not prune abandoned OAuth clients", error);
     });
   }
   const body = await c.req.raw

@@ -308,6 +308,13 @@ const transactionLegSchema = z
       .describe(
         'A category by name rather than by id for this leg, matched and created on the same terms as the entry-level categoryName. Ignored when this leg\'s categoryId is set, for example "Groceries".',
       ),
+    categoryKind: z
+      .enum(categoryKinds)
+      .optional()
+      .nullable()
+      .describe(
+        "Which kind to create this leg's category as when its categoryName names one that does not exist yet, on the same terms as the entry-level categoryKind. Each leg carries its own answer because one split can name two new categories whose kinds differ — a CSV import decides each from every row in the file. Ignored when the category already exists or this leg's categoryId is set.",
+      ),
     amount: positiveDecimalStringSchema,
     note: freeText(z.string().trim().max(240))
       .optional()
@@ -2642,7 +2649,17 @@ function checkRecurrenceShape(
   // complaint.
   const legs = shape.legs as readonly { amount?: string }[];
   const amounts = legs.map((leg) => leg.amount);
-  if (amounts.every((amount): amount is string => typeof amount === "string")) {
+  // Only well-formed decimals reach the arithmetic. Zod runs an object's
+  // refinements even when a field's own format check has already failed, so a
+  // leg amount of "abc" or "1e2" arrives here as the string it is — and
+  // BigInt("abc") is a SyntaxError, which turned a validation mistake into a
+  // 500. The format error the field check already recorded is the answer;
+  // this check just declines to add arithmetic on top of it.
+  const wellFormed = (value: string) => /^-?\d+(?:\.\d+)?$/.test(value);
+  if (
+    amounts.every((amount): amount is string => typeof amount === "string" && wellFormed(amount)) &&
+    wellFormed(shape.amount)
+  ) {
     if (!sumsExactly(amounts, shape.amount)) {
       context.addIssue({
         code: "custom",

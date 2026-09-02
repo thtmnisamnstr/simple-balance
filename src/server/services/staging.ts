@@ -1397,47 +1397,62 @@ export async function bulkEditStages(
       if (existing) return existing;
     }
 
-    let rows: (typeof stagedTransactions.$inferSelect)[];
-    if (selection.mode === "ids") {
-      rows = await tx
-        .select()
-        .from(stagedTransactions)
-        .where(
-          and(
-            eq(stagedTransactions.userId, actor.userId),
-            inArray(
-              stagedTransactions.id,
-              selection.items.map((item) => item.id),
+    // Read WITHOUT row locks first. The advisory namespace locks have to come
+    // before any FOR UPDATE, because every other staged path — createStage,
+    // updateStage, commitStages — takes the namespaces first and rows second,
+    // and this function taking them in the other order was half of an ABBA
+    // deadlock: it held a row and waited on the payee namespace while an
+    // updateStage held the namespace and waited on the row. The snapshot is
+    // re-checked under the real locks below, exactly as the committed bulk
+    // edit does it.
+    const readSelection = async (lockRows: boolean) => {
+      if (selection.mode === "ids") {
+        const query = tx
+          .select()
+          .from(stagedTransactions)
+          .where(
+            and(
+              eq(stagedTransactions.userId, actor.userId),
+              inArray(
+                stagedTransactions.id,
+                selection.items.map((item) => item.id),
+              ),
+              eq(stagedTransactions.status, "staged"),
             ),
-            eq(stagedTransactions.status, "staged"),
-          ),
-        )
-        .orderBy(stagedTransactions.id)
-        .for("update");
-      if (rows.length !== selection.items.length) {
-        throw notFound("One or more staged transactions are unavailable");
+          )
+          .orderBy(stagedTransactions.id);
+        return lockRows ? await query.for("update") : await query;
       }
-      const expected = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
-      for (const row of rows) {
-        if (expected.get(row.id) !== row.version) {
-          throw staleVersion({ id: row.id, currentVersion: row.version });
+      return await selectStageFilterRows(tx, actor, selection, lockRows);
+    };
+    const verifySelection = (rows: (typeof stagedTransactions.$inferSelect)[]) => {
+      if (selection.mode === "ids") {
+        if (rows.length !== selection.items.length) {
+          throw notFound("One or more staged transactions are unavailable");
+        }
+        const expected = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
+        for (const row of rows) {
+          if (expected.get(row.id) !== row.version) {
+            throw staleVersion({ id: row.id, currentVersion: row.version });
+          }
+        }
+      } else {
+        const fingerprint = selectionFingerprint(rows);
+        if (
+          rows.length !== selection.expectedCount ||
+          fingerprint !== selection.expectedFingerprint
+        ) {
+          throw staleVersion({
+            expectedCount: selection.expectedCount,
+            currentCount: rows.length,
+            expectedFingerprint: selection.expectedFingerprint,
+            currentFingerprint: fingerprint,
+          });
         }
       }
-    } else {
-      rows = await selectStageFilterRows(tx, actor, selection, true);
-      const fingerprint = selectionFingerprint(rows);
-      if (
-        rows.length !== selection.expectedCount ||
-        fingerprint !== selection.expectedFingerprint
-      ) {
-        throw staleVersion({
-          expectedCount: selection.expectedCount,
-          currentCount: rows.length,
-          expectedFingerprint: selection.expectedFingerprint,
-          currentFingerprint: fingerprint,
-        });
-      }
-    }
+    };
+    let rows = await readSelection(false);
+    verifySelection(rows);
 
     if (rows.length > MAX_BULK_SELECTION_ENTRIES) {
       throw validationError(exceedsBulkSelectionCap("staged rows"), {
@@ -1475,10 +1490,14 @@ export async function bulkEditStages(
       }
     }
 
-    const drafts = rows.map((row) =>
-      patchedStageDraft(row.draft as Record<string, unknown>, patch),
-    );
+    let drafts = rows.map((row) => patchedStageDraft(row.draft as Record<string, unknown>, patch));
     await lockStagedDraftReferences(tx, actor, drafts);
+    // Now the rows, under the locks, and the selection re-verified: a row
+    // edited between the snapshot and here is a stale selection, not a row to
+    // silently edit on top of.
+    rows = await readSelection(true);
+    verifySelection(rows);
+    drafts = rows.map((row) => patchedStageDraft(row.draft as Record<string, unknown>, patch));
 
     const planned: {
       row: typeof stagedTransactions.$inferSelect;

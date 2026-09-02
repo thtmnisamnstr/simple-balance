@@ -76,4 +76,29 @@ integration("an allowance shared by every replica", () => {
     expect(await countFor("shared-clear")).toBeNull();
     expect(await replica(1).take("shared-clear")).toBe(true);
   });
+
+  /**
+   * The table is shared with Better Auth, whose sweeper deletes rows it
+   * considers expired by ITS window — ten seconds, against this store's
+   * fifteen minutes. A row stamped with its window's start looked ancient ten
+   * seconds in, and two ordinary sign-ins deleted the shared brute-force
+   * tally mid-window. The row carries its expiry now, so a sweep older than
+   * the row's own future timestamp spares it.
+   */
+  it("survives Better Auth's own expiry sweep for the whole window", async () => {
+    const limiter = replica(3);
+    expect(await limiter.take("shared-sweep")).toBe(true);
+    expect(await limiter.take("shared-sweep")).toBe(true);
+    // Better Auth's deleteExpiredRows shape: everything whose last_request is
+    // older than now minus its ten-second window. Eleven seconds after the
+    // attempts, mid-way through this store's window.
+    const sweepAt = 1_000_000 + 11_000;
+    await getDb().execute(
+      sql`delete from auth_rate_limit where last_request < ${sweepAt - 10_000}`,
+    );
+    expect(await countFor("shared-sweep")).toBe(2);
+    // And the tally still refuses the fourth guess, replica or not.
+    expect(await limiter.take("shared-sweep")).toBe(true);
+    expect(await limiter.take("shared-sweep")).toBe(false);
+  });
 });

@@ -30,7 +30,7 @@ export function getPool() {
     // the next query. pg has already removed and destroyed the client by the
     // time this runs; there is nothing to do but say so.
     pool.on("error", (error) => {
-      log.error("Idle database client error", error);
+      log.failure("Idle database client error", error);
     });
     // Handed to the metrics registry rather than read from it, because a scrape
     // must never be the thing that opens a database connection: reading

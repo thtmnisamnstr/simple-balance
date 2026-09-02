@@ -118,7 +118,9 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  log.error(error);
+  // Same rule as the API entrypoint: a Drizzle error whole prints its bound
+  // parameters, and a scheduler tick's parameters are drafts and reminders.
+  log.failure("The scheduler could not start", error);
   await closeDb();
   process.exitCode = 1;
 });

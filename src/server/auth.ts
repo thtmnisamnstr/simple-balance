@@ -63,7 +63,7 @@ function createAuthInstance() {
       backgroundTasks: {
         handler: (promise: Promise<unknown>) => {
           void promise.catch((error) => {
-            log.error("A background auth task failed", error);
+            log.failure("A background auth task failed", error);
           });
         },
       },

@@ -253,13 +253,28 @@ export async function runDueNotifications(
     }
     try {
       const owed = await claimDueNotification(String(row.id), String(row.user_id), today, nowTime);
-      if (owed && (await deliver(String(row.user_id), owed))) sent += 1;
+      if (owed) {
+        if (await deliver(String(row.user_id), owed)) {
+          sent += 1;
+        } else {
+          // sendMail reports refusal by returning false, never by throwing, so
+          // a refusing relay used to land in neither count: the sweep said
+          // "0 failed" while the watermark had already advanced and the
+          // reminder was gone. A consumed reminder that reached nobody is a
+          // failure, and the operator's count is the only place it can show.
+          failed += 1;
+          log.warn(
+            `Template reminder ${row.id} was claimed but the relay refused the message. ` +
+              "The watermark has advanced, so this occurrence will not be retried.",
+          );
+        }
+      }
     } catch (error) {
       // One reminder must never end the sweep, for the same reason one
       // recurrence must not: this loop serves every tenant at once and runs the
       // most overdue first, so a row that throws every time is first every time.
       failed += 1;
-      log.error(`Template reminder ${row.id} could not be sent`, error);
+      log.failure(`Template reminder ${row.id} could not be sent`, error);
     }
   }
   return { examined, sent, failed };
