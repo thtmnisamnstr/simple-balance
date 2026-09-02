@@ -27,8 +27,9 @@ account, a credit card, a loan, cash in a drawer.
    the account is in use, so a euro account and a dollar account are two
    accounts.
 3. Enter the **opening balance** — what the account holds *today*, or held on
-   whatever **opening date** you choose. For a credit card or a loan, enter
-   what you owe as a negative number.
+   whatever **opening date** you choose. For a credit card or a loan the form
+   asks for a **Starting amount** instead: enter what you owe as a plain
+   positive number and leave **Starting balance type** on **Amount owed**.
 4. Press **Create account**.
 
 Start with the accounts you actually use. You can add more at any time, and an
@@ -73,8 +74,9 @@ which is what your budget wants to know. Nothing special to press: picking a
 spending category on a deposit is what makes it a refund.
 
 If the refund's category does not exist yet (say you are entering history),
-the form asks which kind of category the new name should be — answer
-**expense** so the refund lowers spending instead of counting as income.
+the form asks what the new name is — answer **A refund of money you spent**
+so it is created as a spending category and lowers spending, instead of
+counting as income.
 
 ## Split one receipt across categories
 
@@ -92,35 +94,37 @@ category side to divide.
 
 ## Fix a mistake
 
-- **Edit**: open the row's ⋯ menu on Transactions and choose Edit. Change
-  anything and save. The books stay consistent because a correction is posted
-  as a difference, never typed over.
-- **Delete**: the same menu. A deleted transaction can be restored later; both
-  moves keep every balance you have ever seen reconcilable.
+- **Edit**: press the pencil button on the row. Change anything and save. The
+  books stay consistent because a correction is posted as a difference, never
+  typed over.
+- **Delete**: the trash button beside it, with a confirmation. A deleted
+  transaction can be restored later; both moves keep every balance you have
+  ever seen reconcilable.
 - **Find where a balance went wrong**: open the account from **Accounts** and
   press **Show register**. Every movement is listed with the balance before
   and after it — read down until the running balance stops matching your
   statement, and that is the row to fix.
 - **Change many rows at once**: tick their checkboxes on Transactions (or use
   the select-all box), then use the bulk bar to recategorise, redate, rename
-  the payee, or delete — up to 10,000 rows, all-or-nothing, with a preview of
-  what will change.
+  the payee, or delete — up to 10,000 rows, all-or-nothing, after being told
+  exactly how many rows the change will touch.
 
 ## Import a bank file
 
 1. Download a CSV statement from your bank.
 2. Open **Import CSV**, choose the file, and match the columns — which one is
-   the date, the amount (or debit/credit pair), the payee. The preview shows
-   how each row will be read before anything is saved.
-3. Import. The rows land in **Staged** — a review queue where nothing counts
-   toward balances yet.
-4. Press the **Review these rows** link, look the batch over, fix anything the
-   importer flagged (a row missing an account, an unreadable date), and press
-   **Commit selected**. Committing is all-or-nothing.
+   the date, the amount (or debit/credit pair), the payee. Press **Dry run**
+   to see how each row will be read before anything is saved.
+3. Press **Stage all rows**. They land in **Staged** — a review queue where
+   nothing counts toward balances yet.
+4. Press the **Review these N rows** link, look the batch over, fix anything
+   the importer flagged (a row missing an account, an unreadable date), and
+   press **Commit selected**. Committing is all-or-nothing.
 
 Rows that look like something you already have are flagged as possible
 duplicates and open side by side with the entry they resemble, so you can drop
-whichever copy is the spare. Categories and payees named by the file are
+the staged copy — or, if the committed one is the spare, delete it from
+Transactions. Categories and payees named by the file are
 matched case-insensitively and created if new.
 
 A file exported from Simple Balance itself (Transactions → **Export CSV**) needs no
@@ -246,23 +250,25 @@ The report then shows how much of each budget the month's income actually
 covers, filling them in your order until the money runs out. Rank savings
 first and you have "pay yourself first"; budget *only* savings and rank it,
 leaving everything else unbudgeted, and you have the anti-budget. Budgets you
-never ranked are left alone — the column only appears once you ask.
+never ranked are funded last, after every ranked one — and the column only
+appears once you rank something.
 
 ### Grouping categories
 
 On **Categories**, press **Add group**, then edit a category to file it under
 the group. A group is budgeted one of two ways, chosen when you make it:
 
-- **Own budget** — one number for the whole group ("Eating out: £200 across
-  restaurants, takeaway, coffee"). Bucket budgeting; three such groups make
-  50/30/20.
-- **Adds up** — the group is whatever its member budgets total. Hierarchical
-  budgeting; the group line is a subtotal, never a second claim.
+- **Has a budget of its own** — one number for the whole group ("Eating out:
+  £200 across restaurants, takeaway, coffee"). Bucket budgeting; three such
+  groups make 50/30/20. The Budgets page badges these **Own budget**.
+- **Adds up its categories' budgets** — the group is whatever its member
+  budgets total, badged **Adds up**. Hierarchical budgeting; the group line
+  is a subtotal, never a second claim.
 
 ### What happens next (the forecast)
 
 The **What happens next** panel walks your recurring transactions forward and
-projects each account's balance per month. Nothing in it has happened — it is
+projects your balance per currency, month by month. Nothing in it has happened — it is
 what the balances would do if nothing changed. Switch **Counting** to
 "Recurring plus what budgets intend" for the pessimistic reading: it adds the
 part of each budget no recurrence already covers, so rent is never counted
@@ -283,9 +289,11 @@ your honesty — the report only works if the entries are true.
 - **Overview** — balances, cash flow, and spending by category for any date
   range. It stops at today whatever range you pick, because money dated next
   week has not moved.
-- **Reports** — net worth, balance sheet, income against expense, cash flow
-  statement, and a trial balance that totals zero when the books are whole.
-- **Activity** — everything you or a connected agent did, newest first.
+- **Reports** — net worth, income against expenses, spending by category, a
+  cash flow statement, a balance sheet, and a trial balance that totals zero
+  when the books are whole.
+- **Activity** — the hundred most recent things you or a connected agent did,
+  newest first. The full history is in the audit log underneath.
 
 Every figure is per currency; nothing is ever added across currencies, because
 there is no exchange rate here to add them with.
