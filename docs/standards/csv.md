@@ -506,10 +506,14 @@ preserved on what gets stored and ignored on what gets matched.
   widen it, because a row running against the category is a reversal rather than
   a statement that the category covers both directions, and widening it would
   stop every later refund from moving the figure it should move. An archived one
-  is brought back. Widening happens only where there is nothing to preserve:
-  `widenCategoryKinds` decides the kind of a category the file is creating, so a
-  name new to the ledger that appears in both directions is created covering
-  both.
+  is brought back. A name new to the ledger has nothing to preserve, so the
+  file's own rows decide: they vote by direction, the category is created as
+  whichever direction most of them are, and a tie goes to expense — a refund is
+  the minority direction by construction, so a purchase-and-refund pair makes a
+  spending category rather than one covering both. (An earlier rule created
+  such names covering both directions, and a category covering both agrees
+  with whichever direction it is handed: the refund credited income and the
+  budget never moved.)
 
   A caller that may only stage cannot create a category, so the row is staged
   carrying the name **and the kind the file decided**, and the commit makes it.

@@ -670,9 +670,13 @@ test.describe("the budgets page in a browser", () => {
     await expect(page.getByText(pension, { exact: false }).first()).toBeVisible();
 
     await page.goto("/budgets");
-    // Fifty thousand more in the ledger and not a penny of it assignable.
+    // Fifty thousand more in the ledger and not a penny of it assignable. The
+    // positive first, per testing.md 2.5 — and it is the positive that can
+    // fail under the defect: the page renders the perimeter only as a sum, so
+    // "£50,000 appears nowhere" was true whichever way the checkbox worked.
     await expect(page.getByText(/left to assign/i)).toBeVisible();
-    await expect(page.getByText(/£50,000/)).toHaveCount(0);
+    await expect(page.getByText(/out of £\d/).first()).toBeVisible();
+    await expect(page.getByText(/out of £5[01],\d{3}/)).toHaveCount(0);
   });
 
   /**

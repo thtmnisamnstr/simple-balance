@@ -254,8 +254,13 @@ integration("embedded local authentication", () => {
       setupToken,
     });
     expect(secondSignup.status).toBe(403);
+    // Both halves of the transitional envelope: the flat pair a 0.1.5 client
+    // reads, and the nested `error` the browser's own reader looks inside.
+    // Fourteen routes grew the pair and no test held it — a regression to
+    // flat-only would pass every assertion that checks only the flat keys.
     expect(await secondSignup.json()).toMatchObject({
       code: "REGISTRATION_CLOSED",
+      error: { code: "REGISTRATION_CLOSED" },
     });
     expect(await getDb().select().from(user)).toHaveLength(1);
   });

@@ -2,8 +2,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
+import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
+import { dropScratchDatabase } from "./support/scratch-database.js";
 import { auditEvents, transactionTemplates, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
@@ -109,11 +110,11 @@ integration("saving a transaction as a template", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await adminClient.query(`drop database if exists "${databaseName}"`);
-    await adminClient.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: adminClient,
+      name: databaseName,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("keeps the fields it was given and nothing else", async () => {
@@ -999,11 +1000,11 @@ integration("what an agent reads about the person and their settings", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await client.query(`drop database if exists "${soloDatabase}"`);
-    await client.end();
-    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = previousDatabaseUrl;
+    await dropScratchDatabase({
+      admin: client,
+      name: soloDatabase,
+      previousDatabaseUrl: previousDatabaseUrl,
+    });
   });
 
   it("reports who the books belong to, and the client asking", async () => {

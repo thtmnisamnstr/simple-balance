@@ -74,6 +74,14 @@ export async function listCategoryGroups(actor: Actor): Promise<CategoryGroupVie
   return rows.map((row) => groupView(row.group, row.categoryCount));
 }
 
+/**
+ * One group, by id — a service-level convenience with no route of its own.
+ *
+ * Deliberate, not an omission: the list is short by construction (groups are
+ * one level deep and hand-made), both transports serve the whole of it, and a
+ * by-id route would be a capability neither surface needs. The integration
+ * tests read through this instead of re-implementing find-over-list.
+ */
 export async function getCategoryGroup(actor: Actor, id: string): Promise<CategoryGroupView> {
   const found = (await listCategoryGroups(actor)).find((group) => group.id === id);
   if (!found) throw notFound("Category group not found");

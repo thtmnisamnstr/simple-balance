@@ -1655,7 +1655,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           archived: z
             .boolean()
             .describe(
-              "True to archive, false to bring it back. Archiving posts whatever it still holds out to equity so it closes at zero; restoring posts the balance back. Neither loses history.",
+              "True to archive, false to bring it back. Archiving a category moves no money — it only leaves the pickers — and every entry filed under it stays exactly as recorded; naming an archived category on a new entry, by name, brings it back. Neither loses history.",
             ),
           idempotencyKey: idempotencyKeySchema,
         }),

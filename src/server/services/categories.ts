@@ -84,21 +84,6 @@ export function categoryKindForDraft(draft: TransactionDraft): CategoryKind {
  * refund, not an ambiguity. Only a pairing that genuinely says the category is
  * used both ways widens, and the plain way to get one of those is to say so.
  */
-/**
- * The kind a category being created should have, given two rows that both name
- * it.
- *
- * A different question from the one above, and it took a failing import test to
- * separate them. Resolving against a category that already exists has a right
- * answer to preserve, so a reversal leaves it alone. Two rows in one file
- * naming a category nobody has created yet have nothing to preserve: one is a
- * deposit and one is a withdrawal, no existing kind says which the category is,
- * and picking whichever was parsed first would make the answer depend on row
- * order. That one genuinely covers both.
- */
-export function widenCategoryKinds(left: CategoryKind, right: CategoryKind): CategoryKind {
-  return left === right ? left : "both";
-}
 
 /** Live categories first, then a stable order, so a match never depends on row order. */
 export function preferredCategory(left: CategoryRow, right: CategoryRow) {

@@ -48,3 +48,32 @@ export function scratchDatabase(label: string) {
     },
   };
 }
+
+/**
+ * The failure-tolerant drop, for the files that hand-roll their setup.
+ *
+ * Two dozen suites predate `scratchDatabase` and manage their own admin
+ * client; their teardowns had drifted to the unguarded four-step sequence,
+ * where the first step throwing strands the database and the connection both
+ * and the second failure is the one that gets reported. One drop, one shape.
+ */
+export async function dropScratchDatabase(options: {
+  admin: { query: (sql: string) => Promise<unknown>; end: () => Promise<void> } | undefined;
+  name: string;
+  previousDatabaseUrl: string | undefined;
+}) {
+  try {
+    await closeDb();
+  } finally {
+    try {
+      await options.admin?.query(`drop database if exists "${options.name}"`);
+    } finally {
+      try {
+        await options.admin?.end();
+      } finally {
+        if (options.previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+        else process.env.DATABASE_URL = options.previousDatabaseUrl;
+      }
+    }
+  }
+}

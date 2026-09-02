@@ -202,15 +202,6 @@ function endOfRegex(source: string, start: number): number {
   return start + 1;
 }
 
-/** The 1-based line a character offset falls on. */
-export function lineAt(text: string, offset: number): number {
-  let line = 1;
-  for (let index = 0; index < offset && index < text.length; index++) {
-    if (text[index] === "\n") line += 1;
-  }
-  return line;
-}
-
 /**
  * Cut a file into its top-level declarations.
  *

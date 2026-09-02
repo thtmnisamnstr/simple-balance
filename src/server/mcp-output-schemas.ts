@@ -583,7 +583,7 @@ export const csvStageResultSchema = z.union([
  * so a caller does not have to infer it. `nextNotificationDate` null means
  * nothing further is owed, which for a one-off is how it says it has been sent.
  */
-export const templateNotificationResultSchema = z.object({
+const templateNotificationResultSchema = z.object({
   frequency: z.enum(recurrenceFrequencies).nullable(),
   interval: z.number().int().positive(),
   anchorDate: z.string(),
@@ -718,7 +718,7 @@ export const committedStagesResultSchema = z.union([
   }),
 ]);
 
-export const connectedAppSchema = z.object({
+const connectedAppSchema = z.object({
   clientId: z.string(),
   name: z.string(),
   scopes: z.array(z.string()),
@@ -881,7 +881,7 @@ export const budgetPlanResultSchema = z
     amountRule: z
       .enum(budgetAmountRules)
       .describe(
-        "How the per-period amount is arrived at. Derived from the row rather than chosen: a lookback makes it a trailing average, a percentage of the last period makes it incremental, a percentage of income makes it a share of what came in, a target and a date make it a sinking fund, and everything else is fixed. Under every rule but incremental the amount column is ignored; get_budget_report is where the worked-out figure appears.",
+        "How the per-period amount is arrived at. Derived from the row rather than chosen: a lookback makes it a trailing average, a percentage of the last period makes it incremental, a percentage of income makes it a share of what came in, a target and a date make it a sinking fund, and everything else is fixed. The amount column is the first period's figure under incremental, the seed a trailing average uses until it has finished periods to average, and ignored under the other derived rules; get_budget_report is where the worked-out figure appears.",
       ),
     version: versionSchema,
   })

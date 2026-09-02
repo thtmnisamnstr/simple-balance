@@ -2,8 +2,9 @@ import { and, eq, sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
+import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
+import { dropScratchDatabase } from "./support/scratch-database.js";
 import { ledgerAccounts, postings, user } from "../../src/server/db/schema.js";
 import {
   createAccount,
@@ -82,11 +83,11 @@ integration("archiving an account closes its balance out to equity", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await adminClient.query(`drop database if exists "${databaseName}"`);
-    await adminClient.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: adminClient,
+      name: databaseName,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("zeroes the account and keeps the books balanced", async () => {
@@ -338,7 +339,10 @@ integration("where uncategorised spending sits in the summary", () => {
           fromAccountId: account.id,
           ...(category ? { categoryName: category } : {}),
         },
-        `spend-${payee}`.padEnd(16, "0").slice(0, 16),
+        // The payee whole, never padded to a width: padding and slicing is the
+        // collision shape testing.md 2.6 is about — two keys that agree for
+        // sixteen characters replay each other and the second write is a read.
+        `spend-${payee}`,
       );
     await spend("900.00", "Landlord", "Rent");
     await spend("300.00", "Market", "Food");
@@ -346,11 +350,11 @@ integration("where uncategorised spending sits in the summary", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await catAdmin.query(`drop database if exists "${catDatabase}"`);
-    await catAdmin.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: catAdmin,
+      name: catDatabase,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("puts it last even when it is the largest, so the order is the same everywhere", async () => {
@@ -411,11 +415,11 @@ integration("a summary stops at today", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await futureAdmin.query(`drop database if exists "${futureDatabase}"`);
-    await futureAdmin.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: futureAdmin,
+      name: futureDatabase,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   // "All time" used to mean 9999-12-31, so next month's deposit counted toward
@@ -466,11 +470,11 @@ integration("an account that was archived can still be tidied away", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await tidyAdmin.query(`drop database if exists "${tidyDatabase}"`);
-    await tidyAdmin.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: tidyAdmin,
+      name: tidyDatabase,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   // Archiving leaves closing postings behind. They net to zero once the account
@@ -536,11 +540,11 @@ integration("archiving an account holding future-dated money", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await futureAdmin.query(`drop database if exists "${futureDatabase}"`);
-    await futureAdmin.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: futureAdmin,
+      name: futureDatabase,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("reads zero on every day from the archive to past the last posting", async () => {
