@@ -498,8 +498,8 @@ Three things in the app are past the threshold and are not components yet:
   selection", "Select all N matching".
 - **A blank-cell placeholder.** An em dash on ten sites
   (`TransactionBrowser.tsx:845`, `:853`, `:857`, `AccountDetailPage.tsx:105`,
-  BudgetsPage.tsx:847`, `:853`, `:858`, `:873`, `StagingPage.tsx:924`,
-  `:981`), an italic muted
+  BudgetsPage.tsx:847`, `:853`, `:858`, `:873`, `StagingPage.tsx:933`,
+  `:990`), an italic muted
   word on others, and `Uncategorized` styled `.subtle` on one page and bare on
   another. One of the eight, `TransactionBrowser.tsx:853`, writes the dash as
   literal cell text rather than as a fallback expression. The em-dash and
@@ -986,7 +986,7 @@ The mixed state is already handled. `SelectionCheckbox`
 (`src/client/components.tsx:179-194`) takes an `indeterminate` prop and writes it
 onto the DOM node in an effect, because React does not expose it, and all three
 select-all checkboxes pass it: `TransactionBrowser.tsx:792`,
-`TemplatesPage.tsx:471`, `StagingPage.tsx:811`.
+`TemplatesPage.tsx:471`, `StagingPage.tsx:820`.
 
 *Checked by:* `tests/bulk-row-cap.test.ts` and the server-side selection tests
 cover the contract. The two sentences are review.
@@ -1058,7 +1058,7 @@ is what replaced it.
 | --- | --- |
 | `DashboardPage.tsx:124`, `:160`, `AccountsPage.tsx:250`, `ReportsPage.tsx:341`, `:348`, `:366`, `AccountDetailPage.tsx:216` | `money-negative` on the value, with Intl's own minus sign. Still the rule for a computed total, which has a sign of its own |
 | `TransactionBrowser.tsx:892-897` | Coloured and signed by transaction *type*, with a hand-prefixed `+` or `−` |
-| `StagingPage.tsx:1086`, `TemplatesPage.tsx:550`, `RecurrencesPage.tsx:216` | No colour and no sign |
+| `StagingPage.tsx:1095`, `TemplatesPage.tsx:550`, `RecurrencesPage.tsx:216` | No colour and no sign |
 
 One rule, and it is **direction** rather than the value's own sign: a stored
 amount is always positive, because `AGENTS.md` keeps direction in the type. So a

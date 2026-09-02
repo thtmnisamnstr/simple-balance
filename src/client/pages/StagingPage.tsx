@@ -545,10 +545,15 @@ export default function StagingPage() {
       }),
     onSuccess: async (_result, variables) => {
       inlineInFlight.current = false;
-      // Only the editor this write belongs to. A second cell opened while the
-      // PUT was in flight is somebody already doing the next thing, and
-      // closing it under them threw their keystrokes away.
-      setInline((current) => (current && current.id === variables.stage.id ? null : current));
+      // Only the editor this write belongs to — the cell, not the row. A
+      // second editor opened while the PUT was in flight is somebody already
+      // doing the next thing, and closing it under them threw their
+      // keystrokes away.
+      setInline((current) =>
+        current && current.id === variables.stage.id && current.field === variables.field
+          ? null
+          : current,
+      );
       setInlineError("");
       focusAfterInline.current = { id: variables.stage.id, field: variables.field };
       await Promise.all([
@@ -562,7 +567,11 @@ export default function StagingPage() {
     // holds — a version conflict means somebody else moved it.
     onError: async (cause: Error, variables) => {
       inlineInFlight.current = false;
-      setInline((current) => (current && current.id === variables.stage.id ? null : current));
+      setInline((current) =>
+        current && current.id === variables.stage.id && current.field === variables.field
+          ? null
+          : current,
+      );
       setInlineError(cause.message);
       focusAfterInline.current = { id: variables.stage.id, field: variables.field };
       await queryClient.invalidateQueries({ queryKey: ["staged"] });
