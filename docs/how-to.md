@@ -108,6 +108,11 @@ category side to divide.
   the select-all box), then use the bulk bar to recategorise, redate, rename
   the payee, or delete — up to 10,000 rows, all-or-nothing, after being told
   exactly how many rows the change will touch.
+- **Repeat something similar**: open the row's ⋯ menu and choose **Clone
+  transaction**. The staging form opens prefilled with everything the original
+  carried, ready to adjust; saving puts the copy on **Staged** for review
+  rather than straight into the books. (For something you repeat often, a
+  template is the better tool — see below.)
 
 ## Import a bank file
 
@@ -120,6 +125,14 @@ category side to divide.
 4. Press the **Review these N rows** link, look the batch over, fix anything
    the importer flagged (a row missing an account, an unreadable date), and
    press **Commit selected**. Committing is all-or-nothing.
+
+Small repairs happen right in the list: click a row's **date, payee, category
+or amount** and it turns into the same editor the full form uses — type the
+change, press Enter or click away to save, Escape to cancel. A split's
+category and amount, and a transfer's category, still edit through the row's
+pencil button, because their answer lives on the parts the list cannot show.
+Cloning works here too: a staged row's ⋯ menu has the same **Clone
+transaction** entry.
 
 Rows that look like something you already have are flagged as possible
 duplicates and open side by side with the entry they resemble, so you can drop
@@ -291,7 +304,11 @@ your honesty — the report only works if the entries are true.
   week has not moved.
 - **Reports** — net worth, income against expenses, spending by category, a
   cash flow statement, a balance sheet, and a trial balance that totals zero
-  when the books are whole.
+  when the books are whole. On the categories report, one outsized category
+  (rent, a tax bill) can flatten every other line in the chart: open its row's
+  ⋯ menu and choose **Exclude from this view** to read the rest at their own
+  scale. The exclusion is a view choice only — pills above the report name
+  what is left out and put it back, and nothing stored changes.
 - **Activity** — the hundred most recent things you or a connected agent did,
   newest first. The full history is in the audit log underneath.
 

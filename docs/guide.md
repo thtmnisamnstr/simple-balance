@@ -40,6 +40,12 @@ Nothing is typed over. Correcting an entry posts the difference, and deleting on
 posts its reversal, so a figure you saw last month still reconciles with the
 entries that produced it.
 
+Any row can be cloned, from its menu on either list. The copy opens the staging
+form prefilled and lands on Staged rather than in the books, because a copy is a
+proposal until somebody has looked at it — and it deliberately leaves the
+original's bank reference behind, or the next import of that statement would
+recognise its own row in the copy and stay silent.
+
 ## Splitting one receipt across categories
 
 A grocery run that is partly food, partly household and partly something for the
@@ -169,6 +175,12 @@ That works on the queue as well as on committed rows, which is how you fix a fil
 whose account or category column meant nothing to the importer: one edit over the
 whole batch, and the rows it repairs come back ready to commit.
 
+Single-field repairs are cheaper still: a staged row's date, payee, category and
+amount edit in place on the list, with the same editors and the same server
+checks the full form uses. The fields that depend on parts the list cannot show
+— a split's division, a transfer's two amounts — keep the full editor, so an
+in-place edit can never quietly decide something off screen.
+
 Categories and payees match case-insensitively, flag their own near-duplicates,
 and merge by rewriting every reference at once. Recategorising the last
 transaction off a category removes that category, unless something still names
@@ -189,6 +201,13 @@ not at all.
 
 Every figure is per currency and none is ever added across them, because there are
 no exchange rates here to add them with.
+
+On the categories report, any category can be excluded from the view from its
+row's menu, because one outsized line flattens the rest of the chart. The
+excluded ones are named above the report and put back with a click; the report
+itself is not recalculated on the server and an agent reading over MCP sees
+every category either way — this is a reading choice, not a filter with
+consequences.
 
 The cash flow statement will not agree with income and expense, and the gap is
 widest for whoever uses a credit card most: a purchase is an expense the day the

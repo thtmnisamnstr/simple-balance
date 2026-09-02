@@ -24,6 +24,24 @@ teaches the model that the argument works.
 
 ### Added
 
+**Clone transaction**, on the row menu of both the transactions list and the
+staged queue. The copy opens the staging form prefilled and lands on Staged for
+review rather than in the books, minus the original's bank reference — a copy
+carrying it would be swallowed by the next import as already-seen.
+
+**The staged queue edits in place.** A row's date, payee, category and amount
+turn into editors where they are — the full form's own editors, with the same
+server checks and the same optimistic versioning — so repairing an import is a
+click and a keystroke instead of a trip through the modal. A split's category
+and amount, and a transfer's category, keep the modal, where the parts they
+depend on are visible.
+
+**A category can be excluded from the categories report**, from its row's
+menu, because one outsized category flattens every other line in the chart.
+The footer re-adds from what is on screen, exactly; pills name what is left
+out and put it back; nothing stored changes, and agents reading over MCP see
+every category either way.
+
 The application says what it is doing, in Prometheus' text format, at
 `GET /metrics`. It is off until `METRICS_ENABLED=true`, and then it is
 registered rather than refusing, so a deployment that never asked has no such
@@ -390,6 +408,12 @@ whole — whose message embeds someone's payees and amounts — goes through the
 narrowing logger. And the deferred category kind on a CSV split rode on the
 row, one slot for two answers, so one split naming two new categories gave
 whichever vote wrote last to both.
+
+**The net worth, balance sheet and trial balance charts rendered as filled
+polygons.** One CSS class set stroke and fill for bars and lines alike, and
+source order let its fill defeat the line rule's `fill: none`: every polyline
+closed into a shape, and a report meant to be read as lines read as overlap.
+An element selector now pins polylines unfilled whatever the order.
 
 **Deployment.** The GCP program selected the GKE ingress controller through a
 field GKE ignores, so no load balancer was ever provisioned; the class travels
