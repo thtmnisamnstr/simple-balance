@@ -1491,9 +1491,11 @@ function transactionFilterConditions(actor: Actor, query: BulkTransactionFilter)
  * Which of these transactions are splits, asked of the leg rows themselves.
  *
  * `ledger_transaction.leg_count` would answer faster and is deliberately not
- * used: it has exactly one reader, the check constraint, so if it ever drifted
- * the constraint would go slack rather than a screen telling somebody the wrong
- * thing about what they are about to change.
+ * used here, where the answer gates a refusal about what a bulk edit may
+ * touch. The hydration paths do read `legCount` — as a fetch-avoidance hint
+ * for which rows need their legs loaded — so a drifted count already has a
+ * visible symptom (a split rendering without its legs); this query keeps the
+ * refusal anchored to the rows the money actually sits in either way.
  */
 async function splitTransactionIds(
   executor: Database | DbTransaction,

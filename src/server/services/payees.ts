@@ -83,7 +83,22 @@ export async function payeeSummariesMatching(
 ) {
   const normalize = (column: SQL) =>
     sql`lower(regexp_replace(trim(normalize(${column}, NFKC)), '\\s+', ' ', 'g')) = ${normalizedName}`;
-  return summariesWhere(executor, actor, normalize(sql`payee`), normalize(sql`draft ->> 'payee'`));
+  const rows = await summariesWhere(
+    executor,
+    actor,
+    normalize(sql`payee`),
+    normalize(sql`draft ->> 'payee'`),
+  );
+  // Re-checked with the JavaScript rule before anything groups by it. The SQL
+  // spelling exists for the expression indexes and matches it for every name
+  // anybody has hit, but PostgreSQL's lower() and [[:space:]] are not
+  // character-for-character toLowerCase() and \s — Turkish İ and the NEL
+  // control differ — and the dangerous direction is SQL matching MORE than
+  // JavaScript would: a group would then hold a spelling the merge's own rule
+  // says is a different payee. The filter closes that direction; a spelling
+  // SQL misses stays missed, which costs a duplicate-group entry rather than
+  // a wrong merge.
+  return rows.filter((row) => normalizeHumanName(row.name) === normalizedName);
 }
 
 async function summariesWhere(

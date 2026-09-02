@@ -31,6 +31,7 @@ import {
 } from "./notifications.js";
 import {
   getIdempotent,
+  lockCategoryNamespace,
   lockIdempotencyKey,
   lockTransactionTemplateNamespace,
   serializeRow,
@@ -197,7 +198,21 @@ async function writeNotification(
   templateId: string,
   notification: TemplateNotification | null | undefined,
 ) {
-  const existing = (await readNotifications(tx, actor, [templateId])).get(templateId);
+  // Locked, not merely read. The reminder sweep advances this row's watermark
+  // under its own row lock, and a template save racing it could read the
+  // pre-send watermark here, block on the sweep's lock at the delete below,
+  // and then write the stale watermark back — one reminder re-sent for an
+  // edit that changed nothing. FOR UPDATE makes this read wait its turn.
+  const [existing] = await tx
+    .select()
+    .from(templateNotifications)
+    .where(
+      and(
+        eq(templateNotifications.userId, actor.userId),
+        eq(templateNotifications.templateId, templateId),
+      ),
+    )
+    .for("update");
   if (notification === undefined) return existing ?? null;
   await tx
     .delete(templateNotifications)
@@ -669,7 +684,15 @@ export async function getTransactionTemplate(actor: Actor, id: string) {
   const [notification] = await getDb()
     .select()
     .from(templateNotifications)
-    .where(eq(templateNotifications.templateId, row.id))
+    // The template above was ownership-checked and templateId is unique, so
+    // this cannot cross a tenant today — but every finance read carries the
+    // actor's id anyway, so no later change has to remember why one did not.
+    .where(
+      and(
+        eq(templateNotifications.userId, actor.userId),
+        eq(templateNotifications.templateId, row.id),
+      ),
+    )
     .limit(1);
   return templateView(row, notification ?? null);
 }
@@ -681,6 +704,15 @@ export async function createTransactionTemplate(
 ) {
   const parsed = transactionTemplateCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
+    // The category namespace before the template's own lock, which the
+    // template lock's own comment already requires ("taken last of all the
+    // namespace locks"). Without it a category delete racing this create
+    // counts zero template references while this transaction sits between its
+    // ownership check and its insert, and the template lands naming a dead
+    // category — the exact state deleteCategory's guard exists to prevent.
+    if (parsed.draft.categoryId || parsed.draft.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
+    }
     await lockTransactionTemplateNamespace(tx, actor);
     await assertNameAvailable(tx, actor, parsed.name);
     await assertReferencesAreOwned(tx, actor, parsed.draft);
@@ -723,6 +755,10 @@ export async function updateTransactionTemplate(
   const parsed = transactionTemplateUpdateSchema.parse(input);
   const { expectedVersion, ...changes } = parsed;
   return withTransaction(transaction, async (tx) => {
+    // Same order as the create, for the same race.
+    if (changes.draft?.categoryId || changes.draft?.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
+    }
     await lockTransactionTemplateNamespace(tx, actor);
     const [before] = await tx
       .select()

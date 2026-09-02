@@ -80,6 +80,7 @@ function stageView(
   row: StagedTransactionRow & {
     repeatsStagedRow?: boolean;
     likelyDuplicateOfId?: string | null;
+    cursorSort?: unknown;
   },
 ) {
   // The fingerprint itself is an internal detail; what a caller needs is
@@ -88,6 +89,10 @@ function stageView(
     duplicateKey: _duplicateKey,
     repeatsStagedRow,
     likelyDuplicateOfId: likely,
+    // An ordering expression is presentation, not a row: the committed list
+    // strips its copy for the same reason, and leaving it here published a
+    // column of internals on every staged row over HTTP and MCP.
+    cursorSort: _cursorSort,
     ...rest
   } = row;
   return {
@@ -643,10 +648,24 @@ export function stageFilterConditions(actor: Actor, query: StageFilterQuery) {
     conditions.push(eq(stagedTransactions.importBatchId, query.importBatchId));
   }
   if (query.search) {
-    conditions.push(sql`${stagedTransactions.draft}::text ilike ${likePattern(query.search)}`);
+    // The human fields, exactly as the committed list searches them. Matching
+    // the whole draft as text made a search for "date" or "type" match every
+    // row in the queue, because JSON keys are text too.
+    conditions.push(
+      sql`(${stagedTransactions.draft} ->> 'payee' ilike ${likePattern(query.search)}
+        or ${stagedTransactions.draft} ->> 'description' ilike ${likePattern(query.search)}
+        or ${stagedTransactions.draft} ->> 'notes' ilike ${likePattern(query.search)})`,
+    );
   }
   if (query.accountId) {
-    conditions.push(sql`${stagedTransactions.draft}::text like ${likePattern(query.accountId)}`);
+    // The two keys an account can appear under, compared exactly. A LIKE over
+    // the raw JSON matched the UUID wherever it appeared — a category id, a
+    // duplicate reference — and a filter that can match the wrong field is a
+    // list quietly holding somebody else's answer.
+    conditions.push(
+      sql`(${stagedTransactions.draft} ->> 'fromAccountId' = ${query.accountId}
+        or ${stagedTransactions.draft} ->> 'toAccountId' = ${query.accountId})`,
+    );
   }
   if (query.type) {
     conditions.push(sql`${stagedTransactions.draft}->>'type' = ${query.type}`);
@@ -1383,6 +1402,17 @@ export async function bulkEditStages(
 ) {
   const parsed = bulkStageEditSchema.parse(input);
   const { selection, patch } = parsed;
+  // Sorted before hashing, exactly as the committed twin normalizes its own:
+  // a retry that lists the same rows in another order is the same request,
+  // and refusing it as a conflict tells a caller its edit did not happen
+  // about one that did.
+  const idempotencySelection =
+    selection.mode === "ids"
+      ? {
+          mode: selection.mode,
+          items: [...selection.items].sort((left, right) => left.id.localeCompare(right.id)),
+        }
+      : { ...selection, excludedIds: [...selection.excludedIds].sort() };
 
   return withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
@@ -1392,7 +1422,7 @@ export async function bulkEditStages(
         actor,
         "stage.bulkEdit",
         parsed.idempotencyKey,
-        { selection, patch },
+        { selection: idempotencySelection, patch },
       );
       if (existing) return existing;
     }
@@ -1621,7 +1651,7 @@ export async function bulkEditStages(
       actor,
       "stage.bulkEdit",
       parsed.idempotencyKey,
-      { selection, patch },
+      { selection: idempotencySelection, patch },
       result,
     );
     return result;

@@ -535,14 +535,10 @@ export async function listDuplicateCategories(actor: Actor) {
     .map(([normalizedName, group]) => ({
       normalizedName,
       count: group.length,
-      categories: group
-        .sort((left, right) => {
-          if (Boolean(left.archivedAt) !== Boolean(right.archivedAt)) {
-            return left.archivedAt ? 1 : -1;
-          }
-          return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
-        })
-        .map((category) => serializeRow(category)),
+      // The first entry is the one a merge keeps, so this is preferredCategory
+      // and not a copy of it: two spellings of one comparator is two answers
+      // to which category survives.
+      categories: group.sort(preferredCategory).map((category) => serializeRow(category)),
     }));
 }
 

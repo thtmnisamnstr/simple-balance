@@ -26,9 +26,15 @@ import {
   stagedTransactions,
   type RecurrenceRow,
 } from "../db/schema.js";
+import { normalizeHumanName } from "../../shared/names.js";
 import { conflict, duplicate, notFound, staleVersion } from "./errors.js";
 import { notifyRecurrenceProposed } from "./notifications.js";
-import { lockRecurrenceNamespace, serializeRow, writeAudit } from "./helpers.js";
+import {
+  lockCategoryNamespace,
+  lockRecurrenceNamespace,
+  serializeRow,
+  writeAudit,
+} from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { insertRecurringStages } from "./staging.js";
 import { log } from "../log.js";
@@ -428,8 +434,12 @@ async function assertNameAvailable(
     .select({ id: recurrences.id, name: recurrences.name })
     .from(recurrences)
     .where(eq(recurrences.userId, actor.userId));
+  // Compared the way category and template names are: NFKC-folded, interior
+  // whitespace collapsed. Bare trim().toLowerCase() let "Rent\u00A0money" and
+  // "rent money" stand as two recurrences that read identically on screen.
+  const normalized = normalizeHumanName(name);
   const clash = rows.find(
-    (row) => row.id !== excludeId && row.name.trim().toLowerCase() === name.trim().toLowerCase(),
+    (row) => row.id !== excludeId && normalizeHumanName(row.name) === normalized,
   );
   if (clash) {
     throw duplicate("A recurrence with this name already exists", {
@@ -508,6 +518,15 @@ export async function createRecurrence(actor: Actor, input: unknown, transaction
     // wait never ends and never errors either.
     const { timezone } = await getPreferences(actor, tx);
     const proposesFrom = todayIn(timezone);
+    // The category namespace first, and before the recurrence's own lock —
+    // the account -> category -> payee order helpers.ts mandates, extended the
+    // way every names-a-category write extends it. Without this, a category
+    // delete racing this create counts zero recurrence references while this
+    // transaction sits between its ownership check and its insert, and the
+    // recurrence lands naming a dead category.
+    if (parsed.shape.categoryId || parsed.shape.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
+    }
     await lockRecurrenceNamespace(tx, actor);
     await assertNameAvailable(tx, actor, parsed.name);
     await assertReferencesAreOwned(tx, actor, parsed.shape);
@@ -554,6 +573,11 @@ export async function updateRecurrence(
 ) {
   const changes = recurrenceUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
+    // Same order as the create, for the same race. A patch with no shape
+    // names no category and needs no category lock.
+    if (changes.shape?.categoryId || changes.shape?.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
+    }
     await lockRecurrenceNamespace(tx, actor);
     const [before] = await tx
       .select()
