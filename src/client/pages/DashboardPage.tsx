@@ -13,7 +13,13 @@ import {
   PageHeader,
   Skeleton,
 } from "../components.js";
-import { formatMoney, isNegativeMoney, largestMoney, moneyRatioPercent } from "../money.js";
+import {
+  formatDate,
+  formatMoney,
+  isNegativeMoney,
+  largestMoney,
+  moneyRatioPercent,
+} from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { TransactionForm } from "../forms.js";
 
@@ -126,7 +132,11 @@ export default function DashboardPage() {
                 <article className="panel">
                   <header className="panel-header">
                     <h3>Accounts</h3>
-                    <span>As of {summary.data?.asOf ?? end ?? "today"}</span>
+                    <span>
+                      {/* Through formatDate like every date below it: raw ISO
+                          above formatted tables read as two different days. */}
+                      As of {formatDate(summary.data?.asOf ?? end ?? "") || "today"}
+                    </span>
                   </header>
                   <div>
                     {groupAccountsByType(currency.accounts).map((group) => (

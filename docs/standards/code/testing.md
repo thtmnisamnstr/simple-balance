@@ -330,9 +330,9 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` src/client/forms.tsx:312` `` |
-| Bare filename | `` forms.tsx:312` `` — resolved by basename |
-| Continuation | `` `:576` `` — inherits the last file the prose named |
+| Full path | `` src/client/forms.tsx:321` `` |
+| Bare filename | `` forms.tsx:321` `` — resolved by basename |
+| Continuation | `` `:585` `` — inherits the last file the prose named |
 
 The test knew only the first for a while, and that gap was expensive. Adopting
 the formatter moved every line in `src`; the relocation pass repaired the

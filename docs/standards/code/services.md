@@ -108,7 +108,7 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
 
 `withTransaction` joins the caller's transaction when it is given one and opens
 its own when it is not
-(src/server/db/client.ts:109). 41 declarations here take that parameter. 40 of
+(src/server/db/client.ts:116). 41 declarations here take that parameter. 40 of
 them are mutations, and every one of those 40 goes through the helper, which is
 the claim worth making and not the same one as the count of the parameter.
 
@@ -158,7 +158,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, src/server/services/accounts.ts:646).
+(`updateAccount`, src/server/services/accounts.ts:662).
 
 Two windows have to be closed, not one. Comparing before the update leaves a
 gap between the read and the write, so the update itself also filters on the

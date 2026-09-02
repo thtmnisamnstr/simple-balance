@@ -3,6 +3,8 @@ import { useThemeSetting } from "../theme.js";
 import { Bot, KeyRound, Link, Settings2, SunMoon, TriangleAlert } from "lucide-react";
 import { useState, useId } from "react";
 import { useSearchParams } from "../router.js";
+import { formatTimestamp } from "../money.js";
+import { useTimezone } from "../timezone.js";
 import { api, json, type AuthPublicOptions, type Session } from "../api.js";
 import { authClient } from "../auth-client.js";
 import {
@@ -526,10 +528,14 @@ const scopeSummary = (scopes: string[]) => {
   return "No ledger access";
 };
 
-const when = (value: string | null) => (value ? new Date(value).toLocaleString() : null);
+// Through the shared formatter, in the account's zone — a bare
+// toLocaleString() answered in the browser's.
+const when = (value: string | null, timezone: string) =>
+  value ? formatTimestamp(value, timezone) : null;
 
 function ConnectedApps() {
   const queryClient = useQueryClient();
+  const timezone = useTimezone();
   const revocation = useConfirm<ConnectedApp>();
   const apps = useQuery({
     queryKey: ["connected-apps"],
@@ -581,8 +587,20 @@ function ConnectedApps() {
               {app.hasLiveAccess ? "Active" : "No live token"}
             </Badge>
             <p className="settings-note">
+              {/* When it last took a token and how many it holds, because
+                  "is this thing still using my ledger" is the question this
+                  page exists to answer — the API sent both from the first
+                  day and the page dropped them on the floor. */}
               {scopeSummary(app.scopes)}
-              {when(app.authorizedAt) ? ` · approved ${when(app.authorizedAt)}` : ""}
+              {when(app.authorizedAt, timezone)
+                ? ` · approved ${when(app.authorizedAt, timezone)}`
+                : ""}
+              {when(app.lastIssuedAt, timezone)
+                ? ` · last token ${when(app.lastIssuedAt, timezone)}`
+                : ""}
+              {app.activeTokenCount > 0
+                ? ` · ${app.activeTokenCount} active token${app.activeTokenCount === 1 ? "" : "s"}`
+                : ""}
             </p>
           </div>
           <Button

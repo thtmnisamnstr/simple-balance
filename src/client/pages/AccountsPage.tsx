@@ -11,7 +11,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "../router.js";
+import { Link, useLocation } from "../router.js";
 import {
   accountTypeLabels,
   groupAccountsByType,
@@ -60,7 +60,9 @@ export default function AccountsPage({ session }: { session: Session }) {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
   const removal = useConfirm<Account>();
+  const location = useLocation();
   const closing = useConfirm<Account>();
+  const restoring = useConfirm<Account>();
   const [sort, setSort] = useState<SortState<AccountSortField>>({
     field: "name",
     direction: "asc",
@@ -125,6 +127,10 @@ export default function AccountsPage({ session }: { session: Session }) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["accounts"] });
       await queryClient.invalidateQueries({ queryKey: ["summary"] });
+      // Budgets and the forecast read the same postings; without these two
+      // the Budgets page showed pre-mutation figures for its staleTime.
+      await queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      await queryClient.invalidateQueries({ queryKey: ["forecast"] });
     },
   });
 
@@ -183,12 +189,23 @@ export default function AccountsPage({ session }: { session: Session }) {
                           </button>
                           <button
                             onClick={() => {
-                              // Archiving now moves money: the balance is posted
+                              // Archiving moves money: the balance is posted
                               // out to equity so the account ends at zero.
-                              // Restoring puts it back, and neither is something
-                              // to do by brushing past a menu item.
+                              // Restoring posts it back. Neither is something
+                              // to do by brushing past a menu item, and for a
+                              // while only the archive half asked — restoring
+                              // a five-thousand-dollar closing was one click.
+                              // Every restore asks, because the closed row
+                              // shows a zero balance and cannot say here what
+                              // the reversal will move.
                               if (!account.archivedAt && hasBalance(account.balance)) {
                                 closing.ask(account, () =>
+                                  mutation.mutate({ account, action: "archive" }),
+                                );
+                                return;
+                              }
+                              if (account.archivedAt) {
+                                restoring.ask(account, () =>
                                   mutation.mutate({ account, action: "archive" }),
                                 );
                                 return;
@@ -280,6 +297,19 @@ export default function AccountsPage({ session }: { session: Session }) {
         confirmLabel="Archive"
         onConfirm={closing.confirm}
         onCancel={closing.cancel}
+      />
+
+      <ConfirmDialog
+        open={restoring.open}
+        title="Restore this account?"
+        description={
+          restoring.value
+            ? `Whatever “${restoring.value.name}” held when it was archived is posted back from Opening Balances, and starts counting toward your totals again. Its history was readable all along; this changes the money, not the record.`
+            : undefined
+        }
+        confirmLabel="Restore"
+        onConfirm={restoring.confirm}
+        onCancel={restoring.cancel}
       />
 
       <ConfirmDialog

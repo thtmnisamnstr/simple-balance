@@ -184,6 +184,7 @@ export default function CategoriesPage() {
     queryFn: () => api<CategoryGroup[]>("/api/v1/category-groups"),
   });
 
+  const [groupResetNonce, setGroupResetNonce] = useState(0);
   const groupMutation = useMutation({
     mutationFn: async (
       input:
@@ -226,6 +227,10 @@ export default function CategoriesPage() {
       await queryClient.invalidateQueries({ queryKey: ["category-groups"] });
       await queryClient.invalidateQueries({ queryKey: ["categories"] });
     },
+    // The rename inputs are uncontrolled, so a refused name would stay on
+    // screen looking accepted while the server still holds the old one. The
+    // nonce remounts them back to what is actually stored, beside the error.
+    onError: () => setGroupResetNonce((nonce) => nonce + 1),
   });
 
   const categoryMutation = useMutation({
@@ -279,6 +284,8 @@ export default function CategoriesPage() {
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -317,6 +324,8 @@ export default function CategoriesPage() {
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -467,6 +476,7 @@ export default function CategoriesPage() {
                           could not, which is the parity rule pointing the other
                           way. */}
                       <Input
+                        key={`${group.id}:${group.version}:${groupResetNonce}`}
                         aria-label={`Name of ${group.name}`}
                         defaultValue={group.name}
                         onBlur={(event) => {

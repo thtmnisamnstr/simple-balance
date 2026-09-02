@@ -74,6 +74,12 @@ import { calendarDateInTimezone, useTimezone } from "./timezone.js";
 import { newIdempotencyKey } from "./idempotency.js";
 import { cleanHumanName, normalizeHumanName } from "../shared/names.js";
 
+// Keys for legs the server has not named yet. A counter, not an id: it only
+// has to be unique within one page's lifetime, and it exists so a removed
+// middle row does not re-key the rows behind it.
+let legKeySeed = 0;
+const nextLegKey = () => `leg-${(legKeySeed += 1)}`;
+
 export function AccountForm({
   account,
   defaultCurrency,
@@ -163,13 +169,16 @@ export function AccountForm({
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["accounts"] });
       await queryClient.invalidateQueries({ queryKey: ["summary"] });
+      // Budgets and the forecast read the same postings; without these two
+      // the Budgets page showed pre-mutation figures for its staleTime.
+      await queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      await queryClient.invalidateQueries({ queryKey: ["forecast"] });
       onDone();
     },
   });
 
   return (
     <form
-      id="account-form"
       className="form-grid"
       onSubmit={(event) => {
         event.preventDefault();
@@ -587,11 +596,16 @@ function CategoryPicker({
         value={categoryName}
         onChange={(event) => {
           const next = event.target.value;
-          const match = categories.find(
-            (category) => normalizeHumanName(category.name) === normalizeHumanName(next),
-          );
           // Matching by name keeps the spelling already in the ledger, so the
-          // field shows what the entry will actually be filed under.
+          // field shows what the entry will actually be filed under. Live
+          // categories only: an archived one's id is refused by a create,
+          // while its NAME revives it by design — so a typed name that only
+          // an archived category answers to must travel as the name.
+          const match = categories.find(
+            (category) =>
+              !category.archivedAt &&
+              normalizeHumanName(category.name) === normalizeHumanName(next),
+          );
           onChange(match?.id ?? "", match?.name ?? next);
         }}
         placeholder="Type to search or add"
@@ -646,6 +660,7 @@ function CategoryLegs({
 }) {
   const blank = (): TransactionFormLeg => ({
     id: "",
+    formKey: nextLegKey(),
     categoryId: "",
     categoryName: "",
     amount: "",
@@ -671,7 +686,10 @@ function CategoryLegs({
             // whole amount, so splitting starts from what is on screen rather
             // than from nothing.
             onCategoryChange("", "");
-            onLegsChange([{ id: "", categoryId, categoryName, amount: total, note: "" }, blank()]);
+            onLegsChange([
+              { id: "", formKey: nextLegKey(), categoryId, categoryName, amount: total, note: "" },
+              blank(),
+            ]);
           }}
         >
           Split across categories
@@ -689,7 +707,7 @@ function CategoryLegs({
   return (
     <div className="category-legs">
       {legs.map((leg, index) => (
-        <div className="category-leg" key={leg.id || `new-${index}`}>
+        <div className="category-leg" key={leg.id || leg.formKey}>
           <CategoryPicker
             categories={categories}
             categoryId={leg.categoryId}
@@ -921,6 +939,7 @@ export function TemplateForm({
   const [fromAccountId, setFromAccountId] = useState(source.fromAccountId ?? "");
   const [toAccountId, setToAccountId] = useState(source.toAccountId ?? "");
   const [amount, setAmount] = useState(source.amount ?? "");
+  const [destinationAmount, setDestinationAmount] = useState(source.destinationAmount ?? "");
   const [categoryId, setCategoryId] = useState(source.categoryId ?? "");
   const [categoryName, setCategoryName] = useState(
     categories.find((category) => category.id === source.categoryId)?.name ??
@@ -930,6 +949,7 @@ export function TemplateForm({
   const [legs, setLegs] = useState<TransactionFormLeg[]>(() =>
     (source.legs ?? []).map((leg) => ({
       id: "",
+      formKey: nextLegKey(),
       categoryId: leg.categoryId ?? "",
       categoryName:
         categories.find((category) => category.id === leg.categoryId)?.name ??
@@ -993,6 +1013,12 @@ export function TemplateForm({
       if (type !== "deposit") keep("fromAccountId", fromAccountId);
       if (type !== "withdrawal") keep("toAccountId", toAccountId);
       keep("amount", amount);
+      // Only a transfer has a received side. Without this line the form
+      // rebuilt the draft from what it showed and silently erased the
+      // destination amount of a cross-currency transfer template every time
+      // anything else about it was saved — a field the MCP surface could set
+      // and the browser then lost, which is the parity defect one level down.
+      if (type === "transfer") keep("destinationAmount", destinationAmount);
       // Legs and a single category cannot both be stored, so whichever side the
       // form is showing is the one that is saved. A template leg may name only
       // a category: its amount is filled in when the template is used.
@@ -1110,6 +1136,21 @@ export function TemplateForm({
           pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
         />
       </Field>
+
+      {type === "transfer" ? (
+        <Field
+          label="Amount received"
+          hint="For a transfer between currencies: what arrives on the other side. Leave blank when both accounts share a currency, or to fill it in each time."
+        >
+          <Input
+            inputMode="decimal"
+            value={destinationAmount}
+            onChange={(event) => setDestinationAmount(event.target.value)}
+            placeholder="0.00"
+            pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
+          />
+        </Field>
+      ) : null}
 
       {type === "transfer" ? null : (
         <Field label="Category" hint="Optional">
@@ -1730,6 +1771,10 @@ export function TransactionForm({
     setDescription("");
     setCategoryId(initialCategoryId ?? "");
     setCategoryName(categories.find((category) => category.id === initialCategoryId)?.name ?? "");
+    // The kind chosen for a brand-new category is about the entry that named
+    // it, never the next one: left standing, the next entry's new category
+    // silently defaulted to the refund direction somebody chose last time.
+    setCategoryKind("");
     setLegs([]);
     setCategoryPickerVersion((version) => version + 1);
     setNotes("");
@@ -1831,6 +1876,7 @@ export function TransactionForm({
           if (leg.categoryId && !category) missing.push("category");
           return {
             id: "",
+            formKey: nextLegKey(),
             categoryId: category?.id ?? "",
             categoryName: category?.name ?? (leg.categoryId ? "" : (leg.categoryName ?? "")),
             amount: leg.amount ?? "",
@@ -1985,6 +2031,8 @@ export function TransactionForm({
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
         // Naming a category or a payee that does not exist yet creates it, so
         // the lists that show them are out of date the moment this returns.
         queryClient.invalidateQueries({ queryKey: ["categories"] }),
@@ -2468,6 +2516,7 @@ export function RecurrenceForm({
   const [legs, setLegs] = useState<TransactionFormLeg[]>(() =>
     (shape?.legs ?? []).map((leg) => ({
       id: "",
+      formKey: nextLegKey(),
       categoryId: leg.categoryId ?? "",
       categoryName:
         categories.find((category) => category.id === leg.categoryId)?.name ??
@@ -2698,6 +2747,31 @@ export function RecurrenceForm({
     })
     .map(({ name }) => name.trim());
   const newCategoryKind: CategoryKind = categoryKind || (type === "deposit" ? "income" : "expense");
+  // The same rule TransactionForm previews, for a harsher reason: a one-off
+  // mixed split is refused once at the moment somebody is looking, while a
+  // recurrence that saved cleanly proposes an uncommittable row every
+  // occurrence for ever. One function, so the sentence here is the sentence
+  // the commit would eventually throw.
+  const entrySide =
+    type === "transfer"
+      ? null
+      : resolveEntrySide(
+          type,
+          namedForKind
+            .map(({ id, name }) => {
+              const known =
+                categories.find((category) => category.id === id) ??
+                (name.trim()
+                  ? categories.find(
+                      (category) => normalizeHumanName(category.name) === normalizeHumanName(name),
+                    )
+                  : undefined);
+              if (known) return known.kind;
+              return name.trim() ? newCategoryKind : undefined;
+            })
+            .filter((kind): kind is CategoryKind => Boolean(kind)),
+        );
+  const entrySideError = entrySide && !entrySide.ok ? entrySide.message : "";
   const splitSettled =
     !splitting ||
     moneyRemainder(
@@ -2717,6 +2791,7 @@ export function RecurrenceForm({
     transferReady &&
     splitSettled &&
     legsComplete &&
+    !entrySideError &&
     parsedSchedule.success,
   );
 
@@ -3061,6 +3136,7 @@ export function RecurrenceForm({
         ordinary staged row you check and commit.
       </Alert>
 
+      {entrySideError ? <Alert kind="error">{entrySideError}</Alert> : null}
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel

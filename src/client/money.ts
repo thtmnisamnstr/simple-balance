@@ -321,6 +321,33 @@ export function formatDate(value: string) {
 }
 
 /**
+ * An instant, rendered where this person lives.
+ *
+ * The two places that print one — the activity log and the connected-apps
+ * panel — each rolled their own formatter in the browser's zone, so an audit
+ * trail read while travelling disagreed with the dates on the entries it
+ * audits. Total for formatDate's reason: an unreadable timestamp renders as it
+ * arrived rather than unmounting the page, and an unknown zone falls back to
+ * the browser's rather than throwing.
+ */
+export function formatTimestamp(value: string, timezone: string) {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return value;
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: timezone,
+    }).format(instant);
+  } catch {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(instant);
+  }
+}
+
+/**
  * Which way a movement went, as a sign and a class.
  *
  * A stored amount is always positive: `AGENTS.md` keeps direction in the

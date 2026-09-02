@@ -188,7 +188,7 @@ export default function ReportsPage() {
               <section className="panel" key={currency.currency}>
                 <div className="panel-header">
                   <h2>{currency.currency}</h2>
-                  <span>As of {data.asOf}</span>
+                  <span>As of {formatDate(data.asOf)}</span>
                 </div>
 
                 {plotted ? (

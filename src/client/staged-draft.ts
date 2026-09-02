@@ -23,6 +23,13 @@ type StageAccount = {
  */
 export type TransactionFormLeg = {
   id: string;
+  /**
+   * A client-only key for rows the server has not named yet. New legs were
+   * keyed by array index, so removing a middle row re-keyed everything behind
+   * it: React reused the components, and focus stayed on a Remove button that
+   * now deleted the following row. Never sent to the server.
+   */
+  formKey: string;
   categoryId: string;
   categoryName: string;
   amount: string;
@@ -99,10 +106,13 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
  * is left out rather than guessed at: a queue row with an unreadable split is
  * repaired by typing it again, not by inventing amounts for it.
  */
+let stagedLegKeySeed = 0;
+
 export function stagedLegs(value: unknown): TransactionFormLeg[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isUnknownRecord).map((leg) => ({
     id: stagedString(leg.id),
+    formKey: `staged-leg-${(stagedLegKeySeed += 1)}`,
     categoryId: stagedString(leg.categoryId),
     categoryName: stagedString(leg.categoryName),
     amount: stagedString(leg.amount),

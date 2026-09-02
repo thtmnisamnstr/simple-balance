@@ -24,7 +24,7 @@ import {
 } from "../components.js";
 import { formatDate, compareMoney, formatMoney, movementSign } from "../money.js";
 import { TemplateForm } from "../forms.js";
-import { Link } from "../router.js";
+import { Link, useLocation } from "../router.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import type { TransactionTemplateBulkPatch } from "../../shared/domain.js";
 
@@ -119,6 +119,9 @@ function accountLabel(accounts: Account[] | undefined, template: TransactionTemp
 
 export default function TemplatesPage() {
   const queryClient = useQueryClient();
+  // So the used-count link can carry the date range to the detail page, the
+  // way every other detail navigation in the app already does.
+  const location = useLocation();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [sort, setSort] = useState<SortState<TemplateSortField>>({
@@ -167,7 +170,10 @@ export default function TemplatesPage() {
     const { draft } = template;
     const id =
       draft.type === "deposit" ? draft.toAccountId : (draft.fromAccountId ?? draft.toAccountId);
-    return accounts.data?.find((account) => account.id === id)?.currency ?? "USD";
+    // Null, not a guess: a template's account reference has no foreign key, so
+    // the account can be gone, and formatting its amount as US dollars showed
+    // a currency nobody chose.
+    return accounts.data?.find((account) => account.id === id)?.currency ?? null;
   };
 
   const filtered = useMemo(() => {
@@ -547,7 +553,14 @@ export default function TemplatesPage() {
                         {template.draft.amount ? (
                           <>
                             {movementSign(template.draft.type).sign}
-                            {formatMoney(template.draft.amount, currencyFor(template))}
+                            {(() => {
+                              const currency = currencyFor(template);
+                              // The bare number when the account is gone: a
+                              // currency symbol nobody chose is a claim.
+                              return currency
+                                ? formatMoney(template.draft.amount, currency)
+                                : template.draft.amount;
+                            })()}
                           </>
                         ) : (
                           <span className="template-blank">blank</span>
@@ -555,7 +568,7 @@ export default function TemplatesPage() {
                       </td>
                       <td className="align-right">
                         <Link
-                          to={{ pathname: `/templates/${template.id}` }}
+                          to={{ pathname: `/templates/${template.id}`, search: location.search }}
                           aria-label={`Transactions from ${template.name}`}
                         >
                           {template.totalTransactionCount ?? 0}

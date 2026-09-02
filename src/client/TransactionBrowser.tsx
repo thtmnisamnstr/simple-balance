@@ -275,6 +275,8 @@ export function TransactionBrowser({
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -402,6 +404,8 @@ export function TransactionBrowser({
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
     // Without this, a selection that went stale leaves the same snapshot in
@@ -437,6 +441,8 @@ export function TransactionBrowser({
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
         queryClient.invalidateQueries({ queryKey: ["audit-events"] }),
         queryClient.invalidateQueries({ queryKey: ["categories"] }),
         queryClient.invalidateQueries({ queryKey: ["payees"] }),
@@ -764,7 +770,15 @@ export function TransactionBrowser({
           ) : null}
         </Alert>
       ) : null}
-      {transactions.error ? <Alert>{transactions.error.message}</Alert> : null}
+      {/* Every query this view depends on, not just the main list: a failed
+          accounts read silently disabled the Add button, and a failed staged
+          read silently hid the contextual rows, each with nothing on screen
+          to say why. */}
+      {[transactions.error, staged.error, accounts.error, categories.error]
+        .filter((cause): cause is Error => Boolean(cause))
+        .map((cause, index) => (
+          <Alert key={index}>{cause.message}</Alert>
+        ))}
       {items.length || stagedRows.length ? (
         <>
           <div className="table-card">

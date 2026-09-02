@@ -22,8 +22,8 @@ Five throws in `src/server/services` are that second kind, and all five are
 correct: three `TypeError`s in the idempotency canonicaliser for payload shapes
 that cannot occur (`src/server/services/helpers.ts:131`, `:147` and `:153`), and
 two `Error`s for a reference count that came back non-numeric after being cast
-to one in SQL (`src/server/services/payees.ts:52` and
-src/server/services/categories.ts:495`).
+to one in SQL (`src/server/services/payees.ts:57` and
+src/server/services/categories.ts:499`).
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
 something the caller could have got right".
@@ -47,8 +47,8 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is four lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1013`, `:1058`, `:1067`
-and `:1080`. One carries a code a constructor covers and three carry codes no
+`src/server/api.ts` constructs `AppError` directly at `:1029`, `:1074`, `:1083`
+and `:1096`. One carries a code a constructor covers and three carry codes no
 service raises at all: `FORBIDDEN` and `REAUTHENTICATION_REQUIRED` belong to the
 two operations that are reachable from a session and never from a token, which
 is exactly the pair `AGENTS.md` names as the boundary between the surfaces. A

@@ -247,7 +247,7 @@ function ChartFrame({
   zeroAt: number | null;
   ticks: { value: string; at: number }[];
   currency: string;
-  timeLabels: { key: string; text: string; at: number }[];
+  timeLabels: { key: string; text: string; at: number; edge: "start" | "end" | null }[];
   plotRef: React.Ref<HTMLDivElement>;
 }) {
   return (
@@ -310,16 +310,16 @@ function ChartFrame({
         {children}
       </svg>
       <div className="chart-axis-x" aria-hidden="true">
-        {timeLabels.map((label, index) => (
+        {timeLabels.map((label) => (
           <span
             key={label.key}
             className={
-              index === 0 ? "at-start" : index === timeLabels.length - 1 ? "at-end" : undefined
+              label.edge === "start" ? "at-start" : label.edge === "end" ? "at-end" : undefined
             }
             style={
-              index === 0
+              label.edge === "start"
                 ? { left: 0 }
-                : index === timeLabels.length - 1
+                : label.edge === "end"
                   ? { right: 0 }
                   : { left: `${label.at}%` }
             }
@@ -345,10 +345,14 @@ export function LineChart({ buckets, series, currency, title, bucket }: ChartPro
   const zeroAt = !isPositiveMoney(low) && !isNegativeMoney(high) ? y("0", low, high) : null;
   const ticks = tickPositions(niceTicks(low, high), low, high);
   // A point sits at the centre of its column, so its label goes there too.
+  // `edge` marks the labels that really sit at the ends of the axis: pinning
+  // "the last label in the list" to the right edge misplaced it by up to a
+  // whole stride whenever thinning stopped short of the final bucket.
   const timeLabels = labelledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
     key: buckets[index]!.start,
     text: bucketLabel(buckets[index]!.start, bucket),
     at: (columnCentre(index, buckets.length) / VIEW.width) * 100,
+    edge: index === 0 ? ("start" as const) : index === buckets.length - 1 ? ("end" as const) : null,
   }));
 
   return (
@@ -392,11 +396,13 @@ export function BarChart({ buckets, series, currency, title, bucket }: ChartProp
   const barWidth = (groupWidth * 0.7) / Math.max(series.length, 1);
   const ticks = tickPositions(niceTicks(low, high), low, high);
   // A group of bars fills its own slice of the width rather than sitting on a
-  // point, so the label goes under the middle of the slice.
+  // point, so the label goes under the middle of the slice. `edge` as above:
+  // only a label whose bucket really is first or last sits on the frame edge.
   const timeLabels = labelledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
     key: buckets[index]!.start,
     text: bucketLabel(buckets[index]!.start, bucket),
     at: ((index * groupWidth + groupWidth / 2) / VIEW.width) * 100,
+    edge: index === 0 ? ("start" as const) : index === buckets.length - 1 ? ("end" as const) : null,
   }));
 
   return (

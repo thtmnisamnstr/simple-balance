@@ -159,7 +159,7 @@ parts, in order:
 4. **The refusals, named.** A transfer cannot be split. A daily schedule of one
    or two days cannot use a business-day policy. An entry-level category, by id
    or by name, cannot be sent alongside `legs`: `checkLegs`
-   (`src/shared/domain.ts:363-370`) refuses it with "Send either a category or
+   (`src/shared/domain.ts:370-377`) refuses it with "Send either a category or
    legs, not both".
 5. **What a person must be asked first, and what cannot be undone.** A
    description tells an agent what it cannot perceive. The model sentence on the
@@ -256,8 +256,8 @@ check for that is the evaluation below, and even that measures the outcome.
 unrepresentable, so the model's own sampling cannot produce it.
 
 - **Flat over nested, and enums over free text.** A nested object is a shape a
-  model has to hold; an enum is a choice it cannot get wrong. Measured: 64
-  enums across the input schemas, and 164 more on the output side, where they
+  model has to hold; an enum is a choice it cannot get wrong. Measured: 70
+  enums across the input schemas, and 165 more on the output side, where they
   constrain nothing a model sends but are what
   `tests/mcp-output.test.ts:151-174` exists to guard. Half of that output figure
   is the error code, published once per tool for the reason the errors section
@@ -269,7 +269,7 @@ unrepresentable, so the model's own sampling cannot produce it.
 - **Ids are `format: "uuid"`.** See the budget section for why the pattern
   beside the format is a defect rather than belt and braces.
 - **A name beside an id, where the server can resolve it.** `categoryName`
-  (`src/shared/domain.ts:448-461` for the entry-level field,
+  (`src/shared/domain.ts:455-468` for the entry-level field,
   `:276-281` for the leg-level one, which defers to it) lets an agent send the
   human word: it is "matched case-insensitively against your existing categories
   and created only if it is genuinely new", and `categoryId` wins if both are
@@ -307,7 +307,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   closing the schemas they share with `/api/v1`, because what a browser may send
   and what an agent may invent are different questions.
 - **Binding, and now true of every field rather than of every parameter.**
-  Measured: **0 of 709 carry none**, having been 146 of 225 at the top level and
+  Measured: **0 of 715 carry none**, having been 146 of 225 at the top level and
   263 of 673 once anybody counted the fields inside `draft`, `shape`, `patch`,
   `selection`, `schedule` and `mapping` — which is to say the fields an agent
   has to fill in to write anything. The measurement said zero for a year because
@@ -346,9 +346,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   `preview_bulk_transaction_selection`, `bulk_edit_transactions` and
   `bulk_delete_transactions`. **Done**, and in one edit rather than five:
   `listQuerySchema.currency` now carries a filter sentence of its own
-  (src/shared/domain.ts:1909-1913`), and the other four derive from it —
-  `bulkTransactionFilterSchema` by `.omit()` at `:1930` and
-  `stageListQuerySchema` at `:2204`, which is a sixth position nobody had
+  (src/shared/domain.ts:1922-1926`), and the other four derive from it —
+  `bulkTransactionFilterSchema` by `.omit()` at `:1943` and
+  `stageListQuerySchema` at `:2207`, which is a sixth position nobody had
   counted. The shared sentence is untouched, because it is right where an
   account is being opened. `set_preferences`'s `defaultCurrency` was the same
   sentence in a third context and now says what a default is
@@ -361,9 +361,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   "MUST NOT automatically dereference `$ref` values that resolve to a network
   URI" and SHOULD bound schema depth and subschema count as a denial-of-service
   defence, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
-  and a thing clients are told to refuse. Measured: 592 `anyOf` and 7 `oneOf`
-  across the surface. 507 of the 592 are two-member nullable pairs, 141 of them
-  on inputs; 147 of all the `anyOf` are on inputs and 445 on outputs. The 7
+  and a thing clients are told to refuse. Measured: 598 `anyOf` and 7 `oneOf`
+  across the surface. 513 of the 598 are two-member nullable pairs, 147 of them
+  on inputs; 153 of all the `anyOf` are on inputs and 445 on outputs. The 7
   `oneOf` are all on inputs and are the boolean-or-string-literal coercion. So the composition is
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
@@ -481,7 +481,7 @@ The rules:
   `tests/mcp-output.test.ts` holds it: no output schema may declare a `userId`
   property except by named exception.
 - **House.** Describe an output field whose meaning its name does not give — and
-  only those. Measured: **1,731 output properties, 452 with a description**,
+  only those. Measured: **1,732 output properties, 453 with a description**,
   having been 52, and having gone up by forty-eight when the input fields were
   described — a schema shared between a draft and the row it becomes carries its
   sentences both ways. `decimalSchema` and `timestampSchema` were bare `z.string()`,
@@ -586,7 +586,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (src/shared/domain.ts:2487-2497`) is a `const` array rather than a bare
+  (src/shared/domain.ts:2480-2490`) is a `const` array rather than a bare
   TypeScript union precisely so `toolErrorSchema` can publish it as an enum
   (src/server/mcp-output-schemas.ts:91-97`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
@@ -760,7 +760,7 @@ it means choosing which half to defer to anyway.
   Mistakes list names "Publishing all possible scopes in `scopes_supported`".
   The two documents answer two different questions and give the same answer to
   both: all seven. The authorization-server one is right to
-  (src/server/api.ts:848-856`, served at `:875`), because RFC 8414's field is
+  (src/server/api.ts:848-856`, served at `:880`), because RFC 8414's field is
   what the server accepts and Better Auth's accept-list at `/authorize` is the
   union of its four defaults with our three
   (`node_modules/better-auth/dist/plugins/oidc-provider/authorize.mjs:23-33`).
@@ -768,7 +768,7 @@ it means choosing which half to defer to anyway.
   because it is what a client builds its scope request from — the SDK joins
   `scopes_supported` verbatim, ahead of the client's own configured scope, in
   `client/auth.js`'s `resolvedScope` — and it publishes that same array
-  (src/server/api.ts:857`, served at `:882`).
+  (src/server/api.ts:857`, served at `:887`).
   **It was narrowed to `openid profile email offline_access ledger:read`
   earlier in this release and taken back out before the release shipped**, and
   the rule that took it out outranks the SHOULD: `AGENTS.md` has "A capability a
@@ -967,7 +967,7 @@ creating state which expires says so, which is prose in a description.
   issued specifically for them as the intended audience" and "MUST NOT accept or
   transit any other tokens". This deployment binds the audience to its own `/mcp`
   and replaces anything that is not a JWT it signed, in either header shape
-  (src/server/api.ts:949-962`).
+  (src/server/api.ts:965-978`).
 - **House.** `x-mcp-header` mirrors a tool argument into an HTTP header for proxy
   routing, and the specification warns against marking sensitive parameters with
   it. Nothing here needs proxy routing and everything here is somebody's

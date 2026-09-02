@@ -905,6 +905,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                                     period.currency,
                                     period.periodStart,
                                   );
+                                  setError("");
                                   setOverride({
                                     categoryId: row.categoryId!,
                                     category: row.category,
@@ -1002,6 +1003,18 @@ export default function BudgetsPage({ session }: { session: Session }) {
                     <th scope="col" className="align-right">
                       Budgets intend
                     </th>
+                    {/* Only under the pessimistic basis, where the figure is
+                        part of the arithmetic on screen: it is the slice of
+                        each budget no recurrence covers, which is exactly what
+                        that basis adds to the spending column. */}
+                    {forecastBasis === "recurring_and_budgets" ? (
+                      <th scope="col" className="align-right">
+                        Of that, unscheduled
+                      </th>
+                    ) : null}
+                    <th scope="col" className="align-right">
+                      Scheduled
+                    </th>
                     <th scope="col" className="align-right">
                       Projected balance
                     </th>
@@ -1020,6 +1033,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
                       <td className="align-right money">
                         {formatMoney(period.budgetedSpending, currency.currency)}
                       </td>
+                      {forecastBasis === "recurring_and_budgets" ? (
+                        <td className="align-right money">
+                          {formatMoney(period.uncoveredBudget, currency.currency)}
+                        </td>
+                      ) : null}
+                      <td className="align-right">{period.occurrences}</td>
                       <td className="align-right money">
                         {formatMoney(period.projectedBalance, currency.currency)}
                       </td>
@@ -1036,6 +1055,13 @@ export default function BudgetsPage({ session }: { session: Session }) {
             be projected, so the figures above are short by whatever they are worth. A recurring
             transaction with no amount proposes a row for you to fill in rather than a figure
             anything can project.
+          </Alert>
+        ) : null}
+        {(forecast.data?.otherPeriodUnits ?? []).length > 0 ? (
+          <Alert kind="info">
+            You also budget by {(forecast.data?.otherPeriodUnits ?? []).join(" and ")}, and this
+            projection reads only {unitNoun[periodUnit].toLowerCase()}ly budgets. Switch the period
+            above to see what the others intend.
           </Alert>
         ) : null}
       </div>
@@ -1120,6 +1146,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                       <Button
                         variant="ghost"
                         onClick={() => {
+                          setError("");
                           setEditing(plan);
                           setEditAmount(plan.amount);
                           setEditActiveTo(plan.activeTo ?? "");
@@ -1148,10 +1175,20 @@ export default function BudgetsPage({ session }: { session: Session }) {
         open={editing !== null}
         title={editing ? `Budget for ${editing.targetName}` : "Budget"}
         description="Changing the amount changes every period this budget covers, past ones included. To leave what earlier periods intended alone, give it an end date and set a new budget starting after it."
-        onClose={() => setEditing(null)}
+        onClose={() => {
+          setError("");
+          setEditing(null);
+        }}
         footer={
           <>
-            <Button type="button" variant="ghost" onClick={() => setEditing(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setError("");
+                setEditing(null);
+              }}
+            >
               Cancel
             </Button>
             <Button
@@ -1279,10 +1316,20 @@ export default function BudgetsPage({ session }: { session: Session }) {
             : "Budget one period"
         }
         description={`An amount for this ${unitNoun[periodUnit]} alone. The standing budget is left exactly as it is, and every other ${unitNoun[periodUnit]} still follows it.`}
-        onClose={() => setOverride(null)}
+        onClose={() => {
+          setError("");
+          setOverride(null);
+        }}
         footer={
           <>
-            <Button type="button" variant="ghost" onClick={() => setOverride(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setError("");
+                setOverride(null);
+              }}
+            >
               Cancel
             </Button>
             {override?.existing ? (

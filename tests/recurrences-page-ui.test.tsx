@@ -198,7 +198,10 @@ describe("the recurrences list", () => {
     const link = within(rowFor("Rent")).getByRole("link", {
       name: /Rows waiting from Rent/,
     });
-    expect(link).toHaveAttribute("href", `/staged?recurrenceId=${rent.id}`);
+    // all-time, because the rows this count counts are exactly the ones
+    // likely to be overdue from an earlier month, and the queue's default
+    // this-month range hid them: the link said three, the page showed none.
+    expect(link).toHaveAttribute("href", `/staged?recurrenceId=${rent.id}&preset=all-time`);
   });
 
   it("orders the amount column as money rather than as text", async () => {

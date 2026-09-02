@@ -249,6 +249,11 @@ export default function ImportPage() {
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) previewMutation.mutate(file);
+    // Cleared so the same file can be chosen again. A file input whose value
+    // still names the file fires no change event for re-picking it — and
+    // re-picking is exactly what somebody does after fixing the file the
+    // preview just complained about.
+    event.target.value = "";
   };
 
   return (
@@ -475,12 +480,17 @@ export default function ImportPage() {
                           {" "}
                           {/* Carries the batch through so the queue opens on
                               the rows that just arrived, rather than on
-                              everything ever staged. */}
+                              everything ever staged — and pins the range to
+                              all-time, because the queue's default this-month
+                              filter hid every imported row dated outside the
+                              current month: the link said 250 rows and the
+                              page showed none of them. */}
                           <Link
                             to={{
                               pathname: "/staged",
                               search: queryString({
                                 importBatchId: result.importBatchId,
+                                preset: "all-time",
                               }),
                             }}
                           >

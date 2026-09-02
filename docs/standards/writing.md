@@ -516,7 +516,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behaviour they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  src/shared/domain.ts:2226-2233`: "`.strict()` is the load-bearing part: a
+  src/shared/domain.ts:2229-2236`: "`.strict()` is the load-bearing part: a
   filter this cannot honour is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -635,8 +635,8 @@ edit.
   anybody argued the rule down: a rule nothing enforces loses ground at the rate
   the repository grows, which is the case for scoping it rather than for
   restating it. In user-visible copy the rule holds almost everywhere, with
-  three exceptions: `App.tsx:570`, `select-options.ts:110` and
-  `TemplatesPage.tsx:582`. Two further sites, `SettingsPage.tsx:133` and
+  three exceptions: `App.tsx:577`, `select-options.ts:110` and
+  `TemplatesPage.tsx:595`. Two further sites, `SettingsPage.tsx:133` and
   `ReportsPage.tsx:139-140`, are prose inside JSX and read as copy but are
   comments, so they answer to the comment rule rather than this one. Two of
   those five citations had drifted off the line they name, which is what a line

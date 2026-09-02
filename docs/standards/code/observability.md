@@ -262,7 +262,7 @@ was designed to avoid in the first place.
 
 An empty `catch` is for a case where nothing went wrong, and it says which in a
 comment. There are two in `src/server`, both cancelling a request body the peer
-may have closed already (`src/server/http-security.ts:147` and `:615`), and both
+may have closed already (`src/server/http-security.ts:147` and `:623`), and both
 carry that sentence.
 
 *Checked by:* `tests/log-level.test.ts`, which finds every `catch` whose body is

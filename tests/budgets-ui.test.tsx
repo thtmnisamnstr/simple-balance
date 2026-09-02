@@ -376,6 +376,61 @@ describe("the budgets page", () => {
     expect(writes[0]!.body).not.toHaveProperty("expectedVersion");
   });
 
+  /**
+   * The seed a derived rule starts from. The field was recovered after an
+   * audit found the browser could not set it while the MCP always could, and
+   * nothing in any tier held it — this is the pin, at the wire: the plan the
+   * page sends carries both the lookback and the amount typed as its seed.
+   */
+  it("sends the trailing-average seed with the lookback", async () => {
+    const writes: { body: unknown }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        if (url.pathname === "/api/v1/budget-report") return Response.json(report);
+        if (url.pathname === "/api/v1/categories") return Response.json(categories);
+        if (url.pathname === "/api/v1/budget-plans") {
+          if (init?.method === "POST") {
+            writes.push({ body: JSON.parse(String(init.body)) });
+            return Response.json({});
+          }
+          return Response.json([]);
+        }
+        return Response.json([]);
+      }),
+    );
+    renderBudgets();
+
+    await screen.findByRole("option", { name: "Groceries" });
+    const form = document.querySelector("form.budget-form")!;
+    fireEvent.change(within(form as HTMLElement).getByLabelText(/Category or group/), {
+      target: { value: `category:${groceries}` },
+    });
+    fireEvent.change(within(form as HTMLElement).getByLabelText(/Amount decided by/), {
+      target: { value: "average" },
+    });
+    fireEvent.change(within(form as HTMLElement).getByLabelText(/Months to average/), {
+      target: { value: "3" },
+    });
+    // By placeholder: the Amount label's own hint mentions averaging, so a
+    // label query cannot tell the two fields apart.
+    fireEvent.change(within(form as HTMLElement).getByPlaceholderText("200.00"), {
+      target: { value: "45.00" },
+    });
+    fireEvent.change(within(form as HTMLElement).getByLabelText(/Starting/), {
+      target: { value: "2026-03-01" },
+    });
+    fireEvent.click(within(form as HTMLElement).getByRole("button", { name: /set budget/i }));
+
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]!.body).toMatchObject({
+      categoryId: groceries,
+      lookbackPeriods: 3,
+      amount: "45.00",
+    });
+  });
+
   it("puts a period back on the standing budget", async () => {
     const entry = {
       id: "66666666-6666-4666-8666-666666666666",

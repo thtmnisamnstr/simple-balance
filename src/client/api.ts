@@ -620,6 +620,8 @@ export type Forecast = {
   periodUnit: BudgetPeriodUnitName;
   basis: "recurring" | "recurring_and_budgets";
   unprojectable: { id: string; name: string; reason: string }[];
+  /** Units this person budgets in that this projection did not read. */
+  otherPeriodUnits: BudgetPeriodUnitName[];
   currencies: {
     currency: string;
     openingBalance: string;

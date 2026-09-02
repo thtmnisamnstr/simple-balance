@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowLeft, Landmark } from "lucide-react";
-import { Link, useParams } from "../router.js";
+import { Link, useLocation, useParams } from "../router.js";
 import {
   api,
   queryString,
@@ -35,6 +35,10 @@ const balanceLabels = {
 
 export default function AccountDetailPage() {
   const { accountId = "" } = useParams();
+  // The router's location, not the window global: the global happens to
+  // agree only because this router writes real URLs, and a render that reads
+  // it skips the subscription — a back/forward navigation would not re-render.
+  const location = useLocation();
   const { start, end } = useDateRange();
   const account = useQuery({
     queryKey: ["accounts", accountId],

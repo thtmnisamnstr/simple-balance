@@ -294,6 +294,8 @@ export default function StagingPage() {
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -514,6 +516,8 @@ export default function StagingPage() {
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -685,8 +689,17 @@ export default function StagingPage() {
                     onChange={(event) => {
                       const next = new Map(selected);
                       for (const stage of selectableRows) {
-                        if (event.target.checked) next.set(stage.id, stage);
-                        else next.delete(stage.id);
+                        if (event.target.checked) {
+                          // The same cap the per-row boxes enforce. Without it
+                          // this one control pushed the selection past the
+                          // limit, and the server then refused the whole bulk
+                          // request with a message about a cap the page had
+                          // claimed to be respecting.
+                          if (!next.has(stage.id) && next.size >= MAX_BULK_STAGES) break;
+                          next.set(stage.id, stage);
+                        } else {
+                          next.delete(stage.id);
+                        }
                       }
                       setSelected(next);
                     }}

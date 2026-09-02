@@ -158,7 +158,7 @@ thing they ever see:
 One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all three sites here exist *to reject* them: two
 sanitise user input (`src/shared/domain.ts:251-252`) and one is the
-CSV-injection defence (`src/shared/csv.ts:466`).
+CSV-injection defence (`src/shared/csv.ts:464`).
 The rule exists to catch a control character written by accident; every one of
 these was written on purpose, and the code that strips control characters is
 necessarily code that names them.
@@ -176,7 +176,7 @@ codebase rather than about accessibility:
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
-src/client/forms.tsx:497`, and both that and `click-events-have-key-events` at
+src/client/forms.tsx:506`, and both that and `click-events-have-key-events` at
 `src/client/components.tsx:497`. Both are elements catching events that bubble
 from real controls inside them.
 

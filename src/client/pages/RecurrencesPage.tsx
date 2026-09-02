@@ -239,7 +239,12 @@ export default function RecurrencesPage() {
                         <Link
                           to={{
                             pathname: "/staged",
-                            search: `recurrenceId=${recurrence.id}`,
+                            // all-time, because the queue's default range is
+                            // this month and the rows this count counts are
+                            // exactly the ones likely to be overdue from an
+                            // earlier one — the link said three and the page
+                            // showed none.
+                            search: `recurrenceId=${recurrence.id}&preset=all-time`,
                           }}
                           aria-label={`Rows waiting from ${recurrence.name}`}
                         >
@@ -251,6 +256,14 @@ export default function RecurrencesPage() {
                       {recurrence.committedCount ? (
                         <span className="table-subtitle">
                           {`${recurrence.committedCount} committed`}
+                        </span>
+                      ) : null}
+                      {/* Thrown-away proposals are the difference between "it
+                          proposes and nobody wants it" and "it never fires",
+                          and without this count the two were the same row. */}
+                      {recurrence.discardedCount ? (
+                        <span className="table-subtitle">
+                          {`${recurrence.discardedCount} discarded`}
                         </span>
                       ) : null}
                     </td>
