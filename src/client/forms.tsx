@@ -31,9 +31,10 @@ import {
 import {
   addDays,
   nextOccurrenceAfter,
+  proposalFloorSwallows,
   scheduleCursor,
-  weekdayOf,
   type RecurrencePosition,
+  weekdayOf,
 } from "../shared/recurrence-dates.js";
 import {
   api,
@@ -1537,7 +1538,7 @@ export function TransactionForm({
   const [categoryKind, setCategoryKind] = useState<CategoryKind | "">("");
   const categoryKindGroup = useId();
   const [repeatNotice, setRepeatNotice] = useState("");
-  const payeeListId = useId();
+
   const modeGroup = useId();
   // Every account except a closed one, and a closed one this transaction already
   // points at — which an edit must keep offering or saving it would reroute the
@@ -1578,13 +1579,6 @@ export function TransactionForm({
     queryKey: ["transaction-templates"],
     queryFn: () => api<TransactionTemplate[]>("/api/v1/transaction-templates"),
   });
-  const payees = useQuery({
-    queryKey: ["payees", "suggestions", payee.trim().toLowerCase()],
-    queryFn: () =>
-      api<string[]>(`/api/v1/payees/suggestions?search=${encodeURIComponent(payee.trim())}`),
-    placeholderData: (previous) => previous,
-  });
-
   // Seeding state from a query that had not resolved at mount, which is the one
   // copy `docs/standards/code/client.md` §1.1 allows. The defaults above read
   // `accounts[0]` while the list is still empty, so without this the form opens
@@ -2124,31 +2118,10 @@ export function TransactionForm({
           />
         </Field>
         <Field label="Payee">
-          <Input
-            autoFocus
-            required
-            list={payeeListId}
-            value={payee}
-            onChange={(event) => {
-              const next = event.target.value;
-              const match = payees.data?.find(
-                (candidate) => normalizeHumanName(candidate) === normalizeHumanName(next),
-              );
-              setPayee(match ?? next);
-            }}
-            onBlur={() => {
-              const match = payees.data?.find(
-                (candidate) => normalizeHumanName(candidate) === normalizeHumanName(payee),
-              );
-              setPayee(match ?? payee.trim().replace(/\s+/gu, " "));
-            }}
-            placeholder="Merchant, employer, person…"
-          />
-          <datalist id={payeeListId}>
-            {payees.data?.map((value) => (
-              <option key={value} value={value} />
-            ))}
-          </datalist>
+          {/* The component, not a copy of it: PayeeInput's own comment says a
+              second copy would be a second answer to "what counts as the same
+              payee", and this form carried that second copy byte for byte. */}
+          <PayeeInput autoFocus required value={payee} onChange={setPayee} />
         </Field>
       </div>
       {type !== "deposit" ? (
@@ -2442,7 +2415,7 @@ function recurrenceProposalDates(
       // A skipped occurrence stays: the list says so, and "your 31st schedule
       // skips February" is worth seeing. Only a date the floor will swallow is
       // dropped, because that one is a promise no tick will keep.
-      if (next.postedDate === null || next.postedDate >= watermark.proposesFrom) dates.push(next);
+      if (!proposalFloorSwallows(next.postedDate, watermark.proposesFrom)) dates.push(next);
     }
   } catch {
     return [];

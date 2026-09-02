@@ -295,6 +295,21 @@ function firstIndexAfter(rule: RecurrenceRule, after: string) {
  * same day. Deriving it from the anchor instead, as a form with no row in hand
  * is tempted to, shows a first date the scheduler will not propose.
  */
+/**
+ * Whether the proposal floor swallows a posted date.
+ *
+ * `proposesFrom` exists so nothing is proposed dated before the recurrence was
+ * made, and `previous_business_day` can move a posted date backwards over that
+ * line. This is one rule with two readers — the scheduler skips a swallowed
+ * occurrence, and the browser preview drops it from the dates it promises —
+ * and it lives here because the two carried their own spellings of it for a
+ * while, which is one edit away from a preview promising a date no tick will
+ * ever write.
+ */
+export function proposalFloorSwallows(postedDate: string | null, proposesFrom: string) {
+  return postedDate !== null && postedDate < proposesFrom;
+}
+
 export function scheduleCursor(row: { proposesFrom: string; lastOccurrenceDate: string | null }) {
   const floor = addDays(row.proposesFrom, -1);
   return row.lastOccurrenceDate ? laterOf(row.lastOccurrenceDate, floor) : floor;

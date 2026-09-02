@@ -338,7 +338,7 @@ walkthrough in a guide and give the README its job back".
   everything else it does, run it locally, run the tests, host it, connect an
   agent, security, not built yet, more, built with, license.
 - **The licence is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the licence is a term of use. `README.md:250-254` names it, links it,
+  project the licence is a term of use. `README.md:253-257` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older licence.
 - **No badge wall.** There are none today.

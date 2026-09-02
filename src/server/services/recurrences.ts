@@ -10,6 +10,7 @@ import {
 import {
   nextOccurrenceAfter,
   occurrencesBetween,
+  proposalFloorSwallows,
   scheduleCursor as sharedScheduleCursor,
   todayIn,
   type RecurrenceRule,
@@ -268,7 +269,7 @@ export async function proposeDueOccurrences(
     // rather than clamped for the same reason a month-length skip is: a moved
     // date would be a date the schedule never named.
     const proposable = occurrences.filter(
-      (one) => one.postedDate !== null && one.postedDate >= row.proposesFrom,
+      (one) => one.postedDate !== null && !proposalFloorSwallows(one.postedDate, row.proposesFrom),
     );
     if (proposable.length) {
       collect?.({
