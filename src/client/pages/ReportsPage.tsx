@@ -1,8 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { BarChart, ChartLegend, LineChart } from "../charts.js";
 import { api, queryString, type Report } from "../api.js";
-import { Alert, DateRangeBar, EmptyState, PageHeader, Select, Skeleton } from "../components.js";
-import { formatDate, formatMoney, isNegativeMoney } from "../money.js";
+import {
+  Alert,
+  DateRangeBar,
+  EmptyState,
+  PageHeader,
+  RowMenu,
+  Select,
+  Skeleton,
+} from "../components.js";
+import { formatDate, formatMoney, isNegativeMoney, sumMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { Link, useLocation, useParams, useSearchParams } from "../router.js";
 import { reportBuckets, reportNames, type ReportName } from "../../shared/domain.js";
@@ -46,6 +55,15 @@ export default function ReportsPage() {
   const [params, setParams] = useSearchParams();
   const bucket = params.get("bucket") ?? "";
   const includeArchived = params.get("archived") === "1";
+  /**
+   * Categories left out of THIS VIEW, keyed by row. A view choice, not a
+   * change to anything stored: the server's report is untouched, an agent
+   * asking over MCP sees every category, and navigating away forgets it.
+   * Excluding the one huge category (rent, a tax bill) is what makes the
+   * remaining lines readable, which is the whole reason it exists.
+   */
+  const [excluded, setExcluded] = useState<Map<string, string>>(new Map());
+  const excludable = report === "categories";
 
   const query = useQuery({
     queryKey: ["report", report, start, end, bucket, includeArchived],
@@ -160,6 +178,29 @@ export default function ReportsPage() {
         </Alert>
       ) : null}
 
+      {excludable && excluded.size ? (
+        <p className="settings-note report-exclusions">
+          Left out of this view:{" "}
+          {[...excluded.entries()].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className="link-button"
+              onClick={() => {
+                const next = new Map(excluded);
+                next.delete(key);
+                setExcluded(next);
+              }}
+            >
+              {label} ×
+            </button>
+          ))}{" "}
+          <button type="button" className="link-button" onClick={() => setExcluded(new Map())}>
+            Put all back
+          </button>
+        </p>
+      ) : null}
+
       {query.error ? <Alert>{query.error.message}</Alert> : null}
 
       {query.isPending ? (
@@ -179,7 +220,19 @@ export default function ReportsPage() {
       ) : (
         <div className="currency-sections">
           {data.currencies.map((currency) => {
-            const series = currency.rows.map((entry) => ({
+            const rows = excludable
+              ? currency.rows.filter((entry) => !excluded.has(entry.key))
+              : currency.rows;
+            // Recomputed from the rows on screen — exactly, over the decimal
+            // strings — because a footer summing rows the view has hidden
+            // would disagree with every column above it.
+            const totals =
+              excludable && excluded.size
+                ? currency.totals.map((_, position) =>
+                    sumMoney(rows.map((entry) => entry.values[position] ?? "0")),
+                  )
+                : currency.totals;
+            const series = rows.map((entry) => ({
               key: entry.key,
               label: entry.label,
               values: entry.values,
@@ -233,14 +286,38 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {currency.rows.map((entry) => (
+                      {rows.map((entry) => (
                         <tr key={entry.key}>
                           <th scope="row">
-                            {entry.label}
-                            {/* A balance report keeps a closed account's
-                                history, so without saying so its past reads as
-                                money still held. */}
-                            {entry.archived ? <span className="row-note"> (closed)</span> : null}
+                            {excludable ? (
+                              <span className="report-row-heading">
+                                <span>
+                                  {entry.label}
+                                  {entry.archived ? (
+                                    <span className="row-note"> (closed)</span>
+                                  ) : null}
+                                </span>
+                                <RowMenu label={`Actions for ${entry.label}`}>
+                                  <button
+                                    onClick={() =>
+                                      setExcluded(new Map(excluded).set(entry.key, entry.label))
+                                    }
+                                  >
+                                    Exclude from this view
+                                  </button>
+                                </RowMenu>
+                              </span>
+                            ) : (
+                              <>
+                                {entry.label}
+                                {/* A balance report keeps a closed account's
+                                    history, so without saying so its past reads
+                                    as money still held. */}
+                                {entry.archived ? (
+                                  <span className="row-note"> (closed)</span>
+                                ) : null}
+                              </>
+                            )}
                           </th>
                           {entry.values.map((value, position) => (
                             <td
@@ -267,7 +344,7 @@ export default function ReportsPage() {
                               ? "Total held"
                               : "Net"}
                         </th>
-                        {currency.totals.map((value, position) => (
+                        {totals.map((value, position) => (
                           <td
                             className={`align-right${isNegativeMoney(value) ? " money-negative" : ""}`}
                             key={data.buckets[position]?.start ?? position}

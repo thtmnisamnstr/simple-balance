@@ -637,7 +637,7 @@ edit.
   restating it. In user-visible copy the rule holds almost everywhere, with
   three exceptions: `App.tsx:577`, `select-options.ts:110` and
   `TemplatesPage.tsx:595`. Two further sites, `SettingsPage.tsx:133` and
-  `ReportsPage.tsx:139-140`, are prose inside JSX and read as copy but are
+  `ReportsPage.tsx:157-158`, are prose inside JSX and read as copy but are
   comments, so they answer to the comment rule rather than this one. Two of
   those five citations had drifted off the line they name, which is what a line
   number into a file somebody is still editing does when nothing checks it. The

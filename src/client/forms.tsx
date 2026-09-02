@@ -295,14 +295,23 @@ export function AccountForm({
  * own component because the template editor needs exactly this and a second
  * copy would be a second answer to "what counts as the same payee".
  */
-function PayeeInput({
+export function PayeeInput({
   value,
   onChange,
+  onCommit,
+  onCancel,
   required = false,
   autoFocus = false,
 }: {
   value: string;
   onChange: (next: string) => void;
+  /**
+   * For the queue's click-to-edit cells, which have no Save button: called
+   * with the final snapped spelling on blur or Enter. A form leaves both of
+   * these out and commits on its own submit, as it always has.
+   */
+  onCommit?: (finalValue: string) => void;
+  onCancel?: () => void;
   required?: boolean;
   autoFocus?: boolean;
 }) {
@@ -325,7 +334,23 @@ function PayeeInput({
         list={listId}
         value={value}
         onChange={(event) => onChange(matching(event.target.value) ?? event.target.value)}
-        onBlur={() => onChange(matching(value) ?? value.trim().replace(/\s+/gu, " "))}
+        onBlur={() => {
+          const snapped = matching(value) ?? value.trim().replace(/\s+/gu, " ");
+          onChange(snapped);
+          // The snapped spelling travels with the commit rather than being
+          // read back from state, which one render later would still hold the
+          // unsnapped keystrokes.
+          onCommit?.(snapped);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && onCommit) {
+            event.preventDefault();
+            const snapped = matching(value) ?? value.trim().replace(/\s+/gu, " ");
+            onChange(snapped);
+            onCommit(snapped);
+          }
+          if (event.key === "Escape") onCancel?.();
+        }}
         placeholder="Merchant, employer, person…"
       />
       <datalist id={listId}>
@@ -555,7 +580,7 @@ function TransactionTypeChoice(props: TransactionTypeChoiceProps) {
  * of the text, which used to be discarded every time the category list
  * refetched.
  */
-function CategoryPicker({
+export function CategoryPicker({
   categories,
   categoryId,
   categoryName,
@@ -1441,6 +1466,7 @@ export function TransactionForm({
   categories,
   transaction,
   staged,
+  clone,
   initialAccountId,
   initialCategoryId,
   initialPayee,
@@ -1452,6 +1478,14 @@ export function TransactionForm({
   categories: Category[];
   transaction?: Transaction;
   staged?: StagedTransaction;
+  /**
+   * A draft to start from without being an edit of anything: saving creates a
+   * new row. Leg ids are dropped so the copy grows its own legs rather than
+   * claiming the source's, and the externalId is dropped for the reason a
+   * template refuses one — it is a bank file's identity for one real row, and
+   * a copy carrying it would be swallowed as already-imported.
+   */
+  clone?: unknown;
   initialAccountId?: string;
   initialCategoryId?: string;
   initialPayee?: string;
@@ -1460,15 +1494,19 @@ export function TransactionForm({
   onDone: () => void;
 }) {
   const timezone = useTimezone();
-  const initial = useMemo(
-    () =>
-      transaction
-        ? draftForTransactionForm(draftFromTransaction(transaction))
-        : staged
-          ? draftForTransactionForm(staged.draft)
-          : null,
-    [transaction, staged],
-  );
+  const initial = useMemo(() => {
+    if (transaction) return draftForTransactionForm(draftFromTransaction(transaction));
+    if (staged) return draftForTransactionForm(staged.draft);
+    if (clone) {
+      const source = draftForTransactionForm(clone);
+      return {
+        ...source,
+        externalId: "",
+        legs: source.legs.map((leg) => ({ ...leg, id: "" })),
+      };
+    }
+    return null;
+  }, [transaction, staged, clone]);
   const createType = initialType ?? "withdrawal";
   const defaultAccountIds = (nextType: TransactionType) => {
     const primaryAccountId = initialAccountId ?? accounts[0]?.id ?? "";

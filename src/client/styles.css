@@ -2576,6 +2576,44 @@ input[type="radio"] {
   text-align: center;
 }
 
+/* The categories report's per-row menu sits beside the label without pushing
+   the column wide, and the exclusion pills read as a sentence. */
+.report-row-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.report-exclusions .link-button {
+  margin-inline-end: 10px;
+}
+
+/* The queue's click-to-edit cells. A button that reads as the text it will
+   edit, with the affordance arriving on hover and focus rather than sitting
+   on every row of a long table at once. */
+.inline-edit {
+  padding: 1px 4px;
+  margin: -1px -4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.inline-edit:hover,
+.inline-edit:focus-visible {
+  background: var(--surface-soft);
+  outline-offset: 1px;
+}
+
+.inline-edit-money {
+  font-variant-numeric: tabular-nums;
+}
+
 .link-button {
   padding: 0;
   border: 0;
@@ -3078,6 +3116,15 @@ input[type="radio"] {
 .chart-series-7 { stroke: var(--series-7); fill: var(--series-7); }
 .chart-series-8 { stroke: var(--series-8); fill: var(--series-8); }
 .chart-series-9 { stroke: var(--series-9); fill: var(--series-9); }
+
+/* The block above paints bars by fill and lines by stroke with ONE class, and
+   source order let its fill defeat .chart-line's fill: none — every polyline
+   rendered as a closed filled polygon, and the net worth, balance sheet and
+   trial balance reports read as overlapping shapes instead of lines. The
+   element selector outranks the single class whatever the order. */
+polyline.chart-line {
+  fill: none;
+}
 
 .chart-swatch.chart-series-0 { background: var(--series-0); }
 .chart-swatch.chart-series-1 { background: var(--series-1); }

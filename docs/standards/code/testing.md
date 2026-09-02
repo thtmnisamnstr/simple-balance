@@ -6,7 +6,7 @@ keeping.
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
 | Unit (node) | 74 | `npm test` | nothing |
-| Unit (jsdom) | 36 | `npm test` | nothing |
+| Unit (jsdom) | 37 | `npm test` | nothing |
 | Integration | 55 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
@@ -18,9 +18,9 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 111 pass, 54 skip | **1,089 pass, 633 skip** |
-| `npm test`, database set | 165 pass | **1,722 pass** |
-| `npm run test:integration` | 55 pass | 634 pass |
+| `npm test`, no database | 112 pass, 54 skip | **1,100 pass, 645 skip** |
+| `npm test`, database set | 166 pass | **1,746 pass** |
+| `npm run test:integration` | 55 pass | 646 pass |
 
 The third row is one test larger than the second row's skip count, and the odd
 one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
@@ -332,9 +332,9 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` src/client/forms.tsx:322` `` |
-| Bare filename | `` forms.tsx:322` `` — resolved by basename |
-| Continuation | `` `:586` `` — inherits the last file the prose named |
+| Full path | `` src/client/forms.tsx:331` `` |
+| Bare filename | `` forms.tsx:331` `` — resolved by basename |
+| Continuation | `` `:611` `` — inherits the last file the prose named |
 
 The test knew only the first for a while, and that gap was expensive. Adopting
 the formatter moved every line in `src`; the relocation pass repaired the

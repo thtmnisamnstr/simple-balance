@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Report } from "../src/client/api.js";
 import { bucketLabel, labelBudget, labelledBuckets, niceTicks } from "../src/client/charts.js";
@@ -10,6 +12,7 @@ import { moneyExtent, moneyRatioPercent, moneyScalePercent } from "../src/client
 import ReportsPage from "../src/client/pages/ReportsPage.js";
 import { BrowserRouter, Route, Routes } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
+import { repoRoot } from "./support/source.js";
 
 const report: Report = {
   report: "net-worth",
@@ -429,7 +432,9 @@ describe("the reports page", () => {
       ],
     });
     renderReports("/reports/categories");
-    await screen.findByRole("rowheader", { name: "Salary" });
+    // A leading match: the categories rowheader carries its exclude menu,
+    // whose label joins the cell's accessible name.
+    await screen.findByRole("rowheader", { name: /^Salary/ });
     expect(screen.getByRole("rowheader", { name: "Total filed" })).toBeInTheDocument();
     expect(screen.queryByRole("rowheader", { name: "Net" })).toBeNull();
   });
@@ -480,5 +485,91 @@ describe("the reports page", () => {
     renderReports();
     expect(await screen.findByText("Bucket is not valid")).toBeInTheDocument();
     expect(screen.queryByText("Nothing to report yet")).toBeNull();
+  });
+});
+
+/**
+ * Excluding a category from the categories report is a view choice: the row
+ * and its line leave, the footer is re-added from the rows still on screen —
+ * exactly, over the decimal strings — and the pill puts it back. The server's
+ * report is untouched, so nothing an agent reads changes.
+ */
+describe("excluding categories from the categories report", () => {
+  const categoriesReport: Report = {
+    ...report,
+    report: "categories",
+    accumulation: "periodic",
+    currencies: [
+      {
+        currency: "USD",
+        rows: [
+          {
+            key: "cat-rent",
+            label: "Rent",
+            kind: "expense",
+            archived: false,
+            values: ["900.00", "900.00", "900.00"],
+            total: "2700.00",
+          },
+          {
+            key: "cat-food",
+            label: "Food",
+            kind: "expense",
+            archived: false,
+            values: ["100.00", "125.00", "75.00"],
+            total: "300.00",
+          },
+        ],
+        totals: ["1000.00", "1025.00", "975.00"],
+      },
+    ],
+  };
+
+  it("drops the row, re-adds the totals, and puts it back from the pill", async () => {
+    stub(categoriesReport);
+    renderReports("/reports/categories");
+    const rentRow = (await screen.findByRole("rowheader", { name: /Rent/ })).closest("tr")!;
+    fireEvent.click(within(rentRow).getByRole("button", { name: "Actions for Rent" }));
+    fireEvent.click(within(rentRow).getByRole("button", { name: "Exclude from this view" }));
+
+    // The row is gone, the other row stands, and the footer now adds up only
+    // what is on screen.
+    expect(screen.queryByRole("rowheader", { name: /Rent/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: /Food/ })).toBeInTheDocument();
+    const footer = screen.getByRole("rowheader", { name: "Total filed" }).closest("tr")!;
+    expect(footer).toHaveTextContent("$100.00");
+    expect(footer).not.toHaveTextContent("$1,000.00");
+
+    // Named where it can be undone, and undone.
+    fireEvent.click(screen.getByRole("button", { name: "Rent ×" }));
+    expect(await screen.findByRole("rowheader", { name: /Rent/ })).toBeInTheDocument();
+    const restored = screen.getByRole("rowheader", { name: "Total filed" }).closest("tr")!;
+    expect(restored).toHaveTextContent("$1,000.00");
+  });
+
+  it("offers no exclusion on the balance reports", async () => {
+    stub();
+    renderReports("/reports/net-worth");
+    await screen.findByRole("rowheader", { name: /Checking/ });
+    expect(screen.queryByRole("button", { name: "Actions for Checking" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The polygon regression, pinned at the stylesheet. One class set both stroke
+ * and fill for bars and lines alike, and source order let its fill defeat
+ * .chart-line's fill: none — every polyline rendered as a closed filled shape
+ * and the net worth report read as overlapping polygons. The element selector
+ * outranks the single class whatever the order, so this rule existing is the
+ * fix existing.
+ */
+describe("lines are lines", () => {
+  it("keeps polylines unfilled with a selector no series class can outrank", () => {
+    const css = readFileSync(path.join(repoRoot, "src/client/styles.css"), "utf8");
+    const rule = css.match(/polyline\.chart-line \{[^}]*\}/);
+    expect(rule, "polyline.chart-line must pin fill: none").not.toBeNull();
+    expect(rule![0]).toContain("fill: none");
+    // And the series classes still carry fill, because the bars need it.
+    expect(css).toContain(".chart-series-0 { stroke: var(--series-0); fill: var(--series-0); }");
   });
 });

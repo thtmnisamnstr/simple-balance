@@ -4,13 +4,14 @@ import {
   CheckCheck,
   CircleAlert,
   ClipboardList,
+  Copy,
   CopyCheck,
+  LayoutTemplate,
   Pencil,
   Plus,
+  Repeat,
   Search,
   Trash2,
-  LayoutTemplate,
-  Repeat,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -51,7 +52,13 @@ import {
   useConfirm,
 } from "../components.js";
 import { formatDate, formatMoney, movementSign } from "../money.js";
-import { RecurrenceForm, TemplateForm, TransactionForm } from "../forms.js";
+import {
+  CategoryPicker,
+  PayeeInput,
+  RecurrenceForm,
+  TemplateForm,
+  TransactionForm,
+} from "../forms.js";
 import { MAX_BULK_SELECTION_ENTRIES, type StageSortField } from "../../shared/domain.js";
 import { useDateRange } from "../date-range.js";
 import {
@@ -115,6 +122,7 @@ export default function StagingPage() {
   const rowRemoval = useConfirm<StagedTransaction>();
   const duplicate = useConfirm<StagedTransaction>();
   const [editing, setEditing] = useState<StagedTransaction | "new" | null>(null);
+  const [cloning, setCloning] = useState<StagedTransaction | null>(null);
   const [savingTemplate, setSavingTemplate] = useState<StagedTransaction | null>(null);
   const [savingRecurrence, setSavingRecurrence] = useState<StagedTransaction | null>(null);
   const recurrenceSeed = savingRecurrence ? draftForTransactionForm(savingRecurrence.draft) : null;
@@ -486,6 +494,78 @@ export default function StagingPage() {
   const duplicateCommitError =
     bulkMutation.error instanceof ApiClientError && bulkMutation.error.code === "DUPLICATE";
 
+  /**
+   * Click-to-edit for the four fields a queue pass actually touches.
+   *
+   * The queue is where imports get repaired, and repairing a date or a payee
+   * through the full modal is four clicks for a one-word change. The editors
+   * are the modal's own — PayeeInput and CategoryPicker, not copies — and the
+   * write is the same PUT the modal sends, version and all, so everything the
+   * server enforces about a draft is enforced here identically. Splits keep
+   * their category and amount edits in the modal (they live on the legs), and
+   * a transfer's category likewise stays out (it has none by design).
+   */
+  const [inline, setInline] = useState<{
+    id: string;
+    field: "date" | "payee" | "category" | "amount";
+    value: string;
+    categoryName: string;
+  } | null>(null);
+  const [inlineError, setInlineError] = useState("");
+  const inlineMutation = useMutation({
+    mutationFn: ({ stage, draft }: { stage: StagedTransaction; draft: Record<string, unknown> }) =>
+      api(`/api/v1/staged-transactions/${stage.id}`, {
+        ...json({ draft, expectedVersion: stage.version }),
+        method: "PUT",
+      }),
+    onSuccess: async () => {
+      setInline(null);
+      setInlineError("");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["staged"] }),
+        queryClient.invalidateQueries({ queryKey: ["categories"] }),
+        queryClient.invalidateQueries({ queryKey: ["payees"] }),
+      ]);
+    },
+    // The editor closes either way: on a refusal the row still shows what the
+    // server holds, and the message says why the change did not take.
+    onError: (cause: Error) => {
+      setInline(null);
+      setInlineError(cause.message);
+    },
+  });
+  const commitInline = (
+    stage: StagedTransaction,
+    override?: { value?: string; categoryName?: string },
+  ) => {
+    if (!inline || inlineMutation.isPending) return;
+    const value = override?.value ?? inline.value;
+    const categoryName = override?.categoryName ?? inline.categoryName;
+    const draft = { ...(stage.draft as Record<string, unknown>) };
+    if (inline.field === "date") draft.date = value;
+    if (inline.field === "payee") draft.payee = value;
+    if (inline.field === "amount") draft.amount = value;
+    if (inline.field === "category") {
+      // The picker's contract: an id when the name matched a live category,
+      // otherwise the name travels and the commit resolves or creates it.
+      // Both keys are settled here so the draft never carries two answers.
+      draft.categoryId = value || null;
+      draft.categoryName = value ? null : categoryName.trim() || null;
+    }
+    inlineMutation.mutate({ stage, draft });
+  };
+  const openInline = (
+    stage: StagedTransaction,
+    field: "date" | "payee" | "category" | "amount",
+    value: string,
+    categoryName = "",
+  ) => {
+    setInlineError("");
+    setInline({ id: stage.id, field, value, categoryName });
+  };
+  const inlineFor = (stage: StagedTransaction, field: "date" | "payee" | "category" | "amount") =>
+    inline && inline.id === stage.id && inline.field === field ? inline : null;
+
   const rowMutation = useMutation({
     mutationFn: ({ stage, action }: { stage: StagedTransaction; action: "commit" | "delete" }) => {
       if (action === "delete") {
@@ -663,6 +743,7 @@ export default function StagingPage() {
         <Alert>{(bulkMutation.error ?? rowMutation.error)!.message}</Alert>
       ) : null}
       {bulkEditNotice ? <Alert kind="info">{bulkEditNotice}</Alert> : null}
+      {inlineError ? <Alert>{inlineError}</Alert> : null}
       {stagePages.error || batchPages.error ? (
         <Alert>{(stagePages.error ?? batchPages.error)!.message}</Alert>
       ) : null}
@@ -754,14 +835,55 @@ export default function StagingPage() {
                       />
                     </td>
                     <td>
-                      {date
-                        ? isoDateSchema.safeParse(date).success
-                          ? formatDate(date)
-                          : date
-                        : "—"}
+                      {inlineFor(stage, "date") ? (
+                        <Input
+                          type="date"
+                          autoFocus
+                          aria-label={`Date of ${payee}`}
+                          value={inline!.value}
+                          onChange={(event) => setInline({ ...inline!, value: event.target.value })}
+                          onBlur={() => commitInline(stage)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") commitInline(stage);
+                            if (event.key === "Escape") setInline(null);
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="inline-edit"
+                          aria-label={`Edit the date of ${payee}`}
+                          onClick={() => openInline(stage, "date", date)}
+                        >
+                          {date
+                            ? isoDateSchema.safeParse(date).success
+                              ? formatDate(date)
+                              : date
+                            : "—"}
+                        </button>
+                      )}
                     </td>
                     <td>
-                      <strong>{payee}</strong>
+                      {inlineFor(stage, "payee") ? (
+                        <PayeeInput
+                          autoFocus
+                          value={inline!.value}
+                          onChange={(next: string) => setInline({ ...inline!, value: next })}
+                          onCommit={(finalValue: string) =>
+                            commitInline(stage, { value: finalValue })
+                          }
+                          onCancel={() => setInline(null)}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="inline-edit"
+                          aria-label={`Edit the payee of ${payee}`}
+                          onClick={() => openInline(stage, "payee", stagedString(draft.payee))}
+                        >
+                          <strong>{payee}</strong>
+                        </button>
+                      )}
                       <small className="table-subtitle">{description || type}</small>
                       {stage.recurrenceId ? (
                         <small className="table-subtitle">
@@ -779,6 +901,9 @@ export default function StagingPage() {
                     <td>{summary.account}</td>
                     <td>
                       {stagedLegs(draft.legs).length ? (
+                        // A split's categories live on its legs, so the modal
+                        // is the honest editor: an inline cell could only lie
+                        // about which leg it was changing.
                         <div className="transaction-payee">
                           <span>
                             {categoryNames.get(
@@ -787,8 +912,60 @@ export default function StagingPage() {
                           </span>
                           <Badge tone="blue">Split · {stagedLegs(draft.legs).length}</Badge>
                         </div>
+                      ) : type === "transfer" ? (
+                        // A transfer files under no category by design.
+                        "—"
+                      ) : inlineFor(stage, "category") ? (
+                        <span
+                          // A grouping for the picker's input and list, so a
+                          // blur can tell "left the editor" from "moved
+                          // within it". The real control is the input inside;
+                          // this wrapper only listens to events bubbling from
+                          // it, which is the shape code/index.md's two named
+                          // jsx-a11y exceptions already carry.
+                          role="presentation"
+                          onBlur={(event) => {
+                            // Focus leaving the whole editor commits; moving
+                            // between the input and its list does not.
+                            if (!event.currentTarget.contains(event.relatedTarget)) {
+                              commitInline(stage);
+                            }
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              commitInline(stage);
+                            }
+                            if (event.key === "Escape") setInline(null);
+                          }}
+                        >
+                          <CategoryPicker
+                            categories={categories.data ?? []}
+                            categoryId={inline!.value}
+                            categoryName={inline!.categoryName}
+                            onChange={(nextId: string, nextName: string) =>
+                              setInline({ ...inline!, value: nextId, categoryName: nextName })
+                            }
+                          />
+                        </span>
                       ) : (
-                        (categoryNames.get(stagedString(draft.categoryId)) ?? "Uncategorized")
+                        <button
+                          type="button"
+                          className="inline-edit"
+                          aria-label={`Edit the category of ${payee}`}
+                          onClick={() =>
+                            openInline(
+                              stage,
+                              "category",
+                              stagedString(draft.categoryId),
+                              categoryNames.get(stagedString(draft.categoryId)) ??
+                                stagedString(draft.categoryName),
+                            )
+                          }
+                        >
+                          {categoryNames.get(stagedString(draft.categoryId)) ??
+                            (stagedString(draft.categoryName).trim() || "Uncategorized")}
+                        </button>
                       )}
                     </td>
                     <td>
@@ -819,7 +996,41 @@ export default function StagingPage() {
                       ) : null}
                     </td>
                     <td className={`align-right money ${movementSign(draftType(stage)).className}`}>
-                      {summary.amount && summary.currency ? (
+                      {inlineFor(stage, "amount") ? (
+                        <Input
+                          inputMode="decimal"
+                          autoFocus
+                          aria-label={`Amount of ${payee}`}
+                          pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
+                          value={inline!.value}
+                          onChange={(event) => setInline({ ...inline!, value: event.target.value })}
+                          onBlur={() => commitInline(stage)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") commitInline(stage);
+                            if (event.key === "Escape") setInline(null);
+                          }}
+                        />
+                      ) : (type === "deposit" || type === "withdrawal") &&
+                        !stagedLegs(draft.legs).length ? (
+                        // A split's total is its legs' business and a
+                        // transfer carries two amounts; both edit in the
+                        // modal, where the other half is on screen.
+                        <button
+                          type="button"
+                          className="inline-edit inline-edit-money"
+                          aria-label={`Edit the amount of ${payee}`}
+                          onClick={() => openInline(stage, "amount", stagedString(draft.amount))}
+                        >
+                          {summary.amount && summary.currency ? (
+                            <>
+                              {movementSign(draftType(stage)).sign}
+                              {formatMoney(summary.amount, summary.currency)}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </button>
+                      ) : summary.amount && summary.currency ? (
                         <>
                           {movementSign(draftType(stage)).sign}
                           {formatMoney(summary.amount, summary.currency)}
@@ -862,6 +1073,9 @@ export default function StagingPage() {
                         <Trash2 size={16} />
                       </button>
                       <RowMenu label={`Actions for ${payee}`}>
+                        <button onClick={() => setCloning(stage)}>
+                          <Copy size={15} /> Clone transaction
+                        </button>
                         <button onClick={() => setSavingTemplate(stage)}>
                           <LayoutTemplate size={15} /> Save as template
                         </button>
@@ -896,6 +1110,17 @@ export default function StagingPage() {
           body="Imported rows, drafts you save for later, and anything an agent prepares land here."
         />
       )}
+      <Modal open={Boolean(cloning)} onClose={() => setCloning(null)} title="Stage a transaction">
+        {cloning ? (
+          <TransactionForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            clone={cloning.draft}
+            initialMode="stage"
+            onDone={() => setCloning(null)}
+          />
+        ) : null}
+      </Modal>
       <Modal
         open={Boolean(editing)}
         onClose={() => setEditing(null)}

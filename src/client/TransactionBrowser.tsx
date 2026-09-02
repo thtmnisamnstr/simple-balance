@@ -3,15 +3,16 @@ import {
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
+  Copy,
   Download,
+  LayoutTemplate,
   ListChecks,
   Pencil,
   Plus,
+  Repeat,
   RotateCcw,
   Search,
   Trash2,
-  LayoutTemplate,
-  Repeat,
 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link, payeeDetailSearch, useLocation } from "./router.js";
@@ -127,6 +128,7 @@ export function TransactionBrowser({
   const { start, end } = useDateRange();
   const location = useLocation();
   const [editing, setEditing] = useState<Transaction | "new" | null>(null);
+  const [cloning, setCloning] = useState<Transaction | null>(null);
   const [savingTemplate, setSavingTemplate] = useState<Transaction | null>(null);
   const [savingRecurrence, setSavingRecurrence] = useState<Transaction | null>(null);
   const [search, setSearch] = useState("");
@@ -1025,6 +1027,13 @@ export function TransactionBrowser({
                               <Trash2 size={16} />
                             </button>
                             <RowMenu label={`Actions for ${transaction.payee}`}>
+                              {/* To the QUEUE, not the books: the copy lands
+                                  on Staged prefilled, where it can be looked
+                                  at before it counts, exactly like anything
+                                  else that proposes a row. */}
+                              <button onClick={() => setCloning(transaction)}>
+                                <Copy size={15} /> Clone transaction
+                              </button>
                               <button onClick={() => setSavingTemplate(transaction)}>
                                 <LayoutTemplate size={15} /> Save as template
                               </button>
@@ -1065,6 +1074,17 @@ export function TransactionBrowser({
           }
         />
       )}
+      <Modal open={Boolean(cloning)} onClose={() => setCloning(null)} title="Stage a transaction">
+        {cloning ? (
+          <TransactionForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            clone={draftFromTransaction(cloning)}
+            initialMode="stage"
+            onDone={() => setCloning(null)}
+          />
+        ) : null}
+      </Modal>
       <Modal
         open={Boolean(editing)}
         onClose={() => setEditing(null)}

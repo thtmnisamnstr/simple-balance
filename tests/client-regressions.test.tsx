@@ -593,6 +593,94 @@ describe("transaction drill-down links", () => {
   });
 });
 
+/**
+ * The clone path: a copy lands on the QUEUE, prefilled, minus the two things
+ * a copy must not carry. Leg ids belong to the source's legs, and the
+ * externalId is a bank file's identity for one real row — a copy carrying it
+ * would be swallowed by the next import as already-seen, which is why a
+ * template refuses one too.
+ */
+describe("cloning a transaction to the staged queue", () => {
+  it("prefills the stage form and posts a draft without the externalId", async () => {
+    let staged: { draft?: Record<string, unknown> } | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        const json = (body: unknown) =>
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        if (url.pathname === "/api/v1/staged-transactions" && init?.method !== "GET") {
+          if (init?.body) {
+            staged = JSON.parse(String(init.body)) as { draft?: Record<string, unknown> };
+            return json({});
+          }
+        }
+        if (url.pathname === "/api/v1/transactions") {
+          return json({
+            items: [{ ...groceryTransaction, externalId: "STMT-4021-88" }],
+            nextCursor: null,
+            page: 1,
+            pageSize: 50,
+            totalCount: 1,
+            cursorAvailable: true,
+            totalPages: 1,
+          });
+        }
+        if (url.pathname === "/api/v1/staged-transactions") {
+          return json({
+            items: [],
+            nextCursor: null,
+            page: 1,
+            pageSize: 50,
+            totalCount: 0,
+            cursorAvailable: false,
+            totalPages: 1,
+          });
+        }
+        if (url.pathname === "/api/v1/accounts") return json([checkingAccount]);
+        if (url.pathname === "/api/v1/categories") return json([groceriesCategory]);
+        if (url.pathname === "/api/v1/payees/suggestions") return json([]);
+        return json([]);
+      }),
+    );
+
+    window.history.replaceState(null, "", "/transactions?start=2026-07-01&end=2026-07-31");
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <TimezoneProvider timezone="UTC">
+          <BrowserRouter>
+            <TransactionBrowser />
+          </BrowserRouter>
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+
+    const menu = await screen.findByRole("button", { name: "Actions for Acme Market" });
+    fireEvent.click(menu);
+    fireEvent.click(
+      within(menu.closest("tr")!).getByRole("button", { name: /clone transaction/i }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Stage a transaction" });
+    // Prefilled with the source's values, offered as a staging.
+    expect(within(dialog).getByLabelText("Payee")).toHaveValue("Acme Market");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stage transaction" }));
+
+    await waitFor(() => expect(staged).toBeDefined());
+    expect(staged!.draft).toMatchObject({
+      type: "withdrawal",
+      date: "2026-07-30",
+      payee: "Acme Market",
+      amount: "12.34",
+      categoryId: groceriesCategory.id,
+    });
+    // The one field a copy must not carry.
+    expect(staged!.draft).toMatchObject({ externalId: null });
+  });
+});
+
 describe("browser mutation idempotency", () => {
   it("reuses the direct-create key when a lost response is retried", async () => {
     const requestBodies: Record<string, unknown>[] = [];
