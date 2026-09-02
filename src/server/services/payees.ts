@@ -1,9 +1,5 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
-import type {
-  Actor,
-  PayeeMergeResult,
-  PayeeSummary,
-} from "../../shared/domain.js";
+import type { Actor, PayeeMergeResult, PayeeSummary } from "../../shared/domain.js";
 import {
   payeeDuplicateGroupSchema,
   payeeListQuerySchema,
@@ -13,13 +9,11 @@ import {
   payeeSummarySchema,
   transactionDraftSchema,
 } from "../../shared/domain.js";
+import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
-  getDb,
-  type DbTransaction,
-  withTransaction,
-} from "../db/client.js";
-import {
+  recurrences,
   stagedTransactions,
+  transactionTemplates,
   transactions,
 } from "../db/schema.js";
 import { notFound, validationError } from "./errors.js";
@@ -89,12 +83,22 @@ export async function payeeSummariesMatching(
 ) {
   const normalize = (column: SQL) =>
     sql`lower(regexp_replace(trim(normalize(${column}, NFKC)), '\\s+', ' ', 'g')) = ${normalizedName}`;
-  return summariesWhere(
+  const rows = await summariesWhere(
     executor,
     actor,
     normalize(sql`payee`),
     normalize(sql`draft ->> 'payee'`),
   );
+  // Re-checked with the JavaScript rule before anything groups by it. The SQL
+  // spelling exists for the expression indexes and matches it for every name
+  // anybody has hit, but PostgreSQL's lower() and [[:space:]] are not
+  // character-for-character toLowerCase() and \s — Turkish İ and the NEL
+  // control differ — and the dangerous direction is SQL matching MORE than
+  // JavaScript would: a group would then hold a spelling the merge's own rule
+  // says is a different payee. The filter closes that direction; a spelling
+  // SQL misses stays missed, which costs a duplicate-group entry rather than
+  // a wrong merge.
+  return rows.filter((row) => normalizeHumanName(row.name) === normalizedName);
 }
 
 async function summariesWhere(
@@ -164,9 +168,7 @@ export async function listPayees(actor: Actor, input: unknown = {}) {
   const query = payeeListQuerySchema.parse(input ?? {});
   const search = query.search ? normalizeHumanName(query.search) : "";
   const summaries = await payeeSummaries(getDb(), actor);
-  return search
-    ? summaries.filter((payee) => payee.normalizedName.includes(search))
-    : summaries;
+  return search ? summaries.filter((payee) => payee.normalizedName.includes(search)) : summaries;
 }
 
 export async function listDuplicatePayees(actor: Actor) {
@@ -213,18 +215,12 @@ export function preferredPayee(payees: readonly PayeeSummary[]) {
   return [...payees].sort(preferredPayeeOrder)[0];
 }
 
-export async function listPayeeSuggestions(
-  actor: Actor,
-  searchInput: unknown,
-) {
+export async function listPayeeSuggestions(actor: Actor, searchInput: unknown) {
   const { search = "" } = payeeListQuerySchema.parse({ search: searchInput });
   const normalizedSearch = normalizeHumanName(search);
   const grouped = new Map<string, PayeeSummary[]>();
   for (const summary of await payeeSummaries(getDb(), actor)) {
-    if (
-      normalizedSearch &&
-      !summary.normalizedName.includes(normalizedSearch)
-    ) {
+    if (normalizedSearch && !summary.normalizedName.includes(normalizedSearch)) {
       continue;
     }
     const group = grouped.get(summary.normalizedName);
@@ -246,9 +242,7 @@ export async function listPayeeSuggestions(
     .sort(
       (left, right) =>
         right.total - left.total ||
-        left.preferred.normalizedName.localeCompare(
-          right.preferred.normalizedName,
-        ) ||
+        left.preferred.normalizedName.localeCompare(right.preferred.normalizedName) ||
         left.preferred.name.localeCompare(right.preferred.name),
     )
     .slice(0, 100)
@@ -260,11 +254,7 @@ export async function listPayeeSuggestions(
  * hold the tenant payee namespace lock before using the returned value in a
  * mutation.
  */
-export async function resolveCanonicalPayee(
-  tx: DbTransaction,
-  actor: Actor,
-  input: string,
-) {
+export async function resolveCanonicalPayee(tx: DbTransaction, actor: Actor, input: string) {
   const cleaned = payeeNameSchema.parse(cleanHumanName(input));
   const normalizedName = normalizeHumanName(cleaned);
   let cache = canonicalPayeeCache.get(tx);
@@ -279,12 +269,8 @@ export async function resolveCanonicalPayee(
   // one name in hand is asked about directly: this runs on every single
   // transaction write, and grouping the tenant's whole ledger to answer for one
   // payee is a scan per saved entry.
-  const matches = cache.complete
-    ? []
-    : await payeeSummariesMatching(tx, actor, normalizedName);
-  const resolved = matches.length
-    ? cleanHumanName(preferredPayee(matches)!.name)
-    : cleaned;
+  const matches = cache.complete ? [] : await payeeSummariesMatching(tx, actor, normalizedName);
+  const resolved = matches.length ? cleanHumanName(preferredPayee(matches)!.name) : cleaned;
   cache.names.set(normalizedName, resolved);
   return resolved;
 }
@@ -305,11 +291,7 @@ export async function canonicalizeStagedDraftPayee(
   };
 }
 
-export async function mergePayees(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
+export async function mergePayees(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = payeeMergeSchema.parse(input);
   const sourcePayees = [...new Set(parsed.sourcePayees)];
   if (sourcePayees.length !== parsed.sourcePayees.length) {
@@ -324,12 +306,7 @@ export async function mergePayees(
   };
 
   return withTransaction(transaction, async (tx) => {
-    await lockIdempotencyKey(
-      tx,
-      actor,
-      "payee.merge",
-      parsed.idempotencyKey,
-    );
+    await lockIdempotencyKey(tx, actor, "payee.merge", parsed.idempotencyKey);
     const existing = await getIdempotent<PayeeMergeResult>(
       tx,
       actor,
@@ -346,10 +323,7 @@ export async function mergePayees(
       .select()
       .from(transactions)
       .where(
-        and(
-          eq(transactions.userId, actor.userId),
-          inArray(transactions.payee, requestedPayees),
-        ),
+        and(eq(transactions.userId, actor.userId), inArray(transactions.payee, requestedPayees)),
       )
       .orderBy(transactions.id)
       .for("update");
@@ -360,10 +334,7 @@ export async function mergePayees(
         and(
           eq(stagedTransactions.userId, actor.userId),
           sql`jsonb_typeof(${stagedTransactions.draft} -> 'payee') = 'string'`,
-          inArray(
-            sql<string>`${stagedTransactions.draft} ->> 'payee'`,
-            requestedPayees,
-          ),
+          inArray(sql<string>`${stagedTransactions.draft} ->> 'payee'`, requestedPayees),
         ),
       )
       .orderBy(stagedTransactions.id)
@@ -371,21 +342,15 @@ export async function mergePayees(
 
     const referencedNames = new Set<string>([
       ...transactionRows.map((row) => row.payee),
-      ...stagedRows.map((row) =>
-        String((row.draft as Record<string, unknown>).payee),
-      ),
+      ...stagedRows.map((row) => String((row.draft as Record<string, unknown>).payee)),
     ]);
     if (requestedPayees.some((payee) => !referencedNames.has(payee))) {
       throw notFound("One or more payees were not found");
     }
 
-    const transactionRowsBefore = transactionRows.filter((row) =>
-      sourcePayees.includes(row.payee),
-    );
+    const transactionRowsBefore = transactionRows.filter((row) => sourcePayees.includes(row.payee));
     const stagedRowsBefore = stagedRows.filter((row) =>
-      sourcePayees.includes(
-        String((row.draft as Record<string, unknown>).payee),
-      ),
+      sourcePayees.includes(String((row.draft as Record<string, unknown>).payee)),
     );
     const now = new Date();
     const updatedTransactions = transactionRowsBefore.length
@@ -397,10 +362,7 @@ export async function mergePayees(
             updatedAt: now,
           })
           .where(
-            and(
-              eq(transactions.userId, actor.userId),
-              inArray(transactions.payee, sourcePayees),
-            ),
+            and(eq(transactions.userId, actor.userId), inArray(transactions.payee, sourcePayees)),
           )
           .returning()
       : [];
@@ -421,18 +383,13 @@ export async function mergePayees(
             and(
               eq(stagedTransactions.userId, actor.userId),
               sql`jsonb_typeof(${stagedTransactions.draft} -> 'payee') = 'string'`,
-              inArray(
-                sql<string>`${stagedTransactions.draft} ->> 'payee'`,
-                sourcePayees,
-              ),
+              inArray(sql<string>`${stagedTransactions.draft} ->> 'payee'`, sourcePayees),
             ),
           )
           .returning()
       : [];
 
-    const transactionBeforeById = new Map(
-      transactionRowsBefore.map((row) => [row.id, row]),
-    );
+    const transactionBeforeById = new Map(transactionRowsBefore.map((row) => [row.id, row]));
     for (const updated of updatedTransactions) {
       await writeAudit(tx, actor, {
         entityType: "transaction",
@@ -444,7 +401,7 @@ export async function mergePayees(
     }
     // The fingerprint the queue flags repeats by includes the payee, so renaming
     // one leaves it describing a payee the draft no longer has: two rows that
-     // have just become identical stop being reported as repeating each other.
+    // have just become identical stop being reported as repeating each other.
     // Only rows whose key is the heuristic one move — a row carrying a bank
     // reference is keyed on that and does not care what the payee is called.
     const rekeyed = updatedStages
@@ -462,24 +419,117 @@ export async function mergePayees(
         update staged_transaction as s
         set duplicate_key = v.key
         from (values ${sql.join(
-          rekeyed.map(
-            (entry) => sql`(${entry.id}::uuid, ${entry.key}::text)`,
-          ),
+          rekeyed.map((entry) => sql`(${entry.id}::uuid, ${entry.key}::text)`),
           sql`, `,
         )}) as v(id, key)
         where s.id = v.id and s.user_id = ${actor.userId}
       `);
     }
 
-    const stagedBeforeById = new Map(
-      stagedRowsBefore.map((row) => [row.id, row]),
-    );
+    const stagedBeforeById = new Map(stagedRowsBefore.map((row) => [row.id, row]));
     for (const updated of updatedStages) {
       await writeAudit(tx, actor, {
         entityType: "staged_transaction",
         entityId: updated.id,
         operation: "payee_merge",
         before: serializeRow(stagedBeforeById.get(updated.id)),
+        after: serializeRow(updated),
+      });
+    }
+
+    // The standing references. A recurrence's shape and a template's draft
+    // both carry a payee spelling, and a payee is nothing but its spelling —
+    // there is no id to survive the merge. Left alone, a recurrence re-creates
+    // the merged-away spelling on its next occurrence and the merge undoes
+    // itself; a template refills the form with it. The category merge learned
+    // this the hard way for its own references, and the version stays where it
+    // is for the reason given there: a merge relabels what the row points at
+    // without changing what somebody configured.
+    const recurrenceRowsBefore = await tx
+      .select()
+      .from(recurrences)
+      .where(
+        and(
+          eq(recurrences.userId, actor.userId),
+          inArray(sql<string>`${recurrences.shape} ->> 'payee'`, sourcePayees),
+        ),
+      )
+      .orderBy(recurrences.id)
+      .for("update");
+    const updatedRecurrences = recurrenceRowsBefore.length
+      ? await tx
+          .update(recurrences)
+          .set({
+            shape: sql`jsonb_set(
+              ${recurrences.shape},
+              '{payee}',
+              to_jsonb(${parsed.targetPayee}::text),
+              true
+            )`,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(recurrences.userId, actor.userId),
+              inArray(
+                recurrences.id,
+                recurrenceRowsBefore.map((row) => row.id),
+              ),
+            ),
+          )
+          .returning()
+      : [];
+    for (const updated of updatedRecurrences) {
+      await writeAudit(tx, actor, {
+        entityType: "recurrence",
+        entityId: updated.id,
+        operation: "payee_merge",
+        before: serializeRow(recurrenceRowsBefore.find((row) => row.id === updated.id)),
+        after: serializeRow(updated),
+      });
+    }
+    // A template's payee is optional, so only rows that carry one match.
+    const templateRowsBefore = await tx
+      .select()
+      .from(transactionTemplates)
+      .where(
+        and(
+          eq(transactionTemplates.userId, actor.userId),
+          sql`jsonb_typeof(${transactionTemplates.draft} -> 'payee') = 'string'`,
+          inArray(sql<string>`${transactionTemplates.draft} ->> 'payee'`, sourcePayees),
+        ),
+      )
+      .orderBy(transactionTemplates.id)
+      .for("update");
+    const updatedTemplates = templateRowsBefore.length
+      ? await tx
+          .update(transactionTemplates)
+          .set({
+            draft: sql`jsonb_set(
+              ${transactionTemplates.draft},
+              '{payee}',
+              to_jsonb(${parsed.targetPayee}::text),
+              true
+            )`,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(transactionTemplates.userId, actor.userId),
+              inArray(
+                transactionTemplates.id,
+                templateRowsBefore.map((row) => row.id),
+              ),
+            ),
+          )
+          .returning()
+      : [];
+    for (const updated of updatedTemplates) {
+      await writeAudit(tx, actor, {
+        entityType: "transaction_template",
+        entityId: updated.id,
+        operation: "payee_merge",
+        before: serializeRow(templateRowsBefore.find((row) => row.id === updated.id)),
         after: serializeRow(updated),
       });
     }

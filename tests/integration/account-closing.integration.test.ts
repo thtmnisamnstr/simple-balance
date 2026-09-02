@@ -2,15 +2,18 @@ import { and, eq, sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
+import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
+import { dropScratchDatabase } from "./support/scratch-database.js";
 import { ledgerAccounts, postings, user } from "../../src/server/db/schema.js";
 import {
   createAccount,
   deleteAccount,
   getAccount,
+  getAccountBalances,
   reconcileArchivedAccountClosings,
   setAccountArchived,
+  updateAccount,
 } from "../../src/server/services/accounts.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import {
@@ -27,7 +30,12 @@ const originalDatabaseUrl = process.env.DATABASE_URL;
 let adminClient: PgClient;
 
 let keySeed = 0;
-const nextKey = () => `closing-${(keySeed += 1)}`.padEnd(16, "0");
+// Padded on the counter rather than the whole string, because padding the
+// string to a fixed width made different counters collide: "…-1" and "…-10"
+// both filled out to the same key, and two calls with the same payload then
+// returned the first transaction instead of making a second one — a test that
+// passes having written nothing.
+const nextKey = () => `closing-${String((keySeed += 1)).padStart(8, "0")}`;
 
 const today = () => new Date().toISOString().slice(0, 10);
 const daysFromNow = (days: number) =>
@@ -75,11 +83,11 @@ integration("archiving an account closes its balance out to equity", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await adminClient.query(`drop database if exists "${databaseName}"`);
-    await adminClient.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: adminClient,
+      name: databaseName,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("zeroes the account and keeps the books balanced", async () => {
@@ -110,9 +118,7 @@ integration("archiving an account closes its balance out to equity", () => {
     const [row] = await getDb()
       .select()
       .from(ledgerAccounts)
-      .where(
-        and(eq(ledgerAccounts.userId, actor.userId), eq(ledgerAccounts.name, "Savings")),
-      );
+      .where(and(eq(ledgerAccounts.userId, actor.userId), eq(ledgerAccounts.name, "Savings")));
     await setAccountArchived(actor, row.id, row.version, false);
 
     const reopened = await getAccount(actor, row.id);
@@ -149,10 +155,7 @@ integration("archiving an account closes its balance out to equity", () => {
     const after = usd(await getSummary(actor, {}))!;
     // Petty Cash is gone from the accounts, and so is the spending that ran
     // through it. Previously the balance dropped and the withdrawal stayed.
-    expect(after.accounts.map((entry) => entry.name).sort()).toEqual([
-      "Checking",
-      "Savings",
-    ]);
+    expect(after.accounts.map((entry) => entry.name).sort()).toEqual(["Checking", "Savings"]);
     expect(Number(after.withdrawals)).toBe(0);
     expect(after.spendingByCategory).toEqual([]);
     expect(await ledgerSumsToZero()).toEqual(["USD=0"]);
@@ -231,17 +234,67 @@ integration("archiving an account closes its balance out to equity", () => {
     expect(await ledgerSumsToZero()).toEqual(["USD=0"]);
   });
 
+  /**
+   * Counter-accounts answer every account write with not-found.
+   *
+   * Their ids are not secret — the trial balance publishes them to their own
+   * owner — and a stale-version refusal reveals the current version to retry
+   * with. So the guard has to be the same one the reads use: the row does not
+   * exist on this path. Archiving one would post its whole balance to equity
+   * and re-close it on every later repost; renaming or re-opening one is the
+   * ledger's own bookkeeping handed to whoever asks.
+   */
+  it("answers not-found for every write against a counter-account", async () => {
+    const checking = await openAccount("Counter Guard Checking", "100.00");
+    // The income counter-account exists once a deposit has needed it.
+    await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        date: "2026-01-02",
+        payee: "Counter guard employer",
+        description: null,
+        toAccountId: checking.id,
+        amount: "50.00",
+      },
+      nextKey(),
+    );
+    const [income] = await getDb()
+      .select({ id: ledgerAccounts.id, version: ledgerAccounts.version })
+      .from(ledgerAccounts)
+      .where(
+        and(
+          eq(ledgerAccounts.userId, actor.userId),
+          eq(ledgerAccounts.systemKind, "income"),
+          eq(ledgerAccounts.currency, "USD"),
+        ),
+      );
+    expect(income).toBeDefined();
+
+    await expect(
+      updateAccount(actor, income!.id, { expectedVersion: income!.version, name: "Mine now" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      setAccountArchived(actor, income!.id, income!.version, true),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(deleteAccount(actor, income!.id, income!.version)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(getAccountBalances(actor, income!.id, {})).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    // And not-found before stale-version: a wrong guess at the version must
+    // not come back with the right one to retry with.
+    await expect(
+      updateAccount(actor, income!.id, { expectedVersion: income!.version + 7, name: "Mine" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   it("writes nothing extra when an empty account is archived", async () => {
     const empty = await openAccount("Empty", "0");
-    const before = await getDb()
-      .select()
-      .from(postings)
-      .where(eq(postings.userId, actor.userId));
+    const before = await getDb().select().from(postings).where(eq(postings.userId, actor.userId));
     await setAccountArchived(actor, empty.id, empty.version, true);
-    const after = await getDb()
-      .select()
-      .from(postings)
-      .where(eq(postings.userId, actor.userId));
+    const after = await getDb().select().from(postings).where(eq(postings.userId, actor.userId));
     expect(after).toHaveLength(before.length);
   });
 });
@@ -286,7 +339,10 @@ integration("where uncategorised spending sits in the summary", () => {
           fromAccountId: account.id,
           ...(category ? { categoryName: category } : {}),
         },
-        `spend-${payee}`.padEnd(16, "0").slice(0, 16),
+        // The payee whole, never padded to a width: padding and slicing is the
+        // collision shape testing.md 2.6 is about — two keys that agree for
+        // sixteen characters replay each other and the second write is a read.
+        `spend-${payee}`,
       );
     await spend("900.00", "Landlord", "Rent");
     await spend("300.00", "Market", "Food");
@@ -294,11 +350,11 @@ integration("where uncategorised spending sits in the summary", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await catAdmin.query(`drop database if exists "${catDatabase}"`);
-    await catAdmin.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: catAdmin,
+      name: catDatabase,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("puts it last even when it is the largest, so the order is the same everywhere", async () => {
@@ -307,11 +363,7 @@ integration("where uncategorised spending sits in the summary", () => {
       (entry) => entry.currency === "USD",
     )!.spendingByCategory;
 
-    expect(spending.map((entry) => entry.category)).toEqual([
-      "Rent",
-      "Food",
-      "Uncategorized",
-    ]);
+    expect(spending.map((entry) => entry.category)).toEqual(["Rent", "Food", "Uncategorized"]);
     // The named ones are still ordered by amount among themselves.
     expect(Number(spending[0].amount)).toBeGreaterThan(Number(spending[1].amount));
     // And it is genuinely the biggest, which is the case that used to top the list.
@@ -363,11 +415,11 @@ integration("a summary stops at today", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await futureAdmin.query(`drop database if exists "${futureDatabase}"`);
-    await futureAdmin.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: futureAdmin,
+      name: futureDatabase,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   // "All time" used to mean 9999-12-31, so next month's deposit counted toward
@@ -418,11 +470,11 @@ integration("an account that was archived can still be tidied away", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await tidyAdmin.query(`drop database if exists "${tidyDatabase}"`);
-    await tidyAdmin.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: tidyAdmin,
+      name: tidyDatabase,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   // Archiving leaves closing postings behind. They net to zero once the account
@@ -444,10 +496,7 @@ integration("an account that was archived can still be tidied away", () => {
 
     await deleteAccount(tidyActor, spare.id, restored.version);
 
-    const left = await getDb()
-      .select()
-      .from(postings)
-      .where(eq(postings.userId, tidyActor.userId));
+    const left = await getDb().select().from(postings).where(eq(postings.userId, tidyActor.userId));
     expect(left).toHaveLength(0);
   });
 });
@@ -491,11 +540,11 @@ integration("archiving an account holding future-dated money", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await futureAdmin.query(`drop database if exists "${futureDatabase}"`);
-    await futureAdmin.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: futureAdmin,
+      name: futureDatabase,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("reads zero on every day from the archive to past the last posting", async () => {
@@ -528,7 +577,13 @@ integration("archiving an account holding future-dated money", () => {
     await setAccountArchived(futureActor, account.id, loaded.version, true);
 
     // The day the money leaves, the days in between, and past the deposit.
-    for (const asOf of [today(), daysFromNow(1), daysFromNow(44), daysFromNow(45), daysFromNow(60)]) {
+    for (const asOf of [
+      today(),
+      daysFromNow(1),
+      daysFromNow(44),
+      daysFromNow(45),
+      daysFromNow(60),
+    ]) {
       expect(await balanceAsOf(account.id, asOf), asOf).toBe(0);
     }
 
@@ -616,13 +671,10 @@ integration("archiving an account holding future-dated money", () => {
     const blocker = new PgClient({ connectionString: process.env.DATABASE_URL });
     await blocker.connect();
     await blocker.query("begin");
-    await blocker.query(
-      "select pg_advisory_xact_lock(hashtextextended($1, 0))",
-      [`account-reference:${futureActor.userId}:${account.id}`],
-    );
-    await blocker.query("update ledger_account set archived_at = null where id = $1", [
-      account.id,
+    await blocker.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
+      `account-reference:${futureActor.userId}:${account.id}`,
     ]);
+    await blocker.query("update ledger_account set archived_at = null where id = $1", [account.id]);
 
     // Reads the list, which still shows the row archived because the restore is
     // uncommitted, then blocks taking the lock this transaction holds.

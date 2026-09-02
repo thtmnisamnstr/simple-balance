@@ -4,12 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  Account,
-  PaginatedPage,
-  StagedTransaction,
-  Transaction,
-} from "../src/client/api.js";
+import type { Account, PaginatedPage, StagedTransaction, Transaction } from "../src/client/api.js";
 import { TransactionBrowser } from "../src/client/TransactionBrowser.js";
 import { BrowserRouter } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -73,6 +68,7 @@ function stub({ committed }: { committed: Transaction[] }) {
           page: 1,
           pageSize: 50,
           totalCount: committed.length,
+          cursorAvailable: false,
           totalPages: 1,
         } satisfies PaginatedPage<Transaction>);
       }
@@ -84,6 +80,7 @@ function stub({ committed }: { committed: Transaction[] }) {
           page: 1,
           pageSize: 100,
           totalCount: 1,
+          cursorAvailable: false,
           totalPages: 1,
         } satisfies PaginatedPage<StagedTransaction>);
       }
@@ -126,10 +123,7 @@ describe("staged rows on category and payee detail", () => {
     expect(await screen.findByText("Staged Only Payee")).toBeInTheDocument();
     const row = screen.getByText("Staged Only Payee").closest("tr")!;
     expect(within(row).getByText("Staged")).toBeInTheDocument();
-    expect(within(row).getByRole("link", { name: "Review" })).toHaveAttribute(
-      "href",
-      "/staged",
-    );
+    expect(within(row).getByRole("link", { name: "Review" })).toHaveAttribute("href", "/staged");
   });
 
   it("never offers staged rows to a committed bulk edit", async () => {
@@ -155,9 +149,7 @@ describe("staged rows on category and payee detail", () => {
     renderBrowser({ includeStaged: true, fixedPayee: "Staged Only Payee" });
 
     expect(await screen.findByText("Staged Only Payee")).toBeInTheDocument();
-    expect(stagedQueries[0]?.searchParams.get("payee")).toBe(
-      "Staged Only Payee",
-    );
+    expect(stagedQueries[0]?.searchParams.get("payee")).toBe("Staged Only Payee");
   });
 
   /**
@@ -181,9 +173,7 @@ describe("staged rows on category and payee detail", () => {
     await vi.waitFor(() => {
       expect(stagedQueries.at(-1)!.searchParams.get("type")).toBe("deposit");
     });
-    expect(stagedQueries.at(-1)!.searchParams.get("categoryId")).toBe(
-      CATEGORY_ID,
-    );
+    expect(stagedQueries.at(-1)!.searchParams.get("categoryId")).toBe(CATEGORY_ID);
   });
 
   it("leaves the main transaction list alone", async () => {

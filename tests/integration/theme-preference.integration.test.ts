@@ -3,10 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { auditEvents, user, userPreferences } from "../../src/server/db/schema.js";
-import {
-  getPreferences,
-  setPreferences,
-} from "../../src/server/services/preferences.js";
+import { getPreferences, setPreferences } from "../../src/server/services/preferences.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -31,12 +28,14 @@ integration("which theme an account is set to", () => {
       [chooser.userId, "Theme Chooser"],
       [settled.userId, "Theme Settled"],
     ] as const) {
-      await getDb().insert(user).values({
-        id,
-        name,
-        email: `${id}@example.com`,
-        emailVerified: true,
-      });
+      await getDb()
+        .insert(user)
+        .values({
+          id,
+          name,
+          email: `${id}@example.com`,
+          emailVerified: true,
+        });
     }
   });
 

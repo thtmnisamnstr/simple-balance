@@ -5,6 +5,7 @@ import type { Database, DbTransaction } from "../db/client.js";
 import { auditEvents, idempotencyRecords } from "../db/schema.js";
 import { and, eq, sql } from "drizzle-orm";
 import { conflict } from "./errors.js";
+import { idempotencyReplays } from "../metrics.js";
 
 export type Executor = Database | DbTransaction;
 
@@ -20,7 +21,9 @@ Decimal.set({
 export const decimal = (value: string | Decimal) => new Decimal(value);
 
 export function canonicalDecimal(value: string | Decimal): string {
-  const result = decimal(value).toFixed(18).replace(/\.?0+$/, "");
+  const result = decimal(value)
+    .toFixed(18)
+    .replace(/\.?0+$/, "");
   return result === "-0" ? "0" : result;
 }
 
@@ -105,15 +108,16 @@ export async function getIdempotent<T>(
       ),
     )
     .limit(1);
-  if (
-    record &&
-    record.requestHash !== idempotencyRequestHash(requestPayload)
-  ) {
-    throw conflict(
-      "This idempotency key was already used with a different request",
-      { operation },
-    );
+  if (record && record.requestHash !== idempotencyRequestHash(requestPayload)) {
+    throw conflict("This idempotency key was already used with a different request", { operation });
   }
+  // Counted here rather than at each call site, because this is the one place
+  // that knows a replay happened: every caller above treats a stored response
+  // and a fresh one identically, which is the point of the record and also why
+  // a client retrying every write would otherwise be invisible. Below the
+  // conflict check, so a key reused with a different request counts as the
+  // refusal it is rather than as a replay it is not.
+  if (record) idempotencyReplays.inc({ operation });
   return (record?.response as T | undefined) ?? null;
 }
 
@@ -136,9 +140,7 @@ function canonicalizeRequestPayload(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value)
         .filter(([, item]) => item !== undefined)
-        .sort(([left], [right]) =>
-          left < right ? -1 : left > right ? 1 : 0,
-        )
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
         .map(([key, item]) => [key, canonicalizeRequestPayload(item)]),
     );
   }
@@ -146,9 +148,7 @@ function canonicalizeRequestPayload(value: unknown): unknown {
 }
 
 export function idempotencyRequestHash(requestPayload: unknown): string {
-  const canonicalPayload = JSON.stringify(
-    canonicalizeRequestPayload(requestPayload),
-  );
+  const canonicalPayload = JSON.stringify(canonicalizeRequestPayload(requestPayload));
   if (canonicalPayload === undefined) {
     throw new TypeError("Idempotency payload must be JSON serializable");
   }
@@ -195,9 +195,7 @@ async function takeTransactionLock(tx: DbTransaction, lockKey: string) {
     locksHeld.set(tx as object, held);
   }
   if (held.has(lockKey)) return;
-  await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`,
-  );
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
   held.add(lockKey);
 }
 
@@ -237,9 +235,7 @@ export function exceedsBulkSelectionCap(noun: string) {
  * of the same hash is a way for one of them to drift and start accepting a set
  * the other would refuse.
  */
-export function selectionFingerprint(
-  rows: readonly { id: string; version: number }[],
-) {
+export function selectionFingerprint(rows: readonly { id: string; version: number }[]) {
   const payload = [...rows]
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((row) => `${row.id}:${row.version}`)
@@ -264,10 +260,7 @@ export async function lockAccountReferences(
   }
 }
 
-export async function lockCategoryNamespace(
-  tx: DbTransaction,
-  actor: Actor,
-) {
+export async function lockCategoryNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `categories:${actor.userId}`);
 }
 
@@ -277,10 +270,7 @@ export async function lockCategoryNamespace(
  * finding the name free. Taken last of all the namespace locks, because nothing
  * else ever takes it.
  */
-export async function lockTransactionTemplateNamespace(
-  tx: DbTransaction,
-  actor: Actor,
-) {
+export async function lockTransactionTemplateNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `transaction-templates:${actor.userId}`);
 }
 
@@ -294,10 +284,7 @@ export async function lockRecurrenceNamespace(tx: DbTransaction, actor: Actor) {
  * distinct from category and account locks because payees have no backing
  * table row that PostgreSQL could lock for us.
  */
-export async function lockPayeeNamespace(
-  tx: DbTransaction,
-  actor: Actor,
-) {
+export async function lockPayeeNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `payees:${actor.userId}`);
 }
 

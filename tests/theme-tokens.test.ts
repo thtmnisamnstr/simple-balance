@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SERIES_COLOURS } from "../src/client/charts.js";
-import { blocks, stylesheet, tokensIn, type Block } from "./support/css.js";
+import { blocks, ruleFor, stylesheet, tokensIn, type Block } from "./support/css.js";
 
 /**
  * The stylesheet holds two palettes now, and the ways that goes wrong are all
@@ -16,8 +16,7 @@ import { blocks, stylesheet, tokensIn, type Block } from "./support/css.js";
  */
 const css = stylesheet();
 
-const LIGHT = (block: Block) =>
-  block.context.length === 0 && block.selector === ":root";
+const LIGHT = (block: Block) => block.context.length === 0 && block.selector === ":root";
 const MEDIA_DARK = (block: Block) =>
   block.context.some((at) => /prefers-color-scheme:\s*dark/.test(at)) &&
   block.selector === ':root:not([data-theme="light"])';
@@ -79,8 +78,7 @@ describe("the two palettes", () => {
 });
 
 describe("colours in the stylesheet", () => {
-  const TOKEN_BLOCK = (block: Block) =>
-    LIGHT(block) || MEDIA_DARK(block) || ATTRIBUTE_DARK(block);
+  const TOKEN_BLOCK = (block: Block) => LIGHT(block) || MEDIA_DARK(block) || ATTRIBUTE_DARK(block);
 
   it("are written in the token blocks and nowhere else", () => {
     // A colour written inline has one theme by construction. This is the rule
@@ -104,7 +102,11 @@ describe("colours in the stylesheet", () => {
 
   it("declares nothing it does not use", () => {
     const used = new Set([...css.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]!));
-    expect(Object.keys(light).filter((token) => !used.has(token)).sort()).toEqual([]);
+    expect(
+      Object.keys(light)
+        .filter((token) => !used.has(token))
+        .sort(),
+    ).toEqual([]);
   });
 });
 
@@ -113,13 +115,32 @@ describe("what each token is for", () => {
   // the two roles are two tokens. They were one token, and in dark that put
   // white text on a bright mint button at 1.9:1.
   const TEXT = new Set([
-    "--ink", "--ink-soft", "--muted", "--green", "--green-dark", "--red",
-    "--amber", "--blue",
+    "--ink",
+    "--ink-soft",
+    "--muted",
+    "--green",
+    "--green-dark",
+    "--red",
+    "--amber",
+    "--blue",
   ]);
   const FILL = new Set([
-    "--ground", "--surface", "--surface-soft", "--fill-subtle", "--track",
-    "--green-fill", "--green-fill-hover", "--red-fill", "--green-soft",
-    "--green-wash", "--red-soft", "--amber-soft", "--blue-soft", "--fill-deep",
+    "--ground",
+    "--surface",
+    "--surface-soft",
+    "--fill-subtle",
+    "--track",
+    "--green-fill",
+    "--green-fill-hover",
+    "--red-fill",
+    "--green-soft",
+    "--green-wash",
+    "--red-soft",
+    "--amber-soft",
+    "--blue-soft",
+    "--fill-deep",
+    "--field",
+    "--field-disabled",
   ]);
 
   it("never paints an area with a text colour, or writes text in a surface colour", () => {
@@ -145,6 +166,39 @@ describe("what each token is for", () => {
   });
 });
 
+describe("the field role", () => {
+  // --field and --field-line hold today's --surface and --line-strong values, so
+  // nothing on screen moved when they arrived. That is exactly what makes them
+  // easy to lose again: a later edit reaching for --surface would look right and
+  // would quietly put the field back to having no fill of its own.
+  it("draws a field's fill and edge from the field role rather than the card's", () => {
+    const rule = ruleFor(css, ".input");
+    expect(rule.length, ".input is declared once at the top level").toBe(1);
+    expect(rule[0]!.body).toMatch(/background:\s*var\(--field\)/);
+    expect(rule[0]!.body).toMatch(/border:\s*1px solid var\(--field-line\)/);
+  });
+
+  it("gives a field that cannot be edited a fill of its own", () => {
+    const rule = ruleFor(css, ".input:disabled");
+    expect(rule.length, ".input:disabled is declared").toBe(1);
+    expect(rule[0]!.body).toMatch(/background:\s*var\(--field-disabled\)/);
+  });
+
+  it("makes a disabled field look different from a live one in every theme", () => {
+    // The assertion that holds the behaviour rather than the wiring. Fourteen
+    // fields ship disabled and every one of them was pixel-identical to a live
+    // one; a --field-disabled equal to --field would pass every test above and
+    // leave them that way.
+    for (const [name, tokens] of [
+      ["light", light],
+      ["dark, chosen by the machine", mediaDark],
+      ["dark, chosen explicitly", attributeDark],
+    ] as const) {
+      expect(tokens["--field-disabled"], `${name} disabled fill`).not.toBe(tokens["--field"]);
+    }
+  });
+});
+
 describe("the chart palette", () => {
   it("has a colour for every series the code will ask for, in both themes", () => {
     for (const [name, tokens] of [
@@ -164,9 +218,7 @@ describe("the chart palette", () => {
       const values = Object.entries(tokens)
         .filter(([token]) => /^--series-\d+$/.test(token))
         .map(([, value]) => value);
-      expect(new Set(values).size, `${name} has a repeated series colour`).toBe(
-        values.length,
-      );
+      expect(new Set(values).size, `${name} has a repeated series colour`).toBe(values.length);
     }
   });
 
@@ -196,10 +248,7 @@ describe("the browser chrome", () => {
     expect(metas.length, "one meta per theme").toBe(2);
     const grounds = { light: light["--ground"], dark: mediaDark["--ground"] };
     for (const meta of metas) {
-      const which = /data-theme-for="(light|dark)"/.exec(meta)?.[1] as
-        | "light"
-        | "dark"
-        | undefined;
+      const which = /data-theme-for="(light|dark)"/.exec(meta)?.[1] as "light" | "dark" | undefined;
       expect(which, `theme-color says which theme it is for: ${meta}`).toBeDefined();
       const content = /content="(#[0-9a-fA-F]{6})"/.exec(meta)?.[1];
       expect(content?.toLowerCase()).toBe(grounds[which!]?.toLowerCase());

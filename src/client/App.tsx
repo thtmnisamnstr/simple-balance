@@ -17,25 +17,13 @@ import {
   Sparkles,
   Sun,
   Tags,
+  Target,
   UserRound,
   X,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import {
-  Navigate,
-  NavLink,
-  Route,
-  Routes,
-  useLocation,
-  useSearchParams,
-} from "./router.js";
-import {
-  api,
-  ApiClientError,
-  json,
-  type AuthPublicOptions,
-  type Session,
-} from "./api.js";
+import { Navigate, NavLink, Route, Routes, useLocation, useSearchParams } from "./router.js";
+import { api, ApiClientError, json, type AuthPublicOptions, type Session } from "./api.js";
 import { authClient } from "./auth-client.js";
 import { Alert, Button, Field, Input } from "./components.js";
 import AccountsPage from "./pages/AccountsPage.js";
@@ -47,6 +35,7 @@ import PayeeDetailPage from "./pages/PayeeDetailPage.js";
 import PayeesPage from "./pages/PayeesPage.js";
 import DashboardPage from "./pages/DashboardPage.js";
 import DuplicateReviewPage from "./pages/DuplicateReviewPage.js";
+import BudgetsPage from "./pages/BudgetsPage.js";
 import ReportsPage from "./pages/ReportsPage.js";
 import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
@@ -62,9 +51,10 @@ import { TimezoneProvider } from "./timezone.js";
 /**
  * Reading order rather than alphabetical: where the money is and what moved it,
  * then the work waiting on you, then the things that file and repeat it, then
- * what it all adds up to. Reports sits after Recurring because it answers a
- * question about a ledger somebody has already been keeping, not something they
- * do to it.
+ * what it all adds up to. Budgets and Reports sit after Recurring because they
+ * answer questions about a ledger somebody has already been keeping, not
+ * something they do to it. Budgets comes first of the two: it is the question
+ * with an intention behind it, and Reports is the one with none.
  */
 const nav = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -75,6 +65,7 @@ const nav = [
   { to: "/payees", label: "Payees", icon: UserRound },
   { to: "/templates", label: "Templates", icon: LayoutTemplate },
   { to: "/recurrences", label: "Recurring", icon: Repeat },
+  { to: "/budgets", label: "Budgets", icon: Target },
   { to: "/reports", label: "Reports", icon: ChartColumn },
   { to: "/import", label: "Import CSV", icon: FileUp },
   { to: "/activity", label: "Activity", icon: History },
@@ -123,13 +114,9 @@ function SignIn({ error }: { error?: Error }) {
     location.pathname === "/sign-in"
       ? "/"
       : samePagePath(`${location.pathname}${location.search}${location.hash}`);
-  const returnTo =
-    isMcpAuthorization
-      ? `/api/auth/mcp/authorize${location.search}`
-      : pageReturnTo;
+  const returnTo = isMcpAuthorization ? `/api/auth/mcp/authorize${location.search}` : pageReturnTo;
   const canRegister = options.data?.localRegistrationOpen ?? false;
-  const setup =
-    canRegister && (registering ?? (options.data?.awaitingFirstAccount ?? false));
+  const setup = canRegister && (registering ?? options.data?.awaitingFirstAccount ?? false);
   const localAuth = useMutation({
     mutationFn: async () => {
       if (!options.data) throw new Error("Authentication options are unavailable");
@@ -203,30 +190,32 @@ function SignIn({ error }: { error?: Error }) {
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <div className="brand-mark large"><CircleDollarSign size={31} /></div>
+        <div className="brand-mark large">
+          <CircleDollarSign size={31} />
+        </div>
         <span className="eyebrow">Personal accounting</span>
         <h1>Where your money is, and where it went.</h1>
         <p>
-          Every account in one place, bank statements that import and file
-          themselves, and the bills and paychecks you only set up once. Nothing
-          counts until you say so.
+          Every account in one place, bank statements that import and file themselves, and the bills
+          and paychecks you only set up once. Nothing counts until you say so.
         </p>
         {error && !(error instanceof ApiClientError && error.code === "UNAUTHORIZED") ? (
           <Alert>{error.message}</Alert>
         ) : null}
-        {options.isPending ? <p>Loading sign-in options…</p> : null}
+        {options.isPending ? <p role="status">Loading sign-in options…</p> : null}
         {options.error ? <Alert>{options.error.message}</Alert> : null}
         {oauthParams.has("auth_error") ? (
-          <Alert>Google sign-in did not complete. Try again, or sign in with your email and password.</Alert>
+          <Alert>
+            Google sign-in did not complete. Try again, or sign in with your email and password.
+          </Alert>
         ) : null}
         {awaitingVerification ? (
           <div className="local-auth-form">
             <h2>Confirm your email address</h2>
             <p className="settings-note">
-              A message is on its way to {email}. Open the link in it to confirm
-              the address. Until that is done the account cannot be signed in
-              to. The link lasts an hour, and trying to sign in again sends a
-              fresh one.
+              A message is on its way to {email}. Open the link in it to confirm the address. Until
+              that is done the account cannot be signed in to. The link lasts an hour, and trying to
+              sign in again sends a fresh one.
             </p>
             <Button
               type="button"
@@ -247,8 +236,8 @@ function SignIn({ error }: { error?: Error }) {
             {resetRequested ? (
               <>
                 <p className="settings-note">
-                  If {email} has an account here, a link to choose a new
-                  password is on its way. It works once and expires in an hour.
+                  If {email} has an account here, a link to choose a new password is on its way. It
+                  works once and expires in an hour.
                 </p>
                 <Button
                   type="button"
@@ -264,8 +253,8 @@ function SignIn({ error }: { error?: Error }) {
             ) : (
               <>
                 <p className="settings-note">
-                  Tell us the address on the account and we will send a link to
-                  choose a new password.
+                  Tell us the address on the account and we will send a link to choose a new
+                  password.
                 </p>
                 <Field label="Email address">
                   <Input
@@ -277,9 +266,7 @@ function SignIn({ error }: { error?: Error }) {
                     onChange={(event) => setEmail(event.target.value)}
                   />
                 </Field>
-                {requestReset.error ? (
-                  <Alert>{requestReset.error.message}</Alert>
-                ) : null}
+                {requestReset.error ? <Alert>{requestReset.error.message}</Alert> : null}
                 <Button type="submit" loading={requestReset.isPending}>
                   Send the link
                 </Button>
@@ -299,11 +286,7 @@ function SignIn({ error }: { error?: Error }) {
           <form
             className="local-auth-form"
             method="post"
-            action={
-              setup
-                ? "/api/auth/sign-up/email"
-                : "/api/auth/sign-in/email"
-            }
+            action={setup ? "/api/auth/sign-up/email" : "/api/auth/sign-in/email"}
             // Submitted here rather than natively, even mid-authorization. A
             // native post hands the browser whatever the endpoint returns, and
             // a refused password or a closed registration returns JSON, which
@@ -337,11 +320,7 @@ function SignIn({ error }: { error?: Error }) {
             </Field>
             <Field
               label="Password"
-              hint={
-                setup
-                  ? `At least ${options.data.minimumPasswordLength} characters`
-                  : undefined
-              }
+              hint={setup ? `At least ${options.data.minimumPasswordLength} characters` : undefined}
             >
               <Input
                 required
@@ -367,29 +346,33 @@ function SignIn({ error }: { error?: Error }) {
             {setup ? (
               <Field label="Confirm password">
                 <Input
-                required
-                ref={confirmationInput}
-                type="password"
-                minLength={options.data.minimumPasswordLength}
-                maxLength={128}
-                autoComplete="new-password"
-                value={confirmation}
-                onChange={(event) => {
-                  setConfirmation(event.target.value);
-                  event.currentTarget.setCustomValidity(
-                    event.target.value === password ? "" : "Passwords do not match",
-                  );
-                }}
+                  required
+                  ref={confirmationInput}
+                  type="password"
+                  minLength={options.data.minimumPasswordLength}
+                  maxLength={128}
+                  autoComplete="new-password"
+                  value={confirmation}
+                  onChange={(event) => {
+                    setConfirmation(event.target.value);
+                    event.currentTarget.setCustomValidity(
+                      event.target.value === password ? "" : "Passwords do not match",
+                    );
+                  }}
                 />
               </Field>
             ) : null}
-            {setup && options.data.setupTokenRequired ? (
+            {setup && (options.data.setupTokenRequired || options.data.setupTokenOffered) ? (
               <Field
                 label="Setup code"
-                hint="Copy this one-time code from the server startup logs"
+                hint={
+                  options.data.setupTokenRequired
+                    ? "Copy this one-time code from the server startup logs"
+                    : "Only needed to claim this server with an address its allow list turns away. Copy it from the server startup logs; leave it blank otherwise."
+                }
               >
                 <Input
-                  required
+                  required={options.data.setupTokenRequired}
                   name="setupToken"
                   autoComplete="one-time-code"
                   value={setupToken}
@@ -441,7 +424,9 @@ function SignIn({ error }: { error?: Error }) {
         {options.data?.googleEnabled ? (
           <>
             {options.data.localEnabled ? (
-              <div className="auth-divider"><span>or</span></div>
+              <div className="auth-divider">
+                <span>or</span>
+              </div>
             ) : null}
             <Button
               className="google-button"
@@ -461,17 +446,28 @@ function SignIn({ error }: { error?: Error }) {
               }
             >
               <svg aria-hidden viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.5-.2-2.2H12v4.3h5.4a4.6 4.6 0 0 1-2 3v2.8h3.5c2-1.9 3.2-4.6 3.2-7.9Z" />
-                <path fill="#34A853" d="M12 22c2.9 0 5.3-1 7-2.6l-3.5-2.8c-1 .7-2.1 1-3.5 1a6.1 6.1 0 0 1-5.7-4.2H2.7v2.9A10 10 0 0 0 12 22Z" />
-                <path fill="#FBBC05" d="M6.3 13.4A6 6 0 0 1 6 12c0-.5.1-1 .3-1.4V7.7H2.7A10 10 0 0 0 2 12c0 1.5.3 3 .9 4.3l3.4-2.9Z" />
-                <path fill="#EA4335" d="M12 6.3c1.6 0 3 .5 4.1 1.6l3.1-3A10 10 0 0 0 2.7 7.7l3.6 2.9A6.1 6.1 0 0 1 12 6.3Z" />
+                <path
+                  fill="#4285F4"
+                  d="M21.6 12.2c0-.7-.1-1.5-.2-2.2H12v4.3h5.4a4.6 4.6 0 0 1-2 3v2.8h3.5c2-1.9 3.2-4.6 3.2-7.9Z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 22c2.9 0 5.3-1 7-2.6l-3.5-2.8c-1 .7-2.1 1-3.5 1a6.1 6.1 0 0 1-5.7-4.2H2.7v2.9A10 10 0 0 0 12 22Z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M6.3 13.4A6 6 0 0 1 6 12c0-.5.1-1 .3-1.4V7.7H2.7A10 10 0 0 0 2 12c0 1.5.3 3 .9 4.3l3.4-2.9Z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 6.3c1.6 0 3 .5 4.1 1.6l3.1-3A10 10 0 0 0 2.7 7.7l3.6 2.9A6.1 6.1 0 0 1 12 6.3Z"
+                />
               </svg>
               Continue with Google
             </Button>
             <small>
-              Who may register with Google is set by the server. If you already
-              have an account with a password, connect Google once in Settings
-              before using this button.
+              Who may register with Google is set by the server. If you already have an account with
+              a password, connect Google once in Settings before using this button.
             </small>
           </>
         ) : null}
@@ -482,7 +478,15 @@ function SignIn({ error }: { error?: Error }) {
         <div className="auth-ledger-card">
           <span>July cash flow</span>
           <strong>+$1,248.20</strong>
-          <div><i /><i /><i /><i /><i /><i /><i /></div>
+          <div>
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </div>
         </div>
       </aside>
     </main>
@@ -551,7 +555,9 @@ export function OAuthConsent() {
   return (
     <main className="auth-shell consent-shell">
       <section className="auth-card">
-        <div className="brand-mark large"><Bot size={29} /></div>
+        <div className="brand-mark large">
+          <Bot size={29} />
+        </div>
         <span className="eyebrow">Agent authorization</span>
         <h1>Allow this MCP client?</h1>
         {unavailable ? (
@@ -561,8 +567,8 @@ export function OAuthConsent() {
         ) : (
           <>
             <p>
-              <strong>{request.data.clientName}</strong> is requesting access to
-              your private ledger.
+              <strong>{request.data.clientName}</strong> is requesting access to your private
+              ledger.
             </p>
             <ul className="scope-list">
               {request.data.scopes.map((scope) => (
@@ -577,7 +583,9 @@ export function OAuthConsent() {
               <Button disabled={pending} variant="secondary" onClick={() => decide(false)}>
                 Deny
               </Button>
-              <Button loading={pending} onClick={() => decide(true)}>Allow access</Button>
+              <Button loading={pending} onClick={() => decide(true)}>
+                Allow access
+              </Button>
             </div>
           </>
         )}
@@ -611,8 +619,10 @@ function useAdoptBrowserRegion(session: Session) {
     asked.current = true;
     const timezone = detectedTimezone();
     const defaultCurrency = detectedCurrency();
-    if (timezone === session.preferences.timezone &&
-        defaultCurrency === session.preferences.defaultCurrency) {
+    if (
+      timezone === session.preferences.timezone &&
+      defaultCurrency === session.preferences.defaultCurrency
+    ) {
       return;
     }
     void api("/api/v1/preferences", {
@@ -641,8 +651,13 @@ function Shell({ session }: { session: Session }) {
     <div className="app-shell">
       <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
         <div className="brand">
-          <span className="brand-mark"><CircleDollarSign size={23} /></span>
-          <div><strong>Simple Balance</strong><small>Personal accounting</small></div>
+          <span className="brand-mark">
+            <CircleDollarSign size={23} />
+          </span>
+          <div>
+            <strong>Simple Balance</strong>
+            <small>Personal accounting</small>
+          </div>
           <button
             className="mobile-close"
             aria-label="Close navigation"
@@ -659,18 +674,18 @@ function Shell({ session }: { session: Session }) {
               end={end}
               onClick={() => setMobileNav(false)}
             >
-              <Icon size={18} /><span>{label}</span>
+              <Icon size={18} />
+              <span>{label}</span>
             </NavLink>
           ))}
         </nav>
         <div className="sidebar-foot">
           <div className="user-chip">
-            {session.user.image ? (
-              <img src={session.user.image} alt="" />
-            ) : (
-              <span>{initials}</span>
-            )}
-            <div><strong>{session.user.name}</strong><small>{session.user.email}</small></div>
+            {session.user.image ? <img src={session.user.image} alt="" /> : <span>{initials}</span>}
+            <div>
+              <strong>{session.user.name}</strong>
+              <small>{session.user.email}</small>
+            </div>
           </div>
           {/* A plain button rather than a switch, and never `aria-pressed`: a
               two-state control cannot honestly report a three-valued setting,
@@ -682,9 +697,7 @@ function Shell({ session }: { session: Session }) {
           <button
             type="button"
             className="theme-toggle"
-            aria-label={
-              theme.resolved === "dark" ? "Switch to light mode" : "Switch to dark mode"
-            }
+            aria-label={theme.resolved === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             onClick={() => theme.setTheme(theme.resolved === "dark" ? "light" : "dark")}
           >
             {theme.resolved === "dark" ? <Sun size={17} /> : <Moon size={17} />}
@@ -705,11 +718,24 @@ function Shell({ session }: { session: Session }) {
           </button>
         </div>
       </aside>
-      {mobileNav ? <button className="nav-scrim" aria-label="Close navigation" onClick={() => setMobileNav(false)} /> : null}
+      {mobileNav ? (
+        <button
+          className="nav-scrim"
+          aria-label="Close navigation"
+          onClick={() => setMobileNav(false)}
+        />
+      ) : null}
       <div className="main-column">
         <header className="mobile-header">
-          <button onClick={() => setMobileNav(true)} aria-label="Open navigation"><Menu size={21} /></button>
-          <div className="brand"><span className="brand-mark"><CircleDollarSign size={21} /></span><strong>Simple Balance</strong></div>
+          <button onClick={() => setMobileNav(true)} aria-label="Open navigation">
+            <Menu size={21} />
+          </button>
+          <div className="brand">
+            <span className="brand-mark">
+              <CircleDollarSign size={21} />
+            </span>
+            <strong>Simple Balance</strong>
+          </div>
         </header>
         <main className="content">
           <TimezoneProvider timezone={session.preferences.timezone}>
@@ -717,6 +743,7 @@ function Shell({ session }: { session: Session }) {
               <Route path="/" element={<DashboardPage />} />
               <Route path="/accounts" element={<AccountsPage session={session} />} />
               <Route path="/accounts/:accountId" element={<AccountDetailPage />} />
+              <Route path="/budgets" element={<BudgetsPage session={session} />} />
               <Route path="/reports" element={<ReportsPage />} />
               <Route path="/reports/:report" element={<ReportsPage />} />
               <Route path="/transactions" element={<TransactionsPage />} />
@@ -724,19 +751,13 @@ function Shell({ session }: { session: Session }) {
               {/* Without an id it starts the run at the first flagged row,
                   which is how the queue is entered from the list. */}
               <Route path="/staged/duplicates" element={<DuplicateReviewPage />} />
-              <Route
-                path="/staged/duplicates/:id"
-                element={<DuplicateReviewPage />}
-              />
+              <Route path="/staged/duplicates/:id" element={<DuplicateReviewPage />} />
               <Route path="/categories" element={<CategoriesPage />} />
               <Route path="/categories/:categoryId" element={<CategoryDetailPage />} />
               <Route path="/payees" element={<PayeesPage />} />
               <Route path="/payees/transactions" element={<PayeeDetailPage />} />
               <Route path="/templates" element={<TemplatesPage />} />
-              <Route
-                path="/templates/:templateId"
-                element={<TemplateDetailPage />}
-              />
+              <Route path="/templates/:templateId" element={<TemplateDetailPage />} />
               <Route path="/recurrences" element={<RecurrencesPage />} />
               <Route path="/import" element={<ImportPage />} />
               <Route path="/activity" element={<ActivityPage />} />
@@ -781,14 +802,16 @@ function ResetPassword() {
   return (
     <main className="auth-shell consent-shell">
       <section className="auth-card">
-        <div className="brand-mark large"><CircleDollarSign size={31} /></div>
+        <div className="brand-mark large">
+          <CircleDollarSign size={31} />
+        </div>
         <span className="eyebrow">Simple Balance</span>
         {unusable ? (
           <>
             <h1>That link has expired.</h1>
             <p>
-              Reset links work once and last an hour. Ask for a new one and it
-              will arrive in a moment.
+              Reset links work once and last an hour. Ask for a new one and it will arrive in a
+              moment.
             </p>
             <Button type="button" onClick={() => window.location.assign("/sign-in")}>
               Back to sign in
@@ -865,7 +888,9 @@ export default function App() {
   if (session.isPending) {
     return (
       <div className="loading-screen">
-        <span className="brand-mark large"><CircleDollarSign size={29} /></span>
+        <span className="brand-mark large">
+          <CircleDollarSign size={29} />
+        </span>
         <p>Opening your ledger…</p>
       </div>
     );
@@ -877,7 +902,9 @@ export default function App() {
     return (
       <main className="auth-shell consent-shell">
         <section className="auth-card">
-          <div className="brand-mark large"><CircleDollarSign size={29} /></div>
+          <div className="brand-mark large">
+            <CircleDollarSign size={29} />
+          </div>
           <span className="eyebrow">Connection problem</span>
           <h1>Your ledger could not be opened.</h1>
           <Alert>{session.error.message}</Alert>

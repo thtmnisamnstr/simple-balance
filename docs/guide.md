@@ -1,7 +1,9 @@
 # Using it
 
 What each part of Simple Balance is for, and the decisions behind the ones that
-are not obvious. Read it end to end once, or jump to what you are doing.
+are not obvious. Read it end to end once, or jump to what you are doing. For
+step-by-step instructions — which buttons, in what order, and a budgeting
+walkthrough that starts from nothing — see [How to use it](how-to.md).
 
 - [Accounts and transactions](#accounts-and-transactions)
 - [Splitting one receipt across categories](#splitting-one-receipt-across-categories)
@@ -11,6 +13,7 @@ are not obvious. Read it end to end once, or jump to what you are doing.
 - [Reminders](#reminders)
 - [Changing many rows at once](#changing-many-rows-at-once)
 - [Reading it back](#reading-it-back)
+- [Budgets](#budgets)
 - [How it looks](#how-it-looks)
 - [Signing in, and leaving](#signing-in-and-leaving)
 
@@ -37,10 +40,16 @@ Nothing is typed over. Correcting an entry posts the difference, and deleting on
 posts its reversal, so a figure you saw last month still reconciles with the
 entries that produced it.
 
+Any row can be cloned, from its menu on either list. The copy opens the staging
+form prefilled and lands on Staged rather than in the books, because a copy is a
+proposal until somebody has looked at it — and it deliberately leaves the
+original's bank reference behind, or the next import of that statement would
+recognise its own row in the copy and stay silent.
+
 ## Splitting one receipt across categories
 
 A grocery run that is partly food, partly household and partly something for the
-dog is one transaction with three category legs. Press **Split** on the category
+dog is one transaction with three category legs. Press **Split across categories** on the category
 field, give each row its own amount, and the form tells you what is left to
 assign until it comes to nothing.
 
@@ -166,11 +175,17 @@ That works on the queue as well as on committed rows, which is how you fix a fil
 whose account or category column meant nothing to the importer: one edit over the
 whole batch, and the rows it repairs come back ready to commit.
 
+Single-field repairs are cheaper still: a staged row's date, payee, category and
+amount edit in place on the list, with the same editors and the same server
+checks the full form uses. The fields that depend on parts the list cannot show
+— a split's division, a transfer's two amounts — keep the full editor, so an
+in-place edit can never quietly decide something off screen.
+
 Categories and payees match case-insensitively, flag their own near-duplicates,
 and merge by rewriting every reference at once. Recategorising the last
 transaction off a category removes that category, unless something still names
-it — a recurrence or a template — or unless it was made ahead of time and is
-standing empty on purpose.
+it — a recurrence, a template, or a budget — or unless it was made ahead of
+time and is standing empty on purpose.
 
 ## Reading it back
 
@@ -186,6 +201,13 @@ not at all.
 
 Every figure is per currency and none is ever added across them, because there are
 no exchange rates here to add them with.
+
+On the categories report, any category can be excluded from the view from its
+row's menu, because one outsized line flattens the rest of the chart. The
+excluded ones are named above the report and put back with a click; the report
+itself is not recalculated on the server and an agent reading over MCP sees
+every category either way — this is a reading choice, not a filter with
+consequences.
 
 The cash flow statement will not agree with income and expense, and the gap is
 widest for whoever uses a credit card most: a purchase is an expense the day the
@@ -204,6 +226,120 @@ page, because it shows every recurrence you have — there are never enough of t
 for a second page. Activity shows the hundred most recent events and neither sorts
 nor pages. Everything the
 browser or an agent did is in the audit log.
+
+## Budgets
+
+Set an amount for a category and a period — a month, a week, a quarter, a year —
+and **Budgets** compares it against what you actually spent on that category in
+each period. A budget is a standing instruction rather than a row per month: two
+hundred a month on Groceries is one line, and it covers every period from the day
+it starts until you end it. Both ends snap to whole periods, so a budget set on
+the 14th applies to that whole month rather than to half of it.
+
+**One month can differ without changing the rest.** December's grocery bill is
+not November's, so an amount set for a single period overrides the standing one
+for that period alone, and the report says which of the two produced each figure.
+Clearing the override puts the standing amount back.
+
+**A refund lowers the category it came back to**, rather than raising income.
+Thirty back from the shop makes groceries thirty lighter, because spending is
+summed signed from the postings and a refund is the negative one. A split
+receipt lands each leg on its own category, and a transfer between your own
+accounts is not spending, so neither needs a rule here.
+
+**A category you budgeted and never spent on still appears**, at nought against
+its limit, because a category dropped for being empty is the one you most want
+to see. Spending in categories nobody budgeted for is shown too — the question a
+budget raises is where the rest went — and can be turned off.
+
+Figures stop at today in your own timezone, whatever range you ask for, and the
+page says which day it used. Nothing here writes to the ledger: a budget is a
+plan, and deleting one changes no balance and no report.
+
+**What is left over can carry into the next period.** Tick "Carry what is left
+over" and the budget becomes an envelope: the fifty you did not spend on
+groceries in March is fifty more to spend in April, and going over is carried
+the same way, as a debt against the next period rather than something the
+calendar forgives. A cap holds it inside a number in both directions, for the
+fund nobody ever draws on and the debt nobody ever repays. Nothing is stored
+period by period — the figures are worked out from what you budgeted and what
+you spent — so turning it off leaves nothing behind, and correcting a
+transaction from last year changes every period after it, which is the honest
+answer rather than a comfortable one.
+
+**A budget can be saving up for something.** Put six hundred in "Saving up for"
+with the date you need it by, and there is no amount to type: each period puts
+aside what is still needed divided by the periods left, the figure adjusts as
+the fund fills, and it stops asking once the fund is full. Carrying is part of
+what a fund is, so it is turned on for you.
+
+Carried figures are worked out from the budget's own start. Where that is more
+than 120 periods back — ten years of months, or a little over two of weeks —
+the page says how far it looked, because a number with a boundary is worth
+having and a boundary nobody mentions is not.
+
+**A budget can decide its own amount.** Under "Amount decided by" there are
+three alternatives to typing a number, and picking one is all there is to it:
+
+- **What the last few periods spent.** Say how many, and the budget is their
+  average. The period being budgeted is never part of its own average, and
+  early on it averages the periods that exist rather than counting the months
+  before you started as nothing. The amount you type is what it uses until
+  there is anything to average.
+- **The last period, plus a percentage.** Ten per cent more each month, or a
+  negative number to taper. The amount you type is the first period's, and the
+  increase starts from the one after it, compounding on the period before
+  rather than on the original.
+- **A share of the income before it.** Fifteen per cent of what came in last
+  month. Last month rather than this one, because a share of a month still
+  running changes every time you look at it.
+
+An amount you set for a single period beats any of them, and the chain carries
+on from what you set.
+
+**When there is not enough to go round, you can say what comes first.**
+"Funded first" takes a number — lower goes first — and the report then shows how
+much of each budget the period's income actually covers, filling them in that
+order until it runs out. Anything you did not rank is funded last, after
+every ranked budget, and shows its funded figure like the rest; the column
+only appears where somebody asked the question.
+
+**Categories can be grouped, one level deep.** Make a group on the Categories
+page and say how it is budgeted: either it has a budget of its own, or it is
+whatever the budgets of the categories in it add up to. There is no default,
+because the two answer differently and being given the wrong one makes every
+figure on the page wrong in the same direction. Put a category in a group by
+editing it.
+
+A group's line appears above the categories on the budget page, with what its
+categories spent between them. Moving a category into a group changes what that
+group spent in every past period too, because a group is a way of reading
+categories rather than a record of where they used to be. Nothing about the
+categories themselves changes. Nothing on a transaction ever names a group, so
+grouping changes no figure until you budget one, and deleting a group leaves
+every category exactly where it was.
+
+**A budget that carries is an envelope, and the page says what is left to
+assign.** That figure is the money in the accounts the budget is about, less
+what every envelope with money still in it has already claimed. It sits below
+your bank balance on purpose, for two reasons: envelopes have claimed the rest,
+and an account can be left out of the budget entirely — untick "The budget is
+about the money in this account" when you add or edit one. Cards are counted by
+default, because spending on a card empties an envelope even though no cash has
+moved yet.
+
+**"What happens next" projects your balances forward.** It reads the recurring
+transactions that already have dates and amounts, and walks each period from
+what your accounts hold today. Nothing in it has happened: it is what the
+balances would do if nothing changed, and the page never calls a projected
+figure a balance.
+
+Choose how far ahead, and whether to count what your budgets intend as well as
+what is already scheduled. The second is the pessimistic reading and usually the
+more useful one: it adds the part of each budget that no recurring transaction
+already covers, so the rent is never counted twice. A recurring transaction with
+no amount cannot be projected — the page names it, because leaving it out
+silently would make every period look better than it is.
 
 ## How it looks
 

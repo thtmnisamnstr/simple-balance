@@ -24,9 +24,7 @@ afterEach(() => {
 });
 
 function fixture(commands: string[]) {
-  const directory = mkdtempSync(
-    join(tmpdir(), "simple-balance-verification-runner-"),
-  );
+  const directory = mkdtempSync(join(tmpdir(), "simple-balance-verification-runner-"));
   temporaryDirectories.push(directory);
   const commandsPath = join(directory, "commands.json");
   const npmPath = join(directory, "npm");
@@ -38,7 +36,7 @@ function fixture(commands: string[]) {
       "set -eu",
       // The runner must reach the mandatory gate as `npm run verify`.
       '[ "$1" = run ] && [ "$2" = verify ]',
-      "node -e 'require(\"node:fs\").writeFileSync(\"mandatory-ran\", \"yes\")'",
+      'node -e \'require("node:fs").writeFileSync("mandatory-ran", "yes")\'',
       "",
     ].join("\n"),
   );
@@ -50,13 +48,12 @@ describe("trusted Ralph verification runner", () => {
   it("isolates story shells so exit cannot skip the mandatory gate", () => {
     const { directory, commandsPath, npmPath } = fixture([
       "exit 0",
-      "node -e 'require(\"node:fs\").writeFileSync(\"later-story-ran\", \"yes\")'",
+      'node -e \'require("node:fs").writeFileSync("later-story-ran", "yes")\'',
     ]);
-    const result = spawnSync(
-      process.execPath,
-      [runner, commandsPath, npmPath],
-      { cwd: directory, encoding: "utf8" },
-    );
+    const result = spawnSync(process.execPath, [runner, commandsPath, npmPath], {
+      cwd: directory,
+      encoding: "utf8",
+    });
 
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(join(directory, "later-story-ran"))).toBe(true);
@@ -65,11 +62,10 @@ describe("trusted Ralph verification runner", () => {
 
   it("fails immediately when a story verification command fails", () => {
     const { directory, commandsPath, npmPath } = fixture(["exit 9"]);
-    const result = spawnSync(
-      process.execPath,
-      [runner, commandsPath, npmPath],
-      { cwd: directory, encoding: "utf8" },
-    );
+    const result = spawnSync(process.execPath, [runner, commandsPath, npmPath], {
+      cwd: directory,
+      encoding: "utf8",
+    });
 
     expect(result.status).toBe(9);
     expect(existsSync(join(directory, "mandatory-ran"))).toBe(false);
@@ -80,12 +76,8 @@ describe("trusted Ralph verification runner", () => {
     // directory, so a nested `npm test` re-enters the shim. Set the gate up the
     // same way, and give it a PATH holding only node, so the run proves the
     // sandbox never reaches a host package manager.
-    const workspace = mkdtempSync(
-      join(tmpdir(), "simple-balance-package-script-gate-"),
-    );
-    const trusted = mkdtempSync(
-      join(tmpdir(), "simple-balance-package-script-trusted-"),
-    );
+    const workspace = mkdtempSync(join(tmpdir(), "simple-balance-package-script-gate-"));
+    const trusted = mkdtempSync(join(tmpdir(), "simple-balance-package-script-trusted-"));
     temporaryDirectories.push(workspace, trusted);
     const trustedNpm = join(trusted, "npm");
     copyFileSync(npmShim, trustedNpm);
@@ -98,8 +90,7 @@ describe("trusted Ralph verification runner", () => {
     const packagePath = join(workspace, "package.json");
     const marker = join(workspace, "trusted-verify-ran");
     const trustedScripts = {
-      test:
-        "node -e 'require(\"node:fs\").writeFileSync(\"trusted-verify-ran\", \"yes\")'",
+      test: 'node -e \'require("node:fs").writeFileSync("trusted-verify-ran", "yes")\'',
       verify: "npm test",
     };
     writeFileSync(snapshotPath, JSON.stringify({ scripts: trustedScripts }));
@@ -120,16 +111,11 @@ describe("trusted Ralph verification runner", () => {
     expect(valid.status, valid.stderr).toBe(0);
     expect(existsSync(marker)).toBe(true);
     rmSync(marker);
-    writeFileSync(
-      packagePath,
-      JSON.stringify({ scripts: { verify: "true" } }),
-    );
+    writeFileSync(packagePath, JSON.stringify({ scripts: { verify: "true" } }));
     const tampered = runShim();
 
     expect(tampered.status).toBe(2);
-    expect(tampered.stderr).toContain(
-      "package.json scripts changed after Ralph started",
-    );
+    expect(tampered.stderr).toContain("package.json scripts changed after Ralph started");
     expect(existsSync(marker)).toBe(false);
   });
 });

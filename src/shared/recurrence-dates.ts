@@ -56,11 +56,7 @@ export type RecurrenceRule = {
  * Nothing here can be clamped, which is why a positioned rule ignores the
  * month-length policy entirely.
  */
-export function weekdayOfMonth(
-  year: number,
-  month: number,
-  position: RecurrencePosition,
-) {
+export function weekdayOfMonth(year: number, month: number, position: RecurrencePosition) {
   if (position.ordinal === -1) {
     const last = daysInMonth(year, month);
     const lastWeekday = weekdayOf(iso(year, month, last));
@@ -237,10 +233,7 @@ function sequenceDate(rule: RecurrenceRule, n: number) {
  * container nobody updates, and PostgreSQL is the only persistent dependency
  * this product allows itself.
  */
-function postedDateFor(
-  rule: RecurrenceRule,
-  step: { date: string; clamped: boolean },
-) {
+function postedDateFor(rule: RecurrenceRule, step: { date: string; clamped: boolean }) {
   if (step.clamped && rule.monthPolicy === "skip") return null;
   const weekday = weekdayOf(step.date);
   if (weekday !== 0 && weekday !== 6) return step.date;
@@ -284,15 +277,10 @@ function firstIndexAfter(rule: RecurrenceRule, after: string) {
     rule.frequency === "daily"
       ? Math.ceil((dayNumber(after) - dayNumber(rule.anchorDate) + 1) / rule.interval)
       : rule.frequency === "weekly"
-        ? Math.ceil(
-            (dayNumber(after) - dayNumber(rule.anchorDate) + 1) / (rule.interval * 7),
-          )
+        ? Math.ceil((dayNumber(after) - dayNumber(rule.anchorDate) + 1) / (rule.interval * 7))
         : rule.frequency === "monthly"
           ? Math.ceil(
-              (target.year * 12 +
-                target.month -
-                (anchor.year * 12 + anchor.month)) /
-                rule.interval,
+              (target.year * 12 + target.month - (anchor.year * 12 + anchor.month)) / rule.interval,
             )
           : Math.ceil((target.year - anchor.year) / rule.interval);
   let n = Math.max(0, guess - 2);
@@ -307,10 +295,22 @@ function firstIndexAfter(rule: RecurrenceRule, after: string) {
  * same day. Deriving it from the anchor instead, as a form with no row in hand
  * is tempted to, shows a first date the scheduler will not propose.
  */
-export function scheduleCursor(row: {
-  proposesFrom: string;
-  lastOccurrenceDate: string | null;
-}) {
+/**
+ * Whether the proposal floor swallows a posted date.
+ *
+ * `proposesFrom` exists so nothing is proposed dated before the recurrence was
+ * made, and `previous_business_day` can move a posted date backwards over that
+ * line. This is one rule with two readers — the scheduler skips a swallowed
+ * occurrence, and the browser preview drops it from the dates it promises —
+ * and it lives here because the two carried their own spellings of it for a
+ * while, which is one edit away from a preview promising a date no tick will
+ * ever write.
+ */
+export function proposalFloorSwallows(postedDate: string | null, proposesFrom: string) {
+  return postedDate !== null && postedDate < proposesFrom;
+}
+
+export function scheduleCursor(row: { proposesFrom: string; lastOccurrenceDate: string | null }) {
   const floor = addDays(row.proposesFrom, -1);
   return row.lastOccurrenceDate ? laterOf(row.lastOccurrenceDate, floor) : floor;
 }

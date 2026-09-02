@@ -6,10 +6,7 @@ import { getDb } from "../../src/server/db/client.js";
 import { user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { setPreferences } from "../../src/server/services/preferences.js";
-import {
-  createRecurrence,
-  runDueRecurrences,
-} from "../../src/server/services/recurrences.js";
+import { createRecurrence, runDueRecurrences } from "../../src/server/services/recurrences.js";
 import { listStages } from "../../src/server/services/staging.js";
 import { addDays, todayIn } from "../../src/shared/recurrence-dates.js";
 import { scratchDatabase } from "./support/scratch-database.js";
@@ -187,10 +184,7 @@ integration("the scheduler sweep", () => {
     await holder.connect();
     try {
       await holder.query("begin");
-      await holder.query(
-        "select id from recurrence where id = $1 for update",
-        [held.id],
-      );
+      await holder.query("select id from recurrence where id = $1 for update", [held.id]);
 
       // Raced against a deadline rather than simply awaited: a claim that
       // queues instead of skipping does not fail here, it waits for a lock this

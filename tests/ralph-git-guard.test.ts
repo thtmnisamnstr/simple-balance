@@ -17,7 +17,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const guard = path.resolve("scripts/ralph/git-guard.mjs");
 const gitExecutable = realpathSync(
-  process.env.PATH!.split(path.delimiter)
+  process.env
+    .PATH!.split(path.delimiter)
     .map((directory) => path.join(directory, "git"))
     .find((candidate) => existsSync(candidate))!,
 );
@@ -31,9 +32,7 @@ function git(root: string, args: string[]) {
 }
 
 function fixture() {
-  const root = realpathSync(
-    mkdtempSync(path.join(tmpdir(), "simple-balance-git-guard-")),
-  );
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "simple-balance-git-guard-")));
   temporaryRoots.push(root);
   const initialized = git(root, ["init", "--quiet"]);
   expect(initialized.status, initialized.stderr).toBe(0);
@@ -43,25 +42,14 @@ function fixture() {
   const manifest = path.join(trusted, "git-state.json");
   const snapshot = spawnSync(
     process.execPath,
-    [
-      guard,
-      "snapshot",
-      root,
-      gitDirectory,
-      gitDirectory,
-      gitExecutable,
-      manifest,
-    ],
+    [guard, "snapshot", root, gitDirectory, gitDirectory, gitExecutable, manifest],
     { cwd: root, encoding: "utf8" },
   );
   expect(snapshot.status, snapshot.stderr).toBe(0);
   return { root, gitDirectory, manifest };
 }
 
-function guardedCommit(
-  fixture_: ReturnType<typeof fixture>,
-  message = "guarded commit",
-) {
+function guardedCommit(fixture_: ReturnType<typeof fixture>, message = "guarded commit") {
   return spawnSync(
     process.execPath,
     [
@@ -132,10 +120,7 @@ describe("Ralph Git guard", () => {
 
   it("refuses a repository content-filter assignment before host Git runs", () => {
     const testRepository = fixture();
-    writeFileSync(
-      path.join(testRepository.root, ".gitattributes"),
-      "*.txt filter=owned\n",
-    );
+    writeFileSync(path.join(testRepository.root, ".gitattributes"), "*.txt filter=owned\n");
     writeFileSync(path.join(testRepository.root, "result.txt"), "untrusted\n");
 
     const committed = guardedCommit(testRepository);
@@ -147,10 +132,7 @@ describe("Ralph Git guard", () => {
   it("finds an ignored .gitattributes file that can affect addable paths", () => {
     const testRepository = fixture();
     writeFileSync(path.join(testRepository.root, ".gitignore"), ".gitattributes\n");
-    writeFileSync(
-      path.join(testRepository.root, ".gitattributes"),
-      "*.txt filter=owned\n",
-    );
+    writeFileSync(path.join(testRepository.root, ".gitattributes"), "*.txt filter=owned\n");
     writeFileSync(path.join(testRepository.root, "result.txt"), "untrusted\n");
 
     const committed = guardedCommit(testRepository);
@@ -163,18 +145,10 @@ describe("Ralph Git guard", () => {
     const testRepository = fixture();
     const marker = path.join(testRepository.root, "clean-filter-ran");
     const filter = path.join(testRepository.root, "clean-filter.sh");
-    writeFileSync(
-      filter,
-      `#!/bin/sh\nprintf ran > "${marker}"\ncat\n`,
-    );
+    writeFileSync(filter, `#!/bin/sh\nprintf ran > "${marker}"\ncat\n`);
     chmodSync(filter, 0o700);
-    expect(
-      git(testRepository.root, ["config", "filter.owned.clean", filter]).status,
-    ).toBe(0);
-    writeFileSync(
-      path.join(testRepository.root, ".gitattributes"),
-      "*.txt filter=owned\n",
-    );
+    expect(git(testRepository.root, ["config", "filter.owned.clean", filter]).status).toBe(0);
+    writeFileSync(path.join(testRepository.root, ".gitattributes"), "*.txt filter=owned\n");
     writeFileSync(path.join(testRepository.root, "result.txt"), "untrusted\n");
 
     const committed = guardedCommit(testRepository);
@@ -189,9 +163,7 @@ describe("Ralph Git guard", () => {
     const monitor = path.join(testRepository.root, "fsmonitor.sh");
     writeFileSync(monitor, `#!/bin/sh\nprintf ran > "${marker}"\n`);
     chmodSync(monitor, 0o700);
-    expect(
-      git(testRepository.root, ["config", "core.fsmonitor", monitor]).status,
-    ).toBe(0);
+    expect(git(testRepository.root, ["config", "core.fsmonitor", monitor]).status).toBe(0);
     writeFileSync(path.join(testRepository.root, "result.txt"), "untrusted\n");
 
     const committed = guardedCommit(testRepository);
@@ -201,9 +173,7 @@ describe("Ralph Git guard", () => {
   });
 
   it("refuses a config key written on the same line as its section header", () => {
-    const root = realpathSync(
-      mkdtempSync(path.join(tmpdir(), "simple-balance-git-guard-")),
-    );
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "simple-balance-git-guard-")));
     temporaryRoots.push(root);
     expect(git(root, ["init", "--quiet"]).status).toBe(0);
     const gitDirectory = realpathSync(path.join(root, ".git"));
@@ -262,9 +232,7 @@ describe("Ralph Git guard", () => {
 
   it("refuses a symbolic-link escape inside Git metadata", () => {
     const testRepository = fixture();
-    const outside = realpathSync(
-      mkdtempSync(path.join(tmpdir(), "simple-balance-git-outside-")),
-    );
+    const outside = realpathSync(mkdtempSync(path.join(tmpdir(), "simple-balance-git-outside-")));
     temporaryRoots.push(outside);
     const sentinel = path.join(outside, "sentinel");
     writeFileSync(sentinel, "unchanged\n");
@@ -283,24 +251,17 @@ describe("Ralph Git guard", () => {
 
   it("refuses a hard-link escape inside Git metadata", () => {
     const testRepository = fixture();
-    const outside = realpathSync(
-      mkdtempSync(path.join(tmpdir(), "simple-balance-git-outside-")),
-    );
+    const outside = realpathSync(mkdtempSync(path.join(tmpdir(), "simple-balance-git-outside-")));
     temporaryRoots.push(outside);
     const sentinel = path.join(outside, "sentinel");
     writeFileSync(sentinel, "unchanged\n");
-    linkSync(
-      sentinel,
-      path.join(testRepository.gitDirectory, "COMMIT_EDITMSG"),
-    );
+    linkSync(sentinel, path.join(testRepository.gitDirectory, "COMMIT_EDITMSG"));
     writeFileSync(path.join(testRepository.root, "result.txt"), "untrusted\n");
 
     const committed = guardedCommit(testRepository);
 
     expect(committed.status).not.toBe(0);
-    expect(committed.stderr).toContain(
-      "must be a single-link regular Git metadata file",
-    );
+    expect(committed.stderr).toContain("must be a single-link regular Git metadata file");
     expect(readFileSync(sentinel, "utf8")).toBe("unchanged\n");
   });
 });

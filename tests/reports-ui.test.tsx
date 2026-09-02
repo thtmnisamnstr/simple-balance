@@ -1,24 +1,18 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Report } from "../src/client/api.js";
-import {
-  bucketLabel,
-  labelBudget,
-  labelledBuckets,
-  niceTicks,
-} from "../src/client/charts.js";
-import {
-  moneyExtent,
-  moneyRatioPercent,
-  moneyScalePercent,
-} from "../src/client/money.js";
+import { bucketLabel, labelBudget, labelledBuckets, niceTicks } from "../src/client/charts.js";
+import { moneyExtent, moneyRatioPercent, moneyScalePercent } from "../src/client/money.js";
 import ReportsPage from "../src/client/pages/ReportsPage.js";
 import { BrowserRouter, Route, Routes } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
+import { repoRoot } from "./support/source.js";
 
 const report: Report = {
   report: "net-worth",
@@ -111,9 +105,7 @@ describe("scaling money for a chart", () => {
   });
 
   it("keeps eighteen decimal places apart", () => {
-    expect(
-      moneyScalePercent("0.000000000000000001", "0", "0.000000000000000002"),
-    ).toBe("50");
+    expect(moneyScalePercent("0.000000000000000001", "0", "0.000000000000000002")).toBe("50");
   });
 
   it("puts a flat series in the middle rather than dividing by zero", () => {
@@ -134,13 +126,7 @@ describe("scaling money for a chart", () => {
 describe("the axis a chart is read against", () => {
   it("puts the gridlines on round numbers, not on quarters of the range", () => {
     // Four equal slices of this range would be 1247.83, 2495.66, 3743.49.
-    expect(niceTicks("0", "4991.32")).toEqual([
-      "0",
-      "1000",
-      "2000",
-      "3000",
-      "4000",
-    ]);
+    expect(niceTicks("0", "4991.32")).toEqual(["0", "1000", "2000", "3000", "4000"]);
   });
 
   it("crosses zero when the range does, so the line is one of the ticks", () => {
@@ -184,9 +170,7 @@ describe("the axis a chart is read against", () => {
     expect(labelledBuckets(4)).toEqual([0, 1, 2, 3]);
     // Twelve months all get a label. Spreading a fixed count across the range
     // instead rounded to 0, 1, 2, 4, 5, 6, 7 and skipped April on its own.
-    expect(labelledBuckets(12)).toEqual([
-      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-    ]);
+    expect(labelledBuckets(12)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 
     const many = labelledBuckets(600);
     expect(many.length).toBeLessThanOrEqual(12);
@@ -263,9 +247,9 @@ describe("the reports page", () => {
     await screen.findByRole("rowheader", { name: "Checking" });
 
     // The values run -25 to 250, so the axis covers that in round steps.
-    const scale = [
-      ...document.querySelectorAll(".chart-axis-value"),
-    ].map((node) => node.textContent);
+    const scale = [...document.querySelectorAll(".chart-axis-value")].map(
+      (node) => node.textContent,
+    );
     expect(scale.length).toBeGreaterThan(1);
     expect(scale).toContain("$0.00");
     // Every label is money, formatted the way the table formats it.
@@ -273,9 +257,11 @@ describe("the reports page", () => {
 
     // One label per bucket here, because three is under the thinning limit.
     const timeAxis = document.querySelector(".chart-axis-x")!;
-    expect(
-      [...timeAxis.querySelectorAll("span")].map((node) => node.textContent),
-    ).toEqual(["Jan 2026", "Feb 2026", "Mar 2026"]);
+    expect([...timeAxis.querySelectorAll("span")].map((node) => node.textContent)).toEqual([
+      "Jan 2026",
+      "Feb 2026",
+      "Mar 2026",
+    ]);
   });
 
   /**
@@ -288,9 +274,7 @@ describe("the reports page", () => {
     renderReports();
     await screen.findByRole("rowheader", { name: "Checking" });
 
-    const labels = [
-      ...document.querySelectorAll<HTMLElement>(".chart-axis-value"),
-    ];
+    const labels = [...document.querySelectorAll<HTMLElement>(".chart-axis-value")];
     const tops = labels.map((node) => Number.parseFloat(node.style.top));
     // Down the box as the value falls, and inside it at both ends.
     expect(tops).toEqual([...tops].sort((left, right) => right - left));
@@ -312,31 +296,22 @@ describe("the reports page", () => {
 
     // Read linearly an axis is a run of bare numbers, and the table beside it
     // already carries every figure as text.
-    expect(document.querySelector(".chart-axis-y")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
-    expect(document.querySelector(".chart-axis-x")).toHaveAttribute(
-      "aria-hidden",
-      "true",
-    );
+    expect(document.querySelector(".chart-axis-y")).toHaveAttribute("aria-hidden", "true");
+    expect(document.querySelector(".chart-axis-x")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("labels the chart for anyone who cannot see it", async () => {
     stub();
     renderReports();
     await screen.findByRole("rowheader", { name: "Checking" });
-    expect(
-      screen.getByRole("img", { name: /net worth over time, in usd/i }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /net worth over time, in usd/i })).toBeInTheDocument();
   });
 
   it("keeps the range and the report in the URL", async () => {
     stub();
     renderReports("/reports/net-worth?preset=custom&start=2026-01-01&end=2026-03-31");
     await screen.findByRole("rowheader", { name: "Checking" });
-    const called = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-      .calls[0]![0] as string;
+    const called = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(called).toContain("/api/v1/reports/net-worth");
     expect(called).toContain("start=2026-01-01");
     expect(called).toContain("end=2026-03-31");
@@ -349,9 +324,7 @@ describe("the reports page", () => {
     fireEvent.change(screen.getByLabelText("Group by"), {
       target: { value: "quarter" },
     });
-    expect(new URLSearchParams(window.location.search).get("bucket")).toBe(
-      "quarter",
-    );
+    expect(new URLSearchParams(window.location.search).get("bucket")).toBe("quarter");
   });
 
   it("links every report without losing the range", async () => {
@@ -387,8 +360,7 @@ describe("the reports page", () => {
     stub();
     renderReports("/reports/not-a-report");
     await screen.findByRole("rowheader", { name: "Checking" });
-    const called = (globalThis.fetch as ReturnType<typeof vi.fn>).mock
-      .calls[0]![0] as string;
+    const called = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
     expect(called).toContain("/api/v1/reports/net-worth");
   });
 
@@ -460,7 +432,9 @@ describe("the reports page", () => {
       ],
     });
     renderReports("/reports/categories");
-    await screen.findByRole("rowheader", { name: "Salary" });
+    // A leading match: the categories rowheader carries its exclude menu,
+    // whose label joins the cell's accessible name.
+    await screen.findByRole("rowheader", { name: /^Salary/ });
     expect(screen.getByRole("rowheader", { name: "Total filed" })).toBeInTheDocument();
     expect(screen.queryByRole("rowheader", { name: "Net" })).toBeNull();
   });
@@ -471,17 +445,15 @@ describe("the reports page", () => {
     await screen.findByRole("rowheader", { name: "Checking" });
 
     // A balance report: the figures are the same either way, and the page says so.
-    expect(
-      screen.getByText(/still in these figures/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/still in these figures/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("Include closed accounts"));
 
     await vi.waitFor(() => {
       expect(window.location.search).toContain("archived=1");
     });
-    const urls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map(
-      (call) => String(call[0]),
+    const urls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map((call) =>
+      String(call[0]),
     );
     expect(urls.some((url) => url.includes("includeArchived=true"))).toBe(true);
   });
@@ -513,5 +485,91 @@ describe("the reports page", () => {
     renderReports();
     expect(await screen.findByText("Bucket is not valid")).toBeInTheDocument();
     expect(screen.queryByText("Nothing to report yet")).toBeNull();
+  });
+});
+
+/**
+ * Excluding a category from the categories report is a view choice: the row
+ * and its line leave, the footer is re-added from the rows still on screen —
+ * exactly, over the decimal strings — and the pill puts it back. The server's
+ * report is untouched, so nothing an agent reads changes.
+ */
+describe("excluding categories from the categories report", () => {
+  const categoriesReport: Report = {
+    ...report,
+    report: "categories",
+    accumulation: "change",
+    currencies: [
+      {
+        currency: "USD",
+        rows: [
+          {
+            key: "cat-rent",
+            label: "Rent",
+            kind: "expense",
+            archived: false,
+            values: ["900.00", "900.00", "900.00"],
+            total: "2700.00",
+          },
+          {
+            key: "cat-food",
+            label: "Food",
+            kind: "expense",
+            archived: false,
+            values: ["100.00", "125.00", "75.00"],
+            total: "300.00",
+          },
+        ],
+        totals: ["1000.00", "1025.00", "975.00"],
+      },
+    ],
+  };
+
+  it("drops the row, re-adds the totals, and puts it back from the pill", async () => {
+    stub(categoriesReport);
+    renderReports("/reports/categories");
+    const rentRow = (await screen.findByRole("rowheader", { name: /Rent/ })).closest("tr")!;
+    fireEvent.click(within(rentRow).getByRole("button", { name: "Actions for Rent" }));
+    fireEvent.click(within(rentRow).getByRole("button", { name: "Exclude from this view" }));
+
+    // The row is gone, the other row stands, and the footer now adds up only
+    // what is on screen.
+    expect(screen.queryByRole("rowheader", { name: /Rent/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("rowheader", { name: /Food/ })).toBeInTheDocument();
+    const footer = screen.getByRole("rowheader", { name: "Total filed" }).closest("tr")!;
+    expect(footer).toHaveTextContent("$100.00");
+    expect(footer).not.toHaveTextContent("$1,000.00");
+
+    // Named where it can be undone, and undone.
+    fireEvent.click(screen.getByRole("button", { name: "Put Rent back" }));
+    expect(await screen.findByRole("rowheader", { name: /Rent/ })).toBeInTheDocument();
+    const restored = screen.getByRole("rowheader", { name: "Total filed" }).closest("tr")!;
+    expect(restored).toHaveTextContent("$1,000.00");
+  });
+
+  it("offers no exclusion on the balance reports", async () => {
+    stub();
+    renderReports("/reports/net-worth");
+    await screen.findByRole("rowheader", { name: /Checking/ });
+    expect(screen.queryByRole("button", { name: "Actions for Checking" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The polygon regression, pinned at the stylesheet. One class set both stroke
+ * and fill for bars and lines alike, and source order let its fill defeat
+ * .chart-line's fill: none — every polyline rendered as a closed filled shape
+ * and the net worth report read as overlapping polygons. The element selector
+ * outranks the single class whatever the order, so this rule existing is the
+ * fix existing.
+ */
+describe("lines are lines", () => {
+  it("keeps polylines unfilled with a selector no series class can outrank", () => {
+    const css = readFileSync(path.join(repoRoot, "src/client/styles.css"), "utf8");
+    const rule = css.match(/polyline\.chart-line \{[^}]*\}/);
+    expect(rule, "polyline.chart-line must pin fill: none").not.toBeNull();
+    expect(rule![0]).toContain("fill: none");
+    // And the series classes still carry fill, because the bars need it.
+    expect(css).toContain(".chart-series-0 { stroke: var(--series-0); fill: var(--series-0); }");
   });
 });

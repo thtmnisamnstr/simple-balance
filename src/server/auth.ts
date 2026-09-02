@@ -10,17 +10,13 @@ import {
   mayCreateSession,
 } from "./auth-policy.js";
 import { getConfig } from "./config.js";
-import {
-  mailEnabled,
-  passwordResetMessage,
-  sendMail,
-  verificationMessage,
-} from "./mail.js";
+import { mailEnabled, passwordResetMessage, sendMail, verificationMessage } from "./mail.js";
 import { isBootstrapClaim } from "./registration-context.js";
 import { revokeAllConnectedApps } from "./services/connected-apps.js";
 import { getDb } from "./db/client.js";
 import * as schema from "./db/schema.js";
 import { user } from "./db/schema.js";
+import { log } from "./log.js";
 
 function createAuthInstance() {
   const config = getConfig();
@@ -67,7 +63,7 @@ function createAuthInstance() {
       backgroundTasks: {
         handler: (promise: Promise<unknown>) => {
           void promise.catch((error) => {
-            console.error("A background auth task failed", error);
+            log.failure("A background auth task failed", error);
           });
         },
       },
@@ -154,13 +150,7 @@ function createAuthInstance() {
       user: {
         create: {
           before: async (newUser, context) => {
-            if (
-              !mayCreateAuthUser(
-                newUser.email,
-                context?.path,
-                newUser.emailVerified,
-              )
-            ) {
+            if (!mayCreateAuthUser(newUser.email, context?.path, newUser.emailVerified)) {
               return false;
             }
             // Two local sign-ups are settled here rather than left to wait on
@@ -176,10 +166,7 @@ function createAuthInstance() {
             // a deployment never asked, so it must not withhold anything later:
             // otherwise the day somebody sets SMTP_HOST is the day everyone who
             // signed up before it stops being able to sign in.
-            if (
-              context?.path === "/sign-up/email" &&
-              (isBootstrapClaim() || !canSendMail)
-            ) {
+            if (context?.path === "/sign-up/email" && (isBootstrapClaim() || !canSendMail)) {
               return { data: { ...newUser, emailVerified: true } };
             }
             return true;
@@ -193,18 +180,13 @@ function createAuthInstance() {
             const linkedAccounts = transactionAdapter
               ? await transactionAdapter.findAccounts(newSession.userId)
               : undefined;
-            return mayCreateSession(
-              newSession.userId,
-              context?.path,
-              linkedAccounts,
-            );
+            return mayCreateSession(newSession.userId, context?.path, linkedAccounts);
           },
         },
       },
       account: {
         create: {
-          before: async (newAccount) =>
-            mayCreateProviderAccount(newAccount.providerId),
+          before: async (newAccount) => mayCreateProviderAccount(newAccount.providerId),
         },
       },
     },
@@ -222,6 +204,16 @@ function createAuthInstance() {
           defaultScope: "openid profile email ledger:read",
           storeClientSecret: "hashed",
           metadata: {
+            // Not the list a client ends up asking for, and the wrong place
+            // to narrow one. This feeds Better Auth's own protected-resource
+            // document, which `src/server/api.ts` re-serves narrowed on every
+            // path it is reachable from, this plugin's `/api/auth` one
+            // included. Left wide because the plugin's fallback when this is
+            // absent is its four OpenID defaults, which name no ledger scope at
+            // all: a client following that would authorise with nothing it
+            // could call a tool with. `scopes` above is the separate question
+            // of what `/authorize` accepts, and must keep every tier, because
+            // the step-up challenge sends clients back to ask for one.
             scopes_supported: supportedScopes,
           },
         },
@@ -239,7 +231,6 @@ export function getAuth(): ConcreteAuth {
   authInstance = created;
   return created;
 }
-
 
 export async function getWebIdentity(headers: Headers) {
   const session = await getAuth().api.getSession({ headers });

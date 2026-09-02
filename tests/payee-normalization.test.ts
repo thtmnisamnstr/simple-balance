@@ -24,8 +24,7 @@ const FILES = [
   "src/server/db/schema.ts",
 ];
 
-const read = (file: string) =>
-  readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
+const read = (file: string) => readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
 
 /**
  * Each SQL normalisation, with the column it reads replaced by a placeholder so
@@ -51,9 +50,7 @@ function spellings(source: string) {
 }
 
 describe("comparing payee names", () => {
-  const all = FILES.flatMap((file) =>
-    spellings(read(file)).map((shape) => ({ file, shape })),
-  );
+  const all = FILES.flatMap((file) => spellings(read(file)).map((shape) => ({ file, shape })));
 
   it("is spelled the same way everywhere it is spelled in SQL", () => {
     expect(all.length, "the expressions were found at all").toBeGreaterThan(4);

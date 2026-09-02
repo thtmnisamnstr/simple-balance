@@ -4,11 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  Account,
-  PaginatedPage,
-  StagedTransaction,
-} from "../src/client/api.js";
+import type { Account, PaginatedPage, StagedTransaction } from "../src/client/api.js";
 import { TransactionForm } from "../src/client/forms.js";
 import StagingPage from "../src/client/pages/StagingPage.js";
 import { BrowserRouter } from "../src/client/router.js";
@@ -112,9 +108,7 @@ describe("a staged row filed by category name", () => {
 
   it("shows the name in the picker", () => {
     renderStaged(namedStage, () => undefined);
-    expect(screen.getByPlaceholderText("Type to search or add")).toHaveValue(
-      "Groceries",
-    );
+    expect(screen.getByPlaceholderText("Type to search or add")).toHaveValue("Groceries");
   });
 
   it("sends it back on save rather than clearing it", async () => {
@@ -185,11 +179,7 @@ describe("staged transaction editor", () => {
   });
 
   it("renders a malformed staged row without passing unknown values to React", () => {
-    window.history.replaceState(
-      null,
-      "",
-      "/staged?start=2026-07-01&end=2026-07-30",
-    );
+    window.history.replaceState(null, "", "/staged?start=2026-07-01&end=2026-07-30");
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
@@ -201,6 +191,7 @@ describe("staged transaction editor", () => {
       page: 1,
       pageSize: 100,
       totalCount: 1,
+      cursorAvailable: false,
       totalPages: 1,
     };
     queryClient.setQueryData(["import-batches", "active"], {

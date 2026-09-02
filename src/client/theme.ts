@@ -32,9 +32,7 @@ export type Resolved = "light" | "dark";
 export function systemTheme(): Resolved {
   try {
     if (typeof window.matchMedia !== "function") return "light";
-    return window.matchMedia("(prefers-color-scheme: dark)").matches
-      ? "dark"
-      : "light";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   } catch {
     return "light";
   }
@@ -104,9 +102,7 @@ export function applyTheme(preference: Theme) {
  */
 function applyChrome(preference: Theme) {
   try {
-    const metas = document.querySelectorAll<HTMLMetaElement>(
-      'meta[name="theme-color"]',
-    );
+    const metas = document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]');
     for (const meta of metas) {
       const wants = meta.getAttribute("data-theme-for");
       if (preference === "system") {
@@ -165,6 +161,13 @@ export function useThemeSetting(session: Session) {
     applyTheme(preference);
     // The cache the boot script reads on the next load.
     writeCachedTheme(preference);
+    // `resolved` is half the machine's answer and half the account's, and the
+    // machine's half arrives through the subscription below, so it has to be
+    // state; this is the write that folds the account's half in, for the times
+    // the account changed somewhere other than the control on this screen.
+    // Working it out during render would not do: `resolveTheme` asks
+    // `matchMedia`, and nothing re-renders when the machine changes at sunset.
+    // oxlint-disable-next-line react/set-state-in-effect
     setResolved(resolveTheme(preference));
     // Only the preference: the cache no longer records whose it is, so a change
     // of signed-in person shows up here as a change of preference or not at all.
@@ -179,8 +182,7 @@ export function useThemeSetting(session: Session) {
   }, [preference]);
 
   const save = useMutation({
-    mutationFn: (theme: Theme) =>
-      api("/api/v1/preferences", { ...json({ theme }), method: "PUT" }),
+    mutationFn: (theme: Theme) => api("/api/v1/preferences", { ...json({ theme }), method: "PUT" }),
     onMutate: (theme: Theme) => {
       applyTheme(theme);
       writeCachedTheme(theme);

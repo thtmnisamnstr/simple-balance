@@ -43,16 +43,12 @@ const policy = () => import("../src/server/auth-policy.js");
 describe("what the auth policy sees as a social callback", () => {
   it("admits a first-time Google sign-up under the route pattern", async () => {
     const { mayCreateAuthUser } = await policy();
-    expect(mayCreateAuthUser("someone@example.com", "/callback/:id", true)).toBe(
-      true,
-    );
+    expect(mayCreateAuthUser("someone@example.com", "/callback/:id", true)).toBe(true);
   });
 
   it("admits it under the resolved path too", async () => {
     const { mayCreateAuthUser } = await policy();
-    expect(
-      mayCreateAuthUser("someone@example.com", "/callback/google", true),
-    ).toBe(true);
+    expect(mayCreateAuthUser("someone@example.com", "/callback/google", true)).toBe(true);
   });
 
   // Google's own word that the address belongs to the person is the whole
@@ -61,9 +57,7 @@ describe("what the auth policy sees as a social callback", () => {
   it("still refuses an unverified address on either form", async () => {
     const { mayCreateAuthUser } = await policy();
     for (const path of ["/callback/:id", "/callback/google"]) {
-      expect(mayCreateAuthUser("someone@example.com", path, false), path).toBe(
-        false,
-      );
+      expect(mayCreateAuthUser("someone@example.com", path, false), path).toBe(false);
     }
   });
 
@@ -74,9 +68,7 @@ describe("what the auth policy sees as a social callback", () => {
     vi.resetModules();
     const { mayCreateAuthUser } = await policy();
     for (const path of ["/callback/:id", "/callback/google"]) {
-      expect(mayCreateAuthUser("someone@example.com", path, true), path).toBe(
-        false,
-      );
+      expect(mayCreateAuthUser("someone@example.com", path, true), path).toBe(false);
     }
   });
 
@@ -84,12 +76,8 @@ describe("what the auth policy sees as a social callback", () => {
     process.env.ALLOWED_EMAILS = "allowed@example.com";
     vi.resetModules();
     const { mayCreateAuthUser } = await policy();
-    expect(mayCreateAuthUser("other@example.com", "/callback/:id", true)).toBe(
-      false,
-    );
-    expect(mayCreateAuthUser("allowed@example.com", "/callback/:id", true)).toBe(
-      true,
-    );
+    expect(mayCreateAuthUser("other@example.com", "/callback/:id", true)).toBe(false);
+    expect(mayCreateAuthUser("allowed@example.com", "/callback/:id", true)).toBe(true);
   });
 
   // Nothing else may create a user. A path the policy does not recognise has to
@@ -97,9 +85,7 @@ describe("what the auth policy sees as a social callback", () => {
   it("refuses a path it does not recognise", async () => {
     const { mayCreateAuthUser } = await policy();
     for (const path of ["/callback", "/sign-in/email", "/whatever", undefined]) {
-      expect(mayCreateAuthUser("someone@example.com", path, true), String(path)).toBe(
-        false,
-      );
+      expect(mayCreateAuthUser("someone@example.com", path, true), String(path)).toBe(false);
     }
   });
 
@@ -107,11 +93,9 @@ describe("what the auth policy sees as a social callback", () => {
   // matched, so it fell through to the general check.
   it("checks the Google link on a session created by the callback", async () => {
     const { mayCreateSession } = await policy();
-    expect(
-      await mayCreateSession("user-1", "/callback/:id", [
-        { providerId: "google" },
-      ]),
-    ).toBe(true);
+    expect(await mayCreateSession("user-1", "/callback/:id", [{ providerId: "google" }])).toBe(
+      true,
+    );
     expect(
       await mayCreateSession("user-1", "/callback/:id", [
         { providerId: "credential", password: "x" },

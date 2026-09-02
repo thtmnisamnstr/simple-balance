@@ -5,6 +5,7 @@ import {
   type TransactionTemplateDraft,
   type TransactionType,
 } from "../shared/domain.js";
+import { compareMoney } from "./money.js";
 
 type StageAccount = {
   id: string;
@@ -22,6 +23,13 @@ type StageAccount = {
  */
 export type TransactionFormLeg = {
   id: string;
+  /**
+   * A client-only key for rows the server has not named yet. New legs were
+   * keyed by array index, so removing a middle row re-keyed everything behind
+   * it: React reused the components, and focus stayed on a Remove button that
+   * now deleted the following row. Never sent to the server.
+   */
+  formKey: string;
   categoryId: string;
   categoryName: string;
   amount: string;
@@ -98,10 +106,13 @@ function isUnknownRecord(value: unknown): value is Record<string, unknown> {
  * is left out rather than guessed at: a queue row with an unreadable split is
  * repaired by typing it again, not by inventing amounts for it.
  */
+let stagedLegKeySeed = 0;
+
 export function stagedLegs(value: unknown): TransactionFormLeg[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isUnknownRecord).map((leg) => ({
     id: stagedString(leg.id),
+    formKey: `staged-leg-${(stagedLegKeySeed += 1)}`,
     categoryId: stagedString(leg.categoryId),
     categoryName: stagedString(leg.categoryName),
     amount: stagedString(leg.amount),
@@ -125,26 +136,28 @@ export function draftForTransactionForm(input: unknown): TransactionFormDraft {
     notes: stagedString(draft.notes),
     fromAccountId: stagedString(draft.fromAccountId),
     toAccountId: stagedString(draft.toAccountId),
-    amount:
-      type === "transfer"
-        ? stagedString(draft.sourceAmount)
-        : stagedString(draft.amount),
-    destinationAmount:
-      type === "transfer" ? stagedString(draft.destinationAmount) : "",
+    amount: type === "transfer" ? stagedString(draft.sourceAmount) : stagedString(draft.amount),
+    destinationAmount: type === "transfer" ? stagedString(draft.destinationAmount) : "",
     externalId: stagedString(draft.externalId),
     templateId: stagedString(draft.templateId),
   };
 }
 
-export function summarizeStagedDraft(
-  draft: StagedDraft,
-  accounts: StageAccount[],
-) {
+/**
+ * The share a split is named by in a list: its biggest one.
+ *
+ * Shared rather than repeated so the queue and the import preview name the same
+ * split the same way; a list that named a split by its first leg on one screen
+ * and its largest on another would look like two different rows.
+ */
+export function largestStagedLeg(legs: TransactionFormLeg[]) {
+  return [...legs].sort((left, right) => compareMoney(right.amount, left.amount))[0];
+}
+
+export function summarizeStagedDraft(draft: StagedDraft, accounts: StageAccount[]) {
   const type = stagedType(draft.type);
   if (type === "deposit") {
-    const account = accounts.find(
-      (item) => item.id === stagedString(draft.toAccountId),
-    );
+    const account = accounts.find((item) => item.id === stagedString(draft.toAccountId));
     return {
       account: account?.name ?? "Unknown account",
       amount: stagedString(draft.amount),
@@ -152,9 +165,7 @@ export function summarizeStagedDraft(
     };
   }
   if (type === "withdrawal") {
-    const account = accounts.find(
-      (item) => item.id === stagedString(draft.fromAccountId),
-    );
+    const account = accounts.find((item) => item.id === stagedString(draft.fromAccountId));
     return {
       account: account?.name ?? "Unknown account",
       amount: stagedString(draft.amount),
@@ -162,12 +173,8 @@ export function summarizeStagedDraft(
     };
   }
   if (type === "transfer") {
-    const source = accounts.find(
-      (item) => item.id === stagedString(draft.fromAccountId),
-    );
-    const destination = accounts.find(
-      (item) => item.id === stagedString(draft.toAccountId),
-    );
+    const source = accounts.find((item) => item.id === stagedString(draft.fromAccountId));
+    const destination = accounts.find((item) => item.id === stagedString(draft.toAccountId));
     return {
       account: `${source?.name ?? "Unknown"} → ${destination?.name ?? "Unknown"}`,
       amount: stagedString(draft.sourceAmount),
@@ -176,7 +183,6 @@ export function summarizeStagedDraft(
   }
   return { account: "Unknown account", amount: "", currency: "" };
 }
-
 
 /**
  * What a row offers a new template, before the person edits it.

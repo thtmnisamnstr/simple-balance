@@ -3,20 +3,23 @@ import {
   Archive,
   ArchiveRestore,
   Combine,
+  FolderTree,
   Pencil,
   Plus,
   Search,
   Tags,
   Trash2,
 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "../router.js";
+import { newIdempotencyKey } from "../idempotency.js";
 import { type CategoryKind, categoryKinds } from "../../shared/domain.js";
 import {
   api,
   json,
   type Category,
   type CategoryDuplicateGroup,
+  type CategoryGroup,
   type CategoryMergeResult,
   type CategorySummary,
 } from "../api.js";
@@ -24,16 +27,17 @@ import {
   Alert,
   Badge,
   Button,
-  EmptyState,
-  Input,
-  PageHeader,
-  Select,
-  SortMenu,
-  type SortState,
   compareForSort,
   ConfirmDialog,
+  EmptyState,
   Field,
+  Input,
   Modal,
+  PageHeader,
+  Select,
+  Skeleton,
+  SortMenu,
+  type SortState,
   useConfirm,
 } from "../components.js";
 
@@ -60,19 +64,30 @@ type CategorySortField = (typeof categorySortFields)[number]["field"];
  */
 function CategoryDialog({
   category,
+  groups,
   onClose,
   onSave,
 }: {
   category: Category | null;
+  groups: CategoryGroup[];
   onClose: () => void;
-  onSave: (name: string, kind: CategoryKind) => void;
+  onSave: (name: string, kind: CategoryKind, groupId: string | null) => void;
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<CategoryKind>("expense");
+  const [groupId, setGroupId] = useState("");
   useEffect(() => {
     if (!category) return;
+    // The deliberate copy: a record seeds the fields once and then the fields
+    // are the truth until Save. Nothing here can be worked out during render,
+    // because the whole point is that the person changes it afterwards. The
+    // dialog stays mounted so the modal can close, which is why this is an
+    // effect on the record rather than a fresh mount keyed on its id — a
+    // remount on close would empty the fields while they were still on screen.
+    // oxlint-disable-next-line react/set-state-in-effect
     setName(category.name);
     setKind(category.kind);
+    setGroupId(category.groupId ?? "");
   }, [category]);
 
   const trimmed = name.trim();
@@ -87,11 +102,7 @@ function CategoryDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            type="submit"
-            form="category-edit"
-            disabled={!trimmed}
-          >
+          <Button type="submit" form="category-edit" disabled={!trimmed}>
             Save
           </Button>
         </>
@@ -102,27 +113,33 @@ function CategoryDialog({
         className="form-grid"
         onSubmit={(event) => {
           event.preventDefault();
-          if (trimmed) onSave(trimmed, kind);
+          if (trimmed) onSave(trimmed, kind, groupId === "" ? null : groupId);
         }}
       >
         <Field label="Name">
-          <Input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            autoFocus
-          />
+          <Input value={name} onChange={(event) => setName(event.target.value)} autoFocus />
         </Field>
         <Field
           label="Applies to"
           hint="Whether this category can be chosen for money coming in, going out, or both."
         >
-          <Select
-            value={kind}
-            onChange={(event) => setKind(event.target.value as CategoryKind)}
-          >
+          <Select value={kind} onChange={(event) => setKind(event.target.value as CategoryKind)}>
             {categoryKinds.map((value) => (
               <option key={value} value={value}>
                 {kindLabels[value]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label="Group"
+          hint="Groups are read together on the budget page. A category belongs to at most one."
+        >
+          <Select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
+            <option value="">No group</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
               </option>
             ))}
           </Select>
@@ -148,19 +165,72 @@ export default function CategoriesPage() {
   const [includeArchived, setIncludeArchived] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [targetId, setTargetId] = useState("");
+  const [groupName, setGroupName] = useState("");
+  const [groupPolicy, setGroupPolicy] = useState<CategoryGroup["policy"]>("standalone");
+  const removeGroup = useConfirm<CategoryGroup>();
   const categories = useQuery({
     queryKey: ["categories", "summaries", includeArchived],
     queryFn: () =>
       api<CategorySummary[]>(
-        `/api/v1/categories/summaries${
-          includeArchived ? "?includeArchived=true" : ""
-        }`,
+        `/api/v1/categories/summaries${includeArchived ? "?includeArchived=true" : ""}`,
       ),
   });
   const duplicates = useQuery({
     queryKey: ["categories", "duplicates"],
-    queryFn: () =>
-      api<CategoryDuplicateGroup[]>("/api/v1/categories/duplicates"),
+    queryFn: () => api<CategoryDuplicateGroup[]>("/api/v1/categories/duplicates"),
+  });
+  const groups = useQuery({
+    queryKey: ["category-groups"],
+    queryFn: () => api<CategoryGroup[]>("/api/v1/category-groups"),
+  });
+
+  const [groupResetNonce, setGroupResetNonce] = useState(0);
+  const groupMutation = useMutation({
+    mutationFn: async (
+      input:
+        | { action: "create"; name: string; policy: CategoryGroup["policy"] }
+        | {
+            action: "update";
+            group: CategoryGroup;
+            policy?: CategoryGroup["policy"];
+            name?: string;
+          }
+        | { action: "delete"; group: CategoryGroup },
+    ) => {
+      if (input.action === "create") {
+        return api<CategoryGroup>(
+          "/api/v1/category-groups",
+          json({ name: input.name, policy: input.policy }),
+        );
+      }
+      if (input.action === "update") {
+        return api<CategoryGroup>(`/api/v1/category-groups/${input.group.id}`, {
+          ...json({
+            // Only what changed. A patch key left out leaves the field alone,
+            // which is what makes renaming and re-policying the same request.
+            ...(input.policy === undefined ? {} : { policy: input.policy }),
+            ...(input.name === undefined ? {} : { name: input.name }),
+            expectedVersion: input.group.version,
+          }),
+          method: "PUT",
+        });
+      }
+      return api<{ id: string }>(`/api/v1/category-groups/${input.group.id}`, {
+        ...json({ expectedVersion: input.group.version }),
+        method: "DELETE",
+      });
+    },
+    onSuccess: async () => {
+      setGroupName("");
+      // Both, because a group's categories are shown with it and deleting a
+      // group leaves them behind without one.
+      await queryClient.invalidateQueries({ queryKey: ["category-groups"] });
+      await queryClient.invalidateQueries({ queryKey: ["categories"] });
+    },
+    // The rename inputs are uncontrolled, so a refused name would stay on
+    // screen looking accepted while the server still holds the old one. The
+    // nonce remounts them back to what is actually stored, beside the error.
+    onError: () => setGroupResetNonce((nonce) => nonce + 1),
   });
 
   const categoryMutation = useMutation({
@@ -172,27 +242,27 @@ export default function CategoriesPage() {
             category: Category;
             name: string;
             kind: CategoryKind;
+            groupId: string | null;
           }
         | { action: "archive" | "delete"; category: Category },
     ) => {
       if (input.action === "create") {
-        return api<Category>(
-          "/api/v1/categories",
-          json({ name: input.name, kind: input.kind }),
-        );
+        return api<Category>("/api/v1/categories", json({ name: input.name, kind: input.kind }));
       }
       if (input.action === "update") {
         return api<Category>(`/api/v1/categories/${input.category.id}`, {
           ...json({
             name: input.name,
             kind: input.kind,
+            // Always sent, so clearing a group is a clear rather than a skip.
+            groupId: input.groupId,
             expectedVersion: input.category.version,
           }),
           method: "PUT",
         });
       }
       if (input.action === "archive") {
-        return api<Category>(`/api/v1/categories/${input.category.id}/archive`, {
+        return api<Category>(`/api/v1/categories/${input.category.id}/archived`, {
           ...json({
             expectedVersion: input.category.version,
             archived: !input.category.archivedAt,
@@ -214,6 +284,8 @@ export default function CategoriesPage() {
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -222,9 +294,11 @@ export default function CategoriesPage() {
     selectedIds.has(category.id),
   );
   const target = selectedCategories.find((category) => category.id === targetId);
-  const sourceCategories = selectedCategories.filter(
-    (category) => category.id !== targetId,
-  );
+  const sourceCategories = selectedCategories.filter((category) => category.id !== targetId);
+  // One key per intended merge, not per attempt, so a click that timed out and
+  // was pressed again is the same merge asked for twice rather than two merges.
+  // Replaced on success, because the next merge is a different intention.
+  const mergeIdempotencyKey = useRef(newIdempotencyKey());
   const mergeMutation = useMutation({
     mutationFn: () => {
       if (!target) throw new Error("Choose the category to keep");
@@ -234,16 +308,15 @@ export default function CategoriesPage() {
           sourceCategoryIds: sourceCategories.map((category) => category.id),
           targetCategoryId: target.id,
           expectedVersions: Object.fromEntries(
-            sourceCategories.map((category) => [
-              category.id,
-              category.version,
-            ]),
+            sourceCategories.map((category) => [category.id, category.version]),
           ),
           targetExpectedVersion: target.version,
+          idempotencyKey: mergeIdempotencyKey.current,
         }),
       );
     },
     onSuccess: async () => {
+      mergeIdempotencyKey.current = newIdempotencyKey();
       setSelectedIds(new Set());
       setTargetId("");
       await Promise.all([
@@ -251,6 +324,8 @@ export default function CategoriesPage() {
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -280,8 +355,7 @@ export default function CategoriesPage() {
         }
       };
       return (
-        compareForSort(of(left), of(right), sort.direction) ||
-        left.name.localeCompare(right.name)
+        compareForSort(of(left), of(right), sort.direction) || left.name.localeCompare(right.name)
       );
     });
   }, [categories.data, search, sort]);
@@ -293,8 +367,7 @@ export default function CategoriesPage() {
 
   const chooseDuplicateGroup = (group: CategoryDuplicateGroup) => {
     const targetCategory =
-      group.categories.find((category) => !category.archivedAt) ??
-      group.categories[0];
+      group.categories.find((category) => !category.archivedAt) ?? group.categories[0];
     if (!targetCategory) return;
     setIncludeArchived(true);
     setTargetId(targetCategory.id);
@@ -330,10 +403,134 @@ export default function CategoriesPage() {
             <Plus size={16} /> Add category
           </Button>
         </form>
-        {categoryMutation.error ? (
-          <Alert>{categoryMutation.error.message}</Alert>
-        ) : null}
+        {categoryMutation.error ? <Alert>{categoryMutation.error.message}</Alert> : null}
       </section>
+
+      <section className="panel settings-section">
+        <div className="section-title">
+          <span>
+            <FolderTree size={19} />
+          </span>
+          <div>
+            <h2>Groups</h2>
+            <p>
+              One level of grouping, read together on the budget page. Nothing on a transaction
+              names a group, so grouping changes no figure until you budget one.
+            </p>
+          </div>
+        </div>
+        <form
+          className="inline-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const trimmed = groupName.trim();
+            if (trimmed) {
+              groupMutation.mutate({ action: "create", name: trimmed, policy: groupPolicy });
+            }
+          }}
+        >
+          <Input
+            required
+            aria-label="Group name"
+            placeholder="Fixed costs"
+            value={groupName}
+            onChange={(event) => setGroupName(event.target.value)}
+          />
+          <Select
+            aria-label="Group budget"
+            value={groupPolicy}
+            onChange={(event) => setGroupPolicy(event.target.value as CategoryGroup["policy"])}
+          >
+            <option value="standalone">Has a budget of its own</option>
+            <option value="sum_of_children">Adds up its categories' budgets</option>
+          </Select>
+          <Button type="submit" loading={groupMutation.isPending}>
+            <Plus size={16} /> Add group
+          </Button>
+        </form>
+        {groupMutation.error ? <Alert>{groupMutation.error.message}</Alert> : null}
+        {(groups.data ?? []).length === 0 ? (
+          <p className="settings-note">No groups yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <caption className="sr-only">Category groups</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Group</th>
+                  <th scope="col">Budgeted as</th>
+                  <th scope="col" className="align-right">
+                    Categories
+                  </th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {(groups.data ?? []).map((group) => (
+                  <tr key={group.id}>
+                    <th scope="row">
+                      {/* Renamed in place. The agent surface could rename a
+                          group from the first day it existed and this page
+                          could not, which is the parity rule pointing the other
+                          way. */}
+                      <Input
+                        key={`${group.id}:${group.version}:${groupResetNonce}`}
+                        aria-label={`Name of ${group.name}`}
+                        defaultValue={group.name}
+                        onBlur={(event) => {
+                          const next = event.target.value.trim();
+                          if (next !== "" && next !== group.name) {
+                            groupMutation.mutate({ action: "update", group, name: next });
+                          }
+                        }}
+                      />
+                    </th>
+                    <td>
+                      <Select
+                        aria-label={`How ${group.name} is budgeted`}
+                        value={group.policy}
+                        onChange={(event) =>
+                          groupMutation.mutate({
+                            action: "update",
+                            group,
+                            policy: event.target.value as CategoryGroup["policy"],
+                          })
+                        }
+                      >
+                        <option value="standalone">Has a budget of its own</option>
+                        <option value="sum_of_children">Adds up its categories' budgets</option>
+                      </Select>
+                    </td>
+                    <td className="align-right">{group.categoryCount}</td>
+                    <td className="align-right">
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          removeGroup.ask(group, () =>
+                            groupMutation.mutate({ action: "delete", group }),
+                          )
+                        }
+                      >
+                        Delete {group.name}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      <ConfirmDialog
+        open={removeGroup.open}
+        title="Delete this group?"
+        description="The categories in it stay exactly where they are and lose their group. A budget set on the group itself goes with it, because a budget about nothing is not a budget."
+        confirmLabel="Delete group"
+        onCancel={removeGroup.cancel}
+        onConfirm={removeGroup.confirm}
+      />
 
       {duplicates.data?.length ? (
         <section className="duplicate-groups" aria-label="Duplicate categories">
@@ -348,14 +545,8 @@ export default function CategoriesPage() {
           </div>
           {duplicates.data.map((group) => (
             <Alert kind="info" key={group.normalizedName}>
-              <span>
-                {group.categories.map((category) => category.name).join(", ")}
-              </span>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => chooseDuplicateGroup(group)}
-              >
+              <span>{group.categories.map((category) => category.name).join(", ")}</span>
+              <Button type="button" variant="secondary" onClick={() => chooseDuplicateGroup(group)}>
                 Review merge
               </Button>
             </Alert>
@@ -387,12 +578,8 @@ export default function CategoriesPage() {
       {selectedCategories.length >= 2 ? (
         <section className="panel merge-panel">
           <div>
-            <strong>
-              Merge {selectedCategories.length} selected categories
-            </strong>
-            <small>
-              Transactions and staged rows will move to the category you keep.
-            </small>
+            <strong>Merge {selectedCategories.length} selected categories</strong>
+            <small>Transactions and staged rows will move to the category you keep.</small>
           </div>
           <Select
             aria-label="Category to keep"
@@ -444,9 +631,8 @@ export default function CategoriesPage() {
                   checked={selectedIds.has(category.id)}
                   onChange={(event) => {
                     const next = new Set(selectedIds);
-                    event.target.checked
-                      ? next.add(category.id)
-                      : next.delete(category.id);
+                    if (event.target.checked) next.add(category.id);
+                    else next.delete(category.id);
                     setSelectedIds(next);
                     if (!event.target.checked && targetId === category.id) {
                       setTargetId("");
@@ -468,8 +654,8 @@ export default function CategoriesPage() {
                     </Link>
                   </strong>
                   <small>
-                    {kindLabels[category.kind]} · {category.transactionCount}{" "}
-                    committed · {category.stagedTransactionCount} staged
+                    {kindLabels[category.kind]} · {category.transactionCount} committed ·{" "}
+                    {category.stagedTransactionCount} staged
                   </small>
                 </span>
               </div>
@@ -484,27 +670,16 @@ export default function CategoriesPage() {
                 {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>
               <div className="row-actions">
-                <button
-                  aria-label={`Edit ${category.name}`}
-                  onClick={() => setEditing(category)}
-                >
+                <button aria-label={`Edit ${category.name}`} onClick={() => setEditing(category)}>
                   <Pencil size={16} />
                 </button>
                 <button
                   aria-label={
-                    category.archivedAt
-                      ? `Restore ${category.name}`
-                      : `Archive ${category.name}`
+                    category.archivedAt ? `Restore ${category.name}` : `Archive ${category.name}`
                   }
-                  onClick={() =>
-                    categoryMutation.mutate({ action: "archive", category })
-                  }
+                  onClick={() => categoryMutation.mutate({ action: "archive", category })}
                 >
-                  {category.archivedAt ? (
-                    <ArchiveRestore size={16} />
-                  ) : (
-                    <Archive size={16} />
-                  )}
+                  {category.archivedAt ? <ArchiveRestore size={16} /> : <Archive size={16} />}
                 </button>
                 <button
                   aria-label={`Delete unused ${category.name}`}
@@ -521,7 +696,7 @@ export default function CategoriesPage() {
           ))}
         </div>
       ) : categories.isPending ? (
-        <p className="settings-note">Loading categories…</p>
+        <Skeleton height={120} label="Loading categories…" />
       ) : categories.error ? null : (
         <EmptyState
           icon={<Tags size={24} />}
@@ -532,10 +707,11 @@ export default function CategoriesPage() {
 
       <CategoryDialog
         category={editing}
+        groups={groups.data ?? []}
         onClose={() => setEditing(null)}
-        onSave={(name, kind) => {
+        onSave={(name, kind, groupId) => {
           if (!editing) return;
-          categoryMutation.mutate({ action: "update", category: editing, name, kind });
+          categoryMutation.mutate({ action: "update", category: editing, name, kind, groupId });
           setEditing(null);
         }}
       />

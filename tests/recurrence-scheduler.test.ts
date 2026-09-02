@@ -17,15 +17,14 @@ const nothing: TickSummary = {
 };
 
 function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
-  const armed: { delay: number; fire: () => void; timer: ReturnType<typeof timerFor> }[] =
-    [];
+  const armed: { delay: number; fire: () => void; timer: ReturnType<typeof timerFor> }[] = [];
   const timerFor = () => ({ clear: vi.fn(), unref: vi.fn() });
   const schedule = vi.fn((callback: () => void, delay: number) => {
     const timer = timerFor();
     armed.push({ delay, fire: callback, timer });
     return timer;
   });
-  const logger = { info: vi.fn(), error: vi.fn() };
+  const logger = { debug: vi.fn(), info: vi.fn(), error: vi.fn(), failure: vi.fn() };
   const runTick = vi.fn(async () => nothing);
   // Stubbed, or the default reaches the real sweep and the real database. It
   // would be swallowed by the loop's own guard, which is exactly why leaving it
@@ -75,9 +74,7 @@ describe("the recurrence scheduler loop", () => {
       }),
     );
     expect(spread.size).toBe(8);
-    expect(Math.max(...spread)).toBeLessThan(
-      FIRST_TICK_DELAY_MS + FIRST_TICK_JITTER_MS,
-    );
+    expect(Math.max(...spread)).toBeLessThan(FIRST_TICK_DELAY_MS + FIRST_TICK_JITTER_MS);
   });
 
   /**
@@ -122,7 +119,9 @@ describe("the recurrence scheduler loop", () => {
     });
 
     await harness.fireLast();
-    expect(harness.logger.error).toHaveBeenCalledWith(
+    // Through the narrowing log, because a tick's error can be a database
+    // error whose message carries someone's draft in its bound parameters.
+    expect(harness.logger.failure).toHaveBeenCalledWith(
       "Recurrence scheduler tick failed",
       expect.any(Error),
     );
@@ -232,7 +231,7 @@ describe("the recurrence scheduler loop", () => {
 
     await harness.fireLast();
 
-    expect(harness.logger.error).toHaveBeenCalledWith(
+    expect(harness.logger.failure).toHaveBeenCalledWith(
       "Template reminder sweep failed",
       expect.any(Error),
     );
@@ -246,5 +245,60 @@ describe("the recurrence scheduler loop", () => {
     await harness.fireLast();
 
     expect(harness.runReminders).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * What a tick leaves in the log, which for a long time was nothing.
+   *
+   * `/metrics` is off unless a deployment asks for it, so a scheduler that is
+   * proposing rows and one that stopped ticking a week ago produced identical
+   * output. The counts are the answer, and the level is the other half of it: a
+   * tick that did something is worth an operator's ordinary log and a tick that
+   * found nothing due is not, or five minutes of silence becomes twelve lines
+   * an hour saying so.
+   */
+  it("says at info what a tick actually did", async () => {
+    const harness = schedulerHarness({
+      runTick: vi.fn(async () => ({
+        examined: 4,
+        proposed: 2,
+        failed: 1,
+        notified: 1,
+        capped: false,
+      })),
+      runReminders: vi.fn(async () => ({ examined: 3, sent: 2, failed: 0 })),
+    });
+
+    await harness.fireLast();
+
+    const said = String(harness.logger.info.mock.calls.at(-1)?.[0]);
+    expect(said).toContain("examined 4 recurrences");
+    expect(said).toContain("proposed 2");
+    expect(said).toContain("failed 1");
+    expect(said).toContain("notified 1");
+    expect(said).toContain("sent 2 reminders");
+    expect(harness.logger.debug).not.toHaveBeenCalled();
+  });
+
+  it("drops a quiet tick to debug rather than to nothing", async () => {
+    const harness = schedulerHarness();
+
+    await harness.fireLast();
+
+    expect(harness.logger.info).not.toHaveBeenCalled();
+    // Not silence. At `debug` an operator can still tell a schedule that looked
+    // and found nothing from one that is not running at all, which is the
+    // question this line exists to answer.
+    expect(String(harness.logger.debug.mock.calls.at(-1)?.[0])).toContain("examined 0 recurrences");
+  });
+
+  it("names the catch-up cap in the same line, since the next tick is immediate", async () => {
+    const harness = schedulerHarness({
+      runTick: vi.fn(async () => ({ ...nothing, proposed: 5, capped: true })),
+    });
+
+    await harness.fireLast();
+
+    expect(String(harness.logger.info.mock.calls.at(-1)?.[0])).toContain("capped");
   });
 });

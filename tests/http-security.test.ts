@@ -64,27 +64,21 @@ describe("browser mutation protection", () => {
   });
 
   it("rejects missing origins and non-JSON finance mutations", async () => {
-    const missingOrigin = await browserMutationApp().request(
-      `${applicationOrigin}/`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      },
-    );
+    const missingOrigin = await browserMutationApp().request(`${applicationOrigin}/`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
     expect(missingOrigin.status).toBe(403);
 
-    const simpleRequest = await browserMutationApp().request(
-      `${applicationOrigin}/`,
-      {
-        method: "POST",
-        headers: {
-          origin: applicationOrigin,
-          "content-type": "text/plain",
-        },
-        body: "{}",
+    const simpleRequest = await browserMutationApp().request(`${applicationOrigin}/`, {
+      method: "POST",
+      headers: {
+        origin: applicationOrigin,
+        "content-type": "text/plain",
       },
-    );
+      body: "{}",
+    });
     expect(simpleRequest.status).toBe(415);
     expect(await simpleRequest.json()).toMatchObject({
       error: { code: "UNSUPPORTED_MEDIA_TYPE" },
@@ -92,17 +86,14 @@ describe("browser mutation protection", () => {
   });
 
   it("allows same-origin JSON mutations and safe reads", async () => {
-    const mutation = await browserMutationApp().request(
-      `${applicationOrigin}/`,
-      {
-        method: "POST",
-        headers: {
-          origin: applicationOrigin,
-          "content-type": "application/json; charset=utf-8",
-        },
-        body: "{}",
+    const mutation = await browserMutationApp().request(`${applicationOrigin}/`, {
+      method: "POST",
+      headers: {
+        origin: applicationOrigin,
+        "content-type": "application/json; charset=utf-8",
       },
-    );
+      body: "{}",
+    });
     expect(mutation.status).toBe(200);
 
     const read = await browserMutationApp().request(`${applicationOrigin}/`);
@@ -119,70 +110,55 @@ describe("auth mutation protection", () => {
   }
 
   it("keeps non-browser MCP OAuth requests usable", async () => {
-    const registration = await authApp().request(
-      `${applicationOrigin}/api/auth/mcp/register`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      },
-    );
+    const registration = await authApp().request(`${applicationOrigin}/api/auth/mcp/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
     expect(registration.status).toBe(200);
 
-    const token = await authApp().request(
-      `${applicationOrigin}/api/auth/mcp/token`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: "grant_type=authorization_code",
-      },
-    );
+    const token = await authApp().request(`${applicationOrigin}/api/auth/mcp/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "grant_type=authorization_code",
+    });
     expect(token.status).toBe(200);
   });
 
   it("rejects cross-origin cookies even on externally callable MCP routes", async () => {
-    const response = await authApp().request(
-      `${applicationOrigin}/api/auth/mcp/token`,
-      {
-        method: "POST",
-        headers: {
-          cookie: "better-auth.session_token=session",
-          origin: "https://attacker.example",
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: "grant_type=authorization_code",
+    const response = await authApp().request(`${applicationOrigin}/api/auth/mcp/token`, {
+      method: "POST",
+      headers: {
+        cookie: "better-auth.session_token=session",
+        origin: "https://attacker.example",
+        "content-type": "application/x-www-form-urlencoded",
       },
-    );
+      body: "grant_type=authorization_code",
+    });
     expect(response.status).toBe(403);
   });
 
   it("protects browser auth mutations while allowing the provider callback", async () => {
-    const signOut = await authApp().request(
-      `${applicationOrigin}/api/auth/sign-out`,
-      {
-        method: "POST",
-        headers: {
-          cookie: "better-auth.session_token=session",
-          origin: "https://attacker.example",
-          "content-type": "application/json",
-        },
-        body: "{}",
+    const signOut = await authApp().request(`${applicationOrigin}/api/auth/sign-out`, {
+      method: "POST",
+      headers: {
+        cookie: "better-auth.session_token=session",
+        origin: "https://attacker.example",
+        "content-type": "application/json",
       },
-    );
+      body: "{}",
+    });
     expect(signOut.status).toBe(403);
 
-    const callback = await authApp().request(
-      `${applicationOrigin}/api/auth/callback/google`,
-      {
-        method: "POST",
-        headers: {
-          cookie: "better-auth.oauth_state=state",
-          origin: "https://accounts.google.com",
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: "code=provider-code&state=state",
+    const callback = await authApp().request(`${applicationOrigin}/api/auth/callback/google`, {
+      method: "POST",
+      headers: {
+        cookie: "better-auth.oauth_state=state",
+        origin: "https://accounts.google.com",
+        "content-type": "application/x-www-form-urlencoded",
       },
-    );
+      body: "code=provider-code&state=state",
+    });
     expect(callback.status).toBe(200);
   });
 });
@@ -191,9 +167,7 @@ describe("bounded request bodies", () => {
   function limitedApp(maxBytes: number) {
     const app = new Hono();
     app.use("*", boundRequestBody({ maxBytes }));
-    app.post("/", async (context) =>
-      context.json({ body: await context.req.text() }),
-    );
+    app.post("/", async (context) => context.json({ body: await context.req.text() }));
     return app;
   }
 
@@ -284,9 +258,7 @@ describe("bounded request bodies", () => {
 
   it("uses a bounded but larger JSON envelope for CSV routes", () => {
     process.env.CSV_MAX_BYTES = "1024";
-    expect(apiRequestBodyLimit("/api/v1/accounts")).toBe(
-      API_REQUEST_BODY_LIMIT_BYTES,
-    );
+    expect(apiRequestBodyLimit("/api/v1/accounts")).toBe(API_REQUEST_BODY_LIMIT_BYTES);
     expect(apiRequestBodyLimit("/api/v1/csv/preview")).toBe(71_680);
     expect(apiRequestBodyLimit("/api/v1/csv/stage")).toBe(71_680);
     expect(apiRequestBodyLimit("/mcp")).toBe(71_680);
@@ -305,29 +277,23 @@ describe("bounded request bodies", () => {
       "/api/v1/transactions/bulk-delete",
       "/api/v1/transactions/bulk-selection",
       "/api/v1/staged-transactions/commit",
-      "/api/v1/staged-transactions/delete",
+      "/api/v1/staged-transactions/bulk-delete",
       "/api/v1/staged-transactions/bulk-edit",
       "/api/v1/staged-transactions/bulk-selection",
     ]) {
       expect(apiRequestBodyLimit(path)).toBe(BULK_REQUEST_BODY_LIMIT_BYTES);
     }
-    expect(BULK_REQUEST_BODY_LIMIT_BYTES).toBeGreaterThan(
-      API_REQUEST_BODY_LIMIT_BYTES,
-    );
+    expect(BULK_REQUEST_BODY_LIMIT_BYTES).toBeGreaterThan(API_REQUEST_BODY_LIMIT_BYTES);
   });
 
   // The schema cap is the real limit. These build the largest payload each
   // endpoint accepts and prove the transport never rejects it first, so raising
   // MAX_BULK_SELECTION_ENTRIES cannot silently reintroduce the 413.
   it("accepts a maximum staged commit without hitting the body limit", () => {
-    const ids = Array.from({ length: MAX_BULK_SELECTION_ENTRIES }, () =>
-      randomUUID(),
-    );
+    const ids = Array.from({ length: MAX_BULK_SELECTION_ENTRIES }, () => randomUUID());
     const body = {
       stagedIds: ids,
-      expectedVersions: Object.fromEntries(
-        ids.map((id) => [id, Number.MAX_SAFE_INTEGER]),
-      ),
+      expectedVersions: Object.fromEntries(ids.map((id) => [id, Number.MAX_SAFE_INTEGER])),
       idempotencyKey: "k".repeat(200),
       allowDuplicates: true,
       dryRun: false,
@@ -389,13 +355,9 @@ describe("bounded request bodies", () => {
 
   it("selects the strict auth limit from the global path-aware policy", () => {
     process.env.CSV_MAX_BYTES = "1024";
-    expect(requestBodyLimit("/api/auth/sign-in/email")).toBe(
-      AUTH_REQUEST_BODY_LIMIT_BYTES,
-    );
+    expect(requestBodyLimit("/api/auth/sign-in/email")).toBe(AUTH_REQUEST_BODY_LIMIT_BYTES);
     expect(requestBodyLimit("/mcp")).toBe(71_680);
-    expect(requestBodyLimit("/api/v1/accounts")).toBe(
-      API_REQUEST_BODY_LIMIT_BYTES,
-    );
+    expect(requestBodyLimit("/api/v1/accounts")).toBe(API_REQUEST_BODY_LIMIT_BYTES);
   });
 });
 
@@ -470,10 +432,12 @@ describe("counting attempts against a caller", () => {
     });
 
   it("reads the address the same way withCountableClientAddress does", () => {
-    expect(countableClientAddress(request("198.51.100.7"), withPeer("203.0.113.4"), false))
-      .toBe("203.0.113.4");
-    expect(countableClientAddress(request("198.51.100.7, 10.0.0.1"), withPeer("10.0.0.1"), true))
-      .toBe("198.51.100.7");
+    expect(countableClientAddress(request("198.51.100.7"), withPeer("203.0.113.4"), false)).toBe(
+      "203.0.113.4",
+    );
+    expect(
+      countableClientAddress(request("198.51.100.7, 10.0.0.1"), withPeer("10.0.0.1"), true),
+    ).toBe("198.51.100.7");
     expect(countableClientAddress(request(), withPeer(undefined), false)).toBe("unknown");
   });
 
@@ -515,11 +479,11 @@ describe("counting attempts against a caller", () => {
       now: () => 1_000,
       store,
     });
-    expect([
-      await limiter.take("a"),
-      await limiter.take("a"),
-      await limiter.take("a"),
-    ]).toEqual([true, true, true]);
+    expect([await limiter.take("a"), await limiter.take("a"), await limiter.take("a")]).toEqual([
+      true,
+      true,
+      true,
+    ]);
     expect(await limiter.take("a")).toBe(false);
   });
 
@@ -629,7 +593,7 @@ describe("which routes are sized for a bulk selection", () => {
     "/api/v1/transactions/bulk-delete",
     "/api/v1/transactions/bulk-selection",
     "/api/v1/staged-transactions/commit",
-    "/api/v1/staged-transactions/delete",
+    "/api/v1/staged-transactions/bulk-delete",
     "/api/v1/staged-transactions/bulk-edit",
     "/api/v1/staged-transactions/bulk-selection",
     "/api/v1/transaction-templates/bulk-edit",
@@ -649,13 +613,10 @@ describe("which routes are sized for a bulk selection", () => {
   });
 
   it("covers every bulk-shaped route the API actually registers", async () => {
-    const source = await readFile(
-      new URL("../src/server/api.ts", import.meta.url),
-      "utf8",
+    const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
+    const routes = [...source.matchAll(/app\.(?:post|put|delete)\("(\/api\/v1\/[^"]+)"/g)].map(
+      (match) => match[1]!,
     );
-    const routes = [
-      ...source.matchAll(/app\.(?:post|put|delete)\("(\/api\/v1\/[^"]+)"/g),
-    ].map((match) => match[1]!);
     const bulkShaped = routes.filter((path) =>
       /\/(bulk-edit|bulk-delete|bulk-selection|commit|delete)$/.test(path),
     );

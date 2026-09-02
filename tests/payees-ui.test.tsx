@@ -2,20 +2,9 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  PayeeDuplicateGroup,
-  PayeeMergeResult,
-  PayeeSummary,
-} from "../src/client/api.js";
+import type { PayeeDuplicateGroup, PayeeMergeResult, PayeeSummary } from "../src/client/api.js";
 import PayeesPage from "../src/client/pages/PayeesPage.js";
 import { BrowserRouter } from "../src/client/router.js";
 
@@ -52,11 +41,7 @@ afterEach(() => {
 
 describe("payee browsing and merging", () => {
   it("uses selected payees as merge participants and keeps either one", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      "/payees?start=2026-07-01&end=2026-07-31&preset=custom",
-    );
+    window.history.replaceState(null, "", "/payees?start=2026-07-01&end=2026-07-31&preset=custom");
     let mergeBody: Record<string, unknown> | undefined;
     vi.stubGlobal(
       "fetch",
@@ -93,10 +78,7 @@ describe("payee browsing and merging", () => {
     const payeeLink = await screen.findByRole("link", {
       name: acmeMarket.name,
     });
-    const detailUrl = new URL(
-      payeeLink.getAttribute("href")!,
-      window.location.origin,
-    );
+    const detailUrl = new URL(payeeLink.getAttribute("href")!, window.location.origin);
     expect(detailUrl.pathname).toBe("/payees/transactions");
     expect(detailUrl.searchParams.get("name")).toBe(acmeMarket.name);
     expect(detailUrl.searchParams.get("start")).toBe("2026-07-01");
@@ -115,12 +97,8 @@ describe("payee browsing and merging", () => {
     );
 
     const target = screen.getByRole("combobox", { name: "Payee to keep" });
-    expect(
-      within(target).getByRole("option", { name: acmeMarket.name }),
-    ).toBeInTheDocument();
-    expect(
-      within(target).getByRole("option", { name: acmeMarkets.name }),
-    ).toBeInTheDocument();
+    expect(within(target).getByRole("option", { name: acmeMarket.name })).toBeInTheDocument();
+    expect(within(target).getByRole("option", { name: acmeMarkets.name })).toBeInTheDocument();
 
     const mergeButton = screen.getByRole("button", { name: "Merge" });
     expect(mergeButton).toBeDisabled();
@@ -128,9 +106,10 @@ describe("payee browsing and merging", () => {
     expect(mergeButton).toBeEnabled();
     fireEvent.click(mergeButton);
     fireEvent.click(
-      within(
-        await screen.findByRole("dialog", { name: /Merge these payees/ }),
-      ).getByRole("button", { name: "Merge" }),
+      within(await screen.findByRole("dialog", { name: /Merge these payees/ })).getByRole(
+        "button",
+        { name: "Merge" },
+      ),
     );
 
     await waitFor(() => {
@@ -186,9 +165,7 @@ describe("payee browsing and merging", () => {
         name: `Select ${acmeMarkets.name} for merging`,
       }),
     ).toBeChecked();
-    expect(screen.getByRole("combobox", { name: "Payee to keep" })).toHaveValue(
-      acmeMarket.name,
-    );
+    expect(screen.getByRole("combobox", { name: "Payee to keep" })).toHaveValue(acmeMarket.name);
     expect(screen.getByRole("button", { name: "Merge" })).toBeEnabled();
   });
 });

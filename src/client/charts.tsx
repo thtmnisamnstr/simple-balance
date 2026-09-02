@@ -3,6 +3,7 @@ import type { ReportBucket } from "../shared/domain.js";
 import {
   formatDate,
   formatMoney,
+  formatMonth,
   isNegativeMoney,
   isPositiveMoney,
   moneyExtent,
@@ -15,6 +16,14 @@ type Series = {
   key: string;
   label: string;
   values: string[];
+  /**
+   * Which colour this series keeps, when the list it came from can shrink.
+   * Colours were dealt by array position, so excluding one category from the
+   * categories report recoloured every line and swatch after it — the moment
+   * somebody most wants to compare before and after is the moment everything
+   * changed clothes. Left out, position still decides.
+   */
+  paint?: number;
 };
 
 type ChartProps = {
@@ -66,9 +75,7 @@ const y = (value: string, low: string, high: string) => {
 
 const columnCentre = (index: number, count: number) => {
   const plot = VIEW.width - PADDING * 2;
-  return count <= 1
-    ? VIEW.width / 2
-    : PADDING + (index / (count - 1)) * plot;
+  return count <= 1 ? VIEW.width / 2 : PADDING + (index / (count - 1)) * plot;
 };
 
 /**
@@ -108,8 +115,8 @@ export function niceTicks(low: string, high: string, count = 4): string[] {
     const difference = span - BigInt(count) * candidate;
     return difference < 0n ? -difference : difference;
   };
-  const step = NICE_MULTIPLES.map((multiple) => multiple * magnitude).reduce(
-    (best, candidate) => (distance(candidate) < distance(best) ? candidate : best),
+  const step = NICE_MULTIPLES.map((multiple) => multiple * magnitude).reduce((best, candidate) =>
+    distance(candidate) < distance(best) ? candidate : best,
   );
 
   // The first multiple of the step at or above the low bound. Because every
@@ -124,9 +131,7 @@ export function niceTicks(low: string, high: string, count = 4): string[] {
   ) {
     ticks.push(moneyFromUnits(tick));
   }
-  return ticks.length >= 2
-    ? ticks
-    : [moneyFromUnits(lowUnits), moneyFromUnits(highUnits)];
+  return ticks.length >= 2 ? ticks : [moneyFromUnits(lowUnits), moneyFromUnits(highUnits)];
 }
 
 /**
@@ -205,13 +210,7 @@ export function bucketLabel(start: string, bucket: ReportBucket): string {
     return Number.isFinite(quarter) ? `Q${quarter} ${year}` : formatDate(start);
   }
   if (bucket === "month") {
-    const named = new Date(`${start.slice(0, 10)}T00:00:00Z`);
-    if (Number.isNaN(named.getTime())) return formatDate(start);
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      year: "numeric",
-      timeZone: "UTC",
-    }).format(named);
+    return formatMonth(start);
   }
   // A week, or an ungrouped range: the day is the thing that identifies it, and
   // the year is already on the caption under the chart.
@@ -251,7 +250,7 @@ function ChartFrame({
   zeroAt: number | null;
   ticks: { value: string; at: number }[];
   currency: string;
-  timeLabels: { key: string; text: string; at: number }[];
+  timeLabels: { key: string; text: string; at: number; edge: "start" | "end" | null }[];
   plotRef: React.Ref<HTMLDivElement>;
 }) {
   return (
@@ -265,13 +264,10 @@ function ChartFrame({
             every value hung off the left of the panel. One label in flow,
             hidden, is what reserves exactly the width the widest one needs. */}
         <span className="chart-axis-sizer">
-          {ticks.reduce(
-            (widest, tick) => {
-              const label = formatMoney(tick.value, currency);
-              return label.length > widest.length ? label : widest;
-            },
-            "",
-          )}
+          {ticks.reduce((widest, tick) => {
+            const label = formatMoney(tick.value, currency);
+            return label.length > widest.length ? label : widest;
+          }, "")}
         </span>
         {ticks.map((tick) => (
           <span key={tick.value} className="chart-axis-value" style={{ top: `${tick.at}%` }}>
@@ -304,9 +300,7 @@ function ChartFrame({
         {/* Only when no tick already landed on it, so the zero line is not
             drawn twice at different weights. */}
         {zeroAt !== null &&
-        !ticks.some(
-          (tick) => Math.abs(zeroAt - (tick.at / 100) * VIEW.height) < 0.5,
-        ) ? (
+        !ticks.some((tick) => Math.abs(zeroAt - (tick.at / 100) * VIEW.height) < 0.5) ? (
           <line
             className="chart-zero"
             x1={0}
@@ -319,20 +313,16 @@ function ChartFrame({
         {children}
       </svg>
       <div className="chart-axis-x" aria-hidden="true">
-        {timeLabels.map((label, index) => (
+        {timeLabels.map((label) => (
           <span
             key={label.key}
             className={
-              index === 0
-                ? "at-start"
-                : index === timeLabels.length - 1
-                  ? "at-end"
-                  : undefined
+              label.edge === "start" ? "at-start" : label.edge === "end" ? "at-end" : undefined
             }
             style={
-              index === 0
+              label.edge === "start"
                 ? { left: 0 }
-                : index === timeLabels.length - 1
+                : label.edge === "end"
                   ? { right: 0 }
                   : { left: `${label.at}%` }
             }
@@ -355,17 +345,17 @@ const tickPositions = (values: string[], low: string, high: string) =>
 export function LineChart({ buckets, series, currency, title, bucket }: ChartProps) {
   const plot = useMeasuredWidth();
   const { low, high } = bounds(series);
-  const zeroAt =
-    !isPositiveMoney(low) && !isNegativeMoney(high) ? y("0", low, high) : null;
+  const zeroAt = !isPositiveMoney(low) && !isNegativeMoney(high) ? y("0", low, high) : null;
   const ticks = tickPositions(niceTicks(low, high), low, high);
   // A point sits at the centre of its column, so its label goes there too.
-  const timeLabels = labelledBuckets(
-    buckets.length,
-    labelBudget(plot.width),
-  ).map((index) => ({
+  // `edge` marks the labels that really sit at the ends of the axis: pinning
+  // "the last label in the list" to the right edge misplaced it by up to a
+  // whole stride whenever thinning stopped short of the final bucket.
+  const timeLabels = labelledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
     key: buckets[index]!.start,
     text: bucketLabel(buckets[index]!.start, bucket),
     at: (columnCentre(index, buckets.length) / VIEW.width) * 100,
+    edge: index === 0 ? ("start" as const) : index === buckets.length - 1 ? ("end" as const) : null,
   }));
 
   return (
@@ -381,7 +371,7 @@ export function LineChart({ buckets, series, currency, title, bucket }: ChartPro
         {series.map((entry, index) => (
           <polyline
             key={entry.key}
-            className={`chart-line ${seriesClass(index)}`}
+            className={`chart-line ${seriesClass(entry.paint ?? index)}`}
             vectorEffect="non-scaling-stroke"
             points={entry.values
               .map(
@@ -409,14 +399,13 @@ export function BarChart({ buckets, series, currency, title, bucket }: ChartProp
   const barWidth = (groupWidth * 0.7) / Math.max(series.length, 1);
   const ticks = tickPositions(niceTicks(low, high), low, high);
   // A group of bars fills its own slice of the width rather than sitting on a
-  // point, so the label goes under the middle of the slice.
-  const timeLabels = labelledBuckets(
-    buckets.length,
-    labelBudget(plot.width),
-  ).map((index) => ({
+  // point, so the label goes under the middle of the slice. `edge` as above:
+  // only a label whose bucket really is first or last sits on the frame edge.
+  const timeLabels = labelledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
     key: buckets[index]!.start,
     text: bucketLabel(buckets[index]!.start, bucket),
     at: ((index * groupWidth + groupWidth / 2) / VIEW.width) * 100,
+    edge: index === 0 ? ("start" as const) : index === buckets.length - 1 ? ("end" as const) : null,
   }));
 
   return (
@@ -437,12 +426,8 @@ export function BarChart({ buckets, series, currency, title, bucket }: ChartProp
             return (
               <rect
                 key={`${bucket.start}-${entry.key}`}
-                className={`chart-bar ${seriesClass(index)}`}
-                x={
-                  position * groupWidth +
-                  groupWidth * 0.15 +
-                  index * barWidth
-                }
+                className={`chart-bar ${seriesClass(entry.paint ?? index)}`}
+                x={position * groupWidth + groupWidth * 0.15 + index * barWidth}
                 y={Math.min(top, baseline)}
                 width={barWidth}
                 height={height < 1 ? 1 : height}
@@ -465,7 +450,10 @@ export function ChartLegend({ series }: { series: Series[] }) {
     <ul className="chart-legend">
       {series.map((entry, index) => (
         <li key={entry.key}>
-          <span className={`chart-swatch ${seriesClass(index)}`} aria-hidden="true" />
+          <span
+            className={`chart-swatch ${seriesClass(entry.paint ?? index)}`}
+            aria-hidden="true"
+          />
           {entry.label}
         </li>
       ))}

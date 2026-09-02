@@ -24,10 +24,9 @@ describe("waiting for typing to stop", () => {
   });
 
   it("holds every keystroke until the typing stops", () => {
-    const { result, rerender } = renderHook(
-      ({ value }) => useDebounced(value, 300),
-      { initialProps: { value: "" } },
-    );
+    const { result, rerender } = renderHook(({ value }) => useDebounced(value, 300), {
+      initialProps: { value: "" },
+    });
     for (const value of ["s", "st", "sta", "star", "starb"]) {
       rerender({ value });
       act(() => {
@@ -42,10 +41,9 @@ describe("waiting for typing to stop", () => {
   });
 
   it("settles again after a pause and another keystroke", () => {
-    const { result, rerender } = renderHook(
-      ({ value }) => useDebounced(value, 300),
-      { initialProps: { value: "a" } },
-    );
+    const { result, rerender } = renderHook(({ value }) => useDebounced(value, 300), {
+      initialProps: { value: "a" },
+    });
     rerender({ value: "ab" });
     act(() => {
       vi.advanceTimersByTime(300);

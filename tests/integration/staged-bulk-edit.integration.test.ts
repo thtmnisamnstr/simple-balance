@@ -2,18 +2,16 @@ import { and, eq, inArray } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
+import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
-import {
-  auditEvents,
-  stagedTransactions,
-  user,
-} from "../../src/server/db/schema.js";
+import { dropScratchDatabase } from "./support/scratch-database.js";
+import { auditEvents, stagedTransactions, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import {
   bulkEditStages,
   createStage,
+  deleteStages,
   listStages,
   previewBulkStageSelection,
 } from "../../src/server/services/staging.js";
@@ -65,20 +63,22 @@ integration("changing many staged rows at once", () => {
     databaseUrl.pathname = `/${databaseName}`;
     process.env.DATABASE_URL = databaseUrl.toString();
     await runMigrations();
-    await getDb().insert(user).values([
-      {
-        id: actor.userId,
-        name: "Stage Bulk",
-        email: "stage-bulk@example.com",
-        emailVerified: true,
-      },
-      {
-        id: stranger.userId,
-        name: "Stranger",
-        email: "stage-bulk-stranger@example.com",
-        emailVerified: true,
-      },
-    ]);
+    await getDb()
+      .insert(user)
+      .values([
+        {
+          id: actor.userId,
+          name: "Stage Bulk",
+          email: "stage-bulk@example.com",
+          emailVerified: true,
+        },
+        {
+          id: stranger.userId,
+          name: "Stranger",
+          email: "stage-bulk-stranger@example.com",
+          emailVerified: true,
+        },
+      ]);
     accountId = (
       await createAccount(actor, {
         name: "Checking",
@@ -97,17 +97,15 @@ integration("changing many staged rows at once", () => {
         openingBalance: "0",
       })
     ).id;
-    categoryId = (
-      await createCategory(actor, { name: "Groceries", kind: "expense" })
-    ).id;
+    categoryId = (await createCategory(actor, { name: "Groceries", kind: "expense" })).id;
   });
 
   afterAll(async () => {
-    await closeDb();
-    await adminClient.query(`drop database if exists "${databaseName}"`);
-    await adminClient.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: adminClient,
+      name: databaseName,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("applies a patch to the rows named, and leaves the rest alone", async () => {
@@ -175,9 +173,7 @@ integration("changing many staged rows at once", () => {
     });
     expect(result.invalidCount).toBe(0);
     expect(result.validCount).toBe(1);
-    expect(
-      ((await rowsById()).get(broken.id)!.validationIssues as unknown[]).length,
-    ).toBe(0);
+    expect(((await rowsById()).get(broken.id)!.validationIssues as unknown[]).length).toBe(0);
   });
 
   it("refuses the whole request when a row moved underneath", async () => {
@@ -398,9 +394,7 @@ integration("changing many staged rows at once", () => {
     expect(applied.updatedCount).toBe(2);
     const rows = await rowsById();
     for (const entry of batch) {
-      expect((rows.get(entry.id)!.draft as Record<string, unknown>).categoryId).toBe(
-        categoryId,
-      );
+      expect((rows.get(entry.id)!.draft as Record<string, unknown>).categoryId).toBe(categoryId);
     }
   });
 
@@ -418,8 +412,7 @@ integration("changing many staged rows at once", () => {
     ).rejects.toThrow(/unavailable/i);
     const stillTheirs = await rowsById(stranger);
     expect(
-      (stillTheirs.get((theirs as { id: string }).id)!.draft as Record<string, unknown>)
-        .payee,
+      (stillTheirs.get((theirs as { id: string }).id)!.draft as Record<string, unknown>).payee,
     ).toBe("Theirs");
   });
 
@@ -562,11 +555,157 @@ integration("changing many staged rows at once", () => {
     expect(result.updatedCount).toBe(1);
 
     const rows = await rowsById();
-    const payeeOf = (id: string) =>
-      (rows.get(id)!.draft as Record<string, unknown>).payee;
+    const payeeOf = (id: string) => (rows.get(id)!.draft as Record<string, unknown>).payee;
     expect(payeeOf(mine.id)).toBe("Rewritten");
     expect(payeeOf(other.id)).toBe("From template B");
     expect(payeeOf(none.id)).toBe("From no template");
+  });
+
+  /**
+   * The last bulk route to get a dry run.
+   *
+   * Every other bulk write let a caller ask what would happen first; this one
+   * made you find out by doing it, on the single operation that removes rows.
+   * A dry run has to do the whole check — rows present, still staged, versions
+   * current — and then not write, because a dry run that skips the check is
+   * worse than none: it reports success for a request that would have failed.
+   */
+  describe("a dry-run bulk delete", () => {
+    it("reports what it would remove and removes nothing", async () => {
+      const doomed = await stage({
+        type: "withdrawal",
+        date: "2026-02-04",
+        payee: "Dry run subject",
+        amount: "5.00",
+        fromAccountId: accountId,
+      });
+
+      const preview = await deleteStages(actor, {
+        stagedIds: [doomed.id],
+        expectedVersions: { [doomed.id]: doomed.version },
+        dryRun: true,
+      });
+      expect(preview).toMatchObject({ deletedIds: [doomed.id], dryRun: true });
+
+      const rows = await rowsById();
+      expect(rows.get(doomed.id)?.status).toBe("staged");
+    });
+
+    it("refuses a stale version rather than reporting a delete that would fail", async () => {
+      const row = await stage({
+        type: "withdrawal",
+        date: "2026-02-05",
+        payee: "Dry run stale",
+        amount: "6.00",
+        fromAccountId: accountId,
+      });
+      await expect(
+        deleteStages(actor, {
+          stagedIds: [row.id],
+          expectedVersions: { [row.id]: row.version + 5 },
+          dryRun: true,
+        }),
+      ).rejects.toThrow();
+    });
+
+    /**
+     * Two structures describing one set, and the map is the half that can be
+     * short. An id with no entry used to compare `undefined` against the row's
+     * version and come back as a version conflict — safe, and the wrong fault
+     * named: nothing had gone stale, and a caller told to read the row again
+     * and retry sends the same incomplete payload straight back.
+     */
+    it("names the row whose version is missing rather than calling it stale", async () => {
+      const named = await stage({
+        type: "withdrawal",
+        date: "2026-02-07",
+        payee: "Missing version",
+        amount: "8.00",
+        fromAccountId: accountId,
+      });
+      const other = await stage({
+        type: "withdrawal",
+        date: "2026-02-07",
+        payee: "Has a version",
+        amount: "9.00",
+        fromAccountId: accountId,
+      });
+      await expect(
+        deleteStages(actor, {
+          stagedIds: [other.id, named.id],
+          expectedVersions: { [other.id]: other.version },
+        }),
+      ).rejects.toMatchObject({
+        code: "VALIDATION_ERROR",
+        details: { stagedId: named.id },
+      });
+      expect((await rowsById()).get(named.id)?.status).toBe("staged");
+    });
+
+    // A superset is not a disagreement: naming a version for a row the caller
+    // did not select harms nothing, and refusing it would break a request that
+    // works today for no gain. `mergeCategories` accepts one too.
+    it("accepts versions for rows it was not asked to delete", async () => {
+      const row = await stage({
+        type: "withdrawal",
+        date: "2026-02-08",
+        payee: "Superset map",
+        amount: "10.00",
+        fromAccountId: accountId,
+      });
+      const spare = await stage({
+        type: "withdrawal",
+        date: "2026-02-08",
+        payee: "Not selected",
+        amount: "11.00",
+        fromAccountId: accountId,
+      });
+      const result = await deleteStages(actor, {
+        stagedIds: [row.id],
+        expectedVersions: { [row.id]: row.version, [spare.id]: spare.version },
+      });
+      expect(result).toMatchObject({ deletedIds: [row.id] });
+      expect((await rowsById()).get(spare.id)?.status).toBe("staged");
+    });
+
+    // The same id twice used to arrive as one row short of the count and be
+    // reported as a row that could not be found, which sends the caller looking
+    // for a row that is there.
+    it("refuses a repeated id as a duplicate rather than as a missing row", async () => {
+      const row = await stage({
+        type: "withdrawal",
+        date: "2026-02-09",
+        payee: "Named twice",
+        amount: "12.00",
+        fromAccountId: accountId,
+      });
+      await expect(
+        deleteStages(actor, {
+          stagedIds: [row.id, row.id],
+          expectedVersions: { [row.id]: row.version },
+        }),
+      ).rejects.toMatchObject({
+        code: "VALIDATION_ERROR",
+        details: { stagedId: row.id },
+      });
+      expect((await rowsById()).get(row.id)?.status).toBe("staged");
+    });
+
+    it("still deletes when the dry run is not asked for", async () => {
+      const row = await stage({
+        type: "withdrawal",
+        date: "2026-02-06",
+        payee: "Dry run then real",
+        amount: "7.00",
+        fromAccountId: accountId,
+      });
+      const result = await deleteStages(actor, {
+        stagedIds: [row.id],
+        expectedVersions: { [row.id]: row.version },
+      });
+      expect(result).toMatchObject({ dryRun: false });
+      expect((await rowsById()).get(row.id)?.status).toBe("deleted");
+    });
   });
 
   it("leaves the queue readable afterwards", async () => {

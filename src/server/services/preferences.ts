@@ -19,9 +19,18 @@ export const preferenceSchema = z.object({
       } catch {
         return false;
       }
-    }, "Timezone is not recognized"),
-  defaultCurrency: currencyCodeSchema,
-  theme: z.enum(themes),
+    }, "Timezone is not recognized")
+    .describe(
+      "An IANA timezone name such as Europe/London. It decides what today means everywhere a date is worked out: which day an open-ended range stops at, and which day an entry dated today lands on.",
+    ),
+  defaultCurrency: currencyCodeSchema.describe(
+    "The currency a new account and a new entry start in. It is a default and nothing else: it changes no figure already recorded, and the person may change it whenever they like.",
+  ),
+  theme: z
+    .enum(themes)
+    .describe(
+      "system, light or dark. `system` follows the person's own machine and is the only one that keeps following it when they change it. Set it only when asked to: it is what their screen looks like and you cannot see it.",
+    ),
 });
 
 /**
@@ -89,14 +98,8 @@ export const preferencePatchSchema = preferenceSchema.partial();
  */
 const adoptionSchema = z.object({ ifUnchosen: z.boolean().optional() });
 
-export async function setPreferences(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
-  const { ifUnchosen } = adoptionSchema.parse(
-    input && typeof input === "object" ? input : {},
-  );
+export async function setPreferences(actor: Actor, input: unknown, transaction?: DbTransaction) {
+  const { ifUnchosen } = adoptionSchema.parse(input && typeof input === "object" ? input : {});
   // Takes a transaction rather than always opening one, like every other write
   // here. Opening its own inside a caller's would take a second connection out
   // of the pool and commit on its own terms.

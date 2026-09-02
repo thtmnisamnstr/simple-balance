@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useRef, useState } from "react";
 import { BarChart, ChartLegend, LineChart } from "../charts.js";
 import { api, queryString, type Report } from "../api.js";
 import {
@@ -6,14 +7,11 @@ import {
   DateRangeBar,
   EmptyState,
   PageHeader,
+  RowMenu,
   Select,
   Skeleton,
 } from "../components.js";
-import {
-  formatDate,
-  formatMoney,
-  isNegativeMoney,
-} from "../money.js";
+import { formatDate, formatMoney, isNegativeMoney, sumMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { Link, useLocation, useParams, useSearchParams } from "../router.js";
 import { reportBuckets, reportNames, type ReportName } from "../../shared/domain.js";
@@ -30,8 +28,7 @@ const TITLES: Record<ReportName, string> = {
 const BLURBS: Record<ReportName, string> = {
   "net-worth": "What your accounts held at the end of each period.",
   "income-expense": "What came in and what went out over each period.",
-  categories:
-    "Where the money went and where it came from, by what you filed it under.",
+  categories: "Where the money went and where it came from, by what you filed it under.",
   "cash-flow":
     "Movements in and out of the accounts you can spend from, by where the money came from and went to.",
   "balance-sheet": "What every account holds, as of one date.",
@@ -58,6 +55,26 @@ export default function ReportsPage() {
   const [params, setParams] = useSearchParams();
   const bucket = params.get("bucket") ?? "";
   const includeArchived = params.get("archived") === "1";
+  /**
+   * Categories left out of THIS VIEW, keyed by row. A view choice, not a
+   * change to anything stored: the server's report is untouched, an agent
+   * asking over MCP sees every category, and navigating away forgets it.
+   * Excluding the one huge category (rent, a tax bill) is what makes the
+   * remaining lines readable, which is the whole reason it exists.
+   */
+  const [exclusions, setExclusions] = useState<{ report: ReportName; map: Map<string, string> }>({
+    report,
+    map: new Map(),
+  });
+  // Excluding removes the row the control sat on, and restoring removes the
+  // pill: both would otherwise strand keyboard focus on <body>.
+  const exclusionsNote = useRef<HTMLParagraphElement>(null);
+  // Derived, not effect-synced: a set left over from another visit to the
+  // categories tab must not silently thin THIS visit's rows either, so any
+  // report switch reads as empty and the state is re-keyed on the next write.
+  const excluded = exclusions.report === report ? exclusions.map : new Map<string, string>();
+  const setExcluded = (map: Map<string, string>) => setExclusions({ report, map });
+  const excludable = report === "categories";
 
   const query = useQuery({
     queryKey: ["report", report, start, end, bucket, includeArchived],
@@ -108,11 +125,7 @@ export default function ReportsPage() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Reports"
-        title={TITLES[report]}
-        description={BLURBS[report]}
-      />
+      <PageHeader eyebrow="Reports" title={TITLES[report]} description={BLURBS[report]} />
 
       <nav className="report-tabs" aria-label="Reports">
         {reportNames.map((name) => (
@@ -170,11 +183,49 @@ export default function ReportsPage() {
 
       {report === "cash-flow" ? (
         <Alert kind="info">
-          Cash flow will not match income and expenses, and the gap is widest if
-          you use a credit card. A card purchase is an expense the day you make
-          it; the cash leaves when you pay the bill, in a different period and
-          under borrowing and repaying. Both figures are right.
+          Cash flow will not match income and expenses, and the gap is widest if you use a credit
+          card. A card purchase is an expense the day you make it; the cash leaves when you pay the
+          bill, in a different period and under borrowing and repaying. Both figures are right.
         </Alert>
+      ) : null}
+
+      {excludable && excluded.size ? (
+        <p className="report-exclusions" tabIndex={-1} ref={exclusionsNote}>
+          Left out of this view:{" "}
+          {[...excluded.entries()].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className="link-button"
+              aria-label={`Put ${label} back`}
+              onClick={() => {
+                const next = new Map(excluded);
+                next.delete(key);
+                setExcluded(next);
+                requestAnimationFrame(() => {
+                  // The note survives while pills remain; when the last one
+                  // goes, the current report tab is the honest landing.
+                  if (next.size) exclusionsNote.current?.focus();
+                  else document.querySelector<HTMLElement>(".report-tabs .is-current")?.focus();
+                });
+              }}
+            >
+              {label} ×
+            </button>
+          ))}{" "}
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              setExcluded(new Map());
+              requestAnimationFrame(() =>
+                document.querySelector<HTMLElement>(".report-tabs .is-current")?.focus(),
+              );
+            }}
+          >
+            Put all back
+          </button>
+        </p>
       ) : null}
 
       {query.error ? <Alert>{query.error.message}</Alert> : null}
@@ -196,16 +247,32 @@ export default function ReportsPage() {
       ) : (
         <div className="currency-sections">
           {data.currencies.map((currency) => {
-            const series = currency.rows.map((entry) => ({
+            const rows = excludable
+              ? currency.rows.filter((entry) => !excluded.has(entry.key))
+              : currency.rows;
+            // Recomputed from the rows on screen — exactly, over the decimal
+            // strings — because a footer summing rows the view has hidden
+            // would disagree with every column above it.
+            const totals =
+              excludable && excluded.size
+                ? currency.totals.map((_, position) =>
+                    sumMoney(rows.map((entry) => entry.values[position] ?? "0")),
+                  )
+                : currency.totals;
+            const series = rows.map((entry) => ({
               key: entry.key,
               label: entry.label,
               values: entry.values,
+              // The colour it had before anything was excluded, so a line
+              // does not change clothes at exactly the moment somebody is
+              // comparing the view with and without a category.
+              paint: currency.rows.indexOf(entry),
             }));
             return (
               <section className="panel" key={currency.currency}>
                 <div className="panel-header">
                   <h2>{currency.currency}</h2>
-                  <span>As of {data.asOf}</span>
+                  <span>As of {formatDate(data.asOf)}</span>
                 </div>
 
                 {plotted ? (
@@ -250,16 +317,46 @@ export default function ReportsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {currency.rows.map((entry) => (
+                      {rows.map((entry) => (
                         <tr key={entry.key}>
-                          <th scope="row">
-                            {entry.label}
-                            {/* A balance report keeps a closed account's
-                                history, so without saying so its past reads as
-                                money still held. */}
-                            {entry.archived ? (
-                              <span className="row-note"> (closed)</span>
-                            ) : null}
+                          {/* Named as the label alone: content naming would
+                              read every rowheader as "Rent Actions for Rent",
+                              the menu's own label included. The menu button
+                              keeps its name for when it is reached. */}
+                          <th scope="row" aria-label={excludable ? entry.label : undefined}>
+                            {excludable ? (
+                              <span className="report-row-heading">
+                                <span>
+                                  {entry.label}
+                                  {entry.archived ? (
+                                    <span className="row-note"> (closed)</span>
+                                  ) : null}
+                                </span>
+                                <RowMenu label={`Actions for ${entry.label}`}>
+                                  <button
+                                    onClick={() => {
+                                      setExcluded(new Map(excluded).set(entry.key, entry.label));
+                                      // The row this control lived on is
+                                      // leaving; the pills that undo it are
+                                      // where a keyboard user lands.
+                                      requestAnimationFrame(() => exclusionsNote.current?.focus());
+                                    }}
+                                  >
+                                    Exclude from this view
+                                  </button>
+                                </RowMenu>
+                              </span>
+                            ) : (
+                              <>
+                                {entry.label}
+                                {/* A balance report keeps a closed account's
+                                    history, so without saying so its past reads
+                                    as money still held. */}
+                                {entry.archived ? (
+                                  <span className="row-note"> (closed)</span>
+                                ) : null}
+                              </>
+                            )}
                           </th>
                           {entry.values.map((value, position) => (
                             <td
@@ -286,7 +383,7 @@ export default function ReportsPage() {
                               ? "Total held"
                               : "Net"}
                         </th>
-                        {currency.totals.map((value, position) => (
+                        {totals.map((value, position) => (
                           <td
                             className={`align-right${isNegativeMoney(value) ? " money-negative" : ""}`}
                             key={data.buckets[position]?.start ?? position}

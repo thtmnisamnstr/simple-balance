@@ -164,19 +164,6 @@ defer this.
 The cost is the execution path rather than the schedule arithmetic. There is no
 scheduler here at all today — no cron, no `setInterval`, no worker, nothing.
 
-**Shipped as.** The scheduler runs inside the server process and is on by
-default, so the documented single container keeps working with nothing added to
-it. `RECURRENCE_SCHEDULER=false` turns it off on replicas that serve the API,
-which is what a Kubernetes deployment does when it runs the scheduler container
-from `deploy/docker/scheduler.Dockerfile`. Every replica sweeps the due list and
-claims each recurrence with `for update skip locked`, so they divide the work
-rather than wait on one another, and a per-occurrence unique key refuses a
-second proposal of the same date even if a claim were bypassed entirely.
-
-No holiday calendar. A business day means Monday to Friday, said in the tool
-description and beside the weekend-policy picker, because per-country holiday
-data ageing inside a container nobody updates is worse than not having it.
-
 **Acceptance criteria**
 
 - A recurrence names a shape, its accounts, an optional amount, a schedule, and
@@ -192,6 +179,35 @@ data ageing inside a container nobody updates is worse than not having it.
   the row anyway, flagged, rather than failing silently
 - Deleting a recurrence leaves rows already proposed or committed untouched
 - Reachable over MCP under the same scope rules as everything else
+
+**How it was met**
+
+The scheduler runs inside the server process and is on by default, so the
+documented single container keeps working with nothing added to it.
+`RECURRENCE_SCHEDULER=false` turns it off on replicas that serve the API, which
+is what a Kubernetes deployment does when it runs the scheduler container from
+`deploy/docker/scheduler.Dockerfile`. Every replica sweeps the due list and
+claims each recurrence with `for update skip locked`, so they divide the work
+rather than wait on one another, and a per-occurrence unique key refuses a
+second proposal of the same date even if a claim were bypassed entirely.
+
+A recurrence naming an account that has since been archived or deleted proposes
+its row anyway, with the issue against the field at fault rather than against the
+draft as a whole. Nobody was watching when it fired, so the row itself has to say
+what to fix.
+
+Two decisions worth writing down rather than leaving implied:
+
+- **No holiday calendar.** A business day means Monday to Friday, said in the
+  tool description and beside the weekend-policy picker, because per-country
+  holiday data ageing inside a container nobody updates is worse than not having
+  it.
+- **A proposed row points back at its recurrence and is not owned by it.**
+  `staged_transaction.recurrence_id` carries no foreign key, so deleting a
+  recurrence leaves every row it already proposed alone. Two check constraints
+  keep the provenance honest instead: `recurrence_id` and `occurrence_date` are
+  null together or not at all, and a row may not claim both a recurrence and a
+  bank import batch.
 
 ## SB-018 — Reporting — **done**
 
@@ -266,42 +282,189 @@ strict double-entry tool ships. The balance sheet is net worth with one column,
 and the trial balance is the same query with the counter-accounts left in, so
 both were nearly free once the engine existed.
 
-## SB-019 — Budgeting
+## SB-019 — Budgeting — **done**
 
-**Priority 190. Depends on SB-018.**
+**Priority 190. Depends on SB-018. Built, unreleased, and carrying migration
+0013.** The first of six. SB-025 to SB-029 are the other five and are all built,
+carrying migrations 0014 to 0019 between them, with 0020 adding the indexes the
+audit priced.
 
-Which kind is undecided, and there is a case for supporting both. They are
-different enough to need naming.
+Every kind of budgeting, from one model. That sounds like scope and it is
+mostly arithmetic: of the sixteen rows in the table below, four need no storage
+at all, five are one column each, two share a column, the sinking fund takes
+two, and the rest are the same two tables — and the group table — read
+differently. The expensive decision was never which methods to support. It was
+whether an assignment is a posting, and it is not.
 
-**Category limits** — a cap per category per period, and a bar showing spending
-against it. Monarch, Simplifi, and Copilot work this way. It is an overlay on
-figures SB-018 already computes: no new posting type, no new accounting concept,
-and a limit that is deleted leaves nothing behind.
+**A method is not a mode anybody picks.** There is no method chooser and the
+word does not appear in the product. Set two hundred a month on Groceries and
+that is a category limit, without hearing a name for it. Turn rollover on for
+that category and it is an envelope. Set its amount from a rule instead of a
+number and it is a trailing average. Put it in a group with a percentage and
+that group is 50/30/20. The unit of choice is the category, because a global
+mode forces a durable selector, a migration path, and a totals row that means
+two different things depending on it.
 
-**Zero-based envelopes** — income is assigned to categories before it is spent,
-and what is unspent rolls into next month. YNAB, EveryDollar, and Actual work
-this way, and for the people who want it, it is the product rather than a
-feature of it. In double-entry an envelope is an equity sub-account and
-assigning to it is a transfer, which is how plain-text accounting has always
-done it. That is real modelling: a second dimension over the ledger, a monthly
-rollover, and a second mental model to explain.
+### The fourteen methods, and where each one went
 
-Sequence matters. Category limits first leaves the door open to envelopes;
-starting with envelopes does not leave the door open to anything, because the
-envelope model swallows the simpler one.
+Sixteen rows for fourteen named methods, because the build added two the survey
+had folded into others: an amount for one period only, and 50/30/20 as a
+reading of three groups.
 
-**Acceptance criteria**
+All six stories are built, so the claim at the top of this section can be
+checked rather than promised. Nothing below is a mode: each is what the product
+does when a plan carries a particular parameter.
+
+| Method | How it is done | What it needed |
+| --- | --- | --- |
+| A limit per category per period | A plan with an amount | SB-019 |
+| An amount for one period only | A `budget_entry` | SB-019 |
+| Rollover budgeting | `rollover` on the plan | SB-025, one column |
+| A cap on what carries | `rollover_cap` | SB-025, one column |
+| Sinking funds | `target_amount` with `target_date` | SB-025, two columns |
+| Trailing average | `rule_lookback` | SB-026, one column |
+| Incremental budgeting | `rule_percent` as a step on the period before | SB-026, shares a column |
+| Percent-of-income | `rule_percent` as a share of the period before's income | SB-026, shares a column |
+| Priority-order funding | `priority` | SB-026, one column |
+| Pay yourself first | A savings category ranked first | SB-026, no storage |
+| Anti-budget | Budget the savings and rank it first; leave the rest unbudgeted | No storage |
+| Bucket and flex budgeting | A group with its own budget | SB-027 |
+| 50/30/20 | Three groups, each with its own budget | SB-027, no extra storage |
+| Hierarchical budgeting | A group budgeted as the sum of its categories | SB-027 |
+| Zero-based envelopes | Rollover, plus what is left to assign | SB-028, one column |
+| Forecasting | A projection over recurrences and plans | SB-029, no storage |
+
+Four need no storage at all, five are one column each, two share a column, the
+sinking fund takes two, and the rest are the same two tables — and the group
+table — read differently: which is what "mostly arithmetic" meant when this
+section was written before any of it existed.
+
+### The model
+
+**As designed, across the six stories.** `budget_plan` is the standing
+instruction for one target: how the amount is decided, whether it rolls over,
+its funding priority, and the window it is active in. One row covers every
+period, so nothing is materialised and no scheduler writes a budget figure.
+`budget_entry` is an explicit amount for one target in one period, which is the
+exception rather than the rule: three hundred for December only is a row, two
+hundred a month is not. `category_group` is one level of grouping, and a target
+is a category or a group, never both.
+
+Resolving an amount is three lines. An explicit entry wins; otherwise the plan's
+rule is evaluated; otherwise nothing is budgeted and the row shows what was
+spent against no limit.
+
+**As built, in this story.** `budget_plan` carried the amount, the period unit,
+the currency and the window, and nothing else: no rule column, no rollover flag,
+no priority. `budget_entry` was the per-period override, as designed. There was
+no `category_group` table. Resolving an amount was therefore two of the three
+lines — an explicit entry wins, otherwise the plan's amount, otherwise nothing
+is budgeted.
+
+**As built across all six.** The third line arrived with SB-026, and the model
+is now the one this section describes: a plan says how the amount is decided
+(fixed, a trailing average, last period plus a percentage, a share of income, or
+a sinking fund's own arithmetic), whether it rolls over and how far, its funding
+priority, and the window it is active in. A target is a category or a group.
+`category_group` exists with the one-level rule and the two policies. Nothing
+materialises a period, nothing stores a carry, and no budget figure comes from
+anywhere but plans, entries and postings.
+
+### An assignment is not a posting
+
+The acceptance criteria below used to say it was. That was written when
+envelopes were hypothetical, and it is wrong.
+
+Actual Budget implements the whole YNAB model with no postings and no stored
+balance, and fava-envelope does the same inside a real double-entry journal. The
+one system that does post assignments, refried, documents what it costs: the
+movements "will wreak havoc with your (non-budgeting) expense reports", so every
+assignment carries an automatic tag and ordinary reports exclude it. This ledger
+would inherit that exclusion on every report built after this story, and a trial
+balance that excluded something would not be a trial balance.
+
+The schema also refuses the specific shape. `ledger_account_system_kind_unique`
+permits one equity account per user per currency, accounts have no parent
+column, and no transaction may name a counter-account as a side. Envelopes as
+equity sub-accounts means amending an index from the initial migration and
+relaxing a rule recorded as non-negotiable. It would also cost the property that
+relabelling a leg writes no postings, because depleting an envelope by posting
+would make recategorising write compensating postings.
+
+The justification the plan rested on does not hold either. Equity sub-accounts
+are not how plain-text accounting has always done it: hledger's three placements
+are real accounts, virtual subaccounts of a real account, and virtual accounts
+off to the side, and the only primary source using equity is the Ledger manual,
+which uses balanced virtual postings behind a `--real` escape hatch this ledger
+does not have.
+
+The counter-argument is real and is recorded rather than dropped. Postings would
+put an envelope balance in the trial balance and in the audit log as a movement,
+and for a product whose argument is auditability that is a genuine benefit. It
+is a choice, and the evidence runs the other way.
+
+### What refunds cost, settled first
+
+A budget that cannot see a refund is wrong in the way somebody notices first,
+and until this story the ledger could not represent one: a deposit's other half
+always credited income, so thirty pounds back from the shop raised income
+instead of lowering groceries.
+
+Settled before any budget code, as its own change. A deposit credits income and
+a withdrawal debits expense only when no category contradicts it. A category
+whose kind runs against the direction makes the entry a refund, and its other
+half goes to the counter-account the direction would not have chosen. The rule
+is one function the browser previews and the services enforce. An entry naming
+an income category and an expense category at once is refused, because two
+counter-accounts would be two movements and only one of them is the one somebody
+entered, and a bulk edit will not turn rows into refunds for the same reason it
+will not flatten a split.
+
+Nothing in the reports needed changing, which is the part worth recording. Both
+counter-accounts already segment as operating in the cash flow statement, and
+spending by category already sums signed postings, so a refund lowers the
+category it came from without any figure being taught what a refund is.
+
+### Acceptance criteria
 
 - A limit is set per category per period and compared against spending computed
   the same way the reports compute it
 - Deleting or archiving a category leaves no orphaned limit, and a limit is
   never a reason a category cannot be deleted
 - Nothing in this story writes a posting, and no budget figure is derived from
-  anything except postings and the limits themselves
-- Where envelopes ship, an assignment is a posting like any other, subject to
-  zero-sum validation, and the rollover is an ordinary dated transaction rather
-  than a stored running total
+  anything except postings, plans and entries
+- An assignment is not a posting, and a rollover is derived rather than stored
+- A standing budget needs no row per period and nothing materialises one
 - Reachable over MCP, reads and writes on the same scope rules as everything else
+
+**How it was met**
+
+The budget is a standing instruction and the period is the unit. A plan covers
+every period in its window from one row, both ends snapped to whole periods in
+PostgreSQL rather than in JavaScript, so a limit and the spending it is compared
+against cannot land on different months. Nothing materialises a period and no
+scheduler writes a budget figure, which is what makes an open-ended budget one
+row rather than one row a month for ever.
+
+Spending is the reports' own query. It sums signed postings on the expense
+counter-account over the same `date_trunc` grid the reports bucket by, so a
+refund is negative and lowers the category it came back to, a split attributes
+each leg through its own `leg_id`, and a transfer contributes nothing — none of
+which needed a rule of its own, because none of them is a special case once the
+figure comes from postings.
+
+Two decisions worth writing down rather than leaving implied:
+
+An assignment is not a posting, and the acceptance criteria above used to say it
+was. Actual Budget implements the whole YNAB model with no postings, and the one
+system that does post assignments documents what it costs. This ledger would
+have inherited that cost on every report built after this story.
+
+Archived accounts are counted, unlike every other report. Elsewhere an archived
+account's balance is closed out and leaving it in would double count; a budget
+was never scoped to an account, so money spent on a card since closed is money
+the budget covered, and filtering it makes a budget spent to the penny read as
+underspent.
 
 ## SB-020 — Widen what an agent may propose
 
@@ -464,6 +627,253 @@ for the once-a-year case where the books and the statement have quietly drifted.
   date, never as an edit to anything already there
 - A completed reconciliation is a record, and reopening one is itself recorded
 - Balances and reports are unaffected except by the adjusting entry
+
+## SB-025 — Rollover and sinking funds — **done**
+
+**Priority 250. Depends on SB-019. Built, unreleased, and carrying migration
+0014.**
+
+Two columns on the plan and a fold at read time. Unspent money carries forward,
+overspending carries forward as a debt, and a cap stops either running away. A
+sinking fund is the same machinery with a target and a date, funding itself over
+the periods remaining.
+
+This is the first budget figure that depends on more than one period, which
+means a back-dated correction changes every later period. That is correct and it
+will surprise people, so the page says so.
+
+**It does not ship without a measurement.** The reporting work priced its
+queries against a hundred thousand postings on PostgreSQL 15 and 16, with plan
+assertions that answer whether an index can serve a query rather than whether
+the planner bothers on a handful of rows. The research behind this story did not
+meet that standard and said so. If the recursive CTE will not hold, the fallback
+is a bounded window with the bound stated on the page, and never a cache.
+
+**How it was met**
+
+The fold is not a recursive CTE and not a cache. It is one widened read and a
+loop: the report already asks for spending and limits per period, so a carry
+asks for the same thing over more periods and walks them in order. Each period's
+available money is its own limit plus what the period before handed it; what it
+does not spend it hands on; what it overspends it hands on as a debt. Nothing is
+stored, so turning rollover off leaves no rows behind and no figure to recompute
+— which is also what lets a back-dated correction change every later period
+correctly rather than only the one it landed in.
+
+**The bound is the fallback the story named, and it is stated.**
+`MAX_ROLLOVER_PERIODS` is 120, so a fold reaches ten years of months or two and
+a half of weeks before it stops, and a report that stopped there says so in
+`rollover.clipped` and on the page. Ten years of months over a hundred thousand
+postings costs **292ms** on the development machine, and
+`tests/integration/budgets-scale.integration.test.ts` holds the shape rather
+than that number: the spending behind a folded report comes from one indexed
+pass with no `SubPlan`, which is what a per-period subquery would look like from
+the database's side, and the carry it produces is checked against the ledger's
+own sum rather than against a number somebody typed.
+
+A sinking fund is the same fold with the amount worked out instead of read: what
+is still needed, over the periods left before the target date. Nothing about it
+is a mode anybody picks. A budget with a target and a date is a sinking fund
+because of what it says, and the stored `amount_rule` column is derived from
+that rather than chosen — the word "method" appears nowhere on the page, which
+is the rule SB-019 set for all six of these stories.
+
+Three refusals rather than three silent behaviours: a fund whose rollover is off
+(it would save nothing), a fund with an amount beside its target (a number
+nothing reads), and a cap on a budget that carries nothing. Each says which half
+is missing.
+
+## SB-026 — Derived amounts — **done**
+
+**Priority 260. Depends on SB-019. Built, unreleased, and carrying migration
+0015.**
+
+A trailing average of what was actually spent, last period plus a percentage, a
+share of income, and a funding order for when there is not enough to go round.
+Two columns and a small evaluator over aggregates the reports already compute.
+
+Deliberately few, and typed rather than a language. Actual built a template
+grammar in a free-text field and is migrating away from it. The position here is
+already that the agent is the rules engine, and a stage-scoped agent proposing a
+limit from a trailing window is the most natural thing on this surface.
+
+**How it was met**
+
+Two columns, as designed: a lookback and a percentage, with the rule derived
+from whichever one the row carries. Three rules and no chooser — a lookback is a
+trailing average, a percentage of the last period is an incremental budget, a
+percentage of income is a share of what came in — and naming two of them is
+refused rather than resolved, because a row that named both would have to decide
+which one it meant.
+
+The evaluator is a `switch` in the same fold SB-025 built, over aggregates the
+report already reads. A trailing average uses the finished periods before this
+one and never this one, or a budget would chase the spending it is meant to be
+measuring; it averages the periods that exist rather than treating the ones
+before the budget started as zeroes. An incremental budget compounds on the
+period before rather than on the original amount. A share of income takes the
+period before, because a share of a period still running is a figure that
+changes every time somebody looks at it.
+
+An amount somebody typed for one period beats every rule, and the chain carries
+on from what they typed. That falls out of the fold reading the resolved limit
+rather than the plan's column, and it is the behaviour anybody would expect from
+an override that did not have to be argued for.
+
+**The funding order is the fourth rule, and the one with an opinion.** Lower
+goes first; zero means unranked, and unranked is funded last — because a funding
+order names what comes first, and every budget in a ledger that never used the
+feature defaults to zero. Whether a period funds anything is answered per period
+rather than per report, so a priority set on a budget starting in June says
+nothing about March. A ledger that never ranked anything gets `funded: null` and
+no shortfall figure at all: a report that told everybody their budgets were
+unfunded because income landed in a different period would be true, useless and
+alarming.
+
+## SB-027 — Category groups — **done**
+
+**Priority 270. Depends on SB-019. Built, unreleased, and carrying migration
+0016.**
+
+One level. A category belongs to at most one group, and a group may hold a
+budget of its own, which is what bucket budgeting, flex budgeting and 50/30/20
+are.
+
+Whether a group's budget stands alone or is the sum of its children is declared
+on the group. Monarch's is standalone and hledger's is the sum, both are
+defensible, and the failure is picking one silently.
+
+Arbitrary depth is refused. hledger shows what it costs: spending in an
+unbudgeted grandchild rolls up to the nearest budgeted ancestor, and the totals
+stop agreeing with themselves. One level has no grandchild, so there is nothing
+to misattribute.
+
+**How it was met**
+
+A `category_group` table, a nullable `group_id` on a category, and a budget
+target that is a category or a group and never both. The policy is declared when
+the group is created and has no default, because the whole point of writing this
+story down was that having Monarch's behaviour and expecting hledger's is a page
+of figures all wrong in the same direction. A `sum_of_children` group is refused
+a budget of its own: it already has an amount, and a second one would have an
+equal claim to be the group's with nothing on the page able to say which was
+being shown.
+
+A group's line sits beside the category rows rather than among them. Both are
+readings of the same money, so a period's `budgeted` and `spent` count the
+category rows alone and no total counts a grocery bill twice.
+
+**The one place this departs from the composite-key habit**, and it is written
+where somebody will hit it: a category's group is a single-column foreign key.
+`on delete set null` nulls *every* column of the constraint it is on, so the
+usual `(user_id, id)` pair would null the tenant as well and fail against
+`user_id not null`. PostgreSQL 15 can name the column to clear and Drizzle
+cannot emit that, so the tenant check moved to `resolveCategoryGroup`, on the
+one path that writes the column, with
+`tests/integration/tenant-isolation.integration.test.ts` holding it there.
+
+A group's history follows its current members: moving a category into a group
+changes what that group spent last March too. Dating the membership would be a
+second history to keep straight for a figure nothing reconciles against, and
+what makes the choice safe is that no money moves — the categories' own rows are
+untouched and the ledger says exactly what it said before.
+
+Deleting a group leaves every category exactly where it was and takes the
+group's own budget with it. Both fall out of the foreign keys rather than out of
+a sweep somebody has to remember, which is what keeps them true of a delete that
+arrives from anywhere.
+
+## SB-028 — Envelopes — **done**
+
+**Priority 280. Depends on SB-025 and SB-027. Built, unreleased, and carrying
+migration 0017.**
+
+Income assigned to categories before it is spent, and what is unspent rolls
+forward. It is SB-025's fold read differently, plus one figure: what is left to
+assign.
+
+That figure needs a perimeter, and the perimeter includes credit cards. A card
+sits outside the cash flow statement's set deliberately, but leaving it out here
+would mean spending on a card empties an envelope while no cash leaves the
+perimeter, so the product would say there is more money than there is. Each
+account can be taken out of the perimeter, and the page explains why the figure
+sits below the bank balance.
+
+**How it was met**
+
+One column — `ledger_account.in_budget`, on by default and on for cards — and
+one figure. What is left to assign is what the perimeter held at the end of the
+period, less every envelope with money still in it. An overspent envelope claims
+nothing, because the money has already left the accounts and counting it again
+would take it twice.
+
+An envelope is a budget that carries, so this story added no new kind of budget:
+it is SB-025's fold read differently, exactly as the plan said. A budget that
+does not carry is a limit rather than a claim on cash, which is why a ledger
+with no envelopes is told nothing about assigning rather than being told its
+whole balance is unassigned.
+
+The perimeter balance is a running total over the same grid the rest of the
+report uses, with everything before the window folded into its first bucket, so
+it is a real balance rather than a balance of the window — and it is one pass
+rather than a correlated subquery per period, which is the shape this repository
+prices out of its reports.
+
+## SB-029 — Forecast — **done**
+
+**Priority 290. Depends on SB-016 and SB-025. Built and unreleased. It carries
+no migration: a projection stores nothing.**
+
+Balances projected forward from the recurrences already generating dated
+occurrences and the plans already saying what each period intends.
+
+Money dated in the future has not moved. So this is a projection surface with
+its own vocabulary, and no figure it produces may reach a balance, a report
+total, or the trial balance. That is the invariant this story is at risk of, and
+it gets a test rather than a paragraph.
+
+**How it was met**
+
+`tests/forecast-boundary.test.ts` is the paragraph made mechanical. Nothing
+outside the two transports may import the forecast, so no balance and no report
+can hold one of its figures; the service writes nothing at all, so no projection
+can become a posting; and a field with `balance` in its name has to be either
+the one fact in the reply — what the accounts hold today — or explicitly
+`projectedBalance`.
+
+The two sources are kept apart because they overlap. A recurrence is a dated
+intention with an amount and projects directly; a budget is what a period
+intends to spend, and most of that is already covered by the recurrences that
+pay it. Counting both would spend the rent twice. So the projection is the
+recurrences, `basis: "recurring_and_budgets"` adds only the part of each
+category's budget its recurrences do not cover, and the budgeted figure is
+reported either way — a period whose budgets dwarf its recurrences is a period
+whose projection is optimistic, and nothing else on the page says so.
+
+Two smaller decisions worth recording. A recurrence with no amount is a real
+schedule with no figure: it comes back in `unprojectable` with the reason,
+because counting it as nothing would quietly flatter every period it falls in. A
+transfer between two accounts in one currency changes no total in that currency
+and is counted nowhere; across currencies it uses the schedule's own destination
+amount, because this ledger holds no exchange rate of its own and a projection
+is not the place to invent one.
+
+## SB-030 — Programmatic HTTP access
+
+**Priority 300. Depends on nothing in the budgeting arc.**
+
+`/api/v1` authenticates with a cookie and nothing else, and every state-changing
+request must be same-origin and declare JSON, so nothing outside a browser can
+reach it. That was a reasonable place to stop while MCP was the answer for
+programmatic access, and it stops being one the moment the HTTP contract is
+documented as public.
+
+The cheap correct version reuses what is already here: accept the OAuth bearer
+tokens the MCP server issues, on the same three scopes, with the actor's source
+distinguishing them in the audit log. No second authentication system and no new
+token format. The same-origin requirement then applies to cookie-authenticated
+requests, which is where it belongs, because a bearer request carries no ambient
+credential for another site to forge.
 
 ---
 

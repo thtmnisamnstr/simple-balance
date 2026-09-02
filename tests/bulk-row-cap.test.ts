@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { readFile } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  CSV_EXPORT_MAX_ROWS,
   DEFAULT_CSV_MAX_ROWS,
   MAX_CSV_CONFIGURATION_ROWS,
   configuredCsvMaxRows,
@@ -44,9 +46,21 @@ describe("the row cap every bulk path shares", () => {
     expect(MAX_CSV_CONFIGURATION_ROWS).toBe(MAX_BULK_SELECTION_ENTRIES);
   });
 
-  it("cannot be configured above the cap", () => {
+  // Asking for more than the cap used to be reduced to it in silence, so a
+  // deployment asking for a hundred thousand rows ran on ten thousand and was
+  // told nothing. The number it can have is unchanged; what changed is that
+  // asking for more says so by name, at startup, rather than being a limit
+  // nobody chose. It still runs on the cap: a tuning knob is not worth an
+  // outage, and refusing here would have stopped a deployment on upgrade over a
+  // value the previous release accepted.
+  it("is held to the cap, and says so, when a deployment asks for more", async () => {
+    vi.resetModules();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     process.env.CSV_MAX_ROWS = String(MAX_BULK_SELECTION_ENTRIES * 10);
-    expect(configuredCsvMaxRows()).toBe(MAX_BULK_SELECTION_ENTRIES);
+    const limits = await import("../src/server/config-limits.js");
+    expect(limits.configuredCsvMaxRows()).toBe(limits.DEFAULT_CSV_MAX_ROWS);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("CSV_MAX_ROWS"));
+    warn.mockRestore();
   });
 
   it("can still be lowered by a deployment", () => {
@@ -58,12 +72,8 @@ describe("the row cap every bulk path shares", () => {
     ["transactions", bulkTransactionSelectionSchema],
     ["staged rows", bulkStageSelectionSchema],
   ])("refuses a %s filter selection claiming more than the cap", (_label, schema) => {
-    expect(schema.safeParse(filterSelection(MAX_BULK_SELECTION_ENTRIES)).success).toBe(
-      true,
-    );
-    expect(
-      schema.safeParse(filterSelection(MAX_BULK_SELECTION_ENTRIES + 1)).success,
-    ).toBe(false);
+    expect(schema.safeParse(filterSelection(MAX_BULK_SELECTION_ENTRIES)).success).toBe(true);
+    expect(schema.safeParse(filterSelection(MAX_BULK_SELECTION_ENTRIES + 1)).success).toBe(false);
   });
 
   it("caps a template mass edit at the number of templates that can exist", () => {
@@ -76,9 +86,7 @@ describe("the row cap every bulk path shares", () => {
         items: items.slice(0, MAX_TRANSACTION_TEMPLATES),
       }).success,
     ).toBe(true);
-    expect(
-      transactionTemplateBulkSelectionSchema.safeParse({ items }).success,
-    ).toBe(false);
+    expect(transactionTemplateBulkSelectionSchema.safeParse({ items }).success).toBe(false);
   });
 
   it("says the same thing however the cap is met", () => {
@@ -100,5 +108,38 @@ describe("the CSV preview", () => {
     const preview = getCsvPreview("date,payee,amount\n2026-01-01,Someone,1.00\n");
     expect(preview.headers).toEqual(["date", "payee", "amount"]);
     expect(preview.rows).toHaveLength(1);
+  });
+});
+
+/**
+ * The exit is never smaller than the entrance.
+ *
+ * Ten thousand rows is the import cap and it is deliberately not the export
+ * cap. They answer different questions: the import cap is a fact about what one
+ * mass action can then clear, so a file that stages more than a commit can
+ * handle is a cap doing damage. The export is the way out, and capping the way
+ * out at what one import can take would mean a forty-thousand-row ledger cannot
+ * leave this product whole — a worse failure than a file its own importer asks
+ * you to split.
+ *
+ * So the gap is intentional, and this asserts the direction rather than the
+ * numbers. An edit that quietly makes them equal fails here.
+ */
+describe("the export cap against the import cap", () => {
+  it("lets more out than one import can take back", () => {
+    expect(CSV_EXPORT_MAX_ROWS).toBeGreaterThan(MAX_BULK_SELECTION_ENTRIES);
+  });
+
+  it("names the remedy on both sides, because the gap is only safe if it is explained", async () => {
+    const exportSide = await readFile(
+      new URL("../src/server/services/transactions.ts", import.meta.url),
+      "utf8",
+    );
+    const importSide = await readFile(
+      new URL("../src/server/services/import-export.ts", import.meta.url),
+      "utf8",
+    );
+    expect(exportSide).toContain("export one range at a time");
+    expect(importSide).toContain("imported one range at a time");
   });
 });

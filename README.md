@@ -39,13 +39,20 @@ able to do anything dangerous, or get around the step where you check its work.
   it will touch
 - A register for any account: every posting with the balance before and after it,
   for when a figure is wrong and you need the row it went wrong on
+- A budget per category, per group, or per period — standing or set for one
+  month, compared against what was actually spent, including what a refund gave
+  back. It carries what a period did not spend into the next one if you want it
+  to, saves up for something with a date, works its own amount out from what you
+  usually spend or what came in, says what a short month funds first, and
+  projects the balances forward from what is already scheduled
 - Categories and payees that match case-insensitively, flag near-duplicates, and
   merge
 - An audit log of everything you or an agent did
 - Email and password, Google, or both, and any number of people on one
   deployment, each with their own separate books
 
-There is a walkthrough of all of it in [the guide](docs/guide.md).
+[How to use it](docs/how-to.md) is the step-by-step manual, budgeting
+included; [the guide](docs/guide.md) explains the decisions behind it.
 
 ## Run it locally
 
@@ -78,7 +85,7 @@ the containers and deletes it.
 npm run verify
 ```
 
-That is typecheck, unit tests, and both builds. The integration suite needs
+That is typecheck, lint, the formatter's check, unit tests, and both builds. The integration suite needs
 PostgreSQL, which `compose.dev.yml` already gave you along with a separate
 database for it:
 
@@ -114,17 +121,23 @@ empty, and does nothing if it is already current. Generate the secret with
 ```sh
 docker run -d --name simple-balance --restart unless-stopped \
   --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --cap-drop=ALL --security-opt=no-new-privileges \
+  --stop-timeout 30 \
   --env-file .env -p 127.0.0.1:3000:3000 \
   ghcr.io/thtmnisamnstr/simple-balance:latest
 ```
 
-The container runs as a non-root user and never writes to its own filesystem.
+The container runs as a non-root user, never writes to its own filesystem, drops
+every Linux capability and cannot gain a privilege it did not start with. A Node
+server binding port 3000 as a non-root user needs none of them, so those two
+flags cost nothing and close the two routes a container escape usually takes.
 Everything it keeps is in PostgreSQL. Leave it bound to loopback and put a reverse
 proxy or a private network in front, rather than publishing the port.
 
 Watch it come up with `docker logs -f simple-balance`, and check
-`curl -f http://127.0.0.1:3000/health/ready`. Readiness stays closed until
-configuration, the database connection, and the migrations have all succeeded.
+`curl -f http://127.0.0.1:3000/health/ready`. Readiness answers once the
+database is reachable. Nothing is listening until the migrations have finished,
+so a container answering at all is one that got through them.
 
 **Claim the instance.** The logs print a one-time setup code on first run. Enter
 it on the account-creation screen. Set `SETUP_TOKEN` yourself if you would rather
@@ -134,12 +147,21 @@ claim an instance just because they found it.
 **Give it a mail server.** With `SMTP_HOST` and `MAIL_FROM`, people can reset a
 forgotten password, a new account has to confirm its address, and the scheduled
 reminders can be delivered. Without one, none of that happens and a lost password
-means editing the database, so put it in a password manager.
+means editing the database, so put it in a password manager. Whether those
+messages arrive also depends on SPF, DKIM, DMARC and a PTR record in your DNS;
+"Getting mail delivered" in [deployment](docs/deployment.md) says what each one
+is and who sets it.
 
 **Decide who else may register**, with `ALLOWED_EMAILS`. Leave it unset and nobody
 can, which keeps the deployment yours alone. List addresses (`you@example.com`),
 whole domains (`example.com`), or `*` for anybody, and those people get accounts of
 their own. They cannot see yours and you cannot see theirs.
+
+**Watch it, if you want to.** `METRICS_ENABLED=true` makes it answer
+`GET /metrics` in Prometheus' format: requests, agent tool calls, ledger writes,
+the connection pool, and the schedule's own ticks and mail. It is off until you
+ask, no label names a person or an amount, and `METRICS_TOKEN` puts a bearer
+token in front of it where the port is reachable by anything you do not control.
 
 To move to a newer image, pull it, stop and remove the container, and start it
 again with the same command. Your database is untouched, and migrations run at
@@ -175,15 +197,48 @@ deleting the account and setting a password, because they are account management
 rather than bookkeeping. An agent cannot get around your sign-in, the scopes you
 granted it, the duplicate checks, or the commit step. See [MCP](docs/mcp.md).
 
+## Security
+
+One deployment holds many people and none of them can see another's books: every
+read and write is scoped to whoever is signed in, and a record that is not yours
+comes back as not found rather than as forbidden. Put TLS in front of it;
+[deployment](docs/deployment.md) says how.
+
+If you find a hole, [SECURITY.md](SECURITY.md) says how to report it privately,
+and asks you not to open a public issue for it.
+
+## Contributing
+
+Whether a change is taken is the owner's call, and there is no promise here that
+one will be. What this section can tell you is what a change has to look like
+before that question is worth asking.
+
+[`AGENTS.md`](AGENTS.md) holds the invariants — what the books guarantee, and
+what breaking one costs. [`docs/standards/`](docs/standards/index.md) holds how
+the interfaces behave and [`docs/standards/code/`](docs/standards/code/index.md)
+how the source is written; read the one for the surface you are touching. Every
+rule in both says how it is checked, so a rule you have not broken is one you
+can prove you have not.
+
+`npm run verify` is typecheck, lint, format, tests and build, and it has to pass.
+Add a test for the behaviour you changed: this repository tests heavily and a
+change with no test is a change nobody can keep. If you touched anything with a
+database behind it, run `npm run test:integration` against a throwaway
+PostgreSQL, and if you touched the browser app, `npm run test:browser`.
+
+Do not cut a version. Releases are the owner's.
+
 ## Not built yet
 
-Budgets, bank sync, account sharing, attachments, and reconciliation. What is
-planned, in what order, and the evidence behind each is in the
+Bank sync, account sharing, attachments, and reconciliation. What is planned, in
+what order, and the evidence behind each is in the
 [roadmap](docs/roadmap.md), which also says what is deliberately not planned and
 why, market prices among it. Tags are neither built nor planned.
 
 ## More
 
+- [How to use it](docs/how-to.md): step-by-step instructions, from the first
+  account to a full budget
 - [Guide](docs/guide.md): every feature, and the decisions behind the ones that
   are not obvious
 - [Architecture](docs/architecture.md): how it fits together, and what the ledger
@@ -193,7 +248,9 @@ why, market prices among it. Tags are neither built nor planned.
 - [MCP](docs/mcp.md): scopes, tools, and what an agent can do
 - [Roadmap](docs/roadmap.md): what is planned, in order, and the evidence for it
 - [Changelog](CHANGELOG.md)
-- [Contributing](AGENTS.md): the rules this codebase holds itself to
+- [Security](SECURITY.md): reporting a vulnerability
+- [Agent and contributor guide](AGENTS.md): the rules this codebase holds itself
+  to
 - [Ralph build loop](scripts/ralph/README.md)
 
 ## Built with

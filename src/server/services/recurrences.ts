@@ -10,6 +10,7 @@ import {
 import {
   nextOccurrenceAfter,
   occurrencesBetween,
+  proposalFloorSwallows,
   scheduleCursor as sharedScheduleCursor,
   todayIn,
   type RecurrenceRule,
@@ -26,11 +27,18 @@ import {
   stagedTransactions,
   type RecurrenceRow,
 } from "../db/schema.js";
+import { normalizeHumanName } from "../../shared/names.js";
 import { conflict, duplicate, notFound, staleVersion } from "./errors.js";
 import { notifyRecurrenceProposed } from "./notifications.js";
-import { lockRecurrenceNamespace, serializeRow, writeAudit } from "./helpers.js";
+import {
+  lockCategoryNamespace,
+  lockRecurrenceNamespace,
+  serializeRow,
+  writeAudit,
+} from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { insertRecurringStages } from "./staging.js";
+import { log } from "../log.js";
 
 /** The schedule as the date arithmetic wants it. */
 export function ruleOf(row: RecurrenceRow): RecurrenceRule {
@@ -196,6 +204,15 @@ export type RecurrenceTickOutcome =
  * rolled back is worse than no message: it names a queue that has nothing in it.
  */
 export type ProposedOccurrences = {
+  /**
+   * The row's own id, carried so a failed send can name it.
+   *
+   * The log must not carry the recurrence's name — that is somebody's own text
+   * and a log line is not the place for it — but "a recurrence proposal notice
+   * could not be sent" names a kind rather than a row, which is no help at all
+   * on a deployment with several. An id is neither private nor ambiguous.
+   */
+  recurrenceId: string;
   recurrenceName: string;
   notifyOnCreate: boolean;
   occurrenceDates: string[];
@@ -226,9 +243,7 @@ export async function proposeDueOccurrences(
     const [row] = await tx
       .select()
       .from(recurrences)
-      .where(
-        and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)),
-      )
+      .where(and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)))
       .for("update", { skipLocked: true });
     if (!row) {
       // Absent and locked are the same empty result, so they are told apart by
@@ -237,18 +252,11 @@ export async function proposeDueOccurrences(
       const [exists] = await tx
         .select({ id: recurrences.id })
         .from(recurrences)
-        .where(
-          and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)),
-        );
+        .where(and(eq(recurrences.id, recurrenceId), eq(recurrences.userId, actor.userId)));
       return exists ? "claimed_elsewhere" : "gone";
     }
 
-    const occurrences = occurrencesBetween(
-      ruleOf(row),
-      scheduleCursor(row),
-      today,
-      limit,
-    );
+    const occurrences = occurrencesBetween(ruleOf(row), scheduleCursor(row), today, limit);
     if (!occurrences.length) return "nothing_due";
 
     const shape = recurrenceShapeSchema.parse(row.shape);
@@ -261,10 +269,11 @@ export async function proposeDueOccurrences(
     // rather than clamped for the same reason a month-length skip is: a moved
     // date would be a date the schedule never named.
     const proposable = occurrences.filter(
-      (one) => one.postedDate !== null && one.postedDate >= row.proposesFrom,
+      (one) => one.postedDate !== null && !proposalFloorSwallows(one.postedDate, row.proposesFrom),
     );
     if (proposable.length) {
       collect?.({
+        recurrenceId: row.id,
         recurrenceName: row.name,
         notifyOnCreate: row.notifyOnCreate,
         occurrenceDates: proposable.map((one) => one.occurrenceDate),
@@ -353,6 +362,12 @@ export async function runDueRecurrences(
            coalesce(p.timezone, 'UTC') as timezone
       from ${recurrences} r
       left join user_preferences p on p.user_id = r.user_id
+     -- The database date here bounds candidates, it decides nothing: +1 is
+     -- wide enough to catch every zone ahead of UTC, a zone behind just waits
+     -- for a later tick, and whether a row is really due is answered per row
+     -- below by todayIn against the person's own timezone. Narrowing this to
+     -- "ask the database what day it is for them" is AGENTS.md's forbidden
+     -- move, not a fix.
      where r.next_occurrence_date <= ((now() at time zone 'UTC')::date + 1)
      -- Most overdue first, so a page full of rows that are a day early can
      -- never starve one that is a month late.
@@ -407,7 +422,10 @@ export async function runDueRecurrences(
       // skipping it loses nothing. The recurrence stays past due with nothing
       // proposed, which is exactly what the Recurring page reports.
       failed += 1;
-      console.error(`Recurrence ${row.id} could not be proposed`, error);
+      // log.failure, not the error whole: the failing insert binds the staged
+      // draft — payee, amount, notes, the recurrence's own name — and a
+      // Drizzle error prints its bound parameters in the message.
+      log.failure(`Recurrence ${row.id} could not be proposed`, error);
     }
   }
   return { examined, proposed, failed, notified, capped };
@@ -423,10 +441,12 @@ async function assertNameAvailable(
     .select({ id: recurrences.id, name: recurrences.name })
     .from(recurrences)
     .where(eq(recurrences.userId, actor.userId));
+  // Compared the way category and template names are: NFKC-folded, interior
+  // whitespace collapsed. Bare trim().toLowerCase() let "Rent\u00A0money" and
+  // "rent money" stand as two recurrences that read identically on screen.
+  const normalized = normalizeHumanName(name);
   const clash = rows.find(
-    (row) =>
-      row.id !== excludeId &&
-      row.name.trim().toLowerCase() === name.trim().toLowerCase(),
+    (row) => row.id !== excludeId && normalizeHumanName(row.name) === normalized,
   );
   if (clash) {
     throw duplicate("A recurrence with this name already exists", {
@@ -439,11 +459,7 @@ async function assertNameAvailable(
  * A recurrence may keep an account that was archived after it was made, but it
  * may never be created naming one that is not this person's.
  */
-async function assertReferencesAreOwned(
-  tx: DbTransaction,
-  actor: Actor,
-  shape: RecurrenceShape,
-) {
+async function assertReferencesAreOwned(tx: DbTransaction, actor: Actor, shape: RecurrenceShape) {
   const accountIds = (["fromAccountId", "toAccountId"] as const)
     .map((field) => (shape as Record<string, unknown>)[field])
     .filter((id): id is string => typeof id === "string");
@@ -463,17 +479,14 @@ async function assertReferencesAreOwned(
       throw notFound("That account is not one of yours");
     }
   }
-  const categoryIds = [
-    shape.categoryId,
-    ...(shape.legs ?? []).map((leg) => leg.categoryId),
-  ].filter((id): id is string => typeof id === "string");
+  const categoryIds = [shape.categoryId, ...(shape.legs ?? []).map((leg) => leg.categoryId)].filter(
+    (id): id is string => typeof id === "string",
+  );
   if (categoryIds.length) {
     const owned = await tx
       .select({ id: categories.id })
       .from(categories)
-      .where(
-        and(eq(categories.userId, actor.userId), inArray(categories.id, categoryIds)),
-      );
+      .where(and(eq(categories.userId, actor.userId), inArray(categories.id, categoryIds)));
     const found = new Set(owned.map((row) => row.id));
     if (categoryIds.some((id) => !found.has(id))) {
       throw notFound("That category is not one of yours");
@@ -502,11 +515,7 @@ function recurrenceRowView(row: RecurrenceRow) {
   return { ...serializeRow(row), shape: row.shape as RecurrenceShape };
 }
 
-export async function createRecurrence(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
+export async function createRecurrence(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = recurrenceCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     // Read through the transaction, never off the pool. An MCP write hands its
@@ -516,6 +525,15 @@ export async function createRecurrence(
     // wait never ends and never errors either.
     const { timezone } = await getPreferences(actor, tx);
     const proposesFrom = todayIn(timezone);
+    // The category namespace first, and before the recurrence's own lock —
+    // the account -> category -> payee order helpers.ts mandates, extended the
+    // way every names-a-category write extends it. Without this, a category
+    // delete racing this create counts zero recurrence references while this
+    // transaction sits between its ownership check and its insert, and the
+    // recurrence lands naming a dead category.
+    if (parsed.shape.categoryId || parsed.shape.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
+    }
     await lockRecurrenceNamespace(tx, actor);
     await assertNameAvailable(tx, actor, parsed.name);
     await assertReferencesAreOwned(tx, actor, parsed.shape);
@@ -562,6 +580,11 @@ export async function updateRecurrence(
 ) {
   const changes = recurrenceUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
+    // Same order as the create, for the same race. A patch with no shape
+    // names no category and needs no category lock.
+    if (changes.shape?.categoryId || changes.shape?.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
+    }
     await lockRecurrenceNamespace(tx, actor);
     const [before] = await tx
       .select()
@@ -602,9 +625,7 @@ export async function updateRecurrence(
       .set({
         ...(changes.name !== undefined ? { name: changes.name } : {}),
         ...(changes.shape !== undefined ? { shape: changes.shape } : {}),
-        ...(changes.notifyOnCreate !== undefined
-          ? { notifyOnCreate: changes.notifyOnCreate }
-          : {}),
+        ...(changes.notifyOnCreate !== undefined ? { notifyOnCreate: changes.notifyOnCreate } : {}),
         ...columns,
         nextOccurrenceDate: nextOccurrenceDateFor({
           ...before,
@@ -730,9 +751,7 @@ export async function listRecurrences(actor: Actor) {
   ]);
   return {
     today,
-    items: rows.map((row) =>
-      recurrenceView(row, counts.get(row.id) ?? NO_COUNTS, today),
-    ),
+    items: rows.map((row) => recurrenceView(row, counts.get(row.id) ?? NO_COUNTS, today)),
   };
 }
 
@@ -748,4 +767,3 @@ export async function getRecurrence(actor: Actor, id: string) {
   const counts = await countsByRecurrence(actor);
   return recurrenceView(row, counts.get(row.id) ?? NO_COUNTS, today);
 }
-

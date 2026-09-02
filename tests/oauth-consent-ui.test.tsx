@@ -60,12 +60,8 @@ describe("the MCP consent screen", () => {
   });
 
   it("shows the client and scopes the server resolved, not the ones in the link", async () => {
-    renderConsent(
-      "?consent_code=abc&client_id=Claude%20Desktop&scope=ledger%3Aread",
-    );
-    await waitFor(() =>
-      expect(screen.getByText("Some Unfamiliar Agent")).toBeInTheDocument(),
-    );
+    renderConsent("?consent_code=abc&client_id=Claude%20Desktop&scope=ledger%3Aread");
+    await waitFor(() => expect(screen.getByText("Some Unfamiliar Agent")).toBeInTheDocument());
     expect(screen.queryByText("Claude Desktop")).not.toBeInTheDocument();
     expect(screen.getByText(/ledger:write/)).toBeInTheDocument();
   });
@@ -74,30 +70,21 @@ describe("the MCP consent screen", () => {
     renderConsent("?consent_code=abc&client_id=Claude%20Desktop");
     await waitFor(() => expect(fetch).toHaveBeenCalled());
     const [requested] = vi.mocked(fetch).mock.calls[0]!;
-    expect(String(requested)).toBe(
-      "/api/auth/oauth2/consent-request?consent_code=abc",
-    );
+    expect(String(requested)).toBe("/api/auth/oauth2/consent-request?consent_code=abc");
   });
 
   it("refuses to offer a decision when the link carries no consent code", async () => {
     renderConsent("?client_id=Claude%20Desktop&scope=ledger%3Aread");
-    await waitFor(() =>
-      expect(
-        screen.getByText(/not one this server issued/),
-      ).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/not one this server issued/)).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: /Allow access/ })).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
 });
 
 describe("where signing in is allowed to land", () => {
-  it.each(["/transactions", "/staged?page=2", "/accounts#top"])(
-    "keeps the path %s",
-    (path) => {
-      expect(samePagePath(path)).toBe(path);
-    },
-  );
+  it.each(["/transactions", "/staged?page=2", "/accounts#top"])("keeps the path %s", (path) => {
+    expect(samePagePath(path)).toBe(path);
+  });
 
   it.each([
     "//elsewhere.example/steal",

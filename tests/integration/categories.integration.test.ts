@@ -10,9 +10,11 @@ import {
   recurrences,
   stagedTransactions,
   transactions,
+  transactionTemplates,
   user,
 } from "../../src/server/db/schema.js";
 import { createRecurrence } from "../../src/server/services/recurrences.js";
+import { createTransactionTemplate } from "../../src/server/services/transaction-templates.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
   createCategory,
@@ -22,15 +24,8 @@ import {
   setCategoryArchived,
   updateCategory,
 } from "../../src/server/services/categories.js";
-import {
-  commitStages,
-  createStage,
-  deleteStages,
-} from "../../src/server/services/staging.js";
-import {
-  createTransaction,
-  updateTransaction,
-} from "../../src/server/services/transactions.js";
+import { commitStages, createStage, deleteStages } from "../../src/server/services/staging.js";
+import { createTransaction, updateTransaction } from "../../src/server/services/transactions.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -249,12 +244,7 @@ integration("category duplicate detection and merge", () => {
       stagedIds: [activeStage.id],
       expectedVersions: { [activeStage.id]: activeStage.version },
     });
-    const archived = await setCategoryArchived(
-      primary,
-      category.id,
-      category.version,
-      true,
-    );
+    const archived = await setCategoryArchived(primary, category.id, category.version, true);
     expect(archived.archivedAt).not.toBeNull();
 
     await expect(
@@ -305,9 +295,7 @@ integration("category duplicate detection and merge", () => {
       idempotencyKey: "archived-category-invalid-stage",
     });
     expect(invalidStage.validationIssues).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ message: "Category is unavailable" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ message: "Category is unavailable" })]),
     );
     await expect(
       commitStages(primary, {
@@ -382,9 +370,7 @@ integration("category duplicate detection and merge", () => {
       idempotencyKey: "category-merge-staged",
     });
 
-    await expect(
-      deleteCategory(primary, source.id, source.version),
-    ).rejects.toMatchObject({
+    await expect(deleteCategory(primary, source.id, source.version)).rejects.toMatchObject({
       code: "CONFLICT",
       details: {
         transactionCount: 1,
@@ -409,17 +395,12 @@ integration("category duplicate detection and merge", () => {
       updatedStagedTransactionCount: 1,
     });
 
-    const [targetAfter] = await db
-      .select()
-      .from(categories)
-      .where(eq(categories.id, target.id));
+    const [targetAfter] = await db.select().from(categories).where(eq(categories.id, target.id));
     expect(targetAfter).toMatchObject({
       kind: "both",
       version: target.version + 1,
     });
-    expect(
-      await db.select().from(categories).where(eq(categories.id, source.id)),
-    ).toHaveLength(0);
+    expect(await db.select().from(categories).where(eq(categories.id, source.id))).toHaveLength(0);
 
     const [transactionAfter] = await db
       .select()
@@ -449,12 +430,7 @@ integration("category duplicate detection and merge", () => {
       .where(
         and(
           eq(auditEvents.userId, primary.userId),
-          inArray(auditEvents.entityId, [
-            target.id,
-            source.id,
-            committed.id,
-            staged.id,
-          ]),
+          inArray(auditEvents.entityId, [target.id, source.id, committed.id, staged.id]),
         ),
       );
     expect(
@@ -489,9 +465,7 @@ integration("category duplicate detection and merge", () => {
     );
 
     const transactionMerge = mergeEvents.find(
-      (event) =>
-        event.entityId === committed.id &&
-        event.operation === "category_merge",
+      (event) => event.entityId === committed.id && event.operation === "category_merge",
     );
     expect(transactionMerge?.before).toMatchObject({
       categoryId: source.id,
@@ -503,9 +477,7 @@ integration("category duplicate detection and merge", () => {
     });
 
     const stagedMerge = mergeEvents.find(
-      (event) =>
-        event.entityId === staged.id &&
-        event.operation === "category_merge",
+      (event) => event.entityId === staged.id && event.operation === "category_merge",
     );
     expect(stagedMerge?.before).toMatchObject({
       draft: { categoryId: source.id },
@@ -560,9 +532,9 @@ integration("category duplicate detection and merge", () => {
     });
 
     // In use by a standing instruction is in use.
-    await expect(
-      deleteCategory(primary, source.id, source.version),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(deleteCategory(primary, source.id, source.version)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
 
     await mergeCategories(primary, {
       sourceCategoryIds: [source.id],
@@ -585,6 +557,145 @@ integration("category duplicate detection and merge", () => {
         expect(leg.categoryId).toBe(target.id);
       }
     }
+    // A rewrite that leaves no record is invisible to whoever wonders why
+    // their recurrence changed category, so each rewritten row is audited
+    // like the transaction and staged rewrites already were.
+    const recurrenceAudits = await db
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.userId, primary.userId),
+          eq(auditEvents.operation, "category_merge"),
+          eq(auditEvents.entityType, "recurrence"),
+        ),
+      );
+    expect(recurrenceAudits.map((event: { entityId: string }) => event.entityId).sort()).toEqual(
+      [plain.id, split.id].sort(),
+    );
+  });
+
+  /**
+   * The reference one door along from the recurrence: a template's draft.
+   *
+   * deleteCategory refuses while a template names the category — "what is
+   * left is a template that cannot be saved and cannot be used" — and for a
+   * while the merge hard-deleted the source without rewriting drafts,
+   * producing exactly that state through the sibling door.
+   */
+  it("rewrites template drafts when merging, and audits the rewrite", async () => {
+    const db = getDb();
+    const [target, source] = await db
+      .insert(categories)
+      .values([
+        { userId: primary.userId, name: "Template Energy", kind: "expense" },
+        { userId: primary.userId, name: " template   energy ", kind: "expense" },
+      ])
+      .returning();
+
+    const plain = await createTransactionTemplate(primary, {
+      name: "Merge template plain",
+      draft: { type: "withdrawal", fromAccountId: accountId, categoryId: source.id },
+    });
+    const split = await createTransactionTemplate(primary, {
+      name: "Merge template split",
+      draft: {
+        type: "withdrawal",
+        fromAccountId: accountId,
+        legs: [{ categoryId: source.id }, { categoryId: target.id }],
+      },
+    });
+
+    await mergeCategories(primary, {
+      sourceCategoryIds: [source.id],
+      targetCategoryId: target.id,
+      expectedVersions: { [source.id]: source.version },
+      targetExpectedVersion: target.version,
+    });
+
+    const after = await db
+      .select()
+      .from(transactionTemplates)
+      .where(inArray(transactionTemplates.id, [plain.id, split.id]));
+    for (const row of after) {
+      const draft = row.draft as {
+        categoryId?: string;
+        legs?: { categoryId?: string }[];
+      };
+      expect(draft.categoryId ?? target.id).toBe(target.id);
+      for (const leg of draft.legs ?? []) {
+        expect(leg.categoryId).toBe(target.id);
+      }
+    }
+    // And the source is really gone, so a draft left pointing at it would
+    // have been the unusable-template state, not a cosmetic mismatch.
+    expect(await db.select().from(categories).where(eq(categories.id, source.id))).toHaveLength(0);
+    const templateAudits = await db
+      .select()
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.userId, primary.userId),
+          eq(auditEvents.operation, "category_merge"),
+          eq(auditEvents.entityType, "transaction_template"),
+        ),
+      );
+    expect(templateAudits.map((event: { entityId: string }) => event.entityId).sort()).toEqual(
+      [plain.id, split.id].sort(),
+    );
+  });
+
+  /**
+   * The retry a merge could not survive before it took a key.
+   *
+   * A caller whose first attempt times out has no way of knowing whether the
+   * merge happened. Asking again with the versions it read is refused as stale
+   * — correctly, since those rows really did move — and that reads as "your
+   * merge did not happen" about one that did. With a key, the second ask
+   * returns the first answer, counts and all.
+   */
+  it("returns the first answer when the same merge is asked for twice", async () => {
+    const target = await createCategory(primary, { name: "Replay Target", kind: "expense" });
+    const source = await createCategory(primary, { name: "Replay Source", kind: "expense" });
+    const request = {
+      sourceCategoryIds: [source.id],
+      targetCategoryId: target.id,
+      expectedVersions: { [source.id]: source.version },
+      targetExpectedVersion: target.version,
+      idempotencyKey: "replay-category-merge-key",
+    };
+
+    const first = await mergeCategories(primary, request);
+    // The same request object, versions and all, exactly as a retrying client
+    // would send it. Without the key this is a STALE_VERSION.
+    const second = await mergeCategories(primary, request);
+    expect(second).toEqual(first);
+
+    // And it merged once. The target moved by one version, not two, and the
+    // source is gone rather than having been looked for a second time.
+    const [targetAfter] = await getDb()
+      .select()
+      .from(categories)
+      .where(eq(categories.id, target.id));
+    expect(targetAfter?.version).toBe(target.version + 1);
+    const remaining = await getDb()
+      .select()
+      .from(categories)
+      .where(inArray(categories.id, [source.id]));
+    expect(remaining).toHaveLength(0);
+
+    // A different merge under the same key is a different request, and is
+    // refused rather than answered with somebody else's result.
+    const third = await createCategory(primary, { name: "Replay Other", kind: "expense" });
+    await expect(
+      mergeCategories(primary, {
+        sourceCategoryIds: [third.id],
+        targetCategoryId: target.id,
+        expectedVersions: { [third.id]: third.version },
+        targetExpectedVersion: target.version + 1,
+        idempotencyKey: "replay-category-merge-key",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT", details: { operation: "category.merge" } });
   });
 
   it("rolls back stale merges and cannot cross tenant boundaries", async () => {
@@ -617,9 +728,7 @@ integration("category duplicate detection and merge", () => {
       .from(categories)
       .where(inArray(categories.id, [staleTarget.id, staleSource.id]));
     expect(persisted).toHaveLength(2);
-    expect(
-      persisted.every((category) => category.version === 1),
-    ).toBe(true);
+    expect(persisted.every((category) => category.version === 1)).toBe(true);
 
     const otherTarget = await createCategory(other, {
       name: "Other Tenant Target",
@@ -637,23 +746,13 @@ integration("category duplicate detection and merge", () => {
     persisted = await getDb()
       .select()
       .from(categories)
-      .where(
-        inArray(categories.id, [
-          staleTarget.id,
-          staleSource.id,
-          otherTarget.id,
-        ]),
-      );
+      .where(inArray(categories.id, [staleTarget.id, staleSource.id, otherTarget.id]));
     expect(persisted).toHaveLength(3);
-    expect(
-      persisted.find((category) => category.id === staleSource.id),
-    ).toMatchObject({
+    expect(persisted.find((category) => category.id === staleSource.id)).toMatchObject({
       userId: primary.userId,
       version: staleSource.version,
     });
-    expect(
-      persisted.find((category) => category.id === otherTarget.id),
-    ).toMatchObject({
+    expect(persisted.find((category) => category.id === otherTarget.id)).toMatchObject({
       userId: other.userId,
       version: otherTarget.version,
     });
@@ -663,11 +762,7 @@ integration("category duplicate detection and merge", () => {
       .from(auditEvents)
       .where(
         and(
-          inArray(auditEvents.entityId, [
-            staleTarget.id,
-            staleSource.id,
-            otherTarget.id,
-          ]),
+          inArray(auditEvents.entityId, [staleTarget.id, staleSource.id, otherTarget.id]),
           inArray(auditEvents.operation, ["merge", "merge_into"]),
         ),
       );

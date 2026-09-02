@@ -23,8 +23,7 @@ describe("grouping accounts by type", () => {
   });
 
   it("puts what you hold before what you owe", () => {
-    const order = (type: (typeof accountTypeOrder)[number]) =>
-      accountTypeOrder.indexOf(type);
+    const order = (type: (typeof accountTypeOrder)[number]) => accountTypeOrder.indexOf(type);
     expect(order("cash")).toBeLessThan(order("checking"));
     expect(order("checking")).toBeLessThan(order("savings"));
     expect(order("savings")).toBeLessThan(order("credit_card"));
@@ -39,18 +38,8 @@ describe("grouping accounts by type", () => {
       account("c", "credit_card"),
       account("d", "checking"),
     ]);
-    expect(groups.map((group) => group.type)).toEqual([
-      "cash",
-      "checking",
-      "credit_card",
-      "loan",
-    ]);
-    expect(groups.map((group) => group.label)).toEqual([
-      "Cash",
-      "Checking",
-      "Credit Card",
-      "Loan",
-    ]);
+    expect(groups.map((group) => group.type)).toEqual(["cash", "checking", "credit_card", "loan"]);
+    expect(groups.map((group) => group.label)).toEqual(["Cash", "Checking", "Credit Card", "Loan"]);
   });
 
   it("keeps every account, and leaves out the types nobody has", () => {
@@ -60,9 +49,7 @@ describe("grouping accounts by type", () => {
       account("c", "cash"),
     ]);
     expect(groups).toHaveLength(2);
-    expect(groups.flatMap((group) => group.accounts.map((one) => one.id))).toEqual(
-      ["c", "a", "b"],
-    );
+    expect(groups.flatMap((group) => group.accounts.map((one) => one.id))).toEqual(["c", "a", "b"]);
   });
 
   it("keeps the order it was given inside a group", () => {
@@ -70,10 +57,7 @@ describe("grouping accounts by type", () => {
       account("second", "checking"),
       account("first", "checking"),
     ]);
-    expect(groups[0]!.accounts.map((one) => one.id)).toEqual([
-      "second",
-      "first",
-    ]);
+    expect(groups[0]!.accounts.map((one) => one.id)).toEqual(["second", "first"]);
   });
 
   /**

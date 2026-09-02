@@ -6,7 +6,7 @@ import {
   withMcpAuth,
 } from "better-auth/plugins";
 import { eq, sql } from "drizzle-orm";
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type Handler, type MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
 import type { PoolClient } from "pg";
@@ -22,6 +22,7 @@ import {
   dateRangeSchema,
   directTransactionCreateSchema,
   payeeMergeSchema,
+  queryBooleanSchema,
   reportNameSchema,
   transactionDeletedMutationSchema,
   versionedMutationSchema,
@@ -50,6 +51,8 @@ import {
   withCountableClientAddress,
 } from "./http-security.js";
 import { handleMcpRequest } from "./mcp.js";
+import { httpDuration, httpRequests, setMetricsComponent, startDefaultMetrics } from "./metrics.js";
+import { serveMetrics } from "./metrics-route.js";
 import { runAsBootstrapClaim } from "./registration-context.js";
 import {
   getMcpJwks,
@@ -67,6 +70,7 @@ import {
   updateAccount,
 } from "./services/accounts.js";
 import { listAuditEvents } from "./services/audit.js";
+import { log } from "./log.js";
 import {
   createCategory,
   deleteCategory,
@@ -94,23 +98,40 @@ import {
   listRecurrences,
   updateRecurrence,
 } from "./services/recurrences.js";
-import { AppError } from "./services/errors.js";
+import {
+  createBudgetPlan,
+  deleteBudgetEntry,
+  deleteBudgetPlan,
+  getBudgetPlan,
+  getBudgetReport,
+  listBudgetEntries,
+  listBudgetPlans,
+  setBudgetEntry,
+  updateBudgetPlan,
+} from "./services/budgets.js";
+import { getForecast } from "./services/forecast.js";
+import {
+  createCategoryGroup,
+  deleteCategoryGroup,
+  listCategoryGroups,
+  updateCategoryGroup,
+} from "./services/category-groups.js";
+import { AppError, validationError } from "./services/errors.js";
 import {
   exportTransactionsCsv,
   getCsvPreview,
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
-import {
-  deleteOwnAccount,
-  summarizeOwnData,
-} from "./services/account-deletion.js";
+import { deleteOwnAccount, summarizeOwnData } from "./services/account-deletion.js";
 import {
   listConnectedApps,
   pruneAbandonedClients,
   revokeAllConnectedApps,
   revokeConnectedApp,
 } from "./services/connected-apps.js";
+import { CSV_MEDIA_TYPE } from "../shared/csv.js";
+import { todayIn } from "../shared/recurrence-dates.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
   listDuplicatePayees,
@@ -143,9 +164,7 @@ import {
 } from "./services/transactions.js";
 import { isOwnerSetupTokenValid } from "./setup-token.js";
 
-const uuidPathSchema = z
-  .string()
-  .uuid("Not a valid identifier");
+const uuidPathSchema = z.string().uuid("Not a valid identifier");
 
 type Variables = {
   actor: Actor;
@@ -153,12 +172,77 @@ type Variables = {
   sessionCreatedAt: Date;
 };
 
-const app = new Hono<{ Variables: Variables }>();
+type AppEnv = { Variables: Variables };
+const app = new Hono<AppEnv>();
 
-app.use(
-  "*",
-  secureHeaders(securityHeaderOptions(getConfig().isProduction)),
-);
+app.use("*", secureHeaders(securityHeaderOptions(getConfig().isProduction)));
+
+setMetricsComponent("api");
+startDefaultMetrics();
+/**
+ * Timed and counted above everything, including the guards below it.
+ *
+ * A request refused by a body limit or a content-type check took time and
+ * happened; leaving it out would report a system that is fast and idle at
+ * exactly the moment it is being hammered by something it is refusing.
+ *
+ * `routePath` rather than `path`: Hono hands back the pattern that matched,
+ * `/api/v1/accounts/:id`, so a ledger with ten thousand transactions is ten
+ * thousand requests against one series rather than ten thousand series. An
+ * unmatched path has no pattern of its own and is counted under one literal,
+ * because a 404 for a mistyped URL is exactly where unbounded labels come from.
+ */
+app.use("*", async (c, next) => {
+  const stop = httpDuration.startTimer();
+  const startedAt = Date.now();
+  try {
+    await next();
+  } finally {
+    const labels = { method: c.req.method, route: routeLabel(c) };
+    stop(labels);
+    httpRequests.inc({ ...labels, status: String(c.res.status) });
+    // The one line that says a request happened, in the channel that is on by
+    // default. `/metrics` answers only where a deployment asked for it, and an
+    // aggregate cannot answer "what did that browser just do" anyway.
+    //
+    // The path, not the pattern the metric uses. A label has to stay bounded or
+    // it costs a time series per account; a line costs one line, and the id in
+    // it is the difference between a log an operator can follow and a log that
+    // says a request happened somewhere. Nothing in a query string is written:
+    // filters carry payees and search terms, which is somebody's ledger.
+    //
+    // Built whether or not `debug` is on, because `log` takes the finished
+    // string: one template literal against a request that has just been through
+    // the database, which is not worth a predicate at two call sites.
+    log.debug(`${c.req.method} ${c.req.path} ${c.res.status} in ${Date.now() - startedAt}ms`);
+  }
+});
+
+/**
+ * The series a request belongs to, always from a closed set.
+ *
+ * `routePath` is Hono's matched pattern, which is what keeps a ledger with ten
+ * thousand transactions to one series rather than ten thousand. It is `/*`
+ * twice over, though, and those two cases are not the same thing: a mistyped
+ * URL that matched no route, and a request answered by middleware mounted on
+ * `*` before any route ran — which is where a 413 from the body limit lands.
+ * Labelling both "unmatched" put a refused CSV upload in the same series as a
+ * typo, so the prefix decides between them, from a fixed list.
+ */
+const KNOWN_PREFIXES = ["api", "mcp", "health", ".well-known", "metrics", "assets"] as const;
+
+function routeLabel(c: Context) {
+  const matched = c.req.routePath;
+  if (matched !== "/*") return matched;
+  const prefix = c.req.path.split("/")[1] ?? "";
+  return KNOWN_PREFIXES.includes(prefix as (typeof KNOWN_PREFIXES)[number])
+    ? `/${prefix}/*`
+    : "unmatched";
+}
+
+// Registered only when it was asked for, so a deployment that never set
+// `METRICS_ENABLED` has no such route rather than a route that refuses.
+if (getConfig().metrics.enabled) app.get("/metrics", serveMetrics);
 
 const globalBodyLimit = boundRequestBody({
   maxBytes: (context) => requestBodyLimit(context.req.path),
@@ -195,26 +279,30 @@ app.onError((error, c) => {
         error: {
           code: "VALIDATION_ERROR",
           message: "Request validation failed",
-          details: error.issues,
+          // `field` beside the issue rather than instead of it. `http.md` says
+          // a field error is `{field, message}` with a dotted path, which is
+          // what `zodIssues()` produces and what the MCP surface has always
+          // sent; this transport shipped Zod's own issue objects, putting the
+          // validator's discriminators on the wire as public contract.
+          //
+          // Both, because 0.1.5 shipped the raw issues and a client reading
+          // `path` still works. Dropping `path` is a later release's job, after
+          // the documented shape has been in the field — the same rule the
+          // renamed routes follow.
+          details: error.issues.map((issue) => ({
+            ...issue,
+            field: issue.path.join(".") || "draft",
+          })),
         },
       },
       422,
     );
   }
-  // Not the error object. Drizzle builds its message out of the failing SQL and
-  // its bound parameters, and one of those parameters is the OAuth access token
-  // the MCP token endpoint looks a grant up by, so logging it whole would write
-  // a live credential into the log on any database hiccup. The statement is
-  // what an operator needs; the values are not.
-  const query = (error as { query?: unknown }).query;
-  if (typeof query === "string") {
-    console.error(
-      `Query failed: ${query}`,
-      (error as { cause?: unknown }).cause ?? error.name,
-    );
-  } else {
-    console.error(error);
-  }
+  // Narrowed rather than logged whole, and narrowed in `log.failure` rather
+  // than here: the same error reaches an MCP tool call, and this transport
+  // holding the rule while the other one did not is how a bound parameter would
+  // still have reached the log.
+  log.failure("Request failed", error);
   return c.json(
     { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } },
     500,
@@ -222,6 +310,13 @@ app.onError((error, c) => {
 });
 
 app.get("/health/live", (c) => c.json({ status: "ok" }));
+// Deliberately one statement against the database, and nothing else.
+//
+// It does not check configuration, the migrations or the scheduler, and adding
+// any of those would take a working server out of rotation for a condition that
+// cannot change while it runs. The migration guarantee is ordering rather than
+// a probe: `runMigrations()` is awaited before the server listens, so a process
+// answering this route at all is a process that got past them.
 app.get("/health/ready", async (c) => {
   try {
     await getDb().execute(sql`select 1`);
@@ -254,9 +349,7 @@ app.use("/api/auth/*", hardenAuthCookies(getConfig().baseUrl));
 const authRequest = (c: Context, request: Request = c.req.raw) =>
   withCountableClientAddress(request, c, getConfig().trustProxy);
 
-app.get("/api/auth/methods", async (c) =>
-  c.json(await getPublicAuthOptions()),
-);
+app.get("/api/auth/methods", async (c) => c.json(await getPublicAuthOptions()));
 
 const FRESH_SESSION_MS = 15 * 60 * 1000;
 
@@ -265,22 +358,38 @@ const setupCodeAttempts = createAttemptLimiter({
   windowMs: 15 * 60 * 1000,
 });
 
+/**
+ * The auth, consent and setup routes' error shape, in both spellings.
+ *
+ * `docs/standards/http.md` asks for one envelope on every route this process
+ * serves, and these fourteen answer with a flat `{code, message}` — a shape the
+ * browser's own reader cannot see, because it looks inside `error`. Adding the
+ * envelope rather than replacing the flat pair is what keeps 0.1.5's clients
+ * working: anything reading `body.code` still finds it, anything reading
+ * `body.error.code` now does too. Dropping the flat half is a later release's
+ * job, after the envelope has been in the field, which is the rule the renamed
+ * routes already follow.
+ */
+const transportError = (code: string, message: string) => ({
+  code,
+  message,
+  error: { code, message },
+});
+
 let localBootstrapBusy = false;
 app.post("/api/auth/sign-up/email", async (c) => {
   if (!getConfig().localAuthEnabled) {
-    return c.json(
-      { code: "LOCAL_AUTH_DISABLED", message: "Local authentication is disabled" },
-      403,
-    );
+    return c.json(transportError("LOCAL_AUTH_DISABLED", "Local authentication is disabled"), 403);
   }
   const contentType = c.req.header("content-type") ?? "";
   const payload = contentType.includes("application/x-www-form-urlencoded")
     ? Object.fromEntries(await c.req.raw.clone().formData())
-    : await c.req.raw.clone().json().catch(() => ({}));
+    : await c.req.raw
+        .clone()
+        .json()
+        .catch(() => ({}));
   const field = (name: string) =>
-    payload && typeof payload === "object"
-      ? (payload as Record<string, unknown>)[name]
-      : undefined;
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>)[name] : undefined;
 
   const email = field("email");
 
@@ -295,12 +404,12 @@ app.post("/api/auth/sign-up/email", async (c) => {
 
   if (!(await isLocalBootstrapOpen())) {
     return c.json(
-      {
-        code: "REGISTRATION_CLOSED",
-        message: isRegistrationClosed()
+      transportError(
+        "REGISTRATION_CLOSED",
+        isRegistrationClosed()
           ? "This instance is not accepting new accounts."
           : "That email address is not allowed to register here.",
-      },
+      ),
       403,
     );
   }
@@ -309,26 +418,19 @@ app.post("/api/auth/sign-up/email", async (c) => {
   // registration rule, so the code is the only thing standing between a caller
   // and the deployment. Better Auth's limiter never sees these attempts, since
   // a wrong code is refused above without its handler being called.
-  const setupCaller = countableClientAddress(
-    c.req.raw,
-    c,
-    getConfig().trustProxy,
-  );
+  const setupCaller = countableClientAddress(c.req.raw, c, getConfig().trustProxy);
   if (!(await setupCodeAttempts.take(setupCaller))) {
     return c.json(
-      {
-        code: "TOO_MANY_SETUP_ATTEMPTS",
-        message: "Too many setup attempts. Wait a few minutes and try again.",
-      },
+      transportError(
+        "TOO_MANY_SETUP_ATTEMPTS",
+        "Too many setup attempts. Wait a few minutes and try again.",
+      ),
       429,
     );
   }
   if (!(await isOwnerSetupTokenValid(field("setupToken")))) {
     return c.json(
-      {
-        code: "INVALID_SETUP_TOKEN",
-        message: "The setup code is missing or invalid.",
-      },
+      transportError("INVALID_SETUP_TOKEN", "The setup code is missing or invalid."),
       403,
     );
   }
@@ -337,10 +439,7 @@ app.post("/api/auth/sign-up/email", async (c) => {
   // that the rule already admits returned above without coming near this lock.
   if (localBootstrapBusy) {
     return c.json(
-      {
-        code: "REGISTRATION_BUSY",
-        message: "Setup is already in progress. Try again.",
-      },
+      transportError("REGISTRATION_BUSY", "Setup is already in progress. Try again."),
       409,
     );
   }
@@ -356,10 +455,10 @@ app.post("/api/auth/sign-up/email", async (c) => {
     acquired = result.rows[0]?.acquired === true;
     if (!acquired) {
       return c.json(
-        {
-          code: "REGISTRATION_BUSY",
-          message: "Setup is already in progress on another instance. Try again.",
-        },
+        transportError(
+          "REGISTRATION_BUSY",
+          "Setup is already in progress on another instance. Try again.",
+        ),
         409,
       );
     }
@@ -367,12 +466,12 @@ app.post("/api/auth/sign-up/email", async (c) => {
     // loser's code no longer buys anything the rule would not have given them.
     if (!(await isLocalBootstrapOpen())) {
       return c.json(
-        {
-          code: "REGISTRATION_CLOSED",
-          message: isRegistrationClosed()
+        transportError(
+          "REGISTRATION_CLOSED",
+          isRegistrationClosed()
             ? "This instance is not accepting new accounts."
             : "That email address is not allowed to register here.",
-        },
+        ),
         403,
       );
     }
@@ -404,10 +503,7 @@ app.post("/api/auth/change-password", async (c) => {
 
 app.on(["GET", "POST"], "/api/auth/callback/google", async (c) => {
   if (!getConfig().googleAuthEnabled) {
-    return c.json(
-      { code: "GOOGLE_AUTH_DISABLED", message: "Google authentication is disabled" },
-      404,
-    );
+    return c.json(transportError("GOOGLE_AUTH_DISABLED", "Google authentication is disabled"), 404);
   }
   return getAuth().handler(authRequest(c));
 });
@@ -453,9 +549,7 @@ function boundedRegistration(body: Record<string, unknown>) {
     if (Array.isArray(value)) {
       bounded[field] = value
         .slice(0, 20)
-        .map((entry) =>
-          typeof entry === "string" ? entry.slice(0, limit) : entry,
-        );
+        .map((entry) => (typeof entry === "string" ? entry.slice(0, limit) : entry));
     }
   }
   // Each redirect is a URL a browser has to be able to reach, and twenty is
@@ -500,7 +594,7 @@ app.post("/api/auth/mcp/register", async (c) => {
   if (now - lastPruneAt >= PRUNE_INTERVAL_MS) {
     lastPruneAt = now;
     void pruneAbandonedClients().catch((error) => {
-      console.error("Could not prune abandoned OAuth clients", error);
+      log.failure("Could not prune abandoned OAuth clients", error);
     });
   }
   const body = await c.req.raw
@@ -564,7 +658,7 @@ app.get("/api/auth/mcp/authorize", (c) => {
 // let anything that ever saw one access token — a proxy, a log — trade it for
 // seven days of access. Nothing here calls it.
 app.on(["GET", "POST"], "/api/auth/mcp/get-session", (c) =>
-  c.json({ code: "NOT_FOUND", message: "No such endpoint" }, 404),
+  c.json(transportError("NOT_FOUND", "No such endpoint"), 404),
 );
 
 function consentCodeFromCookie(c: Context) {
@@ -643,25 +737,25 @@ async function pendingConsent(consentCode: string) {
 app.get("/api/auth/oauth2/consent-request", async (c) => {
   const identity = await getWebIdentity(c.req.raw.headers);
   if (!identity) {
-    return c.json({ code: "UNAUTHORIZED", message: "Sign in is required" }, 401);
+    return c.json(transportError("UNAUTHORIZED", "Sign in is required"), 401);
   }
   const consentCode = c.req.query("consent_code") || consentCodeFromCookie(c);
   const pending = consentCode ? await pendingConsent(consentCode) : null;
   if (!pending || !pending.requireConsent || pending.expiresAt < new Date()) {
     return c.json(
-      {
-        code: "CONSENT_NOT_PENDING",
-        message: "That authorization request has expired or was already answered.",
-      },
+      transportError(
+        "CONSENT_NOT_PENDING",
+        "That authorization request has expired or was already answered.",
+      ),
       404,
     );
   }
   if (pending.userId && pending.userId !== identity.user.id) {
     return c.json(
-      {
-        code: "CONSENT_NOT_YOURS",
-        message: "That authorization request was started by a different account.",
-      },
+      transportError(
+        "CONSENT_NOT_YOURS",
+        "That authorization request was started by a different account.",
+      ),
       403,
     );
   }
@@ -692,17 +786,17 @@ app.get("/api/auth/oauth2/consent-request", async (c) => {
 app.post("/api/auth/oauth2/consent", async (c) => {
   const identity = await getWebIdentity(c.req.raw.headers);
   if (!identity) {
-    return c.json({ code: "UNAUTHORIZED", message: "Sign in is required" }, 401);
+    return c.json(transportError("UNAUTHORIZED", "Sign in is required"), 401);
   }
   const consentCode = await pendingConsentCode(c);
   if (consentCode) {
     const owner = (await pendingConsent(consentCode))?.userId;
     if (owner && owner !== identity.user.id) {
       return c.json(
-        {
-          code: "CONSENT_NOT_YOURS",
-          message: "That authorization request was started by a different account.",
-        },
+        transportError(
+          "CONSENT_NOT_YOURS",
+          "That authorization request was started by a different account.",
+        ),
         403,
       );
     }
@@ -710,8 +804,47 @@ app.post("/api/auth/oauth2/consent", async (c) => {
   return getAuth().handler(authRequest(c));
 });
 
+// Better Auth publishes a protected-resource document of its own under the auth
+// base path, built from `oidcConfig.metadata.scopes_supported`, and that is the
+// one a client reads first: `withMcpAuth`'s 401 challenge names
+// `<baseUrl>/api/auth/.well-known/oauth-protected-resource` as its
+// `resource_metadata`. Narrowing only the RFC 9728 paths below would have left
+// the advertisement everybody follows at seven scopes and corrected the one
+// nobody reads. Registered above the catch-all because Hono runs matching
+// handlers in registration order and the catch-all answers; and through an
+// arrow, because `protectedResourceMetadata` is declared further down and a
+// bare reference here would be read before its initialiser has run.
+app.get("/api/auth/.well-known/oauth-protected-resource", (c) => protectedResourceMetadata(c));
 app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)));
-const mcpScopes = [
+/**
+ * What each discovery document says this deployment supports.
+ *
+ * They answer two different questions and so give two different answers. RFC
+ * 8414's `scopes_supported` is what the authorization server accepts, and
+ * Better Auth's accept-list at `/authorize` really is the union of its four
+ * defaults with our three, so naming all seven there is true.
+ *
+ * RFC 9728's is the one a client builds its scope request from — the MCP SDK
+ * joins `scopes_supported` verbatim and prefers it to the client's own
+ * configured scope — so publishing every tier there means a fresh connection
+ * asks for write access it may have no use for, which the security document
+ * names by hand as a thing worth fixing.
+ *
+ * **It is not fixed here, and that is deliberate.** Narrowing this to
+ * `ledger:read` is a behaviour change for anybody who re-authorises after
+ * upgrading: they would come back read-only and regain write only if their
+ * client implements the RFC 6750 step-up. The MCP SDK does; a client written
+ * against an older SDK, or by hand, may not, and would lose the ability to
+ * write with nothing on screen saying why. An upgrade that quietly takes a
+ * capability away is the kind this project does not ship.
+ *
+ * So both documents name all seven, as they did before. What did land is the
+ * half that costs nobody anything: an under-scoped tool call now answers with
+ * an `insufficient_scope` challenge naming the tier it needs, so a client that
+ * *does* ask for less has a way back up. Narrowing the first ask belongs in a
+ * release that can carry the change, with the step-up already in the field.
+ */
+const authorizationServerScopes = [
   "openid",
   "profile",
   "email",
@@ -720,6 +853,7 @@ const mcpScopes = [
   "ledger:stage",
   "ledger:write",
 ];
+const resourceScopes = authorizationServerScopes;
 const discoveryHeaders = (c: Context) => {
   // Discovery is read by clients that are not browsers and have no origin to
   // speak of, which is why the library marks it public. Re-wrapping the body
@@ -732,14 +866,19 @@ const authorizationServerMetadata = async (c: Context) => {
   discoveryHeaders(c);
   const response = await oAuthDiscoveryMetadata(getAuth())(c.req.raw);
   const metadata = (await response.json()) as Record<string, unknown>;
-  return c.json({ ...metadata, scopes_supported: mcpScopes });
+  // Better Auth's document advertises a userinfo endpoint its MCP plugin
+  // never registers, so the URL answered 404 to any client that believed the
+  // discovery. The field is optional in OpenID discovery; a document that
+  // omits it is honest, and one that names a dead endpoint is not.
+  delete metadata.userinfo_endpoint;
+  return c.json({ ...metadata, scopes_supported: authorizationServerScopes });
 };
 
 const protectedResourceMetadata = async (c: Context) => {
   discoveryHeaders(c);
   const response = await oAuthProtectedResourceMetadata(getAuth())(c.req.raw);
   const metadata = (await response.json()) as Record<string, unknown>;
-  return c.json({ ...metadata, scopes_supported: mcpScopes });
+  return c.json({ ...metadata, scopes_supported: resourceScopes });
 };
 
 app.get("/.well-known/oauth-authorization-server", authorizationServerMetadata);
@@ -755,9 +894,10 @@ app.get("/.well-known/oauth-authorization-server/mcp", authorizationServerMetada
 app.get("/.well-known/oauth-protected-resource/mcp/", protectedResourceMetadata);
 app.get("/.well-known/oauth-authorization-server/mcp/", authorizationServerMetadata);
 
-// This deployment issues id tokens and answers userinfo, so a client that
-// discovers the OpenID way rather than the OAuth way is asking a fair question
-// and gets the same answer.
+// This deployment issues id tokens, so a client that discovers the OpenID way
+// rather than the OAuth way is asking a fair question and gets the same
+// answer — minus the userinfo endpoint the handler strips, which Better Auth
+// advertises without registering.
 app.get("/.well-known/openid-configuration", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp", authorizationServerMetadata);
 app.get("/.well-known/openid-configuration/mcp/", authorizationServerMetadata);
@@ -766,10 +906,7 @@ app.get("/.well-known/openid-configuration/mcp/", authorizationServerMetadata);
 // Say so, rather than letting the catch-all hand back an HTML page that a
 // client will try to parse as JSON.
 app.all("/.well-known/*", (c) =>
-  c.json(
-    { error: "not_found", error_description: "No metadata is published here" },
-    404,
-  ),
+  c.json({ error: "not_found", error_description: "No metadata is published here" }, 404),
 );
 
 const authenticatedMcpBodyLimit = boundRequestBody({
@@ -797,20 +934,26 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
     const identity = await actorFromMcpSession(session);
     if (!identity) {
       await rejectRequestBody(c);
-      return new Response("Forbidden", {
-        status: 403,
-        headers: { Connection: "close" },
-      });
+      // JSON-RPC like every other refusal this endpoint sends: the 401 and
+      // the insufficient-scope error are structured, and a bare text/plain
+      // "Forbidden" was the one answer an MCP client could not parse.
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32000, message: "Forbidden: this token's user may not use the ledger" },
+        }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json", Connection: "close" },
+        },
+      );
     }
 
     c.req.raw = request;
     let handled: Response | undefined;
     const limited = await authenticatedMcpBodyLimit(c, async () => {
-      handled = await handleMcpRequest(
-        c.req.raw,
-        identity.actor,
-        identity.scopes,
-      );
+      handled = await handleMcpRequest(c.req.raw, identity.actor, identity.scopes);
     });
     return limited ?? handled ?? new Response(null, { status: 500 });
   });
@@ -829,14 +972,9 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
   if (authorization !== null) {
     const scheme = /^bearer +/i.exec(authorization);
     const presented = scheme ? authorization.slice(scheme[0].length) : null;
-    const opaqueToken = presented
-      ? await unwrapMcpAccessToken(presented)
-      : null;
+    const opaqueToken = presented ? await unwrapMcpAccessToken(presented) : null;
     const headers = new Headers(c.req.raw.headers);
-    headers.set(
-      "authorization",
-      `Bearer ${opaqueToken ?? "invalid-audience-bound-jwt"}`,
-    );
+    headers.set("authorization", `Bearer ${opaqueToken ?? "invalid-audience-bound-jwt"}`);
     authenticatedRequest = new Request(c.req.raw, { headers });
   }
   const response = await protectedMcp(authenticatedRequest);
@@ -905,6 +1043,24 @@ const pathId = (c: Context<{ Variables: Variables }>, name = "id") =>
 const pathReport = (c: Context<{ Variables: Variables }>) =>
   reportNameSchema.parse(c.req.param("report"));
 const query = (c: Context<{ Variables: Variables }>) => c.req.query();
+/**
+ * The query string with the named parameters read as booleans.
+ *
+ * A query string carries "true", never true, and a Zod boolean will not read
+ * one as the other, so a flag declared as a boolean for MCP - where the input
+ * really is JSON - refuses every value the browser can send. The reports route
+ * converts one flag by hand for exactly this reason; this is that conversion
+ * with a name, so the next route to grow a flag does not have to rediscover it.
+ */
+/**
+ * `?includeArchived=` read through the shared schema rather than by hand.
+ *
+ * Five routes compared the raw string with `"true"`, so anything else — `yes`,
+ * `1`, `TRUE` — quietly meant false. The schema refuses those instead, which
+ * turns a silently wrong answer into one the caller can correct.
+ */
+const includeArchivedFlag = (c: Context) =>
+  queryBooleanSchema.parse(c.req.query("includeArchived") ?? false);
 
 app.get("/api/v1/session", async (c) =>
   c.json({
@@ -949,10 +1105,12 @@ app.post("/api/v1/auth/local-password", async (c) => {
       body: { newPassword: parsed.newPassword },
     });
   } catch (error) {
-    throw new AppError(
-      "VALIDATION_ERROR",
-      error instanceof Error ? error.message : "Password could not be updated",
-      422,
+    // The product's own sentence, never the library's: an exception message is
+    // written for a stack trace, and this one lands on the settings screen.
+    // The narrowed error still reaches the log for the operator.
+    log.failure("Setting a password was refused", error);
+    throw validationError(
+      "The password could not be set. Check the new password meets the length rule and try again.",
     );
   }
   return c.json(await getUserAuthState(userId));
@@ -965,9 +1123,7 @@ app.put("/api/v1/preferences", async (c) =>
 // reachable only with a session cookie, because that is what every /api/v1 route
 // resolves: an MCP token cannot get here, and an agent must never be able to
 // delete the person whose ledger it was given a corner of.
-app.get("/api/v1/me/data", async (c) =>
-  c.json(await summarizeOwnData(c.get("actor"))),
-);
+app.get("/api/v1/me/data", async (c) => c.json(await summarizeOwnData(c.get("actor"))));
 
 app.delete("/api/v1/me", async (c) =>
   c.json(await deleteOwnAccount(c.get("actor"), await body(c))),
@@ -977,22 +1133,14 @@ app.delete("/api/v1/me", async (c) =>
 // listing needs ledger:read and revoking needs ledger:write, so a stolen
 // read-only token cannot spend its last minutes locking out the agents it was
 // stolen from. Every revocation is written to the audit log either way.
-app.get("/api/v1/connected-apps", async (c) =>
-  c.json(await listConnectedApps(c.get("actor"))),
-);
+app.get("/api/v1/connected-apps", async (c) => c.json(await listConnectedApps(c.get("actor"))));
 
 app.delete("/api/v1/connected-apps/:clientId", async (c) =>
   c.json(await revokeConnectedApp(c.get("actor"), c.req.param("clientId"))),
 );
 
 app.get("/api/v1/accounts", async (c) =>
-  c.json(
-    await listAccounts(
-      c.get("actor"),
-      c.req.query("end"),
-      c.req.query("includeArchived") === "true",
-    ),
-  ),
+  c.json(await listAccounts(c.get("actor"), c.req.query("end"), includeArchivedFlag(c))),
 );
 app.get("/api/v1/accounts/:id/balances", async (c) =>
   c.json(
@@ -1006,57 +1154,92 @@ app.get("/api/v1/accounts/:id/balances", async (c) =>
     ),
   ),
 );
-app.get("/api/v1/accounts/:id", async (c) =>
-  c.json(await getAccount(c.get("actor"), pathId(c))),
-);
+app.get("/api/v1/accounts/:id", async (c) => c.json(await getAccount(c.get("actor"), pathId(c))));
 app.post("/api/v1/accounts", async (c) =>
   c.json(await createAccount(c.get("actor"), await body(c)), 201),
 );
 app.put("/api/v1/accounts/:id", async (c) =>
   c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),
 );
-app.post("/api/v1/accounts/:id/archive", async (c) => {
-  const parsed = versionedMutationSchema
-    .extend({ archived: z.boolean() })
-    .parse(await body(c));
+/**
+ * The four paths renamed in 0.1.6, still answering on their old spelling.
+ *
+ * `/api/v1` is cookie-only and same-origin, so the argument for renaming rather
+ * than deprecating was that the only client which could be calling the old ones
+ * ships in this image. That is true of *this* image and not of the one already
+ * running: a browser tab left open across the upgrade would have met a 404 on
+ * the first archive or bulk delete somebody tried, indistinguishable from a bug.
+ *
+ * Each old path is registered against the same handler as its replacement, and
+ * marks itself deprecated with the date it goes. Not a redirect — an old tab
+ * cannot rewrite its own URLs, so a 307 would cost a round trip to say something
+ * it cannot act on.
+ */
+/**
+ * When they were deprecated, and when they stop answering.
+ *
+ * `Deprecation` carries a date rather than `true`: RFC 9745 supersedes the
+ * draft that spelled it as a boolean, and its value "MUST be a Date as per
+ * Section 3.3.7 of RFC 9651", which on the wire is `@` and seconds since the
+ * epoch. The first version of this shipped `true`, which is the draft nobody
+ * implements any more.
+ *
+ * The sunset is 188 days after the deprecation, which clears the ninety days
+ * and the one minor release `docs/standards/http.md` asks for. It was a date in
+ * the past for a while — a window that had closed before the release carrying
+ * it shipped, which tells a client the path is already gone while it is still
+ * answering. `tests/api-security.test.ts` now fails once it is in the past, so
+ * the day it expires is a decision somebody makes rather than a promise that
+ * quietly went stale.
+ */
+const RENAMED_PATH_DEPRECATION = "@1787616000";
+const RENAMED_PATH_SUNSET = "Mon, 01 Mar 2027 00:00:00 GMT";
+
+function deprecated(successor: string): MiddlewareHandler {
+  return async (c, next) => {
+    c.header("Deprecation", RENAMED_PATH_DEPRECATION);
+    c.header("Sunset", RENAMED_PATH_SUNSET);
+    // Two relations, because they answer different questions: `successor-version`
+    // is where to go instead, and `deprecation` is where to read why.
+    c.header(
+      "Link",
+      `<${successor}>; rel="successor-version", ` +
+        `<https://github.com/thtmnisamnstr/simple-balance/blob/main/CHANGELOG.md>; rel="deprecation"`,
+    );
+    await next();
+  };
+}
+
+const archiveAccount: Handler<AppEnv> = async (c) => {
+  const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
-    await setAccountArchived(
-      c.get("actor"),
-      pathId(c),
-      parsed.expectedVersion,
-      parsed.archived,
-    ),
+    await setAccountArchived(c.get("actor"), pathId(c), parsed.expectedVersion, parsed.archived),
   );
-});
+};
+app.post("/api/v1/accounts/:id/archived", archiveAccount);
+app.post(
+  "/api/v1/accounts/:id/archive",
+  deprecated("/api/v1/accounts/{id}/archived"),
+  archiveAccount,
+);
 app.delete("/api/v1/accounts/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
-  return c.json(
-    await deleteAccount(c.get("actor"), pathId(c), parsed.expectedVersion),
-  );
+  return c.json(await deleteAccount(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
 
 app.get("/api/v1/categories", async (c) =>
-  c.json(
-    await listCategories(c.get("actor"), c.req.query("includeArchived") === "true"),
-  ),
+  c.json(await listCategories(c.get("actor"), includeArchivedFlag(c))),
 );
 app.get("/api/v1/categories/duplicates", async (c) =>
   c.json(await listDuplicateCategories(c.get("actor"))),
 );
 app.get("/api/v1/categories/summaries", async (c) =>
-  c.json(
-    await listCategorySummaries(
-      c.get("actor"),
-      c.req.query("includeArchived") === "true",
-    ),
-  ),
+  c.json(await listCategorySummaries(c.get("actor"), includeArchivedFlag(c))),
 );
 app.get("/api/v1/categories/:id", async (c) =>
   c.json(await getCategory(c.get("actor"), pathId(c))),
 );
-app.get("/api/v1/recurrences", async (c) =>
-  c.json(await listRecurrences(c.get("actor"))),
-);
+app.get("/api/v1/recurrences", async (c) => c.json(await listRecurrences(c.get("actor"))));
 app.get("/api/v1/recurrences/:id", async (c) =>
   c.json(await getRecurrence(c.get("actor"), pathId(c))),
 );
@@ -1068,10 +1251,55 @@ app.put("/api/v1/recurrences/:id", async (c) =>
 );
 app.delete("/api/v1/recurrences/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
-  return c.json(
-    await deleteRecurrence(c.get("actor"), pathId(c), parsed.expectedVersion),
-  );
+  return c.json(await deleteRecurrence(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
+app.get("/api/v1/category-groups", async (c) => c.json(await listCategoryGroups(c.get("actor"))));
+app.post("/api/v1/category-groups", async (c) =>
+  c.json(await createCategoryGroup(c.get("actor"), await body(c)), 201),
+);
+app.put("/api/v1/category-groups/:id", async (c) =>
+  c.json(await updateCategoryGroup(c.get("actor"), pathId(c), await body(c))),
+);
+app.delete("/api/v1/category-groups/:id", async (c) => {
+  const parsed = versionedMutationSchema.parse(await body(c));
+  return c.json(await deleteCategoryGroup(c.get("actor"), pathId(c), parsed.expectedVersion));
+});
+app.get("/api/v1/budget-plans", async (c) => c.json(await listBudgetPlans(c.get("actor"))));
+app.get("/api/v1/budget-plans/:id", async (c) =>
+  c.json(await getBudgetPlan(c.get("actor"), pathId(c))),
+);
+app.post("/api/v1/budget-plans", async (c) =>
+  c.json(await createBudgetPlan(c.get("actor"), await body(c)), 201),
+);
+app.put("/api/v1/budget-plans/:id", async (c) =>
+  c.json(await updateBudgetPlan(c.get("actor"), pathId(c), await body(c))),
+);
+app.delete("/api/v1/budget-plans/:id", async (c) => {
+  const parsed = versionedMutationSchema.parse(await body(c));
+  return c.json(await deleteBudgetPlan(c.get("actor"), pathId(c), parsed.expectedVersion));
+});
+app.get("/api/v1/budget-entries", async (c) => c.json(await listBudgetEntries(c.get("actor"))));
+app.put("/api/v1/budget-entries", async (c) =>
+  c.json(await setBudgetEntry(c.get("actor"), await body(c))),
+);
+app.delete("/api/v1/budget-entries/:id", async (c) => {
+  const parsed = versionedMutationSchema.parse(await body(c));
+  return c.json(await deleteBudgetEntry(c.get("actor"), pathId(c), parsed.expectedVersion));
+});
+app.get("/api/v1/forecast", async (c) => c.json(await getForecast(c.get("actor"), c.req.query())));
+app.get("/api/v1/budget-report", async (c) =>
+  c.json(
+    await getBudgetReport(
+      c.get("actor"),
+      // The raw query, because the schema knows how to read a flag off one and
+      // refuses `?includeArchived=1` rather than reading it as off. This route
+      // used to coerce the two flags itself with `=== "true"`, which is the
+      // defect `queryBoolean` exists against — and on this report, off means
+      // spending through a closed account silently leaves the figures.
+      c.req.query(),
+    ),
+  ),
+);
 app.get("/api/v1/transaction-templates", async (c) =>
   c.json(await listTransactionTemplates(c.get("actor"))),
 );
@@ -1082,13 +1310,7 @@ app.post("/api/v1/transaction-templates", async (c) =>
   c.json(await createTransactionTemplate(c.get("actor"), await body(c)), 201),
 );
 app.put("/api/v1/transaction-templates/:id", async (c) =>
-  c.json(
-    await updateTransactionTemplate(
-      c.get("actor"),
-      pathId(c),
-      await body(c),
-    ),
-  ),
+  c.json(await updateTransactionTemplate(c.get("actor"), pathId(c), await body(c))),
 );
 app.post("/api/v1/transaction-templates/bulk-edit", async (c) =>
   c.json(await bulkEditTransactionTemplates(c.get("actor"), await body(c))),
@@ -1098,21 +1320,10 @@ app.post("/api/v1/transaction-templates/bulk-delete", async (c) =>
 );
 app.delete("/api/v1/transaction-templates/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
-  return c.json(
-    await deleteTransactionTemplate(
-      c.get("actor"),
-      pathId(c),
-      parsed.expectedVersion,
-    ),
-  );
+  return c.json(await deleteTransactionTemplate(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
 app.post("/api/v1/categories/merge", async (c) =>
-  c.json(
-    await mergeCategories(
-      c.get("actor"),
-      categoryMergeSchema.parse(await body(c)),
-    ),
-  ),
+  c.json(await mergeCategories(c.get("actor"), categoryMergeSchema.parse(await body(c)))),
 );
 app.get("/api/v1/payees/suggestions", async (c) =>
   c.json(await listPayeeSuggestions(c.get("actor"), c.req.query("search"))),
@@ -1121,17 +1332,10 @@ app.get("/api/v1/payees/duplicates", async (c) =>
   c.json(await listDuplicatePayees(c.get("actor"))),
 );
 app.post("/api/v1/payees/merge", async (c) =>
-  c.json(
-    await mergePayees(
-      c.get("actor"),
-      payeeMergeSchema.parse(await body(c)),
-    ),
-  ),
+  c.json(await mergePayees(c.get("actor"), payeeMergeSchema.parse(await body(c)))),
 );
 app.get("/api/v1/payees", async (c) =>
-  c.json(
-    await listPayees(c.get("actor"), { search: c.req.query("search") }),
-  ),
+  c.json(await listPayees(c.get("actor"), { search: c.req.query("search") })),
 );
 app.post("/api/v1/categories", async (c) =>
   c.json(await createCategory(c.get("actor"), await body(c)), 201),
@@ -1139,24 +1343,21 @@ app.post("/api/v1/categories", async (c) =>
 app.put("/api/v1/categories/:id", async (c) =>
   c.json(await updateCategory(c.get("actor"), pathId(c), await body(c))),
 );
-app.post("/api/v1/categories/:id/archive", async (c) => {
-  const parsed = versionedMutationSchema
-    .extend({ archived: z.boolean() })
-    .parse(await body(c));
+const archiveCategory: Handler<AppEnv> = async (c) => {
+  const parsed = versionedMutationSchema.extend({ archived: z.boolean() }).parse(await body(c));
   return c.json(
-    await setCategoryArchived(
-      c.get("actor"),
-      pathId(c),
-      parsed.expectedVersion,
-      parsed.archived,
-    ),
+    await setCategoryArchived(c.get("actor"), pathId(c), parsed.expectedVersion, parsed.archived),
   );
-});
+};
+app.post("/api/v1/categories/:id/archived", archiveCategory);
+app.post(
+  "/api/v1/categories/:id/archive",
+  deprecated("/api/v1/categories/{id}/archived"),
+  archiveCategory,
+);
 app.delete("/api/v1/categories/:id", async (c) => {
   const parsed = versionedMutationSchema.parse(await body(c));
-  return c.json(
-    await deleteCategory(c.get("actor"), pathId(c), parsed.expectedVersion),
-  );
+  return c.json(await deleteCategory(c.get("actor"), pathId(c), parsed.expectedVersion));
 });
 
 app.get("/api/v1/transactions", async (c) =>
@@ -1172,18 +1373,12 @@ app.post("/api/v1/transactions/bulk-selection", async (c) =>
 );
 app.post("/api/v1/transactions/bulk-edit", async (c) =>
   c.json(
-    await bulkEditTransactions(
-      c.get("actor"),
-      bulkTransactionEditSchema.parse(await body(c)),
-    ),
+    await bulkEditTransactions(c.get("actor"), bulkTransactionEditSchema.parse(await body(c))),
   ),
 );
 app.post("/api/v1/transactions/bulk-delete", async (c) =>
   c.json(
-    await bulkDeleteTransactions(
-      c.get("actor"),
-      bulkTransactionDeleteSchema.parse(await body(c)),
-    ),
+    await bulkDeleteTransactions(c.get("actor"), bulkTransactionDeleteSchema.parse(await body(c))),
   ),
 );
 app.get("/api/v1/transactions/:id", async (c) =>
@@ -1239,8 +1434,13 @@ app.post("/api/v1/staged-transactions/bulk-edit", async (c) =>
   c.json(await bulkEditStages(c.get("actor"), await body(c))),
 );
 
-app.post("/api/v1/staged-transactions/delete", async (c) =>
-  c.json(await deleteStages(c.get("actor"), bulkDeleteStageSchema.parse(await body(c)))),
+const bulkDeleteStaged: Handler<AppEnv> = async (c) =>
+  c.json(await deleteStages(c.get("actor"), bulkDeleteStageSchema.parse(await body(c))));
+app.post("/api/v1/staged-transactions/bulk-delete", bulkDeleteStaged);
+app.post(
+  "/api/v1/staged-transactions/delete",
+  deprecated("/api/v1/staged-transactions/bulk-delete"),
+  bulkDeleteStaged,
 );
 app.post("/api/v1/staged-transactions/commit", async (c) =>
   c.json(await commitStages(c.get("actor"), commitStageSchema.parse(await body(c)))),
@@ -1250,40 +1450,41 @@ app.post("/api/v1/csv/preview", async (c) => {
   const parsed = z.object({ csv: z.string().min(1) }).parse(await body(c));
   return c.json(getCsvPreview(parsed.csv));
 });
-app.post("/api/v1/csv/stage", async (c) =>
-  c.json(await stageCsv(c.get("actor"), await body(c))),
-);
+app.post("/api/v1/csv/stage", async (c) => c.json(await stageCsv(c.get("actor"), await body(c))));
 app.get("/api/v1/import-batches", async (c) =>
   c.json(await listActiveImportBatches(c.get("actor"), query(c))),
 );
 app.get("/api/v1/csv/export", async (c) => {
-  const result = await exportTransactionsCsv(c.get("actor"), query(c));
-  c.header("Content-Type", "text/csv; charset=utf-8");
-  c.header(
-    "Content-Disposition",
-    `attachment; filename="transactions-${new Date().toISOString().slice(0, 10)}.csv"`,
-  );
+  const actor = c.get("actor");
+  const result = await exportTransactionsCsv(actor, query(c));
+  c.header("Content-Type", CSV_MEDIA_TYPE);
+  // Dated in the person's own timezone, not the server's. `common.md` puts
+  // every "today" in this product through `todayIn`, and this was the one that
+  // went through the server clock instead: somebody at UTC+13 downloading at
+  // 09:00 got yesterday's date on the file, which is the one thing a dated
+  // filename exists to get right.
+  const { timezone } = await getPreferences(actor);
+  c.header("Content-Disposition", `attachment; filename="transactions-${todayIn(timezone)}.csv"`);
   return c.body(result.csv);
 });
 
 app.get("/api/v1/summary", async (c) =>
-  c.json(
-    await getSummary(
-      c.get("actor"),
-      query(c),
-      c.req.query("includeArchived") === "true",
-    ),
-  ),
+  c.json(await getSummary(c.get("actor"), query(c), includeArchivedFlag(c))),
 );
-app.get("/api/v1/staged/:id/duplicate", async (c) =>
-  c.json(await getStagedDuplicateReview(c.get("actor"), pathId(c))),
+const stagedDuplicate: Handler<AppEnv> = async (c) =>
+  c.json(await getStagedDuplicateReview(c.get("actor"), pathId(c)));
+app.get("/api/v1/staged-transactions/:id/duplicate", stagedDuplicate);
+app.get(
+  "/api/v1/staged/:id/duplicate",
+  deprecated("/api/v1/staged-transactions/{id}/duplicate"),
+  stagedDuplicate,
 );
 app.get("/api/v1/reports/:report", async (c) =>
   c.json(
     await getReport(
       c.get("actor"),
       { ...c.req.query(), report: pathReport(c) },
-      c.req.query("includeArchived") === "true",
+      includeArchivedFlag(c),
     ),
   ),
 );

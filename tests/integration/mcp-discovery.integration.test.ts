@@ -86,6 +86,10 @@ integration("what an MCP client can discover before it has a token", () => {
       "/.well-known/oauth-authorization-server",
       "/.well-known/oauth-authorization-server/mcp",
       "/.well-known/openid-configuration",
+      // Better Auth publishes its own copy of this one under the auth base
+      // path, and `withMcpAuth`'s 401 names that URL as `resource_metadata`, so
+      // it is where a client with no token looks first.
+      "/api/auth/.well-known/oauth-protected-resource",
     ]) {
       const response = await app.request(`${BASE}${path}`);
       expect(response.status, path).toBe(200);
@@ -136,9 +140,7 @@ integration("what an MCP client can discover before it has a token", () => {
     ]) {
       const response = await app.request(`${BASE}${path}`);
       expect(response.status, path).toBe(200);
-      expect(response.headers.get("content-type"), path).toContain(
-        "application/json",
-      );
+      expect(response.headers.get("content-type"), path).toContain("application/json");
     }
   });
 
@@ -148,7 +150,22 @@ integration("what an MCP client can discover before it has a token", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
   });
 
-  it("names the same resource, scopes, and endpoints in both documents", async () => {
+  /**
+   * One resource, one set of endpoints, and the same scope list in both
+   * documents.
+   *
+   * RFC 8414's field is what this server accepts; RFC 9728's is what a client
+   * copies into its authorization request, and the SDK prefers it to the
+   * client's own configured scope. Narrowing the second to the read tier would
+   * be least privilege and is deliberately not done: it would mean anybody
+   * re-authorising after an upgrade comes back read-only, regaining write only
+   * if their client implements the RFC 6750 step-up. What did land is the
+   * challenge itself, so a client that asks for too little has a way back up.
+   * `tests/mcp-discovery-scopes.test.ts` holds every path the document answers
+   * on, including Better Auth's own under `/api/auth`, which is the one its 401
+   * challenge sends a first contact to.
+   */
+  it("names one resource, one set of endpoints, and one scope list", async () => {
     const resource = (await (
       await app.request(`${BASE}/.well-known/oauth-protected-resource`)
     ).json()) as Record<string, unknown>;
@@ -165,8 +182,11 @@ integration("what an MCP client can discover before it has a token", () => {
     expect(server.code_challenge_methods_supported).toContain("S256");
     expect(server.code_challenge_methods_supported).not.toContain("plain");
     for (const scope of ["ledger:read", "ledger:stage", "ledger:write"]) {
-      expect(resource.scopes_supported).toContain(scope);
-      expect(server.scopes_supported).toContain(scope);
+      expect(server.scopes_supported, scope).toContain(scope);
+    }
+    expect(resource.scopes_supported).toEqual(server.scopes_supported);
+    for (const scope of ["ledger:read", "ledger:stage", "ledger:write"]) {
+      expect(resource.scopes_supported, scope).toContain(scope);
     }
   });
 
@@ -341,17 +361,16 @@ for (const mode of ["local", "google", "both"] as const) {
       expect(location.searchParams.get("client_id")).toBe(client.client_id);
       expect(location.searchParams.get("state")).toBe(`mode-${mode}`);
       expect(location.searchParams.get("code_challenge")).toBeTruthy();
-      expect(location.searchParams.get("redirect_uri")).toBe(
-        "http://127.0.0.1:7777/callback",
-      );
+      expect(location.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:7777/callback");
       // Consent is this server's policy, not the client's choice.
       expect(location.searchParams.get("prompt")).toBe("consent");
     });
 
     it("advertises exactly the sign-in methods this mode enables", async () => {
-      const methods = (await (
-        await app.request(`${BASE}/api/auth/methods`)
-      ).json()) as Record<string, unknown>;
+      const methods = (await (await app.request(`${BASE}/api/auth/methods`)).json()) as Record<
+        string,
+        unknown
+      >;
       expect(methods.mode).toBe(mode);
       expect(methods.localEnabled).toBe(mode !== "google");
       expect(methods.googleEnabled).toBe(mode !== "local");

@@ -66,40 +66,29 @@ export function BrowserRouter({ children }: { children: ReactNode }) {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-  const navigate = useCallback(
-    (to: To, options: NavigateOptions = {}) => {
-      const url = toUrl(to, browserLocation());
-      if (url.origin !== window.location.origin) {
-        window.location.assign(url);
-        return;
-      }
-      window.history[options.replace ? "replaceState" : "pushState"](
-        null,
-        "",
-        `${url.pathname}${url.search}${url.hash}`,
-      );
-      setLocation(browserLocation());
-    },
-    [],
-  );
+  const navigate = useCallback((to: To, options: NavigateOptions = {}) => {
+    const url = toUrl(to, browserLocation());
+    if (url.origin !== window.location.origin) {
+      window.location.assign(url);
+      return;
+    }
+    window.history[options.replace ? "replaceState" : "pushState"](
+      null,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+    setLocation(browserLocation());
+  }, []);
   const value = useMemo(() => ({ location, navigate }), [location, navigate]);
-  return (
-    <RouterContext.Provider value={value}>{children}</RouterContext.Provider>
-  );
+  return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
 }
 export function useLocation() {
   return useRouter().location;
 }
-type SearchParamsSetter = (
-  next: URLSearchParams,
-  options?: NavigateOptions,
-) => void;
+type SearchParamsSetter = (next: URLSearchParams, options?: NavigateOptions) => void;
 export function useSearchParams(): [URLSearchParams, SearchParamsSetter] {
   const { location, navigate } = useRouter();
-  const params = useMemo(
-    () => new URLSearchParams(location.search),
-    [location.search],
-  );
+  const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const setParams = useCallback<SearchParamsSetter>(
     (next, options) => {
       navigate(
@@ -126,27 +115,21 @@ function shouldHandleNavigation(event: MouseEvent<HTMLAnchorElement>) {
     !event.ctrlKey &&
     !event.shiftKey &&
     !event.altKey &&
-    (!event.currentTarget.target ||
-      event.currentTarget.target.toLowerCase() === "_self")
+    (!event.currentTarget.target || event.currentTarget.target.toLowerCase() === "_self")
   );
 }
 export function Link({ to, onClick, ...props }: LinkProps) {
   const { location, navigate } = useRouter();
   const url = toUrl(to, location);
   const href =
-    url.origin === window.location.origin
-      ? `${url.pathname}${url.search}${url.hash}`
-      : url.href;
+    url.origin === window.location.origin ? `${url.pathname}${url.search}${url.hash}` : url.href;
   return (
     <a
       {...props}
       href={href}
       onClick={(event) => {
         onClick?.(event);
-        if (
-          shouldHandleNavigation(event) &&
-          url.origin === window.location.origin
-        ) {
+        if (shouldHandleNavigation(event) && url.origin === window.location.origin) {
           event.preventDefault();
           navigate(to);
         }
@@ -157,18 +140,11 @@ export function Link({ to, onClick, ...props }: LinkProps) {
 type NavLinkProps = LinkProps & {
   end?: boolean;
 };
-export function NavLink({
-  to,
-  end = false,
-  className,
-  ...props
-}: NavLinkProps) {
+export function NavLink({ to, end = false, className, ...props }: NavLinkProps) {
   const location = useLocation();
   const target = toUrl(to, location).pathname.replace(/\/+$/, "") || "/";
   const current = location.pathname.replace(/\/+$/, "") || "/";
-  const active =
-    current === target ||
-    (!end && target !== "/" && current.startsWith(`${target}/`));
+  const active = current === target || (!end && target !== "/" && current.startsWith(`${target}/`));
   return (
     <Link
       {...props}
@@ -215,22 +191,12 @@ export function Routes({ children }: { children: ReactNode }) {
     if (!isValidElement<RouteProps>(child)) continue;
     const params = matchPath(child.props.path, pathname);
     if (params !== null) {
-      return (
-        <ParamsContext.Provider value={params}>
-          {child.props.element}
-        </ParamsContext.Provider>
-      );
+      return <ParamsContext.Provider value={params}>{child.props.element}</ParamsContext.Provider>;
     }
   }
   return null;
 }
-export function Navigate({
-  to,
-  replace = false,
-}: {
-  to: To;
-  replace?: boolean;
-}) {
+export function Navigate({ to, replace = false }: { to: To; replace?: boolean }) {
   const { navigate } = useRouter();
   useEffect(() => navigate(to, { replace }), [navigate, replace, to]);
   return null;

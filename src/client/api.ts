@@ -16,12 +16,21 @@ import type {
 } from "../shared/domain.js";
 
 export class ApiClientError extends Error {
-  constructor(
-    public code: string,
-    message: string,
-    public details?: unknown,
-  ) {
+  code: string;
+  details?: unknown;
+  /**
+   * Every sentence the refusal carried, in server order, one entry per failing
+   * field rather than one per distinct sentence, with `message` as the first.
+   * Anything rendering a single message is unaffected; anything rendering a
+   * summary gets the whole set.
+   */
+  messages: string[];
+
+  constructor(code: string, message: string, details?: unknown, messages?: string[]) {
     super(message);
+    this.code = code;
+    this.details = details;
+    this.messages = messages?.length ? messages : [message];
   }
 }
 
@@ -36,15 +45,62 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
+    const details = payload?.error?.details;
+    // A Zod refusal arrives as "Request validation failed" with the sentences
+    // somebody actually wrote buried in details. Showing the envelope instead
+    // of the messages is how "A budget cannot be negative" became
+    // "Request validation failed" on screen, and taking only the first of them
+    // is how a refusal naming three bad fields showed one, leaving the second to
+    // be found by fixing the first and pressing the button again.
+    //
+    // Discriminated on `path`, not on `message`. A Zod issue always carries a
+    // path; an AppError that happens to hand over an array of its own does not.
+    // The CSV import passes Papa's parser errors — `{ type, code, message, row }`
+    // — so reading those as field messages is how the sentence somebody wrote,
+    // "CSV contains malformed quoted data", showed up on screen as Papa's
+    // "Quoted field unterminated". Guarding on the path lets that one fall
+    // through to the envelope, which is the sentence worth reading.
+    const issues = Array.isArray(details)
+      ? details.filter(
+          (entry: unknown): entry is { path: unknown[]; message: string } =>
+            typeof (entry as { message?: unknown })?.message === "string" &&
+            Array.isArray((entry as { path?: unknown })?.path),
+        )
+      : [];
+    // Deduplicated on the (path, sentence) pair rather than the sentence, because
+    // Zod gives identical wording to different fields: two blank fields are two
+    // "Invalid input: expected string, received undefined", and three split legs
+    // left at zero are three "Amount must be greater than zero". Collapsing by
+    // wording would say one amount is wrong when three are, which is the case a
+    // summary exists for. Only an exact repeat — the same path refused twice, by
+    // a regex and then a refinement — is dropped.
+    const seen = new Set<string>();
+    const messages: string[] = [];
+    for (const issue of issues) {
+      const key = `${issue.path.join(".")} ${issue.message}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      messages.push(issue.message);
+    }
     throw new ApiClientError(
       payload?.error?.code ?? `HTTP_${response.status}`,
-      payload?.error?.message ?? response.statusText,
-      payload?.error?.details,
+      messages[0] ?? payload?.error?.message ?? response.statusText,
+      details,
+      messages,
     );
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
+
+/**
+ * Every sentence a failure carried, for the one component that renders them all.
+ *
+ * An `ApiClientError` kept the whole set; anything else — a network failure, a
+ * thrown string — has one sentence and no `details` to have carried more.
+ */
+export const errorMessages = (error: unknown): string[] =>
+  error instanceof ApiClientError ? error.messages : error instanceof Error ? [error.message] : [];
 
 export const json = (value: unknown): RequestInit => ({
   method: "POST",
@@ -66,6 +122,8 @@ export type AuthPublicOptions = {
   localRegistrationOpen: boolean;
   awaitingFirstAccount: boolean;
   setupTokenRequired: boolean;
+  /** The claim path would accept a code, so the form offers the field. */
+  setupTokenOffered: boolean;
   passwordResetAvailable: boolean;
   /** Whether this deployment can send mail at all, so reminders can arrive. */
   notificationsAvailable: boolean;
@@ -81,7 +139,8 @@ export type UserAuthState = {
   googleLinked: boolean;
 };
 
-export type Theme = "system" | "light" | "dark";
+import type { Theme } from "../shared/domain.js";
+export type { Theme } from "../shared/domain.js";
 
 export type Preferences = {
   userId: string;
@@ -108,6 +167,8 @@ export type Account = {
   institution?: string | null;
   notes?: string | null;
   archivedAt?: string | null;
+  /** Whether the budget's "left to assign" figure counts this account. */
+  inBudget?: boolean;
   version: number;
   balance: string;
   balancePresentation: { label: string; amount: string };
@@ -136,6 +197,8 @@ export type Category = {
   id: string;
   name: string;
   kind: CategoryKind;
+  /** The group it is filed under, or null. One level, never a group of groups. */
+  groupId?: string | null;
   archivedAt?: string | null;
   version: number;
 };
@@ -171,17 +234,12 @@ export type CategoryMergeResult = {
  * would catch it: the browser would keep compiling against a shape the API had
  * stopped sending.
  */
-export type {
-  PayeeSummary,
-  PayeeDuplicateGroup,
-  PayeeMergeResult,
-} from "../shared/domain.js";
+export type { PayeeSummary, PayeeDuplicateGroup, PayeeMergeResult } from "../shared/domain.js";
 export type {
   BulkTransactionSelectionSnapshot as TransactionBulkSelectionPreview,
   BulkTransactionEditResult as TransactionBulkEditResult,
   BulkStageEditResult as StagedBulkEditResult,
 } from "../shared/domain.js";
-
 
 /**
  * One category's share of a split. `id` is what an edit sends back to keep
@@ -245,7 +303,6 @@ export type TransactionBulkEditSelection =
       expectedFingerprint: string;
     };
 
-
 export type TransactionBulkEditPatch = {
   date?: string;
   payee?: string;
@@ -255,7 +312,6 @@ export type TransactionBulkEditPatch = {
   notes?: string | null;
   type?: "deposit" | "withdrawal";
 };
-
 
 export type StagedTransaction = {
   id: string;
@@ -305,7 +361,6 @@ export type StagedBulkEditPatch = {
   notes?: string | null;
   type?: "deposit" | "withdrawal";
 };
-
 
 /**
  * A saved starting point for the transaction form. The draft is partial on
@@ -488,12 +543,143 @@ export type AuditEvent = {
   createdAt: string;
 };
 
-// The preview the server returns is exactly what the shared parser produces, so
-// the browser reads that type rather than keeping a second copy of it that can
-// drift.
-export type { CsvPreview } from "../shared/csv.js";
+// The preview the server returns is exactly what the shared parser produces, and
+// so is each row of a stage's sample, so the browser reads those types rather
+// than keeping a second copy of either that can drift.
+export type { CsvPreview, CsvSampleRow } from "../shared/csv.js";
 
 export type { PaginatedPage, Page };
+
+export type BudgetPeriodUnitName = "week" | "month" | "quarter" | "year";
+
+export type CategoryGroup = {
+  id: string;
+  name: string;
+  policy: "standalone" | "sum_of_children";
+  categoryCount: number;
+  version: number;
+};
+
+export type BudgetPlan = {
+  id: string;
+  /** A budget is about a category or a group, so one of these is always null. */
+  categoryId: string | null;
+  currency: string;
+  periodUnit: BudgetPeriodUnitName;
+  amount: string;
+  activeFrom: string;
+  activeTo: string | null;
+  rollover: boolean;
+  rolloverCap: string | null;
+  categoryName: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  targetName: string;
+  targetAmount: string | null;
+  targetDate: string | null;
+  lookbackPeriods: number | null;
+  percentOfPrevious: string | null;
+  percentOfIncome: string | null;
+  priority: number;
+  amountRule: "fixed" | "sinking_fund" | "trailing_average" | "incremental" | "percent_of_income";
+  version: number;
+};
+
+export type BudgetEntry = {
+  id: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  targetName: string;
+  currency: string;
+  periodUnit: BudgetPeriodUnitName;
+  periodStart: string;
+  amount: string;
+  version: number;
+};
+
+export type BudgetReportRow = {
+  categoryId: string | null;
+  category: string;
+  limit: string | null;
+  actual: string;
+  remaining: string | null;
+  source: "entry" | "plan" | "none";
+  /** Null when this budget does not carry anything forward. */
+  carriedIn: string | null;
+  available: string | null;
+  carriedOut: string | null;
+  priority: number;
+  /** Null unless some budget in the period names a funding order. */
+  funded: string | null;
+};
+
+export type Forecast = {
+  from: string;
+  periodUnit: BudgetPeriodUnitName;
+  basis: "recurring" | "recurring_and_budgets";
+  unprojectable: { id: string; name: string; reason: string }[];
+  /** Units this person budgets in that this projection did not read. */
+  otherPeriodUnits: BudgetPeriodUnitName[];
+  currencies: {
+    currency: string;
+    openingBalance: string;
+    periods: {
+      periodStart: string;
+      start: string;
+      end: string;
+      openingBalance: string;
+      expectedIncome: string;
+      expectedSpending: string;
+      budgetedSpending: string;
+      uncoveredBudget: string;
+      projectedBalance: string;
+      occurrences: number;
+    }[];
+  }[];
+};
+
+export type BudgetGroupRow = {
+  groupId: string;
+  name: string;
+  policy: "standalone" | "sum_of_children";
+  limit: string | null;
+  actual: string;
+  remaining: string | null;
+  source: "entry" | "plan" | "sum" | "none";
+  carriedIn: string | null;
+  available: string | null;
+  carriedOut: string | null;
+  priority: number;
+  funded: string | null;
+};
+
+export type BudgetReport = {
+  periodUnit: BudgetPeriodUnitName;
+  start: string;
+  asOf: string;
+  otherPeriodUnits: BudgetPeriodUnitName[];
+  /** Where the carry was folded from, or null when nothing rolls over. */
+  rollover: { from: string; clipped: boolean } | null;
+  periods: {
+    periodStart: string;
+    start: string;
+    end: string;
+    partial: boolean;
+    currency: string;
+    budgeted: string;
+    spent: string;
+    carriedIn: string;
+    available: string;
+    income: string;
+    unfunded: string | null;
+    toAssign: string | null;
+    perimeter: string;
+    rows: BudgetReportRow[];
+    groups: BudgetGroupRow[];
+  }[];
+};
 
 export function queryString(values: Record<string, string | undefined | null>) {
   const params = new URLSearchParams();

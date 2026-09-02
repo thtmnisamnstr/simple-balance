@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { readSecret, resolveFileBackedSecrets } from "./config-files.js";
+import { assertConfiguredLimits } from "./config-limits.js";
 
 function isLoopbackHostname(hostname: string) {
   if (hostname === "localhost" || hostname === "[::1]") return true;
@@ -6,10 +8,7 @@ function isLoopbackHostname(hostname: string) {
   return (
     octets.length === 4 &&
     octets[0] === "127" &&
-    octets.every(
-      (octet) =>
-        /^\d{1,3}$/.test(octet) && Number(octet) <= 255,
-    )
+    octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
   );
 }
 
@@ -148,6 +147,22 @@ export type AppConfig = {
    * row first is the only one that works it.
    */
   recurrenceSchedulerEnabled: boolean;
+  /**
+   * Whether this process answers `GET /metrics`, and what it demands first.
+   *
+   * Off unless asked for. The figures are not somebody's ledger — no label
+   * carries a user, an account or an amount — but they do say how many
+   * transactions a deployment writes and how deep its queues are, and a
+   * self-hosted box is often one port away from the internet. An operator who
+   * wants the endpoint says so; nobody gets it by upgrading.
+   *
+   * `token` is optional because a Kubernetes deployment scraping over a private
+   * network with a NetworkPolicy in front is a real setup and a bearer token
+   * would be ceremony there. Where it is set, the endpoint is the only thing in
+   * this product that authenticates with a static credential, which is why it
+   * is compared in constant time and is a file-backed secret like the rest.
+   */
+  metrics: { enabled: boolean; token?: string };
   isProduction: boolean;
 };
 
@@ -155,6 +170,17 @@ let cached: AppConfig | undefined;
 
 export function getConfig(): AppConfig {
   if (cached) return cached;
+  // `readSecret` memoises, so this call buys exactly one thing: an unreadable
+  // secret file, or a name set both ways, refuses at startup rather than at the
+  // first query. That is what the "Validating at startup" rule in
+  // `docs/standards/operations.md` asks of every other setting here.
+  resolveFileBackedSecrets();
+  // The bounded integers are read here rather than left to the code that wants
+  // them, for the same reason. `CSV_MAX_ROWS` is otherwise read inside an
+  // import and the recurrence limits inside a tick, so a typo in one was found
+  // by nobody: it fell back to the default and the deployment ran on a number
+  // its operator had not chosen. Both entrypoints call this function first.
+  assertConfiguredLimits();
   // Parsed strictly, and against a closed set, because comparing to the string
   // "production" turns every other spelling into development silently: the
   // setup code is not demanded, sign-in attempts are not rate limited, and
@@ -197,18 +223,30 @@ export function getConfig(): AppConfig {
     })
     .transform((value) => value === "true")
     .parse((process.env.RECURRENCE_SCHEDULER ?? "true").toLowerCase());
+  const metricsEnabled = z
+    .enum(["true", "false"], {
+      error: () => "METRICS_ENABLED must be true or false",
+    })
+    .transform((value) => value === "true")
+    .parse((process.env.METRICS_ENABLED ?? "false").toLowerCase());
+  // The secrets are read through `readSecret` and the settings beside
+  // them straight from the environment. That split is not an oversight: having a
+  // `_FILE` form is what makes a name a secret here, so giving one to
+  // `SMTP_HOST` or `ALLOWED_EMAILS` would erase the distinction the resolver
+  // exists to draw.
   const values = {
-    DATABASE_URL: process.env.DATABASE_URL,
+    DATABASE_URL: readSecret("DATABASE_URL"),
     APP_BASE_URL: process.env.APP_BASE_URL,
-    AUTH_SECRET: process.env.AUTH_SECRET,
+    AUTH_SECRET: readSecret("AUTH_SECRET"),
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    GOOGLE_CLIENT_SECRET: readSecret("GOOGLE_CLIENT_SECRET"),
     ALLOWED_EMAILS: process.env.ALLOWED_EMAILS,
     SMTP_HOST: process.env.SMTP_HOST,
     SMTP_PORT: process.env.SMTP_PORT,
     SMTP_SSL: process.env.SMTP_SSL,
     SMTP_USERNAME: process.env.SMTP_USERNAME,
-    SMTP_PASSWORD: process.env.SMTP_PASSWORD,
+    SMTP_PASSWORD: readSecret("SMTP_PASSWORD"),
+    METRICS_TOKEN: readSecret("METRICS_TOKEN"),
     MAIL_FROM: process.env.MAIL_FROM,
     MAIL_REPLY_TO: process.env.MAIL_REPLY_TO,
   };
@@ -230,14 +268,11 @@ export function getConfig(): AppConfig {
   }
   cached = {
     databaseUrl:
-      values.DATABASE_URL ??
-      "postgresql://postgres:postgres@127.0.0.1:5432/simple_balance",
+      values.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/simple_balance",
     baseUrl: (
-      values.APP_BASE_URL ??
-      (isProduction ? "http://localhost:3000" : "http://localhost:5173")
+      values.APP_BASE_URL ?? (isProduction ? "http://localhost:3000" : "http://localhost:5173")
     ).replace(/\/$/, ""),
-    authSecret:
-      values.AUTH_SECRET ?? "development-only-secret-change-me-1234567890",
+    authSecret: values.AUTH_SECRET ?? "development-only-secret-change-me-1234567890",
     authMode,
     localAuthEnabled,
     googleAuthEnabled,
@@ -249,9 +284,34 @@ export function getConfig(): AppConfig {
     logLevel,
     trustProxy,
     recurrenceSchedulerEnabled,
+    metrics: {
+      enabled: metricsEnabled,
+      ...(values.METRICS_TOKEN ? { token: values.METRICS_TOKEN } : {}),
+    },
     isProduction,
   };
-  process.env.DATABASE_URL ??= cached.databaseUrl;
+  // Warned rather than refused. Scraping over a private network with nothing in
+  // front of it is a legitimate deployment and demanding a token there would be
+  // ceremony; publishing queue depths and write rates to the open internet is
+  // not, and the two are indistinguishable from in here. So the one that can be
+  // said is said, once, at the moment somebody turns the endpoint on.
+  if (metricsEnabled && !values.METRICS_TOKEN && isProduction) {
+    console.warn(
+      "METRICS_ENABLED is true and METRICS_TOKEN is not set, so /metrics answers " +
+        "anybody who can reach this port. That is fine behind a private network " +
+        "and is not fine on a public one. Set METRICS_TOKEN (or METRICS_TOKEN_FILE) " +
+        "and give the scraper an Authorization: Bearer header.",
+    );
+  }
+  // Publishes the development default to `getPool()`, and only ever that. A
+  // value read from `DATABASE_URL_FILE` must not travel this way: putting it
+  // into the environment is the one thing the `_FILE` form exists to prevent,
+  // and `getPool()` reaches a configured value through `readSecret` without any
+  // help from here. `??=` stays because nothing above this line sets the
+  // variable, so it is the fallback rather than an overwrite.
+  if (values.DATABASE_URL === undefined) {
+    process.env.DATABASE_URL ??= cached.databaseUrl;
+  }
   return cached;
 }
 
@@ -289,8 +349,7 @@ export type MailSettings = {
 
 // Displayed as-is by mail clients, so it has to be something they will accept:
 // either bare, or the "Name <address>" form.
-const mailAddress =
-  /^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$|^[^<>]+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/;
+const mailAddress = /^[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+$|^[^<>]+<[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+>$/;
 
 /**
  * Reads the SMTP settings.
@@ -419,9 +478,7 @@ function assertDomain(candidate: string, entry: string) {
 function assertEmail(entry: string) {
   const [local, ...rest] = entry.split("@");
   if (!local || rest.length !== 1) {
-    throw new Error(
-      `ALLOWED_EMAILS entry "${entry}" is not a usable email address.`,
-    );
+    throw new Error(`ALLOWED_EMAILS entry "${entry}" is not a usable email address.`);
   }
   assertDomain(rest[0]!, entry);
 }

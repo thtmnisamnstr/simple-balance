@@ -43,18 +43,12 @@ describe("Node request body enforcement", () => {
     const constrainedPort = process.env.RALPH_LOOPBACK_TEST_PORT
       ? Number(process.env.RALPH_LOOPBACK_TEST_PORT)
       : 0;
-    if (
-      !Number.isInteger(constrainedPort) ||
-      constrainedPort < 0 ||
-      constrainedPort > 65_535
-    ) {
+    if (!Number.isInteger(constrainedPort) || constrainedPort < 0 || constrainedPort > 65_535) {
       throw new Error("RALPH_LOOPBACK_TEST_PORT must be a valid TCP port");
     }
     const app = new Hono();
     app.use("*", boundRequestBody({ maxBytes: 8 * 1024 }));
-    app.post("/", async (context) =>
-      context.text(await context.req.text()),
-    );
+    app.post("/", async (context) => context.text(await context.req.text()));
 
     const server = serve({
       fetch: app.fetch,
@@ -118,16 +112,10 @@ describe("Node request body enforcement", () => {
     ]);
     socket.write(Buffer.concat([requestHeaders, frame]));
 
-    await withTimeout(
-      headersPromise,
-      "Oversized request did not receive a response",
-    );
+    await withTimeout(headersPromise, "Oversized request did not receive a response");
     expect(response).toMatch(/^HTTP\/1\.1 413 /);
     expect(response.toLowerCase()).toContain("connection: close");
-    await withTimeout(
-      closedPromise,
-      "Oversized request connection remained open",
-    );
+    await withTimeout(closedPromise, "Oversized request connection remained open");
     expect(socket.destroyed).toBe(true);
   });
 });

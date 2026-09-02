@@ -11,7 +11,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "../router.js";
+import { Link, useLocation } from "../router.js";
 import {
   accountTypeLabels,
   groupAccountsByType,
@@ -23,22 +23,18 @@ import {
   Alert,
   Badge,
   Button,
+  compareForSort,
+  ConfirmDialog,
   EmptyState,
   Modal,
   PageHeader,
   RowMenu,
+  Skeleton,
   SortMenu,
   type SortState,
-  compareForSort,
-  ConfirmDialog,
   useConfirm,
 } from "../components.js";
-import {
-  formatMoney,
-  isNegativeMoney,
-  isPositiveMoney,
-  compareMoney,
-} from "../money.js";
+import { formatMoney, isNegativeMoney, isPositiveMoney, compareMoney } from "../money.js";
 import { AccountForm } from "../forms.js";
 import { calendarDateInTimezone } from "../timezone.js";
 
@@ -58,30 +54,26 @@ const accountSortFields = [
 type AccountSortField = (typeof accountSortFields)[number]["field"];
 
 /** Non-zero without turning a decimal string into a float. */
-const hasBalance = (amount: string) =>
-  isPositiveMoney(amount) || isNegativeMoney(amount);
+const hasBalance = (amount: string) => isPositiveMoney(amount) || isNegativeMoney(amount);
 
 export default function AccountsPage({ session }: { session: Session }) {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [includeArchived, setIncludeArchived] = useState(false);
   const removal = useConfirm<Account>();
+  const location = useLocation();
   const closing = useConfirm<Account>();
+  const restoring = useConfirm<Account>();
   const [sort, setSort] = useState<SortState<AccountSortField>>({
     field: "name",
     direction: "asc",
   });
   const queryClient = useQueryClient();
-  const today = calendarDateInTimezone(
-    new Date(),
-    session.preferences.timezone,
-  );
+  const today = calendarDateInTimezone(new Date(), session.preferences.timezone);
   const accounts = useQuery({
     queryKey: ["accounts", "all", includeArchived, today],
     queryFn: () =>
       api<Account[]>(
-        `/api/v1/accounts?end=${today}${
-          includeArchived ? "&includeArchived=true" : ""
-        }`,
+        `/api/v1/accounts?end=${today}${includeArchived ? "&includeArchived=true" : ""}`,
       ),
   });
   // The list arrives whole, so ordering it here keeps it instant and avoids
@@ -95,10 +87,7 @@ export default function AccountsPage({ session }: { session: Session }) {
       // differ in the last of them would otherwise sort arbitrarily.
       if (sort.field === "balance") {
         const order = compareMoney(left.balance, right.balance);
-        return (
-          (sort.direction === "asc" ? order : -order) ||
-          left.name.localeCompare(right.name)
-        );
+        return (sort.direction === "asc" ? order : -order) || left.name.localeCompare(right.name);
       }
       const value = (account: Account) => {
         switch (sort.field) {
@@ -120,21 +109,12 @@ export default function AccountsPage({ session }: { session: Session }) {
       accounts: [...group.accounts].sort(compare),
     }));
   }, [accounts.data, sort]);
-  const accountCount = groupedAccounts.reduce(
-    (total, group) => total + group.accounts.length,
-    0,
-  );
+  const accountCount = groupedAccounts.reduce((total, group) => total + group.accounts.length, 0);
 
   const mutation = useMutation({
-    mutationFn: ({
-      account,
-      action,
-    }: {
-      account: Account;
-      action: "archive" | "delete";
-    }) =>
+    mutationFn: ({ account, action }: { account: Account; action: "archive" | "delete" }) =>
       action === "archive"
-        ? api<Account>(`/api/v1/accounts/${account.id}/archive`, {
+        ? api<Account>(`/api/v1/accounts/${account.id}/archived`, {
             ...json({
               expectedVersion: account.version,
               archived: !account.archivedAt,
@@ -147,6 +127,10 @@ export default function AccountsPage({ session }: { session: Session }) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["accounts"] });
       await queryClient.invalidateQueries({ queryKey: ["summary"] });
+      // Budgets and the forecast read the same postings; without these two
+      // the Budgets page showed pre-mutation figures for its staleTime.
+      await queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      await queryClient.invalidateQueries({ queryKey: ["forecast"] });
     },
   });
 
@@ -186,88 +170,100 @@ export default function AccountsPage({ session }: { session: Session }) {
             </h2>
             <div className="account-card-grid">
               {group.accounts.map((account) => {
-            const Icon = iconFor(account.type);
-            const liability = liabilityAccountTypes.has(account.type);
-            return (
-              <article
-                className={`account-card ${account.archivedAt ? "archived" : ""}`}
-                key={account.id}
-              >
-                <header>
-                  <span className="account-icon"><Icon size={20} /></span>
-                  <div className="account-card-actions">
-                    {account.archivedAt ? <Badge>Archived</Badge> : null}
-                    <RowMenu label={`Actions for ${account.name}`}>
-                      <button onClick={() => setEditing(account)}>
-                        <Pencil size={15} /> Edit
-                      </button>
-                      <button
-                        onClick={() => {
-                          // Archiving now moves money: the balance is posted
-                          // out to equity so the account ends at zero.
-                          // Restoring puts it back, and neither is something
-                          // to do by brushing past a menu item.
-                          if (!account.archivedAt && hasBalance(account.balance)) {
-                            closing.ask(account, () =>
-                              mutation.mutate({ account, action: "archive" }),
-                            );
-                            return;
-                          }
-                          mutation.mutate({ account, action: "archive" });
-                        }}
-                      >
-                        {account.archivedAt ? <ArchiveRestore size={15} /> : <Archive size={15} />}
-                        {account.archivedAt ? "Restore" : "Archive"}
-                      </button>
-                      <button
-                        className="danger"
-                        onClick={() => {
-                          removal.ask(account, () =>
-                            mutation.mutate({ account, action: "delete" }),
-                          );
-                        }}
-                      >
-                        <Trash2 size={15} /> Delete if unused
-                      </button>
-                    </RowMenu>
-                  </div>
-                </header>
-                <Link
-                  className="account-card-link"
-                  to={{ pathname: `/accounts/${account.id}`, search: location.search }}
-                >
-                  <div className="account-card-main">
-                    <span>{accountTypeLabels[account.type]}</span>
-                    <h2>{account.name}</h2>
-                    {account.institution ? <p>{account.institution}</p> : null}
-                  </div>
-                  <footer>
-                    <div>
-                      <span>{account.balancePresentation.label}</span>
-                      <strong
-                        className={
-                          !liability && isNegativeMoney(account.balance)
-                            ? "money-negative"
-                            : ""
-                        }
-                      >
-                        {formatMoney(
-                          account.balancePresentation.amount,
-                          account.currency,
-                        )}
-                      </strong>
-                    </div>
-                    <Badge tone="blue">{account.currency}</Badge>
-                  </footer>
-                </Link>
-              </article>
-            );
+                const Icon = iconFor(account.type);
+                const liability = liabilityAccountTypes.has(account.type);
+                return (
+                  <article
+                    className={`account-card ${account.archivedAt ? "archived" : ""}`}
+                    key={account.id}
+                  >
+                    <header>
+                      <span className="account-icon">
+                        <Icon size={20} />
+                      </span>
+                      <div className="account-card-actions">
+                        {account.archivedAt ? <Badge>Archived</Badge> : null}
+                        <RowMenu label={`Actions for ${account.name}`}>
+                          <button onClick={() => setEditing(account)}>
+                            <Pencil size={15} /> Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              // Archiving moves money: the balance is posted
+                              // out to equity so the account ends at zero.
+                              // Restoring posts it back. Neither is something
+                              // to do by brushing past a menu item, and for a
+                              // while only the archive half asked — restoring
+                              // a five-thousand-dollar closing was one click.
+                              // Every restore asks, because the closed row
+                              // shows a zero balance and cannot say here what
+                              // the reversal will move.
+                              if (!account.archivedAt && hasBalance(account.balance)) {
+                                closing.ask(account, () =>
+                                  mutation.mutate({ account, action: "archive" }),
+                                );
+                                return;
+                              }
+                              if (account.archivedAt) {
+                                restoring.ask(account, () =>
+                                  mutation.mutate({ account, action: "archive" }),
+                                );
+                                return;
+                              }
+                              mutation.mutate({ account, action: "archive" });
+                            }}
+                          >
+                            {account.archivedAt ? (
+                              <ArchiveRestore size={15} />
+                            ) : (
+                              <Archive size={15} />
+                            )}
+                            {account.archivedAt ? "Restore" : "Archive"}
+                          </button>
+                          <button
+                            className="danger"
+                            onClick={() => {
+                              removal.ask(account, () =>
+                                mutation.mutate({ account, action: "delete" }),
+                              );
+                            }}
+                          >
+                            <Trash2 size={15} /> Delete if unused
+                          </button>
+                        </RowMenu>
+                      </div>
+                    </header>
+                    <Link
+                      className="account-card-link"
+                      to={{ pathname: `/accounts/${account.id}`, search: location.search }}
+                    >
+                      <div className="account-card-main">
+                        <span>{accountTypeLabels[account.type]}</span>
+                        <h2>{account.name}</h2>
+                        {account.institution ? <p>{account.institution}</p> : null}
+                      </div>
+                      <footer>
+                        <div>
+                          <span>{account.balancePresentation.label}</span>
+                          <strong
+                            className={
+                              !liability && isNegativeMoney(account.balance) ? "money-negative" : ""
+                            }
+                          >
+                            {formatMoney(account.balancePresentation.amount, account.currency)}
+                          </strong>
+                        </div>
+                        <Badge tone="blue">{account.currency}</Badge>
+                      </footer>
+                    </Link>
+                  </article>
+                );
               })}
             </div>
           </section>
         ))
       ) : accounts.isPending ? (
-        <p className="settings-note">Loading accounts…</p>
+        <Skeleton height={120} label="Loading accounts…" />
       ) : accounts.error ? null : (
         <EmptyState
           icon={<Landmark size={24} />}
@@ -301,6 +297,19 @@ export default function AccountsPage({ session }: { session: Session }) {
         confirmLabel="Archive"
         onConfirm={closing.confirm}
         onCancel={closing.cancel}
+      />
+
+      <ConfirmDialog
+        open={restoring.open}
+        title="Restore this account?"
+        description={
+          restoring.value
+            ? `Whatever “${restoring.value.name}” held when it was archived is posted back from Opening Balances, and starts counting toward your totals again. Its history was readable all along; this changes the money, not the record.`
+            : undefined
+        }
+        confirmLabel="Restore"
+        onConfirm={restoring.confirm}
+        onCancel={restoring.cancel}
       />
 
       <ConfirmDialog

@@ -1,21 +1,17 @@
 import { Link, useSearchParams } from "../router.js";
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCheck,
   CircleAlert,
   ClipboardList,
+  Copy,
   CopyCheck,
+  LayoutTemplate,
   Pencil,
   Plus,
+  Repeat,
   Search,
   Trash2,
-  LayoutTemplate,
-  Repeat,
 } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
@@ -37,9 +33,10 @@ import {
 } from "../api.js";
 import {
   Alert,
-  BulkEditToggle,
   Badge,
+  BulkEditToggle,
   Button,
+  ConfirmDialog,
   DateRangeBar,
   EmptyState,
   Input,
@@ -49,30 +46,29 @@ import {
   RowMenu,
   Select,
   SelectionCheckbox,
-  ConfirmDialog,
+  Skeleton,
   SortableHeader,
   type SortState,
   useConfirm,
 } from "../components.js";
+import { formatDate, formatMoney, movementSign } from "../money.js";
 import {
-  compareMoney,
-  formatDate,
-  formatMoney,
-} from "../money.js";
-import { RecurrenceForm, TemplateForm, TransactionForm } from "../forms.js";
-import {
-  MAX_BULK_SELECTION_ENTRIES,
-  type StageSortField,
-} from "../../shared/domain.js";
+  CategoryPicker,
+  PayeeInput,
+  RecurrenceForm,
+  TemplateForm,
+  TransactionForm,
+} from "../forms.js";
+import { MAX_BULK_SELECTION_ENTRIES, type StageSortField } from "../../shared/domain.js";
 import { useDateRange } from "../date-range.js";
 import {
   draftForTransactionForm,
+  largestStagedLeg,
   recurrenceShapeFromDraft,
   stagedLegs,
   stagedString,
   summarizeStagedDraft,
   templateDraftFromDraft,
-  type TransactionFormLeg,
 } from "../staged-draft.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import {
@@ -97,27 +93,18 @@ const MAX_BULK_STAGES = MAX_BULK_SELECTION_ENTRIES;
 const STAGE_PAGE_SIZE = 100;
 const SELECT_ALL_FETCH_SIZE = 200;
 
-
 /**
  * Which account field a draft carries follows from its type, so a row that is
  * neither a deposit nor a withdrawal has no side to move an account to. A row a
  * parser could not read may carry no type at all, which is exactly the row
  * somebody opened this queue to repair.
  */
-const draftType = (stage: StagedTransaction) =>
-  stagedString(stage.draft.type).trim();
+const draftType = (stage: StagedTransaction) => stagedString(stage.draft.type).trim();
 const isOneSided = (stage: StagedTransaction) =>
   draftType(stage) === "deposit" || draftType(stage) === "withdrawal";
 const stageLegs = (stage: StagedTransaction) => stagedLegs(stage.draft.legs);
 
-/** The share a split is named by in a list: its biggest one. */
-const largestStagedLeg = (legs: TransactionFormLeg[]) =>
-  [...legs].sort((left, right) => compareMoney(right.amount, left.amount))[0];
-
-function retainedIdempotencyKey(
-  keys: Map<string, string>,
-  payload: unknown,
-) {
+function retainedIdempotencyKey(keys: Map<string, string>, payload: unknown) {
   const fingerprint = JSON.stringify(payload);
   const existing = keys.get(fingerprint);
   if (existing) return existing;
@@ -129,22 +116,16 @@ function retainedIdempotencyKey(
 export default function StagingPage() {
   // Keyed by id and holding the row, so a selection that spans pages keeps the
   // versions and validation flags the bulk actions need after paging away.
-  const [selected, setSelected] = useState<Map<string, StagedTransaction>>(
-    () => new Map(),
-  );
+  const [selected, setSelected] = useState<Map<string, StagedTransaction>>(() => new Map());
   const [page, setPage] = useState(1);
   const bulkRemoval = useConfirm<number>();
   const rowRemoval = useConfirm<StagedTransaction>();
   const duplicate = useConfirm<StagedTransaction>();
   const [editing, setEditing] = useState<StagedTransaction | "new" | null>(null);
-  const [savingTemplate, setSavingTemplate] = useState<StagedTransaction | null>(
-    null,
-  );
-  const [savingRecurrence, setSavingRecurrence] =
-    useState<StagedTransaction | null>(null);
-  const recurrenceSeed = savingRecurrence
-    ? draftForTransactionForm(savingRecurrence.draft)
-    : null;
+  const [cloning, setCloning] = useState<StagedTransaction | null>(null);
+  const [savingTemplate, setSavingTemplate] = useState<StagedTransaction | null>(null);
+  const [savingRecurrence, setSavingRecurrence] = useState<StagedTransaction | null>(null);
+  const recurrenceSeed = savingRecurrence ? draftForTransactionForm(savingRecurrence.draft) : null;
   const [search, setSearch] = useState("");
   const settledSearch = useDebounced(search);
   const [validity, setValidity] = useState("");
@@ -153,12 +134,8 @@ export default function StagingPage() {
   // opens the queue on the rows that just landed rather than on everything
   // ever staged.
   const [searchParams] = useSearchParams();
-  const [importBatchId, setImportBatchId] = useState(
-    () => searchParams.get("importBatchId") ?? "",
-  );
-  const [recurrenceId, setRecurrenceId] = useState(
-    () => searchParams.get("recurrenceId") ?? "",
-  );
+  const [importBatchId, setImportBatchId] = useState(() => searchParams.get("importBatchId") ?? "");
+  const [recurrenceId, setRecurrenceId] = useState(() => searchParams.get("recurrenceId") ?? "");
   const [allowDuplicates, setAllowDuplicates] = useState(false);
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkEnabled, setBulkEnabled] = useState(emptyBulkEditEnabled);
@@ -237,10 +214,7 @@ export default function StagingPage() {
       ),
     placeholderData: (previous) => previous,
   });
-  const stages = useMemo(
-    () => stagePages.data?.items ?? [],
-    [stagePages.data],
-  );
+  const stages = useMemo(() => stagePages.data?.items ?? [], [stagePages.data]);
   const batches = useMemo(
     () => batchPages.data?.pages.flatMap((page) => page.items) ?? [],
     [batchPages.data],
@@ -261,8 +235,7 @@ export default function StagingPage() {
   // A staged draft names its category by id, so the queue needs the list to
   // show a name instead of a UUID.
   const categoryNames = useMemo(
-    () =>
-      new Map((categories.data ?? []).map((category) => [category.id, category.name])),
+    () => new Map((categories.data ?? []).map((category) => [category.id, category.name])),
     [categories.data],
   );
   const selectedRows = useMemo(() => [...selected.values()], [selected]);
@@ -272,15 +245,20 @@ export default function StagingPage() {
     queryKey: ["payees", "suggestions", bulkValues.payee.trim().toLowerCase()],
     queryFn: () =>
       api<string[]>(
-        `/api/v1/payees/suggestions?search=${encodeURIComponent(
-          bulkValues.payee.trim(),
-        )}`,
+        `/api/v1/payees/suggestions?search=${encodeURIComponent(bulkValues.payee.trim())}`,
       ),
     enabled: bulkEditing && bulkEnabled.payee,
     placeholderData: (previous) => previous,
   });
 
   useEffect(() => {
+    // A selection is accumulated rather than worked out, so there is nothing to
+    // derive during render; and there is no event to hang this on either. The
+    // search settles on a debounce timer and the date range is shared with the
+    // rest of the app, so neither arrives through a handler on this page.
+    // Watching the filters themselves is what makes every route to a new one
+    // drop the selection, rather than only the ones somebody remembered.
+    // oxlint-disable-next-line react/set-state-in-effect
     setSelected(new Map());
     setAllowDuplicates(false);
     setBulkEditing(false);
@@ -295,12 +273,12 @@ export default function StagingPage() {
         selectedRows.map((stage) => [stage.id, stage.version]),
       );
       if (action === "delete") {
-        return api("/api/v1/staged-transactions/delete", {
-            ...json({
-              stagedIds: selectedRows.map((stage) => stage.id),
-              expectedVersions,
-            }),
-          });
+        return api("/api/v1/staged-transactions/bulk-delete", {
+          ...json({
+            stagedIds: selectedRows.map((stage) => stage.id),
+            expectedVersions,
+          }),
+        });
       }
       const payload = {
         stagedIds: selectedRows.map((stage) => stage.id),
@@ -311,10 +289,7 @@ export default function StagingPage() {
       return api("/api/v1/staged-transactions/commit", {
         ...json({
           ...payload,
-          idempotencyKey: retainedIdempotencyKey(
-            bulkCommitKeys.current,
-            payload,
-          ),
+          idempotencyKey: retainedIdempotencyKey(bulkCommitKeys.current, payload),
         }),
       });
     },
@@ -327,6 +302,8 @@ export default function StagingPage() {
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -335,9 +312,7 @@ export default function StagingPage() {
     (stage) => draftType(stage) === "transfer",
   ).length;
   const selectionContainsTransfers = selectedTransferCount > 0;
-  const selectedSplitCount = selectedRows.filter(
-    (stage) => stageLegs(stage).length > 0,
-  ).length;
+  const selectedSplitCount = selectedRows.filter((stage) => stageLegs(stage).length > 0).length;
   const selectionContainsSplits = selectedSplitCount > 0;
   // Rows the parser could not type at all. An account can still be set on them,
   // but only in the same edit that says which way the money went.
@@ -347,13 +322,10 @@ export default function StagingPage() {
   const accountNeedsType = selectedUntypedCount > 0 && !bulkEnabled.type;
   const accountChangeUnavailable = selectionContainsTransfers;
   const categoryChangeUnavailable = selectionContainsSplits;
-  const categoryChangeBlocked =
-    bulkEnabled.categoryId && categoryChangeUnavailable;
+  const categoryChangeBlocked = bulkEnabled.categoryId && categoryChangeUnavailable;
   const accountChangeBlocked =
     bulkEnabled.accountId &&
-    (accountChangeUnavailable ||
-      accountNeedsType ||
-      !bulkValues.accountId);
+    (accountChangeUnavailable || accountNeedsType || !bulkValues.accountId);
   const typeChangeUnavailable = selectionContainsTransfers || selectionContainsSplits;
   const typeChangeBlocked = bulkEnabled.type && typeChangeUnavailable;
   const hasEnabledBulkField = bulkEditFields.some((field) => bulkEnabled[field]);
@@ -443,16 +415,10 @@ export default function StagingPage() {
       patch: {
         ...(bulkEnabled.date ? { date: bulkValues.date } : {}),
         ...(bulkEnabled.payee ? { payee: bulkValues.payee.trim() } : {}),
-        ...(bulkEnabled.categoryId
-          ? { categoryId: bulkValues.categoryId || null }
-          : {}),
+        ...(bulkEnabled.categoryId ? { categoryId: bulkValues.categoryId || null } : {}),
         ...(bulkEnabled.accountId ? { accountId: bulkValues.accountId } : {}),
-        ...(bulkEnabled.description
-          ? { description: bulkValues.description.trim() || null }
-          : {}),
-        ...(bulkEnabled.notes
-          ? { notes: bulkValues.notes.trim() || null }
-          : {}),
+        ...(bulkEnabled.description ? { description: bulkValues.description.trim() || null } : {}),
+        ...(bulkEnabled.notes ? { notes: bulkValues.notes.trim() || null } : {}),
         ...(bulkEnabled.type ? { type: bulkValues.type } : {}),
       },
       idempotencyKey,
@@ -461,18 +427,14 @@ export default function StagingPage() {
   };
 
   const allSelected =
-    Boolean(selectableRows.length) &&
-    selectableRows.every((stage) => selected.has(stage.id));
+    Boolean(selectableRows.length) && selectableRows.every((stage) => selected.has(stage.id));
   const someSelected = selectableRows.some((stage) => selected.has(stage.id));
   const totalMatching = stagePages.data?.totalCount ?? stages.length;
   const selectableTotal = Math.min(totalMatching, MAX_BULK_STAGES);
-  const allMatchingSelected =
-    selectableTotal > 0 && selected.size >= selectableTotal;
+  const allMatchingSelected = selectableTotal > 0 && selected.size >= selectableTotal;
   // Worth offering whenever the filtered list reaches past the rows on screen.
   const canSelectAllMatching =
-    Boolean(selectableRows.length) &&
-    totalMatching > stages.length &&
-    !allMatchingSelected;
+    Boolean(selectableRows.length) && totalMatching > stages.length && !allMatchingSelected;
   const [selectingAll, setSelectingAll] = useState(false);
 
   /**
@@ -486,11 +448,7 @@ export default function StagingPage() {
     setBulkEditNotice(null);
     try {
       const collected = new Map<string, StagedTransaction>();
-      for (
-        let current = 1;
-        collected.size < MAX_BULK_STAGES;
-        current += 1
-      ) {
+      for (let current = 1; collected.size < MAX_BULK_STAGES; current += 1) {
         const result = await api<PaginatedPage<StagedTransaction>>(
           `/api/v1/staged-transactions?${queryString({
             ...stageQuery,
@@ -534,24 +492,172 @@ export default function StagingPage() {
     Boolean(stage.repeatsStagedRow);
   const duplicateSelected = selectedRows.some(isPossibleDuplicate);
   const duplicateCommitError =
-    bulkMutation.error instanceof ApiClientError &&
-    bulkMutation.error.code === "DUPLICATE";
+    bulkMutation.error instanceof ApiClientError && bulkMutation.error.code === "DUPLICATE";
 
-  const rowMutation = useMutation({
+  /**
+   * Click-to-edit for the four fields a queue pass actually touches.
+   *
+   * The queue is where imports get repaired, and repairing a date or a payee
+   * through the full modal is four clicks for a one-word change. The editors
+   * are the modal's own — PayeeInput and CategoryPicker, not copies — and the
+   * write is the same PUT the modal sends, version and all, so everything the
+   * server enforces about a draft is enforced here identically. Splits keep
+   * their category and amount edits in the modal (they live on the legs), and
+   * a transfer's category likewise stays out (it has none by design).
+   */
+  const [inline, setInline] = useState<{
+    id: string;
+    field: "date" | "payee" | "category" | "amount";
+    value: string;
+    categoryName: string;
+  } | null>(null);
+  const [inlineError, setInlineError] = useState("");
+  // A ref, not isPending: Enter commits, and the blur that follows a click
+  // away can run before the render that would set isPending — two identical
+  // PUTs, the second refused as stale by the version the first just bumped.
+  const inlineInFlight = useRef(false);
+  // Escape's other half: removing a focused editor fires a browser blur, and
+  // the blur handler's closure still holds the pre-Escape state — so without
+  // this, cancelling could commit. Set before the state change, read first.
+  const inlineCancelled = useRef(false);
+  // Where focus goes when an editor closes. Commit, refusal and Escape all
+  // removed the focused element and stranded keyboard users on <body>; the
+  // trigger the editor replaced is the honest place to land.
+  const focusAfterInline = useRef<{ id: string; field: string } | null>(null);
+  useEffect(() => {
+    if (inline || !focusAfterInline.current) return;
+    const { id, field } = focusAfterInline.current;
+    focusAfterInline.current = null;
+    document.querySelector<HTMLButtonElement>(`[data-inline-trigger="${field}:${id}"]`)?.focus();
+  });
+  const inlineMutation = useMutation({
     mutationFn: ({
       stage,
-      action,
+      draft,
     }: {
       stage: StagedTransaction;
-      action: "commit" | "delete";
-    }) => {
+      draft: Record<string, unknown>;
+      field: "date" | "payee" | "category" | "amount";
+    }) =>
+      api(`/api/v1/staged-transactions/${stage.id}`, {
+        ...json({ draft, expectedVersion: stage.version }),
+        method: "PUT",
+      }),
+    onSuccess: async (_result, variables) => {
+      inlineInFlight.current = false;
+      // Only the editor this write belongs to — the cell, not the row. A
+      // second editor opened while the PUT was in flight is somebody already
+      // doing the next thing, and closing it under them threw their
+      // keystrokes away.
+      setInline((current) =>
+        current && current.id === variables.stage.id && current.field === variables.field
+          ? null
+          : current,
+      );
+      setInlineError("");
+      focusAfterInline.current = { id: variables.stage.id, field: variables.field };
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["staged"] }),
+        queryClient.invalidateQueries({ queryKey: ["categories"] }),
+        queryClient.invalidateQueries({ queryKey: ["payees"] }),
+      ]);
+    },
+    // The editor closes either way: the message says why the change did not
+    // take, and the list refetches so the row shows what the server really
+    // holds — a version conflict means somebody else moved it.
+    onError: async (cause: Error, variables) => {
+      inlineInFlight.current = false;
+      setInline((current) =>
+        current && current.id === variables.stage.id && current.field === variables.field
+          ? null
+          : current,
+      );
+      setInlineError(cause.message);
+      focusAfterInline.current = { id: variables.stage.id, field: variables.field };
+      await queryClient.invalidateQueries({ queryKey: ["staged"] });
+    },
+  });
+  const commitInline = (
+    stage: StagedTransaction,
+    override?: { value?: string; categoryName?: string },
+  ) => {
+    if (!inline || inlineInFlight.current || inlineCancelled.current) return;
+    const value = override?.value ?? inline.value;
+    const categoryName = override?.categoryName ?? inline.categoryName;
+    const source = stage.draft as Record<string, unknown>;
+    // Emptying a date or an amount in place reads as abandoning the edit, not
+    // as a request to erase the field: the modal is where a deliberate clear
+    // belongs, beside everything else the emptiness affects.
+    if ((inline.field === "date" || inline.field === "amount") && !value.trim()) {
+      cancelInline();
+      return;
+    }
+    const draft = { ...source };
+    if (inline.field === "date") draft.date = value;
+    if (inline.field === "payee") draft.payee = value;
+    if (inline.field === "amount") draft.amount = value;
+    if (inline.field === "category") {
+      // The picker's contract: an id when the name matched a live category,
+      // otherwise the name travels and the commit resolves or creates it.
+      // Both keys are settled here so the draft never carries two answers.
+      draft.categoryId = value || null;
+      draft.categoryName = value ? null : categoryName.trim() || null;
+      // The stored categoryKind goes ONLY when the category really changed:
+      // it was somebody's answer about the old name, and riding along with a
+      // new one it would file a brand-new category on a side nobody chose
+      // here. On an untouched blur it stays — nulling it unconditionally
+      // stripped a deferred import's kind from a row nobody edited.
+      const changed =
+        (draft.categoryId ?? null) !== (source.categoryId ?? null) ||
+        (draft.categoryName ?? null) !== (source.categoryName ?? null);
+      if (changed) draft.categoryKind = null;
+    }
+    // Nothing moved, nothing written: a same-value blur must not bump the
+    // version, invalidate a bulk selection's fingerprint, or add an audit
+    // entry saying an edit happened. Compared with absent and null treated as
+    // one answer, because settling the category keys writes explicit nulls
+    // onto a draft that may never have carried the keys at all — and gaining
+    // three null keys is not an edit.
+    const normalized = (record: Record<string, unknown>) =>
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(record).filter(([, entry]) => entry !== null && entry !== undefined),
+        ),
+      );
+    if (normalized(draft) === normalized(source)) {
+      cancelInline();
+      return;
+    }
+    inlineInFlight.current = true;
+    inlineMutation.mutate({ stage, draft, field: inline.field });
+  };
+  const openInline = (
+    stage: StagedTransaction,
+    field: "date" | "payee" | "category" | "amount",
+    value: string,
+    categoryName = "",
+  ) => {
+    setInlineError("");
+    inlineCancelled.current = false;
+    setInline({ id: stage.id, field, value, categoryName });
+  };
+  const cancelInline = () => {
+    inlineCancelled.current = true;
+    if (inline) focusAfterInline.current = { id: inline.id, field: inline.field };
+    setInline(null);
+  };
+  const inlineFor = (stage: StagedTransaction, field: "date" | "payee" | "category" | "amount") =>
+    inline && inline.id === stage.id && inline.field === field ? inline : null;
+
+  const rowMutation = useMutation({
+    mutationFn: ({ stage, action }: { stage: StagedTransaction; action: "commit" | "delete" }) => {
       if (action === "delete") {
-        return api("/api/v1/staged-transactions/delete", {
-            ...json({
-              stagedIds: [stage.id],
-              expectedVersions: { [stage.id]: stage.version },
-            }),
-          });
+        return api("/api/v1/staged-transactions/bulk-delete", {
+          ...json({
+            stagedIds: [stage.id],
+            expectedVersions: { [stage.id]: stage.version },
+          }),
+        });
       }
       const payload = {
         stagedIds: [stage.id],
@@ -562,10 +668,7 @@ export default function StagingPage() {
       return api("/api/v1/staged-transactions/commit", {
         ...json({
           ...payload,
-          idempotencyKey: retainedIdempotencyKey(
-            rowCommitKeys.current,
-            payload,
-          ),
+          idempotencyKey: retainedIdempotencyKey(rowCommitKeys.current, payload),
         }),
       });
     },
@@ -576,6 +679,8 @@ export default function StagingPage() {
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
@@ -631,7 +736,9 @@ export default function StagingPage() {
         >
           <option value="">All accounts</option>
           {accounts.data?.map((account) => (
-            <option key={account.id} value={account.id}>{account.name}</option>
+            <option key={account.id} value={account.id}>
+              {account.name}
+            </option>
           ))}
         </Select>
         <Select
@@ -687,29 +794,19 @@ export default function StagingPage() {
             >
               <CheckCheck size={16} /> Commit selected
             </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={openBulkEditor}
-            >
+            <Button type="button" variant="secondary" onClick={openBulkEditor}>
               <Pencil size={16} /> Edit selected
             </Button>
             <Button
               variant="danger"
               loading={bulkMutation.isPending}
               onClick={() => {
-                bulkRemoval.ask(selectedRows.length, () =>
-                  bulkMutation.mutate("delete"),
-                );
+                bulkRemoval.ask(selectedRows.length, () => bulkMutation.mutate("delete"));
               }}
             >
               <Trash2 size={16} /> Delete
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setSelected(new Map())}
-            >
+            <Button type="button" variant="ghost" onClick={() => setSelected(new Map())}>
               Clear selection
             </Button>
             {duplicateSelected || duplicateCommitError ? (
@@ -729,6 +826,7 @@ export default function StagingPage() {
         <Alert>{(bulkMutation.error ?? rowMutation.error)!.message}</Alert>
       ) : null}
       {bulkEditNotice ? <Alert kind="info">{bulkEditNotice}</Alert> : null}
+      {inlineError ? <Alert>{inlineError}</Alert> : null}
       {stagePages.error || batchPages.error ? (
         <Alert>{(stagePages.error ?? batchPages.error)!.message}</Alert>
       ) : null}
@@ -737,17 +835,17 @@ export default function StagingPage() {
           appear however long the queue was. */}
       {totalMatching > MAX_BULK_STAGES ? (
         <Alert kind="info">
-          Bulk actions are limited to {MAX_BULK_STAGES.toLocaleString()} rows
-          at a time. Commit or delete the selected group, then continue with
-          the remaining rows.
+          Bulk actions are limited to {MAX_BULK_STAGES.toLocaleString()} rows at a time. Commit or
+          delete the selected group, then continue with the remaining rows.
         </Alert>
       ) : null}
       {stages.length ? (
         <div className="table-card">
           <table className="data-table">
+            <caption className="sr-only">Staged transactions</caption>
             <thead>
               <tr>
-                <th className="checkbox-cell">
+                <th scope="col" className="checkbox-cell">
                   <SelectionCheckbox
                     aria-label="Select all staged transactions on this page"
                     checked={allSelected}
@@ -755,8 +853,17 @@ export default function StagingPage() {
                     onChange={(event) => {
                       const next = new Map(selected);
                       for (const stage of selectableRows) {
-                        if (event.target.checked) next.set(stage.id, stage);
-                        else next.delete(stage.id);
+                        if (event.target.checked) {
+                          // The same cap the per-row boxes enforce. Without it
+                          // this one control pushed the selection past the
+                          // limit, and the server then refused the whole bulk
+                          // request with a message about a cap the page had
+                          // claimed to be respecting.
+                          if (!next.has(stage.id) && next.size >= MAX_BULK_STAGES) break;
+                          next.set(stage.id, stage);
+                        } else {
+                          next.delete(stage.id);
+                        }
                       }
                       setSelected(next);
                     }}
@@ -769,30 +876,10 @@ export default function StagingPage() {
                   sort={sort}
                   onSort={applySort}
                 />
-                <SortableHeader
-                  field="payee"
-                  label="Payee"
-                  sort={sort}
-                  onSort={applySort}
-                />
-                <SortableHeader
-                  field="account"
-                  label="Account"
-                  sort={sort}
-                  onSort={applySort}
-                />
-                <SortableHeader
-                  field="category"
-                  label="Category"
-                  sort={sort}
-                  onSort={applySort}
-                />
-                <SortableHeader
-                  field="status"
-                  label="Status"
-                  sort={sort}
-                  onSort={applySort}
-                />
+                <SortableHeader field="payee" label="Payee" sort={sort} onSort={applySort} />
+                <SortableHeader field="account" label="Account" sort={sort} onSort={applySort} />
+                <SortableHeader field="category" label="Category" sort={sort} onSort={applySort} />
+                <SortableHeader field="status" label="Status" sort={sort} onSort={applySort} />
                 <SortableHeader
                   field="amount"
                   label="Amount"
@@ -801,7 +888,9 @@ export default function StagingPage() {
                   sort={sort}
                   onSort={applySort}
                 />
-                <th><span className="sr-only">Actions</span></th>
+                <th scope="col">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -819,10 +908,7 @@ export default function StagingPage() {
                         aria-label={`Select ${payee}`}
                         type="checkbox"
                         checked={selected.has(stage.id)}
-                        disabled={
-                          !selected.has(stage.id) &&
-                          selected.size >= MAX_BULK_STAGES
-                        }
+                        disabled={!selected.has(stage.id) && selected.size >= MAX_BULK_STAGES}
                         onChange={(event) => {
                           const next = new Map(selected);
                           if (event.target.checked) next.set(stage.id, stage);
@@ -832,14 +918,62 @@ export default function StagingPage() {
                       />
                     </td>
                     <td>
-                      {date
-                        ? isoDateSchema.safeParse(date).success
-                          ? formatDate(date)
-                          : date
-                        : "—"}
+                      {inlineFor(stage, "date") ? (
+                        <Input
+                          type="date"
+                          autoFocus
+                          aria-label={`Date of ${payee}`}
+                          value={inline!.value}
+                          onChange={(event) => setInline({ ...inline!, value: event.target.value })}
+                          onBlur={() => commitInline(stage)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") commitInline(stage);
+                            if (event.key === "Escape") cancelInline();
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="inline-edit"
+                          aria-label={`${
+                            date && isoDateSchema.safeParse(date).success
+                              ? formatDate(date)
+                              : date || "No date"
+                          } — edit the date of ${payee}`}
+                          data-inline-trigger={`date:${stage.id}`}
+                          onClick={() => openInline(stage, "date", date)}
+                        >
+                          {date
+                            ? isoDateSchema.safeParse(date).success
+                              ? formatDate(date)
+                              : date
+                            : "—"}
+                        </button>
+                      )}
                     </td>
                     <td>
-                      <strong>{payee}</strong>
+                      {inlineFor(stage, "payee") ? (
+                        <PayeeInput
+                          autoFocus
+                          ariaLabel={`Payee of ${payee}`}
+                          value={inline!.value}
+                          onChange={(next: string) => setInline({ ...inline!, value: next })}
+                          onCommit={(finalValue: string) =>
+                            commitInline(stage, { value: finalValue })
+                          }
+                          onCancel={cancelInline}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="inline-edit"
+                          aria-label={`Edit the payee of ${payee}`}
+                          data-inline-trigger={`payee:${stage.id}`}
+                          onClick={() => openInline(stage, "payee", stagedString(draft.payee))}
+                        >
+                          <strong>{payee}</strong>
+                        </button>
+                      )}
                       <small className="table-subtitle">{description || type}</small>
                       {stage.recurrenceId ? (
                         <small className="table-subtitle">
@@ -847,12 +981,9 @@ export default function StagingPage() {
                             // The name is kept on the row rather than joined,
                             // because a proposal outlives the recurrence that
                             // made it and still has to say where it came from.
-                            stage.rawData?.recurrence?.recurrenceName ??
-                            "a recurrence"
+                            stage.rawData?.recurrence?.recurrenceName ?? "a recurrence"
                           }${
-                            stage.occurrenceDate
-                              ? ` for ${formatDate(stage.occurrenceDate)}`
-                              : ""
+                            stage.occurrenceDate ? ` for ${formatDate(stage.occurrenceDate)}` : ""
                           }`}
                         </small>
                       ) : null}
@@ -860,20 +991,76 @@ export default function StagingPage() {
                     <td>{summary.account}</td>
                     <td>
                       {stagedLegs(draft.legs).length ? (
+                        // A split's categories live on its legs, so the modal
+                        // is the honest editor: an inline cell could only lie
+                        // about which leg it was changing.
                         <div className="transaction-payee">
                           <span>
                             {categoryNames.get(
-                              largestStagedLeg(stagedLegs(draft.legs))
-                                ?.categoryId ?? "",
+                              largestStagedLeg(stagedLegs(draft.legs))?.categoryId ?? "",
                             ) ?? "Uncategorized"}
                           </span>
-                          <Badge tone="blue">
-                            Split · {stagedLegs(draft.legs).length}
-                          </Badge>
+                          <Badge tone="blue">Split · {stagedLegs(draft.legs).length}</Badge>
                         </div>
+                      ) : type === "transfer" ? (
+                        // A transfer files under no category by design.
+                        "—"
+                      ) : inlineFor(stage, "category") ? (
+                        <span
+                          // A grouping for the picker's input and list, so a
+                          // blur can tell "left the editor" from "moved
+                          // within it". The real control is the input inside;
+                          // this wrapper only listens to events bubbling from
+                          // it, which is the shape code/index.md's two named
+                          // jsx-a11y exceptions already carry. Enter is
+                          // deliberately NOT a commit here: picking from the
+                          // datalist lands on Enter too, and committing on
+                          // the keydown raced the picked value — creating a
+                          // category named by the half-typed prefix. Blur is
+                          // the commit gesture; Escape cancels.
+                          role="presentation"
+                          onBlur={(event) => {
+                            if (!event.currentTarget.contains(event.relatedTarget)) {
+                              commitInline(stage);
+                            }
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") cancelInline();
+                          }}
+                        >
+                          <CategoryPicker
+                            categories={categories.data ?? []}
+                            categoryId={inline!.value}
+                            categoryName={inline!.categoryName}
+                            ariaLabel={`Category of ${payee}`}
+                            autoFocus
+                            onChange={(nextId: string, nextName: string) =>
+                              setInline({ ...inline!, value: nextId, categoryName: nextName })
+                            }
+                          />
+                        </span>
                       ) : (
-                        (categoryNames.get(stagedString(draft.categoryId)) ??
-                        "Uncategorized")
+                        <button
+                          type="button"
+                          className="inline-edit"
+                          aria-label={`${
+                            categoryNames.get(stagedString(draft.categoryId)) ??
+                            (stagedString(draft.categoryName).trim() || "Uncategorized")
+                          } — edit the category of ${payee}`}
+                          data-inline-trigger={`category:${stage.id}`}
+                          onClick={() =>
+                            openInline(
+                              stage,
+                              "category",
+                              stagedString(draft.categoryId),
+                              categoryNames.get(stagedString(draft.categoryId)) ??
+                                stagedString(draft.categoryName),
+                            )
+                          }
+                        >
+                          {categoryNames.get(stagedString(draft.categoryId)) ??
+                            (stagedString(draft.categoryName).trim() || "Uncategorized")}
+                        </button>
                       )}
                     </td>
                     <td>
@@ -903,10 +1090,58 @@ export default function StagingPage() {
                         </div>
                       ) : null}
                     </td>
-                    <td className="align-right">
-                      {summary.amount && summary.currency
-                        ? formatMoney(summary.amount, summary.currency)
-                        : "—"}
+                    <td className={`align-right money ${movementSign(draftType(stage)).className}`}>
+                      {inlineFor(stage, "amount") ? (
+                        <Input
+                          inputMode="decimal"
+                          autoFocus
+                          aria-label={
+                            summary.currency
+                              ? `Amount of ${payee} in ${summary.currency}`
+                              : `Amount of ${payee}`
+                          }
+                          pattern="(0|[1-9][0-9]{0,25})(\.[0-9]{1,18})?"
+                          value={inline!.value}
+                          onChange={(event) => setInline({ ...inline!, value: event.target.value })}
+                          onBlur={() => commitInline(stage)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") commitInline(stage);
+                            if (event.key === "Escape") cancelInline();
+                          }}
+                        />
+                      ) : (type === "deposit" || type === "withdrawal") &&
+                        !stagedLegs(draft.legs).length ? (
+                        // A split's total is its legs' business and a
+                        // transfer carries two amounts; both edit in the
+                        // modal, where the other half is on screen.
+                        <button
+                          type="button"
+                          className="inline-edit inline-edit-money"
+                          aria-label={`${
+                            summary.amount && summary.currency
+                              ? formatMoney(summary.amount, summary.currency)
+                              : "No amount"
+                          } — edit the amount of ${payee}`}
+                          data-inline-trigger={`amount:${stage.id}`}
+                          onClick={() => openInline(stage, "amount", stagedString(draft.amount))}
+                        >
+                          {summary.amount && summary.currency ? (
+                            <>
+                              {movementSign(draftType(stage)).sign}
+                              {formatMoney(summary.amount, summary.currency)}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </button>
+                      ) : summary.amount && summary.currency ? (
+                        <>
+                          {movementSign(draftType(stage)).sign}
+                          {formatMoney(summary.amount, summary.currency)}
+                        </>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="row-actions">
                       <button
@@ -925,7 +1160,10 @@ export default function StagingPage() {
                       >
                         <CheckCheck size={16} />
                       </button>
-                      <button aria-label="Edit staged transaction" onClick={() => setEditing(stage)}>
+                      <button
+                        aria-label="Edit staged transaction"
+                        onClick={() => setEditing(stage)}
+                      >
                         <Pencil size={16} />
                       </button>
                       <button
@@ -939,6 +1177,9 @@ export default function StagingPage() {
                         <Trash2 size={16} />
                       </button>
                       <RowMenu label={`Actions for ${payee}`}>
+                        <button onClick={() => setCloning(stage)}>
+                          <Copy size={15} /> Clone transaction
+                        </button>
                         <button onClick={() => setSavingTemplate(stage)}>
                           <LayoutTemplate size={15} /> Save as template
                         </button>
@@ -962,13 +1203,28 @@ export default function StagingPage() {
             onPageChange={setPage}
           />
         </div>
-      ) : stagePages.isLoading ? null : (
+      ) : stagePages.isLoading ? (
+        // The busiest list in the product used to show nothing here, so the
+        // page looked finished and empty until the rows arrived.
+        <Skeleton height={160} label="Loading staged transactions…" />
+      ) : (
         <EmptyState
           icon={<ClipboardList size={24} />}
           title="Nothing staged"
           body="Imported rows, drafts you save for later, and anything an agent prepares land here."
         />
       )}
+      <Modal open={Boolean(cloning)} onClose={() => setCloning(null)} title="Stage a transaction">
+        {cloning ? (
+          <TransactionForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            clone={cloning.draft}
+            initialMode="stage"
+            onDone={() => setCloning(null)}
+          />
+        ) : null}
+      </Modal>
       <Modal
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
@@ -994,9 +1250,7 @@ export default function StagingPage() {
           <TemplateForm
             accounts={accounts.data ?? []}
             categories={categories.data ?? []}
-            initialDraft={templateDraftFromDraft(
-              draftForTransactionForm(savingTemplate.draft),
-            )}
+            initialDraft={templateDraftFromDraft(draftForTransactionForm(savingTemplate.draft))}
             onDone={() => setSavingTemplate(null)}
           />
         ) : null}
@@ -1043,33 +1297,27 @@ export default function StagingPage() {
           </div>
         }
       >
-        <form
-          id="staged-bulk-edit-form"
-          className="bulk-edit-form"
-          onSubmit={submitBulkEdit}
-        >
+        <form id="staged-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>
           <p className="bulk-edit-selection-summary">
             {`${selectedRows.length} selected staged row${
               selectedRows.length === 1 ? "" : "s"
             } will be edited.`}
           </p>
 
-          {bulkEditMutation.error ? (
-            <Alert>{bulkEditMutation.error.message}</Alert>
-          ) : null}
+          {bulkEditMutation.error ? <Alert>{bulkEditMutation.error.message}</Alert> : null}
 
           {selectionContainsTransfers ? (
             <Alert kind="info">
               This selection contains {selectedTransferCount} transfer
-              {selectedTransferCount === 1 ? "" : "s"}. You can change common
-              details, but Account and Type are unavailable for transfers.
+              {selectedTransferCount === 1 ? "" : "s"}. You can change common details, but Account
+              and Type are unavailable for transfers.
             </Alert>
           ) : selectedUntypedCount ? (
             <Alert kind="info">
               {selectedUntypedCount} selected row
-              {selectedUntypedCount === 1 ? " does" : "s do"} not say whether
-              money came in or went out. Change Type in the same edit to set an
-              account on {selectedUntypedCount === 1 ? "it" : "them"}.
+              {selectedUntypedCount === 1 ? " does" : "s do"} not say whether money came in or went
+              out. Change Type in the same edit to set an account on{" "}
+              {selectedUntypedCount === 1 ? "it" : "them"}.
             </Alert>
           ) : null}
 
@@ -1094,9 +1342,7 @@ export default function StagingPage() {
               label="Change category"
               enabled={bulkEnabled.categoryId}
               disabled={categoryChangeUnavailable}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, categoryId: on }))
-              }
+              onToggle={(on) => setBulkEnabled((current) => ({ ...current, categoryId: on }))}
             >
               <Select
                 aria-label="New category"
@@ -1118,8 +1364,8 @@ export default function StagingPage() {
               </Select>
               {categoryChangeUnavailable ? (
                 <small>
-                  Category cannot be mass edited when a split row is selected,
-                  because a split already files its money by category.
+                  Category cannot be mass edited when a split row is selected, because a split
+                  already files its money by category.
                 </small>
               ) : null}
             </BulkEditToggle>
@@ -1128,9 +1374,7 @@ export default function StagingPage() {
               label="Change account"
               enabled={bulkEnabled.accountId}
               disabled={accountChangeUnavailable}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, accountId: on }))
-              }
+              onToggle={(on) => setBulkEnabled((current) => ({ ...current, accountId: on }))}
             >
               <Select
                 aria-label="New account"
@@ -1154,13 +1398,11 @@ export default function StagingPage() {
                   ))}
               </Select>
               {accountChangeUnavailable ? (
-                <small>
-                  Account cannot be mass edited when a transfer is selected.
-                </small>
+                <small>Account cannot be mass edited when a transfer is selected.</small>
               ) : bulkEnabled.accountId && accountNeedsType ? (
                 <small>
-                  Some selected rows have no type yet. Turn on Change type to
-                  set an account on them.
+                  Some selected rows have no type yet. Turn on Change type to set an account on
+                  them.
                 </small>
               ) : null}
             </BulkEditToggle>
@@ -1183,9 +1425,7 @@ export default function StagingPage() {
               label="Change type"
               enabled={bulkEnabled.type}
               disabled={typeChangeUnavailable}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, type: on }))
-              }
+              onToggle={(on) => setBulkEnabled((current) => ({ ...current, type: on }))}
             >
               <Select
                 aria-label="New transaction type"

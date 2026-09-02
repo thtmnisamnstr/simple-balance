@@ -188,9 +188,7 @@ integration("a staged row that looks like a committed transaction", () => {
 
   it("offers them all under the one duplicate filter", async () => {
     const page = await listStages(actor, { limit: 100, validity: "duplicate" });
-    const payees = page.items.map(
-      (row) => (row.draft as { payee?: unknown }).payee,
-    );
+    const payees = page.items.map((row) => (row.draft as { payee?: unknown }).payee);
     expect(payees).toContain("Blue Bottle Coffee");
     expect(payees).toContain("Three days out");
     expect(payees).not.toContain("Four days out");
@@ -198,9 +196,8 @@ integration("a staged row that looks like a committed transaction", () => {
   });
 
   it("stops flagging once the committed transaction is deleted", async () => {
-    const { setTransactionDeleted, getTransaction } = await import(
-      "../../src/server/services/transactions.js"
-    );
+    const { setTransactionDeleted, getTransaction } =
+      await import("../../src/server/services/transactions.js");
     const current = await getTransaction(actor, committedId);
     await setTransactionDeleted(actor, committedId, current.version, true, true);
     try {
@@ -271,9 +268,7 @@ integration("a staged row that looks like a committed transaction", () => {
   });
 
   it("refuses to review a row that has left the queue", async () => {
-    const { deleteStages } = await import(
-      "../../src/server/services/staging.js"
-    );
+    const { deleteStages } = await import("../../src/server/services/staging.js");
     const doomed = await stage({
       type: "withdrawal",
       date: "2026-07-01",
@@ -285,9 +280,7 @@ integration("a staged row that looks like a committed transaction", () => {
       stagedIds: [doomed.id],
       expectedVersions: { [doomed.id]: doomed.version },
     });
-    await expect(getStagedDuplicateReview(actor, doomed.id)).rejects.toThrow(
-      /not found/i,
-    );
+    await expect(getStagedDuplicateReview(actor, doomed.id)).rejects.toThrow(/not found/i);
   });
 
   it("sorts the amount column on a queue holding an unparseable amount", async () => {
@@ -359,13 +352,9 @@ integration("a staged row that looks like a committed transaction", () => {
 
     // The fixture has at least one of each, or this proves nothing.
     expect(page.items.some(ranked)).toBe(true);
-    expect(page.items.some((row) => !ranked(row) && !row.validationIssues.length)).toBe(
-      true,
-    );
+    expect(page.items.some((row) => !ranked(row) && !row.validationIssues.length)).toBe(true);
 
-    const rank = page.items.map((row) =>
-      row.validationIssues.length ? 0 : ranked(row) ? 1 : 2,
-    );
+    const rank = page.items.map((row) => (row.validationIssues.length ? 0 : ranked(row) ? 1 : 2));
     expect(rank).toEqual([...rank].sort((left, right) => left - right));
   });
 

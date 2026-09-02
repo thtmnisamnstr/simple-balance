@@ -69,8 +69,7 @@ function renderCategories() {
   );
 }
 
-const rowFor = (name: string) =>
-  screen.getByText(name).closest(".category-row") as HTMLElement;
+const rowFor = (name: string) => screen.getByText(name).closest(".category-row") as HTMLElement;
 
 const listedNames = () =>
   screen
@@ -126,9 +125,7 @@ describe("how much each category is used", () => {
 
     expect(await screen.findByText("Salary")).toBeInTheDocument();
     const row = within(rowFor("Salary"));
-    expect(
-      row.getByText(/Income · 2 committed · 7 staged/),
-    ).toBeInTheDocument();
+    expect(row.getByText(/Income · 2 committed · 7 staged/)).toBeInTheDocument();
   });
 
   it("orders by whichever count is asked for", async () => {

@@ -2,8 +2,9 @@ import { eq } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
+import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
+import { dropScratchDatabase } from "./support/scratch-database.js";
 import {
   auditEvents,
   oauthAccessToken,
@@ -11,10 +12,7 @@ import {
   oauthConsent,
   user,
 } from "../../src/server/db/schema.js";
-import {
-  listConnectedApps,
-  revokeConnectedApp,
-} from "../../src/server/services/connected-apps.js";
+import { listConnectedApps, revokeConnectedApp } from "../../src/server/services/connected-apps.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const integration = describe.skipIf(!connection);
@@ -28,13 +26,15 @@ const hour = 60 * 60 * 1000;
 let seed = 0;
 
 async function registerClient(clientId: string, name: string) {
-  await getDb().insert(oauthApplication).values({
-    id: `app-${clientId}`,
-    name,
-    clientId,
-    redirectUrls: "http://127.0.0.1:7777/callback",
-    type: "web",
-  });
+  await getDb()
+    .insert(oauthApplication)
+    .values({
+      id: `app-${clientId}`,
+      name,
+      clientId,
+      redirectUrls: "http://127.0.0.1:7777/callback",
+      type: "web",
+    });
 }
 
 async function grant(
@@ -44,24 +44,28 @@ async function grant(
   options: { accessMs?: number; refreshMs?: number; token?: boolean } = {},
 ) {
   const { accessMs = hour, refreshMs = 24 * hour, token = true } = options;
-  await getDb().insert(oauthConsent).values({
-    id: `consent-${(seed += 1)}`,
-    clientId,
-    userId: actor.userId,
-    scopes,
-    consentGiven: true,
-  });
+  await getDb()
+    .insert(oauthConsent)
+    .values({
+      id: `consent-${(seed += 1)}`,
+      clientId,
+      userId: actor.userId,
+      scopes,
+      consentGiven: true,
+    });
   if (!token) return;
-  await getDb().insert(oauthAccessToken).values({
-    id: `token-${(seed += 1)}`,
-    accessToken: `access-${seed}`,
-    refreshToken: `refresh-${seed}`,
-    accessTokenExpiresAt: new Date(Date.now() + accessMs),
-    refreshTokenExpiresAt: new Date(Date.now() + refreshMs),
-    clientId,
-    userId: actor.userId,
-    scopes,
-  });
+  await getDb()
+    .insert(oauthAccessToken)
+    .values({
+      id: `token-${(seed += 1)}`,
+      accessToken: `access-${seed}`,
+      refreshToken: `refresh-${seed}`,
+      accessTokenExpiresAt: new Date(Date.now() + accessMs),
+      refreshTokenExpiresAt: new Date(Date.now() + refreshMs),
+      clientId,
+      userId: actor.userId,
+      scopes,
+    });
 }
 
 integration("revoking an agent's access from the browser", () => {
@@ -73,28 +77,30 @@ integration("revoking an agent's access from the browser", () => {
     databaseUrl.pathname = `/${databaseName}`;
     process.env.DATABASE_URL = databaseUrl.toString();
     await runMigrations();
-    await getDb().insert(user).values([
-      {
-        id: owner.userId,
-        name: "Owner",
-        email: "connected-apps-owner@example.com",
-        emailVerified: true,
-      },
-      {
-        id: stranger.userId,
-        name: "Stranger",
-        email: "connected-apps-stranger@example.com",
-        emailVerified: true,
-      },
-    ]);
+    await getDb()
+      .insert(user)
+      .values([
+        {
+          id: owner.userId,
+          name: "Owner",
+          email: "connected-apps-owner@example.com",
+          emailVerified: true,
+        },
+        {
+          id: stranger.userId,
+          name: "Stranger",
+          email: "connected-apps-stranger@example.com",
+          emailVerified: true,
+        },
+      ]);
   });
 
   afterAll(async () => {
-    await closeDb();
-    await adminClient.query(`drop database if exists "${databaseName}"`);
-    await adminClient.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: adminClient,
+      name: databaseName,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("lists what was approved, with what it may do", async () => {
@@ -179,14 +185,12 @@ integration("revoking an agent's access from the browser", () => {
 
     await revokeConnectedApp(owner, "client-shared");
 
-    expect(
-      (await listConnectedApps(owner)).map((app) => app.clientId),
-    ).not.toContain("client-shared");
+    expect((await listConnectedApps(owner)).map((app) => app.clientId)).not.toContain(
+      "client-shared",
+    );
     const theirs = await listConnectedApps(stranger);
     expect(theirs.map((app) => app.clientId)).toContain("client-shared");
-    expect(theirs.find((app) => app.clientId === "client-shared")!.hasLiveAccess).toBe(
-      true,
-    );
+    expect(theirs.find((app) => app.clientId === "client-shared")!.hasLiveAccess).toBe(true);
     // The registration itself survives, because it is not this person's to delete.
     const registration = await getDb()
       .select()
@@ -211,9 +215,9 @@ integration("revoking an agent's access from the browser", () => {
   });
 
   it("says so rather than pretending, when there is nothing to revoke", async () => {
-    await expect(
-      revokeConnectedApp(owner, "client-never-existed"),
-    ).rejects.toThrow(/No access for that application was found/);
+    await expect(revokeConnectedApp(owner, "client-never-existed")).rejects.toThrow(
+      /No access for that application was found/,
+    );
   });
 });
 
@@ -281,10 +285,7 @@ integration("keeping dynamic client registration from growing forever", () => {
 
     const { getDb: db } = await import("../../src/server/db/client.js");
     const { oauthApplication: table } = await import("../../src/server/db/schema.js");
-    const [row] = await db()
-      .select()
-      .from(table)
-      .where(eq(table.clientId, clientId));
+    const [row] = await db().select().from(table).where(eq(table.clientId, clientId));
     expect(row.name.length).toBe(200);
   });
 
@@ -300,50 +301,47 @@ integration("keeping dynamic client registration from growing forever", () => {
     const { client_id: clientId } = (await response.json()) as { client_id: string };
     const { getDb: db } = await import("../../src/server/db/client.js");
     const { oauthApplication: table } = await import("../../src/server/db/schema.js");
-    const [row] = await db()
-      .select()
-      .from(table)
-      .where(eq(table.clientId, clientId));
+    const [row] = await db().select().from(table).where(eq(table.clientId, clientId));
     expect(row.redirectUrls.split(",").length).toBeLessThanOrEqual(20);
   });
 
   it("sweeps a registration nobody ever completed, and keeps one that was", async () => {
     const { getDb: db } = await import("../../src/server/db/client.js");
-    const { oauthApplication: apps, oauthConsent: consents } = await import(
-      "../../src/server/db/schema.js"
-    );
-    const { pruneAbandonedClients: prune } = await import(
-      "../../src/server/services/connected-apps.js"
-    );
+    const { oauthApplication: apps, oauthConsent: consents } =
+      await import("../../src/server/db/schema.js");
+    const { pruneAbandonedClients: prune } =
+      await import("../../src/server/services/connected-apps.js");
     const old = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
-    await db().insert(apps).values([
-      {
-        id: "abandoned-app",
-        name: "Abandoned",
-        clientId: "abandoned-client",
-        redirectUrls: "http://127.0.0.1:7777/cb",
-        type: "web",
-        createdAt: old,
-        updatedAt: old,
-      },
-      {
-        id: "approved-app",
-        name: "Approved",
-        clientId: "approved-client",
-        redirectUrls: "http://127.0.0.1:7777/cb",
-        type: "web",
-        createdAt: old,
-        updatedAt: old,
-      },
-      {
-        id: "fresh-app",
-        name: "Fresh",
-        clientId: "fresh-client",
-        redirectUrls: "http://127.0.0.1:7777/cb",
-        type: "web",
-      },
-    ]);
+    await db()
+      .insert(apps)
+      .values([
+        {
+          id: "abandoned-app",
+          name: "Abandoned",
+          clientId: "abandoned-client",
+          redirectUrls: "http://127.0.0.1:7777/cb",
+          type: "web",
+          createdAt: old,
+          updatedAt: old,
+        },
+        {
+          id: "approved-app",
+          name: "Approved",
+          clientId: "approved-client",
+          redirectUrls: "http://127.0.0.1:7777/cb",
+          type: "web",
+          createdAt: old,
+          updatedAt: old,
+        },
+        {
+          id: "fresh-app",
+          name: "Fresh",
+          clientId: "fresh-client",
+          redirectUrls: "http://127.0.0.1:7777/cb",
+          type: "web",
+        },
+      ]);
     await db().insert(consents).values({
       id: "keeps-approved",
       clientId: "approved-client",

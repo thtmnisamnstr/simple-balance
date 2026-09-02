@@ -6,7 +6,17 @@
 # as many replicas as the backlog warrants: each recurrence is claimed with
 # `for update skip locked`, so replicas divide the due list rather than wait on
 # one another.
-FROM node:24-alpine AS dependencies
+#
+# Pinned by digest as well as by tag. A tag moves, so `node:24-alpine` on its own
+# is not a build anybody can reproduce, and the digest is what the `base.digest`
+# label below claims: bump one without the other and `tests/dockerfile.test.ts`
+# says so rather than shipping an image that lies about what it is built on.
+# `.github/dependabot.yml` watches Docker so the pin is raised deliberately
+# instead of freezing, and `apk upgrade` in the runtime stage still takes
+# whatever Alpine has published since. The digest is the multi-platform index's
+# rather than one architecture's manifest, so an arm64 build still resolves its
+# own image.
+FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -16,22 +26,31 @@ COPY tsconfig.json tsconfig.server.json ./
 COPY src ./src
 RUN npm run build:server
 
-FROM node:24-alpine AS runtime-dependencies
+FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS runtime-dependencies
 WORKDIR /runtime
 COPY runtime/package.json runtime/package-lock.json ./
 RUN npm ci --omit=dev
 
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS runtime
 RUN apk upgrade --no-cache
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ARG APP_VERSION=0.1.5
+# `created` and `revision` are deliberately absent. A Dockerfile cannot emit a
+# label conditionally, so a defaulted ARG would give every hand-built image
+# `org.opencontainers.image.revision=""`, which reads to a consumer as known and
+# empty rather than as absent. They belong to the builder that knows them, which
+# is the release workflow.
 LABEL org.opencontainers.image.title="Simple Balance scheduler" \
   org.opencontainers.image.description="Proposes recurring transactions onto Staged transactions, and sends the reminders" \
   org.opencontainers.image.version="${APP_VERSION}" \
   org.opencontainers.image.licenses="AGPL-3.0-only" \
-  org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"
+  org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance" \
+  org.opencontainers.image.url="https://github.com/thtmnisamnstr/simple-balance" \
+  org.opencontainers.image.documentation="https://github.com/thtmnisamnstr/simple-balance#readme" \
+  org.opencontainers.image.base.name="node:24-alpine" \
+  org.opencontainers.image.base.digest="sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43"
 COPY --from=runtime-dependencies --chown=node:node /runtime/package.json ./package.json
 COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist/server ./dist/server

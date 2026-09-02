@@ -74,9 +74,7 @@ integration("the generated first-run setup code", () => {
 
   it("stores exactly one code however many processes ask for it", async () => {
     const processes = [await freshImport(), await freshImport(), await freshImport()];
-    const codes = await Promise.all(
-      processes.map((module) => module.getOwnerSetupToken()),
-    );
+    const codes = await Promise.all(processes.map((module) => module.getOwnerSetupToken()));
     expect(new Set(codes).size).toBe(1);
     expect(await getDb().select().from(ownerSetupTokens)).toHaveLength(1);
   });

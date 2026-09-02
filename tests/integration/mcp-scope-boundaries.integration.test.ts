@@ -8,10 +8,7 @@ import { runMigrations } from "../../src/server/db/migrate.js";
 import { categories, ledgerAccounts, user } from "../../src/server/db/schema.js";
 import { createMcpServer } from "../../src/server/mcp.js";
 import { createAccount } from "../../src/server/services/accounts.js";
-import {
-  createCategory,
-  setCategoryArchived,
-} from "../../src/server/services/categories.js";
+import { createCategory, setCategoryArchived } from "../../src/server/services/categories.js";
 
 const connection = process.env.TEST_DATABASE_URL;
 const dbName = `sb_mcp_scope_${process.pid}`;
@@ -76,11 +73,7 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
     await admin.end();
   });
 
-  const stage = async (
-    scopes: string[],
-    categoryName: string,
-    idempotencyKey: string,
-  ) => {
+  const stage = async (scopes: string[], categoryName: string, idempotencyKey: string) => {
     const { server, client } = await connectWith(scopes);
     try {
       const out = await client.callTool({
@@ -130,11 +123,7 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
   });
 
   it("does not bring an archived category back", async () => {
-    const result = await stage(
-      ["ledger:stage"],
-      "Old Subscriptions",
-      "stage-only-archived",
-    );
+    const result = await stage(["ledger:stage"], "Old Subscriptions", "stage-only-archived");
     expect(result.referenceResolution.categories).toEqual([
       expect.objectContaining({
         inputName: "Old Subscriptions",
@@ -148,11 +137,7 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
   });
 
   it("creates one when the same call is made with ledger:write", async () => {
-    const result = await stage(
-      ["ledger:stage", "ledger:write"],
-      "Hardware",
-      "write-new",
-    );
+    const result = await stage(["ledger:stage", "ledger:write"], "Hardware", "write-new");
     expect(result.referenceResolution.categories).toEqual([
       expect.objectContaining({ inputName: "Hardware", resolution: "new" }),
     ]);
@@ -184,12 +169,7 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
       getDb()
         .select()
         .from(ledgerAccounts)
-        .where(
-          and(
-            eq(ledgerAccounts.userId, actor.userId),
-            isNotNull(ledgerAccounts.systemKind),
-          ),
-        );
+        .where(and(eq(ledgerAccounts.userId, actor.userId), isNotNull(ledgerAccounts.systemKind)));
     const before = await systemAccounts();
 
     const { server, client } = await connectWith(["ledger:stage"]);
@@ -214,9 +194,7 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
     }
 
     const after = await systemAccounts();
-    expect(after.map((row) => row.name).sort()).toEqual(
-      before.map((row) => row.name).sort(),
-    );
+    expect(after.map((row) => row.name).sort()).toEqual(before.map((row) => row.name).sort());
   });
 
   it("brings an archived one back with ledger:write", async () => {
@@ -230,5 +208,27 @@ describe.skipIf(!connection)("what a staging-only agent may change", () => {
     ]);
     const [row] = await categoryNamed("Old Subscriptions");
     expect(row!.archivedAt).toBeNull();
+  });
+
+  /**
+   * The other half of the same problem: a tool this token cannot reach is
+   * absent from its list rather than refused, so without this an agent has no
+   * way to tell a capability it was not granted from one that does not exist.
+   * `list_connected_agents` reports the grant, which is a wider and older fact;
+   * this reports what the token in hand may do.
+   *
+   * It needs a database because `getIdentity` reads the person's own row, which
+   * is why this lives here rather than beside the challenge's unit tests.
+   */
+  it("tells an agent which scopes the token it is holding carries", async () => {
+    const { server, client } = await connectWith(["ledger:stage"]);
+    try {
+      const out = await client.callTool({ name: "whoami", arguments: {} });
+      const identity = (out.structuredContent as { result: { scopes?: string[] } })?.result;
+      expect(identity?.scopes).toEqual(["ledger:stage"]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });

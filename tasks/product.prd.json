@@ -378,6 +378,160 @@
         "npm test",
         "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
       ]
+    },
+    {
+      "id": "SB-019",
+      "priority": 190,
+      "title": "Budgeting",
+      "dependsOn": [
+        "SB-018"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A standing budget covers every period in its window, so an ongoing budget is one row and nothing materialises the periods nobody has reached",
+        "An amount set for one period overrides the standing budget for that period alone, and the report says which of the two produced each figure",
+        "Windows for one category, period unit and currency may not overlap, so what a past period intended survives a later change",
+        "Spending is compared against the limit on the same period grid the reports bucket by, computed from postings alone",
+        "A category budgeted and never spent on still appears, rather than being dropped as a zero",
+        "A refund lowers the category it came back to, because spending is summed signed and the counter-account carries the direction",
+        "Splits attribute each leg to its own category, and transfers contribute nothing, both without a rule of their own",
+        "Nothing in this story writes a posting, and deleting a budget changes no balance and no report",
+        "Deleting or archiving a category leaves no orphaned budget, and a budget is never a reason a category cannot be deleted",
+        "Every figure stops at today in the person's own timezone, and the day used is reported",
+        "No figure spans currencies anywhere in the reply",
+        "Reachable over MCP, reads on ledger:read and writes on ledger:write, with the browser and an agent calling the same services"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration"
+      ]
+    },
+    {
+      "id": "SB-025",
+      "priority": 250,
+      "title": "Rollover and sinking funds",
+      "dependsOn": [
+        "SB-019"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A budget can carry what a period did not spend into the next one, and an overspend forward as a debt against it",
+        "A cap holds the carry inside a number in both directions, so neither a fund nobody draws on nor a debt nobody repays runs away",
+        "A sinking fund names an amount and a date and works out each period's own figure from what is still needed and how many periods are left",
+        "Nothing is stored per period: every carried figure is folded at read time from the plans, entries and postings that were already there",
+        "Two budgets with a gap between them are two budgets, and no carry crosses the gap",
+        "The fold is bounded, and a report that hit the bound says so rather than reporting a carry that started from nothing part way through",
+        "Reachable over MCP and from the browser on the same fields, and a budget that carries nothing reports exactly what it did before"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
+    },
+    {
+      "id": "SB-026",
+      "priority": 260,
+      "title": "Derived amounts",
+      "dependsOn": [
+        "SB-019"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A budget can be the average of what the last few finished periods actually spent, and never includes the period it is budgeting",
+        "A budget can be the previous period's amount plus a percentage, compounding rather than repeating a flat uplift",
+        "A budget can be a share of the income that arrived in the previous whole period, because a share of an unfinished period changes every time it is read",
+        "An amount somebody set for one period beats every rule, and the chain carries on from what they set",
+        "A budget names one way of working out its amount, and naming two is refused rather than resolved",
+        "A funding order decides which budgets a short period covers first, with unranked funded last, and it changes no limit",
+        "A ledger that never named a priority is told nothing about funding, rather than being told its budgets are unfunded"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
+    },
+    {
+      "id": "SB-027",
+      "priority": 270,
+      "title": "Category groups",
+      "dependsOn": [
+        "SB-019"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A category belongs to at most one group, and a group holds no groups: one level, so there is no grandchild to misattribute",
+        "Whether a group's budget stands alone or is the sum of its categories is declared on the group and has no default",
+        "A group that adds up its categories cannot hold a budget of its own, because two figures would each have a claim to be the group's",
+        "A group's spending is its categories' spending, and a group's line is reported beside the category rows rather than among them, so no total counts the money twice",
+        "Deleting a group leaves every category where it was, without a group, and takes the group's own budget with it",
+        "Group names are compared the way category names are, so one name is one group",
+        "A category can never be filed under another tenant's group, and a budget can never name one"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
+    },
+    {
+      "id": "SB-028",
+      "priority": 280,
+      "title": "Envelopes",
+      "dependsOn": [
+        "SB-025",
+        "SB-027"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "A budget that carries is an envelope: income assigned to it before it is spent, and what is unspent belongs to the next period",
+        "The report says what is left to assign: what the perimeter holds, less what every envelope with money in it has claimed",
+        "The perimeter includes credit cards, because spending on a card empties an envelope while no cash leaves the perimeter",
+        "Any account can be taken out of the perimeter, and doing so changes no balance and no report",
+        "An overspent envelope does not claim money twice, because the spending has already left the accounts",
+        "A ledger with no envelopes is told nothing about assigning, rather than being told its whole balance is unassigned"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
+    },
+    {
+      "id": "SB-029",
+      "priority": 290,
+      "title": "Forecast",
+      "dependsOn": [
+        "SB-016",
+        "SB-025"
+      ],
+      "networkAllowed": false,
+      "completed": true,
+      "acceptanceCriteria": [
+        "Balances are projected forward from the recurrences that already have dates and amounts, period by period, from what the accounts hold today",
+        "No figure the forecast produces reaches a balance, a report total, or the trial balance, and a test holds that rather than a paragraph",
+        "The forecast writes nothing: no posting, no staged row, no audit event",
+        "A budget is added to the projection only where a recurrence does not already cover it, so nothing is counted twice, and the budgeted figure is reported either way",
+        "A recurrence that cannot be projected is named with the reason rather than counted as nothing",
+        "A transfer within one currency changes no projected total, and one across currencies uses the schedule's own destination amount"
+      ],
+      "verification": [
+        "npm run typecheck",
+        "npm test",
+        "TEST_DATABASE_URL=${TEST_DATABASE_URL:?set TEST_DATABASE_URL} npm run test:integration",
+        "BROWSER_DATABASE_URL=${BROWSER_DATABASE_URL:?set BROWSER_DATABASE_URL} npm run test:browser"
+      ]
     }
   ]
 }

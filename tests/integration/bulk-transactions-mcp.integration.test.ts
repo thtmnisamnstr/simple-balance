@@ -8,10 +8,7 @@ import { scratchDatabase } from "./support/scratch-database.js";
 import { user } from "../../src/server/db/schema.js";
 import { createMcpServer } from "../../src/server/mcp.js";
 import { createAccount } from "../../src/server/services/accounts.js";
-import {
-  createTransaction,
-  getTransaction,
-} from "../../src/server/services/transactions.js";
+import { createTransaction, getTransaction } from "../../src/server/services/transactions.js";
 
 function resultRecord(result: unknown) {
   if (!result || typeof result !== "object") {
@@ -62,66 +59,48 @@ describe("bulk transaction MCP tool contracts", () => {
       clientId: "bulk-mcp-schema-client",
     };
     const readConnection = await connectedClient(new Set(["ledger:read"]), actor);
-    const stageConnection = await connectedClient(
-      new Set(["ledger:stage"]),
-      actor,
-    );
-    const writeConnection = await connectedClient(
-      new Set(["ledger:write"]),
-      actor,
-    );
+    const stageConnection = await connectedClient(new Set(["ledger:stage"]), actor);
+    const writeConnection = await connectedClient(new Set(["ledger:write"]), actor);
 
     try {
       const readTools = await readConnection.client.listTools();
       const stageTools = await stageConnection.client.listTools();
       const writeTools = await writeConnection.client.listTools();
       const readByName = new Map(readTools.tools.map((tool) => [tool.name, tool]));
-      const writeByName = new Map(
-        writeTools.tools.map((tool) => [tool.name, tool]),
-      );
+      const writeByName = new Map(writeTools.tools.map((tool) => [tool.name, tool]));
 
       expect(readByName.has("preview_bulk_transaction_selection")).toBe(true);
       expect(readByName.has("bulk_edit_transactions")).toBe(false);
       expect(
         stageTools.tools.some((tool) => tool.name === "preview_bulk_transaction_selection"),
       ).toBe(true);
-      expect(
-        stageTools.tools.some((tool) => tool.name === "bulk_edit_transactions"),
-      ).toBe(false);
+      expect(stageTools.tools.some((tool) => tool.name === "bulk_edit_transactions")).toBe(false);
       expect(writeByName.has("preview_bulk_transaction_selection")).toBe(true);
       expect(writeByName.has("bulk_edit_transactions")).toBe(true);
 
       // Deleting in bulk is a write, so it is gated exactly like editing.
       expect(readByName.has("bulk_delete_transactions")).toBe(false);
-      expect(
-        stageTools.tools.some((tool) => tool.name === "bulk_delete_transactions"),
-      ).toBe(false);
+      expect(stageTools.tools.some((tool) => tool.name === "bulk_delete_transactions")).toBe(false);
       expect(writeByName.has("bulk_delete_transactions")).toBe(true);
-      expect(
-        writeByName.get("bulk_delete_transactions")?.annotations,
-      ).toMatchObject({
+      expect(writeByName.get("bulk_delete_transactions")?.annotations).toMatchObject({
         readOnlyHint: false,
         destructiveHint: true,
         idempotentHint: true,
         openWorldHint: false,
       });
 
-      expect(
-        readByName.get("preview_bulk_transaction_selection")?.annotations,
-      ).toMatchObject({
+      expect(readByName.get("preview_bulk_transaction_selection")?.annotations).toMatchObject({
         readOnlyHint: true,
         destructiveHint: false,
         idempotentHint: true,
         openWorldHint: false,
       });
-      expect(writeByName.get("bulk_edit_transactions")?.annotations).toMatchObject(
-        {
-          readOnlyHint: false,
-          destructiveHint: true,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      );
+      expect(writeByName.get("bulk_edit_transactions")?.annotations).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
     } finally {
       await Promise.all([
         readConnection.client.close(),
@@ -155,9 +134,7 @@ integration("bulk transaction MCP PostgreSQL integration", () => {
   beforeAll(async () => {
     process.env.DATABASE_POOL_SIZE = "1";
     await database.create();
-    await getDb().execute(
-      sql`delete from auth_user where id = ${databaseActor.userId}`,
-    );
+    await getDb().execute(sql`delete from auth_user where id = ${databaseActor.userId}`);
     await getDb().insert(user).values({
       id: databaseActor.userId,
       name: "Bulk MCP Integration",
@@ -182,10 +159,7 @@ integration("bulk transaction MCP PostgreSQL integration", () => {
     checkingId = checking.id;
     savingsId = savings.id;
 
-    ({ client, server } = await connectedClient(
-      new Set(["ledger:write"]),
-      databaseActor,
-    ));
+    ({ client, server } = await connectedClient(new Set(["ledger:write"]), databaseActor));
   });
 
   afterAll(async () => {

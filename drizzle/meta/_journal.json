@@ -92,6 +92,62 @@
       "when": 1787418473680,
       "tag": "0012_payee_normalized_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1787469715617,
+      "tag": "0013_budget_plans_and_entries",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1787980390509,
+      "tag": "0014_budget_rollover_and_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1787982650168,
+      "tag": "0015_budget_amount_rules",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1787985545079,
+      "tag": "0016_category_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1787986336689,
+      "tag": "0017_budget_perimeter",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1787989920060,
+      "tag": "0018_incremental_taper",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787991351831,
+      "tag": "0019_budget_target_pair",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788309235579,
+      "tag": "0020_reference_indexes",
+      "breakpoints": true
     }
   ]
 }

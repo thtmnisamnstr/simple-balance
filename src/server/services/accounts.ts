@@ -12,11 +12,7 @@ import {
   type SystemAccountKind,
   type UserAccountType,
 } from "../../shared/domain.js";
-import {
-  getDb,
-  type DbTransaction,
-  withTransaction,
-} from "../db/client.js";
+import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
   ledgerAccounts,
   postings,
@@ -35,6 +31,7 @@ import {
 } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { calendarDayIn, todayIn } from "../../shared/recurrence-dates.js";
+import { log } from "../log.js";
 
 function stagedAccountReference(accountId: string) {
   return sql`(
@@ -61,7 +58,6 @@ async function activeStagedAccountReferenceCount(
   return count;
 }
 
-
 const systemAccountNames: Record<SystemAccountKind, string> = {
   income: "Income",
   expense: "Expenses",
@@ -77,10 +73,7 @@ const systemAccountNames: Record<SystemAccountKind, string> = {
  * remove one, so the second lookup can only return what the first did. On a
  * CSV import that repeated select ran for every row staged.
  */
-const systemAccountsByTx = new WeakMap<
-  object,
-  Map<string, typeof ledgerAccounts.$inferSelect>
->();
+const systemAccountsByTx = new WeakMap<object, Map<string, typeof ledgerAccounts.$inferSelect>>();
 
 export async function ensureSystemAccount(
   tx: DbTransaction,
@@ -213,12 +206,7 @@ export async function postOpeningBalance(
   const existing = await tx
     .select()
     .from(postings)
-    .where(
-      and(
-        eq(postings.userId, actor.userId),
-        eq(postings.openingAccountId, account.id),
-      ),
-    );
+    .where(and(eq(postings.userId, actor.userId), eq(postings.openingAccountId, account.id)));
 
   const opening = decimal(account.openingBalance);
   const desired = opening.isZero()
@@ -279,12 +267,7 @@ export async function reconcileArchivedAccountClosings() {
       archivedAt: ledgerAccounts.archivedAt,
     })
     .from(ledgerAccounts)
-    .where(
-      and(
-        isNotNull(ledgerAccounts.archivedAt),
-        isNull(ledgerAccounts.systemKind),
-      ),
-    );
+    .where(and(isNotNull(ledgerAccounts.archivedAt), isNull(ledgerAccounts.systemKind)));
   let repaired = 0;
   for (const account of archived) {
     const actor: Actor = { userId: account.userId, source: "web" };
@@ -319,7 +302,10 @@ export async function reconcileArchivedAccountClosings() {
       // even though Intl did, and this runs before the server starts serving.
       // Letting that reach the caller takes the whole deployment down, for
       // everybody, on every boot.
-      console.error(
+      // Through log.failure, never whole: the failing insert's bound
+      // parameters are this person's balances, and this loop writes into the
+      // startup log of a container an operator reads.
+      log.failure(
         `Could not re-close archived account ${account.id}. Its balance may be ` +
           "missing from that person's totals until it is archived again.",
         error,
@@ -374,12 +360,7 @@ export async function postClosingBalance(
   const existing = await tx
     .select()
     .from(postings)
-    .where(
-      and(
-        eq(postings.userId, actor.userId),
-        eq(postings.closingAccountId, account.id),
-      ),
-    );
+    .where(and(eq(postings.userId, actor.userId), eq(postings.closingAccountId, account.id)));
 
   // What the account holds, by the date it holds it on, so the close can mirror
   // it day for day. A closing pair already posted is left out of the sum rather
@@ -406,9 +387,7 @@ export async function postClosingBalance(
       having sum(p.amount) <> 0
     `);
     if (measured.rows.length) {
-      const equityId = (
-        await ensureSystemAccount(tx, actor, "equity", account.currency)
-      ).id;
+      const equityId = (await ensureSystemAccount(tx, actor, "equity", account.currency)).id;
       for (const row of measured.rows as { date: string; amount: string }[]) {
         const amount = decimal(row.amount);
         desired.push({ accountId: account.id, date: row.date, amount: amount.negated() });
@@ -467,11 +446,25 @@ export function presentAccountBalance(type: AccountType, balance: string) {
  * balance in its place would report a figure that stopped being true the moment
  * the first transaction landed.
  */
-async function currentBalance(
-  tx: Pick<DbTransaction, "execute">,
-  actor: Actor,
-  accountId: string,
-) {
+/**
+ * The where-clause every by-id account read and write shares.
+ *
+ * The income, expense, exchange and equity accounts are the ledger's own
+ * bookkeeping. Every listing hides them, so a path that takes an id must not
+ * be the exception that puts them on show — and a path that *writes* by id
+ * must not be the exception that hands them over. The clause lives in one
+ * place because the defect it closes was exactly the guard existing on the
+ * read and not on its sibling writes.
+ */
+function userAccountById(actor: Actor, id: string) {
+  return and(
+    eq(ledgerAccounts.id, id),
+    eq(ledgerAccounts.userId, actor.userId),
+    isNull(ledgerAccounts.systemKind),
+  );
+}
+
+async function currentBalance(tx: Pick<DbTransaction, "execute">, actor: Actor, accountId: string) {
   const result = await tx.execute(sql`
     select coalesce(sum(p.amount), 0)::text as balance
     from posting p
@@ -481,16 +474,10 @@ async function currentBalance(
   return String((result.rows[0] as { balance: string }).balance);
 }
 
-function accountView(
-  account: typeof ledgerAccounts.$inferSelect,
-  balance?: string,
-) {
+function accountView(account: typeof ledgerAccounts.$inferSelect, balance?: string) {
   return {
     ...serializeRow(account),
-    ...presentAccountBalance(
-      account.type as AccountType,
-      balance ?? account.openingBalance,
-    ),
+    ...presentAccountBalance(account.type as AccountType, balance ?? account.openingBalance),
   };
 }
 
@@ -539,6 +526,7 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
       notes: row.notes,
       openingDate: row.opening_date,
       openingBalance: String(row.opening_balance),
+      inBudget: row.in_budget,
       archivedAt: timestamp(row.archived_at),
       version: row.version,
       createdAt: timestamp(row.created_at),
@@ -553,16 +541,7 @@ export async function getAccount(actor: Actor, id: string) {
   const [account] = await db
     .select()
     .from(ledgerAccounts)
-    .where(
-      and(
-        eq(ledgerAccounts.id, id),
-        eq(ledgerAccounts.userId, actor.userId),
-        // The income, expense, exchange and equity accounts are the ledger's
-        // own bookkeeping. Every other path hides them, so fetching one by id
-        // should not be the exception that puts them on show.
-        isNull(ledgerAccounts.systemKind),
-      ),
-    )
+    .where(userAccountById(actor, id))
     .limit(1);
   if (!account) throw notFound("Account not found");
   return accountView(account, await currentBalance(db, actor, account.id));
@@ -604,6 +583,10 @@ export async function getAccountBalances(
       and p.user_id = a.user_id
     where a.id = ${id}::uuid
       and a.user_id = ${actor.userId}
+      -- The register is for the person's own accounts. A counter-account's
+      -- register is the trial balance's business, which reads system rows on
+      -- purpose; here the id answers not-found like every other account path.
+      and a.system_kind is null
     group by a.id
   `);
   const row = result.rows[0];
@@ -656,11 +639,7 @@ async function assertAccountNameAvailable(
   }
 }
 
-export async function createAccount(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
+export async function createAccount(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = accountCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await assertAccountNameAvailable(tx, actor, parsed.name);
@@ -693,7 +672,16 @@ export async function updateAccount(
     const [before] = await tx
       .select()
       .from(ledgerAccounts)
-      .where(and(eq(ledgerAccounts.id, id), eq(ledgerAccounts.userId, actor.userId)))
+      // The same exclusion `getAccount` carries, and here it is load-bearing
+      // rather than cosmetic: the trial balance publishes counter-account ids
+      // to their own owner, and a stale-version refusal reveals the current
+      // version to retry with. Without this line, that pair of facts lets a
+      // person rename the ledger's own income account, give it an opening
+      // balance (which posts real money against equity), archive it (which
+      // sweeps every income posting to equity on each later repost), or delete
+      // it. Counter-accounts are server-owned; every write answers "not found"
+      // exactly as the reads do, so their existence is never confirmed.
+      .where(userAccountById(actor, id))
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
@@ -707,11 +695,7 @@ export async function updateAccount(
         .select({ count: sql<number>`count(*)::int` })
         .from(postings)
         .where(and(eq(postings.userId, actor.userId), eq(postings.accountId, id)));
-      const stageCount = await activeStagedAccountReferenceCount(
-        tx,
-        actor,
-        id,
-      );
+      const stageCount = await activeStagedAccountReferenceCount(tx, actor, id);
       if (decimal(before.openingBalance).isZero() === false || postingCount > 0 || stageCount > 0) {
         throw conflict("Currency cannot change after the account is in use");
       }
@@ -759,14 +743,14 @@ export async function setAccountArchived(
     const [before] = await tx
       .select()
       .from(ledgerAccounts)
-      .where(and(eq(ledgerAccounts.id, id), eq(ledgerAccounts.userId, actor.userId)))
+      // Archiving a counter-account would post its whole balance out to
+      // equity and re-close it on every later repost — see `updateAccount`
+      // for why the id can be known and the version guessed.
+      .where(userAccountById(actor, id))
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
-    if (
-      archived &&
-      (await activeStagedAccountReferenceCount(tx, actor, id)) > 0
-    ) {
+    if (archived && (await activeStagedAccountReferenceCount(tx, actor, id)) > 0) {
       throw conflict(
         "Resolve staged transactions that reference this account before archiving it.",
       );
@@ -812,7 +796,8 @@ export async function deleteAccount(
     const [before] = await tx
       .select()
       .from(ledgerAccounts)
-      .where(and(eq(ledgerAccounts.id, id), eq(ledgerAccounts.userId, actor.userId)))
+      // Counter-accounts are excluded here too; see `updateAccount`.
+      .where(userAccountById(actor, id))
       .limit(1);
     if (!before) throw notFound("Account not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
@@ -829,11 +814,7 @@ export async function deleteAccount(
           sql`(${transactions.sourceAccountId} = ${id}::uuid or ${transactions.destinationAccountId} = ${id}::uuid)`,
         ),
       );
-    const stageCount = await activeStagedAccountReferenceCount(
-      tx,
-      actor,
-      id,
-    );
+    const stageCount = await activeStagedAccountReferenceCount(tx, actor, id);
     // Ledger history outlives the transaction that made it. Moving a
     // transaction to another account leaves the adjusting postings behind here,
     // so the account is still part of the books even though nothing points at
@@ -854,19 +835,11 @@ export async function deleteAccount(
     // outlives its account proposes a flagged row on every occurrence from here
     // on, for as long as nobody notices; a template becomes unusable.
     const jsonNamesAccount = (column: PgColumn) =>
-      or(
-        sql`${column} ->> 'fromAccountId' = ${id}`,
-        sql`${column} ->> 'toAccountId' = ${id}`,
-      )!;
+      or(sql`${column} ->> 'fromAccountId' = ${id}`, sql`${column} ->> 'toAccountId' = ${id}`)!;
     const [{ count: recurrenceCount }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(recurrences)
-      .where(
-        and(
-          eq(recurrences.userId, actor.userId),
-          jsonNamesAccount(recurrences.shape),
-        ),
-      );
+      .where(and(eq(recurrences.userId, actor.userId), jsonNamesAccount(recurrences.shape)));
     const [{ count: templateCount }] = await tx
       .select({ count: sql<number>`count(*)::int` })
       .from(transactionTemplates)
@@ -876,13 +849,7 @@ export async function deleteAccount(
           jsonNamesAccount(transactionTemplates.draft),
         ),
       );
-    if (
-      transactionCount ||
-      stageCount ||
-      postingCount ||
-      recurrenceCount ||
-      templateCount
-    ) {
+    if (transactionCount || stageCount || postingCount || recurrenceCount || templateCount) {
       throw conflict("This account is in use. Archive it instead of deleting it.", {
         transactionCount,
         stagedTransactionCount: stageCount,
@@ -897,15 +864,13 @@ export async function deleteAccount(
     // leaving them behind made the delete fail on a foreign key with a raw
     // database error rather than an answer. Both halves of each pair name this
     // account, so they come out together and no equity side is stranded.
-    await tx
-      .delete(postings)
-      .where(
-        and(
-          eq(postings.userId, actor.userId),
-          sql`(${postings.openingAccountId} = ${id}::uuid
+    await tx.delete(postings).where(
+      and(
+        eq(postings.userId, actor.userId),
+        sql`(${postings.openingAccountId} = ${id}::uuid
             or ${postings.closingAccountId} = ${id}::uuid)`,
-        ),
-      );
+      ),
+    );
 
     const [deleted] = await tx
       .delete(ledgerAccounts)

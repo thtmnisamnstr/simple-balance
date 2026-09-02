@@ -94,9 +94,7 @@ integration("splitting a transaction across categories", () => {
       })
     ).id;
     foodId = (await createCategory(actor, { name: "Food", kind: "expense" })).id;
-    householdId = (
-      await createCategory(actor, { name: "Household", kind: "expense" })
-    ).id;
+    householdId = (await createCategory(actor, { name: "Household", kind: "expense" })).id;
     petsId = (await createCategory(actor, { name: "Pets", kind: "expense" })).id;
   });
 
@@ -151,11 +149,7 @@ integration("splitting a transaction across categories", () => {
 
     const legs = await legPositions(created.id);
     expect(legs.map((leg) => leg.ordinal)).toEqual([0, 1, 2]);
-    expect(legs.map((leg) => leg.category_id)).toEqual([
-      foodId,
-      householdId,
-      petsId,
-    ]);
+    expect(legs.map((leg) => leg.category_id)).toEqual([foodId, householdId, petsId]);
     expect(legs.map((leg) => leg.posted)).toEqual([
       "60.000000000000000000",
       "30.000000000000000000",
@@ -217,12 +211,8 @@ integration("splitting a transaction across categories", () => {
 
     const after = await legPositions(created.id);
     expect(after).toHaveLength(3);
-    expect(after.find((leg) => leg.id === second.id)!.posted).toBe(
-      "0.000000000000000000",
-    );
-    expect(after.find((leg) => leg.category_id === petsId)!.posted).toBe(
-      "30.000000000000000000",
-    );
+    expect(after.find((leg) => leg.id === second.id)!.posted).toBe("0.000000000000000000");
+    expect(after.find((leg) => leg.category_id === petsId)!.posted).toBe("30.000000000000000000");
     expect(await postingTotal(created.id)).toBe("0.000000000000000000");
     expect(await legCount(created.id)).toBe(2);
   });
@@ -290,12 +280,7 @@ integration("splitting a transaction across categories", () => {
       "split-delete",
     );
 
-    const deleted = await setTransactionDeleted(
-      actor,
-      created.id,
-      created.version,
-      true,
-    );
+    const deleted = await setTransactionDeleted(actor, created.id, created.version, true);
     expect((await legPositions(created.id)).map((leg) => leg.posted)).toEqual([
       "0.000000000000000000",
       "0.000000000000000000",

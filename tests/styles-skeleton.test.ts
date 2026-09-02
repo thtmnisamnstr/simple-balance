@@ -9,13 +9,7 @@ import { describe, expect, it } from "vitest";
  * painted behind it, so an animation anywhere underneath reads as the card
  * itself moving.
  */
-const CONTENT_CLASSES = [
-  ".panel",
-  ".table-card",
-  ".account-card",
-  ".metric-card",
-  ".empty-state",
-];
+const CONTENT_CLASSES = [".panel", ".table-card", ".account-card", ".metric-card", ".empty-state"];
 
 async function stylesheet() {
   return readFile(new URL("../src/client/styles.css", import.meta.url), "utf8");
@@ -29,8 +23,7 @@ function rules(css: string) {
   }));
 }
 
-const selectorsOf = (selector: string) =>
-  selector.split(",").map((one) => one.trim());
+const selectorsOf = (selector: string) => selector.split(",").map((one) => one.trim());
 
 describe("the loading shimmer", () => {
   it("animates nothing but the placeholder", async () => {
@@ -46,17 +39,12 @@ describe("the loading shimmer", () => {
   it("leaves every card painting its own background", async () => {
     const parsed = rules(await stylesheet());
     for (const className of CONTENT_CLASSES) {
-      const owns = parsed.filter((rule) =>
-        selectorsOf(rule.selector).includes(className),
-      );
+      const owns = parsed.filter((rule) => selectorsOf(rule.selector).includes(className));
       expect(owns.length, `${className} has no rule`).toBeGreaterThan(0);
       const backgrounds = owns.flatMap((rule) => [
         ...rule.body.matchAll(/(?:^|[;\s])background(?:-color|-image)?\s*:/g),
       ]);
-      expect(
-        backgrounds.length,
-        `${className} declares no background`,
-      ).toBeGreaterThan(0);
+      expect(backgrounds.length, `${className} declares no background`).toBeGreaterThan(0);
     }
   });
 });

@@ -121,11 +121,7 @@ integration("scheduled notifications", () => {
     await database.drop();
   });
 
-  const template = async (
-    name: string,
-    notification: unknown,
-    who: Actor = actor,
-  ) =>
+  const template = async (name: string, notification: unknown, who: Actor = actor) =>
     createTransactionTemplate(who, {
       name,
       draft: { type: "withdrawal", payee: "Landlord", amount: "1200" },

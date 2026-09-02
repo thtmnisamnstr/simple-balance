@@ -18,16 +18,16 @@ ones that matter.
 | `DATABASE_URL` | PostgreSQL 15+ connection string. Encrypt it when the database is not on the same host; see TLS below for which `sslmode` to use. The database it names is created if the server does not have it yet. |
 | `AUTH_SECRET` | At least 32 random characters. `openssl rand -base64 32`. Keep it: changing it signs everyone out. A value published in this project's own files, including whatever `.env.example` carried, is refused by name. |
 | `APP_BASE_URL` | Your canonical public origin, exactly as the browser sees it. HTTPS anywhere but localhost. |
+| `NODE_ENV` | `production`. Every image sets it for you; a host running `npm start` does not, and unset reads as development. See below for what that costs. |
 
 `APP_BASE_URL` is load-bearing beyond cosmetics: secure cookies, the OAuth
 issuer metadata, redirect validation, and the audience on MCP tokens are all
 derived from it. Get it wrong and sign-in fails in ways that look unrelated.
 
-So is `NODE_ENV`, which the images set to `production` for you and which you
-have to set yourself if you run the built server directly with `npm start`.
-Outside production the first-run setup code is not demanded, sign-in attempts
-are not rate limited, and cookies are not marked secure: those three together
-are the difference between a deployment and a development machine.
+So is `NODE_ENV`. Outside production the first-run setup code is not demanded,
+sign-in attempts are not rate limited, and cookies are not marked secure: those
+three together are the difference between a deployment and a development
+machine.
 
 It is parsed against `production`, `development` and `test` and refuses anything
 else, because comparing to one string turned every other spelling into
@@ -42,34 +42,45 @@ than warning about.
 | --- | --- | --- |
 | `AUTH_MODE` | `local` | Which sign-in methods are offered. See below. |
 | `ALLOWED_EMAILS` | unset | Who may register. Unset admits nobody but the first account. See below. |
-| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. At least 16 characters if you set it; a shorter one refuses to start. Left unset, one is generated and printed to the startup log. |
+| `SETUP_TOKEN` | generated | The one-time code that claims a fresh instance. At least 16 characters if you set it; a shorter one refuses to start. Left unset, one is generated and printed to the startup log. It is a secret, so it also takes a `SETUP_TOKEN_FILE`; see below. |
 | `PORT` | `3000` | The port inside the container. Change it and your published port mapping has to follow. |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. It governs this product's own lines as well as the auth library's, so `error` really is quiet. `debug` adds a line per HTTP request, per MCP tool call, per message sent and per scheduler tick that found nothing due; `info` keeps startup, mail, shutdown and the ticks that actually proposed or reminded. A refusal at startup is reported whatever it is set to, and so is the first-run setup code. |
 | `TRUST_PROXY` | `false` | Turn it on when a reverse proxy sits in front and replaces `X-Forwarded-For`. See the reverse proxy section; getting it wrong costs per-visitor rate limiting. |
 | `DATABASE_POOL_SIZE` | `10` | Connections held open, per process. Ceiling 100. Raise it only if you have measured contention, and see the split-container section for what it means once there is more than one replica. |
-| `DIRECT_DATABASE_URL` | `DATABASE_URL` | A second connection string that bypasses a transaction pooler. Only needed when PgBouncer or similar sits in front; see below. |
+| `DIRECT_DATABASE_URL` | `DATABASE_URL` | A second connection string that bypasses a transaction pooler. Only needed when PgBouncer or similar sits in front; see below. It carries a password, so it also takes a `DIRECT_DATABASE_URL_FILE`. |
 | `CSV_MAX_BYTES` | `10485760` | Largest CSV accepted for import, 10 MB by default. Ceiling 104857600. |
 | `CSV_MAX_ROWS` | `10000` | Most rows accepted from one CSV. Ceiling 10000, which is also the most rows one mass edit, commit, or delete covers, so an import always fits in a single review-queue action. |
 | `RECURRENCE_SCHEDULER` | `true` | Whether this process runs the schedule at all: proposing recurring transactions, and sending the reminders and proposal notices that go by email. Turn it off on replicas that serve the API when a separate scheduler container owns the job. A value other than `true` or `false` refuses to start, because the wrong setting is otherwise silent. |
 | `RECURRENCE_TICK_SECONDS` | `300` | How often it looks for work that has come due, meaning both a recurrence to propose and a reminder to send. Latency only for a recurrence: whatever a missed tick leaves behind, the next one catches up. A reminder whose moment passed is not sent late, so this is also how close to the requested time a reminder lands. Ceiling 3600. |
 | `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. Ceiling 500. |
 | `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. Ceiling 5000. |
+| `METRICS_ENABLED` | `false` | Whether this process answers `GET /metrics` in Prometheus' text format. Off unless you ask for it. |
+| `METRICS_TOKEN` | unset | A bearer token `GET /metrics` demands before it answers. Optional; unset means anybody who can reach the port can scrape it. It is a secret, so it also takes a `METRICS_TOKEN_FILE`; see below. |
 
-`CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `RECURRENCE_TICK_SECONDS`,
-`RECURRENCE_CATCH_UP_LIMIT` and `RECURRENCE_CLAIM_LIMIT` are each a whole number
-between 1 and the ceiling shown. Anything else, whether a word, a zero, a
-negative or something past the ceiling, falls back to the default rather than
-being clamped or refused, so a typo gets you the default rather than a value you
-did not intend.
+`CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `DATABASE_POOL_SIZE`,
+`RECURRENCE_TICK_SECONDS`, `RECURRENCE_CATCH_UP_LIMIT` and
+`RECURRENCE_CLAIM_LIMIT` are each a whole number between 1 and the ceiling
+shown. Anything else — a word, a zero, a negative, something past the ceiling —
+warns at startup, names the variable and the value, and uses the default.
+Leaving one out is the only way to ask for its default without a warning.
 
-The rest refuse to start instead, because a wrong value there is not something
-to discover later. `NODE_ENV`, `AUTH_MODE`, `LOG_LEVEL`, `TRUST_PROXY` and
-`RECURRENCE_SCHEDULER` are each parsed against the values they accept and
-nothing else: comparing to one string is what turns every other spelling into
-the default with no symptom at all, and for `RECURRENCE_SCHEDULER` that default
-would be a schedule quietly not running. `PORT` has to be a port, and
-`DATABASE_POOL_SIZE` a size, because too many connections takes the database
-down rather than this process.
+All six are read at startup, before anything is served, so the warning is in
+front of whoever just deployed rather than in a log nobody opens until the day
+it matters. They used to be read at the moment they were wanted, which is a
+combination with no symptom at all: `CSV_MAX_ROWS=1O000`, typed with a letter O,
+ran happily on ten thousand rows and told nobody the number set was not the
+number in force. A warning rather than a refusal because a deployment carrying
+one of these values from an earlier release has to keep starting; the release
+that stops accepting it is a later one, after the warning has been in the
+field.
+
+The rest refuse to start for the same reason. `NODE_ENV`, `AUTH_MODE`,
+`LOG_LEVEL`, `TRUST_PROXY` and `RECURRENCE_SCHEDULER` are each parsed against
+the values they accept and nothing else: comparing to one string is what turns
+every other spelling into the default with no symptom at all, and for
+`RECURRENCE_SCHEDULER` that default would be a schedule quietly not running.
+`PORT` has to be a port. `DATABASE_POOL_SIZE` has a ceiling of its own because
+too many connections takes the database down rather than this process.
 
 ### Limits you cannot change
 
@@ -90,9 +101,89 @@ a refusal is explainable rather than surprising.
 
 ### Only for Google sign-in
 
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Google modes refuse to start
-without them, and without an `ALLOWED_EMAILS` that admits somebody, rather than
-silently letting everyone in.
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `GOOGLE_CLIENT_ID` | unset | The OAuth client this deployment signs people in with. Required when `AUTH_MODE` is `google` or `both`, and ignored otherwise. |
+| `GOOGLE_CLIENT_SECRET` | unset | That client's secret. Required alongside the ID. It is a secret, so it also takes a `GOOGLE_CLIENT_SECRET_FILE`; see below. |
+
+Google modes refuse to start without both, and without an `ALLOWED_EMAILS` that
+admits somebody, rather than silently letting everyone in.
+
+### Keeping a secret out of the environment
+
+Seven variables also answer to a `NAME_FILE` form: `AUTH_SECRET`,
+`DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`,
+`SETUP_TOKEN` and `METRICS_TOKEN`. Having the form is the definition of being a
+secret here, so nothing else in either table above has one.
+
+`NAME_FILE` names a file whose contents are the value. Set one of `NAME` and
+`NAME_FILE` and never both: both set warns and uses `NAME`, naming the file
+being ignored, because a precedence rule means somebody eventually changes a
+value that has no effect. `NAME` winning is what happened before `NAME_FILE`
+did anything at all, so an upgrade cannot change which value a running
+deployment is using. An empty `NAME` does not count as set, so the blank `AUTH_SECRET=` that
+`.env.example` ships is not in the way.
+
+One trailing newline is stripped and nothing further. `printf` and a Kubernetes
+secret volume write none, `echo` and every text editor write one, and a password
+may legitimately end in a space, so trimming further would mean a secret typed
+into a file and the same secret typed into the environment producing different
+values. For `AUTH_SECRET` that difference is a different session-signing key,
+which signs everybody out. A file that is empty, or that this process cannot
+read, refuses to start.
+
+The value is never placed in the environment of the running process, which is
+the point of asking for it this way. Everything that exposes an environment,
+`kubectl describe pod` and `kubectl exec` among them, and a Node diagnostic
+report along with them, can only show what is in it, and none of them can show
+something that was never put there.
+
+```sh
+# Docker, adding these to the run command under "Running it". Compose does the
+# same thing with a secrets: entry, which lands the file under /run/secrets.
+-v /etc/simple-balance/auth_secret:/run/secrets/auth_secret:ro \
+-e AUTH_SECRET_FILE=/run/secrets/auth_secret
+```
+
+```yaml
+# Kubernetes, with the Secret mounted as a volume rather than injected
+env:
+  - name: AUTH_SECRET_FILE
+    value: /etc/simple-balance/auth_secret
+volumeMounts:
+  - name: secrets
+    mountPath: /etc/simple-balance
+    readOnly: true
+```
+
+```ini
+# systemd, where LoadCredential puts the file under $CREDENTIALS_DIRECTORY
+LoadCredential=auth_secret:/etc/simple-balance/auth_secret
+Environment=AUTH_SECRET_FILE=%d/auth_secret
+```
+
+A deployment that uses none of these is unaffected: every variable still works
+exactly as it did, and nothing here is required.
+
+Two things worth knowing before you reach for it. An `SMTP_PASSWORD_FILE` that
+cannot be read stops the whole server rather than only the mail, which is
+consistent with the existing refusal when `SMTP_USERNAME` is set without
+`SMTP_PASSWORD`, but is not what "mail degrades rather than breaks" would lead
+you to expect while rotating a mail secret.
+
+And the shipped deployment paths do not use the form yet, so on both of them it
+takes work you do yourself. The Helm chart in `deploy/helm` writes all seven into
+a Secret that reaches both workloads through `envFrom`, and it has no volume or
+volume-mount values of its own, so `secret.create=false` is not enough on its
+own: an existing Secret is still consumed through `envFrom`. Something outside
+the chart has to put the file in the pod, a secrets injector added through
+`server.podAnnotations` and `scheduler.podAnnotations` for instance, with
+`config.extraEnv` naming the `_FILE` variable; otherwise it is a change to the
+chart. On `deploy/compose/compose.distributed.yml`, `DATABASE_URL` is written
+in the file and `AUTH_SECRET` is a required interpolation, so both have to be
+edited out before their `_FILE` forms will do anything, and leaving
+`DATABASE_URL` where it is while adding `DATABASE_URL_FILE` is the both-set
+refusal rather than a fallback.
 
 ## Reaching the database over a network
 
@@ -286,6 +377,40 @@ used, so it works once. A verification link is a signed token rather than a
 stored one, so it keeps working for the rest of its hour; opening it only
 confirms the address, and signing in still takes the password.
 
+### Getting mail delivered
+
+Simple Balance hands every message to the relay `SMTP_HOST` names and does
+nothing else about it. Whether a mailbox provider accepts what that relay sends
+is decided outside this application, by four things that live in DNS and on the
+relay itself.
+
+| What | What it is | Who sets it |
+| --- | --- | --- |
+| SPF | A DNS record listing the hosts allowed to send as your domain | You, in DNS |
+| DKIM | A signature the relay adds to each message, checked against a public key published in your DNS | The relay, plus the one record it gives you |
+| DMARC | A DNS record saying what a receiver should do with mail that fails the first two, and where to send reports | You, in DNS |
+| PTR | Reverse DNS for the address the relay connects from, resolving back to the name it announces | Whoever owns that IP address |
+
+A hosted relay (Google Workspace, Fastmail, Postmark, SES, Mailgun) already
+handles DKIM and PTR and hands you the records to publish, so its setup page is
+the one to follow rather than this one. Relaying through a host you own makes
+all four yours, and PTR is the one that catches people out: it belongs to
+whoever owns the address, which on most cloud providers is a support request
+rather than a control panel.
+
+Google asks the same of every sender, however little it sends: SPF or DKIM on
+the sending domain, forward and reverse DNS that agree, TLS on the connection, a
+spam rate under 0.3% in Postmaster Tools, and correctly formatted messages.
+Senders of roughly 5,000 messages or more a day to personal Gmail addresses
+additionally need SPF and DKIM both, DMARC, alignment between them, and
+one-click unsubscribe. A ledger sending password resets and a handful of
+reminders is not in that group, so the first list is the one to satisfy.
+
+When reminders land in spam, check in this order. SPF first, because it is one
+record and the one most often missing. Then DKIM, which the relay signs but your
+DNS has to carry the key for. Then the PTR record on the address the relay sends
+from.
+
 ### With no mail server
 
 Nobody can reset a forgotten password, and recovering one means editing the
@@ -302,13 +427,18 @@ added later. They were admitted under the rules that applied at the time.
 docker run -d --name simple-balance --restart unless-stopped \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --stop-timeout 30 \
+  --cap-drop=ALL --security-opt=no-new-privileges \
   -p 127.0.0.1:3000:3000 \
   --env-file .env \
   ghcr.io/thtmnisamnstr/simple-balance:latest
 ```
 
-The container runs as a non-root user and the filesystem can stay read-only. Bind
-to loopback and put a reverse proxy in front rather than publishing the port.
+The container runs as a non-root user and the filesystem can stay read-only. It
+also drops every Linux capability and cannot gain a privilege it did not start
+with: the process binds port 3000 as a non-root user and no setuid binary is
+involved, so it needs neither. Bind to loopback and put a reverse proxy in front
+rather than publishing the port.
 
 ## Reverse proxy
 
@@ -404,6 +534,15 @@ port. Three settings, all with working defaults:
 | `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
 | `SB_MAX_UPLOAD_SIZE` | `61m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
 
+These three are the only settings in this document that appear in no
+`.env.example`, and that is the reason rather than an omission: they belong to
+the nginx container, and neither example file configures it. The root file
+serves the single container, which has no nginx in it. The compose file sets all
+three on the frontend service itself, where the value can carry the reason it is
+what it is, and the defaults above are baked into
+`deploy/docker/frontend.Dockerfile`, so a deployment changing none of them has
+nothing to set. Everything the Node processes read appears in both places.
+
 nginx repeats every response header the API sets — the content security policy,
 `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS, the two
 `Cross-Origin-*` policies, `Origin-Agent-Cluster` and the legacy four — on the
@@ -419,10 +558,14 @@ The scheduler image runs the whole schedule — proposing recurring transactions
 and sending the reminders and proposal notices — and serves nothing but its own
 health checks, so a Service pointed at it by mistake cannot answer an API
 request. It needs the `SMTP_*` and `MAIL_FROM` settings as well: without them it
-proposes rows and sends nothing, and there is no error to see, because a
-deployment with no mail server is a supported one. The chart and the compose
-file both hand it the same configuration the API gets, so neither needs anything
-extra; a deployment assembled by hand does. It runs one entrypoint of its own and always ticks: the
+proposes rows and sends nothing, which is a supported deployment rather than an
+error, so it says so in one line at startup instead. Given them, it opens a
+connection to the relay at startup and logs the address it will be sending as,
+or logs the refusal and carries on proposing. Those two lines are the difference
+between a scheduler that is working and one that was never handed the settings,
+which otherwise look identical. The chart and the compose file both hand it the
+same configuration the API gets, so neither needs anything extra; a deployment
+assembled by hand does. It runs one entrypoint of its own and always ticks: the
 `RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
 whose only job is this one would be pointless with it off.
 
@@ -490,9 +633,14 @@ rather than at the release that needed it.
 
 ## Health and shutdown
 
-`/health/live` says the process is up. `/health/ready` says configuration, the
-database, and the migrations have all succeeded, and stays closed until they
-have. Point your orchestrator at readiness.
+`/health/live` says the process is up. `/health/ready` opens a database
+connection and runs one statement on it, so it says the database is reachable
+and nothing more. What it also gives you is ordering rather than a check:
+migrations run under an advisory lock before the server starts listening, so
+nothing answers at all until they have finished, and a failed migration is a
+process that never came up rather than one answering `503`.
+
+Point your orchestrator at readiness.
 
 A process with the scheduler switched off is not an unhealthy one, so readiness
 says nothing about it. What tells you the scheduler has stopped is the Recurring
@@ -503,6 +651,80 @@ to look for both.
 
 On `SIGTERM` the process stops accepting connections, closes the HTTP server,
 and drains the database pool before exiting.
+
+## Metrics
+
+Off by default. `METRICS_ENABLED=true` makes the process answer `GET /metrics`
+in the Prometheus text format, on the same port everything else is served on.
+With it off there is no such route, so `/metrics` reaches the single-page app
+like any other path the browser owns and a scraper pointed at it gets HTML and
+a parse error — which is what a scrape against a deployment that never turned
+this on looks like.
+Both entrypoints have one, and in a split deployment you want both: the API
+reports requests, MCP tool calls, ledger writes and its connection pool, and the
+scheduler reports ticks, proposals, reminders and mail. Scraping only the API
+watches the process that does none of the scheduled work.
+
+Nothing in a metric names a person. No label carries a user, an email, an
+account or an amount, and a path with an id in it is counted under the route
+pattern rather than the path, so `/api/v1/accounts/{id}` is one series and not
+one per account. What a scrape does say is how much this deployment is doing:
+requests by route and status, writes by kind, queue depths, how long a
+transaction holds a connection. That is not somebody's ledger and it is not for
+the open internet either.
+
+So `METRICS_TOKEN` is there when the port is reachable by anything you do not
+control. Set it, and the endpoint answers only a request carrying
+`Authorization: Bearer <token>`; leave it unset behind a private network and
+`kubernetes-pods` style discovery scrapes it with no configuration at all. Set
+it in production without one and the startup log says so once. The bundled
+frontend nginx does **not** proxy `/metrics`: a scrape goes to the API service
+directly, so the browser's hostname never exposes it.
+
+A Prometheus job for the two containers, with a token:
+
+```yaml
+scrape_configs:
+  - job_name: simple-balance
+    authorization:
+      credentials_file: /etc/prometheus/simple-balance-token
+    static_configs:
+      - targets: ["simple-balance-server:3000", "simple-balance-scheduler:3000"]
+```
+
+Every name starts `simple_balance_`, the runtime's included: heap, event-loop
+lag and garbage collection arrive as `simple_balance_process_*` and
+`simple_balance_nodejs_*`, because `prom-client`'s default set is collected under
+the same prefix rather than beside it. `simple_balance_build_info` carries the
+version as a label, so a scrape says which build produced it. Every series carries `component="api"` or
+`component="scheduler"`, so a split deployment can tell the two apart and a
+single container reports both under `api`.
+
+Five things are worth alerting on, and they are the ones that fail silently
+today:
+
+- `simple_balance_db_pool_connections{state="waiting"}` above zero for more than
+  a moment. A request waiting there has already been admitted and is queued
+  behind somebody else's transaction, which is what `DATABASE_POOL_SIZE` being
+  too small looks like from outside.
+- `simple_balance_scheduler_ticks_total{outcome="failed"}` increasing. A tick
+  that throws is caught and the next one is armed, so nothing stops and nothing
+  gets proposed.
+- The absence of `simple_balance_scheduler_ticks_total` altogether, on a
+  deployment that expects a schedule. That is `RECURRENCE_SCHEDULER` off
+  everywhere, which is the one misconfiguration whose symptom is a year of
+  missing rent.
+- `simple_balance_mail_messages_total{outcome="failed"}` increasing, or
+  `{outcome="skipped"}` on a deployment that thinks it has a mail server.
+- `simple_balance_build_info` changing, or disagreeing between the API and the
+  scheduler. A split deployment upgraded halfway is two versions against one
+  database, which is the state the schema contract is written for and the one
+  nobody notices without asking.
+
+The migration counters are the exception: a startup migration that fails takes
+the process down before it serves anything, so nothing is ever scraped with
+`outcome="failed"` on it. Readiness is what tells you, and the counters are for
+reading afterwards — how long the wait for the lock was on a rolling deploy.
 
 ## Backups
 

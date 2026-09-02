@@ -8,6 +8,7 @@ import * as sb from "../common";
 const loadBalancerControllerVersion = "3.5.0";
 const ingressNginxVersion = "4.15.1";
 const clusterAutoscalerVersion = "9.59.0";
+const metricsServerVersion = "3.14.0";
 
 const settings = sb.readSettings();
 
@@ -23,7 +24,9 @@ const azCount = 3;
 const availabilityZone = (index: number) =>
   azNames.apply((names) => {
     if (names.length < azCount) {
-      throw new Error(`${region} offers ${names.length} availability zones; this program spreads across ${azCount}.`);
+      throw new Error(
+        `${region} offers ${names.length} availability zones; this program spreads across ${azCount}.`,
+      );
     }
     return names[index];
   });
@@ -43,24 +46,34 @@ const internetGateway = new aws.ec2.InternetGateway("simple-balance", {
 // The role tags are how the AWS Load Balancer Controller finds somewhere to put
 // a load balancer. Untagged subnets mean a Service that stays pending with a
 // "couldn't auto-discover subnets" event and nothing else wrong with it.
-const publicSubnets = Array.from({ length: azCount }, (_, i) =>
-  new aws.ec2.Subnet(`simple-balance-public-${i}`, {
-    vpcId: vpc.id,
-    cidrBlock: `10.0.${i}.0/24`,
-    availabilityZone: availabilityZone(i),
-    mapPublicIpOnLaunch: true,
-    tags: { ...tags, Name: `simple-balance-public-${i}`, "kubernetes.io/role/elb": "1" },
-  }));
+const publicSubnets = Array.from(
+  { length: azCount },
+  (_, i) =>
+    new aws.ec2.Subnet(`simple-balance-public-${i}`, {
+      vpcId: vpc.id,
+      cidrBlock: `10.0.${i}.0/24`,
+      availabilityZone: availabilityZone(i),
+      mapPublicIpOnLaunch: true,
+      tags: { ...tags, Name: `simple-balance-public-${i}`, "kubernetes.io/role/elb": "1" },
+    }),
+);
 
 // A /20 each: with the VPC CNI every pod takes an address out of these, so the
 // subnet size is the pod ceiling.
-const privateSubnets = Array.from({ length: azCount }, (_, i) =>
-  new aws.ec2.Subnet(`simple-balance-private-${i}`, {
-    vpcId: vpc.id,
-    cidrBlock: `10.0.${16 * (i + 1)}.0/20`,
-    availabilityZone: availabilityZone(i),
-    tags: { ...tags, Name: `simple-balance-private-${i}`, "kubernetes.io/role/internal-elb": "1" },
-  }));
+const privateSubnets = Array.from(
+  { length: azCount },
+  (_, i) =>
+    new aws.ec2.Subnet(`simple-balance-private-${i}`, {
+      vpcId: vpc.id,
+      cidrBlock: `10.0.${16 * (i + 1)}.0/20`,
+      availabilityZone: availabilityZone(i),
+      tags: {
+        ...tags,
+        Name: `simple-balance-private-${i}`,
+        "kubernetes.io/role/internal-elb": "1",
+      },
+    }),
+);
 
 const natEip = new aws.ec2.Eip("simple-balance-nat", { domain: "vpc", tags });
 
@@ -86,22 +99,28 @@ const privateRouteTable = new aws.ec2.RouteTable("simple-balance-private", {
   tags: { ...tags, Name: "simple-balance-private" },
 });
 
-publicSubnets.forEach((subnet, i) =>
-  new aws.ec2.RouteTableAssociation(`simple-balance-public-${i}`, {
-    subnetId: subnet.id,
-    routeTableId: publicRouteTable.id,
-  }));
+publicSubnets.forEach(
+  (subnet, i) =>
+    new aws.ec2.RouteTableAssociation(`simple-balance-public-${i}`, {
+      subnetId: subnet.id,
+      routeTableId: publicRouteTable.id,
+    }),
+);
 
-privateSubnets.forEach((subnet, i) =>
-  new aws.ec2.RouteTableAssociation(`simple-balance-private-${i}`, {
-    subnetId: subnet.id,
-    routeTableId: privateRouteTable.id,
-  }));
+privateSubnets.forEach(
+  (subnet, i) =>
+    new aws.ec2.RouteTableAssociation(`simple-balance-private-${i}`, {
+      subnetId: subnet.id,
+      routeTableId: privateRouteTable.id,
+    }),
+);
 
 const nodeRole = new aws.iam.Role("simple-balance-node", {
   assumeRolePolicy: JSON.stringify({
     Version: "2012-10-17",
-    Statement: [{ Effect: "Allow", Principal: { Service: "ec2.amazonaws.com" }, Action: "sts:AssumeRole" }],
+    Statement: [
+      { Effect: "Allow", Principal: { Service: "ec2.amazonaws.com" }, Action: "sts:AssumeRole" },
+    ],
   }),
   tags,
 });
@@ -352,6 +371,29 @@ const clusterAutoscaler = new k8s.helm.v3.Release(
   { provider: k8sProvider, dependsOn: [nodeGroup] },
 );
 
+// The chart's HorizontalPodAutoscalers read CPU and memory through the metrics
+// API, and a stock EKS cluster does not serve it — GKE ships this as an addon,
+// EKS leaves it to be installed. Without it all three HPAs the common program
+// enables sit at "unknown" and nothing ever scales, silently.
+const metricsServer = new k8s.helm.v3.Release(
+  "metrics-server",
+  {
+    name: "metrics-server",
+    chart: "metrics-server",
+    version: metricsServerVersion,
+    repositoryOpts: { repo: "https://kubernetes-sigs.github.io/metrics-server/" },
+    namespace: "kube-system",
+    values: {
+      resources: {
+        requests: { cpu: "50m", memory: "100Mi" },
+        limits: { cpu: "100m", memory: "200Mi" },
+      },
+    },
+    timeout: 600,
+  },
+  { provider: k8sProvider, dependsOn: [nodeGroup] },
+);
+
 // An ALB can only serve a certificate that lives in ACM, and cert-manager
 // issues into a Kubernetes Secret. So the load balancer controller does what it
 // is good at here, which is putting a network load balancer in front of a
@@ -374,7 +416,8 @@ const ingressNginx = new k8s.helm.v3.Release(
             "service.beta.kubernetes.io/aws-load-balancer-type": "external",
             "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type": "ip",
             "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing",
-            "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled": "true",
+            "service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled":
+              "true",
             // A TCP health check calls a controller healthy the moment nginx
             // has the socket open, which is before it has any configuration.
             "service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol": "http",
@@ -405,7 +448,7 @@ const app = sb.simpleBalance({
   settings,
   issuerName: certManager.issuerName,
   ingressClassName: "nginx",
-  dependsOn: [certManager.clusterIssuer, ingressNginx, clusterAutoscaler],
+  dependsOn: [certManager.clusterIssuer, ingressNginx, clusterAutoscaler, metricsServer],
 });
 
 // Read back rather than exported from the release, because the address is the

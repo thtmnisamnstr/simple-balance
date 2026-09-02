@@ -28,9 +28,7 @@ export type DatePreset = (typeof datePresets)[number];
 
 /** Ignore an unrecognized `preset` param instead of trusting the URL. */
 function presetFromParam(value: string | null): DatePreset {
-  return datePresets.includes(value as DatePreset)
-    ? (value as DatePreset)
-    : "this-month";
+  return datePresets.includes(value as DatePreset) ? (value as DatePreset) : "this-month";
 }
 
 export function rangeForPreset(
@@ -39,11 +37,7 @@ export function rangeForPreset(
   timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 ) {
   const today = calendarDateInTimezone(now, timezone);
-  const [year, month, day] = today.split("-").map(Number) as [
-    number,
-    number,
-    number,
-  ];
+  const [year, month, day] = today.split("-").map(Number) as [number, number, number];
   const calendarNow = new Date(Date.UTC(year, month - 1, day));
   switch (preset) {
     case "this-month":

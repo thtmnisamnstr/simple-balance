@@ -11,21 +11,17 @@ export default function TemplateDetailPage() {
   const location = useLocation();
   const template = useQuery({
     queryKey: ["transaction-templates", templateId],
-    queryFn: () =>
-      api<TransactionTemplate>(`/api/v1/transaction-templates/${templateId}`),
+    queryFn: () => api<TransactionTemplate>(`/api/v1/transaction-templates/${templateId}`),
     enabled: Boolean(templateId),
   });
 
   if (template.error) return <Alert>{template.error.message}</Alert>;
-  if (!template.data) return <p>Loading template…</p>;
+  if (!template.data) return <p role="status">Loading template…</p>;
 
   const { draft } = template.data;
   return (
     <>
-      <Link
-        className="back-link"
-        to={{ pathname: "/templates", search: location.search }}
-      >
+      <Link className="back-link" to={{ pathname: "/templates", search: location.search }}>
         <ArrowLeft size={16} /> All templates
       </Link>
       <PageHeader
@@ -45,10 +41,7 @@ export default function TemplateDetailPage() {
         <div className="section-title">
           <div>
             <h2>Transactions</h2>
-            <p>
-              What this template was used for. Changing one here does not change
-              the template.
-            </p>
+            <p>What this template was used for. Changing one here does not change the template.</p>
           </div>
         </div>
         <TransactionBrowser

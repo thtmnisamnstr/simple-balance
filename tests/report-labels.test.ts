@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  qualifyRepeatedLabels,
-  type Cell,
-} from "../src/server/services/reports.js";
+import { qualifyRepeatedLabels, type Cell } from "../src/server/services/reports.js";
 
 const cell = (over: Partial<Cell>): Cell => ({
   bucketStart: "2026-01-01",
@@ -39,11 +36,7 @@ describe("naming the rows of a category report", () => {
       cell({ bucketStart: "2026-02-01", label: "Food" }),
       cell({ key: "income:salary", label: "Salary", kind: "income" }),
     ]);
-    expect(qualified.map((entry) => entry.label)).toEqual([
-      "Food",
-      "Food",
-      "Salary",
-    ]);
+    expect(qualified.map((entry) => entry.label)).toEqual(["Food", "Food", "Salary"]);
   });
 
   it("qualifies every bucket of a spanning row, not just the first", () => {

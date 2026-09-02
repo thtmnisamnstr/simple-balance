@@ -2,6 +2,470 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+**This release upgrades cleanly from 0.1.5.** A deployment starts on the
+configuration it already has, every path that answered still answers, and no
+client loses a capability it had. Five changes in an earlier draft broke that
+and were reverted to warnings, kept precedences and deprecated aliases;
+`AGENTS.md` now carries the rule so the next release does not have to
+rediscover it.
+
+One change is a judgement call rather than a clean pass, and it is named here
+rather than left to be discovered. Every MCP tool now declares a closed argument
+object, where 57 of the 71 were open. An agent sending an argument nobody
+declared used to have it dropped in silence and now gets an error naming it.
+Nothing an agent could successfully do before is impossible now — the dropped
+argument never had any effect — but a call that returned success will return a
+failure, and that is worth knowing before upgrading. It is the whole point of
+the change: an open object accepts a hallucinated argument, answers success, and
+teaches the model that the argument works.
+
+
+### Added
+
+**Clone transaction**, on the row menu of both the transactions list and the
+staged queue. The copy opens the staging form prefilled and lands on Staged for
+review rather than in the books, minus the original's bank reference — a copy
+carrying it would be swallowed by the next import as already-seen.
+
+**The staged queue edits in place.** A row's date, payee, category and amount
+turn into editors where they are — the full form's own editors, with the same
+server checks and the same optimistic versioning — so repairing an import is a
+click and a keystroke instead of a trip through the modal. A split's category
+and amount keep the modal, where the legs they depend on are visible, and a
+transfer's category cell stays read-only because a transfer carries none.
+
+**A category can be excluded from the categories report**, from its row's
+menu, because one outsized category flattens every other line in the chart.
+The footer re-adds from what is on screen, exactly; pills name what is left
+out and put it back; nothing stored changes, and agents reading over MCP see
+every category either way.
+
+The application says what it is doing, in Prometheus' text format, at
+`GET /metrics`. It is off until `METRICS_ENABLED=true`, and then it is
+registered rather than refusing, so a deployment that never asked has no such
+route at all. Both entrypoints answer: the API reports requests by route and
+status, MCP tool calls by tool, ledger writes by kind, idempotent replays, its
+connection pool and how long a transaction holds a connection; the scheduler
+reports ticks, proposals, reminder sweeps and mail. `component="api"` or
+`component="scheduler"` sits on every series, so a split deployment scrapes both
+and the two never collide. Node's own heap, event-loop lag and garbage
+collection come with it.
+
+Nothing in a metric names a person. No label carries a user, an email, an
+account or an amount, and a path with an id in it is counted under its route
+pattern, so a ledger with ten thousand transactions is one time series rather
+than ten thousand. What a scrape does say is how much a deployment is doing,
+which is what `METRICS_TOKEN` is for: set it and the endpoint answers only a
+request carrying `Authorization: Bearer`, leave it unset behind a private
+network and a scraper needs no configuration at all. The bundled frontend does
+not proxy `/metrics`, so the browser's own hostname never exposes it, and
+turning it on in production without a token says so once in the log.
+
+The Helm chart carries `config.metrics.enabled` and `secret.metricsToken`, and
+`docs/deployment.md` has a scrape config for the two containers.
+
+`LOG_LEVEL` now governs this product's own log lines. It reached exactly one
+consumer before — Better Auth's logger — while the thirty-one `console` calls in
+`src/server` ignored it, so a deployment asking for `error` still got the
+startup banner, the mail notice and the scheduler's warnings. `error` is quiet
+now, and is never itself silenced. The three places that warn about
+configuration keep writing directly, because the gate has to read the
+configuration to know the level and a warning about a setting cannot be gated by
+one. Two more sat outside it in a shape nothing was looking for: the graceful
+shutdown and the recurrence scheduler took `logger = console` as a default
+parameter, so "SIGTERM received, shutting down" printed at every level including
+the one chosen to silence it.
+
+**The log now says what the product is doing, and not only that it started.**
+`debug` adds a line per HTTP request, per MCP tool call and per message handed
+to the relay; `info` gains a line per scheduler tick that proposed a row or sent
+a reminder, and a tick that found nothing due drops to `debug`. The gap that
+closes is a deployment with `/metrics` off — the default — where a scheduler
+that stopped ticking a week ago produced exactly the log of one that was ticking
+every five minutes.
+
+None of those lines carries somebody's ledger. A request names its path and
+never its query string, a tool call names the tool and never its arguments, a
+message names what it was and never who it went to, and a failing query names
+the statement and never the values bound into it. That last one was already true
+of the HTTP path and was not true of the MCP path, which logged the error whole
+— including, on a database hiccup during token exchange, a live access token.
+
+
+Seven secrets can be read from a file instead of the environment:
+`AUTH_SECRET`, `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`,
+`GOOGLE_CLIENT_SECRET`, `SETUP_TOKEN` and `METRICS_TOKEN`. Point `NAME_FILE` at a file whose contents are the value, and
+the value never enters the process environment, so nothing that dumps an
+environment can show it.
+
+Set one of `NAME` and `NAME_FILE`. Both set is not an error — the environment
+variable wins, which is what happened when `NAME_FILE` did nothing at all — but
+it warns and names the file being ignored, because a change to that file will
+look like it worked and will not have.
+
+The bundled Helm chart and compose file still pass all seven as environment
+variables; `docs/deployment.md` says what using the file form on either takes.
+
+Budgets. A limit per category per period, compared against what was actually
+spent, with nothing in it that writes a posting.
+
+A budget is a standing instruction rather than a row per month. Both ends of its
+window are snapped to the period, so any day inside a month names that whole
+month and a budget set today applies today. One plan covers every period in its
+window, so a budget that runs all year is one row and the
+months nobody has reached yet are not materialised by anything. Setting an
+amount for a single period overrides the plan for that period alone, and the
+report says which of the two produced each figure. Windows for one category may
+not overlap, which is what keeps last March answering with what last March
+intended when the budget is raised in July.
+
+A budget report shows whole periods. Every other report clips a bucket to the
+range asked for, and a budget must not: a limit belongs to a whole period, so
+weighing it against part of one reads as money still to spend when the month is
+already overspent. A range chooses which periods to show. The period still
+running is marked as such, because its spending is a total so far.
+
+The comparison runs on the same `date_trunc` grid the reports bucket by, so a
+limit and its spending cannot land on different months, and it joins from the
+budget to the spending rather than the other way, so a category budgeted at two
+hundred and spent nothing on reads as nought of two hundred instead of
+disappearing. Splits attribute each leg to its own category and transfers
+contribute nothing, both because legs are postings rather than because anything
+special was written for them.
+
+Deleting a budget leaves the books exactly as they were, because it never
+touched them.
+
+**A budget can carry what a period did not spend into the next one**, which is
+the whole of envelope budgeting, and it carries an overspend forward too, as a
+debt against the next period rather than something the calendar forgives. A cap
+holds the carry inside a number in both directions. Nothing is stored per
+period: the carried figures are folded at read time from the same plans, entries
+and postings every other figure comes from, so turning it off leaves nothing
+behind and a back-dated correction changes every period after it. The fold
+reaches back to the budget's own start, up to ten years of months, and a report
+that stopped at the bound says so rather than reporting a carry that began from
+nothing part way through.
+
+**A budget can be saving up for something**, which is the same machinery with a
+target and a date: each period puts aside what is still needed divided by the
+periods left, the figure adjusts as the fund fills, and it asks for nothing once
+it is full. There is no amount to type and no method to pick — a budget with a
+target and a date is a sinking fund because of what it says.
+
+**A budget can work out its own amount three more ways**: the average of what
+the last few finished periods actually spent, the previous period's amount plus
+a percentage, or a share of the income that arrived in the period before. Each
+is named by the parameter it needs rather than by a method somebody picks, and
+naming two at once is refused. An amount set for a single period still beats all
+of them.
+
+**A forecast.** `GET /api/v1/forecast` and `get_forecast` project the balances
+forward from the recurrences that already have dates and amounts, period by
+period, from what the accounts hold today. Nothing it returns is a balance:
+money dated in the future has not moved, and a test holds that boundary rather
+than a paragraph — nothing outside the two transports may import the forecast,
+the service writes nothing, and a projected figure is named as one. Budgets are
+reported beside the projection and added to it only where a recurrence does not
+already cover them, so the rent is never counted twice, and a recurrence with no
+amount is named rather than counted as nothing.
+
+**A budget that carries is an envelope, and the report says what is left to
+assign**: the money in the accounts the budget is about, less what every
+envelope with money still in it has claimed. An account can be taken out of that
+perimeter with `inBudget`, which changes no balance and no report; cards are in
+it by default, because spending on a card empties an envelope while no cash has
+moved. An overspent envelope claims nothing, since the money has already left.
+
+**Categories can be grouped, one level deep.** A group either holds a budget of
+its own or is whatever its categories' budgets add up to, and which of the two
+is declared when the group is made — there is no default, because both are
+defensible and the wrong one silently makes every figure on the page wrong in
+the same direction. A group's line is reported beside the category rows rather
+than among them, so no total counts the same money twice, and deleting a group
+leaves every category where it was.
+
+**And when a period's income will not cover everything, a funding order says
+what comes first.** Lower goes first; anything unranked is funded last. The
+report then shows how much of each budget the income covers and what is left
+unfunded. A ledger that never ranked anything is told none of this, rather than
+being told its budgets are unfunded because income happened to land in another
+period.
+
+### Changed
+
+A numeric setting outside its range says so at startup instead of falling back
+in silence. `CSV_MAX_ROWS`, `CSV_MAX_BYTES`, `RECURRENCE_TICK_SECONDS`,
+`RECURRENCE_CATCH_UP_LIMIT`, `RECURRENCE_CLAIM_LIMIT` and `DATABASE_POOL_SIZE`
+are all read once as the process comes up, and one that cannot be used is named
+in the log with the value it could not use and the number in force instead.
+
+They still fall back. A deployment that meant `CSV_MAX_ROWS=1000` and typed
+`1O00` was importing ten thousand rows and being told nothing, and the silence
+was the defect — not the fallback. Refusing would have meant a typo in a tuning
+knob taking a ledger offline, on a value the previous release accepted, and
+nobody types a cap wrong and wants their accounts down for it.
+
+`DATABASE_POOL_SIZE` used to refuse on its own and now falls back with the rest,
+which accepts strictly more than before.
+
+The scheduler container checks its mail server at startup, which the API already
+did. It is the process that sends every reminder and proposal notice, and nobody
+is waiting for one of those, so a relay refusing it failed silently and
+indefinitely; it now logs the address it will be sending as, or logs the refusal
+and goes on proposing. A scheduler with no mail configured says that in one line
+too, because a container that was never handed the SMTP settings and one whose
+relay answers look identical in a log that says nothing, and a split deployment
+assembled by hand is exactly where that happens. Neither line stops it starting:
+mail is optional and the schedule is not.
+
+All four images now record the digest of the base they were built on, not only
+its tag. `org.opencontainers.image.base.digest` sits beside `base.name`, and
+every `FROM` naming a registry image is pinned by digest as well as tag, so the
+build is reproducible and the label cannot name a base the image was not built
+on. Dependabot watches the bases now, so a pin is raised deliberately rather
+than freezing on whatever patches its base had the day it was typed. The runtime
+stages still apply the distribution's own updates on every build, so pinned is
+not the same as unpatched.
+
+A refund now lowers the category it came back from, instead of raising income.
+
+A deposit credits income and a withdrawal debits expense only when no category
+contradicts it. A category whose kind runs against the direction makes the entry
+a refund, and its other half posts to the counter-account the direction would
+never have asked for. Thirty pounds back from the shop was previously refused
+outright with "Choose an income category for a deposit", so there was no way to
+enter one at all, and a spending figure could only ever go up.
+
+A draft may say `categoryKind` alongside `categoryName`, which is how a refund
+into a spending category that does not exist yet is recorded at all: without it
+a deposit creates an income category and credits that, and the spending it was
+reversing never moves. The transaction form asks the question whenever a name
+with nothing behind it is typed — "money you earned" against "a refund of money
+you spent" — and stays quiet when the category already exists or the picker is
+empty, because there is nothing to decide. A CSV import that may only stage carries the same field
+on the staged row, so the kind is the file's decision rather than whichever row
+happened to commit first.
+
+A CSV file's rows vote on the kind of a category the file creates: whichever
+direction most of them run is what the category is, and a tie is spending. It
+used to be created covering both directions when a file held a purchase and its
+refund, which is the same defect one layer along, because a category covering
+both agrees with whichever direction it is handed.
+
+Naming a category rather than citing its id follows the same rule. A deposit
+naming "Groceries" used to widen Groceries to cover both directions, and a
+category covering both agrees with whichever direction it is handed, so the
+refund credited income, the budget never moved, and every later refund into that
+category was broken too. A category running against the direction is now kept as
+it is, because that pairing is a reversal rather than an ambiguity. Two rows in
+one CSV naming a category nobody has created yet still make one that covers
+both, because there is no existing answer to preserve.
+
+One entry may not name both an income and an expense category, because two
+counter-accounts would be two movements and only one of them is the one somebody
+entered. A bulk edit refuses to turn rows into refunds for the same reason it
+refuses to flatten a split: not because it cannot be done, but because it cannot
+be done to rows nobody looked at.
+
+Nothing in the reports needed changing. Both counter-accounts already segment as
+operating in the cash flow statement, and spending by category already sums
+signed postings, so a refund lands correctly without any figure being taught
+what a refund is.
+
+Four API paths were renamed to the conventions the rest of them follow.
+`POST /api/v1/accounts/{id}/archive` and `POST /api/v1/categories/{id}/archive`
+are now `.../archived`, because they take `{"archived": boolean}` and that is a
+state rather than a verb, the way `POST /api/v1/transactions/{id}/deleted`
+already was. `POST /api/v1/staged-transactions/delete` is now
+`.../bulk-delete`, which is how the same operation over committed transactions
+has always been spelled; the two remain two routes, because one voids entries by
+posting their reversal and the other removes rows that never posted.
+`GET /api/v1/staged/{id}/duplicate` is now
+`GET /api/v1/staged-transactions/{id}/duplicate`, since there is no `staged`
+collection anywhere else. The MCP tools keep their names.
+
+**All four old paths still answer**, on the same handlers, marked `Deprecation`
+with a `Sunset` date. The first version of this renamed them outright, on the
+argument that `/api/v1` is cookie-only and same-origin so the only client that
+could be calling them ships in this image — which is true of this image and not
+of the one already running. A browser tab left open across the upgrade is
+serving the previous build, and would have met a 404 on the first archive
+somebody attempted, with nothing to tell it apart from a bug.
+
+Committing or deleting staged transactions now refuses a selection that leaves
+out the version for one of its own rows, and says which row, instead of
+reporting it as a version conflict on a row nothing had changed. A repeated id
+in the same selection is refused as a duplicate rather than reported as a row
+that could not be found. Over MCP both requests also refuse an unrecognised
+field rather than dropping it — a body typing `expectedVersion` where the field
+is `expectedVersions` is refused by name — and over HTTP they still drop it, as
+they did in 0.1.5. Tightening the HTTP side was in an earlier draft of this
+release and was taken back out: a client that has been sending a stray field
+since 0.1.5 keeps working, and the release that refuses it is a later one.
+
+Both discovery documents still advertise all seven scopes. An earlier draft of
+this release narrowed the protected-resource document to
+`openid profile email offline_access ledger:read`, on the argument that a client
+builds its authorization request from that list and every scope in it is one
+more thing somebody is asked to approve before there is anything to approve it
+for. That argument still stands and the change does not: a client that read the
+document under 0.1.5 and asked for `ledger:write` would have found the scope it
+already holds missing from the list it builds its request from, which is a
+capability narrowing on an upgrade. It comes back in a release that can
+deprecate it first.
+
+A version conflict reaching an agent now says to read the record again and retry
+with the version it reports, rather than to refresh and try again. An agent has
+nothing to refresh. The browser keeps its own wording, and the two sentences say
+the same thing happened.
+
+The repository documents how it is written, in two sets under `docs/standards/`.
+One describes the interfaces — the browser app, the MCP surface, the HTTP API,
+the CSV format and the container — and the other the source. Every rule in the
+second says who enforces it: the compiler, the linter, a named test, or nobody
+at all, and the rules in that last group are counted on the index page so the
+number is visible and can be argued down. Seven of them became tests in the pass
+that followed writing them.
+
+`npm run lint` runs oxlint and `npm run format` runs oxfmt, in place of ESLint
+and Prettier. TypeScript 7 forced the linter question — typescript-eslint does
+not run on it — and the formatter was measured rather than assumed: oxfmt
+reflowed no comment prose in a repository whose comments were 14.9% of its
+non-blank source lines at the time, and are around 18% now — the figure moves
+with every change, and `docs/standards/code/comments.md` is where it is measured
+and held. Neither is visible in the
+running application. Adopting the formatter reformatted the tree once, and two
+Pulumi deployment files are nothing but that reflow; no other file changed shape
+without a reason beside it.
+
+### Fixed
+
+A whole-repository audit before this release ran seventy reviewers over every
+file and confirmed 112 defects; every one is fixed. The ones a person could
+have met:
+
+**The ledger's own counter-accounts obeyed writes.** Their ids are published
+to their owner by the trial balance, and a wrong version guess leaked the real
+one to retry with — from there a person could rename the income account, hand
+it an opening balance, archive it (which posts its whole balance to equity and
+re-shunts every later income posting the same way), or delete it. Every by-id
+account path now shares the read's exclusion: a counter-account answers
+not-found, before the version is even looked at.
+
+**A bulk edit could make refunds through the other field.** Patching a
+category that runs against the rows' direction was refused; patching a
+direction that runs against the rows' kept categories was not, so
+`patch: {type: "withdrawal"}` over deposits carrying income categories flipped
+every row into a refund silently. Both halves of the pair refuse now.
+
+**Merges left standing references behind.** A category merge rewrote
+transactions, staged rows, recurrences and budgets, then hard-deleted the
+source out from under template drafts, leaving templates that cannot be saved
+or used. A payee merge rewrote neither standing reference, so a recurrence
+re-created the merged-away spelling on its next occurrence and the merge
+undid itself on a schedule. Both merges rewrite both now, audited like the
+rest.
+
+**Budget arithmetic, four ways.** A sinking fund accepted a carry cap below
+its own target and the cap then discarded each period's saving; the pair is
+refused with the way out named. "Left to assign" netted a group envelope's
+claim against members that claim nothing and came back overstated. A
+share-of-income budget's first period always read zero because the income
+query never looked one period back. And the forecast projected an incremental
+budget flat at its base while the report compounded it, so the two surfaces
+answered the same month with different figures — the projection compounds now,
+counts a cross-currency arrival as an occurrence, and names the period units
+it did not read instead of counting them as nothing intended.
+
+**The queue and the browser, in smaller ways.** The staged list's search
+matched JSON keys, so searching "date" matched every row; its account filter
+matched a UUID anywhere in the draft; both filters read the real fields now.
+Links that promise rows — the post-import review link, the recurrence
+waiting-count — pin the date range that makes those rows visible instead of
+opening a this-month queue that hides them. Removing a middle split leg no
+longer leaves focus on a button that deletes its neighbour. A refused group
+rename no longer stays on screen looking accepted. Restoring an archived
+account asks before it moves money, exactly as archiving always did. The
+category picker no longer snaps a typed name onto an archived category's id
+the server then refuses — the name travels, and revives it, by design. Ledger
+writes refresh the budgets page instead of leaving it stale. Timestamps on
+Activity and connected agents render where you live, not where the browser
+happens to be. And a template holding a cross-currency transfer keeps its
+received amount through the browser's editor instead of losing it on every
+save; the recurrence form now refuses the mixed split the commit would have
+refused every month for ever.
+
+**Quietly wrong plumbing.** Better Auth's own rate-limit sweeper deleted the
+shared brute-force tally ten seconds into its fifteen-minute window; the rows
+now carry their expiry and survive it. A reminder whose relay refused the
+message counted as neither sent nor failed while its occurrence was already
+consumed; refusals count and warn. A malformed recurrence leg amount was a 500
+instead of a validation message. Every catch that logged a database error
+whole — whose message embeds someone's payees and amounts — goes through the
+narrowing logger. And the deferred category kind on a CSV split rode on the
+row, one slot for two answers, so one split naming two new categories gave
+whichever vote wrote last to both.
+
+**The net worth, balance sheet and trial balance charts rendered as filled
+polygons.** One CSS class set stroke and fill for bars and lines alike, and
+source order let its fill defeat the line rule's `fill: none`: every polyline
+closed into a shape, and a report meant to be read as lines read as overlap.
+An element selector now pins polylines unfilled whatever the order.
+
+**Deployment.** The GCP program selected the GKE ingress controller through a
+field GKE ignores, so no load balancer was ever provisioned; the class travels
+as the annotation GKE reads. The EKS program enabled three autoscalers with no
+metrics-server to feed them; it ships one. The Helm chart's third line-up rule
+(upload size versus CSV limit) is now really checked at render time. Three new
+indexes back the referential actions that scanned whole tables.
+
+The list of dates on a recurrence form could go on describing a schedule that
+was no longer on screen. It walked the rule the parser produced while its
+dependency array named the raw fields, and those are not the same set: an
+interval of 0 and a blank one both read as no usable number to the fields, and
+only the blank one parses, so typing over either with the other left whichever
+list was already showing. Both previews are worked out during render now, five
+dates being cheaper than the comparison that was avoiding them.
+
+Merging two categories moves the budgets onto the target instead of destroying
+them with the source row, and refuses when both are budgeted for the same period
+rather than picking a winner. Same failure as the prune below, one door along.
+
+A category is no longer tidied away underneath a budget. Moving the last
+transaction off a category prunes it, which is right, and the composite foreign
+key then took its budgets with it, which is not: the docstring on that prune
+already promised that "a category held only by a standing instruction is held
+all the same", and a budget is exactly that. Asking to delete a category still
+takes its budgets, because that is a decision somebody made and the story says
+a budget is never a reason to refuse one.
+
+Creates that write no postings no longer claim to need an idempotency key they
+never had. `AGENTS.md` said every create required one and four of the six did
+not, which described the code as broken rather than describing what it does: a
+record somebody names is protected by its name being unique, so a second submit
+fails instead of duplicating. Only creates that write postings, which have no
+natural key, need the key.
+
+Merging two categories can be asked for twice. It is the one write on the API
+that nothing protected: a retry after a timeout carries the versions the caller
+read before the first attempt, so a merge that had in fact succeeded answered
+its own retry with a stale-version refusal, which reads as "it did not happen"
+about one that did. `POST /categories/merge` and `merge_categories` now take an
+optional `idempotencyKey`, exactly as the payee merge beside them always has,
+and the browser sends one per merge rather than per click. Optional because a
+0.1.5 client sends nothing; requiring it is a later release's job.
+
+The auth, consent and setup routes answer in a shape the browser's own error
+reader can see. Fourteen of them returned a flat `{code, message}` while the
+reader looks inside `error`, so a wrong password produced a request that had
+plainly failed and no sentence saying why. They send both halves now, and each
+Zod field error carries a dotted `field` beside what it already had. Nothing was
+taken away: a client reading either shape still works, and dropping the older
+half waits for a release where it has been deprecated first.
+
 ## 0.1.5 - 2026-08-22
 
 ### Added

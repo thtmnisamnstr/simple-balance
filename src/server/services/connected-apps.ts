@@ -1,11 +1,7 @@
 import { and, desc, eq, isNull, lt, sql } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
 import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
-import {
-  oauthAccessToken,
-  oauthApplication,
-  oauthConsent,
-} from "../db/schema.js";
+import { oauthAccessToken, oauthApplication, oauthConsent } from "../db/schema.js";
 import { notFound } from "./errors.js";
 import { writeAudit } from "./helpers.js";
 
@@ -37,8 +33,7 @@ export type ConnectedApp = {
   hasLiveAccess: boolean;
 };
 
-const scopeList = (scopes: string | null) =>
-  (scopes ?? "").split(/\s+/).filter(Boolean);
+const scopeList = (scopes: string | null) => (scopes ?? "").split(/\s+/).filter(Boolean);
 
 const iso = (value: Date | null | undefined) => value?.toISOString() ?? null;
 
@@ -60,16 +55,8 @@ export async function listConnectedApps(
       name: oauthApplication.name,
     })
     .from(oauthConsent)
-    .leftJoin(
-      oauthApplication,
-      eq(oauthApplication.clientId, oauthConsent.clientId),
-    )
-    .where(
-      and(
-        eq(oauthConsent.userId, actor.userId),
-        eq(oauthConsent.consentGiven, true),
-      ),
-    )
+    .leftJoin(oauthApplication, eq(oauthApplication.clientId, oauthConsent.clientId))
+    .where(and(eq(oauthConsent.userId, actor.userId), eq(oauthConsent.consentGiven, true)))
     .orderBy(desc(oauthConsent.createdAt));
 
   const tokens = await runner
@@ -113,8 +100,7 @@ export async function listConnectedApps(
     };
     byClient.set(token.clientId, app);
 
-    const live =
-      token.accessTokenExpiresAt > now || token.refreshTokenExpiresAt > now;
+    const live = token.accessTokenExpiresAt > now || token.refreshTokenExpiresAt > now;
     if (!live) continue;
     app.activeTokenCount += 1;
     app.hasLiveAccess = true;
@@ -173,21 +159,13 @@ export async function revokeConnectedApp(
     const revokedTokens = await tx
       .delete(oauthAccessToken)
       .where(
-        and(
-          eq(oauthAccessToken.userId, actor.userId),
-          eq(oauthAccessToken.clientId, clientId),
-        ),
+        and(eq(oauthAccessToken.userId, actor.userId), eq(oauthAccessToken.clientId, clientId)),
       )
       .returning({ id: oauthAccessToken.id });
 
     const revokedConsents = await tx
       .delete(oauthConsent)
-      .where(
-        and(
-          eq(oauthConsent.userId, actor.userId),
-          eq(oauthConsent.clientId, clientId),
-        ),
-      )
+      .where(and(eq(oauthConsent.userId, actor.userId), eq(oauthConsent.clientId, clientId)))
       .returning({ id: oauthConsent.id });
 
     // Nothing of this person's was attached to that client. Saying so is a
@@ -225,10 +203,7 @@ export async function revokeConnectedApp(
  * Takes a user id rather than an Actor because the reset path runs from an
  * emailed link with no session behind it.
  */
-export async function revokeAllConnectedApps(
-  userId: string,
-  transaction?: DbTransaction,
-) {
+export async function revokeAllConnectedApps(userId: string, transaction?: DbTransaction) {
   return withTransaction(transaction, async (tx) => {
     const revokedTokens = await tx
       .delete(oauthAccessToken)
@@ -247,17 +222,21 @@ export async function revokeAllConnectedApps(
         ...revokedConsents.map((row) => row.clientId),
       ]),
     ];
-    await writeAudit(tx, { userId, source: "web" }, {
-      entityType: "connected_app",
-      entityId: userId,
-      operation: "revoke",
-      before: {
-        reason: "password_changed",
-        clientIds,
-        revokedTokenCount: revokedTokens.length,
-        revokedConsentCount: revokedConsents.length,
+    await writeAudit(
+      tx,
+      { userId, source: "web" },
+      {
+        entityType: "connected_app",
+        entityId: userId,
+        operation: "revoke",
+        before: {
+          reason: "password_changed",
+          clientIds,
+          revokedTokenCount: revokedTokens.length,
+          revokedConsentCount: revokedConsents.length,
+        },
       },
-    });
+    );
     return {
       revokedTokenCount: revokedTokens.length,
       revokedConsentCount: revokedConsents.length,

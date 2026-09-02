@@ -103,6 +103,9 @@ a {
   --surface-soft: #f8faf8;
   --fill-subtle: #edf1ee;
   --track: #e7ece9;
+  --field: #ffffff;
+  --field-line: #848f88;
+  --field-disabled: #edf1ee;
   --chrome: rgb(250 252 250 / 94%);
   --ink: #17231d;
   --ink-soft: #3e4c44;
@@ -168,6 +171,9 @@ a {
     --surface-soft: #131b17;
     --fill-subtle: #242f29;
     --track: #0a100d;
+    --field: #18211d;
+    --field-line: #6f7d76;
+    --field-disabled: #242f29;
     --chrome: rgb(21 29 25 / 88%);
     --ink: #e7ede9;
     --ink-soft: #b6c2bb;
@@ -230,6 +236,9 @@ a {
   --surface-soft: #131b17;
   --fill-subtle: #242f29;
   --track: #0a100d;
+  --field: #18211d;
+  --field-line: #6f7d76;
+  --field-disabled: #242f29;
   --chrome: rgb(21 29 25 / 88%);
   --ink: #e7ede9;
   --ink-soft: #b6c2bb;
@@ -583,7 +592,7 @@ a {
 }
 
 .button-secondary {
-  border-color: var(--line);
+  border-color: var(--line-strong);
   color: var(--ink-soft);
   background: var(--surface);
 }
@@ -720,15 +729,16 @@ a {
   width: 100%;
   min-height: 40px;
   padding: 8px 11px;
-  /* --line-strong, not --line. A field's edge is a control boundary, which needs
-     3:1 to be seen at all; the decorative hairline is 1.29:1 against the field it
-     was edging, so there was effectively no edge. This is the token's stated job
-     and it was simply never wired to it. */
-  border: 1px solid var(--line-strong);
+  /* --field-line, not --line-strong. A field's edge is a control boundary, which
+     needs 3:1 to be seen at all; the decorative hairline was 1.29:1 against the
+     field it edged, so there was effectively no edge. --field-line carries that
+     same 3:1 value for fields alone, so a disabled field can soften its edge
+     without moving the eleven other things --line-strong draws. */
+  border: 1px solid var(--field-line);
   border-radius: 8px;
   outline: none;
   color: var(--ink);
-  background: var(--surface);
+  background: var(--field);
   font-size: 13px;
   transition:
     border-color 120ms,
@@ -737,6 +747,22 @@ a {
 
 .input::placeholder {
   color: var(--muted);
+}
+
+/* A disabled control is exempt from SC 1.4.3 and SC 1.4.11, which is what lets
+   this edge drop back to the decorative --line: something that is no longer a
+   control needs no control boundary. The fill is what states the condition, and
+   it has to, because .input paints its own background, colour and border and so
+   overrides the rendering the browser would otherwise give a dead field — which
+   is why fourteen disabled fields shipped pixel-identical to live ones. Not
+   opacity, which is the house answer for a disabled button: these sit on
+   .bulk-edit-field.enabled's green row, and dimming one would let the row's
+   colour through instead of saying anything. */
+.input:disabled {
+  border-color: var(--line);
+  color: var(--muted);
+  background: var(--field-disabled);
+  cursor: not-allowed;
 }
 
 .input:focus {
@@ -871,6 +897,42 @@ input[type="radio"] {
   border-color: var(--blue-soft);
   color: var(--blue);
   background: var(--blue-soft);
+}
+
+/* Only what is new. The summary carries `alert alert-error` as well, so its
+   border, radius, fill, colour, size and line height are the ones every other
+   alert already uses, and it stays one family with them rather than becoming a
+   second red box with its own geometry. */
+
+/* .alert is a flex row built for an icon beside a sentence. The summary has no
+   icon, so its one child takes the row rather than shrinking to its longest
+   line. */
+.error-summary > div {
+  flex: 1;
+  min-width: 0;
+}
+
+/* `:focus`, not `:focus-visible`. This is only ever focused programmatically,
+   and after a mouse click `:focus-visible` does not match — the indicator would
+   be missing at exactly the moment focus was moved somewhere unexpected. */
+.error-summary:focus {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.error-summary-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.error-summary p {
+  margin: 0;
+}
+
+.error-summary ul {
+  margin: 0;
+  padding-left: 18px;
 }
 
 .badge {
@@ -1342,7 +1404,7 @@ input[type="radio"] {
   height: 32px;
   place-items: center;
   padding: 0 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface);
   color: var(--ink);
@@ -1616,7 +1678,7 @@ input[type="radio"] {
   width: 32px;
   height: 32px;
   padding: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface);
   color: var(--ink-soft);
@@ -1808,7 +1870,7 @@ input[type="radio"] {
   align-items: center;
   gap: 7px 12px;
   padding: 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 9px;
   background: var(--surface-soft);
 }
@@ -1877,7 +1939,7 @@ input[type="radio"] {
   align-items: center;
   gap: 9px;
   padding: 11px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 9px;
   color: var(--muted);
   background: var(--surface);
@@ -1934,7 +1996,7 @@ input[type="radio"] {
   align-items: flex-start;
   gap: 8px;
   padding: 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 9px;
   cursor: pointer;
 }
@@ -2101,7 +2163,7 @@ input[type="radio"] {
   place-items: center;
   align-content: center;
   padding: 24px;
-  border: 1px dashed var(--green-line);
+  border: 1px dashed var(--green-line-strong);
   border-radius: 11px;
   color: var(--green);
   background: var(--surface-soft);
@@ -2170,6 +2232,14 @@ input[type="radio"] {
   color: var(--muted);
   background: var(--surface-soft);
   font-weight: 700;
+}
+
+/* The one cell in this table that is prose. The shared rule above clips at
+   150px with an ellipsis, which hid the entire reason a row needs attention. */
+.preview-table td.preview-issue {
+  max-width: 220px;
+  overflow: visible;
+  white-space: normal;
 }
 
 .import-preview .empty-state {
@@ -2506,6 +2576,50 @@ input[type="radio"] {
   text-align: center;
 }
 
+/* The categories report's per-row menu sits beside the label without pushing
+   the column wide, and the exclusion pills read as a sentence. */
+.report-row-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.report-exclusions {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.report-exclusions .link-button {
+  margin-inline-end: 10px;
+}
+
+/* The queue's click-to-edit cells. A button that reads as the text it will
+   edit, with the affordance arriving on hover and focus rather than sitting
+   on every row of a long table at once. */
+.inline-edit {
+  padding: 1px 4px;
+  margin: -1px -4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.inline-edit:hover,
+.inline-edit:focus-visible {
+  background: var(--surface-soft);
+  outline-offset: 1px;
+}
+
+.inline-edit-money {
+  font-variant-numeric: tabular-nums;
+}
+
 .link-button {
   padding: 0;
   border: 0;
@@ -2746,195 +2860,6 @@ input[type="radio"] {
   border: 0;
 }
 
-@media (max-width: 1050px) {
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .account-card-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .balance-snapshot-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .import-layout,
-  .settings-grid {
-    grid-template-columns: 1fr;
-  }
-  .import-preview {
-    position: static;
-  }
-}
-
-@media (max-width: 780px) {
-  .sidebar {
-    transform: translateX(-102%);
-    box-shadow: 18px 0 55px var(--shadow-overlay);
-    transition:
-      transform 180ms ease,
-      visibility 180ms;
-    /* Moved off screen it is still focusable, so tabbing from the header walked
-       into a menu nobody can see and ended on Sign out. Hidden takes it out of
-       the tab order; the transform still does the animation. */
-    visibility: hidden;
-  }
-
-  .sidebar.open {
-    transform: translateX(0);
-    visibility: visible;
-  }
-  .mobile-close {
-    display: grid;
-    margin-left: auto;
-  }
-  .nav-scrim {
-    position: fixed;
-    z-index: 20;
-    inset: 0;
-    border: 0;
-    background: var(--scrim);
-  }
-  .main-column {
-    margin-left: 0;
-  }
-  .mobile-header {
-    position: sticky;
-    z-index: 15;
-    top: 0;
-    display: flex;
-    height: 57px;
-    align-items: center;
-    gap: 10px;
-    padding: 0 18px;
-    border-bottom: 1px solid var(--line);
-    background: var(--chrome);
-    backdrop-filter: blur(14px);
-  }
-  .mobile-header .brand-mark {
-    width: 30px;
-    height: 30px;
-    border-radius: 9px;
-  }
-  .mobile-header .brand strong {
-    font-size: 13px;
-  }
-  .content {
-    padding: 28px 18px 55px;
-  }
-  .page-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 16px;
-  }
-  .page-actions {
-    width: 100%;
-  }
-  .page-actions .button {
-    flex: 1;
-  }
-  .transaction-browser-actions,
-  .account-transactions .transaction-browser-actions {
-    margin-top: 0;
-  }
-  .dashboard-detail-grid,
-  .auth-shell {
-    grid-template-columns: 1fr;
-  }
-  .auth-art {
-    display: none;
-  }
-  .auth-card {
-    padding: 32px 10px;
-  }
-}
-
-@media (max-width: 560px) {
-  .date-bar {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-  .date-bar-title {
-    width: 100%;
-  }
-  .date-bar .select-wrap {
-    flex: 1;
-  }
-  .date-bar .input[type="date"] {
-    width: 135px;
-  }
-  .metric-grid,
-  .account-card-grid,
-  .balance-snapshot-grid,
-  .two-columns,
-  .three-columns,
-  .transaction-type-grid,
-  .commit-choice {
-    grid-template-columns: 1fr;
-  }
-  /* A four-field row does not fit a phone, so each leg stacks and the rows
-     stay told apart by the gap between them. */
-  .category-leg {
-    grid-template-columns: 1fr;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--line);
-  }
-  .filter-bar > .select-wrap {
-    flex: 1;
-  }
-  .search-box {
-    min-width: 100%;
-  }
-  .bulk-actions {
-    width: 100%;
-    flex-wrap: wrap;
-    margin-left: 0;
-  }
-  .transaction-selection-bar,
-  .transaction-selection-actions {
-    width: 100%;
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .transaction-selection-bar > div:first-child {
-    align-items: flex-start;
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-  .transaction-selection-actions .button {
-    width: 100%;
-  }
-  .bulk-edit-field {
-    grid-template-columns: 1fr;
-  }
-  .bulk-edit-field > small {
-    grid-column: 1;
-  }
-  .inline-form {
-    grid-template-columns: 1fr;
-  }
-  .category-toolbar,
-  .merge-panel {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .category-page-list .category-row {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .category-page-list .category-row > div:nth-child(2) {
-    display: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
 .row-staged {
   background: var(--amber-soft);
 }
@@ -3006,7 +2931,7 @@ input[type="radio"] {
 
 .report-tab {
   padding: 6px 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 99px;
   background: var(--surface);
   color: var(--muted);
@@ -3198,6 +3123,15 @@ input[type="radio"] {
 .chart-series-8 { stroke: var(--series-8); fill: var(--series-8); }
 .chart-series-9 { stroke: var(--series-9); fill: var(--series-9); }
 
+/* The block above paints bars by fill and lines by stroke with ONE class, and
+   source order let its fill defeat .chart-line's fill: none — every polyline
+   rendered as a closed filled polygon, and the net worth, balance sheet and
+   trial balance reports read as overlapping shapes instead of lines. The
+   element selector outranks the single class whatever the order. */
+polyline.chart-line {
+  fill: none;
+}
+
 .chart-swatch.chart-series-0 { background: var(--series-0); }
 .chart-swatch.chart-series-1 { background: var(--series-1); }
 .chart-swatch.chart-series-2 { background: var(--series-2); }
@@ -3290,13 +3224,280 @@ input[type="radio"] {
   outline: 1px solid var(--amber);
 }
 
+.row-note {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* Budgets.
+   The bar carries how much, and the badge beside it carries the state as a
+   word. That split is deliberate: fullness already says "nearly there", so the
+   bar needs no third colour for it, and nothing on the row is told by colour
+   alone. Over budget is the one state worth a colour of its own, because it is
+   the one somebody scans for. */
+.budget-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 0 18px 4px;
+}
+.budget-form .field { margin-bottom: 0; }
+
+.budget-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+.budget-bar {
+  flex: 1;
+  min-width: 64px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--track);
+  border: 1px solid var(--line-strong);
+  overflow: hidden;
+}
+.budget-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--green-fill);
+}
+.budget-bar[data-state="over"] > span { background: var(--red-fill); }
+
+/* The archived-spending toggle sits in the budget period bar, which is a row of
+   controls rather than a form, so the label wraps its own checkbox. */
+.date-bar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.error-boundary {
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 24px;
+}
+.error-boundary h1 {
+  margin-bottom: 8px;
+  font-size: 20px;
+}
+.error-boundary p {
+  margin-bottom: 16px;
+  color: var(--muted);
+}
+
+.required-note {
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* --break-wide: 1050px */
+@media (max-width: 1050px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .account-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .balance-snapshot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .import-layout,
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .import-preview {
+    position: static;
+  }
+}
+
+/* 980px, which is not one of the three named steps: it is the only rule
+   that needs a fourth, and section 3.6 of the web guide asks for it to be
+   folded into --break-wide. That fold moves the duplicate review's layout
+   between 980 and 1050px, so it is a decision of its own rather than part
+   of putting the responsive body in one place. */
 @media (max-width: 980px) {
   .duplicate-review {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
-.row-note {
-  color: var(--muted);
-  font-weight: 400;
+/* --break-narrow: 780px */
+@media (max-width: 780px) {
+  .sidebar {
+    transform: translateX(-102%);
+    box-shadow: 18px 0 55px var(--shadow-overlay);
+    transition:
+      transform 180ms ease,
+      visibility 180ms;
+    /* Moved off screen it is still focusable, so tabbing from the header walked
+       into a menu nobody can see and ended on Sign out. Hidden takes it out of
+       the tab order; the transform still does the animation. */
+    visibility: hidden;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+    visibility: visible;
+  }
+  .mobile-close {
+    display: grid;
+    margin-left: auto;
+  }
+  .nav-scrim {
+    position: fixed;
+    z-index: 20;
+    inset: 0;
+    border: 0;
+    background: var(--scrim);
+  }
+  .main-column {
+    margin-left: 0;
+  }
+  .mobile-header {
+    position: sticky;
+    z-index: 15;
+    top: 0;
+    display: flex;
+    height: 57px;
+    align-items: center;
+    gap: 10px;
+    padding: 0 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--chrome);
+    backdrop-filter: blur(14px);
+  }
+  .mobile-header .brand-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+  }
+  .mobile-header .brand strong {
+    font-size: 13px;
+  }
+  .content {
+    padding: 28px 18px 55px;
+  }
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .page-actions {
+    width: 100%;
+  }
+  .page-actions .button {
+    flex: 1;
+  }
+  .transaction-browser-actions,
+  .account-transactions .transaction-browser-actions {
+    margin-top: 0;
+  }
+  .dashboard-detail-grid,
+  .auth-shell {
+    grid-template-columns: 1fr;
+  }
+  .auth-art {
+    display: none;
+  }
+  .auth-card {
+    padding: 32px 10px;
+  }
+}
+
+/* --break-mobile: 560px */
+@media (max-width: 560px) {
+  .date-bar {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .date-bar-title {
+    width: 100%;
+  }
+  .date-bar .select-wrap {
+    flex: 1;
+  }
+  .date-bar .input[type="date"] {
+    width: 135px;
+  }
+  .metric-grid,
+  .account-card-grid,
+  .balance-snapshot-grid,
+  .two-columns,
+  .three-columns,
+  .transaction-type-grid,
+  .commit-choice {
+    grid-template-columns: 1fr;
+  }
+  /* A four-field row does not fit a phone, so each leg stacks and the rows
+     stay told apart by the gap between them. */
+  .category-leg {
+    grid-template-columns: 1fr;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .filter-bar > .select-wrap {
+    flex: 1;
+  }
+  .search-box {
+    min-width: 100%;
+  }
+  .bulk-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    margin-left: 0;
+  }
+  .transaction-selection-bar,
+  .transaction-selection-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .transaction-selection-bar > div:first-child {
+    align-items: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .transaction-selection-actions .button {
+    width: 100%;
+  }
+  .bulk-edit-field {
+    grid-template-columns: 1fr;
+  }
+  .bulk-edit-field > small {
+    grid-column: 1;
+  }
+  .inline-form {
+    grid-template-columns: 1fr;
+  }
+  .category-toolbar,
+  .merge-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .category-page-list .category-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .category-page-list .category-row > div:nth-child(2) {
+    display: none;
+  }
+}
+
+/* Last, because it qualifies everything above it. The skeleton's own
+   reduced-motion block stays beside .skeleton: that one is four lines of a
+   component's rule, not a second body. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

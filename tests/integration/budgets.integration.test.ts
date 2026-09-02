@@ -1,0 +1,2923 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Actor } from "../../src/shared/domain.js";
+import { getDb } from "../../src/server/db/client.js";
+import { user } from "../../src/server/db/schema.js";
+import { createAccount, setAccountArchived } from "../../src/server/services/accounts.js";
+import {
+  createCategory,
+  deleteCategory,
+  getCategory,
+  listCategories,
+  mergeCategories,
+  updateCategory,
+} from "../../src/server/services/categories.js";
+import {
+  createCategoryGroup,
+  deleteCategoryGroup,
+  getCategoryGroup,
+  updateCategoryGroup,
+} from "../../src/server/services/category-groups.js";
+import {
+  createBudgetPlan,
+  deleteBudgetEntry,
+  deleteBudgetPlan,
+  getBudgetReport,
+  listBudgetPlans,
+  setBudgetEntry,
+  updateBudgetPlan,
+} from "../../src/server/services/budgets.js";
+import {
+  createTransaction,
+  setTransactionDeleted,
+  updateTransaction,
+} from "../../src/server/services/transactions.js";
+import { setPreferences } from "../../src/server/services/preferences.js";
+import { todayIn } from "../../src/shared/recurrence-dates.js";
+import { canonicalDecimal, decimal } from "../../src/server/services/helpers.js";
+import { stageCsv } from "../../src/server/services/import-export.js";
+import { createRecurrence } from "../../src/server/services/recurrences.js";
+import { getForecast } from "../../src/server/services/forecast.js";
+import { commitStages, listStages } from "../../src/server/services/staging.js";
+import { scratchDatabase } from "./support/scratch-database.js";
+
+const connection = process.env.TEST_DATABASE_URL;
+const integration = describe.skipIf(!connection);
+const database = scratchDatabase("budgets");
+const actor: Actor = { userId: "budgets-user", source: "web" };
+
+let keySeed = 0;
+const nextKey = () => `budgets-${String((keySeed += 1)).padStart(6, "0")}`;
+
+let checkingId = "";
+let groceriesId = "";
+let salaryId = "";
+
+const march = { start: "2026-03-01", end: "2026-03-31" };
+
+/** Summed exactly, because comparing money as doubles is the rule this repo keeps. */
+const sumMoney = (values: readonly string[]) =>
+  canonicalDecimal(values.reduce((total, value) => total.plus(value), decimal("0")));
+
+type Report = Awaited<ReturnType<typeof getBudgetReport>>;
+
+const usd = (report: Report) => report.periods.find((period) => period.currency === "USD");
+
+const row = (report: Report, category: string) =>
+  usd(report)?.rows.find((entry) => entry.category === category);
+
+const spend = (
+  categoryId: string | null,
+  amount: string,
+  date: string,
+  // Distinct per caller where it matters. The ledger refuses a second entry
+  // with the same payee, amount and date, which is the duplicate protection
+  // working, and a fixture that reuses all three across four period units trips
+  // it rather than testing anything.
+  payee = "Shop",
+) =>
+  createTransaction(
+    actor,
+    {
+      type: "withdrawal",
+      fromAccountId: checkingId,
+      amount,
+      date,
+      payee,
+      description: null,
+      ...(categoryId ? { categoryId } : {}),
+    },
+    nextKey(),
+  );
+
+/**
+ * This file is order-independent, and is meant to stay that way. Five of these
+ * tests once shared two categories and asserted what an earlier test had spent,
+ * which is an order rather than a behaviour, and it hid a wrong expected value
+ * for two rounds. Check it with:
+ *
+ *     npx vitest run -c vitest.integration.config.ts \
+ *       tests/integration/budgets.integration.test.ts --sequence.shuffle
+ *
+ * The rest of `tests/integration` is not there yet: shuffling the whole
+ * directory fails 68 tests across 26 files, because sharing one database per
+ * file and building fixtures in sequence is the house pattern. Untangling that
+ * is worth doing and is not this story's to do.
+ */
+integration("budgets", () => {
+  beforeAll(async () => {
+    await database.create();
+    await getDb().insert(user).values({
+      id: actor.userId,
+      name: "Budgets",
+      email: "budgets@example.com",
+      emailVerified: true,
+    });
+    // Every figure stops at today where this person lives, so the fixture dates
+    // have to be in the past for any of them to be visible at all.
+    await setPreferences(actor, { timezone: "UTC", defaultCurrency: "USD" });
+    checkingId = (
+      await createAccount(actor, {
+        name: "Checking",
+        type: "checking",
+        currency: "USD",
+        openingDate: "2026-01-01",
+        openingBalance: "5000.00",
+        idempotencyKey: nextKey(),
+      })
+    ).id;
+    groceriesId = (await createCategory(actor, { name: "Groceries", kind: "expense" })).id;
+    salaryId = (await createCategory(actor, { name: "Salary", kind: "income" })).id;
+  });
+  afterAll(async () => {
+    await database.drop();
+  });
+
+  /**
+   * Each of these owns the categories it names. They read as a sequence and
+   * they used to be one: five tests sharing two categories, each depending on
+   * what the last one spent. Five of them failed under `--sequence.shuffle`,
+   * which means the suite was asserting an order rather than a behaviour.
+   */
+  const budgetedCategory = async (name: string, amount = "200.00") => {
+    const category = await createCategory(actor, { name, kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: category.id,
+      amount,
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+    return category;
+  };
+
+  it("compares a standing budget against what was spent", async () => {
+    const category = await budgetedCategory("Standing");
+    await spend(category.id, "120.00", "2026-03-04", "Standing one");
+    await spend(category.id, "35.50", "2026-03-19", "Standing two");
+
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(report, "Standing")).toMatchObject({
+      limit: "200",
+      actual: "155.5",
+      remaining: "44.5",
+      source: "plan",
+    });
+  });
+
+  /**
+   * The row a budget page exists for, and the one the obvious query drops. The
+   * dashboard's aggregate carries `having sum(p.amount) <> 0`; copying it would
+   * have taken this row out.
+   */
+  it("shows a budgeted category that was never spent on", async () => {
+    await budgetedCategory("Unspent", "80.00");
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(report, "Unspent")).toMatchObject({
+      limit: "80",
+      actual: "0",
+      remaining: "80",
+    });
+  });
+
+  it("lets one period override the standing amount, and says which it used", async () => {
+    const category = await budgetedCategory("Overridden");
+    await spend(category.id, "55.50", "2026-03-19", "Overridden spend");
+    await setBudgetEntry(actor, {
+      categoryId: category.id,
+      currency: "USD",
+      periodUnit: "month",
+      // Any day inside the period names it; the service truncates.
+      periodStart: "2026-03-14",
+      amount: "300.00",
+    });
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(report, "Overridden")).toMatchObject({
+      limit: "300",
+      remaining: "244.5",
+      source: "entry",
+    });
+
+    // The month beside it is untouched, which is the whole point of an override.
+    const april = await getBudgetReport(actor, {
+      start: "2026-04-01",
+      end: "2026-04-30",
+      periodUnit: "month",
+    });
+    expect(row(april, "Overridden")).toMatchObject({ limit: "200", source: "plan" });
+  });
+
+  /**
+   * A refund is not income, and the budget must see it. This is the case the
+   * ledger could not represent at all before this story.
+   */
+  it("lowers the category a refund came back to", async () => {
+    const category = await budgetedCategory("Refunded");
+    await spend(category.id, "155.50", "2026-03-04", "Refunded spend");
+    const before = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(before, "Refunded")?.actual).toBe("155.5");
+
+    await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        toAccountId: checkingId,
+        amount: "30.00",
+        date: "2026-03-22",
+        payee: "Refunded back",
+        description: null,
+        categoryId: category.id,
+      },
+      nextKey(),
+    );
+
+    const after = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    // 200 budgeted, 155.50 spent, 30 back: 125.50 spent and 74.50 left. The
+    // old figure here was 174.50, which was only right because a previous test
+    // had left a 300 override on the shared category.
+    expect(row(after, "Refunded")).toMatchObject({
+      actual: "125.5",
+      remaining: "74.5",
+    });
+  });
+
+  /**
+   * The same case, but where the refund arrives before any spending has ever
+   * been filed under that name.
+   *
+   * This is the entry the ledger could not represent at all: the deposit had to
+   * create the category, the direction made it income, and the refund then
+   * credited income and moved no budget. Saying `categoryKind` is how a caller
+   * settles it, and the proof is that the money lands somewhere a budget can
+   * see rather than somewhere it cannot.
+   */
+  it("lowers a budget on a spending category a refund itself created", async () => {
+    await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        toAccountId: checkingId,
+        amount: "45.00",
+        date: "2026-03-18",
+        payee: "Returned unopened",
+        description: null,
+        categoryName: "Refund First",
+        categoryKind: "expense",
+      },
+      nextKey(),
+    );
+
+    const created = (await listCategories(actor)).find((entry) => entry.name === "Refund First");
+    expect(created?.kind).toBe("expense");
+
+    await createBudgetPlan(actor, {
+      categoryId: created!.id,
+      amount: "200.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    // Nothing was ever spent here and 45 came back, so the period's spending is
+    // negative and there is more left than was budgeted. Had the category come
+    // out as income, this row would read 0 spent and the money would have gone
+    // to income instead, which is the bug.
+    expect(row(report, "Refund First")).toMatchObject({
+      actual: "-45",
+      remaining: "245",
+    });
+  });
+
+  it("attributes each leg of a split to its own category", async () => {
+    const food = await budgetedCategory("SplitFood");
+    const travel = await budgetedCategory("SplitTravel", "80.00");
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        fromAccountId: checkingId,
+        amount: "50.00",
+        date: "2026-03-25",
+        payee: "Split supermarket",
+        description: null,
+        legs: [
+          { categoryId: food.id, amount: "30.00" },
+          { categoryId: travel.id, amount: "20.00" },
+        ],
+      },
+      nextKey(),
+    );
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(report, "SplitFood")?.actual).toBe("30");
+    expect(row(report, "SplitTravel")?.actual).toBe("20");
+  });
+
+  it("counts nothing for a transfer, because it has no expense side", async () => {
+    const savings = await createAccount(actor, {
+      name: "Savings",
+      type: "savings",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "0",
+      idempotencyKey: nextKey(),
+    });
+    const before = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    await createTransaction(
+      actor,
+      {
+        type: "transfer",
+        fromAccountId: checkingId,
+        toAccountId: savings.id,
+        sourceAmount: "500.00",
+        date: "2026-03-26",
+        payee: "Moving money",
+        description: null,
+      },
+      nextKey(),
+    );
+    const after = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(after.periods).toEqual(before.periods);
+  });
+
+  it("reports spending in a category nobody budgeted, separately", async () => {
+    const eatingOut = await createCategory(actor, {
+      name: "Eating out",
+      kind: "expense",
+    });
+    const budgeted = await budgetedCategory("Watched");
+    await spend(budgeted.id, "5.00", "2026-03-26", "Watched spend");
+    await spend(eatingOut.id, "18.00", "2026-03-27", "Eating out spend");
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(report, "Eating out")).toMatchObject({
+      limit: null,
+      actual: "18",
+      remaining: null,
+      source: "none",
+    });
+
+    const only = await getBudgetReport(actor, {
+      ...march,
+      periodUnit: "month",
+      includeUnbudgeted: false,
+    });
+    expect(row(only, "Eating out")).toBeUndefined();
+    expect(row(only, "Watched")).toBeDefined();
+  });
+
+  it("refuses a budget on a category with no spending to compare against", async () => {
+    await expect(
+      createBudgetPlan(actor, {
+        categoryId: salaryId,
+        amount: "10.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2026-01-01",
+      }),
+    ).rejects.toThrow(/income category/i);
+  });
+
+  it("refuses a second budget covering the same dates", async () => {
+    const category = await budgetedCategory("Doubled");
+    await expect(
+      createBudgetPlan(actor, {
+        categoryId: category.id,
+        amount: "50.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2026-06-01",
+      }),
+    ).rejects.toThrow(/already covers/i);
+  });
+
+  /**
+   * Both halves of the orphan rule at once: the delete is not refused, and it
+   * takes the budget with it rather than leaving one pointing at nothing.
+   */
+  it("takes budgets with a deleted category, and is never refused because of one", async () => {
+    const spare = await createCategory(actor, { name: "Spare", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: spare.id,
+      amount: "25.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+    expect((await listBudgetPlans(actor)).some((plan) => plan.categoryId === spare.id)).toBe(true);
+
+    await deleteCategory(actor, spare.id, spare.version);
+
+    expect((await listBudgetPlans(actor)).some((plan) => plan.categoryId === spare.id)).toBe(false);
+  });
+
+  /**
+   * The defect a verification pass found first and four verifiers found
+   * independently: a budget set today did not apply to today. A window is asked
+   * for in days and answered in periods, so both ends are snapped to the period
+   * on the way in.
+   */
+  it("applies from the period its start falls in, not the one after", async () => {
+    const mid = await createCategory(actor, { name: "Midmonth", kind: "expense" });
+    const plan = await createBudgetPlan(actor, {
+      categoryId: mid.id,
+      amount: "150.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-05-14",
+    });
+    expect(plan.activeFrom).toBe("2026-05-01");
+
+    await spend(mid.id, "20.00", "2026-05-02");
+    const may = await getBudgetReport(actor, {
+      start: "2026-05-01",
+      end: "2026-05-31",
+      periodUnit: "month",
+    });
+    expect(row(may, "Midmonth")).toMatchObject({
+      limit: "150",
+      actual: "20",
+      source: "plan",
+    });
+  });
+
+  it("ends at the period its end falls in, so both ends read the same way", async () => {
+    const ending = await createCategory(actor, { name: "Ending", kind: "expense" });
+    const plan = await createBudgetPlan(actor, {
+      categoryId: ending.id,
+      amount: "100.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+      activeTo: "2026-03-02",
+    });
+    expect(plan.activeTo).toBe("2026-03-01");
+
+    await spend(ending.id, "90.00", "2026-04-10");
+    const april = await getBudgetReport(actor, {
+      start: "2026-04-01",
+      end: "2026-04-30",
+      periodUnit: "month",
+    });
+    // April is after the window, so the spending is unbudgeted rather than
+    // being absorbed by a plan that stopped in March.
+    expect(row(april, "Ending")).toMatchObject({ limit: null, source: "none" });
+  });
+
+  /**
+   * Adjacent windows are how a budget is raised without rewriting history, so
+   * the overlap check must accept them and refuse anything that shares a period.
+   */
+  it("accepts a budget that starts the period after another ends", async () => {
+    const raise = await createCategory(actor, { name: "Raise", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: raise.id,
+      amount: "100.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+      activeTo: "2026-06-30",
+    });
+    await expect(
+      createBudgetPlan(actor, {
+        categoryId: raise.id,
+        amount: "120.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2026-06-15",
+      }),
+    ).rejects.toThrow(/already covers/i);
+    const next = await createBudgetPlan(actor, {
+      categoryId: raise.id,
+      amount: "120.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-07-01",
+    });
+    expect(next.activeFrom).toBe("2026-07-01");
+  });
+
+  /**
+   * An ordinary edit that moved the last transaction off a category pruned the
+   * category, and the cascade took the budget with it, with nothing in the
+   * audit log naming a budget.
+   */
+  it("keeps a category alive while a budget holds it", async () => {
+    const coffee = await createCategory(actor, { name: "Coffee", kind: "expense" });
+    const dining = await createCategory(actor, { name: "Dining", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: coffee.id,
+      amount: "50.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-02-01",
+    });
+    const bought = await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        fromAccountId: checkingId,
+        amount: "4.50",
+        date: "2026-02-02",
+        payee: "Cafe",
+        description: null,
+        categoryId: coffee.id,
+      },
+      nextKey(),
+    );
+    await updateTransaction(actor, bought.id, {
+      draft: {
+        type: "withdrawal",
+        fromAccountId: checkingId,
+        amount: "4.50",
+        date: "2026-02-02",
+        payee: "Cafe",
+        description: null,
+        categoryId: dining.id,
+      },
+      expectedVersion: bought.version,
+    });
+    expect((await listBudgetPlans(actor)).some((plan) => plan.categoryName === "Coffee")).toBe(
+      true,
+    );
+  });
+
+  it("says which period units it is leaving out", async () => {
+    const weekly = await createCategory(actor, { name: "Weekly", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: weekly.id,
+      amount: "30.00",
+      currency: "USD",
+      periodUnit: "week",
+      activeFrom: "2026-03-02",
+    });
+    const monthly = await getBudgetReport(actor, {
+      ...march,
+      periodUnit: "month",
+    });
+    expect(monthly.otherPeriodUnits).toContain("week");
+  });
+
+  it("refuses a negative budget with a sentence rather than a database error", async () => {
+    await expect(
+      createBudgetPlan(actor, {
+        categoryId: groceriesId,
+        amount: "-5.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2027-01-01",
+      }),
+    ).rejects.toThrow(/negative/i);
+  });
+
+  it("refuses a window that ends before it starts", async () => {
+    await expect(
+      createBudgetPlan(actor, {
+        categoryId: groceriesId,
+        amount: "5.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2027-05-01",
+        activeTo: "2027-02-01",
+      }),
+    ).rejects.toThrow(/end before it starts/i);
+  });
+
+  it("refuses a range needing more periods than a report will draw", async () => {
+    await expect(
+      getBudgetReport(actor, {
+        start: "1990-01-01",
+        end: "2026-03-31",
+        periodUnit: "week",
+      }),
+    ).rejects.toThrow(/most a budget report will draw/i);
+  });
+
+  it("refuses a backwards range rather than answering with nothing", async () => {
+    await expect(
+      getBudgetReport(actor, {
+        start: "2026-03-31",
+        end: "2026-03-01",
+        periodUnit: "month",
+      }),
+    ).rejects.toThrow(/on or before/i);
+  });
+
+  /**
+   * A deleted entry nets to zero and vanishes from the dashboard. It used to
+   * leave a permanent "no budget, 0.00" row here, one per edit, for ever.
+   */
+  it("drops an unbudgeted row whose spending nets to nothing", async () => {
+    const gone = await createCategory(actor, { name: "Gone", kind: "expense" });
+    const untouched = await createCategory(actor, {
+      name: "Untouched",
+      kind: "expense",
+    });
+    await createBudgetPlan(actor, {
+      categoryId: untouched.id,
+      amount: "40.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+    const paid = await spend(gone.id, "12.00", "2026-03-29");
+    expect(
+      row(await getBudgetReport(actor, { ...march, periodUnit: "month" }), "Gone"),
+    ).toBeDefined();
+
+    await setTransactionDeleted(actor, paid.id, paid.version, true);
+
+    const after = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(after, "Gone")).toBeUndefined();
+    // A budgeted category with no spending is the opposite case and stays. Its
+    // own category, so this does not depend on what an earlier test spent.
+    expect(row(after, "Untouched")).toMatchObject({ limit: "40", actual: "0" });
+  });
+
+  /**
+   * Every behavioural test above is monthly, and the worst defect this story
+   * had was a period-boundary bug that monthly fixtures could not see: a plan
+   * starting mid-period budgeted nothing for that period. So the boundary is
+   * exercised at every unit, and the dates are derived from what the service
+   * snapped rather than hard-coded, because a hand-computed ISO week is a
+   * different function from the one PostgreSQL runs.
+   */
+  describe.each([
+    { unit: "week" as const, mid: "2026-03-04", earlier: "2026-02-20" },
+    { unit: "month" as const, mid: "2026-03-14", earlier: "2026-02-20" },
+    { unit: "quarter" as const, mid: "2026-05-14", earlier: "2026-02-20" },
+    { unit: "year" as const, mid: "2026-05-14", earlier: "2025-11-20" },
+  ])("budgeting by $unit", ({ unit, mid, earlier }) => {
+    it("covers the period its start falls in and no earlier one", async () => {
+      const label = `Boundary ${unit}`;
+      const category = await createCategory(actor, {
+        name: label,
+        kind: "expense",
+      });
+      const plan = await createBudgetPlan(actor, {
+        categoryId: category.id,
+        amount: "500.00",
+        currency: "USD",
+        periodUnit: unit,
+        activeFrom: mid,
+      });
+      // Snapped back to the first day of the period holding `mid`, never forward.
+      expect(plan.activeFrom <= mid).toBe(true);
+
+      await spend(category.id, "10.00", mid, `${label} inside`);
+      await spend(category.id, "99.00", earlier, `${label} before`);
+
+      const covered = await getBudgetReport(actor, {
+        start: plan.activeFrom,
+        end: mid,
+        periodUnit: unit,
+      });
+      // One period in this currency. Another test in this file budgets and
+      // spends in EUR, and an unbudgeted EUR row is a period of its own at
+      // every unit whose window happens to contain it — which made this
+      // assertion depend on the order the file ran in.
+      expect(covered.periods.filter((period) => period.currency === "USD")).toHaveLength(1);
+      expect(row(covered, label)).toMatchObject({
+        limit: "500",
+        actual: "10",
+        source: "plan",
+      });
+
+      // The period before it is outside the window, so the earlier spending is
+      // reported as unbudgeted rather than absorbed by a plan that had not begun.
+      const before = await getBudgetReport(actor, {
+        start: earlier,
+        end: earlier,
+        periodUnit: unit,
+      });
+      expect(row(before, label)).toMatchObject({ limit: null, source: "none" });
+    });
+
+    it("puts an override on the period any day inside it names", async () => {
+      const label = `Override ${unit}`;
+      const category = await createCategory(actor, {
+        name: label,
+        kind: "expense",
+      });
+      const entry = await setBudgetEntry(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: unit,
+        periodStart: mid,
+        amount: "77.00",
+      });
+      expect(entry.periodStart <= mid).toBe(true);
+
+      const report = await getBudgetReport(actor, {
+        start: entry.periodStart,
+        end: mid,
+        periodUnit: unit,
+      });
+      expect(row(report, label)).toMatchObject({
+        limit: "77",
+        source: "entry",
+      });
+    });
+  });
+
+  /**
+   * The defect a re-verification found after the first round of fixes: a range
+   * that did not line up with a period showed the whole period's limit against
+   * only the part of its spending the range covered, and badged the difference
+   * as money still to spend. A budget is about periods, so a range now chooses
+   * which periods to show rather than slicing them.
+   */
+  it("weighs a whole period's spending against its limit, whatever range asked", async () => {
+    const whole = await createCategory(actor, { name: "Whole", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: whole.id,
+      amount: "200.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+    await spend(whole.id, "260.00", "2026-07-03", "Whole early");
+
+    // A range starting after the spending. The period is still July, and July
+    // still spent 260 of its 200.
+    const late = await getBudgetReport(actor, {
+      start: "2026-07-20",
+      end: "2026-07-31",
+      periodUnit: "month",
+    });
+    expect(row(late, "Whole")).toMatchObject({
+      limit: "200",
+      actual: "260",
+      remaining: "-60",
+    });
+    const july = late.periods.find((period) => period.periodStart === "2026-07-01");
+    expect(july).toMatchObject({ start: "2026-07-01", end: "2026-07-31", partial: false });
+  });
+
+  /**
+   * Against fixed dates, never against the clock. The first version of this
+   * asserted that every period in the default range was partial, which is false
+   * on the last day of a period and would have gone red about twelve days a
+   * year for reasons nobody would connect to budgeting.
+   */
+  it("marks a finished period finished and a running one running", async () => {
+    const finished = await getBudgetReport(actor, {
+      start: "2026-03-01",
+      end: "2026-03-31",
+      periodUnit: "month",
+    });
+    expect(finished.periods.every((period) => period.partial)).toBe(false);
+
+    // A period is partial when it has not finished, so the assertion is
+    // against its own end date rather than against a guess about today. The
+    // first version compared to a hard-coded date and would have gone red on
+    // the last day of every month, which is the calendar dependence this test
+    // exists to have removed.
+    const running = await getBudgetReport(actor, { periodUnit: "month" });
+    for (const period of running.periods) {
+      expect(period.partial).toBe(period.end > running.asOf);
+    }
+  });
+
+  /**
+   * The other half of the whole-period rule, and the half that was missed: a
+   * range ending inside a past period reported only the spending up to that
+   * date against the whole period's limit.
+   */
+  it("reports a whole past period even when the range ends inside it", async () => {
+    const cut = await createCategory(actor, { name: "Cutoff", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: cut.id,
+      amount: "200.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+    await spend(cut.id, "150.00", "2026-06-03", "Cutoff early");
+    await spend(cut.id, "100.00", "2026-06-20", "Cutoff late");
+
+    const clipped = await getBudgetReport(actor, {
+      start: "2026-06-01",
+      end: "2026-06-10",
+      periodUnit: "month",
+    });
+    expect(row(clipped, "Cutoff")).toMatchObject({
+      limit: "200",
+      actual: "250",
+      remaining: "-50",
+    });
+    const june = clipped.periods.find((p) => p.periodStart === "2026-06-01");
+    expect(june).toMatchObject({ end: "2026-06-30", partial: false });
+  });
+
+  /** Exactly one row per category per period, which is what makes the totals mean anything. */
+  it("gives each category one row and totals that add up", async () => {
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    for (const period of report.periods) {
+      const names = period.rows.map((entry) => entry.category);
+      expect(new Set(names).size).toBe(names.length);
+      const limits = period.rows
+        .map((entry) => entry.limit)
+        .filter((limit): limit is string => limit !== null);
+      expect(period.budgeted).toBe(sumMoney(limits));
+      expect(period.spent).toBe(sumMoney(period.rows.map((entry) => entry.actual)));
+    }
+  });
+
+  it("refuses a merge of two budgeted sources before writing anything", async () => {
+    const target = await createCategory(actor, { name: "MergeTarget", kind: "expense" });
+    const one = await createCategory(actor, { name: "MergeOne", kind: "expense" });
+    const two = await createCategory(actor, { name: "MergeTwo", kind: "expense" });
+    for (const category of [one, two]) {
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        amount: "30.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2026-01-01",
+      });
+    }
+    await expect(
+      mergeCategories(actor, {
+        sourceCategoryIds: [one.id, two.id],
+        targetCategoryId: target.id,
+        expectedVersions: { [one.id]: one.version, [two.id]: two.version },
+        targetExpectedVersion: target.version,
+      }),
+    ).rejects.toThrow(/two budgets for one period/i);
+    // Refused, so nothing moved and nothing was half-written.
+    const plans = await listBudgetPlans(actor);
+    expect(plans.filter((plan) => plan.categoryName === "MergeTarget")).toHaveLength(0);
+    expect(plans.filter((plan) => plan.categoryName === "MergeOne")).toHaveLength(1);
+  });
+
+  it("allows a merge whose budgets cover different periods", async () => {
+    const past = await createCategory(actor, { name: "PastOnly", kind: "expense" });
+    const now = await createCategory(actor, { name: "NowOnly", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: past.id,
+      amount: "10.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2025-01-01",
+      activeTo: "2025-12-01",
+    });
+    await createBudgetPlan(actor, {
+      categoryId: now.id,
+      amount: "20.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+    await mergeCategories(actor, {
+      sourceCategoryIds: [past.id],
+      targetCategoryId: now.id,
+      expectedVersions: { [past.id]: past.version },
+      targetExpectedVersion: now.version,
+    });
+    const plans = (await listBudgetPlans(actor)).filter((plan) => plan.categoryName === "NowOnly");
+    expect(plans).toHaveLength(2);
+    // The moved row's version bumps, so a client holding the old one is refused.
+    expect(plans.some((plan) => plan.version === 2)).toBe(true);
+  });
+
+  it("round-trips every write, not just the creates", async () => {
+    const rt = await createCategory(actor, { name: "RoundTrip", kind: "expense" });
+    const plan = await createBudgetPlan(actor, {
+      categoryId: rt.id,
+      amount: "10.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-02-14",
+    });
+    expect(plan.activeFrom).toBe("2026-02-01");
+
+    const raised = await updateBudgetPlan(actor, plan.id, {
+      amount: "25.00",
+      activeTo: "2026-04-20",
+      expectedVersion: plan.version,
+    });
+    expect(raised).toMatchObject({ amount: "25", activeTo: "2026-04-01", version: 2 });
+
+    const entry = await setBudgetEntry(actor, {
+      categoryId: rt.id,
+      currency: "USD",
+      periodUnit: "month",
+      periodStart: "2026-03-09",
+      amount: "99.00",
+    });
+    expect(entry.periodStart).toBe("2026-03-01");
+    const changed = await setBudgetEntry(actor, {
+      categoryId: rt.id,
+      currency: "USD",
+      periodUnit: "month",
+      periodStart: "2026-03-09",
+      amount: "88.00",
+      expectedVersion: entry.version,
+    });
+    expect(changed).toMatchObject({ amount: "88", version: 2 });
+
+    await deleteBudgetEntry(actor, changed.id, changed.version);
+    await deleteBudgetPlan(actor, raised.id, raised.version);
+    expect((await listBudgetPlans(actor)).some((p) => p.categoryName === "RoundTrip")).toBe(false);
+  });
+
+  it("counts spending through a closed account, because the limit was never scoped to one", async () => {
+    const card = await createAccount(actor, {
+      name: "Old card",
+      type: "credit_card",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "0",
+      idempotencyKey: nextKey(),
+    });
+    const both = await createCategory(actor, { name: "Spanning", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: both.id,
+      amount: "200.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+    await spend(both.id, "120.00", "2026-03-05", "Spanning checking");
+    await createTransaction(
+      actor,
+      {
+        type: "withdrawal",
+        fromAccountId: card.id,
+        amount: "80.00",
+        date: "2026-03-06",
+        payee: "Spanning card",
+        description: null,
+        categoryId: both.id,
+      },
+      nextKey(),
+    );
+    await setAccountArchived(actor, card.id, card.version, true);
+
+    const counted = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(counted, "Spanning")).toMatchObject({ actual: "200", remaining: "0" });
+
+    const excluded = await getBudgetReport(actor, {
+      ...march,
+      periodUnit: "month",
+      includeArchived: false,
+    });
+    expect(row(excluded, "Spanning")).toMatchObject({ actual: "120" });
+  });
+
+  /**
+   * The merge equivalent of the prune defect: a budget went with the source
+   * category and nothing in the audit log named it.
+   */
+  it("moves budgets onto the target when categories are merged", async () => {
+    const from = await createCategory(actor, { name: "MergeFrom", kind: "expense" });
+    const into = await createCategory(actor, { name: "MergeInto", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: from.id,
+      amount: "150.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+    });
+    await mergeCategories(actor, {
+      sourceCategoryIds: [from.id],
+      targetCategoryId: into.id,
+      expectedVersions: { [from.id]: from.version },
+      targetExpectedVersion: into.version,
+    });
+    const plans = await listBudgetPlans(actor);
+    expect(plans.some((plan) => plan.categoryName === "MergeInto")).toBe(true);
+    expect(plans.some((plan) => plan.categoryName === "MergeFrom")).toBe(false);
+  });
+
+  it("refuses a merge that would leave two budgets for one period", async () => {
+    const left = await createCategory(actor, { name: "BothLeft", kind: "expense" });
+    const right = await createCategory(actor, { name: "BothRight", kind: "expense" });
+    for (const category of [left, right]) {
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        amount: "10.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2026-01-01",
+      });
+    }
+    await expect(
+      mergeCategories(actor, {
+        sourceCategoryIds: [left.id],
+        targetCategoryId: right.id,
+        expectedVersions: { [left.id]: left.version },
+        targetExpectedVersion: right.version,
+      }),
+    ).rejects.toThrow(/two budgets for one period/i);
+  });
+
+  /** So `active_to >= bucket_start` cannot quietly become `>`. */
+  it("still budgets the last period of a window", async () => {
+    const last = await createCategory(actor, { name: "LastPeriod", kind: "expense" });
+    await createBudgetPlan(actor, {
+      categoryId: last.id,
+      amount: "60.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+      activeTo: "2026-05-01",
+    });
+    await spend(last.id, "25.00", "2026-05-20", "LastPeriod spend");
+    const may = await getBudgetReport(actor, {
+      start: "2026-05-01",
+      end: "2026-05-31",
+      periodUnit: "month",
+    });
+    expect(row(may, "LastPeriod")).toMatchObject({
+      limit: "60",
+      actual: "25",
+      source: "plan",
+    });
+  });
+
+  /**
+   * The refund path that had no test: naming a category rather than citing its
+   * id, which is what a CSV import does. Naming an expense category on a
+   * deposit used to widen it to `both`, and a `both` category agrees with
+   * whichever direction it is handed, so the refund credited income, the budget
+   * never moved, and the category stayed broken for every refund after it.
+   */
+  it("lowers the budget when a refund names its category instead of citing it", async () => {
+    const named = await budgetedCategory("NamedRefund");
+    await spend(named.id, "45.00", "2026-03-02", "NamedRefund spend");
+    await createTransaction(
+      actor,
+      {
+        type: "deposit",
+        toAccountId: checkingId,
+        amount: "12.00",
+        date: "2026-03-05",
+        payee: "NamedRefund back",
+        description: null,
+        categoryName: "NamedRefund",
+      },
+      nextKey(),
+    );
+
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    expect(row(report, "NamedRefund")).toMatchObject({ actual: "33" });
+    // And the category is still a spending category, so the next one works too.
+    const kinds = await listCategories(actor);
+    expect(kinds.find((category) => category.name === "NamedRefund")?.kind).toBe("expense");
+  });
+
+  /**
+   * The composition defect a verification pass found after the by-name fix: the
+   * file's rows were accumulated to a single kind first, so a file holding a
+   * spend and a refund for one category arrived as `both`, and a `both` handed
+   * to the widening rule widened the stored category. The by-name path was
+   * fixed and the import path put the two rules back in the wrong order.
+   */
+  it("keeps a category's kind when one CSV file spends and refunds against it", async () => {
+    const mixed = await budgetedCategory("MixedFile", "500.00");
+    await spend(mixed.id, "100.00", "2026-03-02", "MixedFile by id");
+
+    await stageCsv(actor, {
+      csv: [
+        "date,description,amount,category",
+        "2026-03-05,Spend two,-50.00,MixedFile",
+        "2026-03-06,Refund two,20.00,MixedFile",
+      ].join("\n"),
+      fileName: "mixed.csv",
+      idempotencyKey: nextKey(),
+      defaultAccountId: checkingId,
+      mapping: {
+        date: "date",
+        payee: "description",
+        description: "description",
+        amount: "amount",
+        category: "category",
+      },
+      dateFormat: "YMD" as const,
+      decimalSeparator: "." as const,
+      dryRun: false,
+    });
+    const queued = await listStages(actor, { page: 1, pageSize: 100 });
+    await commitStages(actor, {
+      stagedIds: queued.items.map((staged) => staged.id),
+      expectedVersions: Object.fromEntries(
+        queued.items.map((staged) => [staged.id, staged.version]),
+      ),
+      idempotencyKey: nextKey(),
+    });
+
+    const kinds = await listCategories(actor);
+    expect(kinds.find((entry) => entry.name === "MixedFile")?.kind).toBe("expense");
+
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    // 100 spent, 50 more spent, 20 refunded.
+    expect(row(report, "MixedFile")).toMatchObject({ actual: "130" });
+  });
+
+  /**
+   * A transfer carries no counter-account side, so the kind its draft asks for
+   * is "both", and that widened any category it named. Refunds into that
+   * category then stopped lowering it.
+   */
+  it("keeps a category's kind when a transfer names it", async () => {
+    const named = await budgetedCategory("TransferNamed");
+    await spend(named.id, "40.00", "2026-03-03", "TransferNamed spend");
+    const savings = await createAccount(actor, {
+      name: "Transfer savings",
+      type: "savings",
+      currency: "USD",
+      openingDate: "2026-01-01",
+      openingBalance: "0",
+      idempotencyKey: nextKey(),
+    });
+    await createTransaction(
+      actor,
+      {
+        type: "transfer",
+        fromAccountId: checkingId,
+        toAccountId: savings.id,
+        sourceAmount: "10.00",
+        date: "2026-03-09",
+        payee: "Moving with a label",
+        description: null,
+        categoryName: "TransferNamed",
+      },
+      nextKey(),
+    );
+
+    const kinds = await listCategories(actor);
+    expect(kinds.find((entry) => entry.name === "TransferNamed")?.kind).toBe("expense");
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    // A transfer contributes nothing, so the figure is the spend alone.
+    expect(row(report, "TransferNamed")).toMatchObject({ actual: "40" });
+  });
+
+  /**
+   * The last order dependence in the import path. A `ledger:stage` caller may
+   * not create a category, so the row is staged carrying the name and the
+   * commit makes it. The commit sees one row at a time, so without the file's
+   * decision travelling with the name, whichever row committed first decided
+   * the kind: a refund landing first made an income category, filed every
+   * purchase in the file against the income counter-account, and left a
+   * category no budget could be set on at all.
+   *
+   * Committed in both orders here, because the point is that the answer does
+   * not depend on the order.
+   */
+  it.each([
+    { label: "purchase first", refundFirst: false },
+    { label: "refund first", refundFirst: true },
+  ])(
+    "decides a deferred category's kind from the file, not the commit order ($label)",
+    async ({ label, refundFirst }) => {
+      const name = `Deferred ${label}`;
+      await stageCsv(
+        actor,
+        {
+          csv: [
+            "date,description,amount,category",
+            `2026-03-03,Buy one ${label},-40.00,${name}`,
+            `2026-03-04,Buy two ${label},-30.00,${name}`,
+            `2026-03-05,Refund ${label},10.00,${name}`,
+          ].join("\n"),
+          fileName: `${label}.csv`,
+          idempotencyKey: nextKey(),
+          defaultAccountId: checkingId,
+          mapping: {
+            date: "date",
+            payee: "description",
+            description: "description",
+            amount: "amount",
+            category: "category",
+          },
+          dateFormat: "YMD" as const,
+          decimalSeparator: "." as const,
+          dryRun: false,
+        },
+        undefined,
+        // The scope that cannot create a category, which is what defers it.
+        { mayMutateCategories: false },
+      );
+
+      const queued = (await listStages(actor, { page: 1, pageSize: 100 })).items.filter((row) =>
+        String(row.draft.payee ?? "").includes(label),
+      );
+      expect(queued).toHaveLength(3);
+      const deposits = queued.filter((row) => row.draft.type === "deposit");
+      const withdrawals = queued.filter((row) => row.draft.type === "withdrawal");
+      const order = refundFirst ? [...deposits, ...withdrawals] : [...withdrawals, ...deposits];
+
+      // One at a time, so whichever is first genuinely creates the category.
+      for (const row of order) {
+        await commitStages(actor, {
+          stagedIds: [row.id],
+          expectedVersions: { [row.id]: row.version },
+          idempotencyKey: nextKey(),
+        });
+      }
+
+      const created = (await listCategories(actor)).find((entry) => entry.name === name);
+      // Two purchases against one refund, so the file says spending.
+      expect(created?.kind).toBe("expense");
+
+      await createBudgetPlan(actor, {
+        categoryId: created!.id,
+        amount: "500.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2026-01-01",
+      });
+      const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+      expect(row(report, name)).toMatchObject({ actual: "60" });
+    },
+  );
+
+  /**
+   * "No figure spans currencies anywhere in the reply", which the whole suite
+   * asserted in a ledger that had one currency in it.
+   *
+   * A single-currency fixture cannot tell a report that keys by currency from
+   * one that adds across currencies, because both produce the same number. So
+   * this one budgets the same category in two, spends in both, and asks for the
+   * two figures separately.
+   */
+  it("keeps two currencies apart in the same category", async () => {
+    const euroAccount = (
+      await createAccount(actor, {
+        name: `Euro current ${nextKey()}`,
+        type: "checking",
+        currency: "EUR",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      })
+    ).id;
+    const name = `Travel ${nextKey()}`;
+    const category = await createCategory(actor, { name, kind: "expense" });
+
+    for (const [account, amount] of [
+      [checkingId, "40.00"],
+      [euroAccount, "70.00"],
+    ] as const) {
+      await createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          date: "2026-03-05",
+          payee: "Rail",
+          description: null,
+          fromAccountId: account,
+          categoryId: category.id,
+          amount,
+        },
+        nextKey(),
+      );
+    }
+    for (const [currency, limit] of [
+      ["USD", "100.00"],
+      ["EUR", "200.00"],
+    ] as const) {
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        amount: limit,
+        currency,
+        periodUnit: "month",
+        activeFrom: "2026-01-01",
+      });
+    }
+
+    const report = await getBudgetReport(actor, { ...march, periodUnit: "month" });
+    // A period is per currency rather than holding a currency breakdown, which
+    // is what makes a figure spanning two of them unrepresentable rather than
+    // merely avoided.
+    const rows = report.periods
+      .filter((period) => period.periodStart === "2026-03-01")
+      .flatMap((period) =>
+        period.rows
+          .filter((row) => row.category === name)
+          .map((row) => ({ currency: period.currency, limit: row.limit, actual: row.actual })),
+      );
+    // Two rows, each holding only its own currency's money. A report that added
+    // them would show one row of 110 against 300, which is a number in no
+    // currency at all.
+    expect(rows.sort((a, b) => a.currency.localeCompare(b.currency))).toEqual([
+      { currency: "EUR", limit: "200", actual: "70" },
+      { currency: "USD", limit: "100", actual: "40" },
+    ]);
+  });
+
+  /**
+   * The criterion is "every figure stops at today in the person's own timezone,
+   * and the day used is reported", and this asserted `asOf < "2999-12-31"`,
+   * which is true of any date before the year 2999 — including the server's
+   * today, which is the one thing the criterion is about. So it moves the
+   * person to a timezone fourteen hours from UTC and asks for the day there.
+   */
+  it("stops at today in the person's own timezone, and says which day", async () => {
+    const report = await getBudgetReport(actor, {
+      start: "2026-03-01",
+      end: "2999-12-31",
+      periodUnit: "month",
+    });
+    expect(report.asOf).toBe(todayIn("UTC"));
+
+    // Kiritimati is UTC+14, so for part of every day it is already tomorrow
+    // there. A report that read the server's clock would agree with UTC around
+    // the clock; this one has to follow the person.
+    await setPreferences(actor, { timezone: "Pacific/Kiritimati", defaultCurrency: "USD" });
+    try {
+      const far = await getBudgetReport(actor, {
+        start: "2026-03-01",
+        end: "2999-12-31",
+        periodUnit: "month",
+      });
+      expect(far.asOf).toBe(todayIn("Pacific/Kiritimati"));
+      // And the periods stop there rather than running to the end date: a
+      // budget for a month nobody has reached is not a budget that was
+      // underspent.
+      expect(far.periods.at(-1)!.periodStart <= far.asOf).toBe(true);
+    } finally {
+      await setPreferences(actor, { timezone: "UTC", defaultCurrency: "USD" });
+    }
+  });
+
+  /**
+   * Rollover, which is the whole of envelopes, sinking funds and debt.
+   *
+   * Nothing here is stored per period: every figure below is folded at read
+   * time from the same plans, entries and postings the rest of the report comes
+   * from. That is what these tests are really holding — a carry that had been
+   * materialised would pass the first two and quietly fail the fifth, where a
+   * budget's history is edited after the fact.
+   */
+  describe("a budget that carries what a period did not spend", () => {
+    it("hands the unspent forward, and the overspend forward as a debt", async () => {
+      const category = await createCategory(actor, { name: "Carry", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+        rollover: true,
+      });
+      await spend(category.id, "40.00", "2026-01-10", "Carry Jan");
+      await spend(category.id, "130.00", "2026-02-10", "Carry Feb");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+      });
+      const months = report.periods.filter((period) => period.currency === "USD");
+      const carry = months.map((period) => period.rows.find((r) => r.category === "Carry")!);
+
+      // January: spent 40 of 100, so 60 goes forward.
+      expect(carry[0]).toMatchObject({
+        limit: "100",
+        actual: "40",
+        carriedIn: "0",
+        available: "100",
+        remaining: "60",
+        carriedOut: "60",
+      });
+      // February: 100 of its own plus 60 carried in, spent 130, so 30 forward.
+      expect(carry[1]).toMatchObject({
+        limit: "100",
+        carriedIn: "60",
+        available: "160",
+        actual: "130",
+        remaining: "30",
+        carriedOut: "30",
+      });
+      // March: nothing spent, so it keeps its own hundred and the thirty.
+      expect(carry[2]).toMatchObject({ carriedIn: "30", available: "130", carriedOut: "130" });
+    });
+
+    it("carries a debt when a period overspends past everything it had", async () => {
+      const category = await createCategory(actor, { name: "Debt", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "50.00",
+        activeFrom: "2026-01-01",
+        rollover: true,
+      });
+      await spend(category.id, "200.00", "2026-01-15", "Debt Jan");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-02-28",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Debt")!);
+      expect(rows[0]).toMatchObject({ available: "50", actual: "200", carriedOut: "-150" });
+      // The half of rollover people forget is part of the deal: February starts
+      // a hundred in the hole rather than fresh at fifty.
+      expect(rows[1]).toMatchObject({ carriedIn: "-150", available: "-100", remaining: "-100" });
+    });
+
+    it("holds the carry inside its cap, in both directions", async () => {
+      const category = await createCategory(actor, { name: "Capped", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+        rollover: true,
+        rolloverCap: "120.00",
+      });
+      await spend(category.id, "400.00", "2026-03-05", "Capped March");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Capped")!);
+      // Two untouched months would have handed 200 forward. The cap stops it.
+      expect(rows[0]!.carriedOut).toBe("100");
+      expect(rows[1]!.carriedOut).toBe("120");
+      // And a debt is held to the same number rather than running away: 120 in
+      // plus 100 of its own less 400 spent is -180, capped back to -120.
+      expect(rows[2]).toMatchObject({ carriedIn: "120", available: "220", carriedOut: "-120" });
+      expect(rows[3]!.carriedIn).toBe("-120");
+    });
+
+    it("starts again rather than joining two budgets across a gap", async () => {
+      const category = await createCategory(actor, { name: "Gap", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+        activeTo: "2026-01-31",
+        rollover: true,
+      });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-03-01",
+        rollover: true,
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+      });
+      const march = report.periods.find(
+        (period) => period.periodStart === "2026-03-01" && period.currency === "USD",
+      );
+      // January's untouched hundred does not belong to March. Two budgets with
+      // a month of nothing between them are two budgets, and carrying across
+      // the gap would hand March money nobody budgeted for it.
+      expect(march!.rows.find((r) => r.category === "Gap")).toMatchObject({
+        carriedIn: "0",
+        available: "100",
+      });
+    });
+
+    it("carries through a period somebody overrode by hand", async () => {
+      const category = await createCategory(actor, { name: "Override carry", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+        rollover: true,
+      });
+      await setBudgetEntry(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        periodStart: "2026-02-01",
+        amount: "300.00",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Override carry")!);
+      // The override replaces the amount for its period and the carry runs
+      // through it: a bigger December is still an envelope in December.
+      expect(rows[1]).toMatchObject({ limit: "300", source: "entry", carriedIn: "100" });
+      expect(rows[2]).toMatchObject({ carriedIn: "400" });
+    });
+
+    it("says where the carry was folded from", async () => {
+      const category = await createCategory(actor, { name: "Folded", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "10.00",
+        activeFrom: "2026-01-01",
+        rollover: true,
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      // A report of April alone still had to read January onward to know what
+      // April was handed, and it says so rather than leaving the reader to
+      // wonder where four hundred of "carried in" came from.
+      expect(report.rollover).toMatchObject({ from: "2026-01-01", clipped: false });
+    });
+
+    it("leaves a budget that does not roll over exactly as it was", async () => {
+      const category = await createCategory(actor, { name: "Plain", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+      });
+      await spend(category.id, "20.00", "2026-01-08", "Plain Jan");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-02-01",
+        end: "2026-02-28",
+        periodUnit: "month",
+      });
+      // Null rather than zero. Zero would say "nothing carried in", which is a
+      // claim about a budget that carries nothing at all.
+      expect(row(report, "Plain")).toMatchObject({
+        limit: "100",
+        carriedIn: null,
+        carriedOut: null,
+        available: "100",
+        remaining: "100",
+      });
+    });
+  });
+
+  describe("a sinking fund", () => {
+    it("puts aside what is still needed over the periods that are left", async () => {
+      const category = await createCategory(actor, { name: "Holiday", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        rollover: true,
+        targetAmount: "600.00",
+        targetDate: "2026-06-20",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Holiday")!);
+      // Six periods from January through June, so a hundred a month, and each
+      // later month divides what is left by the months that remain.
+      expect(rows[0]).toMatchObject({ limit: "100", carriedIn: "0", carriedOut: "100" });
+      expect(rows[1]).toMatchObject({ limit: "100", carriedIn: "100", carriedOut: "200" });
+      expect(rows[3]).toMatchObject({ carriedIn: "300", limit: "100", carriedOut: "400" });
+    });
+
+    it("asks for nothing once it is full, and for the shortfall once it is due", async () => {
+      const category = await createCategory(actor, { name: "Tyres", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        rollover: true,
+        targetAmount: "300.00",
+        targetDate: "2026-03-15",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Tyres")!);
+      expect(rows[0]!.limit).toBe("100");
+      expect(rows[2]).toMatchObject({ limit: "100", carriedOut: "300" });
+      // Full, and the months after it ask for nothing rather than starting the
+      // same fund again.
+      expect(rows[3]).toMatchObject({ limit: "0", carriedIn: "300", available: "300" });
+      expect(rows[4]!.limit).toBe("0");
+    });
+
+    it("stops asking once its date has gone", async () => {
+      const category = await createCategory(actor, { name: "Spent fund", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        rollover: true,
+        targetAmount: "200.00",
+        targetDate: "2026-02-20",
+      });
+      // Saved in January and February, then spent on the thing it was for.
+      await spend(category.id, "200.00", "2026-03-04", "Spent fund purchase");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Spent fund")!);
+      expect(rows[0]!.limit).toBe("100");
+      expect(rows[1]!.limit).toBe("100");
+      // March spends it. April and May ask for nothing: the date has gone, and
+      // another one is another budget. Without this the fund asked for its
+      // whole target again every period for ever.
+      expect(rows[2]!.limit).toBe("0");
+      expect(rows[3]!.limit).toBe("0");
+      expect(rows[4]!.limit).toBe("0");
+    });
+
+    it("asks for the whole shortfall in the period it is needed", async () => {
+      const category = await createCategory(actor, { name: "Boiler", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-02-01",
+        rollover: true,
+        targetAmount: "500.00",
+        targetDate: "2026-02-28",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-02-01",
+        end: "2026-02-28",
+        periodUnit: "month",
+      });
+      // One period to save it in, so the period asks for all of it rather than
+      // a share of it.
+      expect(row(report, "Boiler")!.limit).toBe("500");
+    });
+
+    it("refuses the shapes that are not a fund", async () => {
+      const category = await createCategory(actor, { name: "Refusals", kind: "expense" });
+      const base = {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month" as const,
+        activeFrom: "2026-01-01",
+      };
+      await expect(
+        createBudgetPlan(actor, { ...base, amount: "0", rollover: true, targetAmount: "100.00" }),
+      ).rejects.toThrow(/both an amount to save and a date/i);
+      await expect(
+        createBudgetPlan(actor, {
+          ...base,
+          amount: "0",
+          targetAmount: "100.00",
+          targetDate: "2026-06-01",
+          rollover: false,
+        }),
+      ).rejects.toThrow(/carry what it saved/i);
+      await expect(
+        createBudgetPlan(actor, {
+          ...base,
+          amount: "50.00",
+          rollover: true,
+          targetAmount: "100.00",
+          targetDate: "2026-06-01",
+        }),
+      ).rejects.toThrow(/works out its own amount/i);
+      await expect(
+        createBudgetPlan(actor, {
+          ...base,
+          amount: "0",
+          rollover: true,
+          targetAmount: "100.00",
+          targetDate: "2025-06-01",
+        }),
+      ).rejects.toThrow(/cannot be needed before it starts/i);
+      await expect(
+        createBudgetPlan(actor, { ...base, amount: "10.00", rolloverCap: "50.00" }),
+      ).rejects.toThrow(/only means something when rollover is on/i);
+      // A cap below the target caps the saving itself: each period's
+      // contribution is pinned back to the cap, the fund re-budgets what the
+      // cap just discarded, and the target date arrives with the shortfall
+      // due all at once. The two numbers contradict each other.
+      await expect(
+        createBudgetPlan(actor, {
+          ...base,
+          amount: "0",
+          rollover: true,
+          targetAmount: "1200.00",
+          targetDate: "2026-12-01",
+          rolloverCap: "100.00",
+        }),
+      ).rejects.toThrow(/below what the fund is saving for/i);
+      // At or above the target it constrains nothing the fund needs, so it
+      // stays legal — a cap on the debt side still means something.
+      const capped = await createBudgetPlan(actor, {
+        ...base,
+        amount: "0",
+        rollover: true,
+        targetAmount: "1200.00",
+        targetDate: "2026-12-01",
+        rolloverCap: "1200.00",
+      });
+      expect(capped.amountRule).toBe("sinking_fund");
+    });
+
+    it("stores the rule and the target where a reader can see them", async () => {
+      const category = await createCategory(actor, { name: "Stored fund", kind: "expense" });
+      const plan = await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        rollover: true,
+        targetAmount: "240.00",
+        targetDate: "2026-06-14",
+      });
+      // Nobody chose "sinking fund" anywhere: the rule is what the row says.
+      expect(plan).toMatchObject({
+        amountRule: "sinking_fund",
+        rollover: true,
+        targetAmount: "240",
+        // Snapped to the period like both ends of the window, because the fund
+        // divides what is left by the periods left and the date has to be one.
+        targetDate: "2026-06-01",
+      });
+      const updated = await updateBudgetPlan(actor, plan.id, {
+        expectedVersion: plan.version,
+        targetAmount: null,
+        targetDate: null,
+        amount: "25.00",
+      });
+      expect(updated).toMatchObject({ amountRule: "fixed", targetAmount: null, rollover: true });
+    });
+  });
+
+  /**
+   * Amounts a rule works out, which is the other half of "every kind of
+   * budgeting from one model".
+   *
+   * Each of these is one column and a few lines in the fold. What they have in
+   * common is that no method is chosen anywhere: a lookback makes a trailing
+   * average, a percentage of the last period makes an incremental budget, and a
+   * percentage of income makes a share of what came in.
+   */
+  describe("a budget that works out its own amount", () => {
+    /** Income lands on the salary category, which the fixture already has. */
+    const earn = (amount: string, date: string, payee: string) =>
+      createTransaction(
+        actor,
+        {
+          type: "deposit",
+          toAccountId: checkingId,
+          categoryId: salaryId,
+          amount,
+          date,
+          payee,
+          description: null,
+        },
+        nextKey(),
+      );
+
+    it("budgets the average of what the last few periods actually spent", async () => {
+      const category = await createCategory(actor, { name: "Average", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        // A real number, not zero: with a zero seed the expected first-period
+        // value equals the degenerate value, and a mutant that ignored the
+        // plan amount passed the old assertion.
+        amount: "45.00",
+        activeFrom: "2026-01-01",
+        lookbackPeriods: 3,
+      });
+      await spend(category.id, "60.00", "2026-01-10", "Average Jan");
+      await spend(category.id, "120.00", "2026-02-10", "Average Feb");
+      await spend(category.id, "30.00", "2026-03-10", "Average Mar");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Average")!);
+      // January has nothing behind it, so the plan's own amount stands.
+      expect(rows[0]!.limit).toBe("45");
+      // February averages January alone, March averages January and February,
+      // and April averages all three. Fewer periods than asked for is the
+      // honest answer: treating the months before the budget started as zeroes
+      // would budget a third of what somebody spends.
+      expect(rows[1]!.limit).toBe("60");
+      expect(rows[2]!.limit).toBe("90");
+      expect(rows[3]!.limit).toBe("70");
+      expect(rows[0]!.priority).toBe(0);
+    });
+
+    it("steps the previous period's amount up by a percentage", async () => {
+      const category = await createCategory(actor, { name: "Stepped", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+        percentOfPrevious: "10",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Stepped")!);
+      // The first period is the amount as typed — the step is what happens
+      // between periods — and each one after compounds on the one before
+      // rather than on the original.
+      expect(rows[0]!.limit).toBe("100");
+      expect(rows[1]!.limit).toBe("110");
+      expect(rows[2]!.limit).toBe("121");
+    });
+
+    it("budgets a share of what came in the period before", async () => {
+      const category = await createCategory(actor, { name: "Share", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        percentOfIncome: "20",
+      });
+      await earn("2000.00", "2026-01-20", "Share salary Jan");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-02-28",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Share")!);
+      // December 2025 holds no income, so January's share is of nothing.
+      // February takes twenty per cent of January's two thousand.
+      expect(rows[0]!.limit).toBe("0");
+      expect(rows[1]!.limit).toBe("400");
+      // And the income itself is reported, because a share of it is only
+      // checkable against the figure it came from.
+      expect(
+        report.periods.find((p) => p.periodStart === "2026-01-01" && p.currency === "USD")!.income,
+      ).toBe("2000");
+    });
+
+    it("gives a share plan's first period the income of the real period before it", async () => {
+      const category = await createCategory(actor, {
+        name: "Share from December",
+        kind: "expense",
+      });
+      // A currency of this test's own, because the figure is a share of a
+      // whole period's income and sharing USD would make it a share of what
+      // every other test happened to earn.
+      const account = await createAccount(actor, {
+        name: "Share December account",
+        type: "checking",
+        currency: "CZK",
+        openingDate: "2025-12-01",
+        openingBalance: "0",
+        idempotencyKey: nextKey(),
+      });
+      // The income lands the period before the plan starts. A fold that only
+      // read income from its own first period reported January as a share of
+      // nothing, even though December's salary was in the ledger all along.
+      await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          toAccountId: account.id,
+          categoryId: salaryId,
+          amount: "3000.00",
+          date: "2025-12-15",
+          payee: "Share salary Dec",
+          description: null,
+        },
+        nextKey(),
+      );
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "CZK",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        percentOfIncome: "20",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-01-31",
+        periodUnit: "month",
+      });
+      const row = report.periods
+        .find((period) => period.currency === "CZK")!
+        .rows.find((r) => r.category === "Share from December")!;
+      expect(row.limit).toBe("600");
+    });
+
+    it("lets an amount somebody typed beat any rule", async () => {
+      const category = await createCategory(actor, { name: "Beaten", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+        percentOfPrevious: "50",
+      });
+      await setBudgetEntry(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        periodStart: "2026-02-01",
+        amount: "5.00",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Beaten")!);
+      expect(rows[0]!.limit).toBe("100");
+      // The override stands, and the chain carries on from what it said rather
+      // than from what the rule would have produced.
+      expect(rows[1]).toMatchObject({ limit: "5", source: "entry" });
+      expect(rows[2]!.limit).toBe("7.5");
+    });
+
+    it("lets an incremental budget taper, and refuses one that goes below nothing", async () => {
+      const category = await createCategory(actor, { name: "Tapering", kind: "expense" });
+      const plan = await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+        percentOfPrevious: "-10",
+      });
+      expect(plan).toMatchObject({ amountRule: "incremental", percentOfPrevious: "-10" });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+      });
+      const rows = report.periods
+        .filter((period) => period.currency === "USD")
+        .map((period) => period.rows.find((r) => r.category === "Tapering")!);
+      // Winding spending down is a budget somebody really sets, and it
+      // compounds the same way a step up does.
+      expect(rows[0]!.limit).toBe("100");
+      expect(rows[1]!.limit).toBe("90");
+
+      await expect(
+        createBudgetPlan(actor, {
+          categoryId: category.id,
+          currency: "EUR",
+          periodUnit: "month",
+          amount: "100.00",
+          activeFrom: "2026-01-01",
+          percentOfPrevious: "-150",
+        }),
+      ).rejects.toThrow(/less than nothing/i);
+    });
+
+    it("refuses a budget that names two ways of working out its amount", async () => {
+      const category = await createCategory(actor, { name: "Two rules", kind: "expense" });
+      await expect(
+        createBudgetPlan(actor, {
+          categoryId: category.id,
+          currency: "USD",
+          periodUnit: "month",
+          amount: "0",
+          activeFrom: "2026-01-01",
+          lookbackPeriods: 3,
+          percentOfIncome: "10",
+        }),
+      ).rejects.toThrow(/one way/i);
+    });
+
+    it("stores the rule the parameter names, and unsets it when the parameter goes", async () => {
+      const category = await createCategory(actor, { name: "Ruled", kind: "expense" });
+      const plan = await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        lookbackPeriods: 6,
+      });
+      expect(plan).toMatchObject({
+        amountRule: "trailing_average",
+        lookbackPeriods: 6,
+        percentOfPrevious: null,
+        percentOfIncome: null,
+      });
+
+      const changed = await updateBudgetPlan(actor, plan.id, {
+        expectedVersion: plan.version,
+        lookbackPeriods: null,
+        percentOfIncome: "15",
+      });
+      expect(changed).toMatchObject({
+        amountRule: "percent_of_income",
+        lookbackPeriods: null,
+        percentOfIncome: "15",
+      });
+
+      const back = await updateBudgetPlan(actor, changed.id, {
+        expectedVersion: changed.version,
+        percentOfIncome: null,
+        amount: "42.00",
+      });
+      expect(back).toMatchObject({ amountRule: "fixed", amount: "42", percentOfIncome: null });
+
+      // And one rule's parameter replaces another's without having to clear it
+      // first, which is what the tool says a patch does. Keeping the old one
+      // and refusing the pair would be a patch nobody could write.
+      const stepped = await updateBudgetPlan(actor, back.id, {
+        expectedVersion: back.version,
+        percentOfPrevious: "5",
+      });
+      expect(stepped).toMatchObject({ amountRule: "incremental", percentOfPrevious: "5" });
+      const averaged = await updateBudgetPlan(actor, stepped.id, {
+        expectedVersion: stepped.version,
+        lookbackPeriods: 2,
+      });
+      expect(averaged).toMatchObject({
+        amountRule: "trailing_average",
+        lookbackPeriods: 2,
+        percentOfPrevious: null,
+      });
+    });
+  });
+
+  describe("a funding order", () => {
+    it("fills budgets in priority order until the income runs out", async () => {
+      const savings = await createCategory(actor, { name: "Savings first", kind: "expense" });
+      const treats = await createCategory(actor, { name: "Treats last", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: savings.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "500.00",
+        activeFrom: "2026-06-01",
+        priority: 1,
+      });
+      await createBudgetPlan(actor, {
+        categoryId: treats.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "400.00",
+        activeFrom: "2026-06-01",
+        priority: 5,
+      });
+      const unranked = await createCategory(actor, { name: "Unranked", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: unranked.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-06-01",
+      });
+      await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          toAccountId: checkingId,
+          categoryId: salaryId,
+          amount: "700.00",
+          date: "2026-06-15",
+          payee: "June pay",
+          description: null,
+        },
+        nextKey(),
+      );
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-06-01",
+        end: "2026-06-30",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((p) => p.currency === "USD")!;
+      expect(period.income).toBe("700");
+      // Seven hundred came in and nine hundred was budgeted between these two.
+      // Savings is first and gets all five hundred; treats gets what is left
+      // rather than a share of what it asked for.
+      expect(period.rows.find((r) => r.category === "Savings first")!.funded).toBe("500");
+      expect(period.rows.find((r) => r.category === "Treats last")!.funded).toBe("200");
+      // Unranked goes last, whatever else is in the period. This one is a
+      // budget of its own so the claim does not depend on what other tests in
+      // this file happen to have left in June.
+      expect(period.rows.find((r) => r.category === "Unranked")!.funded).toBe("0");
+      // A floor rather than an equality: other budgets in this file are
+      // open-ended and cover June too, and the rest of the fixture is not this
+      // test's business.
+      expect(Number(period.unfunded)).toBeGreaterThanOrEqual(300);
+    });
+
+    it("says nothing about funding where nobody set an order", async () => {
+      const report = await getBudgetReport(actor, {
+        ...march,
+        periodUnit: "month",
+      });
+      const period = report.periods.find((p) => p.currency === "USD")!;
+      // Null rather than zero, and no unfunded figure at all: a ledger that
+      // never set a priority should not be told its budgets are unfunded
+      // because income happened to land in another period.
+      expect(period.unfunded).toBeNull();
+      expect(period.rows.every((r) => r.funded === null)).toBe(true);
+    });
+  });
+
+  /**
+   * Groups, which are a way of reading categories rather than a thing money is
+   * spent on.
+   *
+   * Nothing names a group on a transaction and no posting mentions one, so
+   * everything below is arithmetic over rows the report already had. The two
+   * policies are the point: `standalone` holds a budget of its own and
+   * `sum_of_children` is whatever its categories add up to, and a person who
+   * expects one and is given the other has a page of figures that are all wrong
+   * in the same direction.
+   */
+  describe("a category group", () => {
+    it("adds up what its categories spent, whether or not it is budgeted", async () => {
+      const group = await createCategoryGroup(actor, { name: "Home", policy: "standalone" });
+      const rent = await createCategory(actor, { name: "Home rent", kind: "expense" });
+      const power = await createCategory(actor, { name: "Home power", kind: "expense" });
+      for (const category of [rent, power]) {
+        await updateCategory(actor, category.id, {
+          expectedVersion: category.version,
+          groupId: group.id,
+        });
+      }
+      await spend(rent.id, "800.00", "2026-04-03", "Home rent April");
+      await spend(power.id, "120.00", "2026-04-09", "Home power April");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((p) => p.currency === "USD")!;
+      const row = period.groups.find((entry) => entry.groupId === group.id)!;
+      expect(row).toMatchObject({ name: "Home", policy: "standalone", actual: "920" });
+      // Nothing budgeted the group yet, so it has no limit and says so rather
+      // than reporting nought.
+      expect(row.limit).toBeNull();
+      // And the group is beside the rows rather than among them, so the
+      // period's own totals do not count this money twice.
+      expect(period.rows.some((entry) => entry.categoryId === group.id)).toBe(false);
+    });
+
+    it("budgets a standalone group against everything in it", async () => {
+      const group = await createCategoryGroup(actor, { name: "Going out", policy: "standalone" });
+      const meals = await createCategory(actor, { name: "Meals out", kind: "expense" });
+      await updateCategory(actor, meals.id, {
+        expectedVersion: meals.version,
+        groupId: group.id,
+      });
+      const plan = await createBudgetPlan(actor, {
+        groupId: group.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "150.00",
+        activeFrom: "2026-04-01",
+      });
+      expect(plan).toMatchObject({
+        groupId: group.id,
+        groupName: "Going out",
+        categoryId: null,
+        targetName: "Going out",
+      });
+      await spend(meals.id, "90.00", "2026-04-14", "Dinner April");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const row = report.periods
+        .find((p) => p.currency === "USD")!
+        .groups.find((entry) => entry.groupId === group.id)!;
+      expect(row).toMatchObject({
+        limit: "150",
+        actual: "90",
+        remaining: "60",
+        source: "plan",
+      });
+    });
+
+    it("adds up its categories' budgets when that is what it is", async () => {
+      const group = await createCategoryGroup(actor, { name: "Bills", policy: "sum_of_children" });
+      const water = await createCategory(actor, { name: "Water bill", kind: "expense" });
+      const phone = await createCategory(actor, { name: "Phone bill", kind: "expense" });
+      for (const [category, amount] of [
+        [water, "40.00"],
+        [phone, "25.00"],
+      ] as const) {
+        await updateCategory(actor, category.id, {
+          expectedVersion: category.version,
+          groupId: group.id,
+        });
+        await createBudgetPlan(actor, {
+          categoryId: category.id,
+          currency: "USD",
+          periodUnit: "month",
+          amount,
+          activeFrom: "2026-04-01",
+        });
+      }
+      await spend(water.id, "38.00", "2026-04-06", "Water April");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+      });
+      const row = report.periods
+        .find((p) => p.currency === "USD")!
+        .groups.find((entry) => entry.groupId === group.id)!;
+      // The group's limit is its categories' limits, by construction rather
+      // than by a second figure that could disagree with them.
+      expect(row).toMatchObject({
+        limit: "65",
+        actual: "38",
+        remaining: "27",
+        source: "sum",
+        policy: "sum_of_children",
+      });
+    });
+
+    it("counts a group's unbudgeted categories even when the report leaves them out", async () => {
+      const group = await createCategoryGroup(actor, {
+        name: "Half budgeted",
+        policy: "standalone",
+      });
+      const budgeted = await createCategory(actor, { name: "Half budgeted rent", kind: "expense" });
+      const loose = await createCategory(actor, { name: "Half budgeted extras", kind: "expense" });
+      for (const category of [budgeted, loose]) {
+        await updateCategory(actor, category.id, {
+          expectedVersion: category.version,
+          groupId: group.id,
+        });
+      }
+      await createBudgetPlan(actor, {
+        categoryId: budgeted.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "500.00",
+        activeFrom: "2026-04-01",
+      });
+      await spend(budgeted.id, "480.00", "2026-04-11", "Half rent");
+      await spend(loose.id, "35.00", "2026-04-12", "Half extras");
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-04-01",
+        end: "2026-04-30",
+        periodUnit: "month",
+        includeUnbudgeted: false,
+      });
+      const period = report.periods.find((p) => p.currency === "USD")!;
+      // The unbudgeted category is not in the rows, because the caller asked
+      // for only what is budgeted — and the group still counts what it spent,
+      // because a group's spending is its categories' whether or not somebody
+      // budgeted each one.
+      expect(period.rows.some((row) => row.category === "Half budgeted extras")).toBe(false);
+      expect(period.groups.find((row) => row.groupId === group.id)!.actual).toBe("515");
+    });
+
+    it("refuses a budget on a group that is already its categories added up", async () => {
+      const group = await createCategoryGroup(actor, { name: "Summed", policy: "sum_of_children" });
+      await expect(
+        createBudgetPlan(actor, {
+          groupId: group.id,
+          currency: "USD",
+          periodUnit: "month",
+          amount: "100.00",
+          activeFrom: "2026-04-01",
+        }),
+      ).rejects.toThrow(/cannot hold a budget of its own/i);
+    });
+
+    it("refuses a budget that names both a category and a group, or neither", async () => {
+      const group = await createCategoryGroup(actor, { name: "Either", policy: "standalone" });
+      const category = await createCategory(actor, { name: "Either category", kind: "expense" });
+      await expect(
+        createBudgetPlan(actor, {
+          categoryId: category.id,
+          groupId: group.id,
+          currency: "USD",
+          periodUnit: "month",
+          amount: "10.00",
+          activeFrom: "2026-04-01",
+        }),
+      ).rejects.toThrow(/exactly one/i);
+      await expect(
+        createBudgetPlan(actor, {
+          currency: "USD",
+          periodUnit: "month",
+          amount: "10.00",
+          activeFrom: "2026-04-01",
+        }),
+      ).rejects.toThrow(/exactly one/i);
+    });
+
+    it("keeps the categories and takes the budget when a group is deleted", async () => {
+      const group = await createCategoryGroup(actor, { name: "Temporary", policy: "standalone" });
+      const category = await createCategory(actor, { name: "Temporary spend", kind: "expense" });
+      await updateCategory(actor, category.id, {
+        expectedVersion: category.version,
+        groupId: group.id,
+      });
+      const plan = await createBudgetPlan(actor, {
+        groupId: group.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "60.00",
+        activeFrom: "2026-04-01",
+      });
+
+      const current = await getCategoryGroup(actor, group.id);
+      await deleteCategoryGroup(actor, group.id, current.version);
+
+      // The category survives, without a group.
+      const categories = await listCategories(actor);
+      expect(categories.find((entry) => entry.id === category.id)).toMatchObject({ groupId: null });
+      // The budget about the group does not, because a budget about nothing is
+      // not a budget. Both fall out of the foreign keys rather than out of a
+      // sweep somebody has to remember to write.
+      expect((await listBudgetPlans(actor)).some((entry) => entry.id === plan.id)).toBe(false);
+    });
+
+    it("counts the categories filed under it", async () => {
+      const group = await createCategoryGroup(actor, { name: "Counted", policy: "standalone" });
+      expect((await getCategoryGroup(actor, group.id)).categoryCount).toBe(0);
+      const one = await createCategory(actor, { name: "Counted one", kind: "expense" });
+      const two = await createCategory(actor, { name: "Counted two", kind: "expense" });
+      for (const category of [one, two]) {
+        await updateCategory(actor, category.id, {
+          expectedVersion: category.version,
+          groupId: group.id,
+        });
+      }
+      // The figure a page shows beside the name. It read nought for every group
+      // when it was a correlated subquery whose outer columns bound to the
+      // inner alias — a number that is always the same is the hardest kind of
+      // wrong to notice.
+      expect((await getCategoryGroup(actor, group.id)).categoryCount).toBe(2);
+      const renamed = await updateCategoryGroup(actor, group.id, {
+        expectedVersion: (await getCategoryGroup(actor, group.id)).version,
+        name: "Counted again",
+      });
+      // And the row a write hands back is the row after the write, count
+      // included, rather than the one it read at the start.
+      expect(renamed).toMatchObject({ name: "Counted again", categoryCount: 2 });
+      expect(renamed.version).toBeGreaterThan(group.version);
+    });
+
+    it("refuses to become a summing group while it holds a budget of its own", async () => {
+      const group = await createCategoryGroup(actor, { name: "Switching", policy: "standalone" });
+      const plan = await createBudgetPlan(actor, {
+        groupId: group.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "80.00",
+        activeFrom: "2026-04-01",
+      });
+      await expect(
+        updateCategoryGroup(actor, group.id, {
+          expectedVersion: (await getCategoryGroup(actor, group.id)).version,
+          policy: "sum_of_children",
+        }),
+      ).rejects.toThrow(/budget of its own/i);
+
+      // With the budget gone it may change, because now there is nothing to
+      // stop being read.
+      await deleteBudgetPlan(actor, plan.id, plan.version);
+      const changed = await updateCategoryGroup(actor, group.id, {
+        expectedVersion: (await getCategoryGroup(actor, group.id)).version,
+        policy: "sum_of_children",
+      });
+      expect(changed.policy).toBe("sum_of_children");
+    });
+
+    it("refuses a second group with the same name, however it is spelled", async () => {
+      await createCategoryGroup(actor, { name: "Fixed costs", policy: "standalone" });
+      await expect(
+        createCategoryGroup(actor, { name: "  fixed   COSTS ", policy: "standalone" }),
+      ).rejects.toThrow(/already exists/i);
+    });
+  });
+
+  /**
+   * Envelopes, which are SB-025's fold read differently plus one figure.
+   *
+   * "What is left to assign" is the whole of this story, and the perimeter is
+   * why it is not simply the bank balance: a card is inside the perimeter
+   * because spending on one empties an envelope, and an account somebody takes
+   * out of it is money the budget is not about.
+   */
+  describe("what is left to assign", () => {
+    it("is what the perimeter holds, less what the envelopes have claimed", async () => {
+      const spending = await createCategory(actor, { name: "Envelope food", kind: "expense" });
+      const account = await createAccount(actor, {
+        name: "Envelope current",
+        type: "checking",
+        // A currency of this test's own. Every figure here is about a whole
+        // ledger rather than one category, so sharing a currency with another
+        // test in this file would make it depend on what that test spent.
+        currency: "NOK",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      });
+      await createBudgetPlan(actor, {
+        categoryId: spending.id,
+        currency: "NOK",
+        periodUnit: "month",
+        amount: "300.00",
+        activeFrom: "2026-05-01",
+        rollover: true,
+      });
+      await createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          categoryId: spending.id,
+          amount: "120.00",
+          date: "2026-05-04",
+          payee: "Envelope shop",
+          description: null,
+        },
+        nextKey(),
+      );
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-05-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((entry) => entry.currency === "NOK")!;
+      // A thousand opened, a hundred and twenty spent.
+      expect(period.perimeter).toBe("880");
+      // The envelope holds 300 less the 120 spent, so 180 is claimed and the
+      // rest is unassigned.
+      expect(period.rows.find((row) => row.category === "Envelope food")!.remaining).toBe("180");
+      expect(period.toAssign).toBe("700");
+    });
+
+    it("leaves an account out of the perimeter when it is taken out", async () => {
+      const spending = await createCategory(actor, { name: "Perimeter food", kind: "expense" });
+      const inside = await createAccount(actor, {
+        name: "Perimeter current",
+        type: "checking",
+        currency: "CHF",
+        openingDate: "2026-01-01",
+        openingBalance: "500.00",
+        idempotencyKey: nextKey(),
+      });
+      await createAccount(actor, {
+        name: "Perimeter pension",
+        type: "investment",
+        currency: "CHF",
+        openingDate: "2026-01-01",
+        openingBalance: "90000.00",
+        inBudget: false,
+        idempotencyKey: nextKey(),
+      });
+      await createBudgetPlan(actor, {
+        categoryId: spending.id,
+        currency: "CHF",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-05-01",
+        rollover: true,
+      });
+      await createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          fromAccountId: inside.id,
+          categoryId: spending.id,
+          amount: "10.00",
+          date: "2026-05-06",
+          payee: "Perimeter shop",
+          description: null,
+        },
+        nextKey(),
+      );
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-05-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((entry) => entry.currency === "CHF")!;
+      // The pension is ninety thousand and none of it is the budget's business.
+      expect(period.perimeter).toBe("490");
+      expect(period.toAssign).toBe("400");
+    });
+
+    it("nets a group envelope's claim only against members that claim", async () => {
+      const group = await createCategoryGroup(actor, {
+        name: "Envelope group",
+        policy: "standalone",
+      });
+      const claiming = await createCategory(actor, { name: "Member envelope", kind: "expense" });
+      const plain = await createCategory(actor, { name: "Member plain", kind: "expense" });
+      for (const category of [claiming, plain]) {
+        const fresh = await getCategory(actor, category.id);
+        await updateCategory(actor, category.id, {
+          expectedVersion: fresh.version,
+          groupId: group.id,
+        });
+      }
+      await createAccount(actor, {
+        name: "Envelope group current",
+        type: "checking",
+        currency: "TRY",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      });
+      // The group is an envelope of 500; one member is an envelope of 100,
+      // the other a plain budget of 200 that claims nothing.
+      await createBudgetPlan(actor, {
+        groupId: group.id,
+        currency: "TRY",
+        periodUnit: "month",
+        amount: "500.00",
+        activeFrom: "2026-05-01",
+        rollover: true,
+      });
+      await createBudgetPlan(actor, {
+        categoryId: claiming.id,
+        currency: "TRY",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-05-01",
+        rollover: true,
+      });
+      await createBudgetPlan(actor, {
+        categoryId: plain.id,
+        currency: "TRY",
+        periodUnit: "month",
+        amount: "200.00",
+        activeFrom: "2026-05-01",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-05-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((entry) => entry.currency === "TRY")!;
+      expect(period.perimeter).toBe("1000");
+      // The member envelope claims its 100 directly; the group's own claim is
+      // its 500 less that 100. The plain member's 200 claims nothing and must
+      // not be netted off the group either — for a while it was, and toAssign
+      // came back saying 200 more was assignable than the envelopes held.
+      expect(period.toAssign).toBe("500");
+    });
+
+    it("says nothing about assigning where nothing rolls over", async () => {
+      const spending = await createCategory(actor, { name: "Plain limit", kind: "expense" });
+      await createAccount(actor, {
+        name: "Plain current",
+        type: "checking",
+        currency: "SEK",
+        openingDate: "2026-01-01",
+        openingBalance: "700.00",
+        idempotencyKey: nextKey(),
+      });
+      await createBudgetPlan(actor, {
+        categoryId: spending.id,
+        currency: "SEK",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-05-01",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-05-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((entry) => entry.currency === "SEK")!;
+      // A budget that does not carry is a limit rather than a claim on cash, so
+      // a ledger without envelopes is told nothing rather than being told its
+      // whole balance is unassigned.
+      expect(period.toAssign).toBeNull();
+      // The perimeter is still reported, because it is a fact either way.
+      expect(period.perimeter).toBe("700");
+    });
+  });
+
+  /**
+   * The forecast, which is the one surface here that talks about money that has
+   * not moved.
+   *
+   * Everything it says is a projection, and `tests/forecast-boundary.test.ts`
+   * holds it to that structurally. What these check is the arithmetic: that a
+   * recurrence lands in the period its posted date falls in, that the balance
+   * it starts from is a real one, and that a budget is never counted twice.
+   */
+  describe("a forecast", () => {
+    it("projects a recurring payment forward from today's balance", async () => {
+      const account = await createAccount(actor, {
+        name: "Forecast current",
+        type: "checking",
+        currency: "DKK",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      });
+      const rent = await createCategory(actor, { name: "Forecast rent", kind: "expense" });
+      await createRecurrence(actor, {
+        name: "Forecast rent",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          categoryId: rent.id,
+          amount: "100.00",
+          payee: "Landlord",
+        },
+      });
+
+      const forecast = await getForecast(actor, { periodUnit: "month", periods: 3 });
+      const currency = forecast.currencies.find((entry) => entry.currency === "DKK")!;
+      expect(currency.openingBalance).toBe("1000");
+      expect(currency.periods).toHaveLength(3);
+
+      // Asserted against itself rather than against a hand-computed month,
+      // because which periods the occurrences fall in depends on what day the
+      // suite runs. What holds whatever the date is: every occurrence is a
+      // hundred, the first period opens on the real balance, and each period
+      // closes on what it opened with less what it expects to spend.
+      const occurrences = currency.periods.reduce((total, period) => total + period.occurrences, 0);
+      expect(occurrences).toBeGreaterThanOrEqual(2);
+      expect(currency.periods[0]!.openingBalance).toBe("1000");
+      for (const period of currency.periods) {
+        expect(period.expectedSpending).toBe(String(period.occurrences * 100));
+        expect(Number(period.projectedBalance)).toBe(
+          Number(period.openingBalance) +
+            Number(period.expectedIncome) -
+            Number(period.expectedSpending),
+        );
+      }
+      expect(Number(currency.periods.at(-1)!.projectedBalance)).toBe(1000 - occurrences * 100);
+      // And nothing was written: a projection is not a proposal.
+      expect(
+        (await listStages(actor, {})).items.some((row) => row.draft.payee === "Landlord"),
+      ).toBe(false);
+    });
+
+    it("counts a budget only where a recurrence does not already cover it", async () => {
+      const account = await createAccount(actor, {
+        name: "Forecast basis",
+        type: "checking",
+        currency: "PLN",
+        openingDate: "2026-01-01",
+        openingBalance: "500.00",
+        idempotencyKey: nextKey(),
+      });
+      const food = await createCategory(actor, { name: "Forecast food", kind: "expense" });
+      await createRecurrence(actor, {
+        name: "Forecast groceries",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          categoryId: food.id,
+          amount: "40.00",
+          payee: "Supermarket",
+        },
+      });
+      await createBudgetPlan(actor, {
+        categoryId: food.id,
+        currency: "PLN",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-01-01",
+      });
+
+      const recurring = await getForecast(actor, { periodUnit: "month", periods: 1 });
+      const both = await getForecast(actor, {
+        periodUnit: "month",
+        periods: 1,
+        basis: "recurring_and_budgets",
+      });
+      const monthOf = (view: typeof recurring) =>
+        view.currencies.find((entry) => entry.currency === "PLN")!.periods[0]!;
+
+      // Whether this month holds the occurrence depends on the day the suite
+      // runs, so the claim is about the relationship rather than about a month:
+      // the part of the budget a recurrence covers is never added twice.
+      const plain = monthOf(recurring);
+      const pessimistic = monthOf(both);
+      expect(plain.budgetedSpending).toBe("100");
+      expect(Number(plain.uncoveredBudget)).toBe(100 - Number(plain.expectedSpending));
+      expect(Number(pessimistic.expectedSpending)).toBe(
+        Number(plain.expectedSpending) + Number(plain.uncoveredBudget),
+      );
+      // Which is a hundred either way: forty dated and sixty not, or nothing
+      // dated and the whole hundred still intended.
+      expect(pessimistic.expectedSpending).toBe("100");
+    });
+
+    it("says which recurrences it could not project", async () => {
+      const account = await createAccount(actor, {
+        name: "Forecast unknown",
+        type: "checking",
+        currency: "HUF",
+        openingDate: "2026-01-01",
+        openingBalance: "100.00",
+        idempotencyKey: nextKey(),
+      });
+      await createRecurrence(actor, {
+        name: "Variable bill",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          payee: "Utility",
+        },
+      });
+
+      const forecast = await getForecast(actor, { periodUnit: "month", periods: 2 });
+      // A schedule with no amount is a real schedule with no figure. Counting
+      // it as nothing would flatter every period it falls in, so it is named.
+      expect(forecast.unprojectable.map((entry) => entry.name)).toContain("Variable bill");
+      const currency = forecast.currencies.find((entry) => entry.currency === "HUF")!;
+      expect(currency.periods[0]!.expectedSpending).toBe("0");
+    });
+
+    it("says which budgets it could not project, and which units it did not read", async () => {
+      const averaged = await createCategory(actor, { name: "Forecast averaged", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: averaged.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "10.00",
+        activeFrom: "2026-01-01",
+        lookbackPeriods: 3,
+      });
+      const weekly = await createCategory(actor, { name: "Forecast weekly", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: weekly.id,
+        currency: "USD",
+        periodUnit: "week",
+        amount: "25.00",
+        activeFrom: "2026-01-05",
+      });
+
+      const forecast = await getForecast(actor, { periodUnit: "month", periods: 2 });
+      // A derived amount is worked out from periods that have not happened, so
+      // the projection names the budget instead of counting its stored zero.
+      expect(forecast.unprojectable.map((entry) => entry.name)).toContain("Forecast averaged");
+      // And a unit it did not read is said, not silently skipped: a monthly
+      // projection that counts nothing for a weekly budgeter otherwise reads
+      // as though nothing is intended at all.
+      expect(forecast.otherPeriodUnits).toContain("week");
+    });
+
+    it("projects an incremental budget the way the report compounds it", async () => {
+      const stepped = await createCategory(actor, { name: "Forecast stepped", kind: "expense" });
+      const account = await createAccount(actor, {
+        name: "Forecast stepped account",
+        type: "checking",
+        currency: "RON",
+        openingDate: "2026-01-01",
+        openingBalance: "10000.00",
+        idempotencyKey: nextKey(),
+      });
+      // An anchor well in the past, so every projected period is a later step
+      // of the chain rather than the base.
+      await createBudgetPlan(actor, {
+        categoryId: stepped.id,
+        currency: "RON",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2020-01-01",
+        percentOfPrevious: "10",
+      });
+      // A recurrence, so the currency has a bucket at all.
+      await createRecurrence(actor, {
+        name: "Forecast stepped floor",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          payee: "Stepped utility",
+          amount: "1.00",
+        },
+      });
+
+      const [monthly] = (
+        await getForecast(actor, { periodUnit: "month", periods: 2 })
+      ).currencies.filter((entry) => entry.currency === "RON");
+      const first = monthly!.periods[0]!;
+      const second = monthly!.periods[1]!;
+      // The stored amount is the base of a chain the report compounds, so a
+      // projection using it flat answered the same month with a different
+      // figure than the budget report — and drifted further every period.
+      // What must hold whatever today's date is: each projected period is ten
+      // per cent up on the one before, and far above the six-year-old base.
+      expect(Number(first.budgetedSpending)).toBeGreaterThan(100);
+      expect(Number(second.budgetedSpending) / Number(first.budgetedSpending)).toBeCloseTo(1.1, 6);
+    });
+
+    it("counts a cross-currency arrival as the occurrence it is", async () => {
+      const from = await createAccount(actor, {
+        name: "Forecast transfer source",
+        type: "checking",
+        currency: "ISK",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      });
+      const to = await createAccount(actor, {
+        name: "Forecast transfer destination",
+        type: "checking",
+        currency: "BGN",
+        openingDate: "2026-01-01",
+        openingBalance: "0",
+        idempotencyKey: nextKey(),
+      });
+      await createRecurrence(actor, {
+        name: "Forecast conversion",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "transfer",
+          fromAccountId: from.id,
+          toAccountId: to.id,
+          amount: "100.00",
+          destinationAmount: "50.00",
+          payee: "Own transfer",
+        },
+      });
+
+      const forecast = await getForecast(actor, { periodUnit: "month", periods: 3 });
+      const destination = forecast.currencies.find((entry) => entry.currency === "BGN")!;
+      // The arrival is the same occurrence seen from the other side. Income
+      // with `occurrences: 0` beside it reads as money nothing explains.
+      for (const period of destination.periods) {
+        if (Number(period.expectedIncome) > 0) {
+          expect(period.occurrences).toBeGreaterThan(0);
+        }
+      }
+      const arrived = destination.periods.reduce(
+        (total, period) => total + Number(period.expectedIncome),
+        0,
+      );
+      expect(arrived).toBeGreaterThan(0);
+    });
+  });
+});

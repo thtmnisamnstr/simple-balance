@@ -4,11 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  Account,
-  AccountBalanceSnapshot,
-  AccountRegister,
-} from "../src/client/api.js";
+import type { Account, AccountBalanceSnapshot, AccountRegister } from "../src/client/api.js";
 import AccountDetailPage from "../src/client/pages/AccountDetailPage.js";
 import { BrowserRouter, Route, Routes } from "../src/client/router.js";
 import { TimezoneProvider } from "../src/client/timezone.js";
@@ -149,15 +145,15 @@ describe("an account's register", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show register" }));
 
     const row = await screen.findByRole("row", { name: /Feb 1, 2026/ });
-    const cells = within(row).getAllByRole("cell").map((cell) => cell.textContent);
+    const cells = within(row)
+      .getAllByRole("cell")
+      .map((cell) => cell.textContent);
     // Origin, amount, before, after — the balance either side of the row is the
     // whole reason the register exists.
     expect(cells).toEqual(["Transaction", "-$100.00", "$1,000.00", "$900.00"]);
 
     expect(
-      within(await screen.findByRole("row", { name: /Jan 1, 2026/ })).getByText(
-        "Opening balance",
-      ),
+      within(await screen.findByRole("row", { name: /Jan 1, 2026/ })).getByText("Opening balance"),
     ).toBeInTheDocument();
   });
 
@@ -216,9 +212,7 @@ describe("an account's register", () => {
     await screen.findByRole("heading", { name: "Register" });
     fireEvent.click(screen.getByRole("button", { name: "Show register" }));
 
-    expect(
-      await screen.findByText("That range holds too many postings"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("That range holds too many postings")).toBeInTheDocument();
     expect(screen.queryByRole("table")).toBeNull();
   });
 

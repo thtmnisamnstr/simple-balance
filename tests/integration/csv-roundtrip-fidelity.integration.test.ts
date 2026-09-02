@@ -6,15 +6,9 @@ import { scratchDatabase } from "./support/scratch-database.js";
 import { categories, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import { createCategory } from "../../src/server/services/categories.js";
-import {
-  exportTransactionsCsv,
-  stageCsv,
-} from "../../src/server/services/import-export.js";
+import { exportTransactionsCsv, stageCsv } from "../../src/server/services/import-export.js";
 import { commitStages, listStages } from "../../src/server/services/staging.js";
-import {
-  createTransaction,
-  getTransaction,
-} from "../../src/server/services/transactions.js";
+import { createTransaction, getTransaction } from "../../src/server/services/transactions.js";
 import { APP_CSV_COLUMNS, isAppExportCsv } from "../../src/shared/csv.js";
 
 const connection = process.env.TEST_DATABASE_URL;
@@ -24,7 +18,12 @@ const actor: Actor = { userId: "csv-fidelity-source", source: "web" };
 const stranger: Actor = { userId: "csv-fidelity-target", source: "web" };
 
 let key = 0;
-const nextKey = () => `csv-fidelity-${(key += 1)}`.padEnd(16, "0");
+// Padded on the counter rather than the whole string, because padding the
+// string to a fixed width made different counters collide: "…-1" and "…-10"
+// both filled out to the same key, and two calls with the same payload then
+// returned the first transaction instead of making a second one — a test that
+// passes having written nothing.
+const nextKey = () => `csv-fidelity-${String((key += 1)).padStart(3, "0")}`;
 
 /**
  * What survives a full export and re-import into a different ledger. Everything
@@ -71,8 +70,7 @@ integration("what a CSV round trip preserves", () => {
       idempotencyKey: nextKey(),
     });
 
-  const stagedRows = async (owner: Actor) =>
-    (await listStages(owner, { limit: 100 })).items;
+  const stagedRows = async (owner: Actor) => (await listStages(owner, { limit: 100 })).items;
 
   it("carries the bank's own reference and never the source ledger's id", async () => {
     const created = await createTransaction(
@@ -96,9 +94,7 @@ integration("what a CSV round trip preserves", () => {
 
     await restore(csv);
     const [row] = await stagedRows(stranger);
-    expect((row!.draft as { externalId?: string }).externalId).toBe(
-      "FITID202604010001",
-    );
+    expect((row!.draft as { externalId?: string }).externalId).toBe("FITID202604010001");
     expect((row!.draft as { externalId?: string }).externalId).not.toBe(created.id);
   });
 
@@ -152,9 +148,7 @@ integration("what a CSV round trip preserves", () => {
 
     const staged = await restore(csv);
     expect(staged.referenceResolution.categories).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ inputName: "Savings Sweep" }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ inputName: "Savings Sweep" })]),
     );
     const row = (await stagedRows(stranger)).find(
       (one) => (one.draft as { payee?: string }).payee === "Monthly sweep",
@@ -162,12 +156,7 @@ integration("what a CSV round trip preserves", () => {
     const created = await getDb()
       .select()
       .from(categories)
-      .where(
-        and(
-          eq(categories.userId, stranger.userId),
-          eq(categories.name, "Savings Sweep"),
-        ),
-      );
+      .where(and(eq(categories.userId, stranger.userId), eq(categories.name, "Savings Sweep")));
     expect(created).toHaveLength(1);
     expect((row!.draft as { categoryId?: string }).categoryId).toBe(created[0]!.id);
   });
@@ -279,9 +268,8 @@ integration("what a CSV round trip preserves", () => {
       expectedVersions: { [repaired.id]: repaired.version },
       idempotencyKey: nextKey(),
     });
-    const transactionId = (
-      committed as { committed: { transactionId: string }[] }
-    ).committed[0]!.transactionId;
+    const transactionId = (committed as { committed: { transactionId: string }[] }).committed[0]!
+      .transactionId;
     const transaction = await getTransaction(stranger, transactionId);
     expect(transaction.category?.name).toBe("Savings Sweep");
   });

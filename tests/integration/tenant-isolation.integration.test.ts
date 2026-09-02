@@ -1,6 +1,17 @@
 import { sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  createBudgetPlan,
+  deleteBudgetEntry,
+  deleteBudgetPlan,
+  getBudgetPlan,
+  getBudgetReport,
+  listBudgetEntries,
+  listBudgetPlans,
+  setBudgetEntry,
+  updateBudgetPlan,
+} from "../../src/server/services/budgets.js";
 import type { Actor } from "../../src/shared/domain.js";
 import { closeDb, getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
@@ -12,6 +23,10 @@ import {
   listAccounts,
   updateAccount,
 } from "../../src/server/services/accounts.js";
+import {
+  createCategoryGroup,
+  listCategoryGroups,
+} from "../../src/server/services/category-groups.js";
 import {
   createCategory,
   listCategories,
@@ -87,9 +102,8 @@ integration("one tenant cannot reach another", () => {
       openingBalance: "1000",
     });
     aliceAccountId = account.id;
-    aliceCategoryId = (
-      await createCategory(alice, { name: "Alice Groceries", kind: "expense" })
-    ).id;
+    aliceCategoryId = (await createCategory(alice, { name: "Alice Groceries", kind: "expense" }))
+      .id;
     const transaction = await createTransaction(
       alice,
       {
@@ -154,12 +168,8 @@ integration("one tenant cannot reach another", () => {
 
   it("refuses reads of another tenant's records by id", async () => {
     await expect(getAccount(mallory, aliceAccountId)).rejects.toThrow(/not found/i);
-    await expect(getTransaction(mallory, aliceTransactionId)).rejects.toThrow(
-      /not found/i,
-    );
-    await expect(
-      getAccountBalances(mallory, aliceAccountId, {}),
-    ).rejects.toThrow(/not found/i);
+    await expect(getTransaction(mallory, aliceTransactionId)).rejects.toThrow(/not found/i);
+    await expect(getAccountBalances(mallory, aliceAccountId, {})).rejects.toThrow(/not found/i);
   });
 
   it("refuses writes to another tenant's records by id", async () => {
@@ -192,12 +202,7 @@ integration("one tenant cannot reach another", () => {
     ).rejects.toThrow(/not found/i);
 
     await expect(
-      setTransactionDeleted(
-        mallory,
-        aliceTransactionId,
-        aliceTransactionVersion,
-        true,
-      ),
+      setTransactionDeleted(mallory, aliceTransactionId, aliceTransactionVersion, true),
     ).rejects.toThrow(/not found/i);
   });
 
@@ -210,9 +215,7 @@ integration("one tenant cannot reach another", () => {
       bulkEditTransactions(mallory, {
         selection: {
           mode: "ids",
-          items: [
-            { id: aliceTransactionId, expectedVersion: aliceTransactionVersion },
-          ],
+          items: [{ id: aliceTransactionId, expectedVersion: aliceTransactionVersion }],
         },
         patch: { payee: "Rewritten in bulk" },
         idempotencyKey: "tenant-bulk-edit",
@@ -224,9 +227,7 @@ integration("one tenant cannot reach another", () => {
       bulkDeleteTransactions(mallory, {
         selection: {
           mode: "ids",
-          items: [
-            { id: aliceTransactionId, expectedVersion: aliceTransactionVersion },
-          ],
+          items: [{ id: aliceTransactionId, expectedVersion: aliceTransactionVersion }],
         },
         idempotencyKey: "tenant-bulk-delete",
         dryRun: false,
@@ -312,5 +313,116 @@ integration("one tenant cannot reach another", () => {
         "tenant-mallory-ext",
       ),
     ).resolves.toMatchObject({ externalId: external });
+  });
+  /**
+   * Budgets were added without a single cross-tenant test, and a mutation audit
+   * found eight scope predicates in `budgets.ts` that could be deleted with the
+   * whole suite still green. Tenancy is the one thing AGENTS.md calls
+   * non-negotiable, so it is checked here rather than trusted.
+   */
+  /**
+   * The group link is the one cross-table reference here that is not composite.
+   *
+   * `on delete set null` sets every column of the constraint it is on, so the
+   * usual `(user_id, id)` pair would null the tenant as well and fail against
+   * `user_id not null`. The database therefore does not stop a category
+   * pointing at somebody else's group; `resolveCategoryGroup` does, on the one
+   * path that writes the column, and this is what holds it to that.
+   */
+  it("refuses to file a category under another tenant's group", async () => {
+    const aliceGroup = await createCategoryGroup(alice, {
+      name: "Alice fixed costs",
+      policy: "standalone",
+    });
+    const malloryCategory = await createCategory(mallory, {
+      name: "Mallory spending",
+      kind: "expense",
+    });
+
+    await expect(
+      updateCategory(mallory, malloryCategory.id, {
+        expectedVersion: malloryCategory.version,
+        groupId: aliceGroup.id,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      createCategory(mallory, {
+        name: "Mallory borrowed group",
+        kind: "expense",
+        groupId: aliceGroup.id,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(
+      createBudgetPlan(mallory, {
+        groupId: aliceGroup.id,
+        amount: "10.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2027-01-01",
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(await listCategoryGroups(mallory)).toEqual([]);
+  });
+
+  it("keeps budgets to the tenant that set them", async () => {
+    const plan = await createBudgetPlan(alice, {
+      categoryId: aliceCategoryId,
+      amount: "250.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2027-01-01",
+    });
+    const entry = await setBudgetEntry(alice, {
+      categoryId: aliceCategoryId,
+      currency: "USD",
+      periodUnit: "month",
+      periodStart: "2027-02-01",
+      amount: "90.00",
+    });
+
+    // Reading somebody else's by id is a 404, never a 403: the answer to
+    // "does this exist" must not depend on who is asking.
+    await expect(getBudgetPlan(mallory, plan.id)).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(
+      updateBudgetPlan(mallory, plan.id, {
+        amount: "1.00",
+        expectedVersion: plan.version,
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    await expect(deleteBudgetPlan(mallory, plan.id, plan.version)).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(deleteBudgetEntry(mallory, entry.id, entry.version)).rejects.toMatchObject({
+      status: 404,
+    });
+
+    // Nothing of Alice's appears in a list or a report of Mallory's.
+    expect(await listBudgetPlans(mallory)).toEqual([]);
+    expect(await listBudgetEntries(mallory)).toEqual([]);
+    const malloryReport = await getBudgetReport(mallory, {
+      start: "2027-01-01",
+      end: "2027-03-31",
+      periodUnit: "month",
+    });
+    expect(malloryReport.periods.flatMap((period) => period.rows)).not.toContainEqual(
+      expect.objectContaining({ limit: "250" }),
+    );
+
+    // And Alice still has both, so none of the refusals above was a delete.
+    expect(await listBudgetPlans(alice)).toHaveLength(1);
+    expect(await listBudgetEntries(alice)).toHaveLength(1);
+
+    // Mallory cannot budget a category that is not theirs either.
+    await expect(
+      createBudgetPlan(mallory, {
+        categoryId: aliceCategoryId,
+        amount: "5.00",
+        currency: "USD",
+        periodUnit: "month",
+        activeFrom: "2027-01-01",
+      }),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });

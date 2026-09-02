@@ -1,7 +1,10 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { readSecret } from "../config-files.js";
 import { configuredDatabasePoolSize } from "../config-limits.js";
+import { databaseTransactionDuration, trackDatabasePool } from "../metrics.js";
 import * as schema from "./schema.js";
+import { log } from "../log.js";
 
 let pool: Pool | undefined;
 let authBootstrapLockPool: Pool | undefined;
@@ -9,7 +12,11 @@ let database: ReturnType<typeof drizzle<typeof schema>> | undefined;
 
 export function getPool() {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
+    // Through `readSecret` rather than `process.env`, so a value that arrived
+    // as `DATABASE_URL_FILE` reaches the pool without ever having been assigned
+    // into this process's environment. This is the read that made a resolver
+    // writing back into `process.env` look necessary; it is not.
+    const connectionString = readSecret("DATABASE_URL");
     if (!connectionString) throw new Error("DATABASE_URL is required");
     pool = new Pool({
       connectionString,
@@ -23,8 +30,13 @@ export function getPool() {
     // the next query. pg has already removed and destroyed the client by the
     // time this runs; there is nothing to do but say so.
     pool.on("error", (error) => {
-      console.error("Idle database client error", error);
+      log.failure("Idle database client error", error);
     });
+    // Handed to the metrics registry rather than read from it, because a scrape
+    // must never be the thing that opens a database connection: reading
+    // `getPool()` from a collector would create one on a process that has not
+    // touched the database yet.
+    trackDatabasePool(pool);
   }
   return pool;
 }
@@ -55,8 +67,12 @@ export function getDb() {
  * pooler in the first place.
  */
 export function directConnectionString() {
-  const direct = process.env.DIRECT_DATABASE_URL?.trim();
-  const connectionString = direct || process.env.DATABASE_URL;
+  // Resolving on first read is also what makes `npm run db:migrate` work with a
+  // `_FILE` value: that script calls `runMigrations`, which reaches this
+  // function and never calls `getConfig`, so nothing there has to know a
+  // resolver exists.
+  const direct = readSecret("DIRECT_DATABASE_URL")?.trim();
+  const connectionString = direct || readSecret("DATABASE_URL");
   if (!connectionString) throw new Error("DATABASE_URL is required");
   return connectionString;
 }
@@ -68,15 +84,19 @@ export function getAuthBootstrapLockPool() {
       max: 1,
       connectionTimeoutMillis: 10_000,
     });
+    // Same handler the main pool has, for the same reason: an idle client's
+    // connection dropping emits 'error' on the pool, and unhandled that is an
+    // uncaught exception that takes the process down for a blip the next
+    // query would simply have retried through.
+    authBootstrapLockPool.on("error", (error) => {
+      log.failure("Idle auth bootstrap client error", error);
+    });
   }
   return authBootstrapLockPool;
 }
 
 export async function closeDb() {
-  await Promise.all([
-    pool?.end(),
-    authBootstrapLockPool?.end(),
-  ]);
+  await Promise.all([pool?.end(), authBootstrapLockPool?.end()]);
   pool = undefined;
   authBootstrapLockPool = undefined;
   database = undefined;
@@ -97,5 +117,12 @@ export function withTransaction<T>(
   transaction: DbTransaction | undefined,
   operation: (tx: DbTransaction) => Promise<T>,
 ): Promise<T> {
-  return transaction ? operation(transaction) : getDb().transaction(operation);
+  // Timed only where a transaction is opened here. A caller that supplied one
+  // is already being timed by whoever opened it, and counting both would report
+  // one write as two and double the total time spent holding connections.
+  if (transaction) return operation(transaction);
+  const stop = databaseTransactionDuration.startTimer();
+  return getDb()
+    .transaction(operation)
+    .finally(() => stop());
 }

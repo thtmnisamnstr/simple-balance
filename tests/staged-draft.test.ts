@@ -61,6 +61,7 @@ describe("malformed staged draft presentation", () => {
 describe("saving a split as a template", () => {
   const leg = (categoryId: string, amount: string) => ({
     id: "",
+    formKey: `test-${categoryId}-${amount}`,
     categoryId,
     categoryName: "",
     amount,
@@ -78,7 +79,10 @@ describe("saving a split as a template", () => {
       description: "Weekly shop",
       notes: "Split three ways",
       categoryId: "",
-      legs: [leg("11111111-1111-4111-8111-111111111111", "60"), leg("22222222-2222-4222-8222-222222222222", "40")],
+      legs: [
+        leg("11111111-1111-4111-8111-111111111111", "60"),
+        leg("22222222-2222-4222-8222-222222222222", "40"),
+      ],
     });
     expect(template.legs).toHaveLength(2);
     expect(template.description).toBe("Weekly shop");
@@ -192,8 +196,22 @@ describe("saving a row as a recurring transaction", () => {
       fromAccountId: account,
       amount: "100",
       legs: [
-        { id: "leg-one", categoryId: groceries, categoryName: "", amount: "60", note: "" },
-        { id: "leg-two", categoryId: rent, categoryName: "", amount: "40", note: "Rent share" },
+        {
+          id: "leg-one",
+          formKey: "k1",
+          categoryId: groceries,
+          categoryName: "",
+          amount: "60",
+          note: "",
+        },
+        {
+          id: "leg-two",
+          formKey: "k2",
+          categoryId: rent,
+          categoryName: "",
+          amount: "40",
+          note: "Rent share",
+        },
       ],
     });
     expect(shape.legs).toEqual([
@@ -213,8 +231,8 @@ describe("saving a row as a recurring transaction", () => {
       categoryId: groceries,
       destinationAmount: "230",
       legs: [
-        { id: "", categoryId: groceries, categoryName: "", amount: "150", note: "" },
-        { id: "", categoryId: rent, categoryName: "", amount: "100", note: "" },
+        { id: "", formKey: "k3", categoryId: groceries, categoryName: "", amount: "150", note: "" },
+        { id: "", formKey: "k4", categoryId: rent, categoryName: "", amount: "100", note: "" },
       ],
     });
     expect(shape).toMatchObject({

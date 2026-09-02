@@ -3,6 +3,62 @@
 Everything persistent is in PostgreSQL. The container holds nothing you need to
 keep, so upgrading is swapping it for a newer one.
 
+## Before you upgrade to 0.1.6
+
+Nothing refuses to start that 0.1.5 accepted, and nothing about an existing
+configuration has to change. Five things are worth knowing.
+
+**Eight migrations run at startup, and none rewrites a row.** They create the
+budget tables, the category-group table and the types they use; they add
+columns to `budget_plan`, `budget_entry`, `category` and `ledger_account` —
+every one nullable or with a default, so nothing is backfilled; they add
+indexes; one swaps a check constraint on the new budget tables for a wider
+one and another trades two unique constraints for partial unique indexes,
+touching no data because the tables they sit on ship in this same release. The pause is the length of a handful of `create table`,
+`alter table` and `create index` statements whatever the size of your ledger.
+The one new column on an existing table anybody will notice is
+`ledger_account.in_budget`, which defaults to true: every account you already
+have is inside the budget's perimeter, which is what the budget page assumes
+until you say otherwise.
+
+**Settings that used to fail in silence now say so, and one that refused now
+warns.** A bounded integer out of range — `CSV_MAX_ROWS=50000`,
+`RECURRENCE_TICK_SECONDS=0`, and the three other bounded numbers beside them —
+used to fall back to its default without a word. It still starts the container
+and still runs on the default, but it now names itself in the log with the
+value it was given and the number in force instead. So does a name set both
+ways, such as `DATABASE_URL` beside `DATABASE_URL_FILE`, where the environment
+variable wins as it always did. `DATABASE_POOL_SIZE` moved the other way:
+0.1.5 refused to start over an out-of-range value, and this release starts,
+warns, and runs on the default, so a container that would not boot yesterday
+boots today. An empty value stays as quiet as ever on purpose, because
+`.env.example` ships blanks and a blank means the default. If you have been
+carrying one of these, this release tells you so for the first time; the
+release that refuses it is a later one.
+
+**Four `/api/v1` paths were renamed and the old spellings still answer.**
+`POST /accounts/{id}/archive` is now `/archived`, `POST /categories/{id}/archive`
+is now `/archived`, `POST /staged-transactions/delete` is now `/bulk-delete`, and
+`GET /staged/{id}/duplicate` is now `/staged-transactions/{id}/duplicate`. The old
+paths carry `Deprecation` and `Sunset` headers and stop answering after 1 March
+2027. Nothing you run needs changing today; a browser tab left open across the
+upgrade keeps working.
+
+**An agent's arguments are checked more strictly.** Every MCP tool now declares a
+closed argument object, so a tool call carrying a field the tool does not declare
+comes back as an error naming it rather than having the field dropped in silence.
+Nothing an agent could successfully do before is impossible now — the dropped
+field never had any effect — but a call that returned success may now return a
+failure, which is the point: an open object teaches a model that an argument it
+invented works.
+
+**New, and off unless you ask.** `METRICS_ENABLED=true` makes both the API and
+the scheduler answer `GET /metrics` in Prometheus' format, and `METRICS_TOKEN`
+puts a bearer token in front of it. A deployment that sets neither has no such
+route and nothing changes. `LOG_LEVEL` now governs this application's own log
+lines as well as the auth library's, so `warn` and `error` are quieter than they
+were; the first-run setup code prints at every level.
+
 ## Before you upgrade to 0.1.5
 
 Nothing refuses to start that 0.1.4 accepted, and nothing about an existing
@@ -142,13 +198,21 @@ This is the reason step 2 is not optional.
    split-deployment compose file and the Pulumi README. `tests/version.test.ts`
    checks every one of those against `package.json`, so a location the script
    forgets fails the suite rather than shipping.
-2. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
+2. Check this release's `## Before you upgrade to 0.2.0` section at the top of
+   this file, which should already be written: what runs automatically, what an
+   operator has to do by hand, what changed under them, and what to check
+   afterwards. Write it as the work lands rather than here — the suite asks for
+   the *next* version's note as well as this one's, so a release whose note was
+   left to the last minute has already been failing. Write it even when the
+   answer is that nothing changed, because a missing heading and an unwritten
+   note look the same from the outside.
+3. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
    for you and the upgrade notes above send people there to read it.
-3. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
+4. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
    image has run one against somebody's data it can never be edited again, and
    the list is what says so.
-4. Commit and push that on the default branch.
-5. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
+5. Commit and push that on the default branch.
+6. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
    `gh release create v0.2.0`.
 
 Publishing keys off the release itself, not off the tag push, so it runs once

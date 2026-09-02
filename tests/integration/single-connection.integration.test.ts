@@ -1,13 +1,11 @@
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
+import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
+import { dropScratchDatabase } from "./support/scratch-database.js";
 import { user } from "../../src/server/db/schema.js";
-import {
-  createAccount,
-  setAccountArchived,
-} from "../../src/server/services/accounts.js";
+import { createAccount, setAccountArchived } from "../../src/server/services/accounts.js";
 import { createRecurrence } from "../../src/server/services/recurrences.js";
 import { getSummary } from "../../src/server/services/summary.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
@@ -50,11 +48,11 @@ integration("running on a single database connection", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await adminClient.query(`drop database if exists "${databaseName}"`);
-    await adminClient.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: adminClient,
+      name: databaseName,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
     if (originalPoolSize === undefined) delete process.env.DATABASE_POOL_SIZE;
     else process.env.DATABASE_POOL_SIZE = originalPoolSize;
   });

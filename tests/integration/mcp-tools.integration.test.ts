@@ -33,20 +33,35 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     admin = new PgClient({ connectionString: connection });
     await admin.connect();
     await admin.query(`create database "${dbName}"`);
-    const url = new URL(connection!); url.pathname = `/${dbName}`;
+    const url = new URL(connection!);
+    url.pathname = `/${dbName}`;
     process.env.DATABASE_URL = url.toString();
     await runMigrations();
-    await getDb().insert(user).values({ id: actor.userId, name: "Live", email: "live@example.com", emailVerified: true });
-    accountId = (await createAccount(actor, { name: "Checking", type: "checking", currency: "USD", openingDate: "2026-01-01", openingBalance: "100" })).id;
+    await getDb()
+      .insert(user)
+      .values({ id: actor.userId, name: "Live", email: "live@example.com", emailVerified: true });
+    accountId = (
+      await createAccount(actor, {
+        name: "Checking",
+        type: "checking",
+        currency: "USD",
+        openingDate: "2026-01-01",
+        openingBalance: "100",
+      })
+    ).id;
     categoryId = (await createCategory(actor, { name: "Groceries", kind: "expense" })).id;
     server = createMcpServer(actor, new Set(["ledger:read", "ledger:stage", "ledger:write"]));
     client = new Client({ name: "live", version: "1.0.0" });
     const [c, s] = InMemoryTransport.createLinkedPair();
-    await server.connect(s); await client.connect(c);
+    await server.connect(s);
+    await client.connect(c);
   });
   afterAll(async () => {
-    await client?.close(); await server?.close(); await closeDb();
-    await admin.query(`drop database if exists "${dbName}"`); await admin.end();
+    await client?.close();
+    await server?.close();
+    await closeDb();
+    await admin.query(`drop database if exists "${dbName}"`);
+    await admin.end();
   });
 
   const call = async (name: string, args: Record<string, unknown> = {}) => {
@@ -77,8 +92,9 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     expect(await call("list_payee_suggestions", { search: "" })).toEqual([]);
     expect(await call("list_import_batches", {})).toMatchObject({ items: [] });
     expect(await call("summarize_own_data")).toMatchObject({ accounts: 1, categories: 1 });
-    expect(await call("preview_csv", { csv: "date,payee,amount\n2026-01-01,Shop,5.00" }))
-      .toMatchObject({ headers: ["date", "payee", "amount"], delimiter: "," });
+    expect(
+      await call("preview_csv", { csv: "date,payee,amount\n2026-01-01,Shop,5.00" }),
+    ).toMatchObject({ headers: ["date", "payee", "amount"], delimiter: "," });
   });
 
   /**
@@ -116,10 +132,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     expect(created.categoryId).toBeNull();
     expect(created.legs).toHaveLength(2);
     expect(created.legs.map((leg) => leg.amount)).toEqual(["25", "15"]);
-    expect(created.legs.map((leg) => leg.category?.name)).toEqual([
-      "Groceries",
-      "Household",
-    ]);
+    expect(created.legs.map((leg) => leg.category?.name)).toEqual(["Groceries", "Household"]);
     expect(created.legs.every((leg) => typeof leg.id === "string")).toBe(true);
 
     const preview = (await call("preview_bulk_transaction_selection", {
@@ -157,10 +170,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
         },
       },
     })) as { legs: { category: { name: string } | null }[] };
-    expect(relabelled.legs.map((leg) => leg.category?.name)).toEqual([
-      "Household",
-      "Groceries",
-    ]);
+    expect(relabelled.legs.map((leg) => leg.category?.name)).toEqual(["Household", "Groceries"]);
   });
 
   /**
@@ -227,30 +237,39 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
   });
 
   it("sets a preference and reads it back", async () => {
-    expect(await call("set_preferences", { timezone: "Europe/Paris", idempotencyKey: "pref-key-1" }))
-      .toMatchObject({ timezone: "Europe/Paris", defaultCurrency: "USD" });
+    expect(
+      await call("set_preferences", { timezone: "Europe/Paris", idempotencyKey: "pref-key-1" }),
+    ).toMatchObject({ timezone: "Europe/Paris", defaultCurrency: "USD" });
     expect(await call("get_preferences")).toMatchObject({ timezone: "Europe/Paris", chosen: true });
   });
 
   it("runs the whole template lifecycle", async () => {
-    const created = await call("create_transaction_template", {
+    const created = (await call("create_transaction_template", {
       name: "Weekly shop",
       draft: { type: "withdrawal", payee: "Corner Shop", fromAccountId: accountId, categoryId },
       idempotencyKey: "tpl-key-1",
-    }) as { id: string; version: number; draft: Record<string, unknown> };
+    })) as { id: string; version: number; draft: Record<string, unknown> };
     expect(created.draft).not.toHaveProperty("amount");
 
     expect(await call("list_transaction_templates")).toHaveLength(1);
-    expect(await call("get_transaction_template", { id: created.id })).toMatchObject({ name: "Weekly shop" });
+    expect(await call("get_transaction_template", { id: created.id })).toMatchObject({
+      name: "Weekly shop",
+    });
 
-    const updated = await call("update_transaction_template", {
-      id: created.id, input: { name: "Shop", expectedVersion: created.version }, idempotencyKey: "tpl-key-2",
-    }) as { version: number };
+    const updated = (await call("update_transaction_template", {
+      id: created.id,
+      input: { name: "Shop", expectedVersion: created.version },
+      idempotencyKey: "tpl-key-2",
+    })) as { version: number };
     expect(updated.version).toBe(2);
 
-    expect(await call("delete_transaction_template", {
-      id: created.id, expectedVersion: updated.version, idempotencyKey: "tpl-key-3",
-    })).toEqual({ id: created.id, deleted: true });
+    expect(
+      await call("delete_transaction_template", {
+        id: created.id,
+        expectedVersion: updated.version,
+        idempotencyKey: "tpl-key-3",
+      }),
+    ).toEqual({ id: created.id, deleted: true });
     expect(await call("list_transaction_templates")).toHaveLength(0);
   });
 
@@ -262,35 +281,73 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
   it("changes and deletes many templates at once", async () => {
     const made = [];
     for (const name of ["Bulk one", "Bulk two"]) {
-      made.push(await call("create_transaction_template", {
-        name,
-        draft: { type: "withdrawal", payee: "Before", fromAccountId: accountId, categoryId, amount: "9.00" },
-        idempotencyKey: `bulk-create-${name}`,
-      }) as { id: string; version: number });
+      made.push(
+        (await call("create_transaction_template", {
+          name,
+          draft: {
+            type: "withdrawal",
+            payee: "Before",
+            fromAccountId: accountId,
+            categoryId,
+            amount: "9.00",
+          },
+          idempotencyKey: `bulk-create-${name}`,
+        })) as { id: string; version: number },
+      );
     }
 
-    const edited = await call("bulk_edit_transaction_templates", {
+    const edited = (await call("bulk_edit_transaction_templates", {
       selection: { items: made.map((t) => ({ id: t.id, expectedVersion: t.version })) },
       patch: { payee: "After", amount: null },
       idempotencyKey: "bulk-edit-1",
-    }) as { dryRun: boolean; changedCount: number; items: { id: string; version: number }[] };
+    })) as { dryRun: boolean; changedCount: number; items: { id: string; version: number }[] };
     expect(edited).toMatchObject({ dryRun: false, changedCount: 2 });
     expect(edited.items).toHaveLength(2);
 
-    const listed = await call("list_transaction_templates") as {
-      id: string; version: number; draft: Record<string, unknown>;
+    const listed = (await call("list_transaction_templates")) as {
+      id: string;
+      version: number;
+      draft: Record<string, unknown>;
     }[];
     for (const template of listed) {
       expect(template.draft.payee).toBe("After");
       expect(template.draft).not.toHaveProperty("amount");
     }
 
-    const deleted = await call("bulk_delete_transaction_templates", {
+    const deleted = (await call("bulk_delete_transaction_templates", {
       selection: { items: listed.map((t) => ({ id: t.id, expectedVersion: t.version })) },
       idempotencyKey: "bulk-delete-1",
-    }) as { changedCount: number };
+    })) as { changedCount: number };
     expect(deleted.changedCount).toBe(2);
     expect(await call("list_transaction_templates")).toHaveLength(0);
+  });
+
+  /**
+   * The advice half of a version conflict, over the transport that reads it.
+   *
+   * The browser is told to reload; an agent has nothing to reload, so the MCP
+   * transport renders `agentMessage` instead. The sentence and the field it
+   * names have to arrive together — a refusal pointing at
+   * `details.currentVersion` when the payload has no such key would be the same
+   * defect one level down — so this asserts both in one call.
+   */
+  it("tells an agent to read the row again, and hands it the version to use", async () => {
+    const out = await client.callTool({
+      name: "update_account",
+      arguments: {
+        id: accountId,
+        input: { name: "Renamed", expectedVersion: 999 },
+        idempotencyKey: "stale-account-1",
+      },
+    });
+    expect(out.isError).toBe(true);
+    const error = (out.structuredContent as { result: { error: Record<string, unknown> } }).result
+      .error;
+    expect(error.code).toBe("STALE_VERSION");
+    expect(error.message).toMatch(/Read it again/);
+    expect(error.message).not.toMatch(/Reload/);
+    const account = (await call("get_account", { id: accountId })) as { version: number };
+    expect((error.details as { currentVersion: number }).currentVersion).toBe(account.version);
   });
 
   // The one key a template refuses rather than drops, checked through the
@@ -337,13 +394,9 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
           };
           expect(result.report, `${report}/${bucket}`).toBe(report);
           for (const currency of result.currencies) {
-            expect(currency.totals.length, `${report}/${bucket}`).toBe(
-              result.buckets.length,
-            );
+            expect(currency.totals.length, `${report}/${bucket}`).toBe(result.buckets.length);
             for (const row of currency.rows) {
-              expect(row.values.length, `${report}/${bucket}`).toBe(
-                result.buckets.length,
-              );
+              expect(row.values.length, `${report}/${bucket}`).toBe(result.buckets.length);
             }
           }
         }
@@ -390,6 +443,14 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       draft: { type: "withdrawal", payee: "Sweep" },
       idempotencyKey: "sweep-template",
     })) as { id: string };
+    const budget = (await call("create_budget_plan", {
+      categoryId,
+      amount: "200.00",
+      currency: "USD",
+      periodUnit: "month",
+      activeFrom: "2026-01-01",
+      idempotencyKey: "sweep-budget",
+    })) as { id: string };
 
     const { tools } = await client.listTools();
     const reads = tools.filter((tool) => tool.annotations?.readOnlyHint === true);
@@ -406,6 +467,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
       get_staged_duplicate: { id: staged.id },
       get_recurrence: { id: recurrence.id },
       get_transaction_template: { id: template.id },
+      get_budget_plan: { id: budget.id },
       preview_csv: { csv: "date,payee,amount\n2026-01-01,Shop,5.00" },
       preview_bulk_transaction_selection: { filter: { includeDeleted: false } },
       preview_bulk_staged_selection: { filter: {} },
@@ -417,21 +479,17 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
         name: tool.name,
         arguments: args[tool.name] ?? {},
       });
-      const result = (out.structuredContent as { result?: unknown } | undefined)
-        ?.result;
+      const result = (out.structuredContent as { result?: unknown } | undefined)?.result;
       if (result === undefined) {
         dropped.push(`${tool.name} returned no structured result`);
         continue;
       }
       if (result && typeof result === "object" && "error" in result) {
-        dropped.push(
-          `${tool.name}: ${JSON.stringify((result as { error: unknown }).error)}`,
-        );
+        dropped.push(`${tool.name}: ${JSON.stringify((result as { error: unknown }).error)}`);
       }
     }
     expect(dropped).toEqual([]);
   });
-
 
   /**
    * The one fact about a reminder an agent cannot work out from the ledger: can
@@ -441,10 +499,14 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
    */
   it("tells an agent whether a reminder can be delivered", async () => {
     const identity = await call("whoami");
-    expect(identity).toMatchObject({ userId: actor.userId });
-    expect(
-      typeof (identity as { notificationsAvailable?: unknown }).notificationsAvailable,
-    ).toBe("boolean");
+    expect(identity).toMatchObject({ email: "live@example.com", clientId: "live" });
+    // The owner id is the one constant every row on this surface carries, and
+    // nothing may send it back, so it is published nowhere: schema and payload
+    // both. Pinned here because this is the one place that sees a real reply.
+    expect(identity).not.toHaveProperty("userId");
+    expect(typeof (identity as { notificationsAvailable?: unknown }).notificationsAvailable).toBe(
+      "boolean",
+    );
   });
 
   /**

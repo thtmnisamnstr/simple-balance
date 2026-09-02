@@ -42,9 +42,7 @@ async function folderThrough0004() {
  * equality rather than for approximate agreement.
  */
 async function rowsOf(table: string, columns: string) {
-  const result = await getDb().execute(
-    sql.raw(`select ${columns} from ${table} order by id`),
-  );
+  const result = await getDb().execute(sql.raw(`select ${columns} from ${table} order by id`));
   return JSON.stringify(result.rows);
 }
 
@@ -147,8 +145,7 @@ integration("upgrading a ledger from the oldest supported state to this one", ()
 
     const transactionColumns =
       "id, type, date, payee, category_id, source_account_id, source_amount, source_currency, version, deleted_at, updated_at";
-    const postingColumns =
-      "id, transaction_id, account_id, date, amount, currency, updated_at";
+    const postingColumns = "id, transaction_id, account_id, date, amount, currency, updated_at";
     const before = {
       transactions: await rowsOf("ledger_transaction", transactionColumns),
       postings: await rowsOf("posting", postingColumns),
@@ -156,9 +153,7 @@ integration("upgrading a ledger from the oldest supported state to this one", ()
 
     await runMigrations();
 
-    expect(await rowsOf("ledger_transaction", transactionColumns)).toBe(
-      before.transactions,
-    );
+    expect(await rowsOf("ledger_transaction", transactionColumns)).toBe(before.transactions);
     expect(await rowsOf("posting", postingColumns)).toBe(before.postings);
 
     const added = await getDb().execute(sql`
@@ -204,9 +199,7 @@ integration("upgrading a ledger from the oldest supported state to this one", ()
 
     // And the recurrence table arrives empty, so nothing was invented for a
     // ledger that never had one.
-    const recurrences = await getDb().execute(
-      sql`select count(*)::int as count from recurrence`,
-    );
+    const recurrences = await getDb().execute(sql`select count(*)::int as count from recurrence`);
     expect(recurrences.rows[0]).toEqual({ count: 0 });
   });
 
@@ -222,10 +215,7 @@ integration("upgrading a ledger from the oldest supported state to this one", ()
   it("keeps the leg counter agreeing with the legs themselves", async () => {
     const userId = "upgrade-tenant";
     const household = (
-      await createCategory(
-        { userId, source: "web" },
-        { name: "Household", kind: "expense" },
-      )
+      await createCategory({ userId, source: "web" }, { name: "Household", kind: "expense" })
     ).id;
     const split = await updateTransaction(
       { userId, source: "web" },

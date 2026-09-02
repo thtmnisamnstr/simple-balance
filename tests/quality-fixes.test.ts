@@ -1,14 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import {
-  compareMoney,
-  formatDate,
-  moneyUnits,
-} from "../src/client/money.js";
-import {
-  bulkStageFilterSchema,
-  stageListQuerySchema,
-} from "../src/shared/domain.js";
+import { compareMoney, formatDate, moneyUnits } from "../src/client/money.js";
+import { bulkStageFilterSchema, stageListQuerySchema } from "../src/shared/domain.js";
 
 /**
  * A balance is a decimal string carrying up to eighteen fractional digits, which
@@ -122,25 +115,15 @@ describe("every staged filter the schema accepts is one the query applies", () =
       source.indexOf("export function stageFilterConditions"),
       source.indexOf("export async function listStages"),
     );
-    const applied = new Set(
-      [...body.matchAll(/query\.([A-Za-z]+)/g)].map((match) => match[1]!),
-    );
+    const applied = new Set([...body.matchAll(/query\.([A-Za-z]+)/g)].map((match) => match[1]!));
     const ignored = accepted.filter((key) => !applied.has(key));
-    expect(ignored, `accepted but never applied: ${ignored.join(", ")}`).toEqual(
-      [],
-    );
+    expect(ignored, `accepted but never applied: ${ignored.join(", ")}`).toEqual([]);
   });
 
   // The list query is the same predicate with paging and ordering on top, so a
   // filter it accepts and the predicate ignores is the same silent no-op.
   it("offers no staged listing filter the query ignores", async () => {
-    const presentation = new Set([
-      "cursor",
-      "page",
-      "limit",
-      "sort",
-      "direction",
-    ]);
+    const presentation = new Set(["cursor", "page", "limit", "sort", "direction"]);
     const accepted = Object.keys(stageListQuerySchema.shape).filter(
       (key) => !presentation.has(key),
     );
@@ -152,12 +135,8 @@ describe("every staged filter the schema accepts is one the query applies", () =
       source.indexOf("export function stageFilterConditions"),
       source.indexOf("export async function listStages"),
     );
-    const applied = new Set(
-      [...body.matchAll(/query\.([A-Za-z]+)/g)].map((match) => match[1]!),
-    );
+    const applied = new Set([...body.matchAll(/query\.([A-Za-z]+)/g)].map((match) => match[1]!));
     const ignored = accepted.filter((key) => !applied.has(key));
-    expect(ignored, `accepted but never applied: ${ignored.join(", ")}`).toEqual(
-      [],
-    );
+    expect(ignored, `accepted but never applied: ${ignored.join(", ")}`).toEqual([]);
   });
 });

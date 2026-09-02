@@ -51,8 +51,22 @@
   spending by category all read the posting table; only a label such as a
   category is looked up elsewhere. A posting names the leg it belongs to, and
   the leg holds the label, so recategorising is one update and writes no
-  postings at all. Never compute a monetary figure from `ledger_transaction`
-  columns.
+  postings at all. The exception says what it is: a category whose kind runs
+  against the entry's direction makes it a refund, which moves the other half
+  between the income and expense counter-accounts, so that one appends a delta
+  like any other correction. Never compute a monetary figure from
+  `ledger_transaction` columns.
+- A deposit credits income and a withdrawal debits expense only when no category
+  contradicts it. Money coming back into a spending category is a refund, not
+  income, and it debits expense so the spending it reverses goes down; the
+  mirror holds for income coming back. The rule is `resolveEntrySide` in
+  `src/shared/domain.ts`, because the browser previews it and the services
+  enforce it. One entry never names both an income and an expense category, and
+  a bulk edit never makes rows into refunds. Naming a category that does not
+  exist yet is the case the direction alone gets wrong, so `categoryKind` says
+  which kind to create; the form asks for it in the same words
+  (`tests/new-category-kind-ui.test.tsx`), and it is ignored when the category
+  already exists, because that one has an answer already.
 - A split is the counter-account side of one entry cut into legs, not a second
   record of the money. Each leg has its own postings, so "the legs add up to the
   total" is the zero-sum check that was already there and needs no rule of its
@@ -82,7 +96,14 @@
   but still a bug.
 - The MCP surface has feature parity with the web app, and `tests/mcp-parity.test.ts`
   compares them route by route. A new `/api/v1` route needs a tool in the same
-  change, or a named exception carrying its reason.
+  change, or a named exception carrying its reason. It runs the other way too:
+  the agent surface never gets ahead of the browser, so a route no page calls
+  needs a named exception of its own. A capability a person cannot reach is not
+  parity, it is a second product. Route by route is where the test can check,
+  not where the rule stops: a request field only an agent ever sets is the same
+  defect one level down, and it is invisible to a comparison of route lists.
+  `categoryKind` was exactly that for a while — documented for the MCP, absent
+  from the form, so the browser silently filed refunds as income.
 - Two exceptions, both account management rather than bookkeeping: deleting an
   account and setting a sign-in password are reachable from a session and never
   from an MCP token.
@@ -101,8 +122,10 @@
 - Per-account FX stores distinct source/destination native amounts and an implied
   audit rate only. Do not add global rates or revaluation.
 - Staged transactions never affect balances or reports.
-- Updates/deletes require an expected version. Creates and commits require
-  idempotency. Bulk commits are explicit-ID, validate-first, and atomic.
+- Updates/deletes require an expected version. Commits, and creates that write
+  postings, require idempotency; a record somebody names is protected by its own
+  name being unique, so a second submit fails rather than duplicating. Bulk
+  commits are explicit-ID, validate-first, and atomic.
 - Ten thousand rows is the cap, and it is the same number everywhere: a mass
   edit, a mass delete, a commit, and a CSV import. An import that stages more
   than one action can clear is a cap doing damage. A filtered selection is
@@ -113,6 +136,21 @@
   from, including a CSV import.
 - An audit entry records what changed, and for a split that includes the legs:
   relabelling one writes no posting and touches no column on the transaction.
+- Budgeting sits over the ledger and never inside it. An assignment is not a
+  posting: nothing in a budget writes one, so deleting a budget leaves the books
+  exactly as they were, and every budget figure comes from plans, entries and
+  postings alone. A carry is folded at read time and never stored, which is what
+  lets a back-dated correction change every period after it; the fold is bounded
+  by `MAX_ROLLOVER_PERIODS` and a report that hit the bound says so. A budget is
+  about a category or a group and never both, and a group that is budgeted as
+  the sum of its categories may not hold a budget of its own. No method is ever
+  chosen: the parameter is the choice, and `amount_rule` is derived from the row
+  rather than asked for.
+- A forecast is a projection and never a balance. Money dated in the future has
+  not moved, so no figure `src/server/services/forecast.ts` produces may reach a
+  balance, a report total, or the trial balance, nothing but the two transports
+  may import it, and it writes nothing at all.
+  `tests/forecast-boundary.test.ts` holds all three.
 - A guess never overwrites a decision. The browser's detected timezone and
   currency are offered only while `chosen` is false, and that condition travels
   with the write as `ifUnchosen` so it is checked in the transaction that would
@@ -163,25 +201,89 @@
   0.1.4, and `0008_owner_setup_token.sql`,
   `0009_scheduled_notifications.sql`, `0010_drop_covered_user_indexes.sql`,
   `0011_user_theme.sql` and `0012_payee_normalized_indexes.sql` in 0.1.5.
+  `0013_budget_plans_and_entries.sql`,
+  `0014_budget_rollover_and_targets.sql`, `0015_budget_amount_rules.sql`,
+  `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
+  `0018_incremental_taper.sql`, `0019_budget_target_pair.sql` and
+  `0020_reference_indexes.sql` are written and unreleased, so they are the ones
+  here that may still be regenerated; they freeze when they ship. `0016` is the
+  one exception to the composite-key habit and says why in the schema: a
+  category's group is a single-column reference, because `on delete set null`
+  nulls every column of the constraint it is on and the tenant is not nullable.
+  `tests/migrations.test.ts` holds this list to what is on disk, because a list
+  of what may never change is worth nothing if it can quietly fall behind.
   Never edit or regenerate one: someone's database has already run it, and
   changing it would leave their schema and its recorded history disagreeing.
   Every schema
   change from here is its own forward-only migration, generated with
   `npm run db:generate`, carrying whatever backfill it needs.
+- A release upgrades cleanly from the one before it. A deployment running the
+  previous release starts on this one with the configuration it already has, and
+  every client that worked against it still works. A setting that was accepted
+  stays accepted — warn and carry on rather than refusing. A precedence that
+  existed is kept. A renamed route stays registered under its old spelling with
+  `Deprecation` and `Sunset` headers. A capability a client had does not narrow.
+  Removing any of those is a later release's job, after the deprecation has been
+  in the field. `docs/standards/writing.md` has the reasoning.
 - Startup must remain the only production migration path. Keep migrations safe
   under the advisory lock and fail readiness on migration failure.
+- No metric label carries somebody's identity: not a user id, an email, an
+  account name or an amount. A metric is read by whoever can reach the scrape
+  endpoint, which is not the person whose ledger it counts, and the same rule
+  keeps the cardinality bounded — a path with an id in it is counted under its
+  route pattern, never under the path. `/metrics` is off unless asked for and
+  registered rather than refusing, so a deployment that never set
+  `METRICS_ENABLED` has no such route.
+
+## Standards
+
+This file holds the invariants: break one and the books are wrong. Two guide
+sets sit below it and neither restates it.
+
+- **[`docs/standards/`](docs/standards/index.md)** — the interfaces. What the
+  browser app, the MCP surface, the HTTP API, the CSV format and the container
+  do the same way everywhere. Read the one for the surface you are changing.
+- **[`docs/standards/code/`](docs/standards/code/index.md)** — the source.
+  Strictness, services, queries, React, errors, tests, metrics and logging,
+  comments, and the linter and formatter settings the whole repository is
+  checked with.
+
+Where a guide and this file disagree, this file wins and the guide records the
+disagreement rather than quietly losing it.
+
+Two habits from those guides are worth knowing before the first edit, because
+both look like mistakes:
+
+- **Comments are dense on purpose** — 18.3% of non-blank lines in `src`. They
+  carry why the obvious alternative is wrong. Do not tidy them away.
+  (`docs/standards/code/comments.md`.)
+- **Some loops must not be parallelised.** Legs resolve one at a time so two
+  naming the same new category land on one category. `no-await-in-loop` is off
+  for this reason. (`docs/standards/code/services.md`.)
+- **Nothing outside the configuration layer names `console`.** Every line goes
+  through `log` (`src/server/log.ts`) so `LOG_LEVEL` means something, and that
+  includes handing `console` to something else as a default parameter, which is
+  how two modules sat outside the gate for a release.
+  (`docs/standards/code/observability.md`.)
 
 ## Commands
 
 ```sh
 npm run typecheck
+npm run lint
+npm run format
 npm test
 npm run build
 npm run verify
 TEST_DATABASE_URL=postgresql://... npm run test:integration
+BROWSER_DATABASE_URL=postgresql://... npm run test:browser
 docker build -t simple-balance:test .
 npm run ralph -- --dry-run
 ```
+
+`npm run verify` is `typecheck → lint → format:check → test → build`. The
+integration and browser suites are not in it because both need a PostgreSQL to
+point at.
 
 `npm run ralph -- --dry-run` is a local command and is deliberately not part of
 CI. Its Git guard refuses a repository whose config pulls in another file,

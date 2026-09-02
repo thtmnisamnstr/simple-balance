@@ -2,14 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
@@ -153,6 +146,7 @@ function stubQueue(
           page: 1,
           pageSize: rows.length,
           totalCount: rows.length,
+          cursorAvailable: false,
           totalPages: 1,
         };
         return jsonResponse(page);
@@ -210,9 +204,7 @@ describe("editing staged rows in bulk", () => {
     select("Market");
     select("Employer");
     const dialog = await openEditor();
-    expect(
-      within(dialog).getByText("2 selected staged rows will be edited."),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByText("2 selected staged rows will be edited.")).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByText("Change category"));
     fireEvent.change(within(dialog).getByLabelText("New category"), {
@@ -235,9 +227,7 @@ describe("editing staged rows in bulk", () => {
     // Date, payee, account, description, notes and type were never touched, so
     // none of them may appear: an absent key leaves the draft alone, and a
     // present one overwrites it.
-    expect(Object.keys((bulkBodies[0] as { patch: object }).patch)).toEqual([
-      "categoryId",
-    ]);
+    expect(Object.keys((bulkBodies[0] as { patch: object }).patch)).toEqual(["categoryId"]);
   });
 
   it("represents an emptied field as an explicit clear", async () => {
@@ -269,19 +259,11 @@ describe("editing staged rows in bulk", () => {
     select("To savings");
     const dialog = await openEditor();
 
-    expect(
-      within(dialog).getByText(/This selection contains 1 transfer\./),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("checkbox", { name: "Change account" }),
-    ).toBeDisabled();
-    expect(
-      within(dialog).getByRole("checkbox", { name: "Change type" }),
-    ).toBeDisabled();
+    expect(within(dialog).getByText(/This selection contains 1 transfer\./)).toBeInTheDocument();
+    expect(within(dialog).getByRole("checkbox", { name: "Change account" })).toBeDisabled();
+    expect(within(dialog).getByRole("checkbox", { name: "Change type" })).toBeDisabled();
     // Everything they do share stays available.
-    expect(
-      within(dialog).getByRole("checkbox", { name: "Change payee" }),
-    ).toBeEnabled();
+    expect(within(dialog).getByRole("checkbox", { name: "Change payee" })).toBeEnabled();
   });
 
   it("will not set an account on a row that has no type until the type is set too", async () => {
@@ -320,9 +302,7 @@ describe("editing staged rows in bulk", () => {
 
     select("Market");
     const dialog = await openEditor();
-    expect(
-      within(dialog).getByRole("button", { name: "Apply changes" }),
-    ).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Apply changes" })).toBeDisabled();
   });
 
   it("leaves an archived account out of the list", async () => {
@@ -333,9 +313,7 @@ describe("editing staged rows in bulk", () => {
     select("Market");
     const dialog = await openEditor();
     fireEvent.click(within(dialog).getByText("Change account"));
-    const options = within(
-      within(dialog).getByLabelText("New account"),
-    ).getAllByRole("option");
+    const options = within(within(dialog).getByLabelText("New account")).getAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
       "Choose an account",
       "Checking (USD)",

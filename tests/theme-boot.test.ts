@@ -18,10 +18,7 @@ import type { Theme } from "../src/client/api.js";
  */
 // jsdom gives `import.meta.url` an http origin, so this joins from the test
 // directory rather than resolving a file URL.
-const BOOT = readFileSync(
-  path.join(import.meta.dirname, "..", "public/theme-boot.js"),
-  "utf8",
-);
+const BOOT = readFileSync(path.join(import.meta.dirname, "..", "public/theme-boot.js"), "utf8");
 
 /** Runs the boot script against the current document, the way a browser would. */
 function runBoot() {
@@ -136,12 +133,10 @@ describe("painting the theme before first paint", () => {
 
   describe("the browser chrome", () => {
     const metas = () =>
-      [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].map(
-        (meta) => ({
-          for: meta.getAttribute("data-theme-for"),
-          media: meta.getAttribute("media"),
-        }),
-      );
+      [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].map((meta) => ({
+        for: meta.getAttribute("data-theme-for"),
+        media: meta.getAttribute("media"),
+      }));
 
     beforeEach(() => {
       document.head.innerHTML = `

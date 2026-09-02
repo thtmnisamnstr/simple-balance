@@ -58,9 +58,32 @@ and whether the user still has an authentication method enabled by the current
 - `ledger:stage`: read access plus staged transaction and CSV-stage mutations.
 - `ledger:write`: every ledger operation, including direct and staged commits.
 
+Both discovery documents advertise all seven scopes — the three above plus
+`openid`, `profile`, `email` and `offline_access` — so a client that reads them
+and asks for everything arrives with write access it may have no use for. That
+is more than a first connection needs, and narrowing it is a change this release
+does not make: a client written against an older SDK, or by hand, may not
+implement the RFC 6750 step-up, so anybody re-authorising after the upgrade
+would come back read-only with nothing on screen saying why. Taking a capability
+away quietly is not something an upgrade here does.
+
+What did land is the half that costs nobody anything. A call to a tool the
+connection has no scope for answers with an `insufficient_scope` challenge
+naming the tier that would have worked, so a client that *does* ask for less has
+a way back up, and narrowing the first ask becomes a later release's job once
+the step-up has been in the field.
+
 Tools an agent has no scope for are left out of discovery entirely, so it never
-sees a tool it cannot call. Every tool returns both `structuredContent.result`
-and the same thing as JSON text.
+sees a tool it cannot call, and calling one anyway comes back as a 403 naming
+the scope that would have worked rather than as a missing name. A call that
+reaches a tool returns both `structuredContent.result` and the same thing as
+JSON text, whether it succeeded or was refused: a refusal comes back as
+`result.error` with a code, a message and sometimes details, and `isError` set.
+An argument that fails a tool's published input schema never reaches the tool.
+The protocol refuses it first, and that refusal is a text block reading
+`MCP error -32602: Input validation error: ...` naming the field, with no
+`structuredContent` and no code. Read the field it names, fix the argument, and
+call again.
 
 Money is always a decimal string, never a JSON number, because binary floating
 point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
@@ -100,9 +123,15 @@ nothing pointing at it can be deleted where an archived account cannot.
 A transaction can name its category instead of citing an id. Send
 `categoryName` and the server matches it against the categories you already
 have, ignoring case and surrounding space, and creates one only when nothing
-matches; `categoryId` wins if you send both. An existing category that does not
-cover the side being posted is widened rather than duplicated, and an archived
-one named again comes back. This is the same rule a CSV import follows, so an
+matches; `categoryId` wins if you send both. `categoryKind` says which kind to
+create it as when the name is genuinely new, which is how a refund into a
+spending category nobody has created yet is expressed: without it a deposit
+makes an income category and the refund credits that instead of lowering the
+spending. It is ignored when the category already exists. A category naming the
+opposite side is kept as it is, because that is what a refund looks like: "Groceries" on a
+deposit lowers grocery spending rather than turning Groceries into a category
+that covers both. One already covering both sides stays that way, and an
+archived one named again comes back. This is the same rule a CSV import follows, so an
 agent writing "groceries" cannot start a second spelling of "Groceries".
 
 Deleting posts the reversal rather than erasing anything, which is why the tool
@@ -218,7 +247,7 @@ writes an audit event for the deletion. It happens on `update_transaction`,
 `bulk_edit_staged_transactions`, and only for a category the edit itself moved
 off: one that was already standing empty is left alone, so a category made ahead
 of time survives. Anything else still naming it keeps it — another transaction, a
-staged row, a recurrence, or a template — and a caller holding only
+staged row, a recurrence, a template, or a budget — and a caller holding only
 `ledger:stage` never triggers it, on the same rule that stops that scope creating
 a category. If you cached a category id before an edit, read it back afterwards
 rather than assuming it is still there.
@@ -232,6 +261,11 @@ can send mail at all, as `notificationsAvailable`: reminders and proposal notice
 are stored whether or not it can, so this is how to tell somebody that the
 reminder they just asked for will not arrive until an operator configures SMTP,
 rather than leaving them to notice the silence.
+
+It also reports `scopes`, which is what the token in hand may do. A tool outside
+that grant is not in the tool list at all, so this is how to tell a capability
+you were not granted from one that does not exist, and what to name when asking
+somebody to reconnect the client with more.
 
 `get_preferences` reports their timezone, default currency and colour theme, and
 reading the first of those matters more than it sounds. What counts as today is
@@ -340,6 +374,81 @@ It is built for finding mistakes rather than for analysis: where a balance goes
 wrong, this is the row it went wrong on. An archived account ends at zero and
 the postings that closed it out to equity are in the list, marked `closing` in
 `origin`; an account's first pair is marked `opening`.
+
+## Budgets
+
+A budget sits over the ledger and never inside it. Nothing here writes a
+posting, so a budget that is deleted leaves the books exactly as they were, and
+no balance or report moves when one changes.
+
+Amounts resolve in three steps. An explicit entry for the period wins, otherwise
+the plan's rule says the amount — which for most plans is the fixed number on
+it — otherwise the category is unbudgeted and the report says what was spent
+against no limit.
+
+A plan carries how it behaves as well as how much. `rollover` makes it an
+envelope, where what a period does not spend belongs to the next one and an
+overspend is owed by it, with `rolloverCap` holding that carry inside a number
+in both directions. `targetAmount` with `targetDate` makes it a sinking fund,
+which works out each period's figure from what is still needed and how many
+periods are left. `lookbackPeriods`, `percentOfPrevious` and `percentOfIncome`
+each make it work its amount out a different way, and only one of them may be
+named at a time. `priority` decides which budgets a short period funds first.
+None of these is a mode anybody picks: the parameter is the choice, and
+`get_budget_report` is where the worked-out figures appear.
+
+`list_category_groups`, `create_category_group`, `update_category_group` and
+`delete_category_group` handle one level of grouping over categories. A group
+either holds a budget of its own (`standalone`) or is whatever its categories
+add up to (`sum_of_children`), and that is declared when it is created because
+both are defensible and the wrong one silently makes every figure on the page
+wrong in the same direction. Put a category in a group with `update_category`'s
+`groupId`; budget a standalone group by sending `groupId` instead of
+`categoryId` to `create_budget_plan`. Deleting a group leaves its categories
+alone and takes the group's own budget with it.
+
+`list_budget_plans`, `get_budget_plan`, `create_budget_plan`,
+`update_budget_plan` and `delete_budget_plan` handle the standing amounts. One
+plan covers every period in its window, so a budget that runs all year is one
+row rather than twelve, and nothing materialises the months nobody has reached.
+Windows for one category may not overlap: raising a budget means ending the old
+plan and starting another from the next period, which is also what keeps last
+March answering with what last March intended.
+
+`get_forecast` projects the balances forward from the recurrences that already
+have dates and amounts. Nothing it returns is a balance: money dated in the
+future has not moved, and a projection reported as a balance would make the
+ledger claim something happened because somebody expected it to. Say
+"projected". The projection uses recurrences alone unless `basis` asks for the
+budgets as well, and a recurrence with no amount comes back in `unprojectable`
+rather than being counted as nothing.
+
+`list_budget_entries`, `set_budget_entry` and `delete_budget_entry` handle a
+single period. Use one for a one-off, such as a larger food budget in December.
+`periodStart` is truncated to the period unit, so any day inside the period
+names it.
+
+`get_budget_report` is the figure anybody actually wants: what each budgeted
+category was allowed and what it spent, period by period. Spending is signed, so
+a refund is negative and lowers the category it came back to. A category
+budgeted at two hundred and spent nothing on still appears, because the report
+joins from the budget to the spending rather than the other way. Figures stop at
+today where this person lives whatever end date is asked for, and `asOf` reports
+the day used. A period appears once per currency, and there is no total across
+currencies because this ledger holds no exchange rate that is not one some
+transfer actually got.
+
+`includeArchived` is on by default here and off everywhere else. A budget's
+limit was never scoped to an account, so spending that ran through a card since
+closed is spending the budget covered, and leaving it out makes a budget spent
+to the penny read as underspent. Every other report defaults the other way
+because an archived account's balance is genuinely closed out.
+
+Reading a budget needs `ledger:read`. Setting one needs `ledger:write`, and
+`ledger:stage` is not enough: a budget is a change to the ledger's own records
+rather than a proposal about money, which is the same line categories already
+sit on. Budgeting an income category is refused, because it has no spending for
+a limit to be compared against.
 
 ## Staged transactions
 

@@ -59,8 +59,7 @@ integration("the account register", () => {
       })
     ).id;
     foodId = (await createCategory(actor, { name: "Food", kind: "expense" })).id;
-    refundId = (await createCategory(actor, { name: "Refunds", kind: "both" }))
-      .id;
+    refundId = (await createCategory(actor, { name: "Refunds", kind: "both" })).id;
 
     // Two on one day, so the tie-break has something to break.
     await createTransaction(
@@ -137,22 +136,15 @@ integration("the account register", () => {
       end: "2026-03-31",
     });
     expect(register.openingBalance).toBe("100");
-    const moved = register.entries.reduce(
-      (sum, entry) => sum + Number(entry.amount),
-      0,
-    );
-    expect(Number(register.openingBalance) + moved).toBe(
-      Number(register.closingBalance),
-    );
+    const moved = register.entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
+    expect(Number(register.openingBalance) + moved).toBe(Number(register.closingBalance));
     expect(register.closingBalance).toBe("110");
   });
 
   it("carries a balance before and after every row", async () => {
     const register = await getAccountRegister(actor, checkingId, {});
     for (const entry of register.entries) {
-      expect(Number(entry.balanceBefore) + Number(entry.amount)).toBe(
-        Number(entry.balanceAfter),
-      );
+      expect(Number(entry.balanceBefore) + Number(entry.amount)).toBe(Number(entry.balanceAfter));
     }
   });
 
@@ -167,9 +159,7 @@ integration("the account register", () => {
     expect(second.entries.map((entry) => entry.postingId)).toEqual(
       first.entries.map((entry) => entry.postingId),
     );
-    const sameDay = first.entries.filter(
-      (entry) => entry.date === "2026-02-01",
-    );
+    const sameDay = first.entries.filter((entry) => entry.date === "2026-02-01");
     expect(sameDay.length).toBe(2);
   });
 
@@ -275,26 +265,18 @@ integration("the account register", () => {
     await setAccountArchived(actor, spareId, loaded.version, true);
     const register = await getAccountRegister(actor, spareId, {});
     expect(register.closingBalance).toBe("0");
-    expect(register.entries.some((entry) => entry.origin === "closing")).toBe(
-      true,
-    );
+    expect(register.entries.some((entry) => entry.origin === "closing")).toBe(true);
     expect(register.archivedAt).not.toBeNull();
   });
 
   it("refuses an account that is not this person's", async () => {
     await expect(
-      getAccountRegister(
-        { userId: "someone-else", source: "web" },
-        checkingId,
-        {},
-      ),
+      getAccountRegister({ userId: "someone-else", source: "web" }, checkingId, {}),
     ).rejects.toThrow(/not found/i);
   });
 
   it("refuses a register longer than it will list", async () => {
-    const { MAX_REGISTER_ENTRIES } = await import(
-      "../../src/shared/domain.js"
-    );
+    const { MAX_REGISTER_ENTRIES } = await import("../../src/shared/domain.js");
     expect(MAX_REGISTER_ENTRIES).toBeGreaterThan(0);
     const wide = await getAccountRegister(actor, checkingId, {});
     expect(wide.entries.length).toBeLessThanOrEqual(MAX_REGISTER_ENTRIES);

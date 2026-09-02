@@ -1,10 +1,5 @@
 import { sql, type SQL } from "drizzle-orm";
-import type {
-  Actor,
-  ReportAccumulation,
-  ReportBucket,
-  ReportName,
-} from "../../shared/domain.js";
+import type { Actor, ReportAccumulation, ReportBucket, ReportName } from "../../shared/domain.js";
 import {
   MAX_REGISTER_ENTRIES,
   MAX_REPORT_BUCKETS,
@@ -17,7 +12,7 @@ import { getDb } from "../db/client.js";
 import { notFound, validationError } from "./errors.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
-import { archivedExclusion, withClause } from "./report-sql.js";
+import { archivedExclusion, gridQuery, PERIOD_UNITS, withClause } from "./report-sql.js";
 
 type ReportRow = {
   key: string;
@@ -75,20 +70,6 @@ const PRESETS: Record<
   "trial-balance": { accumulation: "historical", defaultBucket: "none" },
 };
 
-const STEPS: Record<Exclude<ReportBucket, "none">, SQL> = {
-  week: sql`interval '1 week'`,
-  month: sql`interval '1 month'`,
-  quarter: sql`interval '3 months'`,
-  year: sql`interval '1 year'`,
-};
-
-const UNITS: Record<Exclude<ReportBucket, "none">, SQL> = {
-  week: sql`'week'`,
-  month: sql`'month'`,
-  quarter: sql`'quarter'`,
-  year: sql`'year'`,
-};
-
 const SEGMENT_LABELS: Record<string, string> = {
   operating: "Earning and spending",
   investing: "Investing",
@@ -126,23 +107,7 @@ function bucketExpression(
   if (bucket === "none") {
     return sql`case when ${column} < ${start}::date then null else ${start}::date end`;
   }
-  return sql`case when ${column} < ${start}::date then null else date_trunc(${UNITS[bucket]}, ${column})::date end`;
-}
-
-function gridQuery(bucket: ReportBucket, start: string, asOf: string): SQL {
-  if (bucket === "none") {
-    return sql`select ${start}::date as bucket_start, ${asOf}::date as period_end`;
-  }
-  return sql`
-    select
-      b.bucket::date as bucket_start,
-      (b.bucket + ${STEPS[bucket]} - interval '1 day')::date as period_end
-    from generate_series(
-      date_trunc(${UNITS[bucket]}, ${start}::date),
-      date_trunc(${UNITS[bucket]}, ${asOf}::date),
-      ${STEPS[bucket]}
-    ) as b(bucket)
-  `;
+  return sql`case when ${column} < ${start}::date then null else date_trunc(${PERIOD_UNITS[bucket]}, ${column})::date end`;
 }
 
 /**
@@ -196,11 +161,7 @@ function accountScope(report: ReportName): SQL {
   return sql`and a.system_kind is null`;
 }
 
-export async function getReport(
-  actor: Actor,
-  input: unknown,
-  includeArchived = false,
-) {
+export async function getReport(actor: Actor, input: unknown, includeArchived = false) {
   const query = reportQuerySchema.parse(input);
   if (query.start && query.end && query.start > query.end) {
     throw validationError("Start date must be on or before end date");
@@ -262,14 +223,7 @@ export async function getReport(
             !includeArchived && query.report !== "trial-balance",
           )
         : assemble(
-            await flowCells(
-              actor,
-              query.report,
-              bucket,
-              start,
-              asOf,
-              includeArchived,
-            ),
+            await flowCells(actor, query.report, bucket, start, asOf, includeArchived),
             buckets,
             preset.accumulation,
           );
@@ -282,8 +236,7 @@ export async function getReport(
     accumulation: preset.accumulation,
     includesArchived: includeArchived,
     buckets: buckets.map(({ start: from, end }) => ({ start: from, end })),
-    currencies:
-      query.report === "categories" ? currencies.map(rankCategories) : currencies,
+    currencies: query.report === "categories" ? currencies.map(rankCategories) : currencies,
   };
 }
 
@@ -381,9 +334,7 @@ async function balanceCells(
   start: string,
   asOf: string,
 ): Promise<Cell[]> {
-  const result = await getDb().execute(
-    balanceStatement(actor.userId, report, bucket, start, asOf),
-  );
+  const result = await getDb().execute(balanceStatement(actor.userId, report, bucket, start, asOf));
 
   return result.rows.map((row) => ({
     bucketStart: String(row.bucket_start),
@@ -466,11 +417,7 @@ async function flowCells(
       bucketStart: String(row.bucket),
       currency: String(row.currency),
       key: byCategory ? `${kind}:${categoryId ?? "uncategorized"}` : kind,
-      label: byCategory
-        ? String(row.label)
-        : kind === "income"
-          ? "Income"
-          : "Expenses",
+      label: byCategory ? String(row.label) : kind === "income" ? "Income" : "Expenses",
       kind,
       value: String(row.value),
     };
@@ -629,11 +576,7 @@ async function cashFlowCells(
  * on, and leaving them out would show it still holding money it has already
  * posted out to equity.
  */
-export async function getAccountRegister(
-  actor: Actor,
-  id: string,
-  input: unknown,
-) {
+export async function getAccountRegister(actor: Actor, id: string, input: unknown) {
   const range = dateRangeSchema.parse(input);
   if (range.start && range.end && range.start > range.end) {
     throw validationError("Start date must be on or before end date");
@@ -707,9 +650,7 @@ export async function getAccountRegister(
   `);
 
   const rows = entries.rows.map((row) => {
-    const after = canonicalDecimal(
-      decimal(openingBalance).plus(String(row.running)),
-    );
+    const after = canonicalDecimal(decimal(openingBalance).plus(String(row.running)));
     const amount = canonicalDecimal(String(row.amount));
     return {
       postingId: String(row.id),
@@ -731,15 +672,11 @@ export async function getAccountRegister(
     accountName: String(details.name),
     type: String(details.type),
     currency: String(details.currency),
-    archivedAt: details.archived_at
-      ? new Date(String(details.archived_at)).toISOString()
-      : null,
+    archivedAt: details.archived_at ? new Date(String(details.archived_at)).toISOString() : null,
     range: { start: range.start ?? null, end: range.end ?? null },
     asOf,
     openingBalance,
-    closingBalance: rows.length
-      ? rows[rows.length - 1]!.balanceAfter
-      : openingBalance,
+    closingBalance: rows.length ? rows[rows.length - 1]!.balanceAfter : openingBalance,
     entries: rows,
   };
 }
@@ -759,9 +696,7 @@ function assemble(
   accumulation: ReportAccumulation,
   hideClosedRows = false,
 ): CurrencyReport[] {
-  const index = new Map(
-    buckets.map((bucket, position) => [bucket.periodStart, position]),
-  );
+  const index = new Map(buckets.map((bucket, position) => [bucket.periodStart, position]));
   const byCurrency = new Map<string, Map<string, ReportRow>>();
   const closed = new Set<string>();
 
@@ -782,46 +717,43 @@ function assemble(
       });
     }
     const row = rows.get(cell.key)!;
-    row.values[position] = canonicalDecimal(
-      decimal(row.values[position] ?? ZERO).plus(cell.value),
-    );
+    row.values[position] = canonicalDecimal(decimal(row.values[position] ?? ZERO).plus(cell.value));
   }
 
-  return [...byCurrency.entries()]
-    .map(([currency, rows]) => {
-      const list = [...rows.values()]
-        // An account closed before the window opened has nothing to show for
-        // itself, and only that case is a row worth hiding: an account still in
-        // use can sit at zero for a whole year and still belongs on the page.
-        .filter(
-          (row) =>
-            !hideClosedRows ||
-            !closed.has(`${currency}|${row.key}`) ||
-            row.values.some((value) => !decimal(value).isZero()),
-        )
-        .map((row) => ({
-          ...row,
-          total:
-            accumulation === "historical"
-              ? canonicalDecimal(row.values[row.values.length - 1] ?? ZERO)
-              : canonicalDecimal(
-                  row.values.reduce((sum, value) => sum.plus(value), decimal(ZERO)),
-                ),
-        }));
-      const totals = buckets.map((_, position) =>
-        canonicalDecimal(
-          list.reduce(
-            (sum, row) => sum.plus(row.values[position] ?? ZERO),
-            decimal(ZERO),
+  return (
+    [...byCurrency.entries()]
+      .map(([currency, rows]) => {
+        const list = [...rows.values()]
+          // An account closed before the window opened has nothing to show for
+          // itself, and only that case is a row worth hiding: an account still in
+          // use can sit at zero for a whole year and still belongs on the page.
+          .filter(
+            (row) =>
+              !hideClosedRows ||
+              !closed.has(`${currency}|${row.key}`) ||
+              row.values.some((value) => !decimal(value).isZero()),
+          )
+          .map((row) => ({
+            ...row,
+            total:
+              accumulation === "historical"
+                ? canonicalDecimal(row.values[row.values.length - 1] ?? ZERO)
+                : canonicalDecimal(
+                    row.values.reduce((sum, value) => sum.plus(value), decimal(ZERO)),
+                  ),
+          }));
+        const totals = buckets.map((_, position) =>
+          canonicalDecimal(
+            list.reduce((sum, row) => sum.plus(row.values[position] ?? ZERO), decimal(ZERO)),
           ),
-        ),
-      );
-      return { currency, rows: list, totals };
-    })
-    // A currency whose only accounts are closed contributes nothing to show, and
-    // an entry with no rows is worse than no entry: the page draws its heading,
-    // an empty chart and a footer reading zero, and the empty state that would
-    // have said there is nothing to report cannot fire while a currency exists.
-    .filter((entry) => entry.rows.length > 0)
-    .sort((left, right) => left.currency.localeCompare(right.currency));
+        );
+        return { currency, rows: list, totals };
+      })
+      // A currency whose only accounts are closed contributes nothing to show, and
+      // an entry with no rows is worse than no entry: the page draws its heading,
+      // an empty chart and a footer reading zero, and the empty state that would
+      // have said there is nothing to report cannot fire while a currency exists.
+      .filter((entry) => entry.rows.length > 0)
+      .sort((left, right) => left.currency.localeCompare(right.currency))
+  );
 }

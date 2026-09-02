@@ -58,12 +58,7 @@ type FieldProps = {
   onValue: (patch: Partial<BulkEditValues>) => void;
 };
 
-export function BulkEditDateField({
-  values,
-  enabled,
-  onEnabled,
-  onValue,
-}: FieldProps) {
+export function BulkEditDateField({ values, enabled, onEnabled, onValue }: FieldProps) {
   return (
     <BulkEditToggle
       label="Change date"
@@ -114,12 +109,7 @@ export function BulkEditPayeeField({
   );
 }
 
-export function BulkEditDescriptionField({
-  values,
-  enabled,
-  onEnabled,
-  onValue,
-}: FieldProps) {
+export function BulkEditDescriptionField({ values, enabled, onEnabled, onValue }: FieldProps) {
   return (
     <BulkEditToggle
       label="Change description"
@@ -138,12 +128,7 @@ export function BulkEditDescriptionField({
   );
 }
 
-export function BulkEditNotesField({
-  values,
-  enabled,
-  onEnabled,
-  onValue,
-}: FieldProps) {
+export function BulkEditNotesField({ values, enabled, onEnabled, onValue }: FieldProps) {
   return (
     <BulkEditToggle
       label="Change notes"

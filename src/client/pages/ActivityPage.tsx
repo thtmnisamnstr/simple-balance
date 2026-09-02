@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Bot, CalendarClock, History, Monitor } from "lucide-react";
 import type { ActorSource } from "../../shared/domain.js";
 import { api, type AuditEvent, type Page } from "../api.js";
-import { Alert, Badge, EmptyState, PageHeader } from "../components.js";
+import { Alert, Badge, EmptyState, PageHeader, Skeleton } from "../components.js";
+import { useTimezone } from "../timezone.js";
+import { formatTimestamp } from "../money.js";
 
 /**
  * Switched on the value rather than tested against one, so a source this build
@@ -27,6 +29,7 @@ function sentence(event: AuditEvent) {
 }
 
 export default function ActivityPage() {
+  const timezone = useTimezone();
   const events = useQuery({
     queryKey: ["audit-events"],
     queryFn: () => api<Page<AuditEvent>>("/api/v1/audit-events?limit=100"),
@@ -51,21 +54,19 @@ export default function ActivityPage() {
                 <div>
                   <strong>{sentence(event)}</strong>
                   <small>
-                    {new Intl.DateTimeFormat(undefined, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(new Date(event.createdAt))}
+                    {/* In the account's stored timezone, not the browser's:
+                        an audit trail read while travelling must agree with
+                        the dates on the entries it audits. */}
+                    {formatTimestamp(event.createdAt, timezone)}
                   </small>
                 </div>
-                <Badge tone={tone}>
-                  {label}
-                </Badge>
+                <Badge tone={tone}>{label}</Badge>
               </div>
             );
           })}
         </section>
       ) : events.isPending ? (
-        <p className="settings-note">Loading activity…</p>
+        <Skeleton height={120} label="Loading activity…" />
       ) : events.error ? null : (
         <EmptyState
           icon={<History size={25} />}

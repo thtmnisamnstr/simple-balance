@@ -6,7 +6,9 @@ import {
   ne,
   notInArray,
   sql,
-  type SQL, getTableColumns } from "drizzle-orm";
+  type SQL,
+  getTableColumns,
+} from "drizzle-orm";
 import { z, ZodError } from "zod";
 import type {
   Actor,
@@ -31,17 +33,16 @@ import {
   stageUpdateSchema,
   transactionDraftSchema,
 } from "../../shared/domain.js";
+import { getDb, type Database, type DbTransaction, withTransaction } from "../db/client.js";
+import { stagedTransactions, type StagedTransactionRow } from "../db/schema.js";
 import {
-  getDb,
-  type Database,
-  type DbTransaction,
-  withTransaction,
-} from "../db/client.js";
-import {
-  stagedTransactions,
-  type StagedTransactionRow,
-} from "../db/schema.js";
-import { duplicate, notFound, staleVersion, validationError, zodIssues, AppError } from "./errors.js";
+  duplicate,
+  notFound,
+  staleVersion,
+  validationError,
+  zodIssues,
+  AppError,
+} from "./errors.js";
 import { decodeCursor, encodeCursor } from "./cursor.js";
 import {
   exceedsBulkSelectionCap,
@@ -57,11 +58,8 @@ import {
   writeAudit,
   writeAuditMany,
 } from "./helpers.js";
-import {
-  type SortPlan,
-  keysetAfter,
-  ordered,
-} from "./sorting.js";
+import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
+import { ledgerWrites, stagedRowsCommitted } from "../metrics.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { pruneOrphanedCategories } from "./categories.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
@@ -82,6 +80,7 @@ function stageView(
   row: StagedTransactionRow & {
     repeatsStagedRow?: boolean;
     likelyDuplicateOfId?: string | null;
+    cursorSort?: unknown;
   },
 ) {
   // The fingerprint itself is an internal detail; what a caller needs is
@@ -90,6 +89,10 @@ function stageView(
     duplicateKey: _duplicateKey,
     repeatsStagedRow,
     likelyDuplicateOfId: likely,
+    // An ordering expression is presentation, not a row: the committed list
+    // strips its copy for the same reason, and leaving it here published a
+    // column of internals on every staged row over HTTP and MCP.
+    cursorSort: _cursorSort,
     ...rest
   } = row;
   return {
@@ -108,10 +111,7 @@ function stageView(
   };
 }
 
-function referenceValue(
-  draft: unknown,
-  field: "fromAccountId" | "toAccountId" | "categoryId",
-) {
+function referenceValue(draft: unknown, field: "fromAccountId" | "toAccountId" | "categoryId") {
   if (!draft || typeof draft !== "object" || Array.isArray(draft)) return null;
   const value = (draft as Record<string, unknown>)[field];
   const parsed = referenceUuidSchema.safeParse(value);
@@ -124,10 +124,9 @@ export async function lockStagedDraftReferences(
   drafts: readonly unknown[],
 ) {
   const accountIds = drafts.flatMap((draft) =>
-    [
-      referenceValue(draft, "fromAccountId"),
-      referenceValue(draft, "toAccountId"),
-    ].filter((value): value is string => Boolean(value)),
+    [referenceValue(draft, "fromAccountId"), referenceValue(draft, "toAccountId")].filter(
+      (value): value is string => Boolean(value),
+    ),
   );
   await lockAccountReferences(tx, actor, accountIds);
   // A split names its categories on the legs rather than in the column, so both
@@ -141,8 +140,7 @@ export async function lockStagedDraftReferences(
     (Array.isArray((draft as { legs?: unknown })?.legs) &&
       (draft as { legs: unknown[] }).legs.some(
         (leg) =>
-          referenceValue(leg, "categoryId") ??
-          (leg as { categoryName?: unknown })?.categoryName,
+          referenceValue(leg, "categoryId") ?? (leg as { categoryName?: unknown })?.categoryName,
       ));
   if (drafts.some(namesACategory)) {
     await lockCategoryNamespace(tx, actor);
@@ -170,12 +168,10 @@ async function validateDraft(
     input && typeof input === "object" && Array.isArray((input as { legs?: unknown }).legs)
       ? {
           ...(input as Record<string, unknown>),
-          legs: ((input as { legs: unknown[] }).legs).map((leg) =>
+          legs: (input as { legs: unknown[] }).legs.map((leg) =>
             leg && typeof leg === "object" && "id" in leg
               ? Object.fromEntries(
-                  Object.entries(leg as Record<string, unknown>).filter(
-                    ([key]) => key !== "id",
-                  ),
+                  Object.entries(leg as Record<string, unknown>).filter(([key]) => key !== "id"),
                 )
               : leg,
           ),
@@ -214,9 +210,7 @@ async function validateDraft(
     // decision, so computing it for a commit is a lookup per row whose result
     // is thrown away a few lines later.
     const duplicateOfId =
-      options.withDuplicate === false
-        ? null
-        : await findDuplicate(tx, actor, parsed.data);
+      options.withDuplicate === false ? null : await findDuplicate(tx, actor, parsed.data);
     return { draft: parsed.data, issues: [], duplicateOfId, duplicateKey };
   } catch (error) {
     if (error instanceof ZodError) {
@@ -242,23 +236,14 @@ async function validateDraft(
   }
 }
 
-export async function createStage(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
+export async function createStage(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = stageCreateSchema.parse(input);
   const idempotencyPayload = {
     draft: parsed.draft,
     rawData: parsed.rawData,
   };
   return withTransaction(transaction, async (tx) => {
-    await lockIdempotencyKey(
-      tx,
-      actor,
-      "stage.create",
-      parsed.idempotencyKey,
-    );
+    await lockIdempotencyKey(tx, actor, "stage.create", parsed.idempotencyKey);
     const existing = await getIdempotent<StageView>(
       tx,
       actor,
@@ -268,11 +253,7 @@ export async function createStage(
     );
     if (existing) return existing;
     await lockStagedDraftReferences(tx, actor, [parsed.draft]);
-    const canonicalDraft = await canonicalizeStagedDraftPayee(
-      tx,
-      actor,
-      parsed.draft,
-    );
+    const canonicalDraft = await canonicalizeStagedDraftPayee(tx, actor, parsed.draft);
     const validation = await validateDraft(tx, actor, canonicalDraft);
     const [created] = await tx
       .insert(stagedTransactions)
@@ -292,14 +273,7 @@ export async function createStage(
       operation: "create",
       after: view,
     });
-    await setIdempotent(
-      tx,
-      actor,
-      "stage.create",
-      parsed.idempotencyKey,
-      idempotencyPayload,
-      view,
-    );
+    await setIdempotent(tx, actor, "stage.create", parsed.idempotencyKey, idempotencyPayload, view);
     return view;
   });
 }
@@ -314,17 +288,9 @@ type GeneratedStageInput = {
 };
 
 /** Everything a staged row needs decided, with nothing written yet. */
-async function prepareGeneratedStage(
-  tx: DbTransaction,
-  actor: Actor,
-  input: GeneratedStageInput,
-) {
+async function prepareGeneratedStage(tx: DbTransaction, actor: Actor, input: GeneratedStageInput) {
   await lockStagedDraftReferences(tx, actor, [input.draft]);
-  const canonicalDraft = await canonicalizeStagedDraftPayee(
-    tx,
-    actor,
-    input.draft,
-  );
+  const canonicalDraft = await canonicalizeStagedDraftPayee(tx, actor, input.draft);
   const draftValidation = await validateDraft(tx, actor, canonicalDraft);
   return {
     userId: actor.userId,
@@ -333,10 +299,7 @@ async function prepareGeneratedStage(
     importBatchId: input.importBatchId,
     recurrenceId: input.recurrenceId,
     occurrenceDate: input.occurrenceDate,
-    validationIssues: [
-      ...(input.initialIssues ?? []),
-      ...draftValidation.issues,
-    ],
+    validationIssues: [...(input.initialIssues ?? []), ...draftValidation.issues],
     duplicateOfId: draftValidation.duplicateOfId,
     duplicateKey: draftValidation.duplicateKey,
   };
@@ -363,9 +326,7 @@ export async function insertRecurringStages(
   if (!inputs.length) return [];
   const values = [];
   for (const input of inputs) {
-    values.push(
-      await prepareGeneratedStage(tx, actor, { ...input, importBatchId: null }),
-    );
+    values.push(await prepareGeneratedStage(tx, actor, { ...input, importBatchId: null }));
   }
   const created = await tx.insert(stagedTransactions).values(values).returning();
   await writeAuditMany(
@@ -675,10 +636,7 @@ export type StageFilterQuery = Pick<
  * rows you are looking at", and the day they drift is the day a mass edit
  * touches something that was never on screen.
  */
-export function stageFilterConditions(
-  actor: Actor,
-  query: StageFilterQuery,
-) {
+export function stageFilterConditions(actor: Actor, query: StageFilterQuery) {
   const conditions: SQL[] = [
     eq(stagedTransactions.userId, actor.userId),
     eq(stagedTransactions.status, "staged"),
@@ -690,13 +648,23 @@ export function stageFilterConditions(
     conditions.push(eq(stagedTransactions.importBatchId, query.importBatchId));
   }
   if (query.search) {
+    // The human fields, exactly as the committed list searches them. Matching
+    // the whole draft as text made a search for "date" or "type" match every
+    // row in the queue, because JSON keys are text too.
     conditions.push(
-      sql`${stagedTransactions.draft}::text ilike ${likePattern(query.search)}`,
+      sql`(${stagedTransactions.draft} ->> 'payee' ilike ${likePattern(query.search)}
+        or ${stagedTransactions.draft} ->> 'description' ilike ${likePattern(query.search)}
+        or ${stagedTransactions.draft} ->> 'notes' ilike ${likePattern(query.search)})`,
     );
   }
   if (query.accountId) {
+    // The two keys an account can appear under, compared exactly. A LIKE over
+    // the raw JSON matched the UUID wherever it appeared — a category id, a
+    // duplicate reference — and a filter that can match the wrong field is a
+    // list quietly holding somebody else's answer.
     conditions.push(
-      sql`${stagedTransactions.draft}::text like ${likePattern(query.accountId)}`,
+      sql`(${stagedTransactions.draft} ->> 'fromAccountId' = ${query.accountId}
+        or ${stagedTransactions.draft} ->> 'toAccountId' = ${query.accountId})`,
     );
   }
   if (query.type) {
@@ -726,9 +694,7 @@ export function stageFilterConditions(
     );
   }
   if (query.templateId) {
-    conditions.push(
-      sql`${stagedTransactions.draft}->>'templateId' = ${query.templateId}`,
-    );
+    conditions.push(sql`${stagedTransactions.draft}->>'templateId' = ${query.templateId}`);
   }
   if (query.payee) {
     // The same rule as everywhere else, which this did not quite have: it
@@ -754,19 +720,14 @@ export function stageFilterConditions(
       sql`not ${possiblyDuplicate}`,
     );
   } else if (query.validity === "invalid") {
-    conditions.push(
-      sql`jsonb_array_length(${stagedTransactions.validationIssues}) > 0`,
-    );
+    conditions.push(sql`jsonb_array_length(${stagedTransactions.validationIssues}) > 0`);
   } else if (query.validity === "duplicate") {
     conditions.push(possiblyDuplicate);
   }
   return conditions;
 }
 
-export async function listStages(
-  actor: Actor,
-  input: unknown,
-): Promise<PaginatedPage<StageView>> {
+export async function listStages(actor: Actor, input: unknown): Promise<PaginatedPage<StageView>> {
   const query = stageListQuerySchema.parse(input);
   // Keep the cursor window out of `conditions` until the filters are complete,
   // so the total can be counted against the filters alone.
@@ -775,10 +736,9 @@ export async function listStages(
   const plan = stageSortPlan(query.sort, query.direction);
   if (query.cursor) {
     if (!plan.keyset) {
-      throw validationError(
-        "This sort order pages by number rather than by cursor.",
-        { sort: query.sort },
-      );
+      throw validationError("This sort order pages by number rather than by cursor.", {
+        sort: query.sort,
+      });
     }
     const cursor = decodeCursor(query.cursor, {
       key: query.sort,
@@ -829,6 +789,10 @@ export async function listStages(
             id: last.id,
           })
         : null,
+    // See the same field on the transaction listing: null `nextCursor` means
+    // "last page" or "this ordering cannot be resumed", and only this tells
+    // them apart.
+    cursorAvailable: Boolean(plan.cursorValue),
     page,
     pageSize: query.limit,
     totalCount,
@@ -840,9 +804,7 @@ export async function getStage(actor: Actor, id: string) {
   const [row] = await getDb()
     .select()
     .from(stagedTransactions)
-    .where(
-      and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)),
-    )
+    .where(and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)))
     .limit(1);
   if (!row) throw notFound("Staged transaction not found");
   return stageView(row);
@@ -870,9 +832,7 @@ export async function getStagedDuplicateReview(actor: Actor, id: string) {
       likelyDuplicateOfId: sql<string | null>`${likelyDuplicateOfId}`,
     })
     .from(stagedTransactions)
-    .where(
-      and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)),
-    )
+    .where(and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)))
     .limit(1);
   // Still in the queue, not merely still on file. A row that has been dropped
   // or committed opens a review whose forms every save would refuse, and the
@@ -883,9 +843,7 @@ export async function getStagedDuplicateReview(actor: Actor, id: string) {
 
   const subject = stageView(row);
   const committedId = row.duplicateOfId ?? row.likelyDuplicateOfId ?? null;
-  const committed = committedId
-    ? await getTransaction(actor, committedId).catch(() => null)
-    : null;
+  const committed = committedId ? await getTransaction(actor, committedId).catch(() => null) : null;
 
   if (committed) {
     return {
@@ -943,17 +901,11 @@ export async function updateStage(
   const { draft, expectedVersion } = stageUpdateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
     await lockStagedDraftReferences(tx, actor, [draft]);
-    const canonicalDraft = await canonicalizeStagedDraftPayee(
-      tx,
-      actor,
-      draft,
-    );
+    const canonicalDraft = await canonicalizeStagedDraftPayee(tx, actor, draft);
     const [before] = await tx
       .select()
       .from(stagedTransactions)
-      .where(
-        and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)),
-      )
+      .where(and(eq(stagedTransactions.id, id), eq(stagedTransactions.userId, actor.userId)))
       .limit(1);
     if (!before || before.status !== "staged") throw notFound("Staged transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
@@ -1029,12 +981,51 @@ function draftCategoriesReleasedBy(before: unknown, after: unknown) {
   return [...held(before)].filter((id) => !kept.has(id));
 }
 
-export async function deleteStages(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
+/**
+ * The two halves of a staged selection, checked against each other.
+ *
+ * `stagedIds` and `expectedVersions` describe one set twice and can disagree,
+ * and neither Zod nor the database notices: an id with no entry in the map used
+ * to compare `undefined` against the row's version and throw `STALE_VERSION`.
+ * Safe, and the wrong fault named — nothing had gone stale, the request arrived
+ * incomplete, and an agent told to read the row again and retry sends back the
+ * same payload with the same hole in it.
+ *
+ * Only the first offender of each kind is reported. A selection may carry ten
+ * thousand rows and a refusal listing ten thousand issues is a refusal nobody
+ * reads. `mergeCategories` names the same two faults the same way, and, like it,
+ * this deliberately does not refuse a map that names more rows than were
+ * selected: a superset harms nothing, and refusing one would turn a request that
+ * works today into a 422.
+ */
+function requireExpectedVersionForEach(parsed: {
+  stagedIds: string[];
+  expectedVersions: Record<string, number>;
+}) {
+  const seen = new Set<string>();
+  for (const id of parsed.stagedIds) {
+    if (seen.has(id)) {
+      throw validationError("Staged transaction IDs must be unique", { stagedId: id });
+    }
+    seen.add(id);
+  }
+  for (const id of parsed.stagedIds) {
+    // `hasOwn` rather than a lookup against undefined: the ids are validated
+    // UUIDs so nothing inherited can collide, but this says what is meant.
+    if (!Object.hasOwn(parsed.expectedVersions, id)) {
+      throw validationError(
+        "Every selected staged transaction needs the version you last read for it",
+        {
+          stagedId: id,
+        },
+      );
+    }
+  }
+}
+
+export async function deleteStages(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = bulkDeleteStageSchema.parse(input);
+  requireExpectedVersionForEach(parsed);
   return withTransaction(transaction, async (tx) => {
     const rows = await tx
       .select()
@@ -1056,6 +1047,11 @@ export async function deleteStages(
         throw staleVersion({ id: row.id, currentVersion: row.version });
       }
     }
+    // Everything above this point is validation: the rows exist, they are all
+    // still staged, and every version matches. A dry run has therefore already
+    // proved the delete would succeed, and stops here rather than writing.
+    if (parsed.dryRun) return { deletedIds: rows.map((row) => row.id), dryRun: true };
+
     // A chunk at a time, the way the staged mass edit above does it and for the
     // same reason: ten thousand rows is the documented ceiling, and a statement
     // and an audit insert each would be twenty thousand sequential round trips
@@ -1099,40 +1095,33 @@ export async function deleteStages(
         before: stageView(row),
       })),
     );
-    return { deletedIds: rows.map((row) => row.id) };
+    return { deletedIds: rows.map((row) => row.id), dryRun: false };
   });
 }
 
-export async function commitStages(
-  actor: Actor,
-  input: unknown,
-  transaction?: DbTransaction,
-) {
+export async function commitStages(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = commitStageSchema.parse(input);
+  // Before the transaction, because this asks nothing of the database: it is a
+  // request that contradicts itself, and it should not cost a connection or an
+  // advisory lock to say so.
+  requireExpectedVersionForEach(parsed);
   const idempotencyPayload = {
     stagedIds: parsed.stagedIds,
     expectedVersions: parsed.expectedVersions,
     allowDuplicates: parsed.allowDuplicates,
     dryRun: parsed.dryRun,
   };
-  return withTransaction(transaction, async (tx) => {
+  let replayed = false;
+  const outcome = await withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
-      await lockIdempotencyKey(
-        tx,
-        actor,
-        "stage.commit",
-        parsed.idempotencyKey,
-      );
+      await lockIdempotencyKey(tx, actor, "stage.commit", parsed.idempotencyKey);
       const existing = await getIdempotent<{
         committed: { stagedId: string; transactionId: string }[];
-      }>(
-        tx,
-        actor,
-        "stage.commit",
-        parsed.idempotencyKey,
-        idempotencyPayload,
-      );
-      if (existing) return existing;
+      }>(tx, actor, "stage.commit", parsed.idempotencyKey, idempotencyPayload);
+      if (existing) {
+        replayed = true;
+        return existing;
+      }
     }
     const rows = await tx
       .select()
@@ -1162,11 +1151,7 @@ export async function commitStages(
       if (parsed.expectedVersions[row.id] !== row.version) {
         throw staleVersion({ id: row.id, currentVersion: row.version });
       }
-      const canonicalStagedDraft = await canonicalizeStagedDraftPayee(
-        tx,
-        actor,
-        row.draft,
-      );
+      const canonicalStagedDraft = await canonicalizeStagedDraftPayee(tx, actor, row.draft);
       // Validity only. Whether this row duplicates a committed one is asked
       // below, once the duplicate-key locks are held and the answer can be
       // acted on.
@@ -1267,11 +1252,26 @@ export async function commitStages(
     );
     return response;
   });
+  // The queue's whole point is that rows wait here until somebody says so, so
+  // the number worth watching is how many made it out, not how many arrived.
+  // A dry run reports what would commit and commits nothing.
+  // Not on a replay: the stored response carries the same list, and counting it
+  // again would say the queue emptied twice on a client that retried once.
+  //
+  // Both counters, because they answer different questions and a commit is the
+  // answer to both: how many rows left the queue, and how many rows the books
+  // gained. `ledger_writes_total` counted only `createTransaction` for a while,
+  // so every transaction that arrived through the queue — which is every CSV
+  // import and every accepted recurrence — was invisible in the figure named
+  // after writes.
+  if (!replayed && "committed" in outcome) {
+    stagedRowsCommitted.inc(outcome.committed.length);
+    ledgerWrites.inc({ operation: "create" }, outcome.committed.length);
+  }
+  return outcome;
 }
 
-function stageSelectionSummary(
-  rows: readonly (typeof stagedTransactions.$inferSelect)[],
-) {
+function stageSelectionSummary(rows: readonly (typeof stagedTransactions.$inferSelect)[]) {
   let invalidCount = 0;
   let duplicateCount = 0;
   let transferCount = 0;
@@ -1337,10 +1337,9 @@ function patchedStageDraft(draft: Record<string, unknown>, patch: BulkStagePatch
   // have to flatten the split to mean anything, which nothing here asked for.
   const isSplit = Array.isArray(draft.legs) && draft.legs.length > 0;
   if (isSplit && (patch.categoryId !== undefined || patch.type !== undefined)) {
-    throw validationError(
-      "Bulk category and type changes cannot include split transactions",
-      { fields: ["categoryId", "type"] },
-    );
+    throw validationError("Bulk category and type changes cannot include split transactions", {
+      fields: ["categoryId", "type"],
+    });
   }
 
   const next: Record<string, unknown> = { ...draft };
@@ -1403,6 +1402,17 @@ export async function bulkEditStages(
 ) {
   const parsed = bulkStageEditSchema.parse(input);
   const { selection, patch } = parsed;
+  // Sorted before hashing, exactly as the committed twin normalizes its own:
+  // a retry that lists the same rows in another order is the same request,
+  // and refusing it as a conflict tells a caller its edit did not happen
+  // about one that did.
+  const idempotencySelection =
+    selection.mode === "ids"
+      ? {
+          mode: selection.mode,
+          items: [...selection.items].sort((left, right) => left.id.localeCompare(right.id)),
+        }
+      : { ...selection, excludedIds: [...selection.excludedIds].sort() };
 
   return withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
@@ -1412,54 +1422,67 @@ export async function bulkEditStages(
         actor,
         "stage.bulkEdit",
         parsed.idempotencyKey,
-        { selection, patch },
+        { selection: idempotencySelection, patch },
       );
       if (existing) return existing;
     }
 
-    let rows: (typeof stagedTransactions.$inferSelect)[];
-    if (selection.mode === "ids") {
-      rows = await tx
-        .select()
-        .from(stagedTransactions)
-        .where(
-          and(
-            eq(stagedTransactions.userId, actor.userId),
-            inArray(
-              stagedTransactions.id,
-              selection.items.map((item) => item.id),
+    // Read WITHOUT row locks first. The advisory namespace locks have to come
+    // before any FOR UPDATE, because every other staged path — createStage,
+    // updateStage, commitStages — takes the namespaces first and rows second,
+    // and this function taking them in the other order was half of an ABBA
+    // deadlock: it held a row and waited on the payee namespace while an
+    // updateStage held the namespace and waited on the row. The snapshot is
+    // re-checked under the real locks below, exactly as the committed bulk
+    // edit does it.
+    const readSelection = async (lockRows: boolean) => {
+      if (selection.mode === "ids") {
+        const query = tx
+          .select()
+          .from(stagedTransactions)
+          .where(
+            and(
+              eq(stagedTransactions.userId, actor.userId),
+              inArray(
+                stagedTransactions.id,
+                selection.items.map((item) => item.id),
+              ),
+              eq(stagedTransactions.status, "staged"),
             ),
-            eq(stagedTransactions.status, "staged"),
-          ),
-        )
-        .orderBy(stagedTransactions.id)
-        .for("update");
-      if (rows.length !== selection.items.length) {
-        throw notFound("One or more staged transactions are unavailable");
+          )
+          .orderBy(stagedTransactions.id);
+        return lockRows ? await query.for("update") : await query;
       }
-      const expected = new Map(
-        selection.items.map((item) => [item.id, item.expectedVersion]),
-      );
-      for (const row of rows) {
-        if (expected.get(row.id) !== row.version) {
-          throw staleVersion({ id: row.id, currentVersion: row.version });
+      return await selectStageFilterRows(tx, actor, selection, lockRows);
+    };
+    const verifySelection = (rows: (typeof stagedTransactions.$inferSelect)[]) => {
+      if (selection.mode === "ids") {
+        if (rows.length !== selection.items.length) {
+          throw notFound("One or more staged transactions are unavailable");
+        }
+        const expected = new Map(selection.items.map((item) => [item.id, item.expectedVersion]));
+        for (const row of rows) {
+          if (expected.get(row.id) !== row.version) {
+            throw staleVersion({ id: row.id, currentVersion: row.version });
+          }
+        }
+      } else {
+        const fingerprint = selectionFingerprint(rows);
+        if (
+          rows.length !== selection.expectedCount ||
+          fingerprint !== selection.expectedFingerprint
+        ) {
+          throw staleVersion({
+            expectedCount: selection.expectedCount,
+            currentCount: rows.length,
+            expectedFingerprint: selection.expectedFingerprint,
+            currentFingerprint: fingerprint,
+          });
         }
       }
-    } else {
-      rows = await selectStageFilterRows(tx, actor, selection, true);
-      const fingerprint = selectionFingerprint(rows);
-      if (
-        rows.length !== selection.expectedCount ||
-        fingerprint !== selection.expectedFingerprint
-      ) {
-        throw staleVersion({
-          expectedCount: selection.expectedCount,
-          currentCount: rows.length,
-          expectedFingerprint: selection.expectedFingerprint,
-          currentFingerprint: fingerprint,
-        });
-      }
-    }
+    };
+    let rows = await readSelection(false);
+    verifySelection(rows);
 
     if (rows.length > MAX_BULK_SELECTION_ENTRIES) {
       throw validationError(exceedsBulkSelectionCap("staged rows"), {
@@ -1471,8 +1494,7 @@ export async function bulkEditStages(
     // type gives no answer is refused rather than silently skipped: quietly
     // leaving one out would report a number of rows changed that does not match
     // what was selected.
-    const draftType = (row: (typeof rows)[number]) =>
-      (row.draft as { type?: unknown }).type;
+    const draftType = (row: (typeof rows)[number]) => (row.draft as { type?: unknown }).type;
     if (patch.accountId !== undefined || patch.type !== undefined) {
       // A transfer has two accounts and no single one to move, and no answer for
       // which of them survives becoming a one-sided type.
@@ -1498,13 +1520,17 @@ export async function bulkEditStages(
       }
     }
 
-    const drafts = rows.map((row) =>
-      patchedStageDraft(row.draft as Record<string, unknown>, patch),
-    );
+    let drafts = rows.map((row) => patchedStageDraft(row.draft as Record<string, unknown>, patch));
     await lockStagedDraftReferences(tx, actor, drafts);
+    // Now the rows, under the locks, and the selection re-verified: a row
+    // edited between the snapshot and here is a stale selection, not a row to
+    // silently edit on top of.
+    rows = await readSelection(true);
+    verifySelection(rows);
+    drafts = rows.map((row) => patchedStageDraft(row.draft as Record<string, unknown>, patch));
 
     const planned: {
-      row: (typeof stagedTransactions.$inferSelect);
+      row: typeof stagedTransactions.$inferSelect;
       draft: unknown;
       issues: ValidationIssue[];
       duplicateOfId: string | null;
@@ -1595,10 +1621,7 @@ export async function bulkEditStages(
         .select()
         .from(stagedTransactions)
         .where(
-          and(
-            eq(stagedTransactions.userId, actor.userId),
-            inArray(stagedTransactions.id, ids),
-          ),
+          and(eq(stagedTransactions.userId, actor.userId), inArray(stagedTransactions.id, ids)),
         );
       for (const row of rows) {
         audits.push({
@@ -1620,9 +1643,7 @@ export async function bulkEditStages(
       await pruneOrphanedCategories(
         tx,
         actor,
-        planned.flatMap((entry) =>
-          draftCategoriesReleasedBy(entry.row.draft, entry.draft),
-        ),
+        planned.flatMap((entry) => draftCategoriesReleasedBy(entry.row.draft, entry.draft)),
       );
     }
     await setIdempotent(
@@ -1630,7 +1651,7 @@ export async function bulkEditStages(
       actor,
       "stage.bulkEdit",
       parsed.idempotencyKey,
-      { selection, patch },
+      { selection: idempotencySelection, patch },
       result,
     );
     return result;

@@ -1,23 +1,20 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowUpRight,
+  Copy,
   Download,
+  LayoutTemplate,
   ListChecks,
   Pencil,
   Plus,
+  Repeat,
   RotateCcw,
   Search,
   Trash2,
-  LayoutTemplate,
-  Repeat,
 } from "lucide-react";
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link, payeeDetailSearch, useLocation } from "./router.js";
 import {
   api,
@@ -37,9 +34,10 @@ import {
 } from "./api.js";
 import {
   Alert,
-  BulkEditToggle,
   Badge,
+  BulkEditToggle,
   Button,
+  ConfirmDialog,
   DateRangeBar,
   EmptyState,
   Input,
@@ -48,17 +46,12 @@ import {
   RowMenu,
   Select,
   SelectionCheckbox,
-  ConfirmDialog,
+  Skeleton,
   SortableHeader,
   type SortState,
   useConfirm,
 } from "./components.js";
-import {
-  formatDate,
-  formatMoney,
-  sumMoney,
-  compareMoney,
-} from "./money.js";
+import { formatDate, formatMoney, movementSign, sumMoney, compareMoney } from "./money.js";
 import {
   draftForTransactionForm,
   recurrenceShapeFromDraft,
@@ -69,9 +62,7 @@ import type { TransactionSortField } from "../shared/domain.js";
 
 /** The share a split is named by in a list: its biggest one. */
 function largestLeg(legs: Transaction["legs"]) {
-  return [...legs].sort((left, right) =>
-    compareMoney(right.amount, left.amount),
-  )[0];
+  return [...legs].sort((left, right) => compareMoney(right.amount, left.amount))[0];
 }
 import { useDebounced } from "./debounce.js";
 import { normalizeHumanName } from "../shared/names.js";
@@ -87,12 +78,7 @@ import {
   type BulkEditValues,
 } from "./bulk-edit.js";
 import { useDateRange } from "./date-range.js";
-import {
-  RecurrenceForm,
-  TemplateForm,
-  TransactionForm,
-  draftFromTransaction,
-} from "./forms.js";
+import { RecurrenceForm, TemplateForm, TransactionForm, draftFromTransaction } from "./forms.js";
 import { newIdempotencyKey } from "./idempotency.js";
 
 const typeMeta = {
@@ -142,10 +128,9 @@ export function TransactionBrowser({
   const { start, end } = useDateRange();
   const location = useLocation();
   const [editing, setEditing] = useState<Transaction | "new" | null>(null);
+  const [cloning, setCloning] = useState<Transaction | null>(null);
   const [savingTemplate, setSavingTemplate] = useState<Transaction | null>(null);
-  const [savingRecurrence, setSavingRecurrence] = useState<Transaction | null>(
-    null,
-  );
+  const [savingRecurrence, setSavingRecurrence] = useState<Transaction | null>(null);
   const [search, setSearch] = useState("");
   const [type, setType] = useState("");
   const [accountId, setAccountId] = useState(fixedAccountId ?? "");
@@ -158,9 +143,7 @@ export function TransactionBrowser({
     setBulkEnabled((current) => ({ ...current, [field]: on }));
   const setBulkFieldValues = (patch: Partial<BulkEditValues>) =>
     setBulkValues((current) => ({ ...current, ...patch }));
-  const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState<string | null>(
-    null,
-  );
+  const [bulkIdempotencyKey, setBulkIdempotencyKey] = useState<string | null>(null);
   const [bulkNotice, setBulkNotice] = useState<{
     kind: "success" | "info";
     message: string;
@@ -184,9 +167,7 @@ export function TransactionBrowser({
     ...(start ? { start } : {}),
     ...(end ? { end } : {}),
     ...(settledSearch ? { search: settledSearch } : {}),
-    ...(type
-      ? { type: type as "deposit" | "withdrawal" | "transfer" }
-      : {}),
+    ...(type ? { type: type as "deposit" | "withdrawal" | "transfer" } : {}),
     ...(selectedAccountId ? { accountId: selectedAccountId } : {}),
     ...(fixedCategoryId ? { categoryId: fixedCategoryId } : {}),
     ...(fixedTemplateId ? { templateId: fixedTemplateId } : {}),
@@ -244,9 +225,7 @@ export function TransactionBrowser({
           limit: "100",
         })}`,
       ),
-    enabled:
-      includeStaged &&
-      Boolean(fixedCategoryId || fixedTemplateId || fixedPayee),
+    enabled: includeStaged && Boolean(fixedCategoryId || fixedTemplateId || fixedPayee),
   });
   const accounts = useQuery({
     queryKey: ["accounts"],
@@ -257,36 +236,21 @@ export function TransactionBrowser({
     queryFn: () => api<Category[]>("/api/v1/categories?includeArchived=true"),
   });
   const payeeSuggestions = useQuery({
-    queryKey: [
-      "payees",
-      "suggestions",
-      bulkValues.payee.trim().toLowerCase(),
-    ],
+    queryKey: ["payees", "suggestions", bulkValues.payee.trim().toLowerCase()],
     queryFn: () =>
       api<string[]>(
-        `/api/v1/payees/suggestions?search=${encodeURIComponent(
-          bulkValues.payee.trim(),
-        )}`,
+        `/api/v1/payees/suggestions?search=${encodeURIComponent(bulkValues.payee.trim())}`,
       ),
     enabled: bulkEditing && bulkEnabled.payee,
     placeholderData: (previous) => previous,
   });
-  const filterExcludedIds =
-    selection.mode === "filter" ? [...selection.excludedIds].sort() : [];
+  const filterExcludedIds = selection.mode === "filter" ? [...selection.excludedIds].sort() : [];
   const filterSelectionPreview = useQuery({
-    queryKey: [
-      "transactions",
-      "bulk-selection",
-      bulkFilter,
-      filterExcludedIds,
-    ],
+    queryKey: ["transactions", "bulk-selection", bulkFilter, filterExcludedIds],
     queryFn: () =>
-      api<TransactionBulkSelectionPreview>(
-        "/api/v1/transactions/bulk-selection",
-        {
-          ...json({ filter: bulkFilter, excludedIds: filterExcludedIds }),
-        },
-      ),
+      api<TransactionBulkSelectionPreview>("/api/v1/transactions/bulk-selection", {
+        ...json({ filter: bulkFilter, excludedIds: filterExcludedIds }),
+      }),
     enabled: selection.mode === "filter",
     staleTime: Number.POSITIVE_INFINITY,
     refetchOnWindowFocus: false,
@@ -313,18 +277,16 @@ export function TransactionBrowser({
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
   });
   const items = transactions.data?.items ?? [];
   const totalMatching = transactions.data?.totalCount ?? items.length;
   const stagedRows = staged.data?.items ?? [];
-  const activeAccounts = (accounts.data ?? []).filter(
-    (account) => !account.archivedAt,
-  );
-  const activeCategories = (categories.data ?? []).filter(
-    (category) => !category.archivedAt,
-  );
+  const activeAccounts = (accounts.data ?? []).filter((account) => !account.archivedAt);
+  const activeCategories = (categories.data ?? []).filter((category) => !category.archivedAt);
   const selectedLoadedItems = items.filter((transaction) =>
     selection.mode === "filter"
       ? !selection.excludedIds.has(transaction.id)
@@ -333,19 +295,14 @@ export function TransactionBrowser({
   const explicitSelectedCount =
     selection.mode === "ids" ? Object.keys(selection.versions).length : 0;
   const explicitSelectionHasMissingRows =
-    selection.mode === "ids" &&
-    explicitSelectedCount !== selectedLoadedItems.length;
-  const allLoadedSelected =
-    items.length > 0 && selectedLoadedItems.length === items.length;
+    selection.mode === "ids" && explicitSelectedCount !== selectedLoadedItems.length;
+  const allLoadedSelected = items.length > 0 && selectedLoadedItems.length === items.length;
   const someLoadedSelected = selectedLoadedItems.length > 0;
-  const hasSelection =
-    selection.mode === "filter" || explicitSelectedCount > 0;
+  const hasSelection = selection.mode === "filter" || explicitSelectedCount > 0;
   const selectedTransferCount =
     selection.mode === "filter"
       ? (filterSelectionPreview.data?.transferCount ?? 0)
-      : selectedLoadedItems.filter(
-          (transaction) => transaction.type === "transfer",
-        ).length;
+      : selectedLoadedItems.filter((transaction) => transaction.type === "transfer").length;
   const selectedCurrencies =
     selection.mode === "filter"
       ? (filterSelectionPreview.data?.currencies ?? [])
@@ -356,10 +313,7 @@ export function TransactionBrowser({
                 ? [transaction.destinationCurrency].filter(Boolean)
                 : transaction.type === "withdrawal"
                   ? [transaction.sourceCurrency].filter(Boolean)
-                  : [
-                      transaction.sourceCurrency,
-                      transaction.destinationCurrency,
-                    ].filter(Boolean),
+                  : [transaction.sourceCurrency, transaction.destinationCurrency].filter(Boolean),
             ) as string[],
           ),
         ].sort();
@@ -369,36 +323,26 @@ export function TransactionBrowser({
   const selectedSplitCount =
     selection.mode === "filter"
       ? (filterSelectionPreview.data?.splitCount ?? 0)
-      : selectedLoadedItems.filter((transaction) => transaction.legs.length > 0)
-          .length;
+      : selectedLoadedItems.filter((transaction) => transaction.legs.length > 0).length;
   const selectionContainsSplits = selectedSplitCount > 0;
   const selectionMayIncludeDeleted =
     selection.mode === "filter"
       ? bulkFilter.includeDeleted
       : selectedLoadedItems.some((transaction) => Boolean(transaction.deletedAt));
-  const selectedBulkAccount = activeAccounts.find(
-    (account) => account.id === bulkValues.accountId,
-  );
+  const selectedBulkAccount = activeAccounts.find((account) => account.id === bulkValues.accountId);
   const accountChangeUnavailable =
     explicitSelectionHasMissingRows ||
     selectionContainsTransfers ||
     selectedCurrencies.length !== 1;
   const accountChangeBlocked =
     bulkEnabled.accountId &&
-    (accountChangeUnavailable ||
-      selectedBulkAccount?.currency !== selectedCurrencies[0]);
-  const categoryChangeUnavailable =
-    explicitSelectionHasMissingRows || selectionContainsSplits;
-  const categoryChangeBlocked =
-    bulkEnabled.categoryId && categoryChangeUnavailable;
+    (accountChangeUnavailable || selectedBulkAccount?.currency !== selectedCurrencies[0]);
+  const categoryChangeUnavailable = explicitSelectionHasMissingRows || selectionContainsSplits;
+  const categoryChangeBlocked = bulkEnabled.categoryId && categoryChangeUnavailable;
   const typeChangeUnavailable =
-    explicitSelectionHasMissingRows ||
-    selectionContainsTransfers ||
-    selectionContainsSplits;
+    explicitSelectionHasMissingRows || selectionContainsTransfers || selectionContainsSplits;
   const typeChangeBlocked = bulkEnabled.type && typeChangeUnavailable;
-  const hasEnabledBulkField = bulkEditFields.some(
-    (field) => bulkEnabled[field],
-  );
+  const hasEnabledBulkField = bulkEditFields.some((field) => bulkEnabled[field]);
   const filterSelectionReady =
     selection.mode === "ids" ||
     (Boolean(filterSelectionPreview.data) &&
@@ -418,10 +362,19 @@ export function TransactionBrowser({
     !accountChangeBlocked &&
     !categoryChangeBlocked &&
     !typeChangeBlocked;
-  const discardBulkSelectionSnapshots = () =>
-    queryClient.removeQueries({
-      queryKey: ["transactions", "bulk-selection"],
-    });
+  // Stable so that the reset below can name it as a dependency and still run
+  // only when the filter changes. Rebuilt on every render it would look like a
+  // new filter on every render, and the reset writes a fresh empty selection
+  // each time, so the two would spin: the screen never settles and the suite
+  // hangs rather than failing. Naming the dependency without this is worse than
+  // leaving it out, which is why the two changes belong together.
+  const discardBulkSelectionSnapshots = useCallback(
+    () =>
+      queryClient.removeQueries({
+        queryKey: ["transactions", "bulk-selection"],
+      }),
+    [queryClient],
+  );
 
   const clearTransactionSelection = () => {
     discardBulkSelectionSnapshots();
@@ -453,6 +406,8 @@ export function TransactionBrowser({
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
     // Without this, a selection that went stale leaves the same snapshot in
@@ -471,11 +426,7 @@ export function TransactionBrowser({
     },
   });
 
-  const bulkMutation = useMutation<
-    TransactionBulkEditResult,
-    Error,
-    BulkEditRequest
-  >({
+  const bulkMutation = useMutation<TransactionBulkEditResult, Error, BulkEditRequest>({
     mutationFn: (request) =>
       api<TransactionBulkEditResult>("/api/v1/transactions/bulk-edit", {
         ...json(request),
@@ -492,16 +443,15 @@ export function TransactionBrowser({
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["accounts"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
+        queryClient.invalidateQueries({ queryKey: ["budgets"] }),
+        queryClient.invalidateQueries({ queryKey: ["forecast"] }),
         queryClient.invalidateQueries({ queryKey: ["audit-events"] }),
         queryClient.invalidateQueries({ queryKey: ["categories"] }),
         queryClient.invalidateQueries({ queryKey: ["payees"] }),
       ]);
     },
     onError: async (error) => {
-      if (
-        error instanceof ApiClientError &&
-        error.code === "STALE_VERSION"
-      ) {
+      if (error instanceof ApiClientError && error.code === "STALE_VERSION") {
         if (selection.mode === "ids") {
           setBulkEditing(false);
           setBulkIdempotencyKey(null);
@@ -519,13 +469,20 @@ export function TransactionBrowser({
 
   useEffect(() => {
     discardBulkSelectionSnapshots();
+    // A selection is accumulated rather than worked out, so there is nothing to
+    // derive during render; and there is no event to hang this on either. The
+    // filter fingerprint moves when the search debounce settles and when the
+    // shared date range changes, neither of which is a handler on this page.
+    // Keying off the fingerprint is what makes every route to a new filter drop
+    // the selection, rather than only the ones somebody remembered to wire up.
+    // oxlint-disable-next-line react/set-state-in-effect
     setSelection(emptySelection());
     setBulkEditing(false);
     setBulkIdempotencyKey(null);
     setBulkNotice(null);
     // A narrower filter can leave the current page past the end of the results.
     setPage(1);
-  }, [selectionConstraintKey]);
+  }, [selectionConstraintKey, discardBulkSelectionSnapshots]);
 
   useEffect(() => {
     if (!bulkEnabled.payee || !bulkValues.payee.trim()) return;
@@ -533,6 +490,14 @@ export function TransactionBrowser({
       (candidate) => normalizeHumanName(candidate) === normalizeHumanName(bulkValues.payee),
     );
     if (exact && exact !== bulkValues.payee) {
+      // The stored spelling is the server's answer, and it arrives after the
+      // typing that asked for it: the suggestion query is keyed on the term, so
+      // at the moment of the keystroke the list still describes the previous
+      // one. The field does have an `onChange` to correct in, the way the
+      // transaction form does; what it does not have yet is the answer, so a
+      // correction made there matches a list one term behind. This runs when
+      // the reply lands, which is the only moment the answer exists.
+      // oxlint-disable-next-line react/set-state-in-effect
       setBulkValues((current) => ({ ...current, payee: exact }));
     }
   }, [bulkEnabled.payee, bulkValues.payee, payeeSuggestions.data]);
@@ -557,10 +522,7 @@ export function TransactionBrowser({
     });
   };
 
-  const toggleTransactionSelection = (
-    transaction: Transaction,
-    checked: boolean,
-  ) => {
+  const toggleTransactionSelection = (transaction: Transaction, checked: boolean) => {
     if (selection.mode === "filter") discardBulkSelectionSnapshots();
     setSelection((current) => {
       if (current.mode === "filter") {
@@ -581,9 +543,7 @@ export function TransactionBrowser({
     setBulkEnabled(emptyBulkEditEnabled());
     setBulkValues(
       emptyBulkEditValues(
-        activeAccounts.find(
-          (account) => account.currency === selectedCurrencies[0],
-        )?.id,
+        activeAccounts.find((account) => account.currency === selectedCurrencies[0])?.id,
       ),
     );
     setBulkIdempotencyKey(newIdempotencyKey());
@@ -599,13 +559,9 @@ export function TransactionBrowser({
   const buildBulkPatch = (): TransactionBulkEditPatch => ({
     ...(bulkEnabled.date ? { date: bulkValues.date } : {}),
     ...(bulkEnabled.payee ? { payee: bulkValues.payee.trim() } : {}),
-    ...(bulkEnabled.categoryId
-      ? { categoryId: bulkValues.categoryId || null }
-      : {}),
+    ...(bulkEnabled.categoryId ? { categoryId: bulkValues.categoryId || null } : {}),
     ...(bulkEnabled.accountId ? { accountId: bulkValues.accountId } : {}),
-    ...(bulkEnabled.description
-      ? { description: bulkValues.description.trim() || null }
-      : {}),
+    ...(bulkEnabled.description ? { description: bulkValues.description.trim() || null } : {}),
     ...(bulkEnabled.notes ? { notes: bulkValues.notes.trim() || null } : {}),
     ...(bulkEnabled.type ? { type: bulkValues.type } : {}),
   });
@@ -622,9 +578,10 @@ export function TransactionBrowser({
         }
       : {
           mode: "ids",
-          items: Object.entries(selection.versions).map(
-            ([id, expectedVersion]) => ({ id, expectedVersion }),
-          ),
+          items: Object.entries(selection.versions).map(([id, expectedVersion]) => ({
+            id,
+            expectedVersion,
+          })),
         };
 
   const submitBulkDelete = () => {
@@ -660,17 +617,11 @@ export function TransactionBrowser({
   return (
     <>
       <div className="transaction-browser-actions">
-        <a
-          className="button button-secondary"
-          href={`/api/v1/csv/export?${queryString(params)}`}
-        >
+        <a className="button button-secondary" href={`/api/v1/csv/export?${queryString(params)}`}>
           <Download size={16} /> Export CSV
         </a>
         {allowCreate ? (
-          <Button
-            onClick={() => setEditing("new")}
-            disabled={!accounts.data?.length}
-          >
+          <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
             <Plus size={16} /> Add transaction
           </Button>
         ) : null}
@@ -725,8 +676,7 @@ export function TransactionBrowser({
             <ListChecks size={17} aria-hidden />
             <strong>
               {selection.mode === "filter"
-                ? filterSelectionPreview.isPending ||
-                  filterSelectionPreview.isFetching
+                ? filterSelectionPreview.isPending || filterSelectionPreview.isFetching
                   ? "Counting transactions matching this view…"
                   : filterSelectionPreview.data
                     ? `${filterSelectionPreview.data.count} transaction${
@@ -738,12 +688,9 @@ export function TransactionBrowser({
                   } selected`}
             </strong>
             {selection.mode === "filter" && selection.excludedIds.size ? (
-              <span>
-                {selection.excludedIds.size} excluded
-              </span>
+              <span>{selection.excludedIds.size} excluded</span>
             ) : null}
-            {selection.mode === "filter" &&
-            filterSelectionPreview.data?.deletedCount ? (
+            {selection.mode === "filter" && filterSelectionPreview.data?.deletedCount ? (
               <span>
                 {filterSelectionPreview.data.activeCount} active ·{" "}
                 {filterSelectionPreview.data.deletedCount} deleted
@@ -772,10 +719,7 @@ export function TransactionBrowser({
                   setSelection({
                     mode: "ids",
                     versions: Object.fromEntries(
-                      items.map((transaction) => [
-                        transaction.id,
-                        transaction.version,
-                      ]),
+                      items.map((transaction) => [transaction.id, transaction.version]),
                     ),
                   });
                 }}
@@ -792,18 +736,10 @@ export function TransactionBrowser({
             >
               Delete selected
             </Button>
-            <Button
-              type="button"
-              onClick={openBulkEditor}
-              disabled={!filterSelectionReady}
-            >
+            <Button type="button" onClick={openBulkEditor} disabled={!filterSelectionReady}>
               Mass edit
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={clearTransactionSelection}
-            >
+            <Button type="button" variant="ghost" onClick={clearTransactionSelection}>
               Clear selection
             </Button>
           </div>
@@ -812,12 +748,8 @@ export function TransactionBrowser({
       {selection.mode === "filter" && filterSelectionPreview.error ? (
         <Alert>{filterSelectionPreview.error.message}</Alert>
       ) : null}
-      {bulkDeleteMutation.error ? (
-        <Alert>{bulkDeleteMutation.error.message}</Alert>
-      ) : null}
-      {bulkNotice ? (
-        <Alert kind={bulkNotice.kind}>{bulkNotice.message}</Alert>
-      ) : null}
+      {bulkDeleteMutation.error ? <Alert>{bulkDeleteMutation.error.message}</Alert> : null}
+      {bulkNotice ? <Alert kind={bulkNotice.kind}>{bulkNotice.message}</Alert> : null}
       {deleteMutation.error ? (
         <Alert>
           {deleteMutation.error.message}
@@ -840,21 +772,28 @@ export function TransactionBrowser({
           ) : null}
         </Alert>
       ) : null}
-      {transactions.error ? <Alert>{transactions.error.message}</Alert> : null}
+      {/* Every query this view depends on, not just the main list: a failed
+          accounts read silently disabled the Add button, and a failed staged
+          read silently hid the contextual rows, each with nothing on screen
+          to say why. */}
+      {[transactions.error, staged.error, accounts.error, categories.error]
+        .filter((cause): cause is Error => Boolean(cause))
+        .map((cause, index) => (
+          <Alert key={index}>{cause.message}</Alert>
+        ))}
       {items.length || stagedRows.length ? (
         <>
           <div className="table-card">
             <table className="data-table">
+              <caption className="sr-only">Transactions</caption>
               <thead>
                 <tr>
-                  <th className="checkbox-cell">
+                  <th scope="col" className="checkbox-cell">
                     <SelectionCheckbox
                       aria-label="Select all transactions on this page"
                       checked={allLoadedSelected}
                       indeterminate={someLoadedSelected && !allLoadedSelected}
-                      onChange={(event) =>
-                        toggleLoadedSelection(event.target.checked)
-                      }
+                      onChange={(event) => toggleLoadedSelection(event.target.checked)}
                     />
                   </th>
                   <SortableHeader
@@ -864,18 +803,8 @@ export function TransactionBrowser({
                     sort={sort}
                     onSort={applySort}
                   />
-                  <SortableHeader
-                    field="payee"
-                    label="Payee"
-                    sort={sort}
-                    onSort={applySort}
-                  />
-                  <SortableHeader
-                    field="account"
-                    label="Account"
-                    sort={sort}
-                    onSort={applySort}
-                  />
+                  <SortableHeader field="payee" label="Payee" sort={sort} onSort={applySort} />
+                  <SortableHeader field="account" label="Account" sort={sort} onSort={applySort} />
                   <SortableHeader
                     field="category"
                     label="Category"
@@ -890,7 +819,7 @@ export function TransactionBrowser({
                     sort={sort}
                     onSort={applySort}
                   />
-                  <th>
+                  <th scope="col">
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -902,15 +831,11 @@ export function TransactionBrowser({
                     typeof draft.payee === "string" && draft.payee.trim()
                       ? draft.payee
                       : "Incomplete row";
-                  const stagedDate =
-                    typeof draft.date === "string" ? draft.date : null;
+                  const stagedDate = typeof draft.date === "string" ? draft.date : null;
                   // The same summary the staged queue itself shows, so a
                   // transfer reports an amount here rather than nothing and the
                   // figure is formatted like every other on the page.
-                  const stagedSummary = summarizeStagedDraft(
-                    stage.draft,
-                    accounts.data ?? [],
-                  );
+                  const stagedSummary = summarizeStagedDraft(stage.draft, accounts.data ?? []);
                   return (
                     <tr key={`staged-${stage.id}`} className="row-staged">
                       <td className="checkbox-cell">
@@ -932,9 +857,7 @@ export function TransactionBrowser({
                           : "—"}
                       </td>
                       <td>
-                        <Link to="/staged">
-                          Review
-                        </Link>
+                        <Link to="/staged">Review</Link>
                       </td>
                     </tr>
                   );
@@ -963,18 +886,19 @@ export function TransactionBrowser({
                     transaction.type === "deposit" || isInboundTransfer
                       ? transaction.destinationCurrency!
                       : transaction.sourceCurrency!;
-                  const sign =
-                    transaction.type === "deposit" || isInboundTransfer
-                      ? "+"
-                      : transaction.type === "withdrawal" ||
-                          (transaction.type === "transfer" && fixedAccountId)
-                        ? "−"
-                        : "";
+                  // One helper, so the review queue, the templates and the
+                  // recurrences sign a movement the same way this register
+                  // does. They used to show no sign at all.
+                  const { sign, className: moneyClass } = movementSign(
+                    transaction.type,
+                    transaction.type === "transfer" && fixedAccountId
+                      ? isInboundTransfer
+                      : undefined,
+                  );
                   const accountLabel =
                     transaction.type === "transfer"
                       ? `${transaction.sourceAccount?.name} → ${transaction.destinationAccount?.name}`
-                      : transaction.sourceAccount?.name ??
-                        transaction.destinationAccount?.name;
+                      : (transaction.sourceAccount?.name ?? transaction.destinationAccount?.name);
                   const transactionSelected =
                     selection.mode === "filter"
                       ? !selection.excludedIds.has(transaction.id)
@@ -994,25 +918,17 @@ export function TransactionBrowser({
                           type="checkbox"
                           aria-label={`Select transaction ${transaction.payee}, ${formatDate(
                             transaction.date,
-                          )}, ${accountLabel ?? "Unknown account"}, ${transaction.id.slice(
-                            0,
-                            8,
-                          )}`}
+                          )}, ${accountLabel ?? "Unknown account"}, ${transaction.id.slice(0, 8)}`}
                           checked={transactionSelected}
                           onChange={(event) =>
-                            toggleTransactionSelection(
-                              transaction,
-                              event.target.checked,
-                            )
+                            toggleTransactionSelection(transaction, event.target.checked)
                           }
                         />
                       </td>
                       <td className="nowrap">{formatDate(transaction.date)}</td>
                       <td>
                         <div className="transaction-cell">
-                          <span
-                            className={`transaction-icon ${transaction.type}`}
-                          >
+                          <span className={`transaction-icon ${transaction.type}`}>
                             <Icon size={16} />
                           </span>
                           <div>
@@ -1020,10 +936,7 @@ export function TransactionBrowser({
                               <Link
                                 to={{
                                   pathname: "/payees/transactions",
-                                  search: payeeDetailSearch(
-                                    location.search,
-                                    transaction.payee,
-                                  ),
+                                  search: payeeDetailSearch(location.search, transaction.payee),
                                 }}
                               >
                                 {transaction.payee}
@@ -1052,9 +965,7 @@ export function TransactionBrowser({
                             ) : (
                               <span className="subtle">Uncategorized</span>
                             )}
-                            <Badge tone="blue">
-                              Split · {transaction.legs.length}
-                            </Badge>
+                            <Badge tone="blue">Split · {transaction.legs.length}</Badge>
                           </div>
                         ) : transaction.category ? (
                           <Link
@@ -1069,17 +980,12 @@ export function TransactionBrowser({
                           <span className="subtle">Uncategorized</span>
                         )}
                       </td>
-                      <td
-                        className={`align-right money ${
-                          isInboundTransfer ? "deposit" : transaction.type
-                        }`}
-                      >
+                      <td className={`align-right money ${moneyClass}`}>
                         {sign}
                         {formatMoney(amount, currency)}
                         {!fixedAccountId &&
                         transaction.type === "transfer" &&
-                        transaction.sourceCurrency !==
-                          transaction.destinationCurrency ? (
+                        transaction.sourceCurrency !== transaction.destinationCurrency ? (
                           <small>
                             →{" "}
                             {formatMoney(
@@ -1104,10 +1010,7 @@ export function TransactionBrowser({
                           </button>
                         ) : (
                           <>
-                            <button
-                              aria-label="Edit"
-                              onClick={() => setEditing(transaction)}
-                            >
+                            <button aria-label="Edit" onClick={() => setEditing(transaction)}>
                               <Pencil size={16} />
                             </button>
                             <button
@@ -1124,14 +1027,17 @@ export function TransactionBrowser({
                               <Trash2 size={16} />
                             </button>
                             <RowMenu label={`Actions for ${transaction.payee}`}>
-                              <button
-                                onClick={() => setSavingTemplate(transaction)}
-                              >
+                              {/* To the QUEUE, not the books: the copy lands
+                                  on Staged prefilled, where it can be looked
+                                  at before it counts, exactly like anything
+                                  else that proposes a row. */}
+                              <button onClick={() => setCloning(transaction)}>
+                                <Copy size={15} /> Clone transaction
+                              </button>
+                              <button onClick={() => setSavingTemplate(transaction)}>
                                 <LayoutTemplate size={15} /> Save as template
                               </button>
-                              <button
-                                onClick={() => setSavingRecurrence(transaction)}
-                              >
+                              <button onClick={() => setSavingRecurrence(transaction)}>
                                 <Repeat size={15} /> Save as recurring transaction
                               </button>
                             </RowMenu>
@@ -1155,7 +1061,7 @@ export function TransactionBrowser({
           </div>
         </>
       ) : transactions.isPending ? (
-        <p>Loading transactions…</p>
+        <Skeleton height={120} label="Loading transactions…" />
       ) : (
         <EmptyState
           icon={<ArrowLeftRight size={24} />}
@@ -1168,6 +1074,17 @@ export function TransactionBrowser({
           }
         />
       )}
+      <Modal open={Boolean(cloning)} onClose={() => setCloning(null)} title="Stage a transaction">
+        {cloning ? (
+          <TransactionForm
+            accounts={accounts.data ?? []}
+            categories={categories.data ?? []}
+            clone={draftFromTransaction(cloning)}
+            initialMode="stage"
+            onDone={() => setCloning(null)}
+          />
+        ) : null}
+      </Modal>
       <Modal
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
@@ -1196,7 +1113,9 @@ export function TransactionBrowser({
           <TemplateForm
             accounts={accounts.data ?? []}
             categories={categories.data ?? []}
-            initialDraft={templateDraftFromDraft(draftForTransactionForm(draftFromTransaction(savingTemplate)))}
+            initialDraft={templateDraftFromDraft(
+              draftForTransactionForm(draftFromTransaction(savingTemplate)),
+            )}
             onDone={() => setSavingTemplate(null)}
           />
         ) : null}
@@ -1245,11 +1164,7 @@ export function TransactionBrowser({
           </div>
         }
       >
-        <form
-          id="transaction-bulk-edit-form"
-          className="bulk-edit-form"
-          onSubmit={submitBulkEdit}
-        >
+        <form id="transaction-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>
           <p className="bulk-edit-selection-summary">
             {selection.mode === "filter"
               ? `${filterSelectionPreview.data?.count ?? 0} transaction${
@@ -1262,25 +1177,24 @@ export function TransactionBrowser({
 
           {selectionMayIncludeDeleted ? (
             <Alert kind="info">
-              This selection may include deleted transactions. Their values will
-              be updated, but they will remain deleted.
+              This selection may include deleted transactions. Their values will be updated, but
+              they will remain deleted.
             </Alert>
           ) : null}
 
           {selectionContainsTransfers ? (
             <Alert kind="info">
               This selection contains {selectedTransferCount} transfer
-              {selectedTransferCount === 1 ? "" : "s"}. You can change common
-              details, but Account and Type are unavailable for transfers.
+              {selectedTransferCount === 1 ? "" : "s"}. You can change common details, but Account
+              and Type are unavailable for transfers.
             </Alert>
           ) : null}
 
           {explicitSelectionHasMissingRows ? (
             <Alert>
-              One or more selected transactions are no longer visible. Their
-              captured versions are preserved, but Account and Type are disabled.
-              Clear the selection and review the current list before changing
-              those fields.
+              One or more selected transactions are no longer visible. Their captured versions are
+              preserved, but Account and Type are disabled. Clear the selection and review the
+              current list before changing those fields.
             </Alert>
           ) : null}
 
@@ -1305,9 +1219,7 @@ export function TransactionBrowser({
               label="Change category"
               enabled={bulkEnabled.categoryId}
               disabled={categoryChangeUnavailable}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, categoryId: on }))
-              }
+              onToggle={(on) => setBulkEnabled((current) => ({ ...current, categoryId: on }))}
             >
               <Select
                 aria-label="New category"
@@ -1340,9 +1252,7 @@ export function TransactionBrowser({
               label="Change account"
               enabled={bulkEnabled.accountId}
               disabled={accountChangeUnavailable}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, accountId: on }))
-              }
+              onToggle={(on) => setBulkEnabled((current) => ({ ...current, accountId: on }))}
             >
               <Select
                 aria-label="New account"
@@ -1369,9 +1279,8 @@ export function TransactionBrowser({
               </Select>
               {bulkEnabled.accountId ? (
                 <small>
-                  Only accounts using {selectedCurrencies[0]} are available.
-                  Amounts and currencies are preserved; no FX conversion is
-                  performed.
+                  Only accounts using {selectedCurrencies[0]} are available. Amounts and currencies
+                  are preserved; no FX conversion is performed.
                 </small>
               ) : accountChangeUnavailable ? (
                 <small>
@@ -1379,7 +1288,7 @@ export function TransactionBrowser({
                     ? "Account cannot be mass edited when a transfer is selected."
                     : explicitSelectionHasMissingRows
                       ? "Account cannot be mass edited until every selected row is visible."
-                    : "Account cannot be mass edited across multiple currencies."}
+                      : "Account cannot be mass edited across multiple currencies."}
                 </small>
               ) : null}
             </BulkEditToggle>
@@ -1402,9 +1311,7 @@ export function TransactionBrowser({
               label="Change type"
               enabled={bulkEnabled.type}
               disabled={typeChangeUnavailable}
-              onToggle={(on) =>
-                setBulkEnabled((current) => ({ ...current, type: on }))
-              }
+              onToggle={(on) => setBulkEnabled((current) => ({ ...current, type: on }))}
             >
               <Select
                 aria-label="New transaction type"
@@ -1434,8 +1341,8 @@ export function TransactionBrowser({
 
           {accountChangeBlocked ? (
             <Alert>
-              Choose an account in the selected transactions’ existing currency.
-              Mass editing an account never performs an FX conversion.
+              Choose an account in the selected transactions’ existing currency. Mass editing an
+              account never performs an FX conversion.
             </Alert>
           ) : null}
 

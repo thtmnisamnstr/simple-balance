@@ -2,14 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
@@ -108,11 +101,7 @@ describe("account opening balances", () => {
     const { container } = render(
       <QueryClientProvider client={client}>
         <TimezoneProvider timezone="UTC">
-          <AccountForm
-            account={card}
-            defaultCurrency="USD"
-            onDone={() => undefined}
-          />
+          <AccountForm account={card} defaultCurrency="USD" onDone={() => undefined} />
         </TimezoneProvider>
       </QueryClientProvider>,
     );
@@ -141,13 +130,10 @@ describe("account opening balances", () => {
       "fetch",
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
         requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return new Response(
-          JSON.stringify({ ...card, type: "checking", openingBalance: "-500" }),
-          {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          },
-        );
+        return new Response(JSON.stringify({ ...card, type: "checking", openingBalance: "-500" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
       }),
     );
 
@@ -156,11 +142,7 @@ describe("account opening balances", () => {
     const { container } = render(
       <QueryClientProvider client={client}>
         <TimezoneProvider timezone="UTC">
-          <AccountForm
-            account={card}
-            defaultCurrency="USD"
-            onDone={() => undefined}
-          />
+          <AccountForm account={card} defaultCurrency="USD" onDone={() => undefined} />
         </TimezoneProvider>
       </QueryClientProvider>,
     );
@@ -374,9 +356,7 @@ describe("editing a transfer between two accounts in one currency", () => {
     fireEvent.change(screen.getByLabelText("From account"), {
       target: { value: savingsAccount.id },
     });
-    expect((screen.getByLabelText(/Amount received/) as HTMLInputElement).value).toBe(
-      "92.00",
-    );
+    expect((screen.getByLabelText(/Amount received/) as HTMLInputElement).value).toBe("92.00");
   });
 
   it("forgets it when the pair is changed to one currency", async () => {
@@ -399,11 +379,7 @@ describe("configured timezone defaults", () => {
     render(
       <QueryClientProvider client={client}>
         <TimezoneProvider timezone="America/Los_Angeles">
-          <TransactionForm
-            accounts={[checkingAccount]}
-            categories={[]}
-            onDone={() => undefined}
-          />
+          <TransactionForm accounts={[checkingAccount]} categories={[]} onDone={() => undefined} />
         </TimezoneProvider>
       </QueryClientProvider>,
     );
@@ -432,10 +408,7 @@ describe("transaction payee and category entry", () => {
 
     const client = queryClient();
     client.setQueryData(["payees", "suggestions", ""], ["Acme Market"]);
-    client.setQueryData(
-      ["payees", "suggestions", "acme market"],
-      ["Acme Market"],
-    );
+    client.setQueryData(["payees", "suggestions", "acme market"], ["Acme Market"]);
     const onDone = vi.fn();
     const { container } = render(
       <QueryClientProvider client={client}>
@@ -455,8 +428,7 @@ describe("transaction payee and category entry", () => {
     expect(payee).toBeRequired();
     expect(description).not.toBeRequired();
     expect(
-      payee.compareDocumentPosition(description) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      payee.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     fireEvent.change(payee, { target: { value: "acme market" } });
@@ -511,10 +483,7 @@ describe("transaction payee and category entry", () => {
     );
 
     const client = queryClient();
-    client.setQueryData(
-      ["payees", "suggestions", "acme market"],
-      ["Acme Market"],
-    );
+    client.setQueryData(["payees", "suggestions", "acme market"], ["Acme Market"]);
     const onDone = vi.fn();
     const { container } = render(
       <QueryClientProvider client={client}>
@@ -541,9 +510,7 @@ describe("transaction payee and category entry", () => {
     fireEvent.submit(container.querySelector("form")!);
 
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
-    expect(requestUrl?.pathname).toBe(
-      `/api/v1/transactions/${groceryTransaction.id}`,
-    );
+    expect(requestUrl?.pathname).toBe(`/api/v1/transactions/${groceryTransaction.id}`);
     expect(requestBody).toMatchObject({
       expectedVersion: groceryTransaction.version,
       draft: {
@@ -612,14 +579,8 @@ describe("transaction drill-down links", () => {
     const categoryLink = screen.getByRole("link", {
       name: groceriesCategory.name,
     });
-    const payeeUrl = new URL(
-      payeeLink.getAttribute("href")!,
-      window.location.origin,
-    );
-    const categoryUrl = new URL(
-      categoryLink.getAttribute("href")!,
-      window.location.origin,
-    );
+    const payeeUrl = new URL(payeeLink.getAttribute("href")!, window.location.origin);
+    const categoryUrl = new URL(categoryLink.getAttribute("href")!, window.location.origin);
 
     expect(payeeUrl.pathname).toBe("/payees/transactions");
     expect(payeeUrl.searchParams.get("name")).toBe(transaction.payee);
@@ -629,6 +590,94 @@ describe("transaction drill-down links", () => {
       expect(url.searchParams.get("end")).toBe("2026-07-31");
       expect(url.searchParams.get("preset")).toBe("custom");
     }
+  });
+});
+
+/**
+ * The clone path: a copy lands on the QUEUE, prefilled, minus the two things
+ * a copy must not carry. Leg ids belong to the source's legs, and the
+ * externalId is a bank file's identity for one real row — a copy carrying it
+ * would be swallowed by the next import as already-seen, which is why a
+ * template refuses one too.
+ */
+describe("cloning a transaction to the staged queue", () => {
+  it("prefills the stage form and posts a draft without the externalId", async () => {
+    let staged: { draft?: Record<string, unknown> } | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), window.location.origin);
+        const json = (body: unknown) =>
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        if (url.pathname === "/api/v1/staged-transactions" && init?.method !== "GET") {
+          if (init?.body) {
+            staged = JSON.parse(String(init.body)) as { draft?: Record<string, unknown> };
+            return json({});
+          }
+        }
+        if (url.pathname === "/api/v1/transactions") {
+          return json({
+            items: [{ ...groceryTransaction, externalId: "STMT-4021-88" }],
+            nextCursor: null,
+            page: 1,
+            pageSize: 50,
+            totalCount: 1,
+            cursorAvailable: true,
+            totalPages: 1,
+          });
+        }
+        if (url.pathname === "/api/v1/staged-transactions") {
+          return json({
+            items: [],
+            nextCursor: null,
+            page: 1,
+            pageSize: 50,
+            totalCount: 0,
+            cursorAvailable: false,
+            totalPages: 1,
+          });
+        }
+        if (url.pathname === "/api/v1/accounts") return json([checkingAccount]);
+        if (url.pathname === "/api/v1/categories") return json([groceriesCategory]);
+        if (url.pathname === "/api/v1/payees/suggestions") return json([]);
+        return json([]);
+      }),
+    );
+
+    window.history.replaceState(null, "", "/transactions?start=2026-07-01&end=2026-07-31");
+    render(
+      <QueryClientProvider client={queryClient()}>
+        <TimezoneProvider timezone="UTC">
+          <BrowserRouter>
+            <TransactionBrowser />
+          </BrowserRouter>
+        </TimezoneProvider>
+      </QueryClientProvider>,
+    );
+
+    const menu = await screen.findByRole("button", { name: "Actions for Acme Market" });
+    fireEvent.click(menu);
+    fireEvent.click(
+      within(menu.closest("tr")!).getByRole("button", { name: /clone transaction/i }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Stage a transaction" });
+    // Prefilled with the source's values, offered as a staging.
+    expect(within(dialog).getByLabelText("Payee")).toHaveValue("Acme Market");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stage transaction" }));
+
+    await waitFor(() => expect(staged).toBeDefined());
+    expect(staged!.draft).toMatchObject({
+      type: "withdrawal",
+      date: "2026-07-30",
+      payee: "Acme Market",
+      amount: "12.34",
+      categoryId: groceriesCategory.id,
+    });
+    // The one field a copy must not carry.
+    expect(staged!.draft).toMatchObject({ externalId: null });
   });
 });
 
@@ -647,9 +696,7 @@ describe("browser mutation idempotency", () => {
           });
         }
         if (url.pathname === "/api/v1/transactions") {
-          requestBodies.push(
-            JSON.parse(String(init?.body)) as Record<string, unknown>,
-          );
+          requestBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
           transactionAttempts += 1;
           if (transactionAttempts === 1) {
             throw new TypeError("Response was lost");
@@ -667,11 +714,7 @@ describe("browser mutation idempotency", () => {
     const { container } = render(
       <QueryClientProvider client={queryClient()}>
         <TimezoneProvider timezone="UTC">
-          <TransactionForm
-            accounts={[checkingAccount]}
-            categories={[]}
-            onDone={onDone}
-          />
+          <TransactionForm accounts={[checkingAccount]} categories={[]} onDone={onDone} />
         </TimezoneProvider>
       </QueryClientProvider>,
     );
@@ -688,17 +731,11 @@ describe("browser mutation idempotency", () => {
     fireEvent.submit(container.querySelector("form")!);
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(requestBodies).toHaveLength(2);
-    expect(requestBodies[0]?.idempotencyKey).toBe(
-      requestBodies[1]?.idempotencyKey,
-    );
+    expect(requestBodies[0]?.idempotencyKey).toBe(requestBodies[1]?.idempotencyKey);
   });
 });
 
-function staged(
-  id: string,
-  description: string,
-  importBatchId: string,
-): StagedTransaction {
+function staged(id: string, description: string, importBatchId: string): StagedTransaction {
   return {
     id,
     draft: {
@@ -719,11 +756,7 @@ function staged(
 
 describe("staged queue pagination", () => {
   it("keeps initial requests and rendering bounded, then loads more on demand", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      "/staged?start=2026-07-01&end=2026-07-31",
-    );
+    window.history.replaceState(null, "", "/staged?start=2026-07-01&end=2026-07-31");
     const first = staged(
       "33333333-3333-4333-8333-333333333333",
       "First page",
@@ -763,6 +796,7 @@ describe("staged queue pagination", () => {
             page: requested === "2" ? 2 : 1,
             pageSize: 1,
             totalCount: 2,
+            cursorAvailable: false,
             totalPages: 2,
           };
           return new Response(JSON.stringify(page), {
@@ -809,27 +843,17 @@ describe("staged queue pagination", () => {
 
     expect(await screen.findByText("First page")).toBeInTheDocument();
     expect(screen.queryByText("Second page")).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("option", { name: "first.csv (1)" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("option", { name: "second.csv (1)" }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "first.csv (1)" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "second.csv (1)" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Load older batches" }));
-    expect(
-      await screen.findByRole("option", { name: "second.csv (1)" }),
-    ).toBeInTheDocument();
-    expect(
-      requestedBatchCursors.filter((cursor) => cursor === "older-batch"),
-    ).toHaveLength(1);
+    expect(await screen.findByRole("option", { name: "second.csv (1)" })).toBeInTheDocument();
+    expect(requestedBatchCursors.filter((cursor) => cursor === "older-batch")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "Page 2" }));
     expect(await screen.findByText("Second page")).toBeInTheDocument();
     expect(screen.queryByText("First page")).not.toBeInTheDocument();
-    expect(
-      requestedStageCursors.filter((cursor) => cursor === "2"),
-    ).toHaveLength(1);
+    expect(requestedStageCursors.filter((cursor) => cursor === "2")).toHaveLength(1);
 
     fireEvent.click(
       screen.getByRole("checkbox", {
@@ -840,11 +864,7 @@ describe("staged queue pagination", () => {
   });
 
   it("reuses a staged-commit key when a lost response is retried", async () => {
-    window.history.replaceState(
-      null,
-      "",
-      "/staged?start=2026-07-01&end=2026-07-31",
-    );
+    window.history.replaceState(null, "", "/staged?start=2026-07-01&end=2026-07-31");
     const row = staged(
       "55555555-5555-4555-8555-555555555555",
       "Retry staged commit",
@@ -856,13 +876,8 @@ describe("staged queue pagination", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input), window.location.origin);
-        if (
-          url.pathname === "/api/v1/staged-transactions/commit" &&
-          init?.method === "POST"
-        ) {
-          commitBodies.push(
-            JSON.parse(String(init.body)) as Record<string, unknown>,
-          );
+        if (url.pathname === "/api/v1/staged-transactions/commit" && init?.method === "POST") {
+          commitBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
           commitAttempts += 1;
           if (commitAttempts === 1) throw new TypeError("Commit response lost");
           return new Response(
@@ -876,22 +891,16 @@ describe("staged queue pagination", () => {
           );
         }
         if (url.pathname === "/api/v1/staged-transactions") {
-          return new Response(
-            JSON.stringify({ items: [row], nextCursor: null }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          );
+          return new Response(JSON.stringify({ items: [row], nextCursor: null }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
         }
         if (url.pathname === "/api/v1/import-batches") {
-          return new Response(
-            JSON.stringify({ items: [], nextCursor: null }),
-            {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            },
-          );
+          return new Response(JSON.stringify({ items: [], nextCursor: null }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
         }
         if (url.pathname === "/api/v1/accounts") {
           return new Response(JSON.stringify([checkingAccount]), {
@@ -927,8 +936,6 @@ describe("staged queue pagination", () => {
     fireEvent.click(commitButton);
 
     await waitFor(() => expect(commitBodies).toHaveLength(2));
-    expect(commitBodies[0]?.idempotencyKey).toBe(
-      commitBodies[1]?.idempotencyKey,
-    );
+    expect(commitBodies[0]?.idempotencyKey).toBe(commitBodies[1]?.idempotencyKey);
   });
 });

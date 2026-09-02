@@ -14,11 +14,7 @@ import {
   type TemplateNotification,
   type TransactionTemplateDraft,
 } from "../../shared/domain.js";
-import {
-  getDb,
-  type DbTransaction,
-  withTransaction,
-} from "../db/client.js";
+import { getDb, type DbTransaction, withTransaction } from "../db/client.js";
 import {
   categories,
   ledgerAccounts,
@@ -35,6 +31,7 @@ import {
 } from "./notifications.js";
 import {
   getIdempotent,
+  lockCategoryNamespace,
   lockIdempotencyKey,
   lockTransactionTemplateNamespace,
   serializeRow,
@@ -80,13 +77,10 @@ async function assertNameAvailable(
 async function assertReferencesAreOwned(
   tx: DbTransaction,
   actor: Actor,
-  draft: Pick<
-    TransactionTemplateDraft,
-    "fromAccountId" | "toAccountId" | "categoryId" | "legs"
-  >,
+  draft: Pick<TransactionTemplateDraft, "fromAccountId" | "toAccountId" | "categoryId" | "legs">,
 ) {
-  const accountIds = [draft.fromAccountId, draft.toAccountId].filter(
-    (value): value is string => Boolean(value),
+  const accountIds = [draft.fromAccountId, draft.toAccountId].filter((value): value is string =>
+    Boolean(value),
   );
   if (accountIds.length) {
     const owned = await tx
@@ -120,12 +114,7 @@ async function assertReferencesAreOwned(
     const owned = await tx
       .select({ id: categories.id })
       .from(categories)
-      .where(
-        and(
-          inArray(categories.id, categoryIds),
-          eq(categories.userId, actor.userId),
-        ),
-      );
+      .where(and(inArray(categories.id, categoryIds), eq(categories.userId, actor.userId)));
     const found = new Set(owned.map((row) => row.id));
     const missing = categoryIds.filter((id) => !found.has(id));
     if (missing.length) {
@@ -180,11 +169,7 @@ const templateView = (
  * reminder". The bulk paths and the delete paths were writing exactly that
  * about templates that did.
  */
-async function readNotifications(
-  tx: DbTransaction,
-  actor: Actor,
-  templateIds: readonly string[],
-) {
+async function readNotifications(tx: DbTransaction, actor: Actor, templateIds: readonly string[]) {
   if (templateIds.length === 0) return new Map<string, NotificationRow>();
   const rows = await tx
     .select()
@@ -213,9 +198,21 @@ async function writeNotification(
   templateId: string,
   notification: TemplateNotification | null | undefined,
 ) {
-  const existing = (await readNotifications(tx, actor, [templateId])).get(
-    templateId,
-  );
+  // Locked, not merely read. The reminder sweep advances this row's watermark
+  // under its own row lock, and a template save racing it could read the
+  // pre-send watermark here, block on the sweep's lock at the delete below,
+  // and then write the stale watermark back — one reminder re-sent for an
+  // edit that changed nothing. FOR UPDATE makes this read wait its turn.
+  const [existing] = await tx
+    .select()
+    .from(templateNotifications)
+    .where(
+      and(
+        eq(templateNotifications.userId, actor.userId),
+        eq(templateNotifications.templateId, templateId),
+      ),
+    )
+    .for("update");
   if (notification === undefined) return existing ?? null;
   await tx
     .delete(templateNotifications)
@@ -264,9 +261,7 @@ async function writeNotification(
       // already missed, and the sweep collapses a backlog to one message, so it
       // costs one mail and answers the question they were asking.
       lastNotifiedDate: unchanged ? existing.lastNotifiedDate : null,
-      nextNotificationDate: unchanged
-        ? existing.nextNotificationDate
-        : firstNotificationDate(rule),
+      nextNotificationDate: unchanged ? existing.nextNotificationDate : firstNotificationDate(rule),
     })
     .returning();
   return created;
@@ -334,8 +329,7 @@ function assertPatchKeepsSplits(
   rows: { id: string; draft: TransactionTemplateDraft }[],
   patch: TransactionTemplateBulkPatch,
 ) {
-  const setsCategory =
-    (patch.categoryId ?? patch.categoryName) != null && !patch.legs;
+  const setsCategory = (patch.categoryId ?? patch.categoryName) != null && !patch.legs;
   if (!setsCategory && patch.type !== "transfer") return;
   const split = rows.filter((row) => row.draft.legs?.length);
   if (!split.length) return;
@@ -379,10 +373,9 @@ function assertPatchFitsType(
       return type !== undefined && type !== "transfer";
     });
     if (stranded.length) {
-      throw validationError(
-        "Only a transfer has a received amount, so it cannot be set here",
-        { templateIds: stranded.map((row) => row.id) },
-      );
+      throw validationError("Only a transfer has a received amount, so it cannot be set here", {
+        templateIds: stranded.map((row) => row.id),
+      });
     }
   }
 }
@@ -397,10 +390,7 @@ async function lockSelectedTemplates(
     .select()
     .from(transactionTemplates)
     .where(
-      and(
-        eq(transactionTemplates.userId, actor.userId),
-        inArray(transactionTemplates.id, ids),
-      ),
+      and(eq(transactionTemplates.userId, actor.userId), inArray(transactionTemplates.id, ids)),
     )
     .orderBy(transactionTemplates.id)
     .for("update");
@@ -435,12 +425,7 @@ export async function bulkEditTransactionTemplates(
   };
   return withTransaction(transaction, async (tx) => {
     if (!parsed.dryRun) {
-      await lockIdempotencyKey(
-        tx,
-        actor,
-        "transaction_template.bulk_edit",
-        parsed.idempotencyKey,
-      );
+      await lockIdempotencyKey(tx, actor, "transaction_template.bulk_edit", parsed.idempotencyKey);
       const existing = await getIdempotent<TransactionTemplateBulkResult>(
         tx,
         actor,
@@ -664,10 +649,7 @@ export async function listTransactionTemplates(actor: Actor) {
     // The id is cast to text rather than the draft to uuid. Casting the other
     // way raises on the first draft holding something that is not a uuid, and
     // staging accepts those on purpose.
-    .leftJoin(
-      stagedUse,
-      sql`${stagedUse.templateId} = ${transactionTemplates.id}::text`,
-    )
+    .leftJoin(stagedUse, sql`${stagedUse.templateId} = ${transactionTemplates.id}::text`)
     .where(eq(transactionTemplates.userId, actor.userId))
     .orderBy(transactionTemplates.name);
 
@@ -696,18 +678,21 @@ export async function getTransactionTemplate(actor: Actor, id: string) {
   const [row] = await getDb()
     .select()
     .from(transactionTemplates)
-    .where(
-      and(
-        eq(transactionTemplates.id, id),
-        eq(transactionTemplates.userId, actor.userId),
-      ),
-    )
+    .where(and(eq(transactionTemplates.id, id), eq(transactionTemplates.userId, actor.userId)))
     .limit(1);
   if (!row) throw notFound("Template not found");
   const [notification] = await getDb()
     .select()
     .from(templateNotifications)
-    .where(eq(templateNotifications.templateId, row.id))
+    // The template above was ownership-checked and templateId is unique, so
+    // this cannot cross a tenant today — but every finance read carries the
+    // actor's id anyway, so no later change has to remember why one did not.
+    .where(
+      and(
+        eq(templateNotifications.userId, actor.userId),
+        eq(templateNotifications.templateId, row.id),
+      ),
+    )
     .limit(1);
   return templateView(row, notification ?? null);
 }
@@ -719,6 +704,15 @@ export async function createTransactionTemplate(
 ) {
   const parsed = transactionTemplateCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
+    // The category namespace before the template's own lock, which the
+    // template lock's own comment already requires ("taken last of all the
+    // namespace locks"). Without it a category delete racing this create
+    // counts zero template references while this transaction sits between its
+    // ownership check and its insert, and the template lands naming a dead
+    // category — the exact state deleteCategory's guard exists to prevent.
+    if (parsed.draft.categoryId || parsed.draft.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
+    }
     await lockTransactionTemplateNamespace(tx, actor);
     await assertNameAvailable(tx, actor, parsed.name);
     await assertReferencesAreOwned(tx, actor, parsed.draft);
@@ -761,16 +755,15 @@ export async function updateTransactionTemplate(
   const parsed = transactionTemplateUpdateSchema.parse(input);
   const { expectedVersion, ...changes } = parsed;
   return withTransaction(transaction, async (tx) => {
+    // Same order as the create, for the same race.
+    if (changes.draft?.categoryId || changes.draft?.legs?.some((leg) => leg.categoryId)) {
+      await lockCategoryNamespace(tx, actor);
+    }
     await lockTransactionTemplateNamespace(tx, actor);
     const [before] = await tx
       .select()
       .from(transactionTemplates)
-      .where(
-        and(
-          eq(transactionTemplates.id, id),
-          eq(transactionTemplates.userId, actor.userId),
-        ),
-      )
+      .where(and(eq(transactionTemplates.id, id), eq(transactionTemplates.userId, actor.userId)))
       .limit(1);
     if (!before) throw notFound("Template not found");
     if (before.version !== expectedVersion) {
@@ -782,14 +775,8 @@ export async function updateTransactionTemplate(
     if (changes.draft !== undefined) {
       await assertReferencesAreOwned(tx, actor, changes.draft);
     }
-    const beforeNotification =
-      (await readNotifications(tx, actor, [id])).get(id) ?? null;
-    const notification = await writeNotification(
-      tx,
-      actor,
-      id,
-      changes.notification,
-    );
+    const beforeNotification = (await readNotifications(tx, actor, [id])).get(id) ?? null;
+    const notification = await writeNotification(tx, actor, id, changes.notification);
     const [updated] = await tx
       .update(transactionTemplates)
       .set({
@@ -829,12 +816,7 @@ export async function deleteTransactionTemplate(
     const [before] = await tx
       .select()
       .from(transactionTemplates)
-      .where(
-        and(
-          eq(transactionTemplates.id, id),
-          eq(transactionTemplates.userId, actor.userId),
-        ),
-      )
+      .where(and(eq(transactionTemplates.id, id), eq(transactionTemplates.userId, actor.userId)))
       .limit(1);
     if (!before) throw notFound("Template not found");
     if (before.version !== expectedVersion) {

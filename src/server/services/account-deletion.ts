@@ -14,14 +14,16 @@ import {
   verification,
 } from "../db/schema.js";
 import { notFound, validationError } from "./errors.js";
+import { log } from "../log.js";
 
 /**
  * Deleting an account, and everything that was in it.
  *
  * Every table that holds somebody's data references auth_user with
  * `on delete cascade`, so removing the person's row removes their ledger with
- * it: accounts, transactions, the postings underneath them, categories, staged
- * rows, import batches, preferences, idempotency records, audit history,
+ * it: accounts, transactions, the postings underneath them, categories and the
+ * groups they are filed under, budgets and the amounts set for one period,
+ * staged rows, import batches, preferences, idempotency records, audit history,
  * sessions, sign-in methods, and any OAuth grant an agent was holding. That is
  * deliberately the whole mechanism. A hand-written list of tables to empty is a
  * list somebody will forget to add to, and the thing it would forget is
@@ -55,8 +57,7 @@ export type OwnDataSummary = {
   connectedAgents: number;
 };
 
-const countOf = async (query: Promise<{ count: number }[]>) =>
-  (await query)[0]?.count ?? 0;
+const countOf = async (query: Promise<{ count: number }[]>) => (await query)[0]?.count ?? 0;
 
 /**
  * What is about to be destroyed, in the terms the person put it there.
@@ -67,8 +68,8 @@ const countOf = async (query: Promise<{ count: number }[]>) =>
  */
 export async function summarizeOwnData(actor: Actor): Promise<OwnDataSummary> {
   const db = getDb();
-  const [accounts, transactionCount, categoryCount, staged, recurring, batches] =
-    await Promise.all([
+  const [accounts, transactionCount, categoryCount, staged, recurring, batches] = await Promise.all(
+    [
       countOf(
         db
           .select({ count: sql<number>`count(*)::int` })
@@ -113,7 +114,8 @@ export async function summarizeOwnData(actor: Actor): Promise<OwnDataSummary> {
           .from(importBatches)
           .where(eq(importBatches.userId, actor.userId)),
       ),
-    ]);
+    ],
+  );
 
   // Payees are canonical text on transactions rather than rows of their own, so
   // they are counted the way the payee list derives them.
@@ -127,12 +129,7 @@ export async function summarizeOwnData(actor: Actor): Promise<OwnDataSummary> {
     getDb()
       .select({ count: sql<number>`count(distinct client_id)::int` })
       .from(oauthConsent)
-      .where(
-        and(
-          eq(oauthConsent.userId, actor.userId),
-          eq(oauthConsent.consentGiven, true),
-        ),
-      ),
+      .where(and(eq(oauthConsent.userId, actor.userId), eq(oauthConsent.consentGiven, true))),
   );
 
   return {
@@ -165,9 +162,7 @@ export async function deleteOwnAccount(
     .limit(1);
   if (!owner) throw notFound("Account not found");
   if (confirmEmail.toLowerCase() !== owner.email.trim().toLowerCase()) {
-    throw validationError(
-      "Type the email address on this account to confirm deleting it.",
-    );
+    throw validationError("Type the email address on this account to confirm deleting it.");
   }
 
   const removed = await summarizeOwnData(actor);
@@ -177,9 +172,7 @@ export async function deleteOwnAccount(
     // password reset holds the user id in `value`.
     await tx
       .delete(verification)
-      .where(
-        and(eq(verification.value, actor.userId), isNotNull(verification.value)),
-      );
+      .where(and(eq(verification.value, actor.userId), isNotNull(verification.value)));
     // Everything else goes with this row.
     await tx.delete(user).where(eq(user.id, actor.userId));
   });
@@ -188,7 +181,7 @@ export async function deleteOwnAccount(
   // say it happened. Deliberately without the address: they asked to be gone.
   const count = (value: number, one: string, many = `${one}s`) =>
     `${value} ${value === 1 ? one : many}`;
-  console.info(
+  log.info(
     `An account was deleted, with ${count(removed.transactions, "transaction")} ` +
       `across ${count(removed.accounts, "account")}.`,
   );

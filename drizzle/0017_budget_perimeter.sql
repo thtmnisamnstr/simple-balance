@@ -1,0 +1,1 @@
+ALTER TABLE "ledger_account" ADD COLUMN "in_budget" boolean DEFAULT true NOT NULL;

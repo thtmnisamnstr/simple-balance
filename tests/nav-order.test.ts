@@ -2,10 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(
-  path.join(import.meta.dirname, "..", "src/client/App.tsx"),
-  "utf8",
-);
+const source = readFileSync(path.join(import.meta.dirname, "..", "src/client/App.tsx"), "utf8");
 
 /**
  * The sidebar is in reading order rather than alphabetical: where the money is
@@ -32,8 +29,10 @@ describe("the sidebar", () => {
       "Payees",
       "Templates",
       "Recurring",
-      // After Recurring: it answers a question about a ledger somebody has
-      // already been keeping rather than being something they do to it.
+      // Both after Recurring: they answer questions about a ledger somebody has
+      // already been keeping rather than being something they do to it. Budgets
+      // first, because it is the question with an intention behind it.
+      "Budgets",
       "Reports",
       "Import CSV",
       "Activity",

@@ -40,7 +40,7 @@ contract breaks, which is not the same as when the app does.
 | `src/server/db` | Drizzle schema, migration runner, connection pool. |
 | `src/client` | The browser app. Renders what the server computed. |
 | `drizzle` | Generated SQL migrations and their snapshots. |
-| `tests` | Unit tests; `tests/integration` needs a real PostgreSQL. |
+| `tests` | Unit tests; `tests/integration` needs a real PostgreSQL; `tests/browser` drives Chromium against the real API and needs its own database. |
 | `scripts` | Release helper, development database bootstrap, the Ralph loop. |
 
 Both transports are adapters, and the scheduler is a third caller of the same
@@ -189,6 +189,16 @@ Lists order by any column they show, in either direction. Order is presentation
 rather than scope, so it stays out of the fingerprinted bulk selection. A cursor
 records the ordering it was issued for and is refused under another; orderings a
 keyset cannot resume page by number instead.
+
+Budgeting sits over the ledger and never inside it. A budget is a comparison
+against the postings, not an entry among them: nothing in a budget writes a
+posting, deleting every budget leaves the books exactly as they were, and a
+carried-forward balance is folded at read time rather than stored, which is
+what lets a back-dated correction change every period after it. A forecast is
+a projection and never a balance. Money dated in the future has not moved, so
+no figure the forecast produces may reach a balance, a report total or the
+trial balance; only the two transports may import it, and it writes nothing.
+`tests/forecast-boundary.test.ts` holds all three properties.
 
 ## Tenancy
 

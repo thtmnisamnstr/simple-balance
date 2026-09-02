@@ -1,8 +1,9 @@
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
+import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
+import { dropScratchDatabase } from "./support/scratch-database.js";
 import { stagedTransactions, user } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
 import {
@@ -71,20 +72,22 @@ integration("how much each category is used", () => {
     process.env.DATABASE_URL = databaseUrl.toString();
     await runMigrations();
 
-    await getDb().insert(user).values([
-      {
-        id: owner.userId,
-        name: "Category Usage",
-        email: "category-usage@example.com",
-        emailVerified: true,
-      },
-      {
-        id: stranger.userId,
-        name: "Stranger",
-        email: "category-usage-stranger@example.com",
-        emailVerified: true,
-      },
-    ]);
+    await getDb()
+      .insert(user)
+      .values([
+        {
+          id: owner.userId,
+          name: "Category Usage",
+          email: "category-usage@example.com",
+          emailVerified: true,
+        },
+        {
+          id: stranger.userId,
+          name: "Stranger",
+          email: "category-usage-stranger@example.com",
+          emailVerified: true,
+        },
+      ]);
     const opening = {
       type: "checking" as const,
       currency: "USD",
@@ -100,17 +103,15 @@ integration("how much each category is used", () => {
         openingBalance: "0",
       })
     ).id;
-    strangerAccountId = (
-      await createAccount(stranger, { ...opening, name: "Their Checking" })
-    ).id;
+    strangerAccountId = (await createAccount(stranger, { ...opening, name: "Their Checking" })).id;
   });
 
   afterAll(async () => {
-    await closeDb();
-    await adminClient.query(`drop database if exists "${databaseName}"`);
-    await adminClient.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: adminClient,
+      name: databaseName,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("counts committed and staged rows separately, and adds them up", async () => {
@@ -191,12 +192,7 @@ integration("how much each category is used", () => {
 
     // Restoring brings it back, so the number tracks the list rather than a
     // running tally.
-    const current = await setTransactionDeleted(
-      owner,
-      removed.id,
-      removed.version + 1,
-      false,
-    );
+    const current = await setTransactionDeleted(owner, removed.id, removed.version + 1, false);
     expect(current.deletedAt).toBeNull();
     expect(await summaryFor("Hobbies")).toMatchObject({ transactionCount: 2 });
     expect(kept.id).not.toBe(removed.id);
@@ -323,9 +319,7 @@ integration("how much each category is used", () => {
     });
     // None of the three attaches itself to some other category either.
     for (const summary of summaries) {
-      expect(summary.totalCount).toBe(
-        summary.transactionCount + summary.stagedTransactionCount,
-      );
+      expect(summary.totalCount).toBe(summary.transactionCount + summary.stagedTransactionCount);
     }
   });
 
@@ -459,10 +453,7 @@ integration("how much each category is used", () => {
     });
 
     for (const category of [groceries, household]) {
-      expect(
-        (await summaryFor(category.name))?.stagedTransactionCount,
-        category.name,
-      ).toBe(1);
+      expect((await summaryFor(category.name))?.stagedTransactionCount, category.name).toBe(1);
       const listed = await listStages(owner, {
         limit: 50,
         categoryId: category.id,
@@ -520,10 +511,7 @@ integration("how much each category is used", () => {
 
     // Both categories were credited, so no leg was lost on the way through.
     for (const category of [one, two]) {
-      expect(
-        (await summaryFor(category.name))?.transactionCount,
-        category.name,
-      ).toBe(1);
+      expect((await summaryFor(category.name))?.transactionCount, category.name).toBe(1);
     }
   });
 

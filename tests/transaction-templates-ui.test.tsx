@@ -2,14 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   Account,
@@ -92,6 +85,7 @@ function stubBrowser(templates: TransactionTemplate[] = []) {
           page: 1,
           pageSize: 1,
           totalCount: 1,
+          cursorAvailable: false,
           totalPages: 1,
         };
         return jsonResponse(page);
@@ -180,9 +174,7 @@ describe("saving a row as a template", () => {
     });
     fireEvent.click(dialog.getByRole("button", { name: "Save as template" }));
     await waitFor(() => expect(posted).toHaveLength(1));
-    expect((posted[0] as { draft: Record<string, unknown> }).draft).not.toHaveProperty(
-      "date",
-    );
+    expect((posted[0] as { draft: Record<string, unknown> }).draft).not.toHaveProperty("date");
   });
 
   it("saves a date when one is deliberately entered", async () => {
@@ -219,8 +211,6 @@ describe("saving a row as a template", () => {
     expect(JSON.stringify(posted[0])).not.toContain("bank-statement-row-9912");
   });
 
-
-
   // The headline case: a recurring payee and category whose amount differs
   // every time.
   it("leaves out a field the user cleared", async () => {
@@ -254,17 +244,13 @@ describe("saving a row as a template", () => {
     fireEvent.click(dialog.getByRole("button", { name: "Save as template" }));
 
     await waitFor(() => expect(posted).toHaveLength(1));
-    expect((posted[0] as { draft: object }).draft).not.toHaveProperty(
-      "fromAccountId",
-    );
+    expect((posted[0] as { draft: object }).draft).not.toHaveProperty("fromAccountId");
   });
 
   it("will not save without a name", async () => {
     stubBrowser();
     renderBrowser();
     const dialog = within(await openTemplateEditor());
-    expect(
-      dialog.getByRole("button", { name: "Save as template" }),
-    ).toBeDisabled();
+    expect(dialog.getByRole("button", { name: "Save as template" })).toBeDisabled();
   });
 });

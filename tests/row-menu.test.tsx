@@ -12,7 +12,8 @@ import { RowMenu } from "../src/client/components.js";
  * component's own work and is what these cover.
  */
 function open() {
-  const details = screen.getByRole("button", { name: "Actions for Market" })
+  const details = screen
+    .getByRole("button", { name: "Actions for Market" })
     .closest("details") as HTMLDetailsElement;
   details.open = true;
   fireEvent(details, new Event("toggle"));
@@ -73,9 +74,7 @@ describe("the overflow menu on a row", () => {
     const details = open();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(details.open).toBe(false);
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Actions for Market" }),
-    );
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Actions for Market" }));
   });
 
   it("closes when something outside is pressed", () => {

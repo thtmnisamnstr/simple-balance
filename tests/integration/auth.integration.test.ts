@@ -55,11 +55,7 @@ function authRequest(path: string, body?: unknown, cookie?: string) {
   });
 }
 
-function formRequest(
-  path: string,
-  values: Record<string, string>,
-  cookie?: string,
-) {
+function formRequest(path: string, values: Record<string, string>, cookie?: string) {
   return app.request(`http://localhost:3000${path}`, {
     method: "POST",
     headers: {
@@ -127,6 +123,9 @@ integration("embedded local authentication", () => {
       localRegistrationOpen: true,
       awaitingFirstAccount: true,
       setupTokenRequired: true,
+      // Required implies offered: the form shows the field either way, and
+      // this flag is what makes it optional on a list-mode claim.
+      setupTokenOffered: true,
       passwordResetAvailable: false,
       emailVerificationRequired: false,
       // Not gated on local auth, unlike the two above, but false here for the
@@ -144,7 +143,7 @@ integration("embedded local authentication", () => {
     });
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ code: "INVALID_SETUP_TOKEN" });
-    expect((await getDb().select().from(user))).toHaveLength(0);
+    expect(await getDb().select().from(user)).toHaveLength(0);
   });
 
   it("keeps bootstrap open after an invalid password", async () => {
@@ -155,7 +154,7 @@ integration("embedded local authentication", () => {
       setupToken,
     });
     expect(response.status).toBeGreaterThanOrEqual(400);
-    expect((await getDb().select().from(user))).toHaveLength(0);
+    expect(await getDb().select().from(user)).toHaveLength(0);
     const methods = await authRequest("/api/auth/methods");
     expect(await methods.json()).toMatchObject({ localRegistrationOpen: true });
   });
@@ -180,7 +179,7 @@ integration("embedded local authentication", () => {
         setupToken,
       });
       expect(response.status).toBeGreaterThanOrEqual(400);
-      expect((await getDb().select().from(user))).toHaveLength(0);
+      expect(await getDb().select().from(user)).toHaveLength(0);
       const methods = await authRequest("/api/auth/methods");
       expect(await methods.json()).toMatchObject({ localRegistrationOpen: true });
     } finally {
@@ -207,9 +206,7 @@ integration("embedded local authentication", () => {
       },
     ];
     const responses = await Promise.all(
-      attempts.map((attempt) =>
-        authRequest("/api/auth/sign-up/email", attempt),
-      ),
+      attempts.map((attempt) => authRequest("/api/auth/sign-up/email", attempt)),
     );
     expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
     const winningIndex = responses.findIndex((response) => response.status === 200);
@@ -257,28 +254,30 @@ integration("embedded local authentication", () => {
       setupToken,
     });
     expect(secondSignup.status).toBe(403);
+    // Both halves of the transitional envelope: the flat pair a 0.1.5 client
+    // reads, and the nested `error` the browser's own reader looks inside.
+    // Fourteen routes grew the pair and no test held it — a regression to
+    // flat-only would pass every assertion that checks only the flat keys.
     expect(await secondSignup.json()).toMatchObject({
       code: "REGISTRATION_CLOSED",
+      error: { code: "REGISTRATION_CLOSED" },
     });
     expect(await getDb().select().from(user)).toHaveLength(1);
   });
 
   it("rejects cross-origin finance and session mutations", async () => {
-    const financeMutation = await app.request(
-      "http://localhost:3000/api/v1/preferences",
-      {
-        method: "PUT",
-        headers: {
-          cookie: ownerCookie,
-          origin: "https://attacker.example",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          timezone: "UTC",
-          defaultCurrency: "USD",
-        }),
+    const financeMutation = await app.request("http://localhost:3000/api/v1/preferences", {
+      method: "PUT",
+      headers: {
+        cookie: ownerCookie,
+        origin: "https://attacker.example",
+        "content-type": "application/json",
       },
-    );
+      body: JSON.stringify({
+        timezone: "UTC",
+        defaultCurrency: "USD",
+      }),
+    });
     expect(financeMutation.status).toBe(403);
     expect(await financeMutation.json()).toMatchObject({
       error: { code: "CROSS_ORIGIN_REQUEST" },
@@ -332,14 +331,9 @@ integration("embedded local authentication", () => {
     );
     expect([200, 201]).toContain(registration.status);
     const client = (await registration.json()) as { client_id: string };
-    const verifier =
-      "integration-local-auth-verifier-012345678901234567890123456789";
-    const challenge = createHash("sha256")
-      .update(verifier)
-      .digest("base64url");
-    const authorizeUrl = new URL(
-      "http://localhost:3000/api/auth/mcp/authorize",
-    );
+    const verifier = "integration-local-auth-verifier-012345678901234567890123456789";
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const authorizeUrl = new URL("http://localhost:3000/api/auth/mcp/authorize");
     authorizeUrl.search = new URLSearchParams({
       client_id: client.client_id,
       redirect_uri: "http://127.0.0.1:7777/callback",
@@ -363,13 +357,8 @@ integration("embedded local authentication", () => {
       promptCookie,
     );
     expect(login.status).toBe(302);
-    const consentPage = new URL(
-      login.headers.get("location")!,
-      "http://localhost:3000",
-    );
-    expect(consentPage.origin + consentPage.pathname).toBe(
-      "http://localhost:3000/oauth/consent",
-    );
+    const consentPage = new URL(login.headers.get("location")!, "http://localhost:3000");
+    expect(consentPage.origin + consentPage.pathname).toBe("http://localhost:3000/oauth/consent");
     expect(consentPage.searchParams.get("scope")).toContain("ledger:write");
     const consentCode = consentPage.searchParams.get("consent_code");
     expect(consentCode).toBeTruthy();
@@ -382,9 +371,7 @@ integration("embedded local authentication", () => {
     expect(consent.status).toBe(200);
     const consentPayload = (await consent.json()) as { redirectURI: string };
     const callback = new URL(consentPayload.redirectURI);
-    expect(callback.origin + callback.pathname).toBe(
-      "http://127.0.0.1:7777/callback",
-    );
+    expect(callback.origin + callback.pathname).toBe("http://127.0.0.1:7777/callback");
     expect(callback.searchParams.get("state")).toBe("local-auth-integration");
     const code = callback.searchParams.get("code");
     expect(code).toBeTruthy();
@@ -459,23 +446,18 @@ integration("embedded local authentication", () => {
     });
   });
 
-  it.each([
-    "/api/v1/does-not-exist",
-    "/api/v1/transactions/",
-    "/api/v1/accounts/",
-  ])("answers a JSON 404 for the unmatched path %s", async (path) => {
-    const response = await authRequest(path, undefined, ownerCookie);
-    expect(response.status).toBe(404);
-    expect(response.headers.get("content-type")).toContain("application/json");
-    expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
-  });
+  it.each(["/api/v1/does-not-exist", "/api/v1/transactions/", "/api/v1/accounts/"])(
+    "answers a JSON 404 for the unmatched path %s",
+    async (path) => {
+      const response = await authRequest(path, undefined, ownerCookie);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(await response.json()).toMatchObject({ error: { code: "NOT_FOUND" } });
+    },
+  );
 
   it("tells caches not to keep a response carrying a session token", async () => {
-    const sessions = await authRequest(
-      "/api/auth/list-sessions",
-      undefined,
-      ownerCookie,
-    );
+    const sessions = await authRequest("/api/auth/list-sessions", undefined, ownerCookie);
     expect(sessions.status).toBe(200);
     expect(sessions.headers.get("cache-control")).toBe("no-store");
   });
@@ -487,16 +469,13 @@ integration("embedded local authentication", () => {
   });
 
   it("answers a malformed consent cookie without a 500", async () => {
-    const response = await app.request(
-      "http://localhost:3000/api/auth/oauth2/consent-request",
-      {
-        headers: {
-          origin: "http://localhost:3000",
-          "x-forwarded-for": fromNewClient(),
-          cookie: `${ownerCookie}; oidc_consent_prompt=%zz`,
-        },
+    const response = await app.request("http://localhost:3000/api/auth/oauth2/consent-request", {
+      headers: {
+        origin: "http://localhost:3000",
+        "x-forwarded-for": fromNewClient(),
+        cookie: `${ownerCookie}; oidc_consent_prompt=%zz`,
       },
-    );
+    });
     expect(response.status).toBeLessThan(500);
   });
 });

@@ -1,13 +1,6 @@
 import { Link, useLocation } from "../router.js";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  Landmark,
-  Plus,
-  Scale,
-  TrendingUp,
-} from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Landmark, Plus, Scale, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { groupAccountsByType } from "../../shared/domain.js";
 import { api, queryString, type Account, type Category, type Summary } from "../api.js";
@@ -21,6 +14,7 @@ import {
   Skeleton,
 } from "../components.js";
 import {
+  formatDate,
   formatMoney,
   isNegativeMoney,
   largestMoney,
@@ -35,8 +29,7 @@ export default function DashboardPage() {
   const [open, setOpen] = useState(false);
   const summary = useQuery({
     queryKey: ["summary", start, end],
-    queryFn: () =>
-      api<Summary>(`/api/v1/summary?${queryString({ start, end })}`),
+    queryFn: () => api<Summary>(`/api/v1/summary?${queryString({ start, end })}`),
   });
   const accounts = useQuery({
     queryKey: ["accounts", end],
@@ -89,35 +82,47 @@ export default function DashboardPage() {
                   <span className="currency-code">{currency.currency}</span>
                   <h2>{formatMoney(currency.balance, currency.currency)} total</h2>
                 </div>
-                <span className="subtle">{currency.accounts.length} account{currency.accounts.length === 1 ? "" : "s"}</span>
+                <span className="subtle">
+                  {currency.accounts.length} account{currency.accounts.length === 1 ? "" : "s"}
+                </span>
               </div>
               <div className="metric-grid">
                 <article className="metric-card metric-balance">
-                  <span className="metric-icon"><Scale size={18} /></span>
+                  <span className="metric-icon">
+                    <Scale size={18} />
+                  </span>
                   <div>
                     <span>Balance</span>
                     <strong>{formatMoney(currency.balance, currency.currency)}</strong>
                   </div>
                 </article>
                 <article className="metric-card">
-                  <span className="metric-icon positive"><ArrowDownLeft size={18} /></span>
+                  <span className="metric-icon positive">
+                    <ArrowDownLeft size={18} />
+                  </span>
                   <div>
                     <span>Deposits</span>
                     <strong>{formatMoney(currency.deposits, currency.currency)}</strong>
                   </div>
                 </article>
                 <article className="metric-card">
-                  <span className="metric-icon negative"><ArrowUpRight size={18} /></span>
+                  <span className="metric-icon negative">
+                    <ArrowUpRight size={18} />
+                  </span>
                   <div>
                     <span>Withdrawals</span>
                     <strong>{formatMoney(currency.withdrawals, currency.currency)}</strong>
                   </div>
                 </article>
                 <article className="metric-card">
-                  <span className="metric-icon"><TrendingUp size={18} /></span>
+                  <span className="metric-icon">
+                    <TrendingUp size={18} />
+                  </span>
                   <div>
                     <span>Net cash flow</span>
-                    <strong className={isNegativeMoney(currency.netCashFlow) ? "money-negative" : ""}>
+                    <strong
+                      className={isNegativeMoney(currency.netCashFlow) ? "money-negative" : ""}
+                    >
                       {formatMoney(currency.netCashFlow, currency.currency)}
                     </strong>
                   </div>
@@ -127,7 +132,11 @@ export default function DashboardPage() {
                 <article className="panel">
                   <header className="panel-header">
                     <h3>Accounts</h3>
-                    <span>As of {summary.data?.asOf ?? end ?? "today"}</span>
+                    <span>
+                      {/* Through formatDate like every date below it: raw ISO
+                          above formatted tables read as two different days. */}
+                      As of {formatDate(summary.data?.asOf ?? end ?? "") || "today"}
+                    </span>
                   </header>
                   <div>
                     {groupAccountsByType(currency.accounts).map((group) => (
@@ -147,7 +156,9 @@ export default function DashboardPage() {
                             }}
                           >
                             <strong>{account.name}</strong>
-                            <span className={isNegativeMoney(account.balance) ? "money-negative" : ""}>
+                            <span
+                              className={isNegativeMoney(account.balance) ? "money-negative" : ""}
+                            >
                               {formatMoney(account.balance, currency.currency)}
                             </span>
                           </Link>
@@ -181,8 +192,7 @@ export default function DashboardPage() {
                         // first row is no longer necessarily the biggest, and a
                         // ratio over one is clamped to a full bar, which would
                         // draw two different amounts the same width.
-                        const widest =
-                          largestMoney(shown.map((entry) => entry.amount)) ?? "1";
+                        const widest = largestMoney(shown.map((entry) => entry.amount)) ?? "1";
                         const percent = moneyRatioPercent(item.amount, widest);
                         return (
                           <div key={item.categoryId ?? "uncategorized"} className="spending-row">

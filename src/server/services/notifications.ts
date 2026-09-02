@@ -15,11 +15,8 @@ import {
   configuredRecurrenceClaimLimit,
 } from "../config-limits.js";
 import { getDb } from "../db/client.js";
-import {
-  templateNotifications,
-  transactionTemplates,
-  user,
-} from "../db/schema.js";
+import { templateNotifications, transactionTemplates, user } from "../db/schema.js";
+import { log } from "../log.js";
 import {
   mailEnabled,
   recurrenceProposedMessage,
@@ -159,7 +156,7 @@ async function recipientOf(userId: string) {
  */
 export async function notifyRecurrenceProposed(
   userId: string,
-  proposed: { recurrenceName: string; occurrenceDates: string[] },
+  proposed: { recurrenceId: string; recurrenceName: string; occurrenceDates: string[] },
 ) {
   if (!mailEnabled() || !proposed.occurrenceDates.length) return false;
   const recipient = await recipientOf(userId);
@@ -169,7 +166,14 @@ export async function notifyRecurrenceProposed(
     proposed.occurrenceDates,
     getConfig().baseUrl,
   );
-  return sendMail({ to: recipient.email, ...message });
+  return sendMail({
+    to: recipient.email,
+    ...message,
+    // After the spread, so it overrides the kind the message carries. A failed
+    // send names the row rather than "a recurrence proposal notice", which on a
+    // deployment with several recurrences is no help at all.
+    about: `recurrence proposal ${proposed.recurrenceId}`,
+  });
 }
 
 export type NotificationTickSummary = {
@@ -243,35 +247,43 @@ export async function runDueNotifications(
     // claim cost a transaction and a row lock on every tick for a reminder that
     // was hours away.
     if (
-      !notificationIsDue(
-        String(row.next_notification_date),
-        String(row.notify_at),
-        today,
-        nowTime,
-      )
+      !notificationIsDue(String(row.next_notification_date), String(row.notify_at), today, nowTime)
     ) {
       continue;
     }
     try {
-      const owed = await claimDueNotification(
-        String(row.id),
-        String(row.user_id),
-        today,
-        nowTime,
-      );
-      if (owed && (await deliver(String(row.user_id), owed))) sent += 1;
+      const owed = await claimDueNotification(String(row.id), String(row.user_id), today, nowTime);
+      if (owed) {
+        if (await deliver(String(row.user_id), owed)) {
+          sent += 1;
+        } else {
+          // sendMail reports refusal by returning false, never by throwing, so
+          // a refusing relay used to land in neither count: the sweep said
+          // "0 failed" while the watermark had already advanced and the
+          // reminder was gone. A consumed reminder that reached nobody is a
+          // failure, and the operator's count is the only place it can show.
+          failed += 1;
+          log.warn(
+            `Template reminder ${row.id} was claimed but the relay refused the message. ` +
+              "The watermark has advanced, so this occurrence will not be retried.",
+          );
+        }
+      }
     } catch (error) {
       // One reminder must never end the sweep, for the same reason one
       // recurrence must not: this loop serves every tenant at once and runs the
       // most overdue first, so a row that throws every time is first every time.
       failed += 1;
-      console.error(`Template reminder ${row.id} could not be sent`, error);
+      log.failure(`Template reminder ${row.id} could not be sent`, error);
     }
   }
   return { examined, sent, failed };
 }
 
 type OwedReminder = {
+  /** Carried for the same reason a recurrence carries its own: a failed send
+   * should name the row, and the template's name is somebody's own text. */
+  templateId: string;
   templateName: string;
   occurrenceDate: string;
   repeats: boolean;
@@ -307,12 +319,7 @@ async function claimDueNotification(
         transactionTemplates,
         eq(transactionTemplates.id, templateNotifications.templateId),
       )
-      .where(
-        and(
-          eq(templateNotifications.id, id),
-          eq(templateNotifications.userId, userId),
-        ),
-      )
+      .where(and(eq(templateNotifications.id, id), eq(templateNotifications.userId, userId)))
       .for("update", { skipLocked: true });
     if (!row) return null;
 
@@ -342,6 +349,7 @@ async function claimDueNotification(
       .where(eq(templateNotifications.id, row.notification.id));
 
     return {
+      templateId: row.notification.templateId,
       templateName: row.templateName,
       occurrenceDate: owed.occurrenceDate,
       repeats: rule.frequency !== null,
@@ -359,11 +367,14 @@ async function deliver(userId: string, owed: OwedReminder) {
     getConfig().baseUrl,
     owed.repeats,
   );
-  return sendMail({ to: recipient.email, ...message });
+  return sendMail({
+    to: recipient.email,
+    ...message,
+    about: `template reminder ${owed.templateId}`,
+  });
 }
 
 /** For a caller writing the row: where the schedule starts from. */
 export function firstNotificationDate(rule: NotificationRule) {
   return nextNotificationAfter(rule, null)?.sendDate ?? null;
 }
-

@@ -1,14 +1,23 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { staleVersion } from "../src/server/services/errors.js";
 import {
   decimalStringSchema,
   accountCreateSchema,
+  bulkDeleteStageSchema,
+  budgetReportQuerySchema,
   bulkTransactionEditSchema,
+  commitStageSchema,
   isoDateSchema,
   listQuerySchema,
+  resolveEntrySide,
+  reversesEntry,
   stageCreateSchema,
   transactionDraftSchema,
 } from "../src/shared/domain.js";
 import {
+  CSV_MEDIA_TYPE,
+  csvFileLine,
   normalizeCsvRows,
   parseLocalizedAmount,
   previewCsv,
@@ -32,19 +41,13 @@ describe("boundary schemas", () => {
 
   it("enforces the PostgreSQL numeric(44,18) storage boundary", () => {
     expect(
-      decimalStringSchema.safeParse(
-        "99999999999999999999999999.999999999999999999",
-      ).success,
+      decimalStringSchema.safeParse("99999999999999999999999999.999999999999999999").success,
     ).toBe(true);
     expect(
-      decimalStringSchema.safeParse(
-        "-99999999999999999999999999.999999999999999999",
-      ).success,
+      decimalStringSchema.safeParse("-99999999999999999999999999.999999999999999999").success,
     ).toBe(true);
     expect(
-      decimalStringSchema.safeParse(
-        "100000000000000000000000000.000000000000000000",
-      ).success,
+      decimalStringSchema.safeParse("100000000000000000000000000.000000000000000000").success,
     ).toBe(false);
     expect(decimalStringSchema.safeParse("0.123456789012345678").success).toBe(true);
     expect(decimalStringSchema.safeParse("0.1234567890123456789").success).toBe(false);
@@ -177,6 +180,52 @@ describe("boundary schemas", () => {
       }).success,
     ).toBe(false);
   });
+
+  /**
+   * The staged selection encodes its versions as a map beside the ids rather
+   * than as a list of pairs, which leaves `expectedVersion` a plausible thing
+   * to type. MCP refuses it by name at the tool boundary; HTTP drops it and
+   * reads the request as one naming no versions at all, which then fails the
+   * version check with a worse sentence.
+   *
+   * That asymmetry is a real defect and is deliberately still here. Closing the
+   * shared schema would refuse a body an existing caller may be sending, and a
+   * release does not take something away from a client that had it — see
+   * `AGENTS.md`. This pins the two halves as they are, so the day somebody
+   * closes it they do it on purpose and in a release that says so.
+   */
+  it("keeps the shared staged selections open, and strict only at the tool boundary", () => {
+    const selection = {
+      stagedIds: [accountId],
+      expectedVersions: { [accountId]: 1 },
+    };
+    expect(commitStageSchema.safeParse({ ...selection, idempotencyKey: "commit-1" }).success).toBe(
+      true,
+    );
+    expect(bulkDeleteStageSchema.safeParse(selection).success).toBe(true);
+
+    // The shared schema drops it, as it did before.
+    expect(
+      commitStageSchema.safeParse({
+        ...selection,
+        idempotencyKey: "commit-2",
+        expectedVersion: 1,
+      }).success,
+    ).toBe(true);
+    expect(bulkDeleteStageSchema.safeParse({ ...selection, expectedVersion: 1 }).success).toBe(
+      true,
+    );
+
+    // The tool boundary refuses it, naming the field, which is where an agent
+    // meets it and where the teaching belongs.
+    expect(
+      commitStageSchema.strict().safeParse({
+        ...selection,
+        idempotencyKey: "commit-3",
+        expectedVersion: 1,
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("date presets", () => {
@@ -203,9 +252,7 @@ describe("date presets", () => {
   it("uses the configured timezone at a calendar-day boundary", () => {
     const instant = new Date("2026-08-01T06:30:00.000Z");
 
-    expect(
-      rangeForPreset("this-month", instant, "America/Los_Angeles"),
-    ).toEqual({
+    expect(rangeForPreset("this-month", instant, "America/Los_Angeles")).toEqual({
       start: "2026-07-01",
       end: "2026-07-31",
     });
@@ -456,7 +503,7 @@ describe("CSV normalization", () => {
         {
           transaction_id: "11111111-1111-4111-8111-111111111111",
           date: "2026-07-30",
-          description: "=HYPERLINK(\"https://example.invalid\")",
+          description: '=HYPERLINK("https://example.invalid")',
           payee: "  +SUM(1,2)",
           notes: "@malicious",
           source_amount: "-12.34",
@@ -470,7 +517,7 @@ describe("CSV normalization", () => {
     expect(result.rows[0]).toEqual({
       transaction_id: "11111111-1111-4111-8111-111111111111",
       date: "2026-07-30",
-      description: "'=HYPERLINK(\"https://example.invalid\")",
+      description: '\'=HYPERLINK("https://example.invalid")',
       payee: "'  +SUM(1,2)",
       notes: "'@malicious",
       source_amount: "-12.34",
@@ -491,15 +538,12 @@ describe("reading a CSV cell", () => {
 
   it("treats an inherited property name as a missing column", () => {
     for (const inherited of ["__proto__", "constructor", "toString"]) {
-      const rows = normalizeCsvRows(
-        [{ Date: "2026-07-30", Memo: "Paycheck", Amount: "10.00" }],
-        {
-          mapping: mapping({ payee: inherited }),
-          dateFormat: "YMD",
-          decimalSeparator: ".",
-          defaultAccountId: accountId,
-        },
-      );
+      const rows = normalizeCsvRows([{ Date: "2026-07-30", Memo: "Paycheck", Amount: "10.00" }], {
+        mapping: mapping({ payee: inherited }),
+        dateFormat: "YMD",
+        decimalSeparator: ".",
+        defaultAccountId: accountId,
+      });
       // No throw, and the row simply says the field is missing.
       expect(rows[0]!.draft, inherited).toBeNull();
       expect(
@@ -531,5 +575,200 @@ describe("reading a CSV cell", () => {
       defaultAccountId: accountId,
     });
     expect(rows[0]!.draft).toMatchObject({ payee: "Paycheck" });
+  });
+});
+
+/**
+ * The rule the browser previews and the services enforce. Kept here as well as
+ * in the ledger tests because those prove the postings it produces, and these
+ * prove the rule itself, which is the thing two sides have to agree about.
+ */
+describe("which side of the books an entry lands on", () => {
+  it("follows the direction when nothing contradicts it", () => {
+    expect(resolveEntrySide("deposit", [])).toEqual({
+      ok: true,
+      counterKind: "income",
+      reversal: false,
+    });
+    expect(resolveEntrySide("withdrawal", [])).toEqual({
+      ok: true,
+      counterKind: "expense",
+      reversal: false,
+    });
+  });
+
+  it("reads a spending category on a deposit as a refund", () => {
+    expect(resolveEntrySide("deposit", ["expense"])).toEqual({
+      ok: true,
+      counterKind: "expense",
+      reversal: true,
+    });
+  });
+
+  it("reads an income category on a withdrawal as income going back", () => {
+    expect(resolveEntrySide("withdrawal", ["income"])).toEqual({
+      ok: true,
+      counterKind: "income",
+      reversal: true,
+    });
+  });
+
+  it("lets a both-kind category go either way without reversing anything", () => {
+    expect(resolveEntrySide("deposit", ["both"])).toMatchObject({
+      counterKind: "income",
+      reversal: false,
+    });
+    expect(resolveEntrySide("withdrawal", ["both", "expense"])).toMatchObject({
+      counterKind: "expense",
+      reversal: false,
+    });
+  });
+
+  it("refuses an entry that is income and a refund at once", () => {
+    const side = resolveEntrySide("deposit", ["income", "expense"]);
+    expect(side.ok).toBe(false);
+    expect(side.ok === false && side.message).toMatch(/either income or a refund/i);
+  });
+
+  it("says a transfer reverses nothing, because it files under no category", () => {
+    expect(reversesEntry("transfer", "income")).toBe(false);
+    expect(reversesEntry("transfer", "expense")).toBe(false);
+    expect(reversesEntry("deposit", "expense")).toBe(true);
+    expect(reversesEntry("withdrawal", "income")).toBe(true);
+    expect(reversesEntry("deposit", "both")).toBe(false);
+  });
+});
+
+/**
+ * The media type says the first record is a header.
+ *
+ * RFC 4180's registration defines `header` as `present` or `absent`, and it is
+ * the parameter that decides how a reader treats the first record. The export
+ * used to declare only `charset`, which tells a consumer the encoding and
+ * leaves it to guess the thing that actually changes the parse.
+ *
+ * The parameter and the header-only empty file are one claim, so they are
+ * pinned in one test: if an export matching nothing ever goes back to returning
+ * the empty string, `header=present` becomes a lie and this fails.
+ */
+describe("the CSV media type", () => {
+  it("declares a header row, and the export always writes one", () => {
+    expect(CSV_MEDIA_TYPE).toBe("text/csv; charset=utf-8; header=present");
+    expect(rowsToCsv([], [], ["a", "b"])).toBe("a,b");
+    expect(rowsToCsv([{ a: "1", b: "2" }]).split("\r\n")[0]).toBe("a,b");
+  });
+});
+
+/**
+ * One row number, counted the way a person counts.
+ *
+ * Papa Parse reports two different bases for two different faults, and neither
+ * is the line number a spreadsheet shows. A `FieldMismatch` counts data records
+ * with the header already removed; a `Quotes` error counts physical records
+ * with the header among them. So the same file could report "Row 3" for a fault
+ * on line 4 and "Row 2" for a fault on line 3 — both wrong, and wrong by
+ * different amounts, which is worse than being consistently off.
+ *
+ * These cases pin the dependency's behaviour as much as ours: if papaparse ever
+ * changes either base, this fails rather than the numbers quietly shifting.
+ */
+describe("which line of a CSV an error is about", () => {
+  it("reports the file's own line for a row with too few fields", () => {
+    const preview = previewCsv("date,payee,amount\r\n2026-01-01,Shop,1.00\r\n2026-01-02,Shop\r\n");
+    expect(preview.errors.some((error) => error.startsWith("Row 3:"))).toBe(true);
+  });
+
+  it("counts the header as row 1, so the first data row is row 2", () => {
+    const preview = previewCsv("date,payee,amount\r\n2026-01-01,Shop\r\n");
+    expect(preview.errors.some((error) => error.startsWith("Row 2:"))).toBe(true);
+  });
+
+  it("says nothing rather than guessing when the parser gave no row", () => {
+    expect(csvFileLine({ type: "Delimiter" })).toBeNull();
+  });
+
+  // The two bases, stated as the arithmetic, so the reason for the helper
+  // survives even if papaparse's own naming changes.
+  it("shifts a field mismatch by two and a quote fault by one", () => {
+    expect(csvFileLine({ type: "FieldMismatch", row: 0 })).toBe(2);
+    expect(csvFileLine({ type: "Quotes", row: 0 })).toBe(1);
+  });
+});
+
+/**
+ * A flag that arrives as a query string, on the one report whose flags default
+ * to on.
+ *
+ * The budget route used to coerce these two itself with `=== "true"`, so
+ * `?includeArchived=1` turned a default-on flag off and said nothing. On this
+ * report that is not cosmetic: with it off, every penny spent through an
+ * account you have since closed leaves the figures, and a budget spent to the
+ * penny reads as underspent.
+ */
+describe("the budget report's query flags", () => {
+  it("defaults both to on, because that is the wider question", () => {
+    const parsed = budgetReportQuerySchema.parse({
+      start: "2026-01-01",
+      end: "2026-03-31",
+      periodUnit: "month",
+    });
+    expect(parsed.includeArchived).toBe(true);
+    expect(parsed.includeUnbudgeted).toBe(true);
+  });
+
+  it("reads the two spellings a query string can carry", () => {
+    const parsed = budgetReportQuerySchema.parse({
+      start: "2026-01-01",
+      end: "2026-03-31",
+      periodUnit: "month",
+      includeArchived: "false",
+      includeUnbudgeted: "true",
+    });
+    expect(parsed.includeArchived).toBe(false);
+    expect(parsed.includeUnbudgeted).toBe(true);
+  });
+
+  it("refuses anything else rather than reading it as off", () => {
+    for (const value of ["1", "yes", "TRUE", "on", ""]) {
+      const parsed = budgetReportQuerySchema.safeParse({
+        start: "2026-01-01",
+        end: "2026-03-31",
+        periodUnit: "month",
+        includeArchived: value,
+      });
+      expect(parsed.success, `includeArchived=${value || "(empty)"} must be refused`).toBe(false);
+    }
+  });
+});
+
+/**
+ * The worked sentences in `common.md`, against the ones the code sends.
+ *
+ * That table is published as the product's own wording and nothing held it to
+ * the code. The stale-fingerprint row read "The selection changed. Preview the
+ * selection again and retry", which nothing has ever sent: a fingerprint
+ * mismatch threw the generic version conflict, so a caller was told to reload
+ * and read the row again — on a refusal that is not about a row and has no
+ * version to retry with.
+ */
+describe("the refusal a stale bulk selection sends", () => {
+  it("offers the move that works, which is previewing again", () => {
+    const refusal = staleVersion({
+      expectedCount: 3,
+      currentCount: 4,
+      expectedFingerprint: "abc",
+      currentFingerprint: "def",
+    });
+    expect(refusal.code).toBe("STALE_VERSION");
+    expect(refusal.message).toContain("Preview the selection again");
+    expect(refusal.agentMessage).toContain("Preview the selection again");
+    const guide = readFileSync(new URL("../docs/standards/common.md", import.meta.url), "utf8");
+    expect(guide).toContain(refusal.message.replace(/\.$/, ""));
+  });
+
+  it("still tells a caller holding one row to read that row again", () => {
+    const refusal = staleVersion({ currentVersion: 7 });
+    expect(refusal.message).toContain("Reload");
+    expect(refusal.agentMessage).toContain("details.currentVersion");
   });
 });

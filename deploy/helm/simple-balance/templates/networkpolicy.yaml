@@ -105,11 +105,15 @@ spec:
     - Egress
   ingress:
     # The health port and nothing else. No workload here has any business
-    # reaching a scheduler pod; what is left is the probes.
+    # reaching a scheduler pod; what is left is the probes, and a metrics
+    # scraper where one has been named. With neither named this is every source
+    # in the cluster on that one port; naming probeSourceCidrs alone would shut
+    # a scraper out of the process that reports ticks, proposals and mail, which
+    # is the half of the metrics claim a split deployment most needs.
     - ports:
         - protocol: TCP
           port: {{ .Values.config.port }}
-      {{- with $probes }}
+      {{- with concat $probes $np.schedulerIngressFrom }}
       from:
         {{- toYaml . | nindent 8 }}
       {{- end }}

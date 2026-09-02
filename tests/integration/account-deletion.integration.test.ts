@@ -2,8 +2,9 @@ import { sql } from "drizzle-orm";
 import { Client as PgClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Actor } from "../../src/shared/domain.js";
-import { closeDb, getDb } from "../../src/server/db/client.js";
+import { getDb } from "../../src/server/db/client.js";
 import { runMigrations } from "../../src/server/db/migrate.js";
+import { dropScratchDatabase } from "./support/scratch-database.js";
 import {
   oauthAccessToken,
   oauthApplication,
@@ -14,10 +15,7 @@ import {
   verification,
 } from "../../src/server/db/schema.js";
 import { createAccount } from "../../src/server/services/accounts.js";
-import {
-  deleteOwnAccount,
-  summarizeOwnData,
-} from "../../src/server/services/account-deletion.js";
+import { deleteOwnAccount, summarizeOwnData } from "../../src/server/services/account-deletion.js";
 import { createCategory } from "../../src/server/services/categories.js";
 import { setPreferences } from "../../src/server/services/preferences.js";
 import { createStage } from "../../src/server/services/staging.js";
@@ -32,7 +30,12 @@ const originalDatabaseUrl = process.env.DATABASE_URL;
 let adminClient: PgClient;
 
 let keySeed = 0;
-const nextKey = () => `deletion-${(keySeed += 1)}`.padEnd(16, "0");
+// Padded on the counter rather than the whole string, because padding the
+// string to a fixed width made different counters collide: "…-1" and "…-10"
+// both filled out to the same key, and two calls with the same payload then
+// returned the first transaction instead of making a second one — a test that
+// passes having written nothing.
+const nextKey = () => `deletion-${String((keySeed += 1)).padStart(7, "0")}`;
 
 /**
  * Every table that carries a user_id, read out of the live database rather than
@@ -65,12 +68,14 @@ async function rowsFor(table: string, userId: string) {
 }
 
 async function seed(actor: Actor, label: string) {
-  await getDb().insert(user).values({
-    id: actor.userId,
-    name: label,
-    email: `${actor.userId}@example.com`,
-    emailVerified: true,
-  });
+  await getDb()
+    .insert(user)
+    .values({
+      id: actor.userId,
+      name: label,
+      email: `${actor.userId}@example.com`,
+      emailVerified: true,
+    });
   await setPreferences(actor, {
     timezone: "America/Los_Angeles",
     defaultCurrency: "USD",
@@ -111,51 +116,63 @@ async function seed(actor: Actor, label: string) {
   });
   // Sessions, sign-in methods, and an agent's grant, which the ledger services
   // do not create but a real account has.
-  await getDb().insert(authAccount).values({
-    id: `acct-${actor.userId}`,
-    accountId: actor.userId,
-    providerId: "credential",
-    userId: actor.userId,
-    password: "hashed",
-  });
-  await getDb().insert(authSession).values({
-    id: `sess-${actor.userId}`,
-    token: `token-${actor.userId}`,
-    userId: actor.userId,
-    expiresAt: new Date(Date.now() + 86_400_000),
-  });
-  await getDb().insert(oauthApplication).values({
-    id: `app-${actor.userId}`,
-    name: `${label} Agent`,
-    clientId: `client-${actor.userId}`,
-    redirectUrls: "http://127.0.0.1:7777/cb",
-    type: "web",
-    userId: actor.userId,
-  });
-  await getDb().insert(oauthConsent).values({
-    id: `consent-${actor.userId}`,
-    clientId: `client-${actor.userId}`,
-    userId: actor.userId,
-    scopes: "ledger:read",
-    consentGiven: true,
-  });
-  await getDb().insert(oauthAccessToken).values({
-    id: `tok-${actor.userId}`,
-    accessToken: `access-${actor.userId}`,
-    refreshToken: `refresh-${actor.userId}`,
-    accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
-    refreshTokenExpiresAt: new Date(Date.now() + 86_400_000),
-    clientId: `client-${actor.userId}`,
-    userId: actor.userId,
-    scopes: "ledger:read",
-  });
+  await getDb()
+    .insert(authAccount)
+    .values({
+      id: `acct-${actor.userId}`,
+      accountId: actor.userId,
+      providerId: "credential",
+      userId: actor.userId,
+      password: "hashed",
+    });
+  await getDb()
+    .insert(authSession)
+    .values({
+      id: `sess-${actor.userId}`,
+      token: `token-${actor.userId}`,
+      userId: actor.userId,
+      expiresAt: new Date(Date.now() + 86_400_000),
+    });
+  await getDb()
+    .insert(oauthApplication)
+    .values({
+      id: `app-${actor.userId}`,
+      name: `${label} Agent`,
+      clientId: `client-${actor.userId}`,
+      redirectUrls: "http://127.0.0.1:7777/cb",
+      type: "web",
+      userId: actor.userId,
+    });
+  await getDb()
+    .insert(oauthConsent)
+    .values({
+      id: `consent-${actor.userId}`,
+      clientId: `client-${actor.userId}`,
+      userId: actor.userId,
+      scopes: "ledger:read",
+      consentGiven: true,
+    });
+  await getDb()
+    .insert(oauthAccessToken)
+    .values({
+      id: `tok-${actor.userId}`,
+      accessToken: `access-${actor.userId}`,
+      refreshToken: `refresh-${actor.userId}`,
+      accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
+      refreshTokenExpiresAt: new Date(Date.now() + 86_400_000),
+      clientId: `client-${actor.userId}`,
+      userId: actor.userId,
+      scopes: "ledger:read",
+    });
   // A pending password reset: no user column, so no cascade reaches it.
-  await getDb().insert(verification).values({
-    id: `verify-${actor.userId}`,
-    identifier: `reset-password:token-${actor.userId}`,
-    value: actor.userId,
-    expiresAt: new Date(Date.now() + 3_600_000),
-  });
+  await getDb()
+    .insert(verification)
+    .values({
+      id: `verify-${actor.userId}`,
+      identifier: `reset-password:token-${actor.userId}`,
+      value: actor.userId,
+      expiresAt: new Date(Date.now() + 3_600_000),
+    });
   return { checking, groceries };
 }
 
@@ -173,11 +190,11 @@ integration("deleting an account takes everything in it", () => {
   });
 
   afterAll(async () => {
-    await closeDb();
-    await adminClient.query(`drop database if exists "${databaseName}"`);
-    await adminClient.end();
-    if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = originalDatabaseUrl;
+    await dropScratchDatabase({
+      admin: adminClient,
+      name: databaseName,
+      previousDatabaseUrl: originalDatabaseUrl,
+    });
   });
 
   it("says what is about to go, in the terms it was put in", async () => {
@@ -193,9 +210,7 @@ integration("deleting an account takes everything in it", () => {
   // Typing the address is the only thing on the screen a click cannot produce.
   it("refuses without the account's own address", async () => {
     for (const wrong of ["", "  ", "someone@else.test", "DELETION-LEAVER@example.com.uk"]) {
-      await expect(
-        deleteOwnAccount(leaver, { confirmEmail: wrong }),
-      ).rejects.toThrow();
+      await expect(deleteOwnAccount(leaver, { confirmEmail: wrong })).rejects.toThrow();
     }
     expect(await rowsFor("ledger_transaction", leaver.userId)).toBe(1);
   });

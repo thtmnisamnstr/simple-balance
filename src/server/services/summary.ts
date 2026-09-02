@@ -23,11 +23,7 @@ type CurrencySummary = {
   spendingByCategory: { categoryId: string | null; category: string; amount: string }[];
 };
 
-export async function getSummary(
-  actor: Actor,
-  input: unknown,
-  includeArchived = false,
-) {
+export async function getSummary(actor: Actor, input: unknown, includeArchived = false) {
   const range = dateRangeSchema.parse(input);
   const start = range.start ?? "0001-01-01";
   const db = getDb();
@@ -171,9 +167,7 @@ export async function getSummary(
     const summary = ensure(String(row.currency));
     summary.deposits = canonicalDecimal(String(row.deposits));
     summary.withdrawals = canonicalDecimal(String(row.withdrawals));
-    summary.netCashFlow = canonicalDecimal(
-      decimal(summary.deposits).minus(summary.withdrawals),
-    );
+    summary.netCashFlow = canonicalDecimal(decimal(summary.deposits).minus(summary.withdrawals));
   }
   for (const row of categoryResult.rows) {
     ensure(String(row.currency)).spendingByCategory.push({
@@ -189,8 +183,6 @@ export async function getSummary(
     // that end is in the future.
     asOf: end,
     includesArchived: includeArchived,
-    currencies: [...currencies.values()].sort((a, b) =>
-      a.currency.localeCompare(b.currency),
-    ),
+    currencies: [...currencies.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
   };
 }

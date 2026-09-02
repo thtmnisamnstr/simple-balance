@@ -4,8 +4,7 @@ import { describe, expect, it } from "vitest";
 import { APP_VERSION } from "../src/shared/version.js";
 
 const root = path.resolve(import.meta.dirname, "..");
-const read = (relative: string) =>
-  readFileSync(path.join(root, relative), "utf8");
+const read = (relative: string) => readFileSync(path.join(root, relative), "utf8");
 const manifestVersion = (relative: string) =>
   (JSON.parse(read(relative)) as { version: string }).version;
 
@@ -68,12 +67,8 @@ describe("the release version", () => {
     // Both of the chart's version fields. appVersion is the images it installs;
     // `version` is the chart itself, and they move together here because the
     // chart is only ever published on this repository's releases.
-    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(
-      `version: ${version}`,
-    );
-    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(
-      `appVersion: "${version}"`,
-    );
+    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(`version: ${version}`);
+    expect(read("deploy/helm/simple-balance/Chart.yaml")).toContain(`appVersion: "${version}"`);
   });
 
   /**
@@ -84,10 +79,7 @@ describe("the release version", () => {
    */
   it("is the tag on every example image", () => {
     const pinned = /ghcr\.io\/thtmnisamnstr\/simple-balance(?:-[a-z]+)?:(\S+)/g;
-    for (const relative of [
-      "deploy/compose/compose.distributed.yml",
-      "deploy/pulumi/README.md",
-    ]) {
+    for (const relative of ["deploy/compose/compose.distributed.yml", "deploy/pulumi/README.md"]) {
       const tags = [...read(relative).matchAll(pinned)].map((match) => match[1]);
       expect(tags.length, relative).toBeGreaterThan(0);
       for (const tag of tags) expect(tag, relative).toBe(version);
@@ -96,6 +88,73 @@ describe("the release version", () => {
 
   it("is the version the product backlog says it describes", () => {
     expect(manifestVersion("tasks/product.prd.json")).toBe(version);
+  });
+
+  /**
+   * The one release step nothing can generate. The recipe in
+   * `docs/upgrades.md` did not ask for it at all, so the standards spent a
+   * section specifying a document the procedure never mentioned, and 0.1.0
+   * through 0.1.3 shipped eight migrations between them with no note.
+   *
+   * The release workflow runs `npm run verify` before it publishes, which is
+   * what makes this the step that stops a release rather than one an operator
+   * discovers is missing halfway through an upgrade.
+   */
+  /**
+   * The next release's note, written before the version moves.
+   *
+   * The check below only looks at the release this build claims to be, so it
+   * passes on a repository with no note for the release about to be cut — and
+   * `npm run set-version` is the first act of cutting one, which turns a green
+   * suite red at the worst moment. Writing the note early is the fix; this is
+   * what makes writing it early *provable*, by asking the same question of the
+   * next patch version.
+   */
+  it("already has the note for the release after this one", () => {
+    const [major, minor, patch] = version.split("-")[0]!.split(".").map(Number);
+    const next = `${major}.${minor}.${(patch ?? 0) + 1}`;
+    const lines = read("docs/upgrades.md").split("\n");
+    const at = lines.indexOf(`## Before you upgrade to ${next}`);
+    expect(
+      at,
+      `docs/upgrades.md needs a line reading exactly "## Before you upgrade to ${next}" — ` +
+        "write it as the work lands, not as the release is cut",
+    ).toBeGreaterThan(-1);
+    const body = lines.slice(at + 1);
+    const end = body.findIndex((line) => line.startsWith("## "));
+    expect(
+      body
+        .slice(0, end === -1 ? undefined : end)
+        .join("\n")
+        .trim().length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("is the version the upgrade notes tell an operator about", () => {
+    // A prerelease upgrades on to the same schema as the release it precedes,
+    // so the note is headed with the release rather than with `-rc.1`.
+    const release = version.split("-")[0]!;
+    const heading = `## Before you upgrade to ${release}`;
+    const lines = read("docs/upgrades.md").split("\n");
+    // A whole line rather than a substring, because the release recipe further
+    // down this same file quotes the heading inside step 2 as the thing to
+    // write. A `toContain` over the file would have found that quotation and
+    // passed on the release it exists to stop: the recipe names 0.2.0, so the
+    // check would have gone green the moment the version reached it with no
+    // note written at all.
+    const at = lines.indexOf(heading);
+    expect(at, `docs/upgrades.md needs a line reading exactly "${heading}"`).toBeGreaterThan(-1);
+
+    // A heading with nothing under it is an unwritten note that would satisfy a
+    // check for the heading alone.
+    const body = lines.slice(at + 1);
+    const end = body.findIndex((line) => line.startsWith("## "));
+    expect(
+      body
+        .slice(0, end === -1 ? undefined : end)
+        .join("\n")
+        .trim().length,
+    ).toBeGreaterThan(0);
   });
 
   // Everything above is only kept true by one script, so it has to know about

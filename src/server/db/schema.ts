@@ -21,6 +21,9 @@ import {
 import { sql } from "drizzle-orm";
 import {
   accountTypes,
+  budgetAmountRules,
+  budgetGroupPolicies,
+  budgetPeriodUnits,
   systemAccountKinds,
   actorSources,
   categoryKinds,
@@ -85,10 +88,7 @@ export const account = pgTable(
   },
   (table) => [
     index("auth_account_user_idx").on(table.userId),
-    unique("auth_account_provider_account_unique").on(
-      table.providerId,
-      table.accountId,
-    ),
+    unique("auth_account_provider_account_unique").on(table.providerId, table.accountId),
   ],
 );
 
@@ -192,46 +192,44 @@ export const ownerSetupTokens = pgTable("auth_owner_setup_token", {
 // enums by enumerating this module's exports, and un-exporting one makes it
 // generate a `DROP TYPE` for a type every column of that kind still uses.
 export const accountTypeEnum = pgEnum("ledger_account_type", accountTypes);
-export const systemAccountKindEnum = pgEnum(
-  "system_account_kind",
-  systemAccountKinds,
-);
+export const systemAccountKindEnum = pgEnum("system_account_kind", systemAccountKinds);
 export const categoryKindEnum = pgEnum("category_kind", categoryKinds);
 export const transactionTypeEnum = pgEnum("transaction_type", transactionTypes);
 export const stagedStatusEnum = pgEnum("staged_status", ["staged", "committed", "deleted"]);
 export const actorSourceEnum = pgEnum("actor_source", actorSources);
-export const recurrenceFrequencyEnum = pgEnum(
-  "recurrence_frequency",
-  recurrenceFrequencies,
-);
-export const recurrenceMonthPolicyEnum = pgEnum(
-  "recurrence_month_policy",
-  recurrenceMonthPolicies,
-);
+export const recurrenceFrequencyEnum = pgEnum("recurrence_frequency", recurrenceFrequencies);
+export const recurrenceMonthPolicyEnum = pgEnum("recurrence_month_policy", recurrenceMonthPolicies);
 export const recurrenceWeekendPolicyEnum = pgEnum(
   "recurrence_weekend_policy",
   recurrenceWeekendPolicies,
 );
 export const userThemeEnum = pgEnum("user_theme", themes);
+export const budgetPeriodUnitEnum = pgEnum("budget_period_unit", budgetPeriodUnits);
+export const budgetAmountRuleEnum = pgEnum("budget_amount_rule", budgetAmountRules);
+export const budgetGroupPolicyEnum = pgEnum("budget_group_policy", budgetGroupPolicies);
 
-export const userPreferences = pgTable("user_preferences", {
-  userId: text("user_id")
-    .primaryKey()
-    .references(() => user.id, { onDelete: "cascade" }),
-  timezone: text("timezone").default("UTC").notNull(),
-  defaultCurrency: text("default_currency").default("USD").notNull(),
-  // Defaults to following the machine, which is also what every row that
-  // existed before this column lands on. A NOT NULL add with a constant default
-  // is metadata-only on PostgreSQL 11 and later, so there is no backfill to
-  // write and no table rewrite to wait for.
-  theme: userThemeEnum("theme").default("system").notNull(),
-  ...timestamps,
-}, (table) => [
-  check(
-    "user_preferences_default_currency_check",
-    sql`${table.defaultCurrency} ~ '^[A-Z]{2,12}$'`,
-  ),
-]);
+export const userPreferences = pgTable(
+  "user_preferences",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    timezone: text("timezone").default("UTC").notNull(),
+    defaultCurrency: text("default_currency").default("USD").notNull(),
+    // Defaults to following the machine, which is also what every row that
+    // existed before this column lands on. A NOT NULL add with a constant default
+    // is metadata-only on PostgreSQL 11 and later, so there is no backfill to
+    // write and no table rewrite to wait for.
+    theme: userThemeEnum("theme").default("system").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      "user_preferences_default_currency_check",
+      sql`${table.defaultCurrency} ~ '^[A-Z]{2,12}$'`,
+    ),
+  ],
+);
 
 /**
  * Sign-in and other auth attempts, counted where every replica can see them.
@@ -272,6 +270,16 @@ export const ledgerAccounts = pgTable(
     // Set only on the server-owned counter-accounts that balance deposits,
     // withdrawals, and cross-currency transfers. Null means a real account.
     systemKind: systemAccountKindEnum("system_kind"),
+    /**
+     * Whether the money here is money the budget is about.
+     *
+     * On by default and on for credit cards, which is the decision worth
+     * writing down: a card sits outside the cash flow statement's set on
+     * purpose, and leaving it out here too would mean spending on a card
+     * empties an envelope while no cash leaves the perimeter — so the page
+     * would say there is more money to assign than there is.
+     */
+    inBudget: boolean("in_budget").default(true).notNull(),
     currency: text("currency").notNull(),
     institution: text("institution"),
     notes: text("notes"),
@@ -294,18 +302,11 @@ export const ledgerAccounts = pgTable(
     // Lets postings and transactions carry a foreign key that includes the
     // currency, so no row can name an amount in a currency its account does
     // not hold.
-    unique("ledger_account_user_id_currency_unique").on(
-      table.userId,
-      table.id,
-      table.currency,
-    ),
+    unique("ledger_account_user_id_currency_unique").on(table.userId, table.id, table.currency),
     uniqueIndex("ledger_account_system_kind_unique")
       .on(table.userId, table.systemKind, table.currency)
       .where(sql`${table.systemKind} is not null`),
-    check(
-      "ledger_account_currency_check",
-      sql`${table.currency} ~ '^[A-Z]{2,12}$'`,
-    ),
+    check("ledger_account_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
     check("ledger_account_version_check", sql`${table.version} >= 1`),
   ],
 );
@@ -319,6 +320,19 @@ export const categories = pgTable(
       .references(() => user.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     kind: categoryKindEnum("kind").notNull(),
+    /**
+     * At most one group, and never a group of groups.
+     *
+     * A single-column reference, unlike every other cross-table link here,
+     * which pair the tenant with the id. `on delete set null` sets *every*
+     * column of the constraint, so the composite form would null the tenant as
+     * well and fail against `user_id not null` — PostgreSQL 15 can name the
+     * column to clear and Drizzle cannot emit that. What the composite key
+     * bought was a cross-tenant assignment being impossible in the database;
+     * that is checked in `resolveCategoryGroup` instead, on the one path that
+     * writes this column, and `tests/integration/tenant-isolation...` holds it.
+     */
+    groupId: uuid("group_id").references(() => categoryGroups.id, { onDelete: "set null" }),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     version: integer("version").default(1).notNull(),
     ...timestamps,
@@ -328,7 +342,51 @@ export const categories = pgTable(
     // categories uses. A bare user_id index would duplicate its first column.
     unique("category_user_name_unique").on(table.userId, table.name),
     unique("category_user_id_id_unique").on(table.userId, table.id),
+    // Deleting a group leaves its categories where they are, ungrouped. The
+    // group was a way of reading them, and removing it is not a reason to lose
+    // what it was reading.
+    index("category_group_idx").on(table.userId, table.groupId),
+    // For the SET NULL action itself. The foreign key is single-column (the
+    // 0016 comment says why the tenant cannot be in it), so its referential
+    // update runs `where group_id = $1` with no user_id — which the composite
+    // above, led by the tenant, cannot serve. Without this, every group
+    // delete sequentially scanned the whole cross-tenant category table.
+    index("category_group_reference_idx").on(table.groupId),
     check("category_version_check", sql`${table.version} >= 1`),
+  ],
+);
+
+/**
+ * One level of grouping over categories, and one level only.
+ *
+ * Arbitrary depth is refused rather than unimplemented. hledger shows what it
+ * costs: spending in an unbudgeted grandchild rolls up to the nearest budgeted
+ * ancestor, and the totals stop agreeing with themselves. One level has no
+ * grandchild, so there is nothing to misattribute.
+ */
+export const categoryGroups = pgTable(
+  "category_group",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /**
+     * The name with case and spacing taken out, which is what uniqueness is
+     * about. The same normalisation categories and payees already use, so
+     * "Fixed Costs" and "fixed costs" are one group here as they would be one
+     * category there.
+     */
+    normalizedName: text("normalized_name").notNull(),
+    policy: budgetGroupPolicyEnum("policy").notNull(),
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    unique("category_group_user_normalized_unique").on(table.userId, table.normalizedName),
+    unique("category_group_user_id_id_unique").on(table.userId, table.id),
+    check("category_group_version_check", sql`${table.version} >= 1`),
   ],
 );
 
@@ -348,11 +406,7 @@ export const importBatches = pgTable(
   },
   (table) => [
     unique("import_batch_user_id_id_unique").on(table.userId, table.id),
-    index("import_batch_user_created_idx").on(
-      table.userId,
-      table.createdAt,
-      table.id,
-    ),
+    index("import_batch_user_created_idx").on(table.userId, table.createdAt, table.id),
     check("import_batch_row_count_check", sql`${table.rowCount} >= 0`),
   ],
 );
@@ -425,14 +479,8 @@ export const transactions = pgTable(
       sql`lower(regexp_replace(trim(normalize(${table.payee}, NFKC)), '\\s+', ' ', 'g'))`,
     ),
     index("transaction_user_date_idx").on(table.userId, table.date, table.id),
-    index("transaction_user_source_account_idx").on(
-      table.userId,
-      table.sourceAccountId,
-    ),
-    index("transaction_user_destination_account_idx").on(
-      table.userId,
-      table.destinationAccountId,
-    ),
+    index("transaction_user_source_account_idx").on(table.userId, table.sourceAccountId),
+    index("transaction_user_destination_account_idx").on(table.userId, table.destinationAccountId),
     index("transaction_user_category_idx").on(table.userId, table.categoryId),
     index("transaction_user_template_idx").on(table.userId, table.templateId),
     index("transaction_external_id_idx").on(table.userId, table.externalId),
@@ -566,11 +614,7 @@ export const transactionLegs = pgTable(
     // entry can be moved to an account in another currency, so a currency on
     // the leg would be a mutable copy that append-only postings could never
     // follow.
-    unique("transaction_leg_posting_target_unique").on(
-      table.userId,
-      table.transactionId,
-      table.id,
-    ),
+    unique("transaction_leg_posting_target_unique").on(table.userId, table.transactionId, table.id),
     foreignKey({
       columns: [table.userId, table.transactionId],
       foreignColumns: [transactions.userId, transactions.id],
@@ -581,11 +625,7 @@ export const transactionLegs = pgTable(
       foreignColumns: [categories.userId, categories.id],
       name: "transaction_leg_category_owner_fk",
     }),
-    index("transaction_leg_transaction_idx").on(
-      table.userId,
-      table.transactionId,
-      table.ordinal,
-    ),
+    index("transaction_leg_transaction_idx").on(table.userId, table.transactionId, table.ordinal),
     // Serves the category screens, which ask which transactions touched one
     // category without knowing which of them are splits.
     index("transaction_leg_user_category_idx").on(
@@ -618,8 +658,7 @@ export const postings = pgTable(
     // account ends at zero. Both halves name the account being closed, the same
     // way an opening pair does, so unarchiving can find and undo them.
     closingAccountId: uuid("closing_account_id"),
-    accountId: uuid("account_id")
-      .notNull(),
+    accountId: uuid("account_id").notNull(),
     // Which leg of a split this line belongs to, on the counter-account side of
     // a split transaction and nowhere else. Null on the account side, on
     // openings and closings, and on every transaction that is not split.
@@ -647,11 +686,7 @@ export const postings = pgTable(
     // in one constraint, so a balance can sum without grouping by currency.
     foreignKey({
       columns: [table.userId, table.accountId, table.currency],
-      foreignColumns: [
-        ledgerAccounts.userId,
-        ledgerAccounts.id,
-        ledgerAccounts.currency,
-      ],
+      foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id, ledgerAccounts.currency],
       name: "posting_account_currency_fk",
     }),
     // Three columns, so a posting cannot name a leg of a different transaction
@@ -671,11 +706,7 @@ export const postings = pgTable(
     // resyncLegs never issuing one, not by this key.
     foreignKey({
       columns: [table.userId, table.transactionId, table.legId],
-      foreignColumns: [
-        transactionLegs.userId,
-        transactionLegs.transactionId,
-        transactionLegs.id,
-      ],
+      foreignColumns: [transactionLegs.userId, transactionLegs.transactionId, transactionLegs.id],
       name: "posting_leg_owner_fk",
     }).onDelete("cascade"),
     // Both halves of an opening pair name the account they open, so moving an
@@ -685,25 +716,15 @@ export const postings = pgTable(
       foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
       name: "posting_opening_account_owner_fk",
     }),
-    index("posting_opening_account_idx").on(
-      table.userId,
-      table.openingAccountId,
-    ),
+    index("posting_opening_account_idx").on(table.userId, table.openingAccountId),
     foreignKey({
       columns: [table.userId, table.closingAccountId],
       foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
       name: "posting_closing_account_owner_fk",
     }),
-    index("posting_closing_account_idx").on(
-      table.userId,
-      table.closingAccountId,
-    ),
+    index("posting_closing_account_idx").on(table.userId, table.closingAccountId),
     // Serves every balance-as-of query: one account, dates up to a bound.
-    index("posting_user_account_date_idx").on(
-      table.userId,
-      table.accountId,
-      table.date,
-    ),
+    index("posting_user_account_date_idx").on(table.userId, table.accountId, table.date),
     // Serves the dashboard, which sums a date range across counter-accounts.
     index("posting_user_date_idx").on(table.userId, table.date),
     index("posting_transaction_idx").on(table.transactionId),
@@ -736,7 +757,9 @@ export const stagedTransactions = pgTable(
     status: stagedStatusEnum("status").default("staged").notNull(),
     draft: jsonb("draft").notNull(),
     rawData: jsonb("raw_data"),
-    validationIssues: jsonb("validation_issues").default(sql`'[]'::jsonb`).notNull(),
+    validationIssues: jsonb("validation_issues")
+      .default(sql`'[]'::jsonb`)
+      .notNull(),
     duplicateOfId: uuid("duplicate_of_id"),
     // What this row would collide with. `duplicateOfId` names a committed
     // transaction it repeats; `duplicateKey` is the same fingerprint the commit
@@ -781,10 +804,13 @@ export const stagedTransactions = pgTable(
       table.createdAt,
       table.id,
     ),
-    index("staged_user_import_batch_idx").on(
-      table.userId,
-      table.importBatchId,
-    ),
+    index("staged_user_import_batch_idx").on(table.userId, table.importBatchId),
+    // For the two NO ACTION foreign keys onto ledger_transaction. Deleting a
+    // transaction (an account deletion's cascade deletes thousands) makes
+    // PostgreSQL check both references per deleted row, and with no index the
+    // check is a sequential scan of the queue for every transaction removed.
+    index("staged_duplicate_of_reference_idx").on(table.userId, table.duplicateOfId),
+    index("staged_committed_reference_idx").on(table.userId, table.committedTransactionId),
     // Finding the rows that share a fingerprint is a grouped lookup.
     index("staged_user_duplicate_key_idx").on(table.userId, table.duplicateKey),
     // The same expression over the draft's payee, for the same reason: the
@@ -849,10 +875,7 @@ export const idempotencyRecords = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.operation, table.key] }),
-    check(
-      "idempotency_record_request_hash_check",
-      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
-    ),
+    check("idempotency_record_request_hash_check", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
   ],
 );
 
@@ -873,16 +896,8 @@ export const auditEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
-    index("audit_user_created_idx").on(
-      table.userId,
-      table.createdAt,
-      table.id,
-    ),
-    index("audit_user_entity_idx").on(
-      table.userId,
-      table.entityType,
-      table.entityId,
-    ),
+    index("audit_user_created_idx").on(table.userId, table.createdAt, table.id),
+    index("audit_user_entity_idx").on(table.userId, table.entityType, table.entityId),
   ],
 );
 
@@ -982,11 +997,7 @@ export const templateNotifications = pgTable(
     index("template_notification_user_idx").on(table.userId),
     // The scheduler's due query, which like the recurrence one has to find work
     // across every ledger before it can know whose it is.
-    index("template_notification_due_idx").on(
-      table.nextNotificationDate,
-      table.userId,
-      table.id,
-    ),
+    index("template_notification_due_idx").on(table.nextNotificationDate, table.userId, table.id),
     check(
       "template_notification_interval_check",
       sql`${table.interval} between 1 and ${sql.raw(String(MAX_RECURRENCE_INTERVAL))}`,
@@ -1093,15 +1104,8 @@ export const recurrences = pgTable(
     // that cannot: the scheduler has to find work across every ledger before it
     // can know whose it is. It reads the id and the user id and nothing else,
     // and everything after it runs through an Actor built from that user id.
-    index("recurrence_due_idx").on(
-      table.nextOccurrenceDate,
-      table.userId,
-      table.id,
-    ),
-    check(
-      "recurrence_name_check",
-      sql`char_length(btrim(${table.name})) between 1 and 120`,
-    ),
+    index("recurrence_due_idx").on(table.nextOccurrenceDate, table.userId, table.id),
+    check("recurrence_name_check", sql`char_length(btrim(${table.name})) between 1 and 120`),
     check(
       "recurrence_interval_check",
       sql`${table.interval} between 1 and ${sql.raw(String(MAX_RECURRENCE_INTERVAL))}`,
@@ -1132,8 +1136,252 @@ export const recurrences = pgTable(
   ],
 );
 
+/**
+ * The standing instruction for one budget target.
+ *
+ * One row covers every period, so a budget that runs all year is one row rather
+ * than twelve, and nothing has to materialise the months nobody has reached
+ * yet. That is the whole reason there is no scheduler anywhere near budgeting:
+ * an amount that is derived on read cannot drift from what it was derived from,
+ * and there is no backlog for a stopped cron to eat.
+ *
+ * The window is what keeps history honest. Raising the grocery budget in July
+ * closes one plan and opens another, so asking what March intended still
+ * answers with what March intended. The service refuses an overlap under the
+ * category namespace lock, because two plans covering one month would leave the
+ * amount depending on which row was read first.
+ */
+export const budgetPlans = pgTable(
+  "budget_plan",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /**
+     * The target, which is a category or a group and never both.
+     *
+     * Nullable rather than two tables, because everything else about a budget
+     * — the window, the carry, the rule, the priority — is identical whichever
+     * it points at, and two tables would be the same columns twice with two
+     * copies of the fold to read them.
+     */
+    categoryId: uuid("category_id"),
+    groupId: uuid("group_id"),
+    currency: text("currency").notNull(),
+    periodUnit: budgetPeriodUnitEnum("period_unit").notNull(),
+    amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
+    activeFrom: date("active_from").notNull(),
+    activeTo: date("active_to"),
+    /**
+     * Whether what a period did not spend belongs to the next one.
+     *
+     * Off is a limit: every period starts again at the amount, and last month
+     * having gone well buys nothing. On is an envelope: the unspent carries
+     * forward and so does the overspend, as a debt against the next period.
+     * Nothing is stored per period either way — the carry is folded at read
+     * time from the same plans, entries and postings the figures already come
+     * from, so turning this on invents no rows and turning it off leaves none
+     * behind.
+     */
+    rollover: boolean("rollover").default(false).notNull(),
+    /**
+     * How far a carry may run in either direction, or null for no limit.
+     *
+     * Symmetric on purpose. A holiday fund that nobody has drawn on for three
+     * years is not a budget any more, and a category three thousand in debt to
+     * itself will never come back inside its limit, so both ends of the same
+     * runaway are the same setting.
+     */
+    rolloverCap: numeric("rollover_cap", { precision: 44, scale: 18 }),
+    /** What a sinking fund is saving up for, with the date it is needed by. */
+    targetAmount: numeric("target_amount", { precision: 44, scale: 18 }),
+    targetDate: date("target_date"),
+    /**
+     * How many finished periods a trailing average looks back over.
+     *
+     * Bounded by a check rather than by taste: an average over four hundred
+     * periods is a fold over four hundred periods, and the one thing this
+     * design will not do is let a budget's arithmetic grow without a bound
+     * somebody can see.
+     */
+    ruleLookback: integer("rule_lookback"),
+    /**
+     * The percentage an incremental budget adds to the last period, or the
+     * share of income a percent-of-income budget takes. One column for two
+     * rules, because a row is only ever one of them.
+     */
+    rulePercent: numeric("rule_percent", { precision: 9, scale: 4 }),
+    /**
+     * Which budgets are funded first when a period's income will not cover
+     * them all. Lower goes first, the way `nice` does, and the default of zero
+     * means a ledger that never sets one has every budget equal.
+     */
+    priority: integer("priority").default(0).notNull(),
+    amountRule: budgetAmountRuleEnum("amount_rule").default("fixed").notNull(),
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    // The composite key the category already carries, so one cascade satisfies
+    // both halves of the rule: deleting a category takes its budgets with it,
+    // and a budget is never a reason a category cannot be deleted.
+    foreignKey({
+      columns: [table.userId, table.categoryId],
+      foreignColumns: [categories.userId, categories.id],
+      name: "budget_plan_category_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.userId, table.groupId],
+      foreignColumns: [categoryGroups.userId, categoryGroups.id],
+      name: "budget_plan_group_fk",
+    }).onDelete("cascade"),
+    // Two partial indexes rather than one constraint over both columns.
+    // PostgreSQL counts NULLs as distinct in a unique constraint, so the
+    // original would have let a person write the same group budget as many
+    // times as they liked the moment `category_id` became nullable.
+    uniqueIndex("budget_plan_category_window_unique")
+      .on(table.userId, table.categoryId, table.periodUnit, table.currency, table.activeFrom)
+      .where(sql`${table.categoryId} is not null`),
+    uniqueIndex("budget_plan_group_window_unique")
+      .on(table.userId, table.groupId, table.periodUnit, table.currency, table.activeFrom)
+      .where(sql`${table.groupId} is not null`),
+    check(
+      "budget_plan_target_check",
+      sql`(${table.categoryId} is null) <> (${table.groupId} is null)`,
+    ),
+    // Zero is a budget, and a useful one: it says any spending here is over.
+    check("budget_plan_amount_check", sql`${table.amount} >= 0`),
+    check("budget_plan_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
+    check("budget_plan_version_check", sql`${table.version} >= 1`),
+    check(
+      "budget_plan_window_check",
+      sql`${table.activeTo} is null or ${table.activeTo} >= ${table.activeFrom}`,
+    ),
+    check(
+      "budget_plan_rollover_cap_check",
+      sql`${table.rolloverCap} is null or ${table.rolloverCap} >= 0`,
+    ),
+    check(
+      "budget_plan_target_amount_check",
+      sql`${table.targetAmount} is null or ${table.targetAmount} > 0`,
+    ),
+    // The rule and its parameters, held to each other in the one place both
+    // transports go through. A sinking fund with no target is a fixed budget
+    // wearing the wrong name, and a target with the rule left at fixed is a
+    // number nothing reads.
+    check(
+      "budget_plan_rule_check",
+      sql`(${table.amountRule} = 'sinking_fund') = (${table.targetAmount} is not null and ${table.targetDate} is not null)`,
+    ),
+    // Half a target is not a fund and not a fixed budget either: it is a date
+    // nothing reads sitting on a row. The rule check above passes it, because
+    // both sides come out false, so the pair needs a check of its own.
+    check(
+      "budget_plan_target_pair_check",
+      sql`(${table.targetAmount} is null) = (${table.targetDate} is null)`,
+    ),
+    // A fund that does not keep what it saved saves nothing: each period would
+    // start again from the target divided by the periods left, and the money
+    // put aside last month would be invisible to this month's figure.
+    check(
+      "budget_plan_sinking_rollover_check",
+      sql`${table.amountRule} <> 'sinking_fund' or ${table.rollover}`,
+    ),
+    // Each rule holds exactly the parameter it is named for, and the others
+    // hold none. A trailing average with a percentage beside it is a row that
+    // cannot say what it meant.
+    // Compared as text, and this is not a style choice. `ALTER TYPE ... ADD
+    // VALUE` and a constraint naming the value it added cannot share a
+    // transaction — PostgreSQL refuses with `unsafe use of new value of enum
+    // type`, and every migration runs in one. Casting to text means the
+    // constraint never touches the new enum value, so the rules and the
+    // vocabulary they are about can arrive together.
+    check(
+      "budget_plan_lookback_check",
+      sql`(${table.amountRule}::text = 'trailing_average') = (${table.ruleLookback} is not null)`,
+    ),
+    check(
+      "budget_plan_percent_check",
+      sql`(${table.amountRule}::text in ('incremental', 'percent_of_income')) = (${table.rulePercent} is not null)`,
+    ),
+    check(
+      "budget_plan_lookback_range_check",
+      sql`${table.ruleLookback} is null or (${table.ruleLookback} >= 1 and ${table.ruleLookback} <= 24)`,
+    ),
+    // A taper is a real budget — "ten per cent less each month" is how somebody
+    // winds spending down — so an incremental plan may carry a negative
+    // percentage, floored at -100 because a period cannot budget less than
+    // nothing. A share of income may not: a negative share is not a share.
+    check(
+      "budget_plan_percent_range_check",
+      sql`${table.rulePercent} is null
+        or (${table.amountRule}::text = 'incremental' and ${table.rulePercent} >= -100 and ${table.rulePercent} <= 1000)
+        or (${table.amountRule}::text = 'percent_of_income' and ${table.rulePercent} >= 0 and ${table.rulePercent} <= 1000)`,
+    ),
+  ],
+);
+
+/**
+ * One period's amount, set explicitly, overriding whatever the plan would say.
+ *
+ * The exception rather than the rule. Three hundred for December only is a row
+ * here; two hundred a month is a plan and no rows at all. An entry with no plan
+ * behind it is a budget for one period and nothing else, which is what somebody
+ * setting a single month means.
+ */
+export const budgetEntries = pgTable(
+  "budget_entry",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** A category or a group, and never both. See `budgetPlans` above. */
+    categoryId: uuid("category_id"),
+    groupId: uuid("group_id"),
+    currency: text("currency").notNull(),
+    periodUnit: budgetPeriodUnitEnum("period_unit").notNull(),
+    // Always the first day of the period it names, truncated the same way the
+    // report grid truncates, so a limit and its actual cannot land on different
+    // grids. The service is what holds it to that; the column only stores it.
+    periodStart: date("period_start").notNull(),
+    amount: numeric("amount", { precision: 44, scale: 18 }).notNull(),
+    version: integer("version").default(1).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.userId, table.categoryId],
+      foreignColumns: [categories.userId, categories.id],
+      name: "budget_entry_category_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.userId, table.groupId],
+      foreignColumns: [categoryGroups.userId, categoryGroups.id],
+      name: "budget_entry_group_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("budget_entry_category_period_unique")
+      .on(table.userId, table.categoryId, table.periodUnit, table.periodStart, table.currency)
+      .where(sql`${table.categoryId} is not null`),
+    uniqueIndex("budget_entry_group_period_unique")
+      .on(table.userId, table.groupId, table.periodUnit, table.periodStart, table.currency)
+      .where(sql`${table.groupId} is not null`),
+    check(
+      "budget_entry_target_check",
+      sql`(${table.categoryId} is null) <> (${table.groupId} is null)`,
+    ),
+    check("budget_entry_amount_check", sql`${table.amount} >= 0`),
+    check("budget_entry_currency_check", sql`${table.currency} ~ '^[A-Z]{2,12}$'`),
+    check("budget_entry_version_check", sql`${table.version} >= 1`),
+  ],
+);
+
 export type CategoryRow = typeof categories.$inferSelect;
 export type TransactionRow = typeof transactions.$inferSelect;
 export type TransactionLegRow = typeof transactionLegs.$inferSelect;
 export type StagedTransactionRow = typeof stagedTransactions.$inferSelect;
 export type RecurrenceRow = typeof recurrences.$inferSelect;
+export type CategoryGroupRow = typeof categoryGroups.$inferSelect;
+export type BudgetPlanRow = typeof budgetPlans.$inferSelect;
+export type BudgetEntryRow = typeof budgetEntries.$inferSelect;

@@ -1,8 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { createMcpServer } from "../src/server/mcp.js";
+import { sourceFiles, topLevelDeclarations } from "./support/source.js";
+import { mutationNames } from "./support/mutations.js";
 
 /**
  * The MCP surface is meant to be able to do everything the browser can, so this
@@ -33,8 +35,22 @@ const COVERED_BY: Record<string, string> = {
   "GET /api/v1/accounts/:id/register": "get_account_register",
   "POST /api/v1/accounts": "create_account",
   "PUT /api/v1/accounts/:id": "update_account",
-  "POST /api/v1/accounts/:id/archive": "archive_account",
+  "POST /api/v1/accounts/:id/archived": "archive_account",
   "DELETE /api/v1/accounts/:id": "delete_account",
+  "GET /api/v1/category-groups": "list_category_groups",
+  "POST /api/v1/category-groups": "create_category_group",
+  "PUT /api/v1/category-groups/:id": "update_category_group",
+  "DELETE /api/v1/category-groups/:id": "delete_category_group",
+  "GET /api/v1/budget-plans": "list_budget_plans",
+  "GET /api/v1/budget-plans/:id": "get_budget_plan",
+  "POST /api/v1/budget-plans": "create_budget_plan",
+  "PUT /api/v1/budget-plans/:id": "update_budget_plan",
+  "DELETE /api/v1/budget-plans/:id": "delete_budget_plan",
+  "GET /api/v1/budget-entries": "list_budget_entries",
+  "PUT /api/v1/budget-entries": "set_budget_entry",
+  "DELETE /api/v1/budget-entries/:id": "delete_budget_entry",
+  "GET /api/v1/budget-report": "get_budget_report",
+  "GET /api/v1/forecast": "get_forecast",
   "GET /api/v1/recurrences": "list_recurrences",
   "GET /api/v1/recurrences/:id": "get_recurrence",
   "POST /api/v1/recurrences": "create_recurrence",
@@ -46,7 +62,7 @@ const COVERED_BY: Record<string, string> = {
   "GET /api/v1/categories/duplicates": "list_duplicate_categories",
   "POST /api/v1/categories": "create_category",
   "PUT /api/v1/categories/:id": "update_category",
-  "POST /api/v1/categories/:id/archive": "archive_category",
+  "POST /api/v1/categories/:id/archived": "archive_category",
   "DELETE /api/v1/categories/:id": "delete_category",
   "POST /api/v1/categories/merge": "merge_categories",
   "GET /api/v1/payees": "list_payees",
@@ -66,7 +82,7 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/staged-transactions": "create_staged_transaction",
   "PUT /api/v1/staged-transactions/:id": "update_staged_transaction",
   "POST /api/v1/staged-transactions/commit": "commit_staged_transactions",
-  "POST /api/v1/staged-transactions/delete": "delete_staged_transactions",
+  "POST /api/v1/staged-transactions/bulk-delete": "delete_staged_transactions",
   "POST /api/v1/staged-transactions/bulk-selection": "preview_bulk_staged_selection",
   "POST /api/v1/staged-transactions/bulk-edit": "bulk_edit_staged_transactions",
   "GET /api/v1/transaction-templates": "list_transaction_templates",
@@ -74,15 +90,13 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/transaction-templates": "create_transaction_template",
   "PUT /api/v1/transaction-templates/:id": "update_transaction_template",
   "DELETE /api/v1/transaction-templates/:id": "delete_transaction_template",
-  "POST /api/v1/transaction-templates/bulk-edit":
-    "bulk_edit_transaction_templates",
-  "POST /api/v1/transaction-templates/bulk-delete":
-    "bulk_delete_transaction_templates",
+  "POST /api/v1/transaction-templates/bulk-edit": "bulk_edit_transaction_templates",
+  "POST /api/v1/transaction-templates/bulk-delete": "bulk_delete_transaction_templates",
   "POST /api/v1/csv/preview": "preview_csv",
   "POST /api/v1/csv/stage": "stage_csv",
   "GET /api/v1/import-batches": "list_import_batches",
   "GET /api/v1/reports/:report": "get_report",
-  "GET /api/v1/staged/:id/duplicate": "get_staged_duplicate",
+  "GET /api/v1/staged-transactions/:id/duplicate": "get_staged_duplicate",
   "GET /api/v1/summary": "get_financial_summary",
   "GET /api/v1/audit-events": "list_audit_events",
   "GET /api/v1/connected-apps": "list_connected_agents",
@@ -92,14 +106,17 @@ const COVERED_BY: Record<string, string> = {
 };
 
 async function registeredRoutes() {
-  const source = await readFile(
-    new URL("../src/server/api.ts", import.meta.url),
-    "utf8",
-  );
+  const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
   const routes = new Set<string>();
   for (const match of source.matchAll(
-    /app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/g,
+    /app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)",\s*(deprecated\()?/g,
   )) {
+    // A path kept alive across a rename is the same capability under its old
+    // spelling, registered against the same handler. Counting it here would ask
+    // for a second tool and a second browser call for one thing, which is the
+    // opposite of what parity is about. `tests/http-route-table.test.ts` holds
+    // these to naming a successor that exists.
+    if (match[3]) continue;
     routes.add(`${match[1]!.toUpperCase()} ${match[2]}`);
   }
   return routes;
@@ -117,36 +134,45 @@ async function registeredRoutes() {
  * are one-liners and some span lines, and a regex trying to find the closing
  * bracket swallows every route after a one-liner. That is not hypothetical — it
  * is how the first version of this silently compared half of them.
+ *
+ * A handler shared between two paths is written as a named `const` instead of
+ * inline, because a renamed path is registered against the same handler as its
+ * replacement. Those are collected first and spliced in wherever a route names
+ * one, so a route does not read as calling no service at all.
  */
 async function servicesByRoute() {
-  const source = await readFile(
-    new URL("../src/server/api.ts", import.meta.url),
-    "utf8",
-  );
-  const starts = [
-    ...source.matchAll(/^app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/gm),
-  ];
+  const source = await readFile(new URL("../src/server/api.ts", import.meta.url), "utf8");
+  const named = new Map<string, Set<string>>();
+  const declarations = [...source.matchAll(/^const (\w+): Handler<AppEnv> =/gm)];
+  declarations.forEach((declaration, index) => {
+    const next = declarations[index + 1];
+    const body = source.slice(declaration.index!, next ? next.index! : source.length);
+    named.set(
+      declaration[1]!,
+      new Set(
+        [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map((call) => call[1]!),
+      ),
+    );
+  });
+
+  const starts = [...source.matchAll(/^app\.(get|post|put|delete)\(\s*"(\/api\/v1[^"]*)"/gm)];
   const byRoute = new Map<string, Set<string>>();
   starts.forEach((start, index) => {
     const next = starts[index + 1];
     const body = source.slice(start.index!, next ? next.index! : source.length);
-    byRoute.set(
-      `${start[1]!.toUpperCase()} ${start[2]}`,
-      new Set(
-        [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map(
-          (call) => call[1]!,
-        ),
-      ),
+    const services = new Set(
+      [...body.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*c\.get\("actor"\)/g)].map((call) => call[1]!),
     );
+    for (const [handler, calls] of named) {
+      if (new RegExp(`\\b${handler}\\b`).test(body)) for (const call of calls) services.add(call);
+    }
+    byRoute.set(`${start[1]!.toUpperCase()} ${start[2]}`, services);
   });
   return byRoute;
 }
 
 async function servicesByTool() {
-  const source = await readFile(
-    new URL("../src/server/mcp.ts", import.meta.url),
-    "utf8",
-  );
+  const source = await readFile(new URL("../src/server/mcp.ts", import.meta.url), "utf8");
   const byTool = new Map<string, Set<string>>();
   for (const match of source.matchAll(
     /registerTool\(\s*"([a-z_]+)",\s*\{.*?\n      \},\s*(.*?)\n    \);/gs,
@@ -154,9 +180,7 @@ async function servicesByTool() {
     byTool.set(
       match[1]!,
       new Set(
-        [...match[2]!.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*actor\b/g)].map(
-          (call) => call[1]!,
-        ),
+        [...match[2]!.matchAll(/\b([a-z][A-Za-z0-9]*)\(\s*actor\b/g)].map((call) => call[1]!),
       ),
     );
   }
@@ -274,10 +298,7 @@ describe("what an agent can reach compared with the browser", () => {
    * noticed. Checked by name rather than by count so the failure says which.
    */
   it("names every tool in the MCP guide", async () => {
-    const guide = await readFile(
-      new URL("../docs/mcp.md", import.meta.url),
-      "utf8",
-    );
+    const guide = await readFile(new URL("../docs/mcp.md", import.meta.url), "utf8");
     const tools = await toolNames(everyScope);
     const undocumented = [...tools].filter((tool) => !guide.includes(tool)).sort();
     expect(undocumented).toEqual([]);
@@ -310,6 +331,51 @@ describe("what an agent can reach compared with the browser", () => {
       .filter((tool) => tool.annotations?.readOnlyHint !== true)
       .map((tool) => tool.name);
     expect(writes).toEqual([]);
+  });
+
+  /**
+   * The other half of the same claim: what the annotation says, and what the
+   * code behind it does.
+   *
+   * The test above proves a read-only token is offered nothing annotated as a
+   * write. It cannot see the failure the other way round — a tool annotated
+   * `readOnlyHint: true` whose handler calls a service that writes a row. That
+   * one is worse, because the annotation is what a client shows the person
+   * approving the call: VS Code's is the only documented use of it, and it uses
+   * it to decide what may run without asking.
+   *
+   * "Writes a row" is `tests/support/mutations.ts`, the same reader
+   * `tests/service-transactions.test.ts` uses for the services guide, so there
+   * is one definition of a write in this repository rather than two that drift.
+   */
+  it("annotates a tool read-only only when nothing it calls writes", async () => {
+    const tools = await toolsWithAnnotations(everyScope);
+    const services = await servicesByTool();
+    const mutations = mutationNames(
+      sourceFiles("src/server/services").flatMap((file) =>
+        topLevelDeclarations(file).map((declaration) => ({
+          name: declaration.name,
+          body: declaration.body,
+        })),
+      ),
+    );
+
+    const lying: string[] = [];
+    let compared = 0;
+    for (const tool of tools) {
+      if (tool.annotations?.readOnlyHint !== true) continue;
+      const called = [...(services.get(tool.name) ?? [])];
+      // `preview_csv` takes a file rather than an actor, so no service name can
+      // be read off its handler. Skipped rather than failed, and the count below
+      // is what stops that skip growing quietly.
+      if (called.length === 0) continue;
+      compared += 1;
+      const writes = called.filter((service) => mutations.has(service));
+      if (writes.length > 0) lying.push(`${tool.name} calls ${writes.join(", ")}`);
+    }
+
+    expect(lying).toEqual([]);
+    expect(compared).toBeGreaterThanOrEqual(34);
   });
 
   it("hides every write from a token that may only read", async () => {
@@ -352,8 +418,7 @@ describe("what an agent can reach compared with the browser", () => {
       new Set(everyScope),
     );
     const client = new Client({ name: "parity", version: "1.0.0" });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
     await client.connect(clientTransport);
     const { tools } = await client.listTools();
@@ -361,11 +426,71 @@ describe("what an agent can reach compared with the browser", () => {
     await server.close();
 
     for (const tool of tools) {
-      expect(
-        (tool.description ?? "").length,
-        `${tool.name} needs a description`,
-      ).toBeGreaterThan(30);
+      expect((tool.description ?? "").length, `${tool.name} needs a description`).toBeGreaterThan(
+        30,
+      );
     }
+  });
+
+  /**
+   * A name is for a machine and a title is for a person, and the two are held
+   * to different rules.
+   *
+   * The name has to be something a model can retype: the specification's own
+   * character set and length, and `verb_noun` in snake_case on top of it, with
+   * `whoami` named as the one exception because it is the name the thing has.
+   * The title is what an approval dialog shows, so it must not claim another
+   * tier's verb — `create_transaction` was once titled "Commit a transaction",
+   * which is the sentence `commit_staged_transactions` owns, and a person
+   * approving it could believe they were releasing a row they had already
+   * reviewed. The adjective is fine: "List committed transactions" says what
+   * the rows already are rather than what the call is about to do.
+   */
+  it("names tools for a machine and titles them so no title claims another tier's verb", async () => {
+    const tools = await toolsWithAnnotations(everyScope);
+    const withTitles = tools as { name: string; title?: string }[];
+
+    const malformed = withTitles
+      .filter((tool) => !/^[a-z][a-z0-9]*(_[a-z0-9]+)*$/.test(tool.name) || tool.name.length > 128)
+      .map((tool) => tool.name);
+    expect(malformed).toEqual([]);
+    const oneWord = withTitles.filter((tool) => !tool.name.includes("_")).map((tool) => tool.name);
+    expect(oneWord).toEqual(["whoami"]);
+
+    // Two dialogs a person cannot tell apart are two chances to approve the
+    // wrong one, so a repeated title fails whichever tools carry it.
+    const titles = withTitles.map((tool) => (tool.title ?? "").toLowerCase());
+    expect(titles.filter((title) => title.length === 0)).toEqual([]);
+    expect(titles.filter((title, index) => titles.indexOf(title) !== index)).toEqual([]);
+
+    const claimingCommit = withTitles
+      .filter((tool) => /\bcommits?\b/i.test(tool.title ?? ""))
+      .map((tool) => tool.name);
+    expect(claimingCommit).toEqual(["commit_staged_transactions"]);
+  });
+
+  /**
+   * Scope gates by non-registration, so "needs ledger:write" in a description
+   * is read only by an agent that already holds ledger:write and never by the
+   * one that does not. Written on all 36 gated tools it would be about 3,600
+   * characters of one convention repeated per tool, for a reader who cannot
+   * benefit. What a description owes is the behaviour that differs by scope,
+   * which is these four and nothing else — so this is set equality rather than
+   * a floor, and it fails both when one of them loses its sentence and when
+   * somebody starts pasting the scope onto the rest.
+   */
+  it("names a scope only where the scope changes what the tool does", async () => {
+    const tools = await toolsWithAnnotations(everyScope);
+    const naming = tools
+      .filter((tool) => /ledger:(read|stage|write)/.test(tool.description ?? ""))
+      .map((tool) => tool.name)
+      .sort();
+    expect(naming).toEqual([
+      "bulk_edit_staged_transactions",
+      "create_budget_plan",
+      "stage_csv",
+      "update_staged_transaction",
+    ]);
   });
 
   /**
@@ -376,19 +501,91 @@ describe("what an agent can reach compared with the browser", () => {
    * same schema rather than a convenient superset.
    */
   it("declares the schema each listing actually parses", async () => {
-    const source = await readFile(
-      new URL("../src/server/mcp.ts", import.meta.url),
-      "utf8",
-    );
+    const source = await readFile(new URL("../src/server/mcp.ts", import.meta.url), "utf8");
+    // `.strict()` is closure, not width: it narrows what the tool accepts to
+    // exactly the declared shape, which is the direction this test wants.
     const declared = (tool: string) =>
-      new RegExp(`"${tool}",[\\s\\S]{0,900}?inputSchema: ([A-Za-z.]+)`).exec(
-        source,
-      )?.[1];
+      new RegExp(`"${tool}",[\\s\\S]{0,900}?inputSchema: ([A-Za-z.]+)`)
+        .exec(source)?.[1]
+        ?.replace(/\.strict$/, "");
 
     expect(declared("list_transactions")).toBe("listQuerySchema");
     expect(declared("list_staged_transactions")).toBe("stageListQuerySchema");
     // Its service reads a cursor and a limit and nothing else, and caps that
     // limit lower than the shared listing schema does.
     expect(declared("list_import_batches")).toBe("importBatchListQuerySchema");
+  });
+});
+
+/**
+ * The other direction, which nothing checked until a budget shipped with tools
+ * the page had no way to reach.
+ *
+ * Parity was only ever enforced one way: every route needed a tool. That let
+ * the agent surface run ahead of the browser, which is the wrong way round for
+ * a product whose argument is that a person and their agent see the same
+ * ledger. A capability an agent has and a person does not is a capability
+ * nobody asked for in that shape.
+ *
+ * Matched on the static prefix of the path, because that is how the browser
+ * writes a URL: a literal up to the first parameter, then a template.
+ */
+const AGENT_ONLY: Record<string, string> = {
+  "POST /api/v1/staged-transactions/bulk-selection":
+    "Staged commits and deletes are explicit-ID, so the page walks the pages and keeps the rows rather than handing the server a filter, and says so at StagingPage.tsx. The route exists for preview_bulk_staged_selection, where an agent has no pages to walk.",
+};
+
+async function clientSource() {
+  const root = new URL("../src/client/", import.meta.url);
+  const walk = async (directory: URL): Promise<string[]> => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    const out: string[] = [];
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        out.push(...(await walk(new URL(`${entry.name}/`, directory))));
+      } else if (/\.tsx?$/.test(entry.name)) {
+        out.push(await readFile(new URL(entry.name, directory), "utf8"));
+      }
+    }
+    return out;
+  };
+  return (await walk(root)).join("\n");
+}
+
+describe("what the browser can reach compared with an agent", () => {
+  it("calls every route that is not a named agent-only exception", async () => {
+    const routes = await registeredRoutes();
+    const client = await clientSource();
+
+    const unreachable: string[] = [];
+    for (const route of routes) {
+      if (route in AGENT_ONLY) continue;
+      const path = route.slice(route.indexOf(" ") + 1);
+      // The whole path, with each parameter standing in for a template hole.
+      // This asked whether the prefix before the first parameter appeared
+      // anywhere in the client, which is true of `/api/v1/accounts` the moment
+      // anything fetches an account — so every parameterised sub-route was
+      // unchecked, and a page could stop calling one without this noticing.
+      const pattern = new RegExp(
+        path
+          .split("/")
+          .map((segment) =>
+            segment.startsWith(":")
+              ? "\\$\\{[^}`]*\\}"
+              : segment.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          )
+          .join("/"),
+      );
+      if (!pattern.test(client)) {
+        unreachable.push(`${route} — no call in src/client`);
+      }
+    }
+    expect(unreachable).toEqual([]);
+  });
+
+  it("gives every agent-only route a reason", () => {
+    for (const [route, reason] of Object.entries(AGENT_ONLY)) {
+      expect(reason.length, route).toBeGreaterThan(40);
+    }
   });
 });

@@ -68,18 +68,11 @@ function createWorkspace(document: unknown = validPrd) {
 function createTrustedManifest(document: unknown = validPrd) {
   const trusted = temporaryDirectory("simple-balance-runner-trusted-");
   copyFileSync(schemaSource, path.join(trusted, "product.prd.schema.json"));
-  writeFileSync(
-    path.join(trusted, "product.prd.json"),
-    `${JSON.stringify(document, null, 2)}\n`,
-  );
+  writeFileSync(path.join(trusted, "product.prd.json"), `${JSON.stringify(document, null, 2)}\n`);
   return trusted;
 }
 
-function runRunner(
-  root: string,
-  args: string[],
-  trustedDirectory?: string,
-) {
+function runRunner(root: string, args: string[], trustedDirectory?: string) {
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
     RALPH_WORKSPACE_ROOT: root,
@@ -102,23 +95,17 @@ function createTrustedDriver(root: string) {
     path.join(repositoryRoot, "scripts/ralph/completion.schema.json"),
     path.join(trusted, "completion.schema.json"),
   );
-  copyFileSync(
-    path.join(root, "tasks/product.prd.json"),
-    path.join(trusted, "product.prd.json"),
-  );
+  copyFileSync(path.join(root, "tasks/product.prd.json"), path.join(trusted, "product.prd.json"));
   copyFileSync(
     path.join(root, "tasks/product.prd.schema.json"),
     path.join(trusted, "product.prd.schema.json"),
   );
-  writeFileSync(
-    path.join(trusted, "verify-in-sandbox.sh"),
-    "#!/bin/sh\nexit 0\n",
-  );
+  writeFileSync(path.join(trusted, "verify-in-sandbox.sh"), "#!/bin/sh\nexit 0\n");
   chmodSync(path.join(trusted, "verify-in-sandbox.sh"), 0o700);
   writeFileSync(
     path.join(trusted, "git-guard.mjs"),
     [
-      'const command = process.argv[2];',
+      "const command = process.argv[2];",
       'if (command === "commit") {',
       '  console.error("forced story commit failure");',
       "  process.exit(27);",
@@ -141,7 +128,7 @@ function createTrustedDriver(root: string) {
       "  shift",
       "done",
       '[ -n "$output" ]',
-      "printf '%s\\n' '{\"storyId\":\"SB-001\",\"status\":\"completed\",\"summary\":\"done\",\"learnings\":[]}' > \"$output\"",
+      'printf \'%s\\n\' \'{"storyId":"SB-001","status":"completed","summary":"done","learnings":[]}\' > "$output"',
       "printf '%s\\n' 'implementation survives' > implementation.txt",
       "",
     ].join("\n"),
@@ -158,10 +145,7 @@ afterEach(() => {
 
 describe("trusted Ralph runner", () => {
   it("snapshots the PRD and schema before Codex and restores them afterward", () => {
-    const driver = readFileSync(
-      path.join(repositoryRoot, "scripts/ralph/ralph.sh"),
-      "utf8",
-    );
+    const driver = readFileSync(path.join(repositoryRoot, "scripts/ralph/ralph.sh"), "utf8");
     const prdSnapshot = driver.indexOf(
       'cp "$WORKSPACE_ROOT/tasks/product.prd.json" "$TRUSTED_DIR/product.prd.json"',
     );
@@ -278,10 +262,7 @@ describe("trusted Ralph runner", () => {
     const root = createWorkspace();
     const trusted = createTrustedManifest();
     const trustedPrd = readFileSync(path.join(trusted, "product.prd.json"), "utf8");
-    const trustedSchema = readFileSync(
-      path.join(trusted, "product.prd.schema.json"),
-      "utf8",
-    );
+    const trustedSchema = readFileSync(path.join(trusted, "product.prd.schema.json"), "utf8");
     writeFileSync(
       path.join(root, "tasks/product.prd.json"),
       JSON.stringify({
@@ -306,12 +287,10 @@ describe("trusted Ralph runner", () => {
       networkAllowed: false,
     });
     expect(restored.status).toBe(0);
-    expect(readFileSync(path.join(root, "tasks/product.prd.json"), "utf8")).toBe(
-      trustedPrd,
+    expect(readFileSync(path.join(root, "tasks/product.prd.json"), "utf8")).toBe(trustedPrd);
+    expect(readFileSync(path.join(root, "tasks/product.prd.schema.json"), "utf8")).toBe(
+      trustedSchema,
     );
-    expect(
-      readFileSync(path.join(root, "tasks/product.prd.schema.json"), "utf8"),
-    ).toBe(trustedSchema);
   });
 
   it("refuses to restore through a workspace PRD symlink", () => {
@@ -344,11 +323,7 @@ describe("trusted Ralph runner", () => {
       }),
     );
 
-    const prepared = runRunner(
-      root,
-      ["prepare-complete", "SB-001", completionPath],
-      trusted,
-    );
+    const prepared = runRunner(root, ["prepare-complete", "SB-001", completionPath], trusted);
     const pendingNext = runRunner(root, ["next"], trusted);
     const preparedWorkspacePrd = JSON.parse(
       readFileSync(path.join(root, "tasks/product.prd.json"), "utf8"),
@@ -367,15 +342,9 @@ describe("trusted Ralph runner", () => {
     });
     expect(pendingTrustedPrd.stories[0].completed).toBe(false);
 
-    const finalized = runRunner(
-      root,
-      ["finalize-complete", "SB-001"],
-      trusted,
-    );
+    const finalized = runRunner(root, ["finalize-complete", "SB-001"], trusted);
     const next = runRunner(root, ["next"], trusted);
-    const trustedPrd = JSON.parse(
-      readFileSync(path.join(trusted, "product.prd.json"), "utf8"),
-    );
+    const trustedPrd = JSON.parse(readFileSync(path.join(trusted, "product.prd.json"), "utf8"));
 
     expect(finalized.status, finalized.stderr).toBe(0);
     expect(next.status).toBe(0);
@@ -400,31 +369,19 @@ describe("trusted Ralph runner", () => {
       }),
     );
 
-    const prepared = runRunner(
-      root,
-      ["prepare-complete", "SB-001", completionPath],
-      trusted,
-    );
-    const rolledBack = runRunner(
-      root,
-      ["rollback-complete", "SB-001"],
-      trusted,
-    );
+    const prepared = runRunner(root, ["prepare-complete", "SB-001", completionPath], trusted);
+    const rolledBack = runRunner(root, ["rollback-complete", "SB-001"], trusted);
     const workspacePrd = JSON.parse(
       readFileSync(path.join(root, "tasks/product.prd.json"), "utf8"),
     );
-    const trustedPrd = JSON.parse(
-      readFileSync(path.join(trusted, "product.prd.json"), "utf8"),
-    );
+    const trustedPrd = JSON.parse(readFileSync(path.join(trusted, "product.prd.json"), "utf8"));
 
     expect(prepared.status, prepared.stderr).toBe(0);
     expect(rolledBack.status, rolledBack.stderr).toBe(0);
     expect(workspacePrd.stories[0].completed).toBe(false);
     expect(trustedPrd.stories[0].completed).toBe(false);
     expect(readFileSync(progressPath, "utf8")).toBe(originalProgress);
-    expect(readFileSync(path.join(root, "implementation.txt"), "utf8")).toBe(
-      "preserve me\n",
-    );
+    expect(readFileSync(path.join(root, "implementation.txt"), "utf8")).toBe("preserve me\n");
   });
 
   it("rolls completion back when the story-scoped commit is forced to fail", () => {
@@ -449,13 +406,8 @@ describe("trusted Ralph runner", () => {
     const workspacePrd = JSON.parse(
       readFileSync(path.join(root, "tasks/product.prd.json"), "utf8"),
     );
-    const trustedPrd = JSON.parse(
-      readFileSync(path.join(trusted, "product.prd.json"), "utf8"),
-    );
-    const progress = readFileSync(
-      path.join(root, "scripts/ralph/progress.md"),
-      "utf8",
-    );
+    const trustedPrd = JSON.parse(readFileSync(path.join(trusted, "product.prd.json"), "utf8"));
+    const progress = readFileSync(path.join(root, "scripts/ralph/progress.md"), "utf8");
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("forced story commit failure");
