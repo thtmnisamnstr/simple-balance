@@ -262,6 +262,62 @@ its intent. The word left unchecked is *every*: nothing enumerates the mutations
 in this directory the way `tests/service-transactions.test.ts` enumerates their
 parameter lists, so a new write that audits nothing passes.
 
+### 2.6 A merge rewrites every table that names the merged thing
+
+**Binding.** A merge's whole promise is "these two are one now", and every
+reference the loser leaves behind is a place where they are still two. The
+list of tables that name a category or a payee is enumerated where the merge
+is written, not remembered: transactions, legs, staged drafts, recurrence
+shapes, template drafts, and — for categories — budget plans and entries.
+
+Written down because it was broken twice, the same way, one door apart. The
+category merge rewrote transactions, staged rows, recurrences and budgets,
+then hard-deleted the sources out from under template drafts — leaving
+templates that cannot be saved and cannot be used, the exact state
+`deleteCategory` refuses to create. The payee merge missed both standing
+references, and a recurrence re-created the merged-away spelling on its next
+occurrence: the merge quietly undid itself on a schedule. The reference-
+counting guard (`countCategoryUses`) and the merge must agree about what a
+reference is; when the counter learns a new table, the merge learns it in the
+same change.
+
+*Checked by:* `tests/integration/categories.integration.test.ts` ("rewrites
+template drafts when merging" and the recurrence twin) and
+`tests/integration/payees.integration.test.ts` ("rewrites recurrence shapes
+and template drafts to the merged spelling"). Not checked mechanically: that
+the counter and the merge agree table for table — a new reference table needs
+both by hand.
+
+### 2.7 A guard holds for every sibling of the path it guards
+
+**Binding.** A rule enforced on one path and not on the paths beside it is not
+a rule; it is a trap that fires on whichever door somebody walks through
+second. When a refinement, filter or refusal exists anywhere, every path that
+answers the same question carries it — by sharing the expression, never by
+copying it.
+
+Three shapes of the same failure, all found in one audit. The counter-account
+exclusion lived on `getAccount` with a comment saying every other path hides
+them, while the writes beside it — update, archive, delete — obeyed whoever
+guessed the id; the fix is one shared where-clause
+(`userAccountById`, src/server/services/accounts.ts), which is also the shape
+the fix should always take. The refund-direction refusal on bulk edits ran
+when the patch named a category and not when it named a type, though either
+half of the pair makes the reversal. And the `oneLine`/`freeText` control-
+character refinements guarded most name fields while the bulk patches and
+group names took raw strings to a jsonb write PostgreSQL refuses as a 500.
+
+The test for whether you are about to lay this trap: when a review comment on
+one site says "so that X cannot happen", grep for the other sites where X can
+happen. If the guard cannot be shared as one expression, the sites are not
+siblings and the comment should say why.
+
+*Checked by:* `tests/integration/account-closing.integration.test.ts`
+("answers not-found for every write against a counter-account") and
+`tests/integration/bulk-transactions.integration.test.ts` ("refuses a type
+flip that would turn retained categories into refunds") pin the two ledger
+instances. The class is `human`: no program knows which paths are siblings.
+
 ## 3. Reading
 
 ### 3.1 A read that a write depends on happens first, and inside the transaction
@@ -347,10 +403,12 @@ into a spending category it created itself has to move a budget.
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 1.3 One public function per intent | Whether two operations are one intent with a boolean is the judgement being asked for, and anything able to settle it would not need the rule written down. The nearest check belongs to another guide: `tests/http-route-table.test.ts` refuses a route ending `/archive` or `/delete`, which is this split where it reaches a URL and nowhere else. |
+| 2.6 The counter and the merge agree | The two instances that existed are pinned by tests; whether a NEW reference table reaches both lists is a fact about a diff, which only a reviewer sees. |
+| 2.7 Guards hold for siblings | No program knows which paths are siblings. The two ledger instances are pinned; the class is a review question. |
 | 3.1 Reads before dependent writes | Only the outcome is testable, and it is: the refund tests are that check wearing a different hat. |
 
-Two `human` rules in this guide, and one of them is new to the table rather than
-newly unchecked: 1.3 had never said either way, which from a distance reads like
+Four `human` rules in this guide, and two of them are new to the table rather
+than newly unchecked: 1.3 had never said either way, which from a distance reads like
 a rule that is checked. `tests/service-transactions.test.ts` holds 2.1, reading
 the parameter list rather than grepping for a name, so a mutation that delegates
 its writes to a helper still counts. `tests/transport-database-access.test.ts`

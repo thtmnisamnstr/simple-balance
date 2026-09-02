@@ -1242,6 +1242,41 @@ and it is the only place in the chart code that is allowed to make one.
 
 *Checked by:* `tests/client-money.test.ts`.
 
+### 11.9 A link into a filtered list carries the filter that shows its subject
+
+**Binding.** A link that says "Review these 250 rows" and lands on a page whose
+default filter hides all 250 is a page calling its own link a liar. Any link
+whose text promises specific rows — a count, a batch, a recurrence's waiting
+proposals — pins in its query string whatever range or filter makes those rows
+visible, because the destination's defaults were chosen for a person arriving
+cold, not for one arriving with a claim in hand.
+
+The audit found the same hole three times in one afternoon: the post-import
+review link dropped the date range, so a September import of August rows opened
+an empty queue under a this-month default; the recurrence list's waiting-count
+link did the same to proposals that were overdue from an earlier month, which
+are exactly the rows that link exists for; and the template used-count link
+dropped the range every sibling detail link carries.
+
+*Checked by:* `tests/recurrences-page-ui.test.tsx` pins the recurrence link's
+query string. The class is review: whether a link's text makes a promise is a
+reading of the text.
+
+### 11.10 A field the API sends is rendered, or its absence is argued
+
+**Binding, and the parity rule one level down.** `AGENTS.md` already says a
+request field only an agent can set is a parity defect; the mirror holds for
+responses. A field the server computes and the page drops is an answer somebody
+is not getting — the forecast's uncovered-budget slice, a recurrence's
+discarded-proposal count, a connected agent's last token — and it fails
+silently, because the page renders fine without it. When a page deliberately
+drops a field, the drop is a comment naming the field and the reason, so the
+next reader can tell restraint from oversight.
+
+*Checked by:* `human`. The client types in `src/client/api.ts` mirror the
+server's views, so an unused declared field is at least greppable; nothing
+mechanical can say whether an omission was argued.
+
 ## 12. Empty, loading and error states
 
 Research found no primary source on empty-state categories, on when to show a
@@ -1653,6 +1688,9 @@ These cannot be tested and the guide says so rather than pretending.
 - Whether a dense form's tab order is the order a person works in.
 - Whether an error message names the *right* next action.
 - Whether a glossary term is used correctly, as opposed to being present.
+- Whether a link's text makes a promise its destination's defaults would break
+  (11.9), and whether a dropped response field was restraint or oversight
+  (11.10).
 - The keyboard pass in section 14, and the responsive pass beside it.
 
 A rule that appears in none of these three lists is a rule nobody is responsible

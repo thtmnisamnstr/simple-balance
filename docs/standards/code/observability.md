@@ -236,12 +236,26 @@ one line. `/api/v1/accounts/<uuid>` in the log is what lets an operator follow a
 request; the same id in a metric is ten thousand series. So the two rules point
 opposite ways on ids and the same way on contents.
 
+**And so a caught error object never reaches a log call whole.** The rule above
+is only as strong as its weakest catch block: a Drizzle error's *message*
+embeds the failing statement's bound parameters, so `log.error(context, error)`
+is the contents rule being broken by the error type rather than by the caller.
+Every catch that might hold a database error goes through
+`log.failure(context, error)`, which keeps the statement and drops the values —
+including the top-level catches in both entrypoints, which is where an audit
+found eleven raw-error sites after the rule was first written. `log.failure` on
+an error with no query falls back to logging it whole, so routing a doubtful
+catch through it costs nothing when the doubt was wrong.
+
 *Checked by:* `tests/log-level.test.ts`, which asserts the id is present in the
 request line, the search term is absent from it, the payee an agent filtered by
 is absent from the tool line, and — serialising the call rather than
 stringifying it, because `String(error)` hides the difference — that a failing
 statement is logged while the values bound into it are not. Whether a line
-somebody adds tomorrow carries something it should not is review.
+somebody adds tomorrow carries something it should not is review, and so is
+whether a new catch block reaches for `log.error` where `log.failure` belongs —
+a grep for `log.error(` with an error identifier in its arguments is the
+review's cheap first pass.
 
 ### 2.5 Warn once, not once per read
 

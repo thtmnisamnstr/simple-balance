@@ -187,14 +187,49 @@ server about what is allowed.
 The rule for deciding: if the browser can tell in advance, it must, and the
 sentence must be the same one.
 
+### 4.1 A check constraint has a Zod twin, and the twin names the field
+
+**Binding.** What the database would refuse, the schema refuses first, as a 422
+naming the field — because the constraint's own refusal arrives as a 500 with a
+stack trace for what is only ever a mistyped value. The twin covers the WHOLE
+constraint: the budget percent rules validated the floor while the constraint
+capped both ends, so a mistyped 10000 passed Zod and died on the check; and the
+control-character refinements existed for most text fields while a NUL in a
+bulk patch travelled all the way to a jsonb write PostgreSQL refuses. When a
+constraint moves — 0018 widened the incremental floor — the twin moves in the
+same change, which is why the twin lives beside the schema field rather than in
+a service.
+
+*Checked by:* `human`, and deliberately half of it could be a test: a program
+can enumerate the check constraints in `src/server/db/schema.ts` but cannot
+prove a refinement is the same predicate. What exists instead is the pattern's
+instances under test — `tests/domain.test.ts` for the refinements, the
+integration suites for the constraints — and this sentence for the pairing.
+
+### 4.2 What is read back is validated more loosely than what is written
+
+**House.** A write schema is a gate; a read-back schema is a description. The
+queue deliberately admits payees the strict schema refuses — a bad import goes
+there to be FIXED — so validating the read of the payee listing with the write
+schema meant one staged control character broke its owner's whole payee page at
+the parse step. A read-back schema refuses only what would make the answer
+unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
+the row's own issue list's job.
+
+*Checked by:* `human`. The instance is pinned where it bit
+(src/shared/domain.ts:1083-1088`, the comment on `payeeSummarySchema.name`).
+
 ## 5. What is not enforced
 
 | Rule | Why it is only a sentence |
 | --- | --- |
 | 3.1 Messages say what to do | Editorial. |
 | 3.2 Refusals name the specific case | Editorial. |
+| 4.1 Constraint twins | A program can list the constraints; it cannot prove a refinement is the same predicate. |
+| 4.2 Read-back looseness | Which strictness a schema needs is a fact about who reads it. |
 
-Two `human` rules in this guide, down from three. The first looked
+Four `human` rules in this guide, down from three and then up again for the
+two the audit distilled. The first looked
 unmechanisable and was — a blanket ban on `throw new Error` under
 `src/server/services` would flag the five correct ones, and which kind a throw is
 cannot be read off its syntax. So `tests/service-errors.test.ts` inverts it: it
