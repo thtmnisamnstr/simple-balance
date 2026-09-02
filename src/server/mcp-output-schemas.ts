@@ -1072,6 +1072,11 @@ export const forecastResultSchema = z.object({
     .describe(
       "Recurrences and budgets no projection could use, with why. A schedule with no amount is a real schedule with no figure, and a budget whose amount is an average or a share of income works it out from periods that have not happened; leaving either out silently would flatter every period it falls in — say so rather than reporting the balance as though it were complete.",
     ),
+  otherPeriodUnits: z
+    .array(z.enum(budgetPeriodUnits))
+    .describe(
+      "Period units this person budgets in that this projection did not read. A monthly forecast counts monthly plans alone, so weekly budgets exist outside its figures; ask again per unit named here, exactly as with the budget report's field of the same name.",
+    ),
   currencies: z.array(
     z.object({
       currency: z.string(),

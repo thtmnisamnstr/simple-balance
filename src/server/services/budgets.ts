@@ -122,7 +122,12 @@ export type BudgetPeriodRow = {
    * part of the deal.
    */
   carriedIn: string | null;
-  /** The limit plus whatever was carried in. Null when nothing rolls over. */
+  /**
+   * The limit plus whatever was carried in; equal to the limit when nothing
+   * rolls over, and null only where there is no limit. `carriedIn !== null`
+   * is the envelope discriminator — the toAssign fold and the page both key
+   * on it — so do not read this field's nullness as "rolls over".
+   */
   available: string | null;
   /**
    * What this period hands to the next, after the cap.
@@ -830,6 +835,18 @@ async function resolveCarry(
       "A carry cap only means something when rollover is on, and this budget does not carry anything forward.",
     );
   }
+  // A fund saves by carrying, so a cap under the target caps the saving: each
+  // period's contribution is pinned back to the cap, the fund re-budgets what
+  // the cap just discarded, and the target date arrives with the whole
+  // shortfall due at once. The two numbers contradict each other, so the pair
+  // is refused rather than obeyed in the wrong order — and the browser offers
+  // the combination, which is exactly why the server has to say no.
+  if (isFund && input.rolloverCap !== null && decimal(input.rolloverCap).lt(input.targetAmount!)) {
+    throw validationError(
+      "This cap is below what the fund is saving for, so it would throw away each period's contribution and leave the whole amount due at the end. Raise the cap to at least the target, or remove it.",
+      { fields: ["rolloverCap"] },
+    );
+  }
   const amountRule: BudgetAmountRule = isFund
     ? "sinking_fund"
     : input.lookbackPeriods !== null
@@ -1356,7 +1373,12 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
       on a.user_id = p.user_id and a.id = p.account_id and a.system_kind = 'income'
     ${archived.join}
     where p.user_id = ${actor.userId}
-      and p.date >= date_trunc(${unit}, ${queryStart}::date)::date
+      -- One period earlier than the fold's first, because a share-of-income
+      -- plan's first period asks about the calendar period before it. Bounded
+      -- by stepping one day back off this period's start and truncating,
+      -- which is previous-period-start in every unit, including quarters,
+      -- where interval arithmetic has no word for the step.
+      and p.date >= date_trunc(${unit}, date_trunc(${unit}, ${queryStart}::date) - interval '1 day')::date
       and p.date <= ${countedTo}::date
       ${archived.filter}
     group by 1, 2
@@ -1473,8 +1495,16 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
     // money. The same "uncovered" reading the forecast uses for budgets a
     // recurrence already pays.
     for (const group of groupEnvelopes) {
+      // Only members that are themselves envelopes: a member with a
+      // non-rollover budget claimed nothing above, so subtracting its
+      // remaining here would net the group's claim against money nobody is
+      // holding — toAssign came back overstated by exactly that amount, and
+      // the page invited assigning money an envelope already held.
       const members = period.rows.filter(
-        (row) => row.categoryId !== null && membership.get(row.categoryId) === group.groupId,
+        (row) =>
+          row.carriedIn !== null &&
+          row.categoryId !== null &&
+          membership.get(row.categoryId) === group.groupId,
       );
       const byMembers = members.reduce((total, row) => total.plus(positive(row)), decimal(ZERO));
       const extra = positive(group).minus(byMembers);
@@ -1691,7 +1721,29 @@ type CarryingPlan = Awaited<ReturnType<typeof rolloverPlans>>[number];
  * is the thing `truncatePeriod` exists to keep out of JavaScript. A week is
  * seven days whatever the calendar does; the other three are months apart.
  */
-function periodsBetween(unit: BudgetPeriodUnit, from: string, to: string): number {
+/**
+ * The start of the period before this one.
+ *
+ * Same licence as `periodsBetween`: the argument is a period start PostgreSQL
+ * produced, so stepping back is arithmetic rather than a second opinion about
+ * where periods begin. A week is seven days back; the others move whole
+ * months on a first-of-month date, which no month length can bend.
+ */
+function previousPeriodStart(unit: BudgetPeriodUnit, start: string): string {
+  if (unit === "week") {
+    const date = new Date(`${start}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - 7);
+    return date.toISOString().slice(0, 10);
+  }
+  const [year, month] = start.split("-").map(Number) as [number, number];
+  const months = unit === "year" ? 12 : unit === "quarter" ? 3 : 1;
+  const index = year * 12 + (month - 1) - months;
+  const backYear = Math.floor(index / 12);
+  const backMonth = (index % 12) + 1;
+  return `${String(backYear).padStart(4, "0")}-${String(backMonth).padStart(2, "0")}-01`;
+}
+
+export function periodsBetween(unit: BudgetPeriodUnit, from: string, to: string): number {
   if (unit === "week") {
     const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
     return Math.round(days / 7);
@@ -1755,7 +1807,6 @@ function foldRollover(
     // budgeted, a share of what came in.
     const history: ReturnType<typeof decimal>[] = [];
     let previousLimit: string | null = null;
-    let previousIncome: string | null = null;
     for (const periodStart of ordered) {
       const plan = plans.find(
         (candidate) =>
@@ -1766,10 +1817,6 @@ function foldRollover(
         carry = decimal(ZERO);
         history.length = 0;
         previousLimit = null;
-        // Everything the derived rules read resets together. Leaving the income
-        // behind would let a budget that starts in September take a share of
-        // the last month the *previous* budget saw.
-        previousIncome = null;
         continue;
       }
       const period = periods.get(`${periodStart}:${currency}`);
@@ -1788,7 +1835,16 @@ function foldRollover(
           history,
           income: income.get(`${periodStart}:${currency}`) ?? null,
           previousLimit,
-          previousIncome,
+          // Looked up per period rather than threaded through the loop: the
+          // income before a period is a fact about the calendar, not about
+          // this budget's history, so a plan's first period reads the real
+          // period before it — the income query reaches one period earlier
+          // than the fold for exactly this line. Threading it also went wrong
+          // in both directions: a first period read null and budgeted
+          // nothing, and a plan resuming after a gap read the last period the
+          // previous plan saw, however long ago that was.
+          previousIncome:
+            income.get(`${previousPeriodStart(unit, periodStart)}:${currency}`) ?? null,
         });
       }
       previousLimit = limit;
@@ -1806,7 +1862,6 @@ function foldRollover(
       // What this period spent, kept for the trailing averages that will ask
       // about it a few periods from now.
       history.push(actual);
-      previousIncome = income.get(`${periodStart}:${currency}`) ?? null;
       carry = plan.rollover ? capped : decimal(ZERO);
     }
   }
@@ -1964,7 +2019,7 @@ function sinkingFundAmount(
 }
 
 /** Which other period units this person has budgets in. */
-async function otherUnits(actor: Actor, shown: BudgetPeriodUnit) {
+export async function otherUnits(actor: Actor, shown: BudgetPeriodUnit) {
   const result = await getDb().execute(sql`
     select distinct period_unit from budget_plan where user_id = ${actor.userId}
     union

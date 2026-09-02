@@ -6,6 +6,7 @@ import { createAccount, setAccountArchived } from "../../src/server/services/acc
 import {
   createCategory,
   deleteCategory,
+  getCategory,
   listCategories,
   mergeCategories,
   updateCategory,
@@ -1723,6 +1724,31 @@ integration("budgets", () => {
       await expect(
         createBudgetPlan(actor, { ...base, amount: "10.00", rolloverCap: "50.00" }),
       ).rejects.toThrow(/only means something when rollover is on/i);
+      // A cap below the target caps the saving itself: each period's
+      // contribution is pinned back to the cap, the fund re-budgets what the
+      // cap just discarded, and the target date arrives with the shortfall
+      // due all at once. The two numbers contradict each other.
+      await expect(
+        createBudgetPlan(actor, {
+          ...base,
+          amount: "0",
+          rollover: true,
+          targetAmount: "1200.00",
+          targetDate: "2026-12-01",
+          rolloverCap: "100.00",
+        }),
+      ).rejects.toThrow(/below what the fund is saving for/i);
+      // At or above the target it constrains nothing the fund needs, so it
+      // stays legal — a cap on the debt side still means something.
+      const capped = await createBudgetPlan(actor, {
+        ...base,
+        amount: "0",
+        rollover: true,
+        targetAmount: "1200.00",
+        targetDate: "2026-12-01",
+        rolloverCap: "1200.00",
+      });
+      expect(capped.amountRule).toBe("sinking_fund");
     });
 
     it("stores the rule and the target where a reader can see them", async () => {
@@ -1788,7 +1814,10 @@ integration("budgets", () => {
         categoryId: category.id,
         currency: "USD",
         periodUnit: "month",
-        amount: "0",
+        // A real number, not zero: with a zero seed the expected first-period
+        // value equals the degenerate value, and a mutant that ignored the
+        // plan amount passed the old assertion.
+        amount: "45.00",
         activeFrom: "2026-01-01",
         lookbackPeriods: 3,
       });
@@ -1805,7 +1834,7 @@ integration("budgets", () => {
         .filter((period) => period.currency === "USD")
         .map((period) => period.rows.find((r) => r.category === "Average")!);
       // January has nothing behind it, so the plan's own amount stands.
-      expect(rows[0]!.limit).toBe("0");
+      expect(rows[0]!.limit).toBe("45");
       // February averages January alone, March averages January and February,
       // and April averages all three. Fewer periods than asked for is the
       // honest answer: treating the months before the budget started as zeroes
@@ -1863,8 +1892,8 @@ integration("budgets", () => {
       const rows = report.periods
         .filter((period) => period.currency === "USD")
         .map((period) => period.rows.find((r) => r.category === "Share")!);
-      // January has no period before it, so there is nothing to take a share
-      // of. February takes twenty per cent of January's two thousand.
+      // December 2025 holds no income, so January's share is of nothing.
+      // February takes twenty per cent of January's two thousand.
       expect(rows[0]!.limit).toBe("0");
       expect(rows[1]!.limit).toBe("400");
       // And the income itself is reported, because a share of it is only
@@ -1872,6 +1901,58 @@ integration("budgets", () => {
       expect(
         report.periods.find((p) => p.periodStart === "2026-01-01" && p.currency === "USD")!.income,
       ).toBe("2000");
+    });
+
+    it("gives a share plan's first period the income of the real period before it", async () => {
+      const category = await createCategory(actor, {
+        name: "Share from December",
+        kind: "expense",
+      });
+      // A currency of this test's own, because the figure is a share of a
+      // whole period's income and sharing USD would make it a share of what
+      // every other test happened to earn.
+      const account = await createAccount(actor, {
+        name: "Share December account",
+        type: "checking",
+        currency: "CZK",
+        openingDate: "2025-12-01",
+        openingBalance: "0",
+        idempotencyKey: nextKey(),
+      });
+      // The income lands the period before the plan starts. A fold that only
+      // read income from its own first period reported January as a share of
+      // nothing, even though December's salary was in the ledger all along.
+      await createTransaction(
+        actor,
+        {
+          type: "deposit",
+          toAccountId: account.id,
+          categoryId: salaryId,
+          amount: "3000.00",
+          date: "2025-12-15",
+          payee: "Share salary Dec",
+          description: null,
+        },
+        nextKey(),
+      );
+      await createBudgetPlan(actor, {
+        categoryId: category.id,
+        currency: "CZK",
+        periodUnit: "month",
+        amount: "0",
+        activeFrom: "2026-01-01",
+        percentOfIncome: "20",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-01-01",
+        end: "2026-01-31",
+        periodUnit: "month",
+      });
+      const row = report.periods
+        .find((period) => period.currency === "CZK")!
+        .rows.find((r) => r.category === "Share from December")!;
+      expect(row.limit).toBe("600");
     });
 
     it("lets an amount somebody typed beat any rule", async () => {
@@ -2483,6 +2564,68 @@ integration("budgets", () => {
       expect(period.toAssign).toBe("400");
     });
 
+    it("nets a group envelope's claim only against members that claim", async () => {
+      const group = await createCategoryGroup(actor, {
+        name: "Envelope group",
+        policy: "standalone",
+      });
+      const claiming = await createCategory(actor, { name: "Member envelope", kind: "expense" });
+      const plain = await createCategory(actor, { name: "Member plain", kind: "expense" });
+      for (const category of [claiming, plain]) {
+        const fresh = await getCategory(actor, category.id);
+        await updateCategory(actor, category.id, {
+          expectedVersion: fresh.version,
+          groupId: group.id,
+        });
+      }
+      await createAccount(actor, {
+        name: "Envelope group current",
+        type: "checking",
+        currency: "TRY",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      });
+      // The group is an envelope of 500; one member is an envelope of 100,
+      // the other a plain budget of 200 that claims nothing.
+      await createBudgetPlan(actor, {
+        groupId: group.id,
+        currency: "TRY",
+        periodUnit: "month",
+        amount: "500.00",
+        activeFrom: "2026-05-01",
+        rollover: true,
+      });
+      await createBudgetPlan(actor, {
+        categoryId: claiming.id,
+        currency: "TRY",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2026-05-01",
+        rollover: true,
+      });
+      await createBudgetPlan(actor, {
+        categoryId: plain.id,
+        currency: "TRY",
+        periodUnit: "month",
+        amount: "200.00",
+        activeFrom: "2026-05-01",
+      });
+
+      const report = await getBudgetReport(actor, {
+        start: "2026-05-01",
+        end: "2026-05-31",
+        periodUnit: "month",
+      });
+      const period = report.periods.find((entry) => entry.currency === "TRY")!;
+      expect(period.perimeter).toBe("1000");
+      // The member envelope claims its 100 directly; the group's own claim is
+      // its 500 less that 100. The plain member's 200 claims nothing and must
+      // not be netted off the group either — for a while it was, and toAssign
+      // came back saying 200 more was assignable than the envelopes held.
+      expect(period.toAssign).toBe("500");
+    });
+
     it("says nothing about assigning where nothing rolls over", async () => {
       const spending = await createCategory(actor, { name: "Plain limit", kind: "expense" });
       await createAccount(actor, {
@@ -2654,6 +2797,127 @@ integration("budgets", () => {
       expect(forecast.unprojectable.map((entry) => entry.name)).toContain("Variable bill");
       const currency = forecast.currencies.find((entry) => entry.currency === "HUF")!;
       expect(currency.periods[0]!.expectedSpending).toBe("0");
+    });
+
+    it("says which budgets it could not project, and which units it did not read", async () => {
+      const averaged = await createCategory(actor, { name: "Forecast averaged", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: averaged.id,
+        currency: "USD",
+        periodUnit: "month",
+        amount: "10.00",
+        activeFrom: "2026-01-01",
+        lookbackPeriods: 3,
+      });
+      const weekly = await createCategory(actor, { name: "Forecast weekly", kind: "expense" });
+      await createBudgetPlan(actor, {
+        categoryId: weekly.id,
+        currency: "USD",
+        periodUnit: "week",
+        amount: "25.00",
+        activeFrom: "2026-01-05",
+      });
+
+      const forecast = await getForecast(actor, { periodUnit: "month", periods: 2 });
+      // A derived amount is worked out from periods that have not happened, so
+      // the projection names the budget instead of counting its stored zero.
+      expect(forecast.unprojectable.map((entry) => entry.name)).toContain("Forecast averaged");
+      // And a unit it did not read is said, not silently skipped: a monthly
+      // projection that counts nothing for a weekly budgeter otherwise reads
+      // as though nothing is intended at all.
+      expect(forecast.otherPeriodUnits).toContain("week");
+    });
+
+    it("projects an incremental budget the way the report compounds it", async () => {
+      const stepped = await createCategory(actor, { name: "Forecast stepped", kind: "expense" });
+      const account = await createAccount(actor, {
+        name: "Forecast stepped account",
+        type: "checking",
+        currency: "RON",
+        openingDate: "2026-01-01",
+        openingBalance: "10000.00",
+        idempotencyKey: nextKey(),
+      });
+      // An anchor well in the past, so every projected period is a later step
+      // of the chain rather than the base.
+      await createBudgetPlan(actor, {
+        categoryId: stepped.id,
+        currency: "RON",
+        periodUnit: "month",
+        amount: "100.00",
+        activeFrom: "2020-01-01",
+        percentOfPrevious: "10",
+      });
+      // A recurrence, so the currency has a bucket at all.
+      await createRecurrence(actor, {
+        name: "Forecast stepped floor",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          payee: "Stepped utility",
+          amount: "1.00",
+        },
+      });
+
+      const [monthly] = (
+        await getForecast(actor, { periodUnit: "month", periods: 2 })
+      ).currencies.filter((entry) => entry.currency === "RON");
+      const first = monthly!.periods[0]!;
+      const second = monthly!.periods[1]!;
+      // The stored amount is the base of a chain the report compounds, so a
+      // projection using it flat answered the same month with a different
+      // figure than the budget report — and drifted further every period.
+      // What must hold whatever today's date is: each projected period is ten
+      // per cent up on the one before, and far above the six-year-old base.
+      expect(Number(first.budgetedSpending)).toBeGreaterThan(100);
+      expect(Number(second.budgetedSpending) / Number(first.budgetedSpending)).toBeCloseTo(1.1, 6);
+    });
+
+    it("counts a cross-currency arrival as the occurrence it is", async () => {
+      const from = await createAccount(actor, {
+        name: "Forecast transfer source",
+        type: "checking",
+        currency: "ISK",
+        openingDate: "2026-01-01",
+        openingBalance: "1000.00",
+        idempotencyKey: nextKey(),
+      });
+      const to = await createAccount(actor, {
+        name: "Forecast transfer destination",
+        type: "checking",
+        currency: "BGN",
+        openingDate: "2026-01-01",
+        openingBalance: "0",
+        idempotencyKey: nextKey(),
+      });
+      await createRecurrence(actor, {
+        name: "Forecast conversion",
+        schedule: { frequency: "monthly", interval: 1, anchorDate: todayIn("UTC") },
+        shape: {
+          type: "transfer",
+          fromAccountId: from.id,
+          toAccountId: to.id,
+          amount: "100.00",
+          destinationAmount: "50.00",
+          payee: "Own transfer",
+        },
+      });
+
+      const forecast = await getForecast(actor, { periodUnit: "month", periods: 3 });
+      const destination = forecast.currencies.find((entry) => entry.currency === "BGN")!;
+      // The arrival is the same occurrence seen from the other side. Income
+      // with `occurrences: 0` beside it reads as money nothing explains.
+      for (const period of destination.periods) {
+        if (Number(period.expectedIncome) > 0) {
+          expect(period.occurrences).toBeGreaterThan(0);
+        }
+      }
+      const arrived = destination.periods.reduce(
+        (total, period) => total + Number(period.expectedIncome),
+        0,
+      );
+      expect(arrived).toBeGreaterThan(0);
     });
   });
 });

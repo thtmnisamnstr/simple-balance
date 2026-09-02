@@ -10,6 +10,7 @@ import {
   ledgerAccounts,
   recurrences,
 } from "../db/schema.js";
+import { otherUnits, periodsBetween } from "./budgets.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
 import { ruleOf } from "./recurrences.js";
@@ -83,6 +84,15 @@ export type ForecastView = {
    * so they are named instead.
    */
   unprojectable: { id: string; name: string; reason: string }[];
+  /**
+   * Period units this person budgets in that the projection did not read.
+   *
+   * The budget report grew the same field for the same reason: a reply that
+   * counts monthly plans and says nothing about the weekly ones reads as
+   * "nothing is intended", which is a wrong answer given confidently. Naming
+   * the units is what turns it back into an answer about what was asked.
+   */
+  otherPeriodUnits: BudgetPeriodUnit[];
 };
 
 const ZERO = "0";
@@ -321,6 +331,11 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
         out.occurrences += 1;
         const into = bucketFor(destinationCurrency, periodStart);
         into.income = canonicalDecimal(decimal(into.income).plus(destinationAmount));
+        // The arrival is the same occurrence seen from the other currency.
+        // Without this a ledger whose only recurrence is a cross-currency
+        // transfer showed every destination period with income and
+        // `occurrences: 0` — projected money with nothing to explain it.
+        into.occurrences += 1;
       }
     }
   }
@@ -343,6 +358,7 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
       currency: budgetPlans.currency,
       amount: budgetPlans.amount,
       amountRule: budgetPlans.amountRule,
+      rulePercent: budgetPlans.rulePercent,
       periodUnit: budgetPlans.periodUnit,
       activeFrom: budgetPlans.activeFrom,
       activeTo: budgetPlans.activeTo,
@@ -393,24 +409,32 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
         if (plan.categoryId === null) continue;
         if (plan.activeFrom > period.start) continue;
         if (plan.activeTo !== null && plan.activeTo < period.start) continue;
-        budgeted = budgeted.plus(plan.amount);
-        // A group budget covers no single category, so nothing it holds can be
-        // said to be already covered by a recurrence. Its whole amount is
-        // uncovered, which is the safe direction: the pessimistic basis stays
-        // pessimistic.
+        // An incremental plan's stored amount is only its first period's; the
+        // report compounds the step from there, so the projection has to
+        // compound it the same way or the two surfaces answer one month with
+        // two figures — and the projection's error grows every period. No
+        // override chain exists out here in the future, so the closed form
+        // over the period count is exactly the report's fold.
+        const intended =
+          plan.amountRule === "incremental"
+            ? decimal(plan.amount).times(
+                decimal("1")
+                  .plus(decimal(plan.rulePercent ?? ZERO).div(100))
+                  .pow(periodsBetween(parsed.periodUnit, plan.activeFrom, period.start)),
+              )
+            : decimal(plan.amount);
+        budgeted = budgeted.plus(intended);
         // What a recurrence already accounts for, plus — in the period that
         // has already started — what this category has already spent out of
         // its budget, which today's balance has already been reduced by.
         const covered = decimal(
-          plan.categoryId === null
-            ? ZERO
-            : (spendingByCategory.get(`${currency}:${period.start}:${plan.categoryId}`) ?? ZERO),
+          spendingByCategory.get(`${currency}:${period.start}:${plan.categoryId}`) ?? ZERO,
         ).plus(
-          period.start === firstPeriod?.start && plan.categoryId !== null
+          period.start === firstPeriod?.start
             ? (spentThisPeriod.get(`${currency}:${plan.categoryId}`) ?? ZERO)
             : ZERO,
         );
-        const gap = decimal(plan.amount).minus(covered);
+        const gap = intended.minus(covered);
         if (gap.cmp(0) > 0) uncovered = uncovered.plus(gap);
       }
       const spending = decimal(bucket.spending).plus(
@@ -443,5 +467,6 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
     unprojectable: unprojectable.filter(
       (entry, index) => unprojectable.findIndex((other) => other.id === entry.id) === index,
     ),
+    otherPeriodUnits: await otherUnits(actor, parsed.periodUnit),
   };
 }
