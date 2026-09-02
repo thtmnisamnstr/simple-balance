@@ -18,16 +18,16 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 112 pass, 54 skip | **1,100 pass, 645 skip** |
+| `npm test`, no database | 112 pass, 54 skip | **1,105 pass, 645 skip** |
 | `npm test`, database set | 166 pass | **1,746 pass** |
 | `npm run test:integration` | 55 pass | 646 pass |
 
-The third row is one test larger than the second row's skip count, and the odd
+The third row is one test larger than the first row's skip count, and the odd
 one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,089 is the number that
+The first row is what CI and `npm run verify` see, and 1,105 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -103,7 +103,7 @@ and deleted.
 *Checked by:* `tests/testing-guide-counts.test.ts` for the size, which counts
 `tests/browser` on disk against the tier table at the top of this page: a second
 spec file cannot appear without somebody editing the sentence that says why
-there is one. What the eleven tests choose to assert is nobody's check but a
+there is one. What the eighteen tests choose to assert is nobody's check but a
 reviewer's.
 
 ## 2. What makes a test worth keeping
@@ -287,6 +287,15 @@ is.
 it, drop it in `afterAll`. Files then do not race, which matters because
 `fileParallelism` is off but worktrees and repeat runs still overlap.
 
+The sequence has a helper, and a new file should take it rather than re-roll
+it: `scratchDatabase()` in `tests/integration/support/scratch-database.ts`
+creates, migrates and registers the drop in one call, and 30 of the 55 files
+use it. The files that predate it manage their own admin client, and their
+teardowns had drifted to an unguarded four-step sequence where the first step
+throwing strands the database and the connection both — the exact failure the
+helper exists to end, and its docstring says so. `dropScratchDatabase` covers
+the 13 hand-rolled files that only need the guarded teardown.
+
 ### 5.3 Stubbed globals are unstubbed
 
 **Binding.** `unstubGlobals: true` in `vitest.config.ts`, because
@@ -320,11 +329,11 @@ considered for it and left out. `tests/log-level.test.ts` and
 `tests/metrics.test.ts` hold what the product does — a level gate that drops
 what sits below it, a label set that carries nobody's identity — and both
 `operations.md` and `observability.md` name each as its check, as these guides
-between them name eighty-nine test files. A row here is the narrower case: the rule is written
-down in the prose and nowhere else, so a repository that quietly stopped
-following it would leave a true-sounding document and nothing that noticed.
-Widen the table to every `*Checked by:*` line and it stops being a list and
-becomes an index of the suite.
+between them name ninety-four test files. A row here is the narrower case: the
+rule is written down in the prose and nowhere else, so a repository that quietly
+stopped following it would leave a true-sounding document and nothing that
+noticed. Widen the table to every `*Checked by:*` line and it stops being a list
+and becomes an index of the suite.
 
 ### 6.1 Citations come in three shapes, and the test knows all of them now
 
@@ -332,8 +341,8 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` src/client/forms.tsx:334` `` |
-| Bare filename | `` forms.tsx:334` `` — resolved by basename |
+| Full path | `` `src/client/forms.tsx:334` `` |
+| Bare filename | `` `forms.tsx:334` `` — resolved by basename |
 | Continuation | `` `:620` `` — inherits the last file the prose named |
 
 The test knew only the first for a while, and that gap was expensive. Adopting

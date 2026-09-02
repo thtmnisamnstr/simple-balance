@@ -56,7 +56,7 @@ than exempting the labels we add ourselves.
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (src/server/api.ts:234-241`) reads Hono's matched
+one per account. `routeLabel` (`src/server/api.ts:234-241`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labelled by its prefix from a fixed list
@@ -71,7 +71,7 @@ paths and insists both land under one name.
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(src/server/api.ts:245`) — registered rather than refusing, so a deployment
+(`src/server/api.ts:245`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labelled increment costs about 130ns and does
@@ -115,11 +115,11 @@ produce refusals, is where the label itself is checked.
 
 ### 1.7 Instrument the seam, not the call sites
 
-**House.** Seventy-one tools are timed and counted by wrapping `registerTool`
-once (src/server/mcp.ts:561`), and every HTTP request by one middleware mounted
-above everything, including the guards (`:201`). Both are chosen so a tool or a
-route added tomorrow is instrumented by existing rather than by somebody
-remembering.
+**House.** Seventy-six tools are timed and counted by wrapping `registerTool`
+once (`src/server/mcp.ts:561`), and every HTTP request by one middleware
+mounted above everything, including the guards (`src/server/api.ts:195`). Both
+are chosen so a tool or a route added tomorrow is instrumented by existing
+rather than by somebody remembering.
 
 The middleware sits above the body limit and the content-type check on purpose:
 a request refused by a guard took time and happened, and leaving it out would
@@ -213,10 +213,10 @@ The four sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (src/server/api.ts:217`) and never the query string, because a filter carries
+  (`src/server/api.ts:217`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
-  (src/server/mcp.ts:587`) and never the arguments, which are somebody's ledger
+  (`src/server/mcp.ts:587`) and never the arguments, which are somebody's ledger
   by definition.
 - **A message** logs `message.about` — "the password reset", "the reminder" —
   and never the recipient or the subject (`src/server/mail.ts:174`, `:180`), and
@@ -315,7 +315,7 @@ reports no pool series at all, which is the honest answer.
 | 2.5 Warn once | Two sites, both with the counter they need; a third would be caught by review or not at all. |
 | 3 Where a measurement belongs | A grep cannot tell a transport fact from a domain one. |
 
-Seven `human` rules, which is the most of any guide here, and the reason is
+Seven `human` rules — only `testing.md` carries more — and the reason is
 worth stating rather than apologising for: the two channels are checkable in
 their mechanics and not in their judgement. Whether a label is identifying, and
 whether a counter moved when it should not have, are properties a test can hold

@@ -16,7 +16,8 @@ of them unusually, so an unwritten convention is a convention with one holder.
 | Document | Reader | Mode | Changes when |
 | --- | --- | --- | --- |
 | `README.md` | Somebody deciding whether to run it | Orientation | The product's shape changes, or the commands to run it do |
-| `docs/guide.md` | Somebody using it | Tutorial and how-to | A screen changes what it asks for or what it does |
+| `docs/guide.md` | Somebody using it | Tutorial and explanation | A behaviour changes, or the decision behind one does |
+| `docs/how-to.md` | Somebody using it, mid-task | How-to | A screen changes what it asks for or what it does |
 | `docs/architecture.md` | Somebody changing the code | Explanation | A boundary moves, or a guarantee is added or withdrawn |
 | `docs/deployment.md` | An operator standing one up | Reference and how-to | A setting is added, renamed, or given a new default |
 | `docs/upgrades.md` | An operator mid-upgrade | How-to | Every release, without exception |
@@ -53,7 +54,7 @@ that the shape is real rather than imposed.
 
 Two deliberate departures, named so nobody tidies them:
 
-- **`docs/deployment.md` mixes all three modes across 578 lines and stays that
+- **`docs/deployment.md` mixes all three modes across 761 lines and stays that
   way.** An operator reads it once and greps it afterwards. Splitting a working
   reference to satisfy a model would cost the grep and buy nothing.
 - **`docs/roadmap.md` and `AGENTS.md` are outside the model.** Neither is user
@@ -68,7 +69,7 @@ nothing here is Binding. The one principle worth quoting is its first:
 "Changelogs are for humans, not machines." This file takes that further than the
 convention expects.
 
-- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 1,359 lines,
+- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 1,746 lines,
   and the paragraphs are why it can be read. An entry runs at the length and in
   the voice of a commit body: what changed, what it fixes, and what it costs.
 - **Newest first, under `## Unreleased`, then `## X.Y.Z - YYYY-MM-DD`.** The
@@ -96,7 +97,7 @@ convention expects.
 *Not checked mechanically.* Nothing in `tests/`, `scripts/` or `.github/`
 reads `CHANGELOG.md`. In particular nothing checks that the top heading matches
 `package.json`, which is a hand step in the release recipe at
-`docs/upgrades.md:160-161` and has already been the subject of a commit ("Date
+`docs/upgrades.md:205` and has already been the subject of a commit ("Date
 0.1.4 the day it is cut").
 
 ## Versioning
@@ -186,7 +187,7 @@ with no note. The publish runs `npm run verify` first, so an unwritten note now
 stops the release rather than reaching an operator mid-upgrade. *Also checked:*
 the frozen migration list, which `tests/migrations.test.ts` holds to what is on
 disk. *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:160-161`, and which release a migration is attributed to,
+`docs/upgrades.md:205`, and which release a migration is attributed to,
 which is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
@@ -198,7 +199,7 @@ disagreeing." What follows is the documentation the operator is owed for that.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
 sentence tells an operator whether they can stop reading. `docs/upgrades.md:8-9`
-is the model: "Nothing refuses to start that 0.1.4 accepted, and nothing about
+is the model: "Nothing refuses to start that 0.1.5 accepted, and nothing about
 an existing configuration has to change. Five things are worth knowing." The
 0.1.4 section is the other model, because the answer there was different: "0.1.4
 refuses to start on three configurations 0.1.3 accepted", followed by a table of
@@ -256,8 +257,9 @@ out.
   item is built**; the line under it carries the mechanics, including whether it
   has shipped. `docs/roadmap.md:67-69` reads SB-017, "Split transactions",
   **done**, then "Priority 160. Depends on SB-015. Shipped as migration 0005."
-  Four of the fifteen headings carry the state today: SB-017, SB-016 and SB-018,
-  which have shipped, and SB-019, whose line says "Built, unreleased". This
+  Nine of the fifteen headings carry the state today: SB-016 and SB-017, whose
+  lines name the migration that shipped them, and SB-018, SB-019 and SB-025
+  through SB-029, whose lines say "Built, unreleased". This
   paragraph said "once the item has shipped" for a while, and the practice never
   did: SB-018 was marked in the commit that built it, a week before the release
   that carried it. The heading answers "is there anything left to write", and the
@@ -266,7 +268,7 @@ out.
 - **Acceptance criteria before it is built, "How it was met" after.** The second
   is where the decision record lives, along with the list introduced at
   `docs/roadmap.md:114`: "Two decisions worth writing down rather than leaving
-  implied". It appears under SB-017, SB-016 and SB-018, and the convention held
+  implied". It appears under all nine done items, and the convention held
   only after SB-016 was given one: it had shipped with a paragraph headed
   "Shipped as" sitting above its acceptance criteria, which is a second name for
   the section in the wrong place rather than a second convention.
@@ -321,9 +323,10 @@ ever replace.
 ## The README
 
 **House.** Its job is to let somebody decide in about thirty seconds whether to
-run this, and then to let them run it. It is not the manual. The walkthrough
-lives in `docs/guide.md` and moved there on purpose, in a commit titled "Put the
-walkthrough in a guide and give the README its job back".
+run this, and then to let them run it. It is not the manual. That job left the
+README on purpose, in a commit titled "Put the walkthrough in a guide and give
+the README its job back", and the walkthrough lives today in `docs/how-to.md`,
+with `docs/guide.md` keeping the explanations.
 
 - **Plain language before any feature list.** Four lines saying what it is and
   who it is for, then the bullets. The commit that set this was "Open the README
@@ -338,7 +341,7 @@ walkthrough in a guide and give the README its job back".
   everything else it does, run it locally, run the tests, host it, connect an
   agent, security, not built yet, more, built with, license.
 - **The licence is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the licence is a term of use. `README.md:253-257` names it, links it,
+  project the licence is a term of use. `README.md:263-273` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older licence.
 - **No badge wall.** There are none today.
@@ -516,7 +519,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behaviour they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  src/shared/domain.ts:2229-2236`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2229-2236`: "`.strict()` is the load-bearing part: a
   filter this cannot honour is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -572,7 +575,7 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | tests/mcp-parity.test.ts:300-305`, by name rather than by count, "so the failure says which" |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:300-305`, by name rather than by count, "so the failure says which" |
 | Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:80-91` |
 | The product backlog's version matches the manifest | `tests/version.test.ts:89-91` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |
@@ -592,8 +595,11 @@ What is not, in the order they are likely to drift:
 - `docs/deployment.md`'s stated defaults against `config.ts`.
 - `docs/architecture.md`'s "Where things live" paths against the tree.
 - The run command in `README.md` against the hardening flags it should carry.
+- `docs/how-to.md`'s named buttons and fields against the screens that carry
+  them. This one has already drifted once, and the commit that repaired it is
+  titled "Correct the manual where the fact-check caught it inventing UI".
 
-All four hold today, by hand.
+All five hold today, by hand.
 
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
@@ -608,9 +614,9 @@ delivered.
 rows are single unwrapped lines however long they get. Sentence case headings,
 per [`common.md`](common.md#prose), with proper nouns excepted. Fenced code
 blocks always carry a language tag, including `text` for things that are not
-code. Modal line length is 79 in the
-changelog, 78 in the roadmap and the upgrade notes, 77 in the architecture
-document; 88 lines in `CHANGELOG.md` currently run past 80 and should come back.
+code. Modal line length is 78 in the
+changelog and the upgrade notes, 80 in the roadmap, 77 in the architecture
+document; 76 lines in `CHANGELOG.md` currently run past 80 and should come back.
 
 **House, pictures.** A diagram is Mermaid in the document, never an exported
 image, because an image cannot be diffed and goes stale in silence. There is
@@ -628,19 +634,24 @@ Recorded rather than resolved, because each needs a decision rather than an
 edit.
 
 - **Em dashes.** `common.md` says "No em dashes. They are a house preference and
-  the codebase is consistent about it." The corpus is not: 60 in
-  `CHANGELOG.md`, 37 in `docs/roadmap.md`, 155 across the commit bodies
-  reachable from `HEAD`, and 158 comment lines in `src/`. Those four read 44,
+  the codebase is consistent about it." The corpus is not: 70 in
+  `CHANGELOG.md`, 43 in `docs/roadmap.md`, 238 across the commit bodies
+  reachable from `HEAD`, and 272 comment lines in `src/`. Those four read 44,
   33, 94 and 79 when this bullet was written, and none of them moved because
   anybody argued the rule down: a rule nothing enforces loses ground at the rate
   the repository grows, which is the case for scoping it rather than for
   restating it. In user-visible copy the rule holds almost everywhere, with
-  three exceptions: `App.tsx:577`, `select-options.ts:110` and
-  `TemplatesPage.tsx:595`. Two further sites, `SettingsPage.tsx:133` and
-  `ReportsPage.tsx:165-166`, are prose inside JSX and read as copy but are
-  comments, so they answer to the comment rule rather than this one. Two of
-  those five citations had drifted off the line they name, which is what a line
-  number into a file somebody is still editing does when nothing checks it. The
+  four exceptions: `App.tsx:577`, `select-options.ts:110`,
+  `TemplatesPage.tsx:595`, and the review queue's inline-edit labels
+  (`StagingPage.tsx:942`), which lead with the visible value and set the
+  instruction off behind a dash. The lone "—" in an empty table cell is a
+  placeholder glyph rather than punctuation and is not counted here. Two
+  further sites,
+  `SettingsPage.tsx:135` and `ReportsPage.tsx:167-171`, are prose inside JSX
+  and read as copy but are comments, so they answer to the comment rule rather
+  than this one. Three of those citations have now drifted off the line they
+  name at least once, which is what a line number into a file somebody is
+  still editing does when nothing checks it. The
   rule as written is therefore nearly true of UI strings and plainly false of
   documents, commit bodies and comments.
   `common.md` owns the sentence and this guide cannot narrow it, so the choice

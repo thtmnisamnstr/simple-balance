@@ -23,7 +23,7 @@ correct: three `TypeError`s in the idempotency canonicaliser for payload shapes
 that cannot occur (`src/server/services/helpers.ts:131`, `:147` and `:153`), and
 two `Error`s for a reference count that came back non-numeric after being cast
 to one in SQL (`src/server/services/payees.ts:57` and
-src/server/services/categories.ts:484`).
+`src/server/services/categories.ts:484`).
 
 So the rule is not "never throw a bare `Error` here". It is "never throw one for
 something the caller could have got right".
@@ -48,19 +48,23 @@ use the constructor that names the situation.
 
 **The transport is the named exception, and it is four lines.**
 `src/server/api.ts` constructs `AppError` directly at `:1029`, `:1074`, `:1083`
-and `:1096`. One carries a code a constructor covers and three carry codes no
-service raises at all: `FORBIDDEN` and `REAUTHENTICATION_REQUIRED` belong to the
-two operations that are reachable from a session and never from a token, which
-is exactly the pair `AGENTS.md` names as the boundary between the surfaces. A
-constructor for them would put a transport-only code in the service vocabulary
-that `ServiceErrorCode` narrows on purpose.
+and `:1096`. Two carry codes no service raises at all: `FORBIDDEN` and
+`REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
+from a session and never from a token, which is exactly the pair `AGENTS.md`
+names as the boundary between the surfaces. A constructor for them would put a
+transport-only code in the service vocabulary that `ServiceErrorCode` narrows
+on purpose. The other two carry codes a constructor covers. The `:1029` site is
+defended two paragraphs down; the already-configured-password site at `:1083`
+is not — it is byte-for-byte what `conflict()` produces and could use it today,
+the exception grown wider than its defense, and the next edit to that route
+should shrink it.
 
 So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. This said
 there were two `VALIDATION_ERROR` sites that should use `validationError` and
-did not. One of them now does — the failed password update at `:1092`, which was
+did not. One of them now does — the failed password update at `:1112`, which was
 a 422 with a message and had no reason to spell the constructor out. The other
-cannot: the malformed-body guard at `:1013` is a **400**, not a 422, because a
+cannot: the malformed-body guard at `:1029` is a **400**, not a 422, because a
 body that is not JSON is a malformed request rather than an impossible one, and
 `validationError` is 422 by definition. That is an exception with a reason
 rather than the defect this paragraph used to call it.
@@ -93,7 +97,7 @@ and it carries `currentVersion` in its details so the client can say what
 happened rather than "something went wrong".
 
 Its message is fixed at the constructor
-(`src/server/services/errors.ts:59-68`)
+(`src/server/services/errors.ts:72-85`)
 because there is nothing per-site to add. Two messages are fixed there now, one
 per audience: `message` tells a browser to reload, and `agentMessage` — read by
 the MCP transport and by nothing else — tells an agent to read the row again and
@@ -103,15 +107,15 @@ site carried one. Same diagnosis, different next move, which is what
 
 *Checked by:* `npm run typecheck` for the fixed message, since `staleVersion`
 takes details and nothing else and a throw site therefore has no parameter to
-put a sentence in; and `tests/error-messages.test.ts` for the two audiences, which
-reads both halves of one refusal — "tells the browser to reload", "tells an
-agent where the version it needs is, when the throw site sent one" — and pins
+put a sentence in; and `tests/error-messages.test.ts` for the two audiences,
+which reads both halves of one refusal — "tells the browser to reload", "tells
+an agent where the version it needs is, when the throw site sent one" — and pins
 the code, the status and the details as the same for both. What nothing reaches
 is the judgement at the throw site: whether this conflict is the automatic kind,
-and whether it passed the version it could have. Thirteen of the fifty sites
-carry no details, and the constructor drops the field name rather than pointing
-at something that is not there, so the omission costs the agent its next move
-and costs the suite nothing.
+and whether it passed the version it could have. Thirteen of the fifty-three
+sites carry no details, and the constructor drops the field name rather than
+pointing at something that is not there, so the omission costs the agent its
+next move and costs the suite nothing.
 
 ### 2.3 `duplicate` carries the id of what it collided with
 
@@ -174,7 +178,7 @@ specific messages.
 **House.** Some rules the browser has to know before it submits, or the person
 gets a 422 the screen never hinted at. Those live in `src/shared` as a function
 returning a result rather than throwing
-(src/shared/domain.ts:127):
+(`src/shared/domain.ts:127`):
 
 ```ts
 { ok: false, message: "An entry is either income or a refund, not both." }
@@ -217,7 +221,7 @@ unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
 the row's own issue list's job.
 
 *Checked by:* `human`. The instance is pinned where it bit
-(src/shared/domain.ts:1083-1088`, the comment on `payeeSummarySchema.name`).
+(`src/shared/domain.ts:1083-1088`, the comment on `payeeSummarySchema.name`).
 
 ## 5. What is not enforced
 

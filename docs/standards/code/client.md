@@ -27,21 +27,35 @@ deliberate copy with a defined end.
 `["payees", "suggestions", term]`. Broad to narrow, left to right, so
 invalidating `["payees"]` invalidates every suggestion list under it.
 
-A key holding an object is a key that will not match. Keep them arrays of
-strings and primitives.
+A key may carry an object where the object is the question — the filter a list
+is showing, the sort it is under. TanStack Query v5 hashes a key structurally,
+with object keys sorted, so two equal filters produce one cache entry and match
+the same invalidation; three keys in `src/client/TransactionBrowser.tsx` do
+exactly this and are correct. What a key must not carry is anything that does
+not survive `JSON.stringify` — a function, a class instance, a `Map` — because
+structural hashing flattens those and two different questions become one entry.
+An earlier version of this sentence banned objects outright, which would have
+flagged five working queries; `tests/query-keys.test.ts:16-22` records why the
+check declines to.
 
-*Checked by:* `tests/query-keys.test.ts`, which holds the shape and also the
-half nobody had written down: a key something files a query under is a key
-something else invalidates. A query nothing invalidates goes stale after a write
-and shows the person the row they just changed, unchanged.
+*Checked by:* `tests/query-keys.test.ts`, which holds the shape — every key is
+an array opening with a string somebody wrote — and one direction of the
+matching: an invalidation naming a resource no query files itself under fails,
+because that write refetches nothing and says nothing. The other direction is
+deliberately open. A query nothing invalidates passes, because invalidation is
+not the only sanctioned way to stay fresh: the reports page files
+`["report", ...]` (`src/client/pages/ReportsPage.tsx:80`) and refetches on
+every mount instead (`:94-95`), since no mutation knows which report a change
+touches. A new query whose data a mutation does change still needs its
+invalidation written by hand, and no test will remind you.
 
 ### 1.3 Derived values are computed, not stored
 
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(src/client/forms.tsx:1703-1710` and `:1771`), and every one of them would be a
-synchronisation bug as state.
+(`src/client/forms.tsx:1701-1713` and `:1769`), and every one of them would be
+a synchronisation bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
 decided. Some were derived values pretending to be state and were moved into
@@ -55,6 +69,19 @@ What is *not* a derived value, and the mistake to avoid when reading this
 section as an instruction: a field seeded from a loaded record and then typed
 into. That is a deliberate copy with a defined end, and deriving it throws away
 what the person typed.
+
+The other thing that is not a derived value: an answer a handler needs before
+the next render can deliver it. The staged list's inline editors keep
+`inlineInFlight`, `inlineCancelled` and `focusAfterInline` in refs
+(`src/client/pages/StagingPage.tsx:515-526`) even though the first shadows
+`isPending`, because the deciding read happens in the same event burst as the
+write: Enter commits, and the blur that follows a click away runs before the
+render that would have set `isPending`, so the state version double-submits —
+two identical PUTs, the second refused as stale by the version the first just
+bumped. A ref is right exactly when no render reads the value; the moment one
+does, it is state hiding in a ref, which is the same bug from the other side. Do
+not "fix" these to `isPending` — that is the obvious edit and the wrong one, and
+the comments at the three sites say so.
 
 *Checked by:* `npm run lint`. The rule is denied now that the count is zero,
 which is stronger than the budget that held it while it was not.
@@ -110,7 +137,7 @@ This is a rule with a scar. A budget row's state — within, close, spent, over 
 was decided with `Number()` on values that are decimal strings, so a row that
 was exactly spent could render as either "spent" or "within" depending on the
 amount. It now compares exactly
-(src/client/pages/BudgetsPage.tsx:117).
+(`src/client/pages/BudgetsPage.tsx:117`).
 
 *Checked by:* `tests/client-money.test.ts` for the arithmetic;
 `tests/budgets-ui.test.tsx` for that particular row.
@@ -179,6 +206,8 @@ Five `human` rules in this guide. It said three until 2.2 and 3.1 were counted:
 both named no mechanism at all, which is not the same as being checked, and a
 count that quietly leaves those out is the one number here worth nothing.
 `tests/query-keys.test.ts` took 1.2 over, and it also checks the half nobody had
-written down: that a key some query files itself under is a key something
-invalidates. Of the five, 3.3 is the one that has already cost something — it is
-the gap that let `categoryKind` reach an agent and not a person.
+written down: that an invalidation names a key some query files itself under.
+The reverse stays a person's job — a query nothing invalidates passes, and 1.2
+says when that is right rather than a bug. Of the five, 3.3 is the one that has
+already cost something — it is the gap that let `categoryKind` reach an agent
+and not a person.

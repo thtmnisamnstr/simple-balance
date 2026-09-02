@@ -6,7 +6,7 @@ keep, so upgrading is swapping it for a newer one.
 ## Before you upgrade to 0.1.6
 
 Nothing refuses to start that 0.1.5 accepted, and nothing about an existing
-configuration has to change. Four things are worth knowing.
+configuration has to change. Five things are worth knowing.
 
 **Eight migrations run at startup, and none rewrites a row.** They create the
 budget tables, the category-group table and the types they use; they add
@@ -21,10 +21,12 @@ The one new column on an existing table anybody will notice is
 have is inside the budget's perimeter, which is what the budget page assumes
 until you say otherwise.
 
-**Two settings that used to be refused are now warnings.** A bounded integer out
-of range — `CSV_MAX_ROWS=50000`, `DATABASE_POOL_SIZE=0`, an empty
-`RECURRENCE_TICK_SECONDS` — starts the container, names itself in the log with
-the value it was given and the number in force instead, and runs on the default.
+**Settings that used to fail in silence now say so.** A bounded integer out of
+range — `CSV_MAX_ROWS=50000`, `DATABASE_POOL_SIZE=0`, an empty
+`RECURRENCE_TICK_SECONDS`, and the three other bounded numbers beside them —
+used to fall back to its default without a word. It still starts the container
+and still runs on the default, but it now names itself in the log with the
+value it was given and the number in force instead.
 So does a name set both ways, such as `DATABASE_URL` beside
 `DATABASE_URL_FILE`, where the environment variable wins as it always did. If
 you have been carrying one of these, this release tells you so for the first

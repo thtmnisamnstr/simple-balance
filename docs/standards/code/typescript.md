@@ -6,8 +6,10 @@ The language, and what the compiler has been told to refuse.
 
 ### 1.1 What is on
 
-**Binding.** `strict` has been on since the beginning. Six more settings were
-measured against this repository and cost nothing, so they are on too:
+**Binding.** `strict` has been on since the beginning. Eight more flags — the
+seven rows below — were measured against this repository before going on; all
+but one cost nothing, and the one with a price (`erasableSyntaxOnly`, five
+lines, §1.2) was worth it:
 
 | Setting | Refuses |
 | --- | --- |
@@ -30,8 +32,8 @@ no constructor parameter properties.
 The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
-(src/server/services/errors.ts:4-25,
-src/client/api.ts:18-25).
+(`src/server/services/errors.ts:4-25`,
+`src/client/api.ts:18-25`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -46,7 +48,7 @@ declares its fields and assigns them somewhere unreadable erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(src/server/api.ts:1002`, `src/server/http-security.ts:160` and `:559`),
+(`src/server/api.ts:1001`, `src/server/http-security.ts:160` and `:559`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -64,11 +66,11 @@ the setting on this list most worth having, because indexing into an array or a
 record is exactly where an `undefined` arrives unannounced.
 
 It is not, as this section used to claim, where the non-null assertions counted
-in 2.2 came from. Twenty of those 146 sit on an index or a lookup, and most of
-the twenty are `.at(-1)`, a `Map.get` or a regular expression group, all of
-which hand back `undefined` with the flag off. So it is the flag that would add
-to that count rather than the flag that explains it, which is what 2.2 says from
-the other end.
+in 2.2 came from. Only a minority of those 158 sit on an index or a lookup at
+all, and most of that minority are `.at(-1)`, a `Map.get` or a regular
+expression group, all of which hand back `undefined` with the flag off. So it is
+the flag that would add to that count rather than the flag that explains it,
+which is what 2.2 says from the other end.
 
 It is declined because 441 sites cannot be reviewed carefully in one change, and
 mechanically silencing them with `!` would convert a real check into a
@@ -83,9 +85,10 @@ are declined outright.
 
 All three numbers are a measurement and not a check. Each is the error count
 from `npx tsc -p tsconfig.json --noEmit --<flag>`, taken by hand against the
-whole of `tsconfig.json`, which is `src` and `tests` together because that is
-what `npm run typecheck` reads. Nothing re-runs them, so read one as the last
-reading rather than as today's, and take it again before arguing from it.
+whole of `tsconfig.json`, which is `src`, `tests` and the five root config files
+beside them, because that is what `npm run typecheck` reads. Nothing re-runs
+them, so read one as the last reading rather than as today's, and take it again
+before arguing from it.
 
 *Checked by:* `human`.
 
@@ -114,25 +117,25 @@ that never had anything to find.
 
 ### 2.2 Assertions are rare and each has a reason
 
-**House.** One `as unknown as` in the whole of `src`, and **146 non-null
-assertions across 33 files**, counted with
+**House.** One `as unknown as` in the whole of `src`, and **158 non-null
+assertions across 34 files**, counted with
 `npx oxlint -D typescript/no-non-null-assertion src` for the reason 2.1 gives:
 a `!` is punctuation, and a grep meets it in `!==` and in every negation this
 codebase writes. Neither number is zero and neither should be: a `!` after a
 lookup that a database constraint guarantees is honest, and the alternative is a
 branch that cannot be reached and cannot be tested.
 
-The single `as unknown as` is at accounts.ts:534`, building the row an
+The single `as unknown as` is at `accounts.ts:534`, building the row an
 archived account would have had so the caller sees the shape it expects; the
 alternative was making every field optional for one call site. It was three when
 this was written and two of the three went while the code was being brought to
 this guide, which is the number moving the right way.
 
-146 is higher than it looks like it should be, and 1.4 is why it is not higher
+158 is higher than it looks like it should be, and 1.4 is why it is not higher
 still: without `noUncheckedIndexedAccess`, indexing an array gives a
-non-optional type, so all but twenty of these were written for some reason other
-than an index. Adopting that flag would raise this number a great deal before
-lowering it.
+non-optional type, so most of these were written for some reason other than an
+index. Adopting that flag would raise this number a great deal before lowering
+it.
 
 The rule is about which of the two you are doing. A `!` standing in for
 "I checked this three lines up" is fine. A `!` standing in for "it is probably
@@ -151,11 +154,11 @@ export const categoryKinds = ["income", "expense", "both"] as const;
 export type CategoryKind = (typeof categoryKinds)[number];
 ```
 
-(src/shared/domain.ts:97-98.)
+(`src/shared/domain.ts:97-98`.)
 
 The array is the single source: Zod validates from it, the database enum is
-generated from it (src/server/db/schema.ts:196),
-and the UI iterates it (src/client/pages/CategoriesPage.tsx:127`).
+generated from it (`src/server/db/schema.ts:196`),
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:127`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
@@ -178,13 +181,13 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(src/shared/domain.ts:1319`.)
+(`src/shared/domain.ts:1319`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
 `readonly ReportBucket[]` instead would have done the check and thrown the
 literals away, and the budget code needs them. The other use is the security
-header options (src/server/http-security.ts:58),
+header options (`src/server/http-security.ts:58`),
 which checks a literal against a library's parameter type without freezing it
 into that type.
 
@@ -193,7 +196,7 @@ into that type.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:459`). Every
+as a literal (`src/shared/domain.ts:559`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -251,9 +254,9 @@ fails there rather than at the next person's build.
 floating-point numbers."
 
 The server uses `decimal.js` through one wrapper
-(src/server/services/helpers.ts:21).
-The client uses scaled `bigint` (src/client/money.ts:160,
-src/client/money.ts:175),
+(`src/server/services/helpers.ts:21`).
+The client uses scaled `bigint` (`src/client/money.ts:160`,
+`src/client/money.ts:175`),
 because the browser bundle should not carry a decimal library to render a table.
 
 Two implementations of one rule is a risk worth naming: they must agree. What
@@ -308,7 +311,7 @@ nothing to say about the signature, which is the side this rule is about.
   improve on it. Everything in `src/server/services` does this.
 - **Return a result** when the caller is going to render the failure rather than
   propagate it. `resolveEntrySide` returns `{ ok: false, message }`
-  (src/shared/domain.ts:127) precisely so the
+  (`src/shared/domain.ts:127`) precisely so the
   browser can preview the refusal without provoking it.
 
 That second shape exists because of a real defect: the form used to let somebody

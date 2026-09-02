@@ -33,8 +33,8 @@ carrying it would be swallowed by the next import as already-seen.
 turn into editors where they are — the full form's own editors, with the same
 server checks and the same optimistic versioning — so repairing an import is a
 click and a keystroke instead of a trip through the modal. A split's category
-and amount, and a transfer's category, keep the modal, where the parts they
-depend on are visible.
+and amount keep the modal, where the legs they depend on are visible, and a
+transfer's category cell stays read-only because a transfer carries none.
 
 **A category can be excluded from the categories report**, from its row's
 menu, because one outsized category flattens every other line in the chart.

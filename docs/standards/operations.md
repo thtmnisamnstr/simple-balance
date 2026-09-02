@@ -195,7 +195,7 @@ deliberately answers identically either way. `smtpFailure`
 refusing their credentials, or refusing this one message. `response` is the
 relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
-hand. src/server/api.ts:301-307` narrows a Drizzle error the same way for a
+hand. `src/server/api.ts:301-307` narrows a Drizzle error the same way for a
 harder reason: its message is built from the failing SQL and its bound
 parameters, one of which is an OAuth access token.
 
@@ -496,8 +496,8 @@ session-signing key. An empty file refuses rather than starting with an empty
 secret.
 
 *Not yet:* the Helm chart in `deploy/helm` and
-`deploy/compose/compose.distributed.yml` still hand all six to the container as
-environment variables, so on the two platforms this section argues from, the
+`deploy/compose/compose.distributed.yml` still hand all seven to the container
+as environment variables, so on the two platforms this section argues from, the
 form is reachable only by work outside what the chart and the compose file
 offer. `secret.create=false` is not the escape hatch it looks like: an existing
 Secret is consumed through `envFrom` too
@@ -505,17 +505,20 @@ Secret is consumed through `envFrom` too
 chart declares no volume or volume mount on either workload, so the file has to
 be placed by something else and named through `config.extraEnv`. The compose
 file writes `DATABASE_URL` inline and makes `AUTH_SECRET` a required
-interpolation (`deploy/compose/compose.distributed.yml:48`, `:63`), so both have
+interpolation (`deploy/compose/compose.distributed.yml:46`, `:61`), so both have
 to be edited out first. A plain `docker run` reaches the form with a bind mount
 and nothing else, which is the path `README.md` documents. The application
 supports it everywhere; the two orchestrated paths this section argues from do
 not, and marking this settled without saying so would credit the guide with a
 capability neither of them can reach.
 
-*Checked by:* `tests/config.test.ts:363-560`, over all six by the consumer that
-has to end up holding the value, including that a resolved `DATABASE_URL`
-reaches `directConnectionString` without reaching `process.env`, and that it
-does so in a process that never calls `getConfig` at all.
+*Checked by:* `tests/config.test.ts:363-560`, over six of the seven by the
+consumer that has to end up holding the value, including that a resolved
+`DATABASE_URL` reaches `directConnectionString` without reaching `process.env`,
+and that it does so in a process that never calls `getConfig` at all.
+`METRICS_TOKEN_FILE` is the gap: no test reads it back through the scrape
+endpoint, so the seventh name rests on the resolver's registry
+(`src/server/config-files.ts:15-23`) alone.
 
 **House, and stronger than the litmus test.** `config.ts:58-70` holds a
 `publicAuthSecrets` set and refuses an `AUTH_SECRET` matching any value this
@@ -679,7 +682,7 @@ reason.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT` and `SB_MAX_UPLOAD_SIZE`
 (`docs/deployment.md:528-530`) belong to the nginx container, and neither example
 file configures it: the root file serves the single container, which has no
 nginx in it, and the compose recipe sets all three on the frontend service
-itself (`deploy/compose/compose.distributed.yml:199-203`), where a value can
+itself (`deploy/compose/compose.distributed.yml:206-210`), where a value can
 carry the reason it is what it is. Their defaults are in the image
 (`deploy/docker/frontend.Dockerfile:49-54`), so a deployment that changes none of
 them has nothing to write down. This is the same shape as `POSTGRES_PASSWORD`
@@ -739,7 +742,7 @@ absent because the bases were pinned by tag, and pinning by digest was refused
 while nothing watched Docker: `.github/dependabot.yml` covered npm and GitHub
 Actions only, so a pin would have frozen `node:24-alpine` on the day somebody
 typed it. That is the objection the fix has to answer rather than route around,
-so the watcher came first. `.github/dependabot.yml:89-104` now watches Docker over
+so the watcher came first. `.github/dependabot.yml:89-100` now watches Docker over
 both directories, grouped into one pull request because all four images share a
 base and four bumps of one digest is four reviews of one decision.
 
@@ -774,7 +777,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (src/server/api.ts:313-328`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:313-328`, and the same pair on the
 scheduler at `src/server/scheduler.ts:23-32`). Both are registered above every
 auth middleware and neither is authenticated.
 
@@ -803,7 +806,7 @@ deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:631-636` and `README.md:131-134` describe one statement
-against the database and nothing else, and src/server/api.ts:313-319` says the
+against the database and nothing else, and `src/server/api.ts:313-319` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -896,7 +899,7 @@ carry the id and not the payee, the search term or the bound parameter.
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (src/server/api.ts:245`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:245`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -986,9 +989,9 @@ which is the case most implementations miss and the one that makes Ctrl-C twice
 behave the way a person expects. The compose file sets
 `stop_grace_period: 30s` with a comment saying it is "Longer than the 10s drain
 the process gives itself on SIGTERM (DEFAULT_SHUTDOWN_DEADLINE_MS), so it is not
-killed mid-drain" (`deploy/compose/compose.distributed.yml:157-159`), and the
+killed mid-drain" (`deploy/compose/compose.distributed.yml:164-166`), and the
 chart sets `terminationGracePeriodSeconds: 30`
-(`deploy/helm/simple-balance/values.yaml:217`).
+(`deploy/helm/simple-balance/values.yaml:232`).
 
 **Settled.** Both documented `docker run` commands now pass
 `--stop-timeout 30` (`README.md:118-123`, `docs/deployment.md:422-429`). Docker's
@@ -1010,7 +1013,7 @@ Node images and `USER 101` in the frontend (`Dockerfile:56`,
 `--read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m`. The chart sets
 `runAsNonRoot`, `runAsUser: 1000`, `seccompProfile: RuntimeDefault`,
 `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true` and
-`capabilities.drop: [ALL]` (`deploy/helm/simple-balance/values.yaml:199-213`).
+`capabilities.drop: [ALL]` (`deploy/helm/simple-balance/values.yaml:214-228`).
 
 **Settled.** `--cap-drop=ALL` and `--security-opt=no-new-privileges` are on the
 documented `docker run` in both `README.md` and `docs/deployment.md`, and
@@ -1020,7 +1023,7 @@ Simple Balance services in `deploy/compose/compose.distributed.yml` through one
 nginx binding 8080 as uid 101, need no capability at all, so this costs nothing
 and closes the two routes a container escape usually takes. The Pulumi programs
 deploy the chart, so they inherit the Kubernetes spelling at
-`deploy/helm/simple-balance/values.yaml:199-213` and need nothing of their own.
+`deploy/helm/simple-balance/values.yaml:214-228` and need nothing of their own.
 
 **The one exception, stated because an unstated one reads as an oversight.** The
 `postgres` service in the compose file gets `no-new-privileges` and keeps its

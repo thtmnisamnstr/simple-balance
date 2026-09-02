@@ -27,6 +27,7 @@ const ALL_SCOPES = ["ledger:read", "ledger:stage", "ledger:write"];
 
 type Tool = {
   name: string;
+  title?: string;
   description?: string;
   inputSchema?: unknown;
   outputSchema?: unknown;
@@ -69,14 +70,20 @@ const claimed = (pattern: RegExp): number => {
 
 describe("what mcp.md says it measured", () => {
   let tools: Tool[];
+  let tiers: { read: Tool[]; stage: Tool[]; write: Tool[] };
   let scopes: { read: number; stage: number; write: number };
 
   beforeAll(async () => {
     tools = await listTools(ALL_SCOPES);
+    tiers = {
+      read: await listTools(["ledger:read"]),
+      stage: await listTools(["ledger:stage"]),
+      write: await listTools(["ledger:write"]),
+    };
     scopes = {
-      read: (await listTools(["ledger:read"])).length,
-      stage: (await listTools(["ledger:stage"])).length,
-      write: (await listTools(["ledger:write"])).length,
+      read: tiers.read.length,
+      stage: tiers.stage.length,
+      write: tiers.write.length,
     };
   });
 
@@ -98,6 +105,47 @@ describe("what mcp.md says it measured", () => {
     expect(Number(min)).toBe(lengths[0]);
     expect(Number(max!.replaceAll(",", ""))).toBe(lengths.at(-1));
     expect(Number(under)).toBe(lengths.filter((length) => length < 100).length);
+  });
+
+  /**
+   * The payload table and the composition line, which used to be the two
+   * measurements the guide admitted nothing pinned. Both had gone stale by
+   * about a quarter twice in a row, and they are the numbers the whole
+   * context-budget argument stands on, so they are pinned the same way as the
+   * rest: the guide's sentence is parsed and compared to the live surface.
+   */
+  it("counts what each tier costs in tools/list characters", () => {
+    const cost = (tier: Tool[]) => JSON.stringify(tier).length;
+    expect(cost(tiers.read)).toBe(claimed(/\| `ledger:read` \| \d+ \| ([\d,]+) \|/));
+    expect(cost(tiers.stage)).toBe(claimed(/\| `ledger:stage` \| \d+ \| ([\d,]+) \|/));
+    expect(cost(tiers.write)).toBe(claimed(/\| `ledger:write` \| \d+ \| ([\d,]+) \|/));
+  });
+
+  it("counts what the write tier is made of", () => {
+    const sum = (parts: number[]) => parts.reduce((a, b) => a + b, 0);
+    const composition = {
+      names: sum(tiers.write.map((tool) => tool.name.length)),
+      titles: sum(
+        tiers.write.map(
+          (tool) => (tool.title ?? (tool.annotations?.["title"] as string) ?? "").length,
+        ),
+      ),
+      descriptions: sum(tiers.write.map((tool) => (tool.description ?? "").length)),
+      inputs: sum(tiers.write.map((tool) => JSON.stringify(tool.inputSchema ?? {}).length)),
+      outputs: sum(tiers.write.map((tool) => JSON.stringify(tool.outputSchema ?? {}).length)),
+    };
+    const sentence =
+      /Composition at the write tier: names ([\d,]+), titles ([\d,]+), descriptions\s+([\d,]+),\s+input schemas ([\d,]+), output schemas ([\d,]+)/.exec(
+        guide,
+      );
+    expect(sentence, "the composition sentence has changed shape").not.toBeNull();
+    const [, names, titles, descriptions, inputs, outputs] = sentence!;
+    const number = (text: string) => Number(text.replaceAll(",", ""));
+    expect(number(names!)).toBe(composition.names);
+    expect(number(titles!)).toBe(composition.titles);
+    expect(number(descriptions!)).toBe(composition.descriptions);
+    expect(number(inputs!)).toBe(composition.inputs);
+    expect(number(outputs!)).toBe(composition.outputs);
   });
 
   it("counts destructive tools that carry a confirm-or-undo word", () => {

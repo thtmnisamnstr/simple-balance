@@ -72,7 +72,8 @@ count is of rules that really have nobody but a reader behind them, and it can
 go down again by being worked on rather than by being unstated.
 
 It then went 33 → 40 when `observability.md` arrived carrying seven of its own,
-which is the most of any guide here and is the honest shape of that subject: a
+the most of any guide until `testing.md`'s table grew to ten, and the honest
+shape of that subject: a
 label that identifies somebody and a counter that moves when nothing happened
 are both properties a test holds, and both are held. Whether a line was worth
 writing, and whether it was written at the level somebody would want it, are
@@ -120,26 +121,26 @@ leaves out:
 
 **Those are the numbers the decision was made on, and they are not today's.**
 Re-measured with `npx oxlint -A all -D <category>` on the current tree:
-correctness 35, `suspicious` 2,438, `perf` 731, `pedantic` 1,835, `style`
-24,673, `restriction` 7,296. Nothing holds either column — they are a
+correctness 39, `suspicious` 2,653, `perf` 798, `pedantic` 2,105, `style`
+27,458, `restriction` 7,827. Nothing holds either column — they are a
 measurement, and the two of them do not measure the same rule set, which is most
 of the movement:
 
-- **`correctness` reads 35, and `npm run lint` still reads zero.** That command
-  overrides the six rules `.oxlintrc.json` turns off by name, and the 35 are
+- **`correctness` reads 39, and `npm run lint` still reads zero.** That command
+  overrides the six rules `.oxlintrc.json` turns off by name, and the 39 are
   exactly those six: `label-has-associated-control` 8,
-  `control-has-associated-label` 9, `prefer-tag-over-role` 8, `no-autofocus` 6,
+  `control-has-associated-label` 8, `prefer-tag-over-role` 8, `no-autofocus` 11,
   `anchor-has-content` 1, `no-control-regex` 3. The category is denied and
   clean; this is what denying it with exceptions looks like from outside.
-- **`suspicious` went 191 → 2,438 on one rule that cannot be right here.**
-  2,160 of them are `react-in-jsx-scope`, which React 19's automatic runtime
+- **`suspicious` went 191 → 2,653 on one rule that cannot be right here.**
+  2,343 of them are `react-in-jsx-scope`, which React 19's automatic runtime
   makes wrong in every file that renders anything. The `react` and `jsx-a11y`
   plugins were adopted after the original pass, so that column was measured
   without them.
-- **`perf` went 172 → 731, and the shape of the argument is unchanged.** 157 are
+- **`perf` went 172 → 798, and the shape of the argument is unchanged.** 169 are
   `no-await-in-loop`, which this codebase does on purpose — see `services.md`
-  §3.2. The other 547 are `react-perf` rules on inline props
-  (`jsx-no-new-function-as-prop` 381, `jsx-no-new-array-as-prop` 76,
+  §3.2. Of the other 629, 598 are `react-perf` rules on inline props
+  (`jsx-no-new-function-as-prop` 426, `jsx-no-new-array-as-prop` 82,
   `jsx-no-jsx-as-prop` 58, `jsx-no-new-object-as-prop` 32) — a category this
   repository would have to be rewritten around rather than fixed into.
 
@@ -172,11 +173,11 @@ codebase rather than about accessibility:
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
 | `jsx-a11y/prefer-tag-over-role` | Flags `<svg role="img">`, which is the recommended way to expose an SVG, and a `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:490`). |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
-| `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses the first field of a form somebody deliberately opened, which is where the argument for it is strongest. Six sites, all that shape. |
+| `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Nine sites, all one of those two shapes — in both, focus lands where the person's own gesture was already headed. |
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
-`src/client/forms.tsx:536`, and both that and `click-events-have-key-events` at
+`src/client/forms.tsx:534`, and both that and `click-events-have-key-events` at
 `src/client/components.tsx:497`. Both are elements catching events that bubble
 from real controls inside them.
 

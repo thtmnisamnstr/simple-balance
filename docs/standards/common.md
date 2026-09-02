@@ -149,10 +149,12 @@ against.
 | **Leg** | One category's share of the counter-account side of a split. | A posting, although each leg has its own. |
 | **Split** | One entry whose counter-account side is cut into legs. | Two transactions. |
 | **Category** | What a movement was for. | An account. |
+| **Category group** | A named set of categories. A budget may be about one, directly or as the sum of its members, never both at once. | A category. Nothing posts against a group. |
 | **Payee** | Who the money went to or came from, derived from transaction text. | A stored record with an id. |
 | **Staged transaction** | A proposal in the review queue. Affects no balance. | A draft of a saved thing. Nothing about it is in the books. |
-| **Budget plan** | A standing amount for one category, per period, over a window of periods. | A posting. Nothing in budgeting writes one. |
+| **Budget plan** | A standing amount for one category or one group, never both, per period, over a window of periods. | A posting. Nothing in budgeting writes one. |
 | **Budget entry** | An amount for one period, overriding the plan for that period alone. | A plan for one period. |
+| **Forecast** | A projection of what the books would hold if the future arrived as scheduled. | A balance. Money dated in the future has not moved. |
 | **Recurrence** | A saved shape and a schedule that proposes a staged row on its due date. | Something that posts. |
 | **Template** | A saved shape with no schedule. | A recurrence. |
 

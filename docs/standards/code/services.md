@@ -3,7 +3,7 @@
 `src/server/services` is where the rules live. Everything above it — the HTTP
 routes, the MCP tools, the scheduler — is transport.
 
-310 top-level declarations across 24 modules, 155 of them exported functions.
+313 top-level declarations across 24 modules, 156 of them exported functions.
 This guide is what they have in common.
 
 ## 1. Shape
@@ -11,23 +11,23 @@ This guide is what they have in common.
 ### 1.1 A service function takes an actor first
 
 **Binding.** Three shapes, and which one a function has says what it is. All
-three rows count the same 310 declarations — everything at the top level of the
+three rows count the same 313 declarations — everything at the top level of the
 directory, exported or not — because the second shape is mostly not exported and
 a table that counted only entry points would report the helpers as a handful:
 
 | First parameter | What it is | Count |
 | --- | --- | --- |
-| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 91 |
+| `actor: Actor` | A public entry point. Scopes every query by `actor.userId`. | 92 |
 | `tx: DbTransaction` | A helper that runs inside somebody else's transaction. Takes `actor` second when it needs scoping. | 61 |
-| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 158 |
+| anything else | Mostly a pure function — `canonicalDecimal`, `encodeCursor`, `categoryKindForDraft` — touching no database and needing no actor. | 160 |
 
 The three add up because they are one population read one way. Splitting them
-by export tells you something the totals hide: 82 of the 91 are exported and 30
+by export tells you something the totals hide: 83 of the 92 are exported and 30
 of the 61 are, which is the shape working. An entry point is reachable and a
 helper mostly is not.
 
-The third row is the one to read carefully, because *mostly* is doing work: 137
-of the 158 touch no database at all, and the other 21 do. Most of those are the
+The third row is the one to read carefully, because *mostly* is doing work: 139
+of the 160 touch no database at all, and the other 21 do. Most of those are the
 second row under another name:
 `selectBulkFilterRows(executor: Database | DbTransaction, …)` and
 `legsByTransaction(db, …)` are helpers whose first parameter is spelled to admit
@@ -36,14 +36,14 @@ because no request made them run (`runDueNotifications`, `runDueRecurrences`) or
 because of the exception below. None of the 21 is a fourth shape, and a
 genuinely new one belongs in the table rather than in this paragraph.
 
-There are 193 `userId, actor.userId` comparisons in this directory, which is
+There are 202 `userId, actor.userId` comparisons in this directory, which is
 roughly one per query, and that is the right ratio.
 
 `AGENTS.md` is the authority: "Never accept a public `userId`. Derive it from
 the authenticated `Actor`."
 
 **One named exception.** `revokeAllConnectedApps(userId: string, …)`
-(src/server/services/connected-apps.ts:206)
+(`src/server/services/connected-apps.ts:206`)
 takes a bare id because both its callers run where no `Actor` exists yet: one
 from a session (`identity.user.id`) and one from a password reset, which happens
 before anybody has signed in. Neither reads the id from the request, which is
@@ -108,28 +108,32 @@ export async function createBudgetPlan(actor: Actor, input: unknown, transaction
 
 `withTransaction` joins the caller's transaction when it is given one and opens
 its own when it is not
-(src/server/db/client.ts:116). 41 declarations here take that parameter. 40 of
+(`src/server/db/client.ts:116`). 41 declarations here take that parameter. 40 of
 them are mutations, and every one of those 40 goes through the helper, which is
 the claim worth making and not the same one as the count of the parameter.
 
 The odd one out is `listConnectedApps`
-(src/server/services/connected-apps.ts:40),
+(`src/server/services/connected-apps.ts:40`),
 which runs two selects and joins with `transaction ?? getDb()`. Wrapping a read
 in a transaction of its own would buy nothing, so the helper is asked of
 mutations and a declaration that writes nothing is left alone rather than
 exempted by name.
 
-Four places in this directory reach for `getDb().transaction` directly, and none
-of the four advertises the parameter, so nothing is being ignored: two reads
-that want every query on one snapshot (`getTransaction`, `listAllTransactions`),
-and two entry points the scheduler calls, which own their boundary on purpose —
-`proposeDueOccurrences` keeps one transaction to one recurrence so a tick does
-not hold a one-connection deployment for its whole length, and
+Six places in this directory open a transaction directly — whether spelled
+`getDb().transaction` or through a `db` alias, which is the same decision made
+harder to grep — and none of the six advertises the parameter, so nothing is
+being ignored: three reads that want every query on one snapshot
+(`getTransaction`, `listAllTransactions`, and `listTransactions`' hydration
+pass), two entry points the scheduler calls, which own their boundary on
+purpose — `proposeDueOccurrences` keeps one transaction to one recurrence so a
+tick does not hold a one-connection deployment for its whole length, and
 `claimDueNotification` moves the watermark in the transaction that claims the
-row. A fifth has to argue that nothing will ever want to compose with it.
+row — and `deleteOwnAccount`, which is reachable only from a browser session
+and ends the tenant whose work anything composing with it would be doing. A
+seventh has to argue that nothing will ever want to compose with it.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(src/server/mcp.ts:304-314`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:304-314`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -158,7 +162,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, src/server/services/accounts.ts:662).
+(`updateAccount`, `src/server/services/accounts.ts:662`).
 
 Two windows have to be closed, not one. Comparing before the update leaves a
 gap between the read and the write, so the update itself also filters on the
@@ -186,14 +190,14 @@ key makes the retry safe.
 
 The mechanism is worth understanding rather than copying. `getIdempotent` looks
 the key up **and hashes the request**
-(src/server/services/helpers.ts:90-121).
+(`src/server/services/helpers.ts:90-121`).
 Same key and same request returns the stored response. Same key and a
 *different* request is a `conflict`, because the caller has reused a key for
 something else and silently returning the old answer would be worse than
 refusing.
 
 The hash is over a canonicalised payload
-(src/server/services/helpers.ts:124):
+(`src/server/services/helpers.ts:124`):
 keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
 identical requests whose JSON key order differed would hash differently and the
 retry would be refused.
@@ -203,7 +207,7 @@ retry would be refused.
 same string. Where the payloads also matched, the second call returned the
 first call's transaction and the test passed having written nothing. All four
 now pad the counter rather than the string
-(tests/integration/category-by-name.integration.test.ts:28).
+(`tests/integration/category-by-name.integration.test.ts:28`).
 
 *Checked by:* `tests/integration/duplicates.integration.test.ts`, "binds direct
 transaction and staging idempotency keys to their request": the same request
@@ -220,12 +224,27 @@ service function reached from a route has nothing equivalent behind it.
 
 **Binding.** Anything that decides "does this name already exist?" takes an
 advisory lock on that namespace first
-(src/server/services/helpers.ts:263,
+(`src/server/services/helpers.ts:263`,
 and the same for payees, templates and recurrences). Otherwise two concurrent
 requests both read "no", and both create.
 
 The lock is per user and per namespace, so it serialises the smallest thing that
 has to be serialised.
+
+Two more rules ride on the locks, and both live in comments a new path will not
+stumble on by itself. First, the order is fixed: all account locks in sorted id
+order, then the category namespace, then the payee namespace
+(`src/server/services/helpers.ts:246-251`), with the template and recurrence
+locks after those (`:267-272`). Two writers that take the same locks in
+different orders deadlock under concurrency, and nothing but the order stops
+it. Second, the category lock is not only for paths deciding a name: a write
+that merely *references* a category takes it too, because a category delete
+counts references before it archives, and a create sitting between its
+ownership check and its insert is invisible to that count — the recurrence
+lands naming a dead category (`src/server/services/recurrences.ts:522-530`,
+and the same guard in `transaction-templates.ts` and `budgets.ts`). A new write
+that names or references a category needs the lock even though no name is
+being invented.
 
 *Checked by:* `tests/integration/duplicate-lock.integration.test.ts` for the
 mechanism, from a second connection under a 400ms statement timeout: a blocked
@@ -241,7 +260,7 @@ a payee has no row to constrain at all.
 
 ### 2.5 Every write is audited
 
-**Binding.** 42 `writeAudit` calls, nine `writeAuditMany`, and seven
+**Binding.** 47 `writeAudit` calls, nine `writeAuditMany`, and seven
 `auditedTransaction`. The audit row carries the entity, the
 operation, and the row before and after, serialised through `serializeRow` so a
 `Date` does not end up in JSON as something unparseable.
@@ -333,12 +352,14 @@ nothing tells you.
 ### 3.2 Awaiting in a loop is sometimes the point
 
 **Contested**, and this is the entry that made the whole `perf` lint category
-not worth having. `no-await-in-loop` finds 51 sites in this directory and 163
-across the whole repository; the count quoted in `index.md`, where the category
-was declined, is the repository-wide one. The 112 sites outside this directory
+not worth having. `no-await-in-loop` finds 53 sites in this directory and 169
+across the whole repository; the repository-wide figure is the one in
+`index.md`'s re-measured column, where the category was declined — the 147 in
+its decision-time table is the same measurement taken on an older tree. The 116
+sites outside this directory
 are almost all tests, most of them integration tests awaiting one request at a
 time, which is a different thing from a service resolving names in order. Some
-of the 51 here are opportunities. At least one is load-bearing:
+of the 53 here are opportunities. At least one is load-bearing:
 
 ```
 Legs resolve one at a time rather than in a batch, so that two legs naming
@@ -346,7 +367,7 @@ the same new category end up on one category rather than two: the second
 lookup sees what the first created.
 ```
 
-(src/server/services/categories.ts:199.)
+(`src/server/services/categories.ts:199`.)
 
 Run those in parallel and a split naming "Groceries" twice creates two
 categories. The sequence *is* the algorithm. A linter cannot tell that apart
@@ -368,7 +389,7 @@ rule with an opinion about it is the one turned off.
 ### 3.3 Money is summed in the database or in `decimal.js`, never in JavaScript numbers
 
 **Binding.** `AGENTS.md`. On the server that means `decimal()`
-(src/server/services/helpers.ts:21)
+(`src/server/services/helpers.ts:21`)
 and `canonicalDecimal` on the way out, so every amount that crosses a boundary
 is the same string for the same value.
 
@@ -380,7 +401,7 @@ is the same string for the same value.
 **Binding**, because it is the rule most recently got wrong.
 
 Resolving a category by name never widens the category it finds
-(src/server/services/categories.ts:154).
+(`src/server/services/categories.ts:154`).
 Widening to `both` was correct while an entry could only name a category of its
 own direction. It stopped being correct when a category running against the
 direction became a refund, and it stopped quietly: `both` agrees with whichever
@@ -389,7 +410,7 @@ instead of lowering the spending.
 
 Where the direction genuinely cannot decide — a name with nothing behind it
 yet — the caller says so with `categoryKind`
-(src/server/services/categories.ts:209),
+(`src/server/services/categories.ts:209`),
 and that field is ignored when the category already exists, because that one has
 an answer already.
 

@@ -49,7 +49,7 @@ recognise its own row in the copy and stay silent.
 ## Splitting one receipt across categories
 
 A grocery run that is partly food, partly household and partly something for the
-dog is one transaction with three category legs. Press **Split** on the category
+dog is one transaction with three category legs. Press **Split across categories** on the category
 field, give each row its own amount, and the form tells you what is left to
 assign until it comes to nothing.
 
@@ -300,9 +300,9 @@ on from what you set.
 **When there is not enough to go round, you can say what comes first.**
 "Funded first" takes a number — lower goes first — and the report then shows how
 much of each budget the period's income actually covers, filling them in that
-order until it runs out. Anything you did not rank is funded last. A budget you
-never ranked is left alone entirely: the column only appears where somebody
-asked the question.
+order until it runs out. Anything you did not rank is funded last, after
+every ranked budget, and shows its funded figure like the rest; the column
+only appears where somebody asked the question.
 
 **Categories can be grouped, one level deep.** Make a group on the Categories
 page and say how it is budgeted: either it has a budget of its own, or it is

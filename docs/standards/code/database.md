@@ -10,9 +10,13 @@ and `numeric`, and pretending otherwise would cost more than it bought.
 
 ### 1.1 A shipped migration is frozen
 
-**Binding.** `AGENTS.md`: "Every migration that has shipped is frozen." Fourteen
-migrations, `0000_initial.sql` through `0013_budget_plans_and_entries.sql`. A
-change is a new forward-only migration, generated with `npm run db:generate`.
+**Binding.** `AGENTS.md`: "Every migration that has shipped is frozen."
+Twenty-one migrations, `0000_initial.sql` through `0020_reference_indexes.sql`.
+Frozen is about shipping, not about existing: `0000` through `0012` went out in
+released versions and may never change, while `0013` through `0020` are written
+and unreleased, so `AGENTS.md` says they may still be regenerated — they freeze
+when they ship. A change to what has shipped is a new forward-only migration,
+generated with `npm run db:generate`.
 
 *Checked by:* `tests/migrations.test.ts`, which reads `AGENTS.md` as text and
 fails on any `.sql` in `drizzle/` the prose does not name. That is one
@@ -33,7 +37,7 @@ held by 1.1: a freshly generated file that nobody listed fails the moment it
 lands in `drizzle/`. `tests/migrations.test.ts` also pins the first five
 journal tags to the words they shipped with, and holds every later file to its
 own tag, so a rename after the fact fails. What no test does is tell
-`0014_budget_carryover` from `0014_lucky_moon_knight`: both are strings it has
+`0021_budget_carryover` from `0021_lucky_moon_knight`: both are strings it has
 not seen before, and only review stands between the second one and the
 directory. §5 carries this.
 
@@ -58,7 +62,7 @@ bug.
 ### 2.1 Money is `numeric(44, 18)`
 
 **Binding.** `AGENTS.md`. Every amount column, without exception
-(src/server/db/schema.ts:287).
+(`src/server/db/schema.ts:287`).
 Drizzle returns `numeric` as a string, which is exactly what the rest of the
 codebase wants, so nothing casts.
 
@@ -74,16 +78,27 @@ else at some other scale would pass.
 ### 2.2 An enum column is generated from the shared tuple
 
 **Binding.** `pgEnum` takes the same `as const` array the domain and the UI use
-(src/server/db/schema.ts:196).
-There is no second list of the members anywhere.
+(`src/server/db/schema.ts:196`), so there is no second list of the members —
+with one exception the next paragraph owns up to.
 
 *Checked by:* `npm run typecheck`, in both directions. A member the schema drops
 is refused where a parsed value is inserted, and one the schema adds alone is
 refused where a stored row is read back into shared-typed code. A copy that
-agrees today is caught as well, because each of these ten tuples is named exactly
-once outside its import, so writing the members out again leaves the import
-unread and `noUnusedLocals` fails — which holds by arithmetic rather than by
-design, and would stop holding the day a tuple earns a second use in the file.
+agrees today is caught as well, because each of these twelve tuples is named
+exactly once outside its import, so writing the members out again leaves the
+import unread and `noUnusedLocals` fails — which holds by arithmetic rather
+than by design, and would stop holding the day a tuple earns a second use in
+the file.
+
+The exception is `staged_status` (`src/server/db/schema.ts:198`), an inline
+literal with no shared tuple behind it, whose three members are written out
+again in `src/server/mcp-output-schemas.ts:296` and
+`src/client/api.ts:340`. Nothing in `src/shared` lists staged statuses, so the
+mechanism above cannot fire for it: the inline literal imports nothing for
+`noUnusedLocals` to catch, and a member added to the `pgEnum` alone surfaces
+only when a tool's output validation refuses the reply in front of an agent.
+Give it a shared tuple the day it changes; until then it is the one enum drift
+the typechecker will not see coming.
 
 ### 2.3 Every user-owned table carries `userId`, and every query filters on it
 
@@ -185,7 +200,7 @@ somebody gives it a case where the two tables disagree.
 **House, with a reason.** Names are compared after normalisation — case folded,
 whitespace collapsed, NFKC — so a unique index on the raw column would not
 express the rule. The lock serialises the read-then-create
-(src/server/services/helpers.ts:263),
+(`src/server/services/helpers.ts:263`),
 and it is scoped per user so two people naming a category at once do not queue
 behind each other.
 
