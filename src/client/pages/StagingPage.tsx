@@ -512,6 +512,14 @@ export default function StagingPage() {
     categoryName: string;
   } | null>(null);
   const [inlineError, setInlineError] = useState("");
+  // A ref, not isPending: Enter commits, and the blur that follows a click
+  // away can run before the render that would set isPending — two identical
+  // PUTs, the second refused as stale by the version the first just bumped.
+  const inlineInFlight = useRef(false);
+  // Escape's other half: removing a focused editor fires a browser blur, and
+  // the blur handler's closure still holds the pre-Escape state — so without
+  // this, cancelling could commit. Set before the state change, read first.
+  const inlineCancelled = useRef(false);
   const inlineMutation = useMutation({
     mutationFn: ({ stage, draft }: { stage: StagedTransaction; draft: Record<string, unknown> }) =>
       api(`/api/v1/staged-transactions/${stage.id}`, {
@@ -519,6 +527,7 @@ export default function StagingPage() {
         method: "PUT",
       }),
     onSuccess: async () => {
+      inlineInFlight.current = false;
       setInline(null);
       setInlineError("");
       await Promise.all([
@@ -530,6 +539,7 @@ export default function StagingPage() {
     // The editor closes either way: on a refusal the row still shows what the
     // server holds, and the message says why the change did not take.
     onError: (cause: Error) => {
+      inlineInFlight.current = false;
       setInline(null);
       setInlineError(cause.message);
     },
@@ -538,7 +548,8 @@ export default function StagingPage() {
     stage: StagedTransaction,
     override?: { value?: string; categoryName?: string },
   ) => {
-    if (!inline || inlineMutation.isPending) return;
+    if (!inline || inlineInFlight.current || inlineCancelled.current) return;
+    inlineInFlight.current = true;
     const value = override?.value ?? inline.value;
     const categoryName = override?.categoryName ?? inline.categoryName;
     const draft = { ...(stage.draft as Record<string, unknown>) };
@@ -561,7 +572,12 @@ export default function StagingPage() {
     categoryName = "",
   ) => {
     setInlineError("");
+    inlineCancelled.current = false;
     setInline({ id: stage.id, field, value, categoryName });
+  };
+  const cancelInline = () => {
+    inlineCancelled.current = true;
+    setInline(null);
   };
   const inlineFor = (stage: StagedTransaction, field: "date" | "payee" | "category" | "amount") =>
     inline && inline.id === stage.id && inline.field === field ? inline : null;
@@ -845,7 +861,7 @@ export default function StagingPage() {
                           onBlur={() => commitInline(stage)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter") commitInline(stage);
-                            if (event.key === "Escape") setInline(null);
+                            if (event.key === "Escape") cancelInline();
                           }}
                         />
                       ) : (
@@ -872,7 +888,7 @@ export default function StagingPage() {
                           onCommit={(finalValue: string) =>
                             commitInline(stage, { value: finalValue })
                           }
-                          onCancel={() => setInline(null)}
+                          onCancel={cancelInline}
                         />
                       ) : (
                         <button
@@ -936,7 +952,7 @@ export default function StagingPage() {
                               event.preventDefault();
                               commitInline(stage);
                             }
-                            if (event.key === "Escape") setInline(null);
+                            if (event.key === "Escape") cancelInline();
                           }}
                         >
                           <CategoryPicker
@@ -1007,7 +1023,7 @@ export default function StagingPage() {
                           onBlur={() => commitInline(stage)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter") commitInline(stage);
-                            if (event.key === "Escape") setInline(null);
+                            if (event.key === "Escape") cancelInline();
                           }}
                         />
                       ) : (type === "deposit" || type === "withdrawal") &&

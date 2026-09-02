@@ -498,7 +498,7 @@ describe("excluding categories from the categories report", () => {
   const categoriesReport: Report = {
     ...report,
     report: "categories",
-    accumulation: "periodic",
+    accumulation: "change",
     currencies: [
       {
         currency: "USD",
