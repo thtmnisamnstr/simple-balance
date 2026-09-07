@@ -25,6 +25,32 @@ function rules(css: string) {
 
 const selectorsOf = (selector: string) => selector.split(",").map((one) => one.trim());
 
+/**
+ * Every animation that never ends, against the preference that says stop.
+ *
+ * The blanket block at the foot of the stylesheet sets
+ * `animation-iteration-count: 1 !important` on everything, which is right for
+ * decoration and wrong for a busy indicator: it froze the button's spinner into
+ * a static icon, so somebody who asked for reduced motion got a picture of
+ * waiting that was not waiting. `.skeleton` had been exempted by hand and the
+ * spinner had not, and nothing said which of the two was the oversight.
+ */
+describe("an animation with no end", () => {
+  it("is answered by name under reduced motion", async () => {
+    const css = await stylesheet();
+    const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+    const infinite = rules(css)
+      .filter((rule) => /animation:[^;]*\binfinite\b/.test(rule.body))
+      .flatMap((rule) => selectorsOf(rule.selector));
+    expect(infinite.length).toBeGreaterThan(0);
+    for (const selector of infinite) {
+      // Named somewhere inside a reduced-motion block, which is the only way a
+      // blanket `!important` can be answered.
+      expect(reduced, `${selector} animates forever and says nothing about it`).toContain(selector);
+    }
+  });
+});
+
 describe("the loading shimmer", () => {
   it("animates nothing but the placeholder", async () => {
     const animated = rules(await stylesheet()).filter((rule) =>

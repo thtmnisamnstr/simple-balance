@@ -14,6 +14,7 @@ import {
   userAccountTypes,
   liabilityAccountTypes,
   MAX_TRANSACTION_LEGS,
+  recurrenceFrequencies,
   recurrenceOrdinals,
   recurrenceScheduleSchema,
   resolveEntrySide,
@@ -1266,10 +1267,11 @@ export function TemplateForm({
                       setReminderFrequency(event.target.value as RecurrenceFrequencyName)
                     }
                   >
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="yearly">Yearly</option>
+                    {FREQUENCY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </Select>
                 </Field>
                 <Field
@@ -2419,6 +2421,26 @@ const FREQUENCY_UNITS: Record<RecurrenceFrequencyName, string> = {
   yearly: "year",
 };
 
+/**
+ * The frequency options, iterated rather than written out twice.
+ *
+ * Two selects spelled the same four `<option>`s by hand, so a fifth frequency
+ * added to the schema would have rendered in neither and failed nowhere. The
+ * `Record` is what makes the labels exhaustive: a new member is a compile error
+ * here rather than a select that quietly lost an option. Same shape as
+ * `ORDINAL_NAMES` above.
+ */
+const FREQUENCY_LABELS: Record<RecurrenceFrequencyName, string> = {
+  daily: "Daily",
+  weekly: "Weekly",
+  monthly: "Monthly",
+  yearly: "Yearly",
+};
+const FREQUENCY_OPTIONS = recurrenceFrequencies.map((value) => ({
+  value,
+  label: FREQUENCY_LABELS[value],
+}));
+
 /** How a schedule reads in a sentence, for the list and the form's summary. */
 export function scheduleSentence(schedule: {
   frequency: RecurrenceFrequencyName;
@@ -2965,10 +2987,11 @@ export function RecurrenceForm({
               value={frequency}
               onChange={(event) => setFrequency(event.target.value as RecurrenceFrequencyName)}
             >
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-              <option value="yearly">Yearly</option>
+              {FREQUENCY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label={`Every N ${FREQUENCY_UNITS[frequency]}s`} hint="1 means every one.">

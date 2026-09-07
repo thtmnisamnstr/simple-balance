@@ -424,6 +424,17 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**Four additive answers on the HTTP API, none of which changes an existing
+one.** A malformed request body is now `MALFORMED_BODY` at 400 rather than
+`VALIDATION_ERROR`, which meant both 400 and 422 and so carried information the
+code did not. A `429` carries `Retry-After`, including on the sign-in routes,
+where the library's own non-standard header is mirrored rather than replaced. A
+`201` carries `Location`. And both health routes on both processes report which
+build is answering, which is the question an operator asks them during a rolling
+deploy. `GET /api/v1/audit-events` is the last list on the API to get a
+published schema; it read its two parameters by hand, so `?limit=x` reached the
+service as `NaN`.
+
 `npm run lint` runs oxlint and `npm run format` runs oxfmt, in place of ESLint
 and Prettier. TypeScript 7 forced the linter question — typescript-eslint does
 not run on it — and the formatter was measured rather than assumed: oxfmt
@@ -559,6 +570,49 @@ plainly failed and no sentence saying why. They send both halves now, and each
 Zod field error carries a dotted `field` beside what it already had. Nothing was
 taken away: a client reading either shape still works, and dropping the older
 half waits for a release where it has been deprecated first.
+
+**A second pass, from the guides rather than from the code.** The standards
+guides record what nothing checks about them, and a sweep of those records found
+eight shipped defects that had been written down and left. Every one is fixed
+and every one now has a test, so the record and the code agree again:
+
+Somebody who asks their system for reduced motion gets a busy indicator again.
+The blanket rule at the foot of the stylesheet sets
+`animation-iteration-count: 1`, which is right for decoration and froze the
+button's spinner into a static icon — a picture of waiting that was not waiting.
+It pulses instead of rotating now, which carries the meaning without motion
+across the screen.
+
+Four kinds of control show a focus ring when tabbed to. `summary` — the row
+menu's trigger — checkboxes, radios and the scrolling table regions had none,
+and the CSV file picker's input is visually hidden, so tabbing to it showed
+nothing at all. That last one was a WCAG 2.2 AA failure on the import screen.
+
+A row scrolled to with the keyboard no longer lands under something. Nothing in
+the stylesheet declared `scroll-padding`, against eight sticky or fixed regions;
+the merge panel on Categories and Payees is the one people would have met,
+because it appears exactly when the list is long enough to scroll.
+
+On a narrow window, the navigation scrim no longer paints over the merge panel.
+Both sat on the same layer and the scrim was written second, so DOM order was
+deciding. The whole ladder is written down in one place now.
+
+Selected text is readable in dark mode. It was 2.59:1 against its own
+highlight, where 4.5:1 is the floor for text somebody chose to style.
+
+Two touching bars in a grouped chart have an edge between them. Adjacent series
+run as close as 1.05:1 against each other, which is fine for lines that rarely
+overlap and not for bars that share a border.
+
+A spreadsheet cell led by a full-width `＝`, `＋`, `－` or `＠` is neutralised on
+export, as the ASCII forms already were — Excel and Sheets fold them to the
+ASCII leader before deciding whether a cell is a formula. So is one led by a
+no-break or zero-width space. An older file re-imports unchanged.
+
+Two people creating an account with the same name at the same moment no longer
+both succeed. Categories, payees, templates and recurrences each took a lock
+before deciding a name was free; accounts had the check and no lock, and there
+was no lock to have taken.
 
 ## 0.1.5 - 2026-08-22
 

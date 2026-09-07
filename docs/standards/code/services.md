@@ -223,19 +223,27 @@ service function reached from a route has nothing equivalent behind it.
 ### 2.4 Namespaces are locked before they are read
 
 **Binding.** Anything that decides "does this name already exist?" takes an
-advisory lock on that namespace first
-(`src/server/services/helpers.ts:263`,
-and the same for payees, templates and recurrences). Otherwise two concurrent
-requests both read "no", and both create.
+advisory lock on that namespace first, and there are five namespaces:
+accounts, categories, payees, templates and recurrences
+(`src/server/services/helpers.ts:263-292`). Otherwise two concurrent requests
+both read "no", and both create.
+
+Accounts were the fifth and were added late, which is the point of listing them.
+`createAccount` called `assertAccountNameAvailable` under no lock at all, and
+`updateAccount` held only the per-account-id reference lock — which does not
+serialise two *different* accounts being renamed to the same name. Two
+concurrent `POST /api/v1/accounts` naming one account both succeeded. There was
+no `lockAccountNamespace` to have forgotten, which is why a walk of the call
+sites would not have found it: nothing named a lock that did not exist.
 
 The lock is per user and per namespace, so it serialises the smallest thing that
 has to be serialised.
 
 Two more rules ride on the locks, and both live in comments a new path will not
 stumble on by itself. First, the order is fixed: all account locks in sorted id
-order, then the category namespace, then the payee namespace
-(`src/server/services/helpers.ts:246-251`), with the template and recurrence
-locks after those (`:267-272`). Two writers that take the same locks in
+order, then the account namespace, then the category namespace, then the payee
+namespace (`src/server/services/helpers.ts:246-251`), with the template and
+recurrence locks after those. Two writers that take the same locks in
 different orders deadlock under concurrency, and nothing but the order stops
 it. Second, the category lock is not only for paths deciding a name: a write
 that merely *references* a category takes it too, because a category delete
@@ -249,9 +257,12 @@ being invented.
 *Checked by:* `tests/integration/duplicate-lock.integration.test.ts` for the
 mechanism, from a second connection under a 400ms statement timeout: a blocked
 waiter either expires or does not, and it expires. That is the duplicate
-fingerprint lock rather than a name, and it is the only one under test — nothing
-asserts that a path deciding a name reaches `lockCategoryNamespace` or one of
-its siblings first. Sequentially the outcome is covered, by
+fingerprint lock rather than a name. `tests/name-locks.test.ts` holds the rule
+itself, in two halves, because the accounts gap needed both: every function body
+that reaches a name check reaches its namespace lock earlier in the same body,
+and every one of the five namespaces has a lock to be reached. It reads the
+source rather than racing two connections, deliberately — a test that raced
+would be a test that usually passed. Sequentially the outcome is covered, by
 `tests/integration/transaction-templates.integration.test.ts`, "refuses a second
 template whose name differs only by case or spacing". The unique constraints
 behind those names are on the raw text, so they catch an exact repeat and

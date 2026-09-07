@@ -471,6 +471,56 @@ describe("counting attempts against a caller", () => {
     return () => times[Math.min(index++, times.length - 1)]!;
   };
 
+  /**
+   * A refusal a client can obey.
+   *
+   * RFC 9110 section 10.2.3 is the only header a client is going to look for on
+   * a 429, and neither of this process's two 429 paths sent it: the setup
+   * limiter sent none at all, and Better Auth's sends its own `X-Retry-After`,
+   * which a client that reads the standard cannot see. A refusal with no
+   * interval on it is a refusal that asks the caller to guess, and a guessing
+   * caller retries into the same wall.
+   *
+   * The limiter derives the number from the window it counts by, so the header
+   * and the bound cannot come to disagree — which is the whole failure mode of
+   * a hand-written number written beside a configured one.
+   */
+  it("offers the window as an interval a refusal can name", () => {
+    expect(createAttemptLimiter({ max: 5, windowMs: 15 * 60 * 1000 }).retryAfterSeconds).toBe(900);
+    // Whole seconds, rounded up: `Retry-After` takes an integer, and rounding
+    // down would name a moment the allowance has not yet reached.
+    expect(createAttemptLimiter({ max: 1, windowMs: 1_500 }).retryAfterSeconds).toBe(2);
+  });
+
+  /**
+   * And every place that answers 429 says it.
+   *
+   * Two paths reach a 429 in this process — this product's setup limiter, and
+   * Better Auth's own, whose response comes back through the `/api/auth/*`
+   * middleware. Neither is reachable from a unit test without a database and a
+   * configured auth stack, so this reads the source: a `429` with no
+   * `Retry-After` within sight of it is the defect, and a third one added later
+   * is caught the same way.
+   */
+  it("names an interval wherever it answers 429", async () => {
+    const missing: string[] = [];
+    for (const relative of ["src/server/api.ts", "src/server/http-security.ts"]) {
+      const lines = (await readFile(new URL(`../${relative}`, import.meta.url), "utf8")).split(
+        "\n",
+      );
+      lines.forEach((line, index) => {
+        // A comment mentioning the number is not a route answering with it.
+        if (/^\s*(\/\/|\*)/.test(line)) return;
+        if (!/(?:^|[^\d])429(?:[^\d]|$)/.test(line)) return;
+        // Either side, because the header is set before `c.json` names the
+        // status and the mirror reads the status before setting the header.
+        const near = lines.slice(Math.max(0, index - 12), index + 12).join("\n");
+        if (!near.includes("Retry-After")) missing.push(`${relative}:${index + 1}`);
+      });
+    }
+    expect(missing).toEqual([]);
+  });
+
   it("allows the allowance and then refuses", async () => {
     const store = fakeStore();
     const limiter = createAttemptLimiter({

@@ -128,7 +128,7 @@ usually the polite option, and that a refund is not income.
   the sentence `commit_staged_transactions` owns: a person approving that dialog
   could believe they were releasing a row they had already reviewed rather than
   writing one they had never seen. It is titled "Write a new transaction
-  straight into the books" (`src/server/mcp.ts:1865-1871`), and "Commit" now
+  straight into the books" (`src/server/mcp.ts:1856`), and "Commit" now
   appears in exactly one title on this surface, on the tool that commits.
 - **Contested, decided 2026-08-23: no namespace prefix.** The specification puts
   disambiguation on the client: aggregating clients "SHOULD implement a
@@ -203,8 +203,12 @@ Further rules:
   names one.** Scope is enforced by non-registration, so a tool the caller
   cannot use is absent from discovery: "needs ledger:write" on `create_account`
   is read only by an agent that already holds ledger:write, and never by the one
-  that does not. It cannot mitigate the missing `insufficient_scope` challenge,
-  because the agent that gets "Tool not found" never sees the description.
+  that does not. It could not have mitigated the `insufficient_scope` challenge
+  either, back when that was missing, because the agent that got "Tool not
+  found" never saw the description. The challenge is met now — it is the
+  `WWW-Authenticate` rule further down — and the reason this sentence stands is
+  that it is the argument against writing the tier on 39 tools, not a record of
+  an outstanding gap.
   Writing it on all 39 gated tools (34 write-only, 5 stage-tier) would add about
   3,900 characters of one convention repeated per tool, which is the case "What
   the whole server says once" exists to refuse. So the tier is said once, in
@@ -404,12 +408,12 @@ them still answer to their date.
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 37 | 191,400 | ~48,000 |
-| `ledger:stage` | 42 | 233,456 | ~58,000 |
-| `ledger:write` | 76 | 534,668 | ~134,000 |
+| `ledger:read` | 37 | 191,414 | ~48,000 |
+| `ledger:stage` | 42 | 233,470 | ~58,000 |
+| `ledger:write` | 76 | 534,682 | ~134,000 |
 
 Composition at the write tier: names 1,448, titles 1,851, descriptions 24,930,
-input schemas 233,266, output schemas 256,818. **Descriptions are 4.7% of what
+input schemas 233,280, output schemas 256,818. **Descriptions are 4.7% of what
 an agent loads; names, titles and descriptions together are 5.3%.** Output
 schemas are 48.0%.
 
@@ -448,9 +452,9 @@ The rules:
 - **Binding.** One envelope, from `common.md`:
   `{ result: <success> | { error: { code, message, details? } } }`, published as
   a two-member `anyOf` by `mcpOutputSchema`
-  (`src/server/mcp-output-schemas.ts:99-103`) and returned as both
+  (`src/server/mcp-output-schemas.ts:100-105`) and returned as both
   `structuredContent` and a JSON text mirror built from one serialisation
-  (`src/server/mcp.ts:245-259`), which is what the specification
+  (`src/server/mcp.ts:249-256`), which is what the specification
   recommends: a tool returning structured content "SHOULD also return the
   serialized JSON in a TextContent block".
 - **House, and worth stating because a client author will assume otherwise.**
@@ -584,7 +588,7 @@ envelope and the worked sentences.
 - **Binding.** A tool fault is a result with `isError: true`, not a protocol
   error, because "otherwise, the LLM would not be able to see that an error
   occurred and self-correct". Unknown tool and malformed request are protocol
-  errors. `runTool` (`src/server/mcp.ts:261-295`) does this and its comment says
+  errors. `runTool` (`src/server/mcp.ts:262-296`) does this and its comment says
   why.
 - **House, and a correction owed to the documentation.** There are two error
   envelopes and only one is this project's. The SDK validates `inputSchema`
@@ -603,9 +607,9 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (`src/shared/domain.ts:2495-2505`) is a `const` array rather than a bare
+  (`src/shared/domain.ts:2578-2588`) is a `const` array rather than a bare
   TypeScript union precisely so `toolErrorSchema` can publish it as an enum
-  (`src/server/mcp-output-schemas.ts:91-97`): a closed list exists so a caller
+  (`src/server/mcp-output-schemas.ts:92-98`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
   already saved, `VALIDATION_ERROR` means fix the arguments — and it cannot
   branch on a type it cannot see. It is the service half of `apiErrorCodes` and
@@ -666,7 +670,7 @@ claim, and a false claim is a defect.
 
 - **House.** Three shared constants, so a tool's class is one word at the call
   site: `readAnnotations`, `additiveAnnotations`, `destructiveAnnotations`
-  (`src/server/mcp.ts:320-337`). Measured: 37 read, 10 additive, 29 destructive.
+  (`src/server/mcp.ts:321-345`). Measured: 37 read, 10 additive, 29 destructive.
 - **Binding.** `readOnlyHint: true` is a claim the implementation must
   satisfy, not a category label. The specification's rule is addressed to
   clients; for a server an annotation is an assertion, and a false assertion is
@@ -719,7 +723,7 @@ requiring it, so this is a decision and not an obligation; it is argued at
 length because it is the one that decides the tool count.
 
 A tool is gated by which of three registration blocks it sits in
-(`src/server/mcp.ts:593`, `:1123` and `:1226`), and scope is enforced by
+(`src/server/mcp.ts:594`, `:1109` and `:1212`), and scope is enforced by
 non-registration, so a tool the caller cannot use is **absent from discovery**
 rather than present and refusing. Measured: 37 tools at `ledger:read`, 42 at
 `ledger:stage`, 76 at `ledger:write`, and a token with no ledger scope gets a
@@ -842,7 +846,7 @@ it means choosing which half to defer to anyway.
   only caller who could read it already holds the scope. The three tools where
   scope changes behaviour rather than access are the real case and already say
   so in their own words.
-- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:453-458`) implements
+- **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:455-460`) implements
   the scope hierarchy the specification requires servers to account for: stage
   and write both satisfy read.
 - **House, and its reason is an absence of evidence.** Whether 76 tightly
@@ -1006,7 +1010,7 @@ One line each, with the condition that would reopen it.
 | Elicitation | The staging queue solves the same problem asynchronously and durably, and form mode may not be used for anything sensitive anyway. |
 | Completion | Covers prompt and resource template arguments only. It cannot cover tool arguments, which is what this surface would want it for. |
 | Tasks | A second protocol surface with per-client opt-in, against a ten-thousand-row cap that already keeps work inside one request. |
-| Progress notifications | The transport answers in a single JSON object (`enableJsonResponse: true`, `src/server/mcp.ts:2076`), so there is no open channel a `notifications/progress` could travel on — which is why the two routes that report progress to the browser do it with `Accept` rather than a request field an agent would see and could not use. Reopen with `Tasks`, above: both need the same change to how every tool call answers. |
+| Progress notifications | The transport answers in a single JSON object (`enableJsonResponse: true`, `src/server/mcp.ts:2062`), so there is no open channel a `notifications/progress` could travel on — which is why the two routes that report progress to the browser do it with `Accept` rather than a request field an agent would see and could not use. Reopen with `Tasks`, above: both need the same change to how every tool call answers. |
 | Icons | Nothing renders them here. |
 | `x-mcp-header` | Nothing needs proxy routing, and the sensitive-parameter warning points the wrong way for a ledger. |
 | `server/discover`, caching hints, `_meta` version negotiation | Wanted, and blocked on the SDK. See the first section. |
@@ -1087,7 +1091,7 @@ which is an evaluation rather than a test.
 | A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:118-127` |
 | A description is longer than thirty characters | `tests/mcp-parity.test.ts:415-433` |
 | A tool name is well formed and no title claims another tier's verb | `tests/mcp-parity.test.ts` |
-| The `tools/list` payload stays under its ceiling | **Not checked.** Highest value of the unwritten tests. |
+| The `tools/list` payload stays under its ceiling | `tests/mcp-measurements.test.ts`, and more strictly than a ceiling: each of the three tiers' exact character cost is pinned to the number this guide publishes, so a payload that grows fails whether or not it has passed a threshold |
 | A destructive tool's description warns | `tests/mcp-measurements.test.ts:103-113` |
 | A tool whose behaviour changes with scope names it, and no other tool does | `tests/mcp-parity.test.ts` |
 | An under-scoped call is a 403 naming the scope, and a misspelled name is not | `tests/mcp-scope-challenge.test.ts` |
@@ -1095,11 +1099,11 @@ which is an evaluation rather than a test.
 | `TOOL_SCOPES` still agrees with the three registration blocks | `tests/mcp-measurements.test.ts` |
 | No output schema declares a `userId`, outside a named exception | `tests/mcp-output.test.ts` |
 | Every published copy of a misleading output field carries a description | `tests/mcp-output.test.ts` |
-| A tool named in a description exists | **Not checked.** Green today. |
+| A tool named in a description exists | `tests/mcp-measurements.test.ts`, which reads every `snake_case` word in a description as a claim about a tool |
 | A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:312-334` |
 | `readOnlyHint` matches where the tool is registered | **Not checked.** |
 | Tool order is deterministic | **Not checked.** Registration order is the de facto order. |
-| CIMD is offered before DCR, and the documents say which is current | **Not checked.** |
+| CIMD is offered before DCR, and the documents say which is current | **Not a rule.** The priority order is a rule for a *client* choosing how to obtain a client id, and a server that advertises no CIMD support moves the client to the fallback this deployment implements. Concluded in the specification-gaps section below, where this row used to contradict it |
 | A convention an agent must obey appears in a description, not only in `docs/mcp.md` | **Not checked.** Review. |
 | The server instructions name the grant, the two error envelopes and untrusted text | `tests/mcp-instructions.test.ts` |
 | The named revision is the one the SDK negotiates | **Not checked.** |

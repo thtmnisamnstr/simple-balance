@@ -112,8 +112,10 @@ function assertNotADeployment(baseUrl: string | undefined) {
   );
 }
 
-export const authModes = ["local", "google", "both"] as const;
-export type AuthMode = (typeof authModes)[number];
+// Imported and re-exported rather than only re-exported: this module names
+// both below, and `export ... from` puts neither in local scope.
+import { authModes, type AuthMode } from "../shared/domain.js";
+export { authModes, type AuthMode };
 
 export type AppConfig = {
   databaseUrl: string;

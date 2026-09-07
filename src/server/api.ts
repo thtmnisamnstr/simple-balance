@@ -54,6 +54,7 @@ import { handleMcpRequest } from "./mcp.js";
 import { httpDuration, httpRequests, setMetricsComponent, startDefaultMetrics } from "./metrics.js";
 import { serveMetrics } from "./metrics-route.js";
 import { runAsBootstrapClaim } from "./registration-context.js";
+import { APP_VERSION } from "../shared/version.js";
 import { streamProgress } from "./stream.js";
 import { PROGRESS_MEDIA_TYPE, type ApiErrorEnvelope } from "../shared/progress.js";
 import {
@@ -118,7 +119,7 @@ import {
   listCategoryGroups,
   updateCategoryGroup,
 } from "./services/category-groups.js";
-import { AppError, validationError } from "./services/errors.js";
+import { AppError, conflict, TransportError, validationError } from "./services/errors.js";
 import {
   exportTransactionsCsv,
   getCsvPreview,
@@ -291,6 +292,12 @@ app.use("*", async (context, next) => {
  * the two transports share a service rather than a shape.
  */
 export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; status: number } {
+  if (error instanceof TransportError) {
+    return {
+      envelope: { error: { code: error.code, message: error.message } },
+      status: error.status,
+    };
+  }
   if (error instanceof AppError) {
     return {
       envelope: {
@@ -344,7 +351,10 @@ app.onError((error, c) => {
   return c.json(envelope, status as 400);
 });
 
-app.get("/health/live", (c) => c.json({ status: "ok" }));
+// The version too, on both, because the question an operator asks a health
+// endpoint during a rolling deploy is "which build is answering", and the
+// alternative is reading it off an image tag that may not be what is running.
+app.get("/health/live", (c) => c.json({ status: "ok", version: APP_VERSION }));
 // Deliberately one statement against the database, and nothing else.
 //
 // It does not check configuration, the migrations or the scheduler, and adding
@@ -355,9 +365,9 @@ app.get("/health/live", (c) => c.json({ status: "ok" }));
 app.get("/health/ready", async (c) => {
   try {
     await getDb().execute(sql`select 1`);
-    return c.json({ status: "ready" });
+    return c.json({ status: "ready", version: APP_VERSION });
   } catch {
-    return c.json({ status: "not_ready" }, 503);
+    return c.json({ status: "not_ready", version: APP_VERSION }, 503);
   }
 });
 
@@ -374,6 +384,16 @@ app.use("/api/auth/*", async (c, next) => {
   await next();
   if (!c.res.headers.has("Cache-Control")) {
     c.res.headers.set("Cache-Control", "no-store");
+  }
+  // Better Auth's own limiter answers a 429 with `X-Retry-After` and nothing
+  // standard, so a client that knows only RFC 9110 section 10.2.3 cannot see
+  // the one number the refusal is about and retries at whatever interval it
+  // guessed. Mirrored rather than renamed: a client already reading the
+  // non-standard header keeps working, which is what a release owes the one
+  // before it.
+  if (c.res.status === 429 && !c.res.headers.has("Retry-After")) {
+    const seconds = c.res.headers.get("X-Retry-After");
+    if (seconds) c.res.headers.set("Retry-After", seconds);
   }
 });
 app.use("/api/auth/*", protectAuthMutation(getConfig().baseUrl));
@@ -455,6 +475,12 @@ app.post("/api/auth/sign-up/email", async (c) => {
   // a wrong code is refused above without its handler being called.
   const setupCaller = countableClientAddress(c.req.raw, c, getConfig().trustProxy);
   if (!(await setupCodeAttempts.take(setupCaller))) {
+    // The whole window rather than what is left of it. The remaining time is
+    // known only to whichever replica counted the first attempt, so a local
+    // reading can be shorter than the truth and would send the caller back for
+    // a second 429; over-reporting only ever makes them wait longer than they
+    // had to, which is the safe direction for a number a client obeys.
+    c.header("Retry-After", String(setupCodeAttempts.retryAfterSeconds));
     return c.json(
       transportError(
         "TOO_MANY_SETUP_ATTEMPTS",
@@ -1061,7 +1087,7 @@ const body = async (c: Context<{ Variables: Variables }>) => {
     // threw past all of them and arrived as a 500 with a stack trace in the log
     // — for what is only ever a malformed request. The same reasoning as
     // `pathId` below.
-    throw new AppError("VALIDATION_ERROR", "Request body must be JSON", 400);
+    throw new TransportError("MALFORMED_BODY", "Request body must be JSON", 400);
   }
 };
 
@@ -1078,6 +1104,27 @@ const pathId = (c: Context<{ Variables: Variables }>, name = "id") =>
 const pathReport = (c: Context<{ Variables: Variables }>) =>
   reportNameSchema.parse(c.req.param("report"));
 const query = (c: Context<{ Variables: Variables }>) => c.req.query();
+/**
+ * A create answers with the row and with where the row now lives.
+ *
+ * RFC 9110 section 10.2.2 puts the created resource's URI in `Location`, and a
+ * public API is where that stops being ceremony: a caller that has just posted
+ * eight rows has eight paths without composing each one out of a collection
+ * name and a field it has to know is the id.
+ *
+ * Written once rather than remembered on each of the eight creates, because a
+ * route that forgot the header would be indistinguishable from a route that
+ * meant not to send one. Additive, so no client that worked against 0.1.5
+ * stops working.
+ */
+const created = <T extends { id: string }>(
+  c: Context<{ Variables: Variables }>,
+  collection: string,
+  row: T,
+) => {
+  c.header("Location", `/api/v1/${collection}/${row.id}`);
+  return c.json(row, 201);
+};
 /**
  * The query string with the named parameters read as booleans.
  *
@@ -1115,11 +1162,7 @@ app.post("/api/v1/auth/local-password", async (c) => {
     .parse(await body(c));
   const userId = c.get("authUser").id;
   if (await hasLocalPassword(userId)) {
-    throw new AppError(
-      "CONFLICT",
-      "A local password is already configured. Use the password change action.",
-      409,
-    );
+    throw conflict("A local password is already configured. Use the password change action.");
   }
   // A password added here is a second, permanent way into the account, and an
   // account that has only ever signed in with Google has no existing password
@@ -1191,7 +1234,7 @@ app.get("/api/v1/accounts/:id/balances", async (c) =>
 );
 app.get("/api/v1/accounts/:id", async (c) => c.json(await getAccount(c.get("actor"), pathId(c))));
 app.post("/api/v1/accounts", async (c) =>
-  c.json(await createAccount(c.get("actor"), await body(c)), 201),
+  created(c, "accounts", await createAccount(c.get("actor"), await body(c))),
 );
 app.put("/api/v1/accounts/:id", async (c) =>
   c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),
@@ -1279,7 +1322,7 @@ app.get("/api/v1/recurrences/:id", async (c) =>
   c.json(await getRecurrence(c.get("actor"), pathId(c))),
 );
 app.post("/api/v1/recurrences", async (c) =>
-  c.json(await createRecurrence(c.get("actor"), await body(c)), 201),
+  created(c, "recurrences", await createRecurrence(c.get("actor"), await body(c))),
 );
 app.put("/api/v1/recurrences/:id", async (c) =>
   c.json(await updateRecurrence(c.get("actor"), pathId(c), await body(c))),
@@ -1290,7 +1333,7 @@ app.delete("/api/v1/recurrences/:id", async (c) => {
 });
 app.get("/api/v1/category-groups", async (c) => c.json(await listCategoryGroups(c.get("actor"))));
 app.post("/api/v1/category-groups", async (c) =>
-  c.json(await createCategoryGroup(c.get("actor"), await body(c)), 201),
+  created(c, "category-groups", await createCategoryGroup(c.get("actor"), await body(c))),
 );
 app.put("/api/v1/category-groups/:id", async (c) =>
   c.json(await updateCategoryGroup(c.get("actor"), pathId(c), await body(c))),
@@ -1304,7 +1347,7 @@ app.get("/api/v1/budget-plans/:id", async (c) =>
   c.json(await getBudgetPlan(c.get("actor"), pathId(c))),
 );
 app.post("/api/v1/budget-plans", async (c) =>
-  c.json(await createBudgetPlan(c.get("actor"), await body(c)), 201),
+  created(c, "budget-plans", await createBudgetPlan(c.get("actor"), await body(c))),
 );
 app.put("/api/v1/budget-plans/:id", async (c) =>
   c.json(await updateBudgetPlan(c.get("actor"), pathId(c), await body(c))),
@@ -1342,7 +1385,11 @@ app.get("/api/v1/transaction-templates/:id", async (c) =>
   c.json(await getTransactionTemplate(c.get("actor"), pathId(c))),
 );
 app.post("/api/v1/transaction-templates", async (c) =>
-  c.json(await createTransactionTemplate(c.get("actor"), await body(c)), 201),
+  created(
+    c,
+    "transaction-templates",
+    await createTransactionTemplate(c.get("actor"), await body(c)),
+  ),
 );
 app.put("/api/v1/transaction-templates/:id", async (c) =>
   c.json(await updateTransactionTemplate(c.get("actor"), pathId(c), await body(c))),
@@ -1373,7 +1420,7 @@ app.get("/api/v1/payees", async (c) =>
   c.json(await listPayees(c.get("actor"), { search: c.req.query("search") })),
 );
 app.post("/api/v1/categories", async (c) =>
-  c.json(await createCategory(c.get("actor"), await body(c)), 201),
+  created(c, "categories", await createCategory(c.get("actor"), await body(c))),
 );
 app.put("/api/v1/categories/:id", async (c) =>
   c.json(await updateCategory(c.get("actor"), pathId(c), await body(c))),
@@ -1421,14 +1468,15 @@ app.get("/api/v1/transactions/:id", async (c) =>
 );
 app.post("/api/v1/transactions", async (c) => {
   const parsed = directTransactionCreateSchema.parse(await body(c));
-  return c.json(
+  return created(
+    c,
+    "transactions",
     await createTransaction(
       c.get("actor"),
       parsed.draft,
       parsed.idempotencyKey,
       parsed.allowDuplicate,
     ),
-    201,
   );
 });
 app.put("/api/v1/transactions/:id", async (c) =>
@@ -1454,7 +1502,7 @@ app.get("/api/v1/staged-transactions/:id", async (c) =>
   c.json(await getStage(c.get("actor"), pathId(c))),
 );
 app.post("/api/v1/staged-transactions", async (c) =>
-  c.json(await createStage(c.get("actor"), await body(c)), 201),
+  created(c, "staged-transactions", await createStage(c.get("actor"), await body(c))),
 );
 app.put("/api/v1/staged-transactions/:id", async (c) =>
   c.json(await updateStage(c.get("actor"), pathId(c), await body(c))),
@@ -1577,12 +1625,7 @@ app.get("/api/v1/accounts/:id/register", async (c) =>
   ),
 );
 app.get("/api/v1/audit-events", async (c) =>
-  c.json(
-    await listAuditEvents(c.get("actor"), {
-      cursor: c.req.query("cursor"),
-      limit: Number(c.req.query("limit") ?? 50),
-    }),
-  ),
+  c.json(await listAuditEvents(c.get("actor"), query(c))),
 );
 
 // Below every route this prefix owns and above the single-page fallback. A

@@ -10,6 +10,7 @@ import { serveMetrics } from "./metrics-route.js";
 import { createRecurrenceScheduler } from "./recurrence-scheduler.js";
 import { createGracefulShutdown } from "./server-lifecycle.js";
 import { log } from "./log.js";
+import { APP_VERSION } from "../shared/version.js";
 
 /**
  * The scheduler on its own, for a deployment that has split the single
@@ -21,13 +22,17 @@ import { log } from "./log.js";
  * cannot answer an API request even if a Service is pointed at it by mistake.
  */
 const health = new Hono();
-health.get("/health/live", (c) => c.json({ status: "ok" }));
+// The version on both, for the same reason the API's pair carries it: during a
+// rolling deploy the question an operator asks a health endpoint is "which
+// build is answering", and the scheduler is deployed separately from the API,
+// so reading it off the API's answer would answer about the wrong process.
+health.get("/health/live", (c) => c.json({ status: "ok", version: APP_VERSION }));
 health.get("/health/ready", async (c) => {
   try {
     await getDb().execute(sql`select 1`);
-    return c.json({ status: "ready" });
+    return c.json({ status: "ready", version: APP_VERSION });
   } catch {
-    return c.json({ status: "not_ready" }, 503);
+    return c.json({ status: "not_ready", version: APP_VERSION }, 503);
   }
 });
 

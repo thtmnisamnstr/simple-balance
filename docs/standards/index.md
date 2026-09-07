@@ -39,7 +39,18 @@ not duplication.
 | **House** | Defensible taste. Consistency is the point, so change it here rather than in one file, and change it everywhere at once. |
 | **Contested** | Published guidance disagrees with itself. The guide records both positions and says which this product picked, so the next person argues with the decision rather than rediscovering the disagreement. |
 
-There is no unlabelled rule. A rule nobody will label is a rule nobody believes.
+There is no unlabelled rule in a guide. A rule nobody will label is a rule
+nobody believes.
+
+**This file is the exception, and says so rather than leaving it implicit.** The
+sentences here are the labelling scheme itself, and labelling them would be
+circular: "**Binding**: every rule carries a label" tells a reader nothing about
+which authority it comes from, because the answer is this document. For the same
+reason this file carries no "What is not enforced" table and
+`tests/standards-citations.test.ts` filters it out of the labelled-rule count.
+What holds it instead is that every guide it governs is checked against it — a
+guide with an unlabelled rule, or a rule with no stated mechanism, fails that
+test, which is a stronger thing than a label on this page would be.
 
 A label attaches to a rule. A preamble, a record of what the code does today, a
 roll-up of what is checked, and a note of where a guide and the repository

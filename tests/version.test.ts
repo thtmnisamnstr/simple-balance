@@ -48,6 +48,36 @@ describe("the release version", () => {
     expect(APP_VERSION).toBe(version);
   });
 
+  /**
+   * Every health response says which build is answering.
+   *
+   * The question an operator asks a health endpoint during a rolling deploy is
+   * "which build is this", and the alternative is reading it off an image tag
+   * that may not be what is running. The MCP server and the metrics registry
+   * both announced `APP_VERSION`; the four health routes — two processes, two
+   * routes each — announced nothing, so the surface an operator actually polls
+   * was the one surface that could not answer.
+   *
+   * Both entrypoints, because the scheduler is deployed separately from the
+   * API: reading the version off the API's answer would answer about the wrong
+   * process.
+   */
+  it("is on every health response, in both entrypoints", () => {
+    for (const relative of ["src/server/api.ts", "src/server/scheduler.ts"]) {
+      const source = read(relative);
+      const routes = [...source.matchAll(/\/health\/(live|ready)"/g)];
+      expect(routes.length, `${relative} registers no health route`).toBeGreaterThan(0);
+      // Every `status:` a health handler returns is beside a `version:`. Read
+      // off the literals rather than by starting a server, because the point is
+      // that a fifth status added later carries it too.
+      const bodies = [...source.matchAll(/c\.json\(\{ status: "(?:ok|ready|not_ready)"([^)]*)\)/g)];
+      expect(bodies.length, `${relative} returns no health body`).toBeGreaterThan(0);
+      for (const body of bodies) {
+        expect(body[1], `${relative}: ${body[0]}`).toContain("version: APP_VERSION");
+      }
+    }
+  });
+
   it("is every image's default build argument", () => {
     for (const dockerfile of [
       "Dockerfile",

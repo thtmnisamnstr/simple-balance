@@ -300,8 +300,12 @@ a {
  * and it has no reason to match this palette.
  */
 ::selection {
-  color: var(--ink);
-  background: var(--green-line-strong);
+  /* The fill-and-on-accent pair the primary button already uses, rather than a
+     third decision. `--ink` on `--green-line-strong` was 4.59:1 in light and
+     **2.59:1 in dark** — selected text is author-styled here on purpose, so
+     SC 1.4.3 applies to it and the dark half was failing. */
+  color: var(--on-accent);
+  background: var(--green-fill);
 }
 
 
@@ -309,6 +313,12 @@ html {
   min-width: 320px;
   min-height: 100%;
   background: var(--ground);
+  /* SC 2.4.11: three things stick to the document — the merge panel at
+     `top: 12px`, the import preview at `top: 20px`, and below 780px the mobile
+     header, which is 57px tall. Without this, tabbing to a row scrolls it
+     exactly under whichever one is on screen, and the thing that just took
+     focus is the thing you cannot see. 80px clears the tallest of them. */
+  scroll-padding-top: 80px;
 }
 
 body {
@@ -335,6 +345,17 @@ a {
   min-height: 100vh;
 }
 
+/* The layer ladder, in one place because a z-index chosen alone is a z-index
+   chosen against nothing:
+     1  a decoration inside a card (a search icon, the auth art)
+     2  a header sticking inside its own scroller (a modal header, the auth card)
+     10 a popover over the page (the row menu)
+     20 a bar sticking over a list (the merge panel)
+     25 the mobile nav scrim, which covers everything above except the drawer
+     30 the sidebar itself
+   20 and 25 used to both be 20, and both can be on screen below 780px: the
+   scrim was written second, so it painted over the merge panel and nothing in
+   either rule said why. */
 .sidebar {
   position: fixed;
   inset: 0 auto 0 0;
@@ -682,6 +703,25 @@ a {
   .skeleton {
     animation: none;
   }
+
+  /* The spinner says a button is working, so it cannot simply stop: the blanket
+     rule at the foot of this file sets `animation-iteration-count: 1`, which
+     froze it into a static icon — a picture of waiting that is not waiting.
+     A pulse carries the same meaning with no motion across the screen, which is
+     what the preference is about. */
+  .animate-spin {
+    animation: busy-pulse 1.4s ease-in-out infinite !important;
+  }
+}
+
+@keyframes busy-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 /* Money lines up column to column only when every digit is the same width. */
@@ -802,8 +842,13 @@ a {
   box-shadow: 0 0 0 3px var(--focus-inner);
 }
 
-button:focus-visible,
-a:focus-visible {
+/* Every focusable type, not two of them. `summary` is the row menu's trigger,
+   `[tabindex]` is a scrolling table, and a checkbox had only `accent-color` —
+   none of the three showed a focus ring. `.file-drop` is the odd one: its input
+   is visually hidden, so the wrapper has to take the indicator or tabbing to the
+   CSV picker shows nothing at all. */
+:is(button, a, summary, input, select, textarea, [tabindex]):focus-visible,
+.file-drop:focus-within {
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -2151,6 +2196,9 @@ input[type="radio"] {
   max-height: calc(100vh - 28px);
   overflow-y: auto;
   background: var(--surface);
+  /* Its own scroller, and `.modal-header` sticks inside it. A long form's last
+     field would otherwise land under the title. */
+  scroll-padding-top: 64px;
 }
 
 .modal-header {
@@ -3184,8 +3232,13 @@ input[type="radio"] {
   stroke-linecap: round;
 }
 
+/* A hairline in the surface colour, because adjacent series sit as low as
+   1.05:1 against each other (section 11.2 argues why ten distinguishable hues
+   are not available) and two bars touching at that ratio read as one shape.
+   The stroke separates them without changing any measured pair. */
 .chart-bar {
-  stroke: none;
+  stroke: var(--surface);
+  stroke-width: 1px;
 }
 
 .chart-legend {
@@ -3477,7 +3530,7 @@ polyline.chart-line {
   }
   .nav-scrim {
     position: fixed;
-    z-index: 20;
+    z-index: 25;
     inset: 0;
     border: 0;
     background: var(--scrim);

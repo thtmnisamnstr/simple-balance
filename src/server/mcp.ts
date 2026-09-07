@@ -13,6 +13,7 @@ import {
   budgetPlanUpdateSchema,
   budgetReportQuerySchema,
   forecastQuerySchema,
+  auditListQuerySchema,
   bulkDeleteStageSchema,
   bulkStageEditSchema,
   bulkStageFilterSelectionRequestSchema,
@@ -1012,22 +1013,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         title: "List activity history",
         description:
           "List append-only ledger activity: every write, whether it came from the browser, an agent, or the recurrence scheduler. actorSource says which.",
-        inputSchema: toolInput({
-          cursor: z
-            .string()
-            .max(500)
-            .optional()
-            .describe(
-              "Resume token from a previous page, taken from `nextCursor`. This log only walks forward.",
-            ),
-          limit: z
-            .number()
-            .int()
-            .min(1)
-            .max(200)
-            .default(50)
-            .describe("Rows per page, 1 to 200. Defaults to 50."),
-        }),
+        inputSchema: auditListQuerySchema.strict(),
         outputSchema: mcpOutputSchema(cursorPageResultSchema(auditEventResultSchema)),
         annotations: readAnnotations,
       },

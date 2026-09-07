@@ -108,12 +108,12 @@ before this set. [`operations.md`](operations.md#what-the-version-number-is-abou
 cites this section and adds the one consequence that belongs to an operator,
 which is that renaming a configuration variable is a breaking release.
 
-The shape of a version is written in three places and two of them disagree.
-`scripts/set-version.mjs:25` and `tests/version.test.ts:25` accept a prerelease
-suffix; `tasks/product.prd.schema.json:10` pins three numeric parts and nothing
-else, so `npm run set-version 0.2.0-rc.1` succeeds, the suite stays green, and
-the build loop then refuses to start on an error two steps from its cause.
-Widen the schema.
+The shape of a version is written in three places and two of them used to
+disagree. `scripts/set-version.mjs:25` and `tests/version.test.ts:25` accept a
+prerelease suffix; `tasks/product.prd.schema.json:10` pinned three numeric parts
+and nothing else, so `npm run set-version 0.2.0-rc.1` succeeded, the suite
+stayed green, and the build loop then refused to start on an error two steps
+from its cause. The schema now carries the same pattern as the other two.
 
 This product is not a library, so "breaking" has to be defined against the four
 things somebody can depend on:
@@ -282,7 +282,7 @@ out.
 - **Nothing is committed to here.** `tasks/product.prd.json` records the product
   as built; the roadmap records intent, and says so in its opening paragraph.
 
-*Not checked mechanically.* `tests/version.test.ts:89-91` checks that the
+*Not checked mechanically.* `tests/version.test.ts:119-121` checks that the
 backlog's version matches the manifest, which is the only mechanical link
 between intent and release.
 
@@ -519,7 +519,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behaviour they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2244-2251`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2328-2330`: "`.strict()` is the load-bearing part: a
   filter this cannot honour is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -568,7 +568,7 @@ here is testable, because the thing being judged is whether a sentence is true.
 
 **House. A change that alters behaviour a document describes changes that
 document in the same commit.** `AGENTS.md`'s definition of done covers the code
-half. The documentation half is habit, and habit is why four of these are
+half. The documentation half is habit, and habit is why seven of these are
 checked and four are not.
 
 What is checked:
@@ -576,9 +576,12 @@ What is checked:
 | Correspondence | Checked by |
 | --- | --- |
 | Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:300-305`, by name rather than by count, "so the failure says which" |
-| Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:80-91` |
-| The product backlog's version matches the manifest | `tests/version.test.ts:89-91` |
+| Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:110-117` |
+| The product backlog's version matches the manifest | `tests/version.test.ts:119-121` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |
+| The `docker run` command in `README.md` and `docs/deployment.md` carries its hardening flags | `tests/deployment-docs.test.ts`, which requires `--read-only`, the `noexec,nosuid` tmpfs, `--stop-timeout 30`, `--cap-drop=ALL` and `--security-opt=no-new-privileges` in both, and hardens every service in the compose recipe the same way |
+| The README tells somebody who found a hole where to report it, and does not answer the contributing question with the invariants file | `tests/docs-conventions.test.ts` |
+| The roadmap says how every shipped item was met | `tests/docs-conventions.test.ts` |
 
 The last of those was on the list below until it was written. It moved because
 the hand-kept version had already drifted six variables in both directions at
@@ -594,12 +597,11 @@ What is not, in the order they are likely to drift:
 - `.env.example` against `config.ts`, both directions.
 - `docs/deployment.md`'s stated defaults against `config.ts`.
 - `docs/architecture.md`'s "Where things live" paths against the tree.
-- The run command in `README.md` against the hardening flags it should carry.
 - `docs/how-to.md`'s named buttons and fields against the screens that carry
   them. This one has already drifted once, and the commit that repaired it is
   titled "Correct the manual where the fact-check caught it inventing UI".
 
-All five hold today, by hand.
+All four hold today, by hand.
 
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
@@ -671,21 +673,25 @@ edit.
 - **The browser tier is new and thin.** `tests/browser/` covers the budgets
   page and nothing else. Every other page still rests on jsdom, which cannot
   see the class of defect that tier was added for.
-- **No `CONTRIBUTING.md` and no Contributing section**, on a published AGPL
-  project that accepts dependabot pull requests. Whether pull requests are taken
-  at all is the owner's answer to give, and until it is given there is nothing
-  truthful to write.
+- **No `CONTRIBUTING.md`**, on a published AGPL project that accepts dependabot
+  pull requests. The README carries a `## Contributing` section
+  (`README.md:210`) and `tests/docs-conventions.test.ts` holds it to not
+  answering the question by pointing at the invariants file, so the half that
+  was missing is the separate document a forge links to from a pull request
+  form. Whether pull requests are taken at all is the owner's answer to give,
+  and until it is given there is nothing truthful to write in one.
 
 ## What is checked, and what is not
 
-Everything in this guide is review except what five test files cover:
+Everything in this guide is review except what six test files cover:
 `tests/version.test.ts` on the version, `tests/migrations.test.ts` on what an
 upgrade note promises about somebody's data, `tests/mcp-parity.test.ts` on
 whether `docs/mcp.md` names every tool, `tests/env-example.test.ts` on whether
 the deployment tables and the example files still describe the same set of
-variables, and `tests/docs-conventions.test.ts` on whether the README still
-points at a reporting channel and every shipped roadmap item still says how it
-was met. That is the honest count, and it is the highest ratio in this set,
+variables, `tests/docs-conventions.test.ts` on whether the README still points
+at a reporting channel and every shipped roadmap item still says how it was met,
+and `tests/deployment-docs.test.ts` on whether the run command a reader copies
+still carries the flags that make it safe. That is the honest count, and it is the highest ratio in this set,
 because a document's defects are almost all defects of truth rather than of
 form. The three worth naming, because they are the ones
 that actually go wrong:

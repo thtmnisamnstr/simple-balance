@@ -11,13 +11,28 @@
  * for anybody west of Greenwich.
  */
 
-export type RecurrenceFrequency = "daily" | "weekly" | "monthly" | "yearly";
-export type RecurrenceMonthPolicy = "last_day" | "skip";
-export type RecurrenceWeekendPolicy =
-  | "allow"
-  | "skip"
-  | "previous_business_day"
-  | "next_business_day";
+/**
+ * The three schedule vocabularies, derived rather than restated.
+ *
+ * All three were hand-written unions here and `as const` tuples in
+ * `domain.ts` — the same closed set spelled twice, one directory apart, with
+ * nothing that would notice the two coming apart. A fifth frequency added to
+ * the schema and not to this file would typecheck everywhere and refuse every
+ * row at the database.
+ *
+ * Type-only, deliberately. This module is pure calendar arithmetic and imports
+ * nothing at run time; `import type` erases, so deriving the names costs it no
+ * dependency on the Zod module.
+ */
+import type {
+  recurrenceFrequencies,
+  recurrenceMonthPolicies,
+  recurrenceWeekendPolicies,
+} from "./domain.js";
+
+export type RecurrenceFrequency = (typeof recurrenceFrequencies)[number];
+export type RecurrenceMonthPolicy = (typeof recurrenceMonthPolicies)[number];
+export type RecurrenceWeekendPolicy = (typeof recurrenceWeekendPolicies)[number];
 
 /**
  * "The second Tuesday", "the last Friday". `ordinal` -1 is the last one in the

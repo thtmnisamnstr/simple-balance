@@ -222,6 +222,20 @@ describe("the chart palette", () => {
     }
   });
 
+  /**
+   * Ten hues cannot all be distinguishable from each other — section 11.2 of
+   * the guide argues that at length and takes the trade deliberately. Adjacent
+   * bars run as low as 1.05:1, which is the case where a shape boundary has to
+   * do the work colour cannot.
+   */
+  it("separates one bar from the next with something that is not colour", () => {
+    const bar = ruleFor(css, ".chart-bar");
+    expect(bar.length, ".chart-bar has no rule").toBeGreaterThan(0);
+    const stroke = bar.map((rule) => /stroke:\s*([^;]+)/.exec(rule.body)?.[1]?.trim()).at(-1);
+    expect(stroke, "adjacent bars at 1.05:1 need an edge").toBeDefined();
+    expect(stroke).not.toBe("none");
+  });
+
   it("draws every series from a token rather than a colour of its own", () => {
     for (let index = 0; index < SERIES_COLOURS; index++) {
       const rule = new RegExp(

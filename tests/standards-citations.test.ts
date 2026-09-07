@@ -68,6 +68,8 @@ const lineCount = (path: string): number | null => {
  */
 type Cited = {
   guide: string;
+  /** Where in the guide the citation is written, so a failure names the edit. */
+  guideLine: number;
   /** The file as the guide spells it, which may be a bare basename. */
   target: string;
   /** The repository path it resolves to, or null if nothing resolves. */
@@ -112,6 +114,10 @@ const everyCitation = (): Cited[] => {
   const found: Cited[] = [];
   for (const guide of globSync("docs/standards/**/*.md")) {
     const text = readFileSync(guide, "utf8");
+    // Character offset to guide line, so a failure can name the line to edit
+    // rather than only the token to search for. Two guides spell the same
+    // token in four places each.
+    const lineAt = (offset: number) => text.slice(0, offset).split("\n").length;
     const events = [
       ...[...text.matchAll(NAMED)].map((m) => ({
         at: m.index,
@@ -139,6 +145,7 @@ const everyCitation = (): Cited[] => {
       const target = named ?? current;
       found.push({
         guide,
+        guideLine: lineAt(event.at),
         target: target ?? "",
         path: target === null ? null : resolve(target),
         from: event.from,
@@ -375,7 +382,10 @@ describe("what the standards guides cite", () => {
       const line = lines[citation.from - 1];
       if (line === undefined) continue;
       if (fragment.test(line.trim())) {
-        landed.push(`${citation.guide} -> ${citation.token} is «${line.trim() || "a blank line"}»`);
+        landed.push(
+          `${citation.guide}:${citation.guideLine} -> ${citation.token} is ` +
+            `«${line.trim() || "a blank line"}»`,
+        );
       }
     }
     expect(landed).toEqual([]);
@@ -407,6 +417,91 @@ describe("what the standards guides cite", () => {
     expect(guide, `styles.css is ${lines} lines`).toContain(
       `${lines.toLocaleString("en-GB")} lines of hand-written CSS`,
     );
+  });
+
+  /**
+   * Section 3's census, which is the argument for the scales it proposes.
+   *
+   * Every number in that section was counted by hand and every one had drifted,
+   * two of them into disagreeing with a *second* hand count of the same thing
+   * elsewhere in the same guide. A section arguing "nine, eleven, thirteen and
+   * seventeen pixels are not decisions" rests entirely on the inventory being
+   * right, so the inventory is derived here and the prose is held to it.
+   *
+   * The methodology is the one the section states: `padding`, `margin` and
+   * `gap` declarations, and the distinct pixel values inside them. Negative
+   * offsets are left out of the value list because the published list starts at
+   * 1 and a `-4px` overlap is not a step on a spacing ramp.
+   */
+  it("counts what section 3 says it counted", () => {
+    const css = readFileSync("src/client/styles.css", "utf8").replaceAll(/\/\*[\s\S]*?\*\//g, "");
+    const guide = readFileSync("docs/standards/web.md", "utf8");
+    const declarations = [...css.matchAll(/(?:^|[;{])\s*([a-z-]+)\s*:\s*([^;{}]+)/g)].map(
+      (match) => [match[1]!, match[2]!.trim()] as const,
+    );
+    const of = (property: RegExp) => declarations.filter(([name]) => property.test(name));
+
+    const spacing = of(
+      /^(?:margin|padding|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left))?$/,
+    );
+    const steps = new Set<number>();
+    for (const [, value] of spacing) {
+      for (const pixels of value.matchAll(/(\d+)px/g)) steps.add(Number(pixels[1]));
+    }
+    // Prose wraps, so the comparisons below are against the guide with its line
+    // breaks flattened. Without that, a sentence that is right and wrapped
+    // differently reads as a sentence that is wrong.
+    const flat = guide.replaceAll(/\s+/g, " ");
+    expect(flat, `there are ${spacing.length} spacing declarations`).toContain(
+      `Today: ${spacing.length} padding, margin and gap declarations`,
+    );
+    expect(flat, `across ${steps.size} distinct values`).toContain(
+      `**${steps.size} distinct pixel values**`,
+    );
+    expect(flat, `the values are ${[...steps].sort((a, b) => a - b).join(", ")}`).toContain(
+      [...steps].sort((a, b) => a - b).join(", "),
+    );
+
+    // The same number said twice in one guide is how two of these came apart,
+    // so section 17.2 is held to section 3.1 rather than counted again.
+    expect(flat, "17.2 item 2 restates the spacing census").toContain(
+      `${spacing.length} spacing declarations across ${steps.size} values`,
+    );
+
+    const gapValues = new Map<string, number>();
+    for (const [, value] of of(/^gap$/)) {
+      if (/^\d+px$/.test(value)) gapValues.set(value, (gapValues.get(value) ?? 0) + 1);
+    }
+    const commonest = [...gapValues.entries()].sort((left, right) => right[1] - left[1]);
+    expect(flat, `gap takes ${gapValues.size} distinct single values`).toContain(
+      `\`gap\` alone takes ${gapValues.size} distinct single values`,
+    );
+    expect(flat, `the commonest gap is ${commonest[0]![0]} ${commonest[0]![1]} times`).toContain(
+      `the commonest being ${commonest[0]![0]}`,
+    );
+
+    for (const [property, sentence] of [
+      [/^border-radius$/, "Today: {n} declarations across **{d} distinct values**"],
+      [/^font-size$/, "Today: {n} `font-size` declarations across {d} pixel values"],
+      [/^font-weight$/, "Today: **{n} `font-weight` declarations carrying {d} distinct values**"],
+    ] as const) {
+      const found = of(property);
+      const values = new Set(found.map(([, value]) => value));
+      // A `clamp()` is not a step on the type ramp and section 3.3 counts it
+      // separately, so the type row reports its pixel values alone.
+      const distinct = property.source.includes("font-size")
+        ? new Set([...values].filter((value) => value.endsWith("px"))).size
+        : values.size;
+      const words: Record<number, string> = { 9: "nine", 10: "ten", 11: "eleven" };
+      expect(
+        flat,
+        `${property.source} is ${found.length} declarations, ${distinct} values`,
+      ).toContain(
+        sentence
+          .replace("{n}", String(found.length))
+          .replace("{d}", words[distinct] ?? String(distinct)),
+      );
+    }
   });
 
   /**

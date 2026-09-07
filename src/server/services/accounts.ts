@@ -25,6 +25,7 @@ import { conflict, notFound, staleVersion, validationError, duplicate } from "./
 import {
   canonicalDecimal,
   decimal,
+  lockAccountNamespace,
   lockAccountReferences,
   serializeRow,
   writeAudit,
@@ -642,6 +643,11 @@ async function assertAccountNameAvailable(
 export async function createAccount(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = accountCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
+    // Before the check, not after it. Without the lock two requests naming the
+    // same account both read a free name and both insert, which is the race
+    // every other namespace here has been protected from since its check was
+    // written.
+    await lockAccountNamespace(tx, actor);
     await assertAccountNameAvailable(tx, actor, parsed.name);
     const [created] = await tx
       .insert(ledgerAccounts)
@@ -687,6 +693,9 @@ export async function updateAccount(
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
 
     if (changes.name && changes.name !== before.name) {
+      // The reference lock above is per account id and does not serialize two
+      // different accounts being renamed to the same name.
+      await lockAccountNamespace(tx, actor);
       await assertAccountNameAvailable(tx, actor, changes.name, id);
     }
 

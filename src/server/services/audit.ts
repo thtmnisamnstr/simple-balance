@@ -1,18 +1,16 @@
 import { and, desc, eq, lt, or } from "drizzle-orm";
-import type { Actor } from "../../shared/domain.js";
+import { auditListQuerySchema, type Actor } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import { auditEvents } from "../db/schema.js";
 import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
 
-export async function listAuditEvents(
-  actor: Actor,
-  options: { cursor?: string; limit?: number } = {},
-) {
-  // `?? 50` does not catch a limit that parsed to NaN, and Math.min/max carry
-  // NaN straight through to the query, where it becomes a 500 rather than the
-  // default the caller expected.
-  const requested = Number.isFinite(options.limit) ? options.limit! : 50;
-  const limit = Math.min(Math.max(Math.trunc(requested), 1), 200);
+export async function listAuditEvents(actor: Actor, input: unknown = {}) {
+  // Parsed here rather than at each transport, which is where the bound used to
+  // live twice: HTTP handed this a hand-read `Number(...)` that could be NaN and
+  // the tool declared its own inline shape, so the clamp below was a second
+  // defence for a value the other caller had already bounded.
+  const options = auditListQuerySchema.parse(input);
+  const limit = options.limit;
   const cursor = options.cursor
     ? decodeCursor(options.cursor, { key: "created", direction: "desc" })
     : null;

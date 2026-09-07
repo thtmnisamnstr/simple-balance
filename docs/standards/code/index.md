@@ -216,12 +216,12 @@ and stays that way, because a test reads its layout.
 
 ### The compiler
 
-Six settings were free — zero errors — and are on. `erasableSyntaxOnly` cost
-five sites and is on. Three were measured and declined:
+Seven settings were free — zero errors — and are on. `erasableSyntaxOnly` cost
+five sites and is on. Four were measured and declined:
 
 | Setting | Errors | Verdict |
 | --- | --- | --- |
-| `noImplicitOverride`, `noFallthroughCasesInSwitch`, `allowUnreachableCode: false`, `allowUnusedLabels: false`, `verbatimModuleSyntax` | 0 | On. |
+| `noUnusedLocals`, `noUnusedParameters`, `noImplicitOverride`, `noFallthroughCasesInSwitch`, `allowUnreachableCode: false`, `allowUnusedLabels: false`, `verbatimModuleSyntax` | 0 | On. |
 | `erasableSyntaxOnly` | 5 | On. Two classes lost their constructor parameter properties. |
 | `noImplicitReturns` | 3 | **Declined.** All three are Hono middleware, where returning nothing is the contract. See `typescript.md`. |
 | `exactOptionalPropertyTypes` | 71 | Declined for now. |

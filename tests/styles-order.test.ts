@@ -83,6 +83,48 @@ describe("the order of the stylesheet", () => {
       "@media (prefers-color-scheme: dark)",
       "@media (prefers-reduced-motion: reduce)",
     ]);
-    expect(topLevel(above[1]!.body).map((one) => one.selector)).toEqual([".skeleton"]);
+    // Two components, not one. Both are qualifications of the rule directly
+    // above them rather than a second body: the skeleton's shimmer stops, and
+    // the button's spinner swaps its rotation for a pulse — it cannot simply
+    // stop, because the blanket rule at the foot of the file would otherwise
+    // freeze a busy indicator into a static icon.
+    expect(topLevel(above[1]!.body).map((one) => one.selector)).toEqual([
+      ".skeleton",
+      ".animate-spin",
+    ]);
+  });
+});
+
+/**
+ * The layer ladder, because a z-index chosen alone is chosen against nothing.
+ *
+ * `.merge-panel` and `.nav-scrim` both sat at 20 and both can be on screen
+ * below 780px. The scrim is written later, so it painted over the merge panel,
+ * and neither rule said anything about the other.
+ */
+describe("the stacking order", () => {
+  it("gives two independently-triggered layers two values", () => {
+    const declared = new Map<string, string[]>();
+    for (const construct of constructs) {
+      const inner = construct.selector.startsWith("@") ? topLevel(construct.body) : [construct];
+      for (const rule of inner) {
+        const match = /(?:^|[;{])\s*z-index:\s*(-?\d+)/.exec(rule.body);
+        if (!match) continue;
+        for (const selector of rule.selector.split(",").map((one) => one.trim())) {
+          declared.set(match[1]!, [...(declared.get(match[1]!) ?? []), selector]);
+        }
+      }
+    }
+    expect(declared.size).toBeGreaterThan(3);
+    // Two selectors may share a value only where they cannot both be on screen.
+    // The sign-in surface is rendered instead of the app shell rather than over
+    // it, so a layer there and a layer in the app never meet and their values
+    // are free to coincide.
+    const AUTH = /^\.auth-/;
+    const shared = [...declared.entries()]
+      .map(([value, selectors]) => [value, [...new Set(selectors)]] as const)
+      .filter(([, selectors]) => selectors.filter((one) => !AUTH.test(one)).length > 1)
+      .map(([value, selectors]) => `${value}: ${selectors.join(", ")}`);
+    expect(shared, "two layers on one value, and DOM order deciding").toEqual([]);
   });
 });

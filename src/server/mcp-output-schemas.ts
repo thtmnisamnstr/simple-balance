@@ -18,6 +18,7 @@ import {
   recurrenceFrequencies,
   recurrenceMonthPolicies,
   recurrenceWeekendPolicies,
+  stagedStatuses,
   transactionTypes,
 } from "../shared/domain.js";
 
@@ -293,7 +294,7 @@ export const stagedTransactionResultSchema = z
   .object({
     ...versionedEntitySchema,
     status: z
-      .enum(["staged", "committed", "deleted"])
+      .enum(stagedStatuses)
       .describe(
         "staged is waiting for review, committed has become a real transaction — see committedTransactionId — and deleted was dropped from the queue.",
       ),

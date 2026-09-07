@@ -98,6 +98,18 @@ export const categoryKinds = ["income", "expense", "both"] as const;
 export type CategoryKind = (typeof categoryKinds)[number];
 
 export const transactionTypes = ["deposit", "withdrawal", "transfer"] as const;
+
+/**
+ * Where a row in the staging queue has got to.
+ *
+ * Here rather than beside the table because it was spelled out three times —
+ * in `pgEnum`, in the tool's output schema and in the client's response type —
+ * and `pgEnum` is the one of the three the typechecker cannot see: it takes an
+ * array literal, so a fourth value added to the other two compiles and the
+ * database refuses it at run time.
+ */
+export const stagedStatuses = ["staged", "committed", "deleted"] as const;
+export type StagedStatus = (typeof stagedStatuses)[number];
 export type TransactionType = (typeof transactionTypes)[number];
 
 /**
@@ -174,6 +186,18 @@ export type Theme = (typeof themes)[number];
  * Who did it. A scheduler write is not a person at a screen, and saying it was
  * would be a false statement in an audit trail.
  */
+/**
+ * Which sign-in methods a deployment offers.
+ *
+ * In `src/shared` rather than in `src/server/config.ts` because the browser
+ * renders the sign-in screen from it and cannot import from the server half, so
+ * it had a hand-written copy of the same three words. `config.ts` re-exports
+ * this and validates `AUTH_MODE` against it, which is what makes the two one
+ * set rather than two that happen to agree.
+ */
+export const authModes = ["local", "google", "both"] as const;
+export type AuthMode = (typeof authModes)[number];
+
 export const actorSources = ["web", "mcp", "schedule"] as const;
 export type ActorSource = (typeof actorSources)[number];
 
@@ -1901,6 +1925,42 @@ export type TransactionSortField = (typeof transactionSortFields)[number];
 const stageSortFields = ["date", "payee", "account", "category", "status", "amount"] as const;
 export type StageSortField = (typeof stageSortFields)[number];
 
+/**
+ * The audit log's own two parameters, which were the one list contract this
+ * product did not express in Zod.
+ *
+ * `GET /api/v1/audit-events` read `cursor` and `limit` out of the query string
+ * by hand and handed `Number(c.req.query("limit"))` to the service, so `?limit=x`
+ * arrived as `NaN` and the service defended itself against it — the right
+ * defence in the wrong place, and one the MCP tool's own inline shape said
+ * nothing about. Shared for the same reason every other list contract is: one
+ * description, and two transports that cannot come to disagree about a bound.
+ *
+ * Not `.strict()`. Both transports have always ignored an unknown query
+ * parameter and refusing one now is a narrowing a release may not make; the
+ * agent surface applies `.strict()` at the tool, exactly as it does to
+ * `listQuerySchema`.
+ */
+export const auditListQuerySchema = z.object({
+  cursor: z
+    .string()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe(
+      "Resume token from a previous page, taken from `nextCursor`. This log only walks forward.",
+    ),
+  // Coerced because a query string carries "50" and a tool call carries 50, and
+  // this schema answers both.
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(200)
+    .default(50)
+    .describe("Rows per page, 1 to 200. Defaults to 50."),
+});
+
 export const listQuerySchema = dateRangeSchema.extend({
   // Described because these five were the worst case on the whole agent
   // surface: a list published `sort`, `direction`, `cursor`, `page` and `limit`
@@ -2543,6 +2603,17 @@ export const transportErrorCodes = [
   "PAYLOAD_TOO_LARGE",
   "INVALID_CONTENT_LENGTH",
   "REQUEST_BODY_NOT_ALLOWED",
+  /**
+   * A body that is not JSON at all, as against a body that is JSON and wrong.
+   *
+   * These were one code for a while, and it was the only code in the
+   * enumeration that meant two statuses: 400 for a truncated body and 422 for a
+   * schema refusal. A client cannot branch on a code that does not decide, and
+   * "one code, one status" is what makes the enumeration worth publishing.
+   * Adding a code is additive; moving the 400 site to 422 would have narrowed
+   * what a client already handled.
+   */
+  "MALFORMED_BODY",
 ] as const;
 
 /** Every code a caller can be handed, from either half. This is the contract. */

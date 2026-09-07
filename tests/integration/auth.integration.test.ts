@@ -441,8 +441,14 @@ integration("embedded local authentication", () => {
       body: raw,
     });
     expect(response.status).toBe(400);
+    // `MALFORMED_BODY` rather than `VALIDATION_ERROR`, which is the code a
+    // service raises and which is 422. One code meaning both statuses put the
+    // difference in the status and not in the code, which is backwards: 400
+    // means the request was never a request, and 422 means it was a well-formed
+    // one the ledger refused. A caller can retry neither and explain only the
+    // second.
     expect(await response.json()).toMatchObject({
-      error: { code: "VALIDATION_ERROR" },
+      error: { code: "MALFORMED_BODY" },
     });
   });
 

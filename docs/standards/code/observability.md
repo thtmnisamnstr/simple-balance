@@ -56,11 +56,11 @@ than exempting the labels we add ourselves.
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (`src/server/api.ts:255-262`) reads Hono's matched
+one per account. `routeLabel` (`src/server/api.ts:256-263`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labelled by its prefix from a fixed list
-(`:253`), and a path that matched nothing at all is one literal, because a
+(`:254`), and a path that matched nothing at all is one literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
 *Checked by:* `tests/metrics.test.ts`, which asks for `/api/v1/accounts/<uuid>`
@@ -251,11 +251,15 @@ catch through it costs nothing when the doubt was wrong.
 request line, the search term is absent from it, the payee an agent filtered by
 is absent from the tool line, and — serialising the call rather than
 stringifying it, because `String(error)` hides the difference — that a failing
-statement is logged while the values bound into it are not. Whether a line
-somebody adds tomorrow carries something it should not is review, and so is
-whether a new catch block reaches for `log.error` where `log.failure` belongs —
-a grep for `log.error(` with an error identifier in its arguments is the
-review's cheap first pass.
+statement is logged while the values bound into it are not. And
+`tests/mail-logging.test.ts` for the rule this paragraph used to write out and
+leave to a person: no `log.error` call anywhere in `src/server` receives, as a
+bare argument, an identifier bound by a `catch` in the same file. `log.failure`
+is the only call allowed one, because it is where the narrowing lives and it
+falls back to logging the error whole when there is nothing to narrow — so it is
+never the worse choice. The one site the check found was `mail.ts`, which passed
+the caught `sender.verify()` error straight through. Whether a line somebody
+adds tomorrow carries something it should not is still review.
 
 ### 2.5 Warn once, not once per read
 

@@ -7,9 +7,9 @@ The language, and what the compiler has been told to refuse.
 ### 1.1 What is on
 
 **Binding.** `strict` has been on since the beginning. Eight more flags — the
-seven rows below — were measured against this repository before going on; all
-but one cost nothing, and the one with a price (`erasableSyntaxOnly`, five
-lines, §1.2) was worth it:
+seven rows below, of which the first names two — were measured against this
+repository before going on; all but one cost nothing, and the one with a price
+(`erasableSyntaxOnly`, five lines, §1.2) was worth it:
 
 | Setting | Refuses |
 | --- | --- |
@@ -32,8 +32,8 @@ no constructor parameter properties.
 The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
-(`src/server/services/errors.ts:4-25`,
-`src/client/api.ts:24-31`).
+(`src/server/services/errors.ts:31-52`,
+`src/client/api.ts:27-40`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -48,7 +48,7 @@ declares its fields and assigns them somewhere unreadable erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1036`, `src/server/http-security.ts:160` and `:559`),
+(`src/server/api.ts:1066`, `src/server/http-security.ts:160` and `:559`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -164,9 +164,18 @@ Adding a member is one edit, and every one of those follows.
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:
 `erasableSyntaxOnly` rejects an `enum` outright, and because the type is derived
 from the array rather than written beside it, a member added in one place cannot
-disagree with a reader that already exists. Nothing asks for the array in the
-first place, so a closed set hand-written as a bare union of string literals
-passes every check this repository has.
+disagree with a reader that already exists. And `tests/closed-sets.test.ts` for
+the half nothing asked: a closed set hand-written as a bare union of string
+literals used to pass every check here. It found three — the recurrence
+vocabularies in `src/shared/recurrence-dates.ts`, the client's `AuthMode`
+against `src/server/config.ts`, and the client's `BudgetPeriodUnitName` against
+`budgetPeriodUnits`, which is the constant section 2.4 below holds up as the
+model, hand-copied one directory away.
+
+The rule it enforces is deliberately narrow: not "every closed set must be a
+tuple", which would fire on correct inline unions used once, but "no union whose
+member set equals a tuple that already exists". That is one set spelled twice,
+and the two can come apart.
 
 ### 2.4 `satisfies` where a value must stay inside a type without losing its own
 

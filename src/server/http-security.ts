@@ -353,6 +353,14 @@ export function createAttemptLimiter(options: {
   };
 
   return {
+    /**
+     * The window in whole seconds, for the `Retry-After` on a refusal.
+     *
+     * Derived from the same `windowMs` the limiter counts by, so the header and
+     * the bound cannot come to disagree — which is the whole failure mode of a
+     * hand-written number beside a configured one.
+     */
+    retryAfterSeconds: Math.ceil(options.windowMs / 1000),
     /** True when this attempt is within the allowance, counting it. */
     async take(key: string) {
       const now = clock();

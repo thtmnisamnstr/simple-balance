@@ -163,6 +163,39 @@ describe("a scrolling table", () => {
   });
 });
 
+/**
+ * Two rules that are one subject: a thing you can reach with the keyboard has
+ * to show that you have, and a thing that scrolls has to leave room for what
+ * sticks over it.
+ */
+describe("focus and the sticky layers", () => {
+  it("shows a focus indicator on every focusable kind", () => {
+    const focusRules = parsed.filter((rule) => /:focus(-visible|-within)?\b/.test(rule.selector));
+    const covered = focusRules.map((rule) => rule.selector).join(" ");
+    // `summary` is the row menu's trigger, `[tabindex]` is a scrolling table,
+    // and a checkbox used to have nothing but `accent-color`. All three were
+    // focusable with no indicator, which is SC 2.4.7 three times.
+    for (const kind of ["button", "a", "summary", "input", "select", "textarea", "[tabindex]"]) {
+      expect(covered, `${kind} can take focus and shows nothing`).toContain(kind);
+    }
+    // The file picker's own input is visually hidden, so the wrapper takes it.
+    expect(covered).toContain(".file-drop:focus-within");
+  });
+
+  it("leaves room under whatever sticks over a scroller", () => {
+    const sticky = parsed.filter((rule) => /position:\s*(sticky|fixed)/.test(rule.body));
+    expect(sticky.length).toBeGreaterThan(0);
+    // Two scrollers hold all of them: the document, and the modal's own card.
+    // SC 2.4.11 — without this a row scrolled to by keyboard lands underneath
+    // the bar that is stuck over it, which is the case `.merge-panel` is.
+    const padded = parsed
+      .filter((rule) => /scroll-padding/.test(rule.body))
+      .flatMap((rule) => selectorsOf(rule.selector));
+    expect(padded).toContain("html");
+    expect(padded).toContain(".modal-card");
+  });
+});
+
 describe("a filter bar", () => {
   /**
    * Templates wrapped its Type filter in a `Field`, which stacks a visible

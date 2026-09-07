@@ -1,11 +1,32 @@
 import { ZodError } from "zod";
-import type { ServiceErrorCode, ValidationIssue } from "../../shared/domain.js";
+import type { ServiceErrorCode, TransportErrorCode, ValidationIssue } from "../../shared/domain.js";
+
+/**
+ * A refusal that belongs to the transport rather than to the ledger.
+ *
+ * Separate from `AppError` because the two enumerations are separate on
+ * purpose: `mcp-output-schemas.ts` declares `serviceErrorCodes` alone, since a
+ * transport code cannot reach a tool call. A body that is not JSON is the one
+ * transport refusal a route raises by throwing rather than by returning, so it
+ * needs a class; the rest are `errorResponse` in `http-security.ts`.
+ */
+export class TransportError extends Error {
+  readonly code: TransportErrorCode;
+  readonly status: number;
+
+  constructor(code: TransportErrorCode, message: string, status: number) {
+    super(message);
+    this.name = "TransportError";
+    this.code = code;
+    this.status = status;
+  }
+}
 
 /**
  * Narrower than the published `ApiErrorCode` on purpose. The transport half of
- * that union is refused before a route runs, so a service raising one would be
- * reporting something it cannot have seen; typing this on the service half lets
- * the compiler say so.
+ * that union is `TransportError` above, refused before a route reaches a
+ * service, so a service raising one would be reporting something it cannot have
+ * seen; typing this on the service half lets the compiler say so.
  */
 export class AppError extends Error {
   readonly code: ServiceErrorCode;

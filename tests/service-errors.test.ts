@@ -113,3 +113,58 @@ describe("a bare Error in a service", () => {
     expect(bareThrows).toHaveLength(IMPOSSIBLE.length);
   });
 });
+
+/**
+ * One code, one status.
+ *
+ * `http.md` publishes the enumeration as the thing a client branches on, and a
+ * code that means two statuses cannot be branched on: `VALIDATION_ERROR` was
+ * 422 from `validationError()` and 400 from the JSON body reader, so the same
+ * word meant "your body is not JSON" and "your body is JSON and wrong". Adding
+ * `MALFORMED_BODY` fixed it; this stops the next one.
+ */
+describe("the code-to-status map", () => {
+  it("gives each error code exactly one status", () => {
+    const byCode = new Map<string, Set<number>>();
+    for (const file of sourceFiles("src/server")) {
+      for (const match of file.code.matchAll(
+        /new (?:App|Transport)Error\(\s*"([A-Z_]+)"\s*,[^)]*?,\s*(\d{3})/gs,
+      )) {
+        const [, code, status] = match;
+        byCode.set(code!, (byCode.get(code!) ?? new Set()).add(Number(status)));
+      }
+    }
+    expect(byCode.size, "no throw sites found — the pattern has stopped matching").toBeGreaterThan(
+      2,
+    );
+    const ambiguous = [...byCode.entries()]
+      .filter(([, statuses]) => statuses.size > 1)
+      .map(([code, statuses]) => `${code} means ${[...statuses].sort().join(" and ")}`);
+    expect(ambiguous).toEqual([]);
+  });
+
+  /**
+   * The two sanctioned constructors, and nothing else building a body by hand.
+   *
+   * An error shape assembled at a route is an error shape no enumeration covers
+   * — which is how a sixth transport code reached the wire once before.
+   */
+  it("builds an error body in the two places that are allowed to", () => {
+    const ALLOWED = new Set([
+      // The one renderer every thrown error goes through.
+      "src/server/api.ts",
+      // `errorResponse`, which exists so a transport refusal cannot invent a code.
+      "src/server/http-security.ts",
+    ]);
+    const offenders: string[] = [];
+    for (const file of sourceFiles("src/server")) {
+      const relative = file.path.slice(file.path.indexOf("src/server"));
+      if (ALLOWED.has(relative)) continue;
+      // A quoted code, which is the HTTP envelope's shape. JSON-RPC's numeric
+      // `code: -32000` on the `/mcp` mount is a different protocol's error
+      // object and is not this enumeration's business.
+      if (/error:\s*\{\s*code:\s*"/.test(file.code)) offenders.push(relative);
+    }
+    expect(offenders).toEqual([]);
+  });
+});

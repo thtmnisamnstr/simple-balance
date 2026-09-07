@@ -320,7 +320,7 @@ happens, since the chart and the compose file both give the scheduler the whole
 of the API's environment and a hand-built one gives it what somebody remembered.
 
 What it deliberately does not copy from the API is written above its own
-`main()` (`src/server/scheduler.ts:37-50`). The archived-account reconciliation
+`main()` (`src/server/scheduler.ts:42-55`). The archived-account reconciliation
 is a repair of somebody's postings rather than anything the schedule needs, and
 the API image runs in every deployment that runs this one; the `TRUST_PROXY`
 notice and the first-run setup code belong to a sign-in this process does not
@@ -375,11 +375,11 @@ else refuses to start.
 
 This is the rule most worth stating because the alternative is truthiness, and
 truthiness has no symptom. `RECURRENCE_SCHEDULER` already does it, and
-`config.ts:217-219` gives the reason: "A misspelling here has no symptom: the
+`config.ts:219-221` gives the reason: "A misspelling here has no symptom: the
 process starts, serves, and quietly proposes nothing until somebody notices a
 year of missing rent." `RECURRENCE_SCHEDULER=yes` read as falsy is a deployment
-that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:213-216`) and
-`SMTP_SSL` (`config.ts:380-383`) follow the same pattern.
+that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:215-218`) and
+`SMTP_SSL` (`config.ts:382-385`) follow the same pattern.
 
 The same argument applies to any closed set, not only booleans. `NODE_ENV` is
 parsed against three values and refuses a fourth (`config.ts:188-192`), because
@@ -483,7 +483,7 @@ contradictory secret file then refuses at startup rather than at the first
 query, which is what the next section asks of everything else.
 
 The same argument decided the one line that looks like it should have been left
-alone. `config.ts:306-314` hands `getPool()` the *development default* for
+alone. `config.ts:308-316` hands `getPool()` the *development default* for
 `DATABASE_URL` and is now guarded so it does that and nothing else, because
 unguarded it would have written a value read from `DATABASE_URL_FILE` straight
 back into the environment the form exists to keep it out of.
@@ -777,7 +777,7 @@ than shipping an image that lies about what it was built on.
 needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
-returns 200 or 503 (`src/server/api.ts:348-363`, and the same pair on the
+returns 200 or 503 (`src/server/api.ts:357-372`, and the same pair on the
 scheduler at `src/server/scheduler.ts:23-32`). Both are registered above every
 auth middleware and neither is authenticated.
 
@@ -806,7 +806,7 @@ deadline.
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
 `docs/deployment.md:631-636` and `README.md:131-134` describe one statement
-against the database and nothing else, and `src/server/api.ts:348-354` says the
+against the database and nothing else, and `src/server/api.ts:358-371` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
 schema this build does not expect.
@@ -1178,8 +1178,10 @@ Not checked mechanically, ranked by how cheap the check would be:
 2. No unconfigured outbound network call from `src/server`.
 3. `oneLine` refuses CR and LF, which is what closes header injection.
 4. A failed send names the notification row and not only the kind of message it
-   was. `sendMail` takes the phrase from the caller, so this is a matter of the
-   two callers passing an id they already hold.
+   was. The code half is done — both scheduled senders pass the id
+   (`src/server/services/notifications.ts:175`, `:373`), as the mail policy
+   section above records — so what is missing is the test that would keep it
+   done.
 
 Review only, because no test can judge them:
 
@@ -1205,11 +1207,17 @@ when somebody remembers it differently: two rows here once described finished
 work for a release, one of them contradicted three lines away by a paragraph
 marked **Settled**.
 
-Nothing is outstanding. The four rows this table last carried have landed, and
-each is recorded above as **Settled** with the test that holds it: the bounded
-integers are read at startup and warn by name, the two example files and the
-deployment tables name
+The four rows this table last carried have landed, and each is recorded above as
+**Settled** with the test that holds it: the bounded integers are read at
+startup and warn by name, the two example files and the deployment tables name
 the same variables with the exceptions written down, every image pins its bases
-by digest and labels them, and the scheduler checks the transport it sends
-every scheduled message over. An empty table is a claim, so it is worth saying
-what would put a row back: work this guide argues for and the code does not do.
+by digest and labels them, and the scheduler checks the transport it sends every
+scheduled message over.
+
+Two rows replace them, and both meet the criterion this table sets — work this
+guide argues for and the code does not do:
+
+| What | Where | Why it is a row |
+| --- | --- | --- |
+| The `_FILE` secret form is unreachable through the two orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:62-66`, `deploy/compose/compose.distributed.yml:46`, `:61` | The chart consumes an existing Secret through `envFrom` and declares no volume on either workload; the compose file writes `DATABASE_URL` inline and makes `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose file rather than the resolver. A `secretFiles` values block mounting a Secret as a volume, and a commented `secrets:` stanza, are what would close it |
+| `METRICS_TOKEN_FILE` has no consumer-side proof | `src/server/config-files.ts:15-23` | Six of the seven `_FILE` names are read back through the consumer that has to end up holding the value. The seventh rests on the resolver's registry alone, so a name added there and never wired to the scrape endpoint would look identical |

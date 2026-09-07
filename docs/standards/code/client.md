@@ -136,8 +136,10 @@ shown, it is exact.
 This is a rule with a scar. A budget row's state — within, close, spent, over —
 was decided with `Number()` on values that are decimal strings, so a row that
 was exactly spent could render as either "spent" or "within" depending on the
-amount. It now compares exactly
-(`src/client/pages/BudgetsPage.tsx:117`).
+amount. It now compares exactly, through `isNegativeMoney` and `compareMoney`
+in `rowState` (`src/client/budget-display.ts:63-84`), which moved out of the
+page so the dashboard's budget section and the budgets page cannot answer the
+same question two ways.
 
 *Checked by:* `tests/client-money.test.ts` for the arithmetic;
 `tests/budgets-ui.test.tsx` for that particular row.

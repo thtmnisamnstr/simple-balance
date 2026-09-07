@@ -461,7 +461,25 @@ export function normalizeCsvRows(
   });
 }
 
-const spreadsheetFormulaPattern = /^(?:[\u0000-\u0020]*[=+\-@]|[\t\r\n])/;
+/**
+ * What a spreadsheet will read as a formula, in every spelling of it.
+ *
+ * The four ASCII leaders are the well-known half. The full-width forms are the
+ * half that shipped: Excel and Google Sheets normalise the full-width equals to
+ * `=` before deciding whether a cell is a formula, so a cell led by one was
+ * neutralised nowhere and evaluated everywhere — the guide called this the one
+ * outright code defect it records.
+ *
+ * The leading-whitespace class is the same story one level down.
+ * `[\u0000-\u0020]` covers the ASCII controls and the space and stops there, so
+ * a no-break space or any of the Unicode spaces in front of an `=` carried the
+ * cell past the test. Widening it is safe for a file written by an older build:
+ * nothing could have prefixed a value this did not already match, so
+ * `restoreNeutralizedCell` — which shares the pattern deliberately — takes back
+ * exactly what was added and nothing else.
+ */
+const spreadsheetFormulaPattern =
+  /^(?:[\u0000-\u0020\u00a0\u1680\u2000-\u200b\u2028\u2029\u202f\u205f\u3000\ufeff]*[=+\-@\uff1d\uff0b\uff0d\uff20]|[\t\r\n])/;
 
 export function neutralizeSpreadsheetFormula(value: unknown): string {
   const stringValue = value == null ? "" : String(value);

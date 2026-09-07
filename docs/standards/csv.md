@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1519-1549`, which is the
+which reads and writes files, and `src/server/api.ts:1525-1555`, which is the
 transport.
 
 ## 1. Why CSV, and why no apology
@@ -663,7 +663,7 @@ Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
 position (`src/client/pages/StagingPage.tsx:893-942`) and a staged row stores no
-source row number (`src/server/db/schema.ts:750-862`), so a queue entry is
+source row number (`src/server/db/schema.ts:751-863`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
 *Checked by:* `tests/domain.test.ts` ("reports the file's own line for a row with
@@ -726,7 +726,7 @@ import that stages more than one action can clear is a cap doing damage."
 
 `DEFAULT_CSV_MAX_ROWS` is `MAX_BULK_SELECTION_ENTRIES`, by construction rather
 than by coincidence (`src/server/config-limits.ts:13`,
-`src/shared/domain.ts:1196`). `CSV_MAX_ROWS` may lower it; raising it past the
+`src/shared/domain.ts:1220`). `CSV_MAX_ROWS` may lower it; raising it past the
 bulk cap only moves the refusal further along, so the configuration ceiling is
 the same number.
 
@@ -818,14 +818,19 @@ applications and all downstream consumers". The guarantee here is therefore
 stated narrowly: **the exact value survives our own reader, and the visible cell
 is neutralised on a best-effort basis for whatever opens it.**
 
-**Known gap.** `spreadsheetFormulaPattern` does not cover the full-width
-variants OWASP names, `＝ ＋ － ＠`. It costs little, because the JSON channel
-preserves the exact value regardless and `cleanHumanName` applies NFKC on the
-way back in, which folds those forms to their ASCII equivalents. It is still a
-gap in the visible cell.
+**Closed.** `spreadsheetFormulaPattern` covers the full-width variants OWASP
+names, and the leading-whitespace class it allows in front of them now reaches
+past U+0020 to the no-break space, the Unicode spaces and the zero-width space
+— the same defect one level down, since a wide space in front of an `=` carried
+the cell past the test. `restoreNeutralizedCell` shares the pattern on purpose
+and widened with it, which is safe for a file written by an older build: nothing
+could have prefixed a value the narrower pattern did not already match, so the
+apostrophe taken back is exactly the one that was added.
 
 *Checked by:* `tests/domain.test.ts` ("neutralizes spreadsheet formulas only in
-designated free-text columns"),
+designated free-text columns" and "neutralizes the full-width and wide-space
+spellings too", the second written with escapes rather than the characters
+themselves so that what is under test survives a copy and a paste),
 `tests/integration/csv-roundtrip-fidelity.integration.test.ts:164-200`,
 `tests/integration/import-export.integration.test.ts:936` ("round-trips
 formula-like text without exposing formulas or changing data").
@@ -924,9 +929,15 @@ Not checked mechanically, in the order they are worth building:
    gate, since the assertion needs no database.
 4. **The neutralised column list matches the free-text columns**, so a new text
    column cannot be added unprotected.
-5. **Row and column addressing**, once section 11's convention is adopted.
-6. Whether the preview shows what the import will do. That one is review, and it
+5. Whether the preview shows what the import will do. That one is review, and it
    stays review, because the thing being judged is whether two screens agree.
+
+Row addressing used to be item 5 here. The convention is adopted: `csvFileLine`
+(`src/shared/csv.ts:194`) counts the header as row 1, which is RFC 7111's
+convention, and "a row number is the file's own line, whichever fault it came
+from" is in the table above with four cases behind it. Column addressing is not
+adopted and is not worth a row of its own, because nothing in this format
+addresses a cell by column number.
 
 A rule that appears in neither list is a rule nobody is responsible for, and that
 is a defect in this guide rather than in the code.

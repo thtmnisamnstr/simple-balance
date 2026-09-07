@@ -74,7 +74,7 @@ export async function checkMailTransport() {
     log.info(`Mail is configured. Sending as ${getConfig().mail!.from}`);
     return true;
   } catch (error) {
-    log.error(
+    log.failure(
       "SMTP_HOST is set but the mail server refused the connection. " +
         "Password resets and address verification will not work, and because " +
         "verification is required whenever mail is configured, nobody will be " +

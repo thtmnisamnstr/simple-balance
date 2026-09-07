@@ -111,6 +111,49 @@ describe("the conventions the paths follow", () => {
     const strays = (await registeredRoutes()).filter((route) => route.endsWith("/delete"));
     expect(strays).toEqual([]);
   });
+
+  /**
+   * No `/api/v1` handler converts a query parameter itself.
+   *
+   * Every list contract on this surface is a published Zod schema, which is
+   * what makes it one contract for the browser and for an agent and what puts a
+   * bound in one place. `GET /api/v1/audit-events` was the exception: it read
+   * `cursor` and `limit` by hand and handed `Number(c.req.query("limit"))` to
+   * the service, so `?limit=x` arrived as `NaN` and the service grew a guard
+   * against it — the right defence in the wrong place, and invisible to a
+   * comparison of route lists.
+   *
+   * A bare JavaScript conversion is the thing worth refusing rather than the
+   * read itself. `Number("x")` is `NaN` and `Boolean("false")` is true: both
+   * produce a value the handler will pass on, where a schema would have refused
+   * the request and said which parameter was wrong.
+   */
+  it("converts no query parameter by hand", async () => {
+    const source = await readFile(apiPath, "utf8");
+    const routes = source.slice(source.indexOf('app.use("/api/v1/*"'));
+    const coerced = [
+      ...routes.matchAll(/(Number|parseInt|parseFloat|Boolean|JSON\.parse)\(\s*c\.req\.query\(/g),
+    ].map((match) => match[0]);
+    expect(coerced).toEqual([]);
+  });
+
+  /**
+   * And the parameters a handler still names, as a fixed list.
+   *
+   * Eight reads remain and every one of them hands its string straight to
+   * something that parses it — `queryBooleanSchema` for the flag,
+   * `isoDateSchema` inside the service for the dates. That is the defence in
+   * the right place, so these are not defects; naming them is what makes a
+   * ninth a decision somebody made rather than one that arrived.
+   */
+  it("names the query parameters a handler still reads one at a time", async () => {
+    const source = await readFile(apiPath, "utf8");
+    const routes = source.slice(source.indexOf('app.use("/api/v1/*"'));
+    const named = [
+      ...new Set([...routes.matchAll(/c\.req\.query\(\s*"([^"]+)"/g)].map((match) => match[1]!)),
+    ].sort();
+    expect(named).toEqual(["end", "includeArchived", "search", "start"]);
+  });
 });
 
 /**

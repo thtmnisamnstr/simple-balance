@@ -32,6 +32,7 @@ import {
   recurrenceFrequencies,
   recurrenceMonthPolicies,
   recurrenceWeekendPolicies,
+  stagedStatuses,
   themes,
   transactionTypes,
 } from "../../shared/domain.js";
@@ -195,7 +196,7 @@ export const accountTypeEnum = pgEnum("ledger_account_type", accountTypes);
 export const systemAccountKindEnum = pgEnum("system_account_kind", systemAccountKinds);
 export const categoryKindEnum = pgEnum("category_kind", categoryKinds);
 export const transactionTypeEnum = pgEnum("transaction_type", transactionTypes);
-export const stagedStatusEnum = pgEnum("staged_status", ["staged", "committed", "deleted"]);
+export const stagedStatusEnum = pgEnum("staged_status", stagedStatuses);
 export const actorSourceEnum = pgEnum("actor_source", actorSources);
 export const recurrenceFrequencyEnum = pgEnum("recurrence_frequency", recurrenceFrequencies);
 export const recurrenceMonthPolicyEnum = pgEnum("recurrence_month_policy", recurrenceMonthPolicies);

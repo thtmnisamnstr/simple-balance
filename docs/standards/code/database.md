@@ -90,15 +90,20 @@ import unread and `noUnusedLocals` fails — which holds by arithmetic rather
 than by design, and would stop holding the day a tuple earns a second use in
 the file.
 
-The exception is `staged_status` (`src/server/db/schema.ts:198`), an inline
-literal with no shared tuple behind it, whose three members are written out
-again in `src/server/mcp-output-schemas.ts:296` and
-`src/client/api.ts:437`. Nothing in `src/shared` lists staged statuses, so the
-mechanism above cannot fire for it: the inline literal imports nothing for
-`noUnusedLocals` to catch, and a member added to the `pgEnum` alone surfaces
-only when a tool's output validation refuses the reply in front of an agent.
-Give it a shared tuple the day it changes; until then it is the one enum drift
-the typechecker will not see coming.
+`staged_status` was the exception and no longer is. It was an inline literal
+with no shared tuple behind it, written out again in
+`src/server/mcp-output-schemas.ts` and `src/client/api.ts`, so the mechanism
+above could not fire for it: the inline literal imports nothing for
+`noUnusedLocals` to catch, and a member added to the `pgEnum` alone would have
+surfaced only when a tool's output validation refused the reply in front of an
+agent. It now reads `stagedStatuses` from `src/shared/domain.ts`, like the other
+twelve.
+
+*Also checked by:* `tests/closed-sets.test.ts`, which refuses any `pgEnum` given
+an array literal rather than an identifier. That is the half `npm run typecheck`
+structurally cannot do — `pgEnum` takes an array, so a fourth value added to the
+tuple and not to the enum compiles everywhere and is refused by the database at
+run time — and it is what stops a fourteenth enum arriving the way this one did.
 
 ### 2.3 Every user-owned table carries `userId`, and every query filters on it
 
@@ -216,7 +221,7 @@ instances starting together must not both migrate.
 | 1.2 A name rather than a generator's slug | A test holds a name steady once it is written; none can tell a chosen name from a generated one. |
 | 1.3 Additive by default | A migration linter could catch `drop column`; none exists. |
 | 3.1 One grid query | Nothing stops a second one being written. |
-| 4.1 Locks before name reads | A missing lock produces a rare duplicate, which no test will reliably reproduce. |
+| 4.1 Locks before name reads | A missing lock produces a rare duplicate, which no test will reliably reproduce. `tests/name-locks.test.ts` holds the *shape* — a name check with its namespace lock above it in the same body — which is the half a source read can settle. |
 | 4.2 Migrations under a lock | Only a second process starting against the same database at the same moment can tell the lock is there, and nothing starts one. The suite runs `runMigrations()` and would run it unlocked just as happily. |
 
 Five `human` rules in this guide, two more than it used to say. 4.2 was never

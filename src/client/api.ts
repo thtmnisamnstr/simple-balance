@@ -15,7 +15,10 @@ import type {
   RecurrenceShape,
   ReportBucket,
   ReportName,
+  AuthMode,
+  BudgetPeriodUnit,
   StagedDraft,
+  StagedStatus,
   TransactionTemplateDraft,
   TransactionType,
   ValidationIssue,
@@ -56,7 +59,6 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
       response.status,
     );
   }
-  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -230,7 +232,7 @@ export type Session = {
   auth: UserAuthState;
 };
 
-export type AuthMode = "local" | "google" | "both";
+export type { AuthMode };
 
 export type AuthPublicOptions = {
   mode: AuthMode;
@@ -454,7 +456,7 @@ export type StagedTransaction = {
     };
   } | null;
   version: number;
-  status: "staged" | "committed" | "deleted";
+  status: StagedStatus;
   createdAt: string;
 };
 
@@ -667,7 +669,7 @@ export type { CsvPreview, CsvSampleRow } from "../shared/csv.js";
 
 export type { PaginatedPage, Page };
 
-export type BudgetPeriodUnitName = "week" | "month" | "quarter" | "year";
+export type BudgetPeriodUnitName = BudgetPeriodUnit;
 
 export type CategoryGroup = {
   id: string;

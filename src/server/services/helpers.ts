@@ -246,8 +246,8 @@ export function selectionFingerprint(rows: readonly { id: string; version: numbe
 /**
  * Serialize mutations involving account references that cannot all be
  * represented by foreign keys (notably staged JSON drafts). Always acquire all
- * account locks in sorted order before acquiring the category namespace lock,
- * then the payee namespace lock.
+ * account locks in sorted order, then the account namespace lock, then the
+ * category namespace lock, then the payee namespace lock.
  */
 export async function lockAccountReferences(
   tx: DbTransaction,
@@ -258,6 +258,23 @@ export async function lockAccountReferences(
   for (const accountId of sortedIds) {
     await takeTransactionLock(tx, `account-reference:${actor.userId}:${accountId}`);
   }
+}
+
+/**
+ * Serialize changes to the tenant's account names, which are unique.
+ *
+ * The fifth of these and the last to be written, which is the point: accounts
+ * were the one namespace with a name check and no lock behind it, so two
+ * concurrent `POST /api/v1/accounts` naming the same account both found the
+ * name free and both inserted. Categories, payees, templates and recurrences
+ * had all had one since the day their check was written.
+ *
+ * Taken after the account-reference locks and before the category namespace,
+ * so the one path that takes both — renaming an account — takes them in the
+ * order every other path does.
+ */
+export async function lockAccountNamespace(tx: DbTransaction, actor: Actor) {
+  await takeTransactionLock(tx, `accounts:${actor.userId}`);
 }
 
 export async function lockCategoryNamespace(tx: DbTransaction, actor: Actor) {

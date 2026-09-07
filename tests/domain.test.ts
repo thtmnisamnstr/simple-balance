@@ -18,9 +18,11 @@ import {
 import {
   CSV_MEDIA_TYPE,
   csvFileLine,
+  neutralizeSpreadsheetFormula,
   normalizeCsvRows,
   parseLocalizedAmount,
   previewCsv,
+  restoreNeutralizedCell,
   rowsToCsv,
 } from "../src/shared/csv.js";
 import { rangeForPreset } from "../src/client/date-range.js";
@@ -523,6 +525,43 @@ describe("CSV normalization", () => {
       source_amount: "-12.34",
       effective_rate: "1.2345",
     });
+  });
+
+  /**
+   * The same rule in the spellings a spreadsheet also reads as a formula.
+   *
+   * Excel and Google Sheets normalise the full-width forms before deciding
+   * whether a cell is a formula, so a value led by a full-width equals was
+   * neutralised nowhere and evaluated everywhere — the one outright code defect
+   * the CSV guide records. The leading-whitespace half is the same story: the
+   * class stopped at U+0020, so a no-break space or a zero-width space in front
+   * of an `=` carried the cell past the test.
+   *
+   * Written with escapes rather than the characters themselves, so that what is
+   * being tested survives a copy, a paste and an editor that normalises.
+   */
+  it("neutralizes the full-width and wide-space spellings too", () => {
+    const cases = [
+      "\uff1d1+1",
+      "\uff0b1",
+      "\uff0d1",
+      "\uff201",
+      "\u00a0=1+1",
+      "\u200b@x",
+      "\u3000+2",
+    ];
+    for (const value of cases) {
+      const neutralized = neutralizeSpreadsheetFormula(value);
+      expect(neutralized, JSON.stringify(value)).toBe(`'${value}`);
+      // And taken back exactly, because the two share the pattern on purpose:
+      // widening one without the other would import every such cell with an
+      // apostrophe glued on and make a second payee on every round trip.
+      expect(restoreNeutralizedCell(neutralized), JSON.stringify(value)).toBe(value);
+    }
+    // Still nothing a person would type. A leading hyphen is a formula leader
+    // and stays one; an ordinary name is left alone.
+    expect(neutralizeSpreadsheetFormula("Acme Corp")).toBe("Acme Corp");
+    expect(neutralizeSpreadsheetFormula("Caf\u00e9 \u2014 Berlin")).toBe("Caf\u00e9 \u2014 Berlin");
   });
 });
 
