@@ -44,7 +44,13 @@ describe("wide tables", () => {
       const lines = source.split("\n");
       lines.forEach((line, index) => {
         if (!/className="data-table\b/.test(line)) return;
-        const above = lines.slice(Math.max(0, index - 3), index).join("\n");
+        // Eight lines, not three. The window is a proximity heuristic — "the
+        // wrapper is right there" — and a wrapper now carries four attributes
+        // rather than one: `tabIndex`, `role` and `aria-label` joined
+        // `className` when §9.6's keyboard rule landed, and the formatter puts
+        // each on its own line. Eight still means right there; the failure this
+        // guards against is a table with no wrapper at all.
+        const above = lines.slice(Math.max(0, index - 8), index).join("\n");
         const wrapper = [...above.matchAll(/className="([\w- ]+)"/g)]
           .flatMap((match) => match[1]!.split(/\s+/))
           .some((name) => scrolls.has(name));

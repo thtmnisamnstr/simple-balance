@@ -3,9 +3,17 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowDownLeft, ArrowUpRight, Landmark, Plus, Scale, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { groupAccountsByType } from "../../shared/domain.js";
-import { api, queryString, type Account, type Category, type Summary } from "../api.js";
+import {
+  api,
+  queryString,
+  type Account,
+  type BudgetReport,
+  type Category,
+  type Summary,
+} from "../api.js";
 import {
   Alert,
+  Badge,
   Button,
   DateRangeBar,
   EmptyState,
@@ -14,6 +22,7 @@ import {
   Skeleton,
 } from "../components.js";
 import {
+  compareMoney,
   formatDate,
   formatMoney,
   isNegativeMoney,
@@ -21,6 +30,7 @@ import {
   moneyRatioPercent,
 } from "../money.js";
 import { useDateRange } from "../date-range.js";
+import { fillPercent, periodName, periodState, stateLabel, stateTone } from "../budget-display.js";
 import { TransactionForm } from "../forms.js";
 
 export default function DashboardPage() {
@@ -39,6 +49,25 @@ export default function DashboardPage() {
     queryKey: ["categories"],
     queryFn: () => api<Category[]>("/api/v1/categories"),
   });
+  // The same report the budgets page reads, over the range this page is
+  // showing. Keyed under "budgets" so setting one over there refreshes this.
+  //
+  // Most of what it carries is dropped here on purpose (§11.9). A period's
+  // `rows`, `groups`, `carriedIn`, `toAssign`, `perimeter` and `unfunded` are
+  // the budgets page's subject; this panel answers one question — how is the
+  // budget going — and a reader who wants the breakdown follows the link in its
+  // header. `otherPeriodUnits` is dropped for the same reason: acting on it
+  // means changing the period unit, and that control lives over there.
+  const budgets = useQuery({
+    queryKey: ["budgets", "report", start, end],
+    queryFn: () => api<BudgetReport>(`/api/v1/budget-report?${queryString({ start, end })}`),
+  });
+  // A period with nothing budgeted in it is not a budget to report on, so a
+  // ledger that has never set one gets no panel rather than a row of zeroes.
+  const budgetPeriodsFor = (currency: string) =>
+    (budgets.data?.periods ?? []).filter(
+      (period) => period.currency === currency && compareMoney(period.budgeted, "0") > 0,
+    );
 
   return (
     <>
@@ -59,7 +88,7 @@ export default function DashboardPage() {
 
       {summary.isPending ? (
         <div className="currency-sections">
-          <Skeleton height={160} />
+          <Skeleton height={160} label="Loading the overview…" />
           <Skeleton height={160} />
         </div>
       ) : summary.error ? null : !summary.data?.currencies.length ? (
@@ -76,7 +105,7 @@ export default function DashboardPage() {
       ) : (
         <div className="currency-sections">
           {summary.data?.currencies.map((currency) => (
-            <section key={currency.currency}>
+            <section className="currency-section" key={currency.currency}>
               <div className="currency-heading">
                 <div>
                   <span className="currency-code">{currency.currency}</span>
@@ -197,7 +226,25 @@ export default function DashboardPage() {
                         return (
                           <div key={item.categoryId ?? "uncategorized"} className="spending-row">
                             <div>
-                              <span>{item.category}</span>
+                              {/* Linked where there is something to link to.
+                                  Uncategorised has no id — it is the absence of
+                                  a category rather than one of them — and a
+                                  link to /categories/null is a 404. The range
+                                  travels, because the detail page mounts its
+                                  own range bar and would otherwise open on a
+                                  different month than the figure just read. */}
+                              {item.categoryId ? (
+                                <Link
+                                  to={{
+                                    pathname: `/categories/${item.categoryId}`,
+                                    search: location.search,
+                                  }}
+                                >
+                                  {item.category}
+                                </Link>
+                              ) : (
+                                <span>{item.category}</span>
+                              )}
                               <strong>{formatMoney(item.amount, currency.currency)}</strong>
                             </div>
                             <div className="progress-track">
@@ -212,6 +259,84 @@ export default function DashboardPage() {
                   )}
                 </article>
               </div>
+
+              {/* Where the budget stands over the range above, for this
+                  currency. A row per period the report returns rather than one
+                  folded total: the service is explicit that "a range chooses
+                  which periods to show, it does not slice them", so adding two
+                  months of limits together would be arithmetic nothing else in
+                  the product does. Each row says which period it is, which also
+                  answers the all-time case, where the range is empty and the
+                  report falls back to the period today is in. */}
+              {budgets.isError ||
+              budgets.isPending ||
+              budgetPeriodsFor(currency.currency).length ? (
+                <section className="panel">
+                  <header className="panel-header">
+                    <h3>Budget</h3>
+                    <span>
+                      <Link to={{ pathname: "/budgets", search: location.search }}>
+                        See budgets
+                      </Link>
+                    </span>
+                  </header>
+                  {budgets.isError ? (
+                    <Alert kind="error">
+                      The budget figures could not be loaded, so this panel is empty for a reason
+                      that is not the ledger. {(budgets.error as Error).message}
+                    </Alert>
+                  ) : null}
+                  {budgets.isPending ? <Skeleton height={54} label="Loading budgets…" /> : null}
+                  {!budgets.isError &&
+                  !budgets.isPending &&
+                  budgetPeriodsFor(currency.currency).length === 0 ? (
+                    <p className="panel-empty">Nothing budgeted in this range.</p>
+                  ) : null}
+                  {budgetPeriodsFor(currency.currency).map((period) => {
+                    const state = periodState(period);
+                    return (
+                      <div
+                        className="spending-row"
+                        key={`${period.periodStart}:${period.currency}`}
+                      >
+                        <div>
+                          <span>
+                            {periodName(budgets.data!.periodUnit, period.periodStart)}
+                            {period.partial ? " (so far)" : ""}
+                          </span>
+                          <strong>
+                            {formatMoney(period.spent, currency.currency)} of{" "}
+                            {formatMoney(period.budgeted, currency.currency)}
+                          </strong>
+                        </div>
+                        <div className="budget-progress">
+                          <div
+                            className="budget-bar"
+                            data-state={state}
+                            role="img"
+                            aria-label={`${stateLabel[state]}, ${formatMoney(
+                              period.spent,
+                              currency.currency,
+                            )} of ${formatMoney(period.budgeted, currency.currency)}`}
+                          >
+                            {/* Against `available`, not `budgeted`. `rowState`
+                                decides the badge beside this from the same
+                                figure, and a bar drawn against the bare limit
+                                said "nearly there" beside a badge saying most
+                                of the money was still there — a period that
+                                carried something forward has more to spend than
+                                its limit. */}
+                            <span
+                              style={{ width: `${fillPercent(period.available, period.spent)}%` }}
+                            />
+                          </div>
+                          <Badge tone={stateTone[state]}>{stateLabel[state]}</Badge>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </section>
+              ) : null}
             </section>
           ))}
         </div>
@@ -226,11 +351,22 @@ export default function DashboardPage() {
         {/* Mounted only while the dialog is open, so closing it clears what was
             half typed instead of leaving it there for next time. */}
         {open ? (
-          <TransactionForm
-            accounts={accounts.data ?? []}
-            categories={categories.data ?? []}
-            onDone={() => setOpen(false)}
-          />
+          <>
+            {/* Said rather than left blank. Both of these feed pickers, and a
+                picker with nothing in it because a request failed looks exactly
+                like a ledger with no accounts or no categories in it. */}
+            {accounts.isError || categories.isError ? (
+              <Alert kind="error">
+                {accounts.isError ? "Accounts" : "Categories"} could not be loaded, so the picker
+                below is short. Reload before entering anything.
+              </Alert>
+            ) : null}
+            <TransactionForm
+              accounts={accounts.data ?? []}
+              categories={categories.data ?? []}
+              onDone={() => setOpen(false)}
+            />
+          </>
         ) : null}
       </Modal>
     </>

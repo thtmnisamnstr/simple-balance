@@ -23,6 +23,7 @@ import {
   useState,
 } from "react";
 import type { SortDirection } from "../shared/domain.js";
+import { PROGRESS_VERB, type ProgressEvent } from "../shared/progress.js";
 import { errorMessages } from "./api.js";
 import type { DatePreset } from "./date-range.js";
 import { useDateRange } from "./date-range.js";
@@ -684,12 +685,18 @@ export function PageHeader({
 }) {
   return (
     <header className="page-header">
-      <div>
-        {eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}
-        <h1>{title}</h1>
-        {description ? <p>{description}</p> : null}
+      {/* The actions sit in the title row rather than beside the whole block,
+          so a description that wraps to two lines cannot move them. That was
+          the difference between Recurring and Templates, and nothing on either
+          page said so. */}
+      <div className="page-heading">
+        <div>
+          {eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}
+          <h1>{title}</h1>
+        </div>
+        {actions ? <div className="page-actions">{actions}</div> : null}
       </div>
-      {actions ? <div className="page-actions">{actions}</div> : null}
+      {description ? <p>{description}</p> : null}
     </header>
   );
 }
@@ -798,3 +805,41 @@ export function Badge({
 }: PropsWithChildren<{ tone?: "neutral" | "green" | "red" | "amber" | "blue" }>) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
+
+/**
+ * How far a long write has got, for work whose end is already counted.
+ *
+ * A native `<progress>` rather than a div wearing `role="progressbar"`: the
+ * element computes `aria-valuenow`, `aria-valuemin` and `aria-valuemax` from
+ * its own attributes, and a hand-declared role is how three inputs came to
+ * promise a combobox that was not there.
+ *
+ * Never rendered without a value. A bare `<progress>` is indeterminate and
+ * animates in every engine, and the blanket reduced-motion rule at the foot of
+ * the stylesheet would freeze it into a static bar that says nothing — which is
+ * the defect the button's spinner already has, not one to reproduce.
+ *
+ * The bar is paired with words, always, and the words are the accessible name.
+ * A picture of waiting is nothing at all to somebody who cannot see it.
+ */
+export function ProgressBar({ label, value, max }: { label: string; value: number; max: number }) {
+  const labelId = useId();
+  return (
+    <div className="progress-row">
+      <progress className="progress-meter" value={value} max={max} aria-labelledby={labelId} />
+      <span id={labelId}>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * The sentence that goes beside the bar, in one place so two pages cannot word
+ * it differently.
+ *
+ * The house count form: both figures grouped, the past participle from the
+ * phase vocabulary, sentence case, no full stop. These are the true figures for
+ * the phase in flight — the bar itself is weighted across phases, and a weight
+ * is an estimate, so the numbers a person reads are never the estimated ones.
+ */
+export const progressLabel = (event: ProgressEvent) =>
+  `${event.done.toLocaleString()} of ${event.total.toLocaleString()} ${PROGRESS_VERB[event.phase]}`;

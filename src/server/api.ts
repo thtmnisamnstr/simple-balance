@@ -54,6 +54,8 @@ import { handleMcpRequest } from "./mcp.js";
 import { httpDuration, httpRequests, setMetricsComponent, startDefaultMetrics } from "./metrics.js";
 import { serveMetrics } from "./metrics-route.js";
 import { runAsBootstrapClaim } from "./registration-context.js";
+import { streamProgress } from "./stream.js";
+import { PROGRESS_MEDIA_TYPE, type ApiErrorEnvelope } from "../shared/progress.js";
 import {
   getMcpJwks,
   issueMcpAccessToken,
@@ -170,6 +172,13 @@ type Variables = {
   actor: Actor;
   authUser: { id: string; name: string; email: string; image?: string | null };
   sessionCreatedAt: Date;
+  /**
+   * Set by a route that answers in frames rather than in one body. A streamed
+   * response object is handed back before any of it has been written, so
+   * without this the timer below would call a ninety second commit a
+   * sub-millisecond 200.
+   */
+  streamSettled?: Promise<void>;
 };
 
 type AppEnv = { Variables: Variables };
@@ -195,9 +204,12 @@ startDefaultMetrics();
 app.use("*", async (c, next) => {
   const stop = httpDuration.startTimer();
   const startedAt = Date.now();
-  try {
-    await next();
-  } finally {
+  // Deferred rather than awaited, and that distinction is the whole of it. A
+  // streamed route hands its response back before a byte of it is written, and
+  // this middleware sits above the adapter: awaiting here would hold the head
+  // until the last frame, which is the one thing the stream exists to avoid.
+  // So the measurement waits and the response does not.
+  const record = () => {
     const labels = { method: c.req.method, route: routeLabel(c) };
     stop(labels);
     httpRequests.inc({ ...labels, status: String(c.res.status) });
@@ -215,6 +227,15 @@ app.use("*", async (c, next) => {
     // string: one template literal against a request that has just been through
     // the database, which is not worth a predicate at two call sites.
     log.debug(`${c.req.method} ${c.req.path} ${c.res.status} in ${Date.now() - startedAt}ms`);
+  };
+  try {
+    await next();
+  } finally {
+    const settled = c.get("streamSettled");
+    // `void`, because nothing above this is waiting for it and a rejection
+    // cannot happen: the stream helper settles in a `finally`.
+    if (settled) void settled.then(record);
+    else record();
   }
 });
 
@@ -260,22 +281,31 @@ app.use("*", async (context, next) => {
   return globalBodyLimit(context, next);
 });
 
-app.onError((error, c) => {
+/**
+ * One refusal, rendered once, for the two places that can carry it.
+ *
+ * A streamed response spends its status line on the first frame, so a failure
+ * that arrives afterwards has nowhere to be a 409 and becomes a terminal
+ * `error` frame instead. Both renderings come from here so the code, the
+ * sentence and the details cannot drift apart between them — the same reason
+ * the two transports share a service rather than a shape.
+ */
+export function errorEnvelope(error: unknown): { envelope: ApiErrorEnvelope; status: number } {
   if (error instanceof AppError) {
-    return c.json(
-      {
+    return {
+      envelope: {
         error: {
           code: error.code,
           message: error.message,
           details: error.details,
         },
       },
-      error.status as 400,
-    );
+      status: error.status,
+    };
   }
   if (error instanceof z.ZodError) {
-    return c.json(
-      {
+    return {
+      envelope: {
         error: {
           code: "VALIDATION_ERROR",
           message: "Request validation failed",
@@ -295,18 +325,23 @@ app.onError((error, c) => {
           })),
         },
       },
-      422,
-    );
+      status: 422,
+    };
   }
   // Narrowed rather than logged whole, and narrowed in `log.failure` rather
   // than here: the same error reaches an MCP tool call, and this transport
   // holding the rule while the other one did not is how a bound parameter would
   // still have reached the log.
   log.failure("Request failed", error);
-  return c.json(
-    { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } },
-    500,
-  );
+  return {
+    envelope: { error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } },
+    status: 500,
+  };
+}
+
+app.onError((error, c) => {
+  const { envelope, status } = errorEnvelope(error);
+  return c.json(envelope, status as 400);
 });
 
 app.get("/health/live", (c) => c.json({ status: "ok" }));
@@ -1442,15 +1477,60 @@ app.post(
   deprecated("/api/v1/staged-transactions/bulk-delete"),
   bulkDeleteStaged,
 );
-app.post("/api/v1/staged-transactions/commit", async (c) =>
-  c.json(await commitStages(c.get("actor"), commitStageSchema.parse(await body(c)))),
-);
+/**
+ * Whether this caller can read frames, and therefore whether to send them.
+ *
+ * `Accept`, not a field in the body, and the HTTP guide records why: the
+ * request, the work and the final payload are identical either way, so this
+ * chooses a representation rather than stating anything about the contract. A
+ * body field would have published the switch on the MCP tool as well, whose
+ * transport answers in one JSON object and could never honour it.
+ */
+const wantsFrames = (c: Context<AppEnv>) =>
+  (c.req.header("Accept") ?? "").includes(PROGRESS_MEDIA_TYPE);
+
+/**
+ * The refusal a terminal frame carries: the envelope, without the status.
+ *
+ * A frame has no status line to put one on — the 200 went out with the first
+ * frame — and the browser reads the code, which every refusal on these two
+ * paths already has.
+ */
+const framedRefusal = (error: unknown) => errorEnvelope(error).envelope;
+
+app.post("/api/v1/staged-transactions/commit", async (c) => {
+  const input = commitStageSchema.parse(await body(c));
+  if (!wantsFrames(c)) return c.json(await commitStages(c.get("actor"), input));
+  // The same service, by name, with a fourth argument. Not a second function:
+  // `tests/mcp-parity.test.ts` compares the services each transport calls, and
+  // a streaming branch that called something else would empty that
+  // intersection while looking perfectly correct. The actor is read inline in
+  // both branches for the same reason — that comparison reads the call, and a
+  // local would make this route look as though it reached no service at all.
+  const { response, settled } = streamProgress(
+    c,
+    (report) => commitStages(c.get("actor"), input, undefined, { onProgress: report }),
+    framedRefusal,
+  );
+  c.set("streamSettled", settled);
+  return response;
+});
 
 app.post("/api/v1/csv/preview", async (c) => {
   const parsed = z.object({ csv: z.string().min(1) }).parse(await body(c));
   return c.json(getCsvPreview(parsed.csv));
 });
-app.post("/api/v1/csv/stage", async (c) => c.json(await stageCsv(c.get("actor"), await body(c))));
+app.post("/api/v1/csv/stage", async (c) => {
+  const input = await body(c);
+  if (!wantsFrames(c)) return c.json(await stageCsv(c.get("actor"), input));
+  const { response, settled } = streamProgress(
+    c,
+    (report) => stageCsv(c.get("actor"), input, undefined, { onProgress: report }),
+    framedRefusal,
+  );
+  c.set("streamSettled", settled);
+  return response;
+});
 app.get("/api/v1/import-batches", async (c) =>
   c.json(await listActiveImportBatches(c.get("actor"), query(c))),
 );

@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 74 | `npm test` | nothing |
-| Unit (jsdom) | 37 | `npm test` | nothing |
-| Integration | 55 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Unit (node) | 76 | `npm test` | nothing |
+| Unit (jsdom) | 38 | `npm test` | nothing |
+| Integration | 56 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -18,16 +18,16 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 112 pass, 54 skip | **1,105 pass, 645 skip** |
-| `npm test`, database set | 166 pass | **1,746 pass** |
-| `npm run test:integration` | 55 pass | 646 pass |
+| `npm test`, no database | 115 pass, 55 skip | **1,140 pass, 653 skip** |
+| `npm test`, database set | 170 pass | **1,794 pass** |
+| `npm run test:integration` | 56 pass | 654 pass |
 
 The third row is one test larger than the first row's skip count, and the odd
 one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,105 is the number that
+The first row is what CI and `npm run verify` see, and 1,140 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -289,7 +289,7 @@ it, drop it in `afterAll`. Files then do not race, which matters because
 
 The sequence has a helper, and a new file should take it rather than re-roll
 it: `scratchDatabase()` in `tests/integration/support/scratch-database.ts`
-creates, migrates and registers the drop in one call, and 30 of the 55 files
+creates, migrates and registers the drop in one call, and 30 of the 56 files
 use it. The files that predate it manage their own admin client, and their
 teardowns had drifted to an unguarded four-step sequence where the first step
 throwing strands the database and the connection both — the exact failure the

@@ -28,13 +28,16 @@ export default function PayeeDetailPage() {
       />
       <DateRangeBar />
       <section className="account-transactions">
-        <div className="section-title">
-          <div>
-            <h2>Transactions</h2>
-            <p>Filter, search, export, or add activity for this payee.</p>
-          </div>
-        </div>
-        <TransactionBrowser includeStaged fixedPayee={payee} showDateRange={false} />
+        <TransactionBrowser
+          heading={{
+            kind: "section",
+            title: "Transactions",
+            description: "Filter, search, export, or add activity for this payee.",
+          }}
+          includeStaged
+          fixedPayee={payee}
+          showDateRange={false}
+        />
       </section>
     </>
   );

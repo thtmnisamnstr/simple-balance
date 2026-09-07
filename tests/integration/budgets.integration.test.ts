@@ -2919,5 +2919,127 @@ integration("budgets", () => {
       );
       expect(arrived).toBeGreaterThan(0);
     });
+
+    /**
+     * The defect this basis exists for.
+     *
+     * A ledger with months of real spending and no recurrences at all showed
+     * $0.00 in both money columns, and nothing said why: the two schedule-derived
+     * bases have nothing to read, and neither the empty state nor the column
+     * headings admitted it. "Expected out" printing zero for a household that
+     * spent two thousand last month is a confident wrong answer.
+     */
+    it("projects from what a ledger has actually done when nothing is scheduled", async () => {
+      const account = await createAccount(actor, {
+        name: "History only",
+        type: "checking",
+        currency: "MXN",
+        openingDate: "2026-01-01",
+        openingBalance: "5000.00",
+        idempotencyKey: nextKey(),
+      });
+      const food = await createCategory(actor, { name: "History food", kind: "expense" });
+      const pay = await createCategory(actor, { name: "History pay", kind: "income" });
+      const today = todayIn("UTC");
+      const monthsBack = (count: number) => {
+        const [year, month] = today.split("-").map(Number) as [number, number];
+        const index = year * 12 + (month - 1) - count;
+        return `${String(Math.floor(index / 12)).padStart(4, "0")}-${String(
+          (index % 12) + 1,
+        ).padStart(2, "0")}-10`;
+      };
+      for (const back of [1, 2, 3]) {
+        await createTransaction(
+          actor,
+          {
+            type: "withdrawal",
+            fromAccountId: account.id,
+            categoryId: food.id,
+            amount: "300.00",
+            date: monthsBack(back),
+            payee: `History shop ${back}`,
+            description: null,
+          },
+          nextKey(),
+        );
+        await createTransaction(
+          actor,
+          {
+            type: "deposit",
+            toAccountId: account.id,
+            categoryId: pay.id,
+            amount: "900.00",
+            date: monthsBack(back),
+            payee: `History payroll ${back}`,
+            description: null,
+          },
+          nextKey(),
+        );
+      }
+
+      const scheduled = await getForecast(actor, {
+        periodUnit: "month",
+        periods: 2,
+        basis: "recurring",
+      });
+      const before = scheduled.currencies.find((entry) => entry.currency === "MXN")!;
+      // The reported symptom, pinned so the fix cannot be mistaken for having
+      // always worked: with no recurrence, the schedule basis has nothing.
+      expect(before.periods[0]!.expectedSpending).toBe("0");
+      expect(before.periods[0]!.expectedIncome).toBe("0");
+      expect(before.periods[0]!.typicalSpending).toBe("0");
+
+      const projected = await getForecast(actor, {
+        periodUnit: "month",
+        periods: 2,
+        basis: "recurring_and_history",
+        lookback: 3,
+      });
+      const after = projected.currencies.find((entry) => entry.currency === "MXN")!;
+      const first = after.periods[0]!;
+      expect(Number(first.typicalSpending)).toBeCloseTo(300, 2);
+      expect(Number(first.typicalIncome)).toBeCloseTo(900, 2);
+      expect(Number(first.expectedSpending)).toBeCloseTo(300, 2);
+      expect(Number(first.expectedIncome)).toBeCloseTo(900, 2);
+      // Still a projection and still no occurrence behind it, which is the
+      // whole difference between this basis and the other two.
+      expect(first.occurrences).toBe(0);
+    });
+
+    it("leaves the current period out of its own average", async () => {
+      const account = await createAccount(actor, {
+        name: "History current",
+        type: "checking",
+        currency: "NOK",
+        openingDate: "2026-01-01",
+        openingBalance: "0",
+        idempotencyKey: nextKey(),
+      });
+      const only = await createCategory(actor, { name: "History spike", kind: "expense" });
+      // One transaction, dated today. A period is not part of its own average,
+      // or the figure would chase the spending it is meant to be predicting —
+      // the same rule `trailing_average` follows on the budgets side.
+      await createTransaction(
+        actor,
+        {
+          type: "withdrawal",
+          fromAccountId: account.id,
+          categoryId: only.id,
+          amount: "750.00",
+          date: todayIn("UTC"),
+          payee: "History spike",
+          description: null,
+        },
+        nextKey(),
+      );
+
+      const forecast = await getForecast(actor, {
+        periodUnit: "month",
+        periods: 1,
+        basis: "recurring_and_history",
+      });
+      const currency = forecast.currencies.find((entry) => entry.currency === "NOK")!;
+      expect(currency.periods[0]!.typicalSpending).toBe("0");
+    });
   });
 });

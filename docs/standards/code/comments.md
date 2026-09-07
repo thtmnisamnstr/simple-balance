@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**18.3% of the non-blank lines in `src` are comments** — 8,328 of 45,207. That
+**19.0% of the non-blank lines in `src` are comments** — 8,837 of 46,548. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -22,7 +22,7 @@ percentage anyway.
 
 *Checked by:* `tests/comment-density.test.ts`, which recounts `src`, fails under
 the floor, refuses two documents that quote different numbers, and compares
-`8,328 of 45,207` against the recount exactly.
+`8,837 of 46,548` against the recount exactly.
 
 ## 1. What a comment is for here
 
@@ -106,7 +106,7 @@ a paragraph arguing why the rule is wrong about that line:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-That one is `src/client/forms.tsx:534`. `src/client/components.tsx:497`
+That one is `src/client/forms.tsx:534`. `src/client/components.tsx:498`
 silences two rules in a single comment and does not borrow this argument: it
 makes its own, that a keyboard user's activation of the buttons inside bubbles
 to the same handler, so the element is a catcher for its children's events

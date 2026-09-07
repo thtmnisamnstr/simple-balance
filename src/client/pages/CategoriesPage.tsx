@@ -154,6 +154,7 @@ export default function CategoriesPage() {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<CategoryKind>("expense");
+  const [newGroupId, setNewGroupId] = useState("");
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Category | null>(null);
   const removal = useConfirm<Category>();
@@ -236,7 +237,7 @@ export default function CategoriesPage() {
   const categoryMutation = useMutation({
     mutationFn: async (
       input:
-        | { action: "create"; name: string; kind: CategoryKind }
+        | { action: "create"; name: string; kind: CategoryKind; groupId: string | null }
         | {
             action: "update";
             category: Category;
@@ -247,7 +248,13 @@ export default function CategoriesPage() {
         | { action: "archive" | "delete"; category: Category },
     ) => {
       if (input.action === "create") {
-        return api<Category>("/api/v1/categories", json({ name: input.name, kind: input.kind }));
+        return api<Category>(
+          "/api/v1/categories",
+          // `groupId` too. `create_category` has always accepted it, so leaving
+          // it off here made it a request field only an agent could set — the
+          // `categoryKind` defect, one level down and in the same place.
+          json({ name: input.name, kind: input.kind, groupId: input.groupId }),
+        );
       }
       if (input.action === "update") {
         return api<Category>(`/api/v1/categories/${input.category.id}`, {
@@ -281,6 +288,10 @@ export default function CategoriesPage() {
       // this; a rename is the same change by another name.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["categories"] }),
+        // The groups too: a group carries how many categories are in it, and
+        // moving one is exactly what changes that number. Without this the
+        // count sat at zero beside a row that had just been filed.
+        queryClient.invalidateQueries({ queryKey: ["category-groups"] }),
         queryClient.invalidateQueries({ queryKey: ["transactions"] }),
         queryClient.invalidateQueries({ queryKey: ["staged"] }),
         queryClient.invalidateQueries({ queryKey: ["summary"] }),
@@ -362,7 +373,7 @@ export default function CategoriesPage() {
 
   const addCategory = (event: FormEvent) => {
     event.preventDefault();
-    categoryMutation.mutate({ action: "create", name, kind });
+    categoryMutation.mutate({ action: "create", name, kind, groupId: newGroupId || null });
   };
 
   const chooseDuplicateGroup = (group: CategoryDuplicateGroup) => {
@@ -398,6 +409,18 @@ export default function CategoriesPage() {
             <option value="expense">Expense</option>
             <option value="income">Income</option>
             <option value="both">Both</option>
+          </Select>
+          <Select
+            aria-label="Category group"
+            value={newGroupId}
+            onChange={(event) => setNewGroupId(event.target.value)}
+          >
+            <option value="">No group</option>
+            {(groups.data ?? []).map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
           </Select>
           <Button type="submit" loading={categoryMutation.isPending}>
             <Plus size={16} /> Add category
@@ -449,10 +472,21 @@ export default function CategoriesPage() {
           </Button>
         </form>
         {groupMutation.error ? <Alert>{groupMutation.error.message}</Alert> : null}
-        {(groups.data ?? []).length === 0 ? (
+        {/* Three states, not one. A failed read used to render the same "No
+            groups yet." as an empty ledger, while every group picker on the
+            page silently offered nothing but "No group" — which reads exactly
+            like a product where categories cannot be grouped at all. */}
+        {groups.isError ? (
+          <Alert kind="error">
+            The groups could not be loaded, so this list and every group picker on this page are
+            empty for a reason that is not the ledger. {(groups.error as Error).message}
+          </Alert>
+        ) : groups.isPending ? (
+          <Skeleton height={90} label="Loading groups…" />
+        ) : groups.data.length === 0 ? (
           <p className="settings-note">No groups yet.</p>
         ) : (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Category groups">
             <table className="data-table">
               <caption className="sr-only">Category groups</caption>
               <thead>
@@ -669,6 +703,31 @@ export default function CategoriesPage() {
                 </Badge>
                 {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>
+              {/* The group, on the row, because until now the only way to put a
+                  category in one was an unlabelled pencil that opens a modal —
+                  and no row ever said which group it was already in. A group
+                  you cannot see is a group nobody fills. */}
+              <Select
+                aria-label={`Group of ${category.name}`}
+                value={category.groupId ?? ""}
+                disabled={categoryMutation.isPending}
+                onChange={(event) =>
+                  categoryMutation.mutate({
+                    action: "update",
+                    category,
+                    name: category.name,
+                    kind: category.kind,
+                    groupId: event.target.value === "" ? null : event.target.value,
+                  })
+                }
+              >
+                <option value="">No group</option>
+                {(groups.data ?? []).map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </Select>
               <div className="row-actions">
                 <button aria-label={`Edit ${category.name}`} onClick={() => setEditing(category)}>
                   <Pencil size={16} />
@@ -697,11 +756,21 @@ export default function CategoriesPage() {
         </div>
       ) : categories.isPending ? (
         <Skeleton height={120} label="Loading categories…" />
-      ) : categories.error ? null : (
+      ) : categories.error ? null : search.trim() ? (
+        /* Two screens, not one. "Nothing here yet" and "nothing matches what
+            you typed" have different next actions, and one sentence asking for
+            both leaves a reader who has typed a search wondering whether their
+            ledger is empty. */
         <EmptyState
           icon={<Tags size={24} />}
-          title="No categories in this view"
-          body="Add a category or change the search and archive filters."
+          title="No categories match this search"
+          body="Change what you typed, or turn on Show archived to look at the ones you have put away."
+        />
+      ) : (
+        <EmptyState
+          icon={<Tags size={24} />}
+          title="No categories yet"
+          body="Add one above, and every transaction filed under it is counted here."
         />
       )}
 

@@ -154,7 +154,13 @@ function successfulBulkResult(updatedCount = 1): TransactionBulkEditResult {
   };
 }
 
-function renderBrowser(props: React.ComponentProps<typeof TransactionBrowser> = {}) {
+const heading = {
+  kind: "section",
+  title: "Transactions",
+  description: "For this test.",
+} as const;
+
+function renderBrowser(props: Partial<React.ComponentProps<typeof TransactionBrowser>> = {}) {
   window.history.replaceState(
     null,
     "",
@@ -165,7 +171,7 @@ function renderBrowser(props: React.ComponentProps<typeof TransactionBrowser> = 
     <QueryClientProvider client={client}>
       <TimezoneProvider timezone="UTC">
         <BrowserRouter>
-          <TransactionBrowser {...props} />
+          <TransactionBrowser heading={heading} {...props} />
         </BrowserRouter>
       </TimezoneProvider>
     </QueryClientProvider>,

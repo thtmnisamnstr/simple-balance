@@ -734,10 +734,19 @@ test.describe("the budgets page in a browser", () => {
       page.getByText(/Nothing here has happened yet, and none of it is a balance/i),
     ).toBeVisible();
 
+    // This ledger has no recurrences and its only spending is in the month that
+    // is still running, so there is no finished period to average and nothing
+    // to project. The panel says so rather than drawing a table of zeroes —
+    // which is what it used to do, because the old empty state tested whether
+    // the server returned a currency and everybody with an account has one.
+    await expect(page.getByText(/Nothing to project yet/i)).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Projected balance" })).toHaveCount(0);
+
     // The horizon is the person's to choose, and changing it re-reads.
     await page.getByLabel(/Months ahead/).selectOption("12");
-    await expect(page.getByRole("columnheader", { name: "Projected balance" })).toBeVisible();
+    // Budgets, which this ledger does have, put something in the columns.
     await page.getByLabel("Counting").selectOption({ label: "Recurring plus what budgets intend" });
+    await expect(page.getByRole("columnheader", { name: "Projected balance" })).toBeVisible();
     await expect(page.getByRole("columnheader", { name: "Budgets intend" })).toBeVisible();
   });
 

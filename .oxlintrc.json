@@ -21,6 +21,14 @@
     "jsx-a11y/prefer-tag-over-role": "off",
     "jsx-a11y/anchor-has-content": "off",
     "jsx-a11y/no-autofocus": "off",
+    "jsx-a11y/no-noninteractive-tabindex": [
+      "error",
+      {
+        "tags": [],
+        "roles": ["tabpanel", "region"],
+        "allowExpressionValues": true
+      }
+    ],
     "react-hooks/exhaustive-deps": "deny",
     "react/set-state-in-effect": "deny",
     "react/use-memo": "deny"

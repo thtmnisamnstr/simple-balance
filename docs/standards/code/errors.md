@@ -47,8 +47,8 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is four lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1029`, `:1074`, `:1083`
-and `:1096`. Two carry codes no service raises at all: `FORBIDDEN` and
+`src/server/api.ts` constructs `AppError` directly at `:1064`, `:1109`, `:1118`
+and `:1131`. Two carry codes no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
 names as the boundary between the surfaces. A constructor for them would put a
@@ -166,7 +166,7 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:63-72`) and shows those
+(`src/client/api.ts:102-109`) and shows those
 in preference to the envelope. Which means schema messages are user-facing:
 write them that way.
 

@@ -34,6 +34,7 @@ contract breaks, which is not the same as when the app does.
 | `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
 | `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
 | `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |
+| `src/server/stream.ts` | The other way the HTTP transport may answer: progress frames on the response doing the work, for the two writes long enough to need one. It frames and paces; the service decides what is in a frame. |
 | `src/server/recurrence-scheduler.ts` | The loop, and the only thing that acts unasked. One tick sweeps twice: for recurrences that have come due, and for reminders and proposal notices that are owed. Replicas divide both sweeps by claiming rows, so there is no leader. |
 | `src/server/scheduler.ts` | That loop as an entrypoint of its own, for a deployment that has split the single container up. It serves nothing but its own health checks. |
 | `src/server/mail.ts` | The one place mail is sent from, and the one place that decides whether this deployment can send any. |

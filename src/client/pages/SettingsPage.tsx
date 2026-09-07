@@ -225,8 +225,8 @@ export default function SettingsPage({ session }: { session: Session }) {
           <ConnectedApps />
         </div>
 
-        {session.auth.localEnabled || session.auth.googleEnabled ? (
-          <div className="settings-column">
+        <div className="settings-column">
+          {session.auth.localEnabled || session.auth.googleEnabled ? (
             <section className="panel settings-section">
               <header className="section-title">
                 <span>
@@ -234,7 +234,11 @@ export default function SettingsPage({ session }: { session: Session }) {
                 </span>
                 <div>
                   <h2>Sign-in methods</h2>
-                  <p>Both methods open this same private ledger when connected.</p>
+                  <p>
+                    {session.auth.localEnabled && session.auth.googleEnabled
+                      ? "Both methods open this same private ledger when connected."
+                      : "How you open this ledger."}
+                  </p>
                 </div>
               </header>
               <div className="auth-method-status">
@@ -260,70 +264,6 @@ export default function SettingsPage({ session }: { session: Session }) {
                   Google could not be connected. Your existing sign-in method is unchanged.
                 </Alert>
               ) : null}
-              {session.auth.localEnabled ? (
-                <form
-                  className="form-grid"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    passwordMutation.mutate();
-                  }}
-                >
-                  {session.auth.localPasswordConfigured ? (
-                    <Field label="Current password">
-                      <Input
-                        required
-                        name="currentPassword"
-                        type="password"
-                        autoComplete="current-password"
-                        value={currentPassword}
-                        onChange={(event) => setCurrentPassword(event.target.value)}
-                      />
-                    </Field>
-                  ) : null}
-                  <Field
-                    label={session.auth.localPasswordConfigured ? "New password" : "Set a password"}
-                    hint="12–128 characters"
-                  >
-                    <Input
-                      required
-                      name="newPassword"
-                      type="password"
-                      minLength={12}
-                      maxLength={128}
-                      autoComplete="new-password"
-                      value={newPassword}
-                      onChange={(event) => setNewPassword(event.target.value)}
-                    />
-                  </Field>
-                  <Field label="Confirm new password">
-                    <Input
-                      required
-                      name="newPasswordConfirmation"
-                      type="password"
-                      minLength={12}
-                      maxLength={128}
-                      autoComplete="new-password"
-                      value={passwordConfirmation}
-                      onChange={(event) => setPasswordConfirmation(event.target.value)}
-                    />
-                  </Field>
-                  <small>
-                    Changing your password signs out every other session and disconnects every MCP
-                    client, so an agent authorized before the change has to be authorized again.
-                  </small>
-                  {passwordMutation.error ? <Alert>{passwordMutation.error.message}</Alert> : null}
-                  {passwordMutation.isSuccess ? (
-                    <Alert kind="success">
-                      Password updated. Any connected agents have been disconnected.
-                    </Alert>
-                  ) : null}
-                  <div className="form-actions">
-                    <Button type="submit" loading={passwordMutation.isPending}>
-                      {session.auth.localPasswordConfigured ? "Change password" : "Set a password"}
-                    </Button>
-                  </div>
-                </form>
-              ) : null}
               {session.auth.googleEnabled && !session.auth.googleLinked ? (
                 <div className="provider-action">
                   <Button
@@ -339,6 +279,86 @@ export default function SettingsPage({ session }: { session: Session }) {
                   ) : null}
                 </div>
               ) : null}
+            </section>
+          ) : null}
+
+          {/* Its own card. One panel used to hold the method list, the Google
+              button, the password form and a note about passwords — four jobs,
+              and the note ended up below the Google button rather than beside
+              the form it is about. */}
+          {session.auth.localEnabled ? (
+            <section className="panel settings-section">
+              <header className="section-title">
+                <span>
+                  <KeyRound size={19} />
+                </span>
+                <div>
+                  <h2>Password</h2>
+                  <p>Used with your email address to open this ledger.</p>
+                </div>
+              </header>
+              <form
+                className="form-grid"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  passwordMutation.mutate();
+                }}
+              >
+                {session.auth.localPasswordConfigured ? (
+                  <Field label="Current password">
+                    <Input
+                      required
+                      name="currentPassword"
+                      type="password"
+                      autoComplete="current-password"
+                      value={currentPassword}
+                      onChange={(event) => setCurrentPassword(event.target.value)}
+                    />
+                  </Field>
+                ) : null}
+                <Field
+                  label={session.auth.localPasswordConfigured ? "New password" : "Set a password"}
+                  hint="12–128 characters"
+                >
+                  <Input
+                    required
+                    name="newPassword"
+                    type="password"
+                    minLength={12}
+                    maxLength={128}
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                  />
+                </Field>
+                <Field label="Confirm new password">
+                  <Input
+                    required
+                    name="newPasswordConfirmation"
+                    type="password"
+                    minLength={12}
+                    maxLength={128}
+                    autoComplete="new-password"
+                    value={passwordConfirmation}
+                    onChange={(event) => setPasswordConfirmation(event.target.value)}
+                  />
+                </Field>
+                <small>
+                  Changing your password signs out every other session and disconnects every MCP
+                  client, so an agent authorized before the change has to be authorized again.
+                </small>
+                {passwordMutation.error ? <Alert>{passwordMutation.error.message}</Alert> : null}
+                {passwordMutation.isSuccess ? (
+                  <Alert kind="success">
+                    Password updated. Any connected agents have been disconnected.
+                  </Alert>
+                ) : null}
+                <div className="form-actions">
+                  <Button type="submit" loading={passwordMutation.isPending}>
+                    {session.auth.localPasswordConfigured ? "Change password" : "Set a password"}
+                  </Button>
+                </div>
+              </form>
               {session.auth.localPasswordConfigured ? (
                 <p className="settings-note">
                   {authOptions.data?.passwordResetAvailable
@@ -347,8 +367,8 @@ export default function SettingsPage({ session }: { session: Session }) {
                 </p>
               ) : null}
             </section>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
       <DeleteAccount session={session} />

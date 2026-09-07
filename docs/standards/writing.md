@@ -514,12 +514,12 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:422-436`:
+- **The trade named, not only the choice.** `src/client/components.tsx:423-437`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behaviour they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2229-2236`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2244-2251`: "`.strict()` is the load-bearing part: a
   filter this cannot honour is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -643,7 +643,7 @@ edit.
   restating it. In user-visible copy the rule holds almost everywhere, with
   four exceptions: `App.tsx:577`, `select-options.ts:110`,
   `TemplatesPage.tsx:595`, and the review queue's inline-edit labels
-  (`StagingPage.tsx:942`), which lead with the visible value and set the
+  (`StagingPage.tsx:995`), which lead with the visible value and set the
   instruction off behind a dash. The lone "—" in an empty table cell is a
   placeholder glyph rather than punctuation and is not counted here. Two
   further sites,

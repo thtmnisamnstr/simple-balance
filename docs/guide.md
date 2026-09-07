@@ -73,6 +73,14 @@ date and number conventions your bank uses, and creates categories and payees as
 it goes. You look at the result before any of it counts, and committing a batch
 is all or nothing.
 
+A file of a few thousand rows takes a minute or so to stage, and the same again
+to commit. Both say how far along they are while they work, row by row, so a
+long wait looks like a long wait rather than like nothing happening. Because a
+commit is all or nothing, a bar that stops on a refusal means nothing was
+written, and the message beside it says so. If the connection goes instead, the
+message says that too and asks you to reload — the work is never cancelled
+because a browser went away, so it may well have finished.
+
 Staged transactions flags a row that repeats something you already have. The
 check anchors on the amount, with the account and the direction to keep two
 unrelated spends of the same size apart, and three days of latitude on the
@@ -189,9 +197,11 @@ time and is standing empty on purpose.
 
 ## Reading it back
 
-**The dashboard** covers balances, cash flow, and spending by category over any
-date range, and the range is in the URL, so you can link to it. It stops at today
-whatever range you pick, because money dated next month is not money you have.
+**The dashboard** covers balances, cash flow, spending by category and where
+your budget stands, over any date range, and the range is in the URL, so you can
+link to it. It stops at today whatever range you pick, because money dated next
+month is not money you have. Each category in the spending panel links to its own
+page, carrying the range with it.
 
 **Reports** go further. Net worth and a balance sheet for what the accounts hold,
 income against expense and categories for what moved, a cash flow statement for
@@ -252,9 +262,10 @@ its limit, because a category dropped for being empty is the one you most want
 to see. Spending in categories nobody budgeted for is shown too — the question a
 budget raises is where the rest went — and can be turned off.
 
-Figures stop at today in your own timezone, whatever range you ask for, and the
-page says which day it used. Nothing here writes to the ledger: a budget is a
-plan, and deleting one changes no balance and no report.
+Figures stop at today in your own timezone, whatever range you ask for, and a
+period still running is marked "so far" rather than reported as though it had
+finished. Nothing here writes to the ledger: a budget is a plan, and deleting one
+changes no balance and no report.
 
 **What is left over can carry into the next period.** Tick "Carry what is left
 over" and the budget becomes an envelope: the fifty you did not spend on
@@ -328,18 +339,22 @@ about the money in this account" when you add or edit one. Cards are counted by
 default, because spending on a card empties an envelope even though no cash has
 moved yet.
 
-**"What happens next" projects your balances forward.** It reads the recurring
-transactions that already have dates and amounts, and walks each period from
-what your accounts hold today. Nothing in it has happened: it is what the
+**"What happens next" projects your balances forward.** It walks each period
+from what your accounts hold today. Nothing in it has happened: it is what the
 balances would do if nothing changed, and the page never calls a projected
 figure a balance.
 
-Choose how far ahead, and whether to count what your budgets intend as well as
-what is already scheduled. The second is the pessimistic reading and usually the
-more useful one: it adds the part of each budget that no recurring transaction
-already covers, so the rent is never counted twice. A recurring transaction with
-no amount cannot be projected — the page names it, because leaving it out
-silently would make every period look better than it is.
+Choose how far ahead, and what to count. By default it counts your recurring
+transactions plus what you usually spend — the average of recent finished
+months, category by category, wherever no recurring transaction already covers
+it. That is what lets the panel say something on a ledger that has months of
+real spending and no schedules yet, which used to show zero in both columns
+without explaining why. The other two readings are there when you want them:
+schedules alone, or schedules plus everything your budgets intend, which is the
+pessimistic one. Whichever you pick, a figure that came from history is reported
+separately from one that came from a date, so you can always tell them apart. A
+recurring transaction with no amount cannot be projected — the page names it,
+because leaving it out silently would make every period look better than it is.
 
 ## How it looks
 

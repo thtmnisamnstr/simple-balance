@@ -42,6 +42,7 @@ import {
   EmptyState,
   Input,
   Modal,
+  PageHeader,
   Pagination,
   RowMenu,
   Select,
@@ -102,6 +103,7 @@ type BulkEditRequest = {
 const emptySelection = (): SelectionState => ({ mode: "ids", versions: {} });
 
 export function TransactionBrowser({
+  heading,
   fixedAccountId,
   fixedCategoryId,
   fixedTemplateId,
@@ -111,6 +113,27 @@ export function TransactionBrowser({
   showDateRange = true,
   includeStaged = false,
 }: {
+  /**
+   * The heading this browser sits under, because the browser owns the two
+   * buttons that belong beside it.
+   *
+   * They used to be a row of their own, hoisted into the header band by a
+   * `margin-top: -48px` — with a second hand-tuned `-42px` for the detail
+   * pages. A negative margin is a guess at one particular header height, and it
+   * stopped being true the moment a description wrapped. Handing the heading
+   * down instead means the buttons are laid out by whatever renders it, the
+   * same slot every other page's actions use.
+   *
+   * Export needs the filter state to build its href, and that state lives here,
+   * which is why the heading comes down rather than the buttons going up.
+   */
+  heading:
+    | { kind: "page"; eyebrow: string; title: string; description: string }
+    | {
+        kind: "section";
+        title: string;
+        description: string;
+      };
   fixedAccountId?: string;
   fixedCategoryId?: string;
   fixedTemplateId?: string;
@@ -614,18 +637,37 @@ export function TransactionBrowser({
     });
   };
 
+  const actions = (
+    <>
+      <a className="button button-secondary" href={`/api/v1/csv/export?${queryString(params)}`}>
+        <Download size={16} /> Export CSV
+      </a>
+      {allowCreate ? (
+        <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
+          <Plus size={16} /> Add transaction
+        </Button>
+      ) : null}
+    </>
+  );
+
   return (
     <>
-      <div className="transaction-browser-actions">
-        <a className="button button-secondary" href={`/api/v1/csv/export?${queryString(params)}`}>
-          <Download size={16} /> Export CSV
-        </a>
-        {allowCreate ? (
-          <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
-            <Plus size={16} /> Add transaction
-          </Button>
-        ) : null}
-      </div>
+      {heading.kind === "page" ? (
+        <PageHeader
+          eyebrow={heading.eyebrow}
+          title={heading.title}
+          description={heading.description}
+          actions={actions}
+        />
+      ) : (
+        <div className="section-title">
+          <div>
+            <h2>{heading.title}</h2>
+            <p>{heading.description}</p>
+          </div>
+          <div className="page-actions">{actions}</div>
+        </div>
+      )}
       {showDateRange ? <DateRangeBar /> : null}
       <div className="filter-bar">
         <label className="search-box">
@@ -783,7 +825,7 @@ export function TransactionBrowser({
         ))}
       {items.length || stagedRows.length ? (
         <>
-          <div className="table-card">
+          <div className="table-card" tabIndex={0} role="region" aria-label="Transactions">
             <table className="data-table">
               <caption className="sr-only">Transactions</caption>
               <thead>
@@ -926,7 +968,7 @@ export function TransactionBrowser({
                         />
                       </td>
                       <td className="nowrap">{formatDate(transaction.date)}</td>
-                      <td>
+                      <th scope="row">
                         <div className="transaction-cell">
                           <span className={`transaction-icon ${transaction.type}`}>
                             <Icon size={16} />
@@ -945,7 +987,7 @@ export function TransactionBrowser({
                             <span>{transaction.description || meta.label}</span>
                           </div>
                         </div>
-                      </td>
+                      </th>
                       <td>{accountLabel}</td>
                       <td>
                         {transaction.legs.length ? (

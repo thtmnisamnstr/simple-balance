@@ -61,6 +61,7 @@ import {
 import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
 import { ledgerWrites, stagedRowsCommitted } from "../metrics.js";
 import { normalizeHumanName } from "../../shared/names.js";
+import type { ProgressEvent } from "../../shared/progress.js";
 import { pruneOrphanedCategories } from "./categories.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
 import {
@@ -355,6 +356,7 @@ export async function insertImportedStages(
   tx: DbTransaction,
   actor: Actor,
   inputs: readonly Omit<GeneratedStageInput, "recurrenceId" | "occurrenceDate">[],
+  onProgress?: (event: ProgressEvent) => void,
 ) {
   if (!inputs.length) return [];
   const values = [];
@@ -366,6 +368,11 @@ export async function insertImportedStages(
         occurrenceDate: null,
       }),
     );
+    // The whole per-row cost of an import is here: three round trips a row to
+    // lock, canonicalize and validate. Everything before this resolves the file
+    // as a whole, and the inserts below are five hundred rows a statement, so
+    // this loop is what a person is actually waiting on.
+    onProgress?.({ phase: "staging", done: values.length, total: inputs.length });
   }
 
   // Bounded so one enormous file cannot build a statement PostgreSQL refuses
@@ -1099,8 +1106,19 @@ export async function deleteStages(actor: Actor, input: unknown, transaction?: D
   });
 }
 
-export async function commitStages(actor: Actor, input: unknown, transaction?: DbTransaction) {
+export async function commitStages(
+  actor: Actor,
+  input: unknown,
+  transaction?: DbTransaction,
+  options: { onProgress?: (event: ProgressEvent) => void } = {},
+) {
   const parsed = commitStageSchema.parse(input);
+  // Deliberately not awaited and deliberately unable to fail: it writes three
+  // numbers into an object the transport is watching, and returns. Anything
+  // that touched a socket here would put a slow reader inside the transaction,
+  // where it could hold the connection open or roll the commit back — and a
+  // person who closed their laptop must not be able to undo somebody's books.
+  const report = options.onProgress ?? (() => {});
   // Before the transaction, because this asks nothing of the database: it is a
   // request that contradicts itself, and it should not cost a connection or an
   // advisory lock to say so.
@@ -1165,6 +1183,7 @@ export async function commitStages(actor: Actor, input: unknown, transaction?: D
         });
       }
       validated.push({ row, draft: result.draft, canonicalStagedDraft });
+      report({ phase: "validating", done: validated.length, total: rows.length });
     }
 
     await lockTransactionDuplicateKeys(
@@ -1173,6 +1192,7 @@ export async function commitStages(actor: Actor, input: unknown, transaction?: D
       validated.map(({ draft }) => draft),
     );
     const selectedByDuplicateKey = new Map<string, string>();
+    let compared = 0;
     for (const { row, draft } of validated) {
       const duplicateOfId = await findDuplicate(tx, actor, draft);
       if (duplicateOfId && !parsed.allowDuplicates) {
@@ -1195,6 +1215,8 @@ export async function commitStages(actor: Actor, input: unknown, transaction?: D
           selectedByDuplicateKey.set(key, row.id);
         }
       }
+      compared += 1;
+      report({ phase: "duplicates", done: compared, total: validated.length });
     }
 
     const preview = {
@@ -1240,6 +1262,7 @@ export async function commitStages(actor: Actor, input: unknown, transaction?: D
         after: stageView(updated),
       });
       committed.push({ stagedId: row.id, transactionId: transaction.id });
+      report({ phase: "posting", done: committed.length, total: validated.length });
     }
     const response = { committed };
     await setIdempotent(

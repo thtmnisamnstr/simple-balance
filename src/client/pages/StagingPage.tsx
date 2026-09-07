@@ -19,8 +19,10 @@ import { isoDateSchema } from "../../shared/domain.js";
 import {
   api,
   ApiClientError,
+  apiStreamed,
   json,
   queryString,
+  writeDidNotHappen,
   type Account,
   type Category,
   type ImportBatchSummary,
@@ -43,6 +45,8 @@ import {
   Modal,
   PageHeader,
   Pagination,
+  progressLabel,
+  ProgressBar,
   RowMenu,
   Select,
   SelectionCheckbox,
@@ -59,7 +63,12 @@ import {
   TemplateForm,
   TransactionForm,
 } from "../forms.js";
-import { MAX_BULK_SELECTION_ENTRIES, type StageSortField } from "../../shared/domain.js";
+import {
+  MAX_BULK_SELECTION_ENTRIES,
+  PROGRESS_STREAM_MIN_ROWS,
+  type StageSortField,
+} from "../../shared/domain.js";
+import { progressFraction, type ProgressEvent } from "../../shared/progress.js";
 import { useDateRange } from "../date-range.js";
 import {
   draftForTransactionForm,
@@ -267,6 +276,11 @@ export default function StagingPage() {
     setPage(1);
   }, [settledSearch, validity, accountId, importBatchId, recurrenceId, start, end]);
 
+  // Beside the mutation rather than inside it: a mutation reports pending or
+  // settled and has no channel for anything in between, and this arrives four
+  // times a second while one is in flight.
+  const [commitProgress, setCommitProgress] = useState<ProgressEvent | null>(null);
+
   const bulkMutation = useMutation({
     mutationFn: (action: "commit" | "delete") => {
       const expectedVersions = Object.fromEntries(
@@ -286,14 +300,23 @@ export default function StagingPage() {
         allowDuplicates,
         dryRun: false,
       };
-      return api("/api/v1/staged-transactions/commit", {
-        ...json({
-          ...payload,
-          idempotencyKey: retainedIdempotencyKey(bulkCommitKeys.current, payload),
-        }),
+      const request = json({
+        ...payload,
+        idempotencyKey: retainedIdempotencyKey(bulkCommitKeys.current, payload),
       });
+      // The selection is counted here, so a commit small enough to finish
+      // before a bar could be read never asks for frames at all. The import
+      // cannot do this — it has not parsed the file yet — and asks every time.
+      if (selectedRows.length < PROGRESS_STREAM_MIN_ROWS) {
+        return api("/api/v1/staged-transactions/commit", request);
+      }
+      return apiStreamed("/api/v1/staged-transactions/commit", request, setCommitProgress);
     },
+    // Cleared here as well as in onSettled, because onSettled runs after
+    // onSuccess has awaited six refetches — long enough for the finished bar
+    // and the result to sit on screen together.
     onSuccess: async () => {
+      setCommitProgress(null);
       bulkCommitKeys.current.clear();
       setSelected(new Map());
       setAllowDuplicates(false);
@@ -306,6 +329,7 @@ export default function StagingPage() {
         queryClient.invalidateQueries({ queryKey: ["forecast"] }),
       ]);
     },
+    onSettled: () => setCommitProgress(null),
   });
 
   const selectedTransferCount = selectedRows.filter(
@@ -685,6 +709,17 @@ export default function StagingPage() {
     },
   });
 
+  // Whether the failure on screen is a commit the server refused, which is the
+  // only case the reassurance below is true of. Two conditions, and both are
+  // needed: both mutations also delete, and a connection that died mid-commit
+  // says nothing about whether the commit landed.
+  const failure = bulkMutation.error ?? rowMutation.error;
+  const commitRefused =
+    writeDidNotHappen(failure) &&
+    (bulkMutation.error
+      ? bulkMutation.variables === "commit"
+      : rowMutation.variables?.action === "commit");
+
   return (
     <>
       <PageHeader
@@ -822,8 +857,30 @@ export default function StagingPage() {
           </div>
         ) : null}
       </div>
-      {bulkMutation.error || rowMutation.error ? (
-        <Alert>{(bulkMutation.error ?? rowMutation.error)!.message}</Alert>
+      {/* Mounted on the first frame, never before: until one arrives there is no
+          count behind a bar, and the button's own busy state is the honest
+          indicator. Removed the moment the work settles, so the Alert that
+          reports the outcome takes the same slot rather than sitting under a
+          bar frozen at some fraction — for an atomic commit, a bar left at 61%
+          is a claim that 61% of it stuck. */}
+      {commitProgress ? (
+        <ProgressBar
+          label={progressLabel(commitProgress)}
+          value={progressFraction(commitProgress)}
+          max={1}
+        />
+      ) : null}
+      {failure ? (
+        <Alert>
+          {failure.message}
+          {/* Somebody who watched a bar climb needs telling that the number it
+              reached meant nothing. A commit is atomic, so a refusal at row two
+              thousand leaves the books exactly as they were — and no other
+              sentence on this page says so. Not said when the connection went
+              away instead: that outcome is unknown, and the sentence it would
+              be appended to says so. */}
+          {commitRefused ? " Nothing was committed." : null}
+        </Alert>
       ) : null}
       {bulkEditNotice ? <Alert kind="info">{bulkEditNotice}</Alert> : null}
       {inlineError ? <Alert>{inlineError}</Alert> : null}
@@ -840,7 +897,7 @@ export default function StagingPage() {
         </Alert>
       ) : null}
       {stages.length ? (
-        <div className="table-card">
+        <div className="table-card" tabIndex={0} role="region" aria-label="Staged transactions">
           <table className="data-table">
             <caption className="sr-only">Staged transactions</caption>
             <thead>
@@ -951,7 +1008,7 @@ export default function StagingPage() {
                         </button>
                       )}
                     </td>
-                    <td>
+                    <th scope="row">
                       {inlineFor(stage, "payee") ? (
                         <PayeeInput
                           autoFocus
@@ -987,7 +1044,7 @@ export default function StagingPage() {
                           }`}
                         </small>
                       ) : null}
-                    </td>
+                    </th>
                     <td>{summary.account}</td>
                     <td>
                       {stagedLegs(draft.legs).length ? (

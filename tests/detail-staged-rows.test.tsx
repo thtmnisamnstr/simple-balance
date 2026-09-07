@@ -103,7 +103,10 @@ function renderBrowser(props: Record<string, unknown>) {
     <QueryClientProvider client={queryClient()}>
       <TimezoneProvider timezone="UTC">
         <BrowserRouter>
-          <TransactionBrowser {...props} />
+          <TransactionBrowser
+            heading={{ kind: "section", title: "Transactions", description: "For this test." }}
+            {...props}
+          />
         </BrowserRouter>
       </TimezoneProvider>
     </QueryClientProvider>,

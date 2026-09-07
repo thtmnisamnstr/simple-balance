@@ -3,11 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
-import { type StagedDraft } from "../../shared/domain.js";
+import { PROGRESS_STREAM_MIN_ROWS, type StagedDraft } from "../../shared/domain.js";
+import { progressFraction, type ProgressEvent } from "../../shared/progress.js";
 import {
   api,
+  apiStreamed,
   json,
   queryString,
+  writeDidNotHappen,
   type Account,
   type Category,
   type CsvPreview,
@@ -20,6 +23,8 @@ import {
   EmptyState,
   Field,
   PageHeader,
+  progressLabel,
+  ProgressBar,
   Select,
   Skeleton,
 } from "../components.js";
@@ -185,28 +190,45 @@ export default function ImportPage() {
     },
   });
 
+  // Beside the mutation, because a mutation has no channel for anything between
+  // pending and settled, and this arrives four times a second while one is in
+  // flight.
+  const [stageProgress, setStageProgress] = useState<ProgressEvent | null>(null);
+
   const stageMutation = useMutation({
-    mutationFn: async (dryRun: boolean) => ({
-      // Read here rather than in onSuccess: React Query re-reads its options on
-      // every render, so a control touched while the request was in flight would
-      // stamp a stale interpretation as the current one, which is the single
-      // thing the stamp exists to prevent.
-      reading,
-      value: await api<StageResult>(
-        "/api/v1/csv/stage",
-        json({
-          csv,
-          fileName,
-          idempotencyKey: stageIdempotencyKey.current,
-          defaultAccountId,
-          mapping: appExport ? undefined : mapping,
-          dateFormat,
-          decimalSeparator,
-          dryRun,
-        }),
-      ),
-    }),
+    mutationFn: async (dryRun: boolean) => {
+      const request = json({
+        csv,
+        fileName,
+        idempotencyKey: stageIdempotencyKey.current,
+        defaultAccountId,
+        mapping: appExport ? undefined : mapping,
+        dateFormat,
+        decimalSeparator,
+        dryRun,
+      });
+      return {
+        // Read here rather than in onSuccess: React Query re-reads its options on
+        // every render, so a control touched while the request was in flight would
+        // stamp a stale interpretation as the current one, which is the single
+        // thing the stamp exists to prevent.
+        reading,
+        // A dry run stages nothing and does no per-row work, so there is
+        // nothing to report and it never asks. A real stage always asks: how
+        // many rows this file holds is not known until the server has parsed
+        // it, and the alternative — parsing it a second time in the browser to
+        // decide — is two readings of one file, which is the thing this app
+        // does not do.
+        value: dryRun
+          ? await api<StageResult>("/api/v1/csv/stage", request)
+          : await apiStreamed<StageResult>("/api/v1/csv/stage", request, setStageProgress),
+      };
+    },
+    // Cleared here as well as in onSettled, because onSettled runs after
+    // onSuccess has awaited its refetches — long enough for the finished bar
+    // and the result to sit on screen together.
     onSuccess: async ({ value, reading: stamped }, dryRun) => {
+      setStageProgress(null);
       setResult(value);
       setResultReading(stamped);
       if (!dryRun) {
@@ -219,6 +241,7 @@ export default function ImportPage() {
         ]);
       }
     },
+    onSettled: () => setStageProgress(null),
   });
 
   const hasAmounts = Boolean(mapping.amount || mapping.debit || mapping.credit);
@@ -465,7 +488,32 @@ export default function ImportPage() {
                     Stage all rows <ArrowRight size={16} />
                   </Button>
                 </div>
-                {stageMutation.error ? <Alert>{stageMutation.error.message}</Alert> : null}
+                {/* Mounted on the first frame and never before: until one
+                    arrives there is no count behind a bar, and the button's own
+                    busy state is the honest indicator. It is gone before the
+                    result Alert below takes the same slot. */}
+                {stageProgress && stageProgress.total >= PROGRESS_STREAM_MIN_ROWS ? (
+                  <ProgressBar
+                    label={progressLabel(stageProgress)}
+                    value={progressFraction(stageProgress)}
+                    max={1}
+                  />
+                ) : null}
+                {stageMutation.error ? (
+                  <Alert>
+                    {stageMutation.error.message}
+                    {/* A stage is one transaction, so a refusal partway through
+                        leaves the queue exactly as it was, and somebody who
+                        watched a bar climb has no other way to know that. Three
+                        conditions, and each rules out a case it would be wrong
+                        for: a dry run stages nothing to begin with, and a
+                        connection that died says nothing about whether the rows
+                        landed. */}
+                    {stageMutation.variables === false && writeDidNotHappen(stageMutation.error)
+                      ? " Nothing was staged."
+                      : null}
+                  </Alert>
+                ) : null}
                 {/* A dry run is a prediction and goes stale with the settings it
                     was run under. A completed stage describes rows already
                     written, so it is history and cannot. */}

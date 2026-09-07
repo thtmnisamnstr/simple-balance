@@ -24,6 +24,56 @@ teaches the model that the argument works.
 
 ### Added
 
+**A category can be put in a group from the categories list.** The control
+existed, in a modal behind an unlabelled pencil, and no row ever said which group
+a category was already in — so a page with a Groups panel showing "0 categories"
+and no way to change it read as a feature that does not work. Every row now
+carries its group and changes it in place, the add form files a new category
+straight away, and a failed read of the groups says so instead of claiming there
+are none.
+
+**The forecast can project from what a ledger actually does.** "What happens
+next" counted dated recurrences and nothing else, so a household with months of
+real spending and no recurrences saw $0.00 in both money columns with nothing
+saying why. A third basis — "Recurring plus what you usually spend" — adds the
+average of recent finished periods per category, less whatever a recurrence
+already covers, and reports that part separately as `typicalSpending` and
+`typicalIncome` so a reader can always tell an inferred figure from a scheduled
+one. The current period is never part of its own average, matching the rule
+`trailing_average` follows on the budgets side. **The browser defaults to it; the
+wire default is unchanged**, so no existing client's answer moves.
+
+**The overview says where the budget stands** over the range it is showing, under
+Accounts and Spending by category, one row per period the report covers rather
+than a total the server never computes. **And the categories in Spending by
+category are links** to the category, carrying the date range with them.
+
+**A long commit and a long import say how far along they are.** Committing fifty
+staged rows or more, or staging a CSV of fifty rows or more, now draws a
+determinate bar counting the rows as the server works through them — validated,
+compared, posted for a commit; staged for an import — with the phase and its
+true figures in the sentence beside it. Several thousand rows is a minute or
+more, and until now that minute looked identical to nothing happening.
+
+There is nowhere else that progress could have come from. Both writes happen
+inside one transaction, so a row written to a progress table would be invisible
+to every other connection until the whole thing committed, and a count held in
+one process cannot be polled by a deployment running two. So the response
+reports its own progress: the browser asks with `Accept: text/event-stream` and
+gets Server-Sent Events, ending in a terminal frame carrying byte for byte what
+the JSON reply would have. **A caller that does not ask sees no change at all** —
+same status, same body, same headers — which includes every MCP client, since
+the agent transport answers in a single JSON object and has no channel a
+progress notification could travel on. The transaction is untouched: no query
+was added, moved or removed, and a refusal partway through still rolls
+everything back and now says so on screen.
+
+Operators running their own reverse proxy in front of a single container should
+add `proxy_buffering off;` and `proxy_read_timeout 600s;` to it — the snippet in
+`docs/deployment.md` now has both, and the images this repository ships already
+did. Without them a long commit was already being cut off at sixty seconds; with
+them the progress arrives as it happens rather than in one jump at the end.
+
 **Clone transaction**, on the row menu of both the transactions list and the
 staged queue. The copy opens the staging form prefilled and lands on Staged for
 review rather than in the books, minus the original's bank reference — a copy
@@ -195,6 +245,50 @@ being told its budgets are unfunded because income happened to land in another
 period.
 
 ### Changed
+
+**Every page now has one vertical rhythm, and one place that decides it.** The
+distance between two sections of a page was a margin on whichever block happened
+to be there — eight different numbers across the app, and none at all on the
+five blocks that most often sit at page level, so four stacked panels on Budgets
+touched and Categories ran four different gaps in one screen. The page container
+supplies a single 24px gap now and no section carries a spacing opinion of its
+own. `docs/standards/web.md` §7.4 has the rule and `tests/page-stack.test.ts`
+holds it.
+
+**A page's buttons sit in the same place on every page.** Transactions had none
+in its header at all: its two buttons were a body element dragged up into the
+header band by a hardcoded `-48px`, with a second hand-tuned constant for the
+four detail pages that embed the same list. And the header bottom-aligned its
+actions against the whole text block, so a two-line description pushed them a
+line lower — the entire difference between Recurring and Templates. The header
+is two rows now, actions beside the title, and both negative margins are gone.
+
+**The Budgets page reads in the order the work happens**: set a budget, the
+standing budgets that result, the single-period exceptions to them, what happens
+next, then the period that is running. What it spends is last because it is the
+longest, not because it is the least important.
+
+**Settings is two balanced columns.** Three cards shared the narrow one while
+Sign-in methods had the wide one to itself, which left a stretch of nothing under
+it and stretched single-column password fields across seven hundred pixels. The
+sign-in card also did four jobs; the password form is its own card now, with the
+note about forgotten passwords back beside it instead of below a Google button.
+
+**Templates' Type filter lines up with the search box beside it.** It was the one
+filter in the app wrapped in a form `Field`, which stacked a label above it and
+made it twenty pixels taller. Recurring has gained the same filter, and both
+search boxes have gained the magnifying glass whose space they were already
+reserving.
+
+**Two accessibility failures the guides had recorded and nobody had closed.**
+Every table that scrolls sideways is now reachable from the keyboard —
+`tabIndex={0}` with a role and a name on all twelve containers, where before not
+one was a tab stop and the far columns of a narrow table could not be reached at
+all. And the four tables that named their row in a `<td>` now use
+`<th scope="row">`, so a row is announced with the thing that identifies it.
+Alongside them: every loading region says what it is loading, the categories list
+distinguishes "none yet" from "none matching", and the enabled state of a
+mass-edit field takes the stronger green a control edge is held to.
 
 A numeric setting outside its range says so at startup instead of falling back
 in silence. `CSV_MAX_ROWS`, `CSV_MAX_BYTES`, `RECURRENCE_TICK_SECONDS`,

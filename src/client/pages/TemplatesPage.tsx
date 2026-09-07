@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutTemplate, ListChecks, Pencil, Plus, Trash2 } from "lucide-react";
+import { LayoutTemplate, ListChecks, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { api, json, type Account, type Category, type TransactionTemplate } from "../api.js";
 import {
@@ -379,11 +379,18 @@ export default function TemplatesPage() {
       {error ? <Alert>{error.message}</Alert> : null}
       {notice ? <Alert kind="success">{notice}</Alert> : null}
 
+      {/* A bare control with an `aria-label`, not a `Field`. A filter takes
+          effect on change: it has no error state, no required state, no submit
+          and never appears in an error summary, so the label stacked above it
+          bought nothing and made this control 20px taller than the search box
+          beside it — which `align-items: center` then rendered as two boxes at
+          different heights. Every other filter in the app is already bare. */}
       <div className="category-toolbar">
         <label className="search-box">
-          <span className="sr-only">Search templates</span>
+          <Search size={16} />
           <Input
             type="search"
+            aria-label="Search templates"
             placeholder="Search templates"
             value={search}
             onChange={(event) => {
@@ -393,21 +400,20 @@ export default function TemplatesPage() {
             }}
           />
         </label>
-        <Field label="Type">
-          <Select
-            value={typeFilter}
-            onChange={(event) => {
-              setTypeFilter(event.target.value);
-              setPage(1);
-              clearSelection();
-            }}
-          >
-            <option value="">Every type</option>
-            <option value="deposit">Deposit</option>
-            <option value="withdrawal">Withdrawal</option>
-            <option value="transfer">Transfer</option>
-          </Select>
-        </Field>
+        <Select
+          aria-label="Filter by type"
+          value={typeFilter}
+          onChange={(event) => {
+            setTypeFilter(event.target.value);
+            setPage(1);
+            clearSelection();
+          }}
+        >
+          <option value="">Every type</option>
+          <option value="deposit">Deposit</option>
+          <option value="withdrawal">Withdrawal</option>
+          <option value="transfer">Transfer</option>
+        </Select>
       </div>
 
       {selectedIds.length ? (
@@ -462,7 +468,7 @@ export default function TemplatesPage() {
         />
       ) : (
         <section className="panel">
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Transaction templates">
             <table className="data-table">
               <caption className="sr-only">Transaction templates</caption>
               <thead>
@@ -521,9 +527,9 @@ export default function TemplatesPage() {
                           onChange={(event) => toggleOne(template, event.target.checked)}
                         />
                       </td>
-                      <td>
+                      <th scope="row">
                         <strong>{template.name}</strong>
-                      </td>
+                      </th>
                       <td>
                         {template.draft.type ? (
                           transactionTypeLabels[template.draft.type]

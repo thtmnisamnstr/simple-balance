@@ -52,6 +52,7 @@ import {
 } from "./helpers.js";
 import { cursorInstant, decodeCursor, encodeCursor } from "./cursor.js";
 import { cleanHumanName, normalizeHumanName } from "../../shared/names.js";
+import type { ProgressEvent } from "../../shared/progress.js";
 import { payeeSummaries, preferredPayee, seedCanonicalPayeeCache } from "./payees.js";
 import { preferredCategory } from "./categories.js";
 import { insertImportedStages } from "./staging.js";
@@ -780,7 +781,10 @@ export async function stageCsv(
   actor: Actor,
   input: unknown,
   transaction?: DbTransaction,
-  options: { mayMutateCategories?: boolean } = {},
+  options: {
+    mayMutateCategories?: boolean;
+    onProgress?: (event: ProgressEvent) => void;
+  } = {},
 ) {
   const mayMutateCategories = options.mayMutateCategories ?? true;
   const parsed = csvStageInputSchema.parse(input);
@@ -949,6 +953,7 @@ export async function stageCsv(
         importBatchId: batch.id,
         initialIssues: normalizedRow.issues,
       })),
+      options.onProgress,
     );
     const stagedIds = staged.map((row) => row.id);
     const response = { ...preview, importBatchId: batch.id, stagedIds };

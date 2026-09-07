@@ -118,13 +118,12 @@ export default function AccountDetailPage() {
         })}
       </section>
       <section className="account-transactions">
-        <div className="section-title">
-          <div>
-            <h2>Transactions</h2>
-            <p>Filter, search, export, or add activity for this account.</p>
-          </div>
-        </div>
         <TransactionBrowser
+          heading={{
+            kind: "section",
+            title: "Transactions",
+            description: "Filter, search, export, or add activity for this account.",
+          }}
           fixedAccountId={accountId}
           allowCreate={!account.data.archivedAt}
           showDateRange={false}
@@ -149,7 +148,7 @@ export default function AccountDetailPage() {
           register.error ? (
             <Alert>{register.error.message}</Alert>
           ) : register.isPending || !register.data ? (
-            <Skeleton height={220} />
+            <Skeleton height={220} label="Loading the register…" />
           ) : (
             <>
               <p className="settings-note">
@@ -158,7 +157,7 @@ export default function AccountDetailPage() {
                 {formatDate(register.data.asOf)}.
               </p>
               {register.data.entries.length ? (
-                <div className="table-wrap">
+                <div className="table-wrap" tabIndex={0} role="region" aria-label="Register">
                   <table className="data-table">
                     <caption className="sr-only">
                       Postings on {register.data.accountName} in date order

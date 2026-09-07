@@ -464,8 +464,19 @@ location / {
     # choosing at the front of the list and produces a chain nothing downstream
     # can resolve to one caller.
     proxy_set_header X-Forwarded-For $remote_addr;
+    # A commit or an import of several thousand rows is one request that can
+    # take a minute, and it reports its progress as it goes. Both defaults are
+    # wrong for that: proxy_read_timeout is 60s, which cuts the request off, and
+    # proxy_buffering holds the progress back until the response is complete, so
+    # the progress bar in the browser would fill in one jump at the end.
+    proxy_read_timeout 600s;
+    proxy_buffering off;
 }
 ```
+
+Caddy needs neither line: it streams by default and does not time a slow
+response out. The frontend image's own nginx already sets both
+(`deploy/docker/nginx.conf.template`).
 
 Then set `TRUST_PROXY=true`. Sign-in attempts are counted per client address,
 and with this off that address is the far end of the connection, which behind a

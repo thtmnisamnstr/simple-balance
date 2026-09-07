@@ -169,16 +169,23 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:389`). Every site it flagged was correctly labelled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:390`). Every site it flagged was correctly labelled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
-| `jsx-a11y/prefer-tag-over-role` | Flags `<svg role="img">`, which is the recommended way to expose an SVG, and a `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:490`). |
+| `jsx-a11y/prefer-tag-over-role` | Flags `<svg role="img">`, which is the recommended way to expose an SVG, and a `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:491`). |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
 | `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Nine sites, all one of those two shapes — in both, focus lands where the person's own gesture was already headed. |
+
+One is denied but reconfigured rather than silenced, and it is here because a
+rule that is *narrowed* is the same kind of decision as one turned off:
+
+| Rule | Why narrowed |
+| --- | --- |
+| `jsx-a11y/no-noninteractive-tabindex` | `roles` widened to accept `region`. `web.md` §9.6 is Binding under SC 2.1.1 — a container that scrolls horizontally has to be reachable by keyboard — and the sanctioned way to do that is `tabIndex={0}` plus `role="region"` and a name. The rule's default `roles` list is `["tabpanel"]` alone, so it refuses the exact pattern the accessibility rule requires. Every one of the twelve sites is a named scroll region. |
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
 `src/client/forms.tsx:534`, and both that and `click-events-have-key-events` at
-`src/client/components.tsx:497`. Both are elements catching events that bubble
+`src/client/components.tsx:498`. Both are elements catching events that bubble
 from real controls inside them.
 
 *Checked by:* `npm run lint`, in `npm run verify`.

@@ -751,7 +751,13 @@ to misattribute.
 **How it was met**
 
 A `category_group` table, a nullable `group_id` on a category, and a budget
-target that is a category or a group and never both. The policy is declared when
+target that is a category or a group and never both. **A group is filled from
+the categories list**: every row carries a group picker and the add-category form
+takes one, which is the half this story shipped without — the only way in was a
+select inside an edit modal behind an unlabelled pencil, and a page showing a
+group with "0 categories" and no visible way to change that reads as a feature
+that does not work. `groupId` on create was also a request field only an agent
+could set until then. The policy is declared when
 the group is created and has no default, because the whole point of writing this
 story down was that having Monarch's behaviour and expecting hledger's is a page
 of figures all wrong in the same direction. A `sum_of_children` group is refused
@@ -849,6 +855,20 @@ recurrences, `basis: "recurring_and_budgets"` adds only the part of each
 category's budget its recurrences do not cover, and the budgeted figure is
 reported either way — a period whose budgets dwarf its recurrences is a period
 whose projection is optimistic, and nothing else on the page says so.
+
+**A third basis was added after the story shipped, because the first two share
+a blind spot.** Both read intentions — a schedule or a budget — and a ledger
+that has neither yet has months of real spending the projection was ignoring: it
+answered $0.00 in both money columns, which is a confident wrong answer rather
+than a cautious one. `basis: "recurring_and_history"` averages recent *finished*
+periods, per category for spending and in total for income, and subtracts what a
+recurrence already covers by the same rule the budget arm uses. The current
+period is never part of its own average — the rule `trailing_average` already
+follows on the budgets side, so the two surfaces cannot answer one question with
+two numbers. The history term is reported on its own as `typicalSpending` and
+`typicalIncome`, so an inferred figure can always be told from a dated one, and
+the page defaults to this basis while the wire default stays `recurring`, so no
+client's answer moved.
 
 Two smaller decisions worth recording. A recurrence with no amount is a real
 schedule with no figure: it comes back in `unprojectable` with the reason,

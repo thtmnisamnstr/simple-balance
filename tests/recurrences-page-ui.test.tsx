@@ -503,3 +503,35 @@ describe("the recurrence form", () => {
     }
   });
 });
+
+/**
+ * The type filter, which Templates has had and this page has not.
+ *
+ * Filtered here rather than on the request: the endpoint takes no query, the
+ * list is capped at two hundred, and the browser already holds all of it. A
+ * server parameter would also have to appear on `list_recurrences` in the same
+ * change, for a filter nothing outside this page asks for.
+ */
+describe("narrowing the list by type", () => {
+  it("shows only the recurrences of the chosen type", async () => {
+    await renderPage([rent, payroll]);
+    expect(screen.getByText("Rent")).toBeInTheDocument();
+    expect(screen.getByText("Salary")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Filter by type"), { target: { value: "deposit" } });
+
+    expect(screen.queryByText("Rent")).toBeNull();
+    expect(screen.getByText("Salary")).toBeInTheDocument();
+  });
+
+  it("asks the server for nothing extra to do it", async () => {
+    const writes = stubApi([rent, payroll]);
+    await renderPage([rent, payroll], writes);
+    fireEvent.change(screen.getByLabelText("Filter by type"), { target: { value: "transfer" } });
+
+    // A filter that reached the wire would have to reach the agent surface in
+    // the same change, and nothing has asked for that.
+    expect(writes).toHaveLength(0);
+    expect(await screen.findByText(/matches that search|Nothing here/i)).toBeInTheDocument();
+  });
+});

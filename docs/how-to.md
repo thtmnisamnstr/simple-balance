@@ -127,6 +127,13 @@ category side to divide.
    the importer flagged (a row missing an account, an unreadable date), and
    press **Commit selected**. Committing is all-or-nothing.
 
+Staging and committing fifty rows or more at once both show a bar counting
+the rows as they go, so a batch of several thousand tells you where it is
+instead of leaving you guessing. If either is refused partway, nothing was
+written and the message beside the bar says so. If the connection drops instead,
+nobody can say — the work carries on at the server whatever the browser does —
+so the message asks you to reload and look.
+
 Small repairs happen right in the list: click a row's **date, payee, category
 or amount** and it turns into the same editor the full form uses. Click away
 to save (for the date and amount, Enter saves too); Escape cancels. A split's
@@ -269,8 +276,10 @@ appears once you rank something.
 
 ### Grouping categories
 
-On **Categories**, press **Add group**, then edit a category to file it under
-the group. A group is budgeted one of two ways, chosen when you make it:
+On **Categories**, press **Add group**. Every category row then has a **group
+picker** on it: choose the group there, or pick one on the add-category form to
+file a new category as you make it. A group is budgeted one of two ways, chosen
+when you make it:
 
 - **Has a budget of its own**: one number for the whole group ("Eating out:
   £200 across restaurants, takeaway, coffee"). Bucket budgeting; three such
@@ -281,13 +290,23 @@ the group. A group is budgeted one of two ways, chosen when you make it:
 
 ### What happens next (the forecast)
 
-The **What happens next** panel walks your recurring transactions forward and
-projects your balance per currency, month by month. Nothing in it has
-happened; it is what the balances would do if nothing changed. Switch
-**Counting** to "Recurring plus what budgets intend" for the pessimistic
-reading: it adds the part of each budget no recurrence already covers, so the
-rent is never counted twice. A recurring transaction with no amount cannot be
-projected, and the panel names it rather than quietly flattering every month.
+The **What happens next** panel projects your balance per currency, month by
+month. Nothing in it has happened; it is what the balances would do if nothing
+changed. **Counting** decides what it reads:
+
+- **Recurring plus what you usually spend** — the default. Dated recurrences,
+  plus the average of what each category has actually spent over recent finished
+  months where no recurrence already covers it, and the same for income. This is
+  the only one that says anything at all before you have set up a recurrence.
+  The month you are in is never part of its own average.
+- **Recurring transactions only** — schedules and nothing else. Empty until you
+  have some, and honest about it.
+- **Recurring plus what budgets intend** — the pessimistic reading: it adds the
+  part of each budget no recurrence already covers, so the rent is never counted
+  twice.
+
+A recurring transaction with no amount cannot be projected, and the panel names
+it rather than quietly flattering every month.
 
 ### A starter recipe
 

@@ -114,7 +114,9 @@ function renderBrowser() {
     <QueryClientProvider client={queryClient()}>
       <TimezoneProvider timezone="UTC">
         <BrowserRouter>
-          <TransactionBrowser />
+          <TransactionBrowser
+            heading={{ kind: "section", title: "Transactions", description: "For this test." }}
+          />
         </BrowserRouter>
       </TimezoneProvider>
     </QueryClientProvider>,

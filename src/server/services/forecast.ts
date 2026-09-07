@@ -1,5 +1,10 @@
 import { and, eq, sql } from "drizzle-orm";
-import type { Actor, BudgetPeriodUnit, RecurrenceShape } from "../../shared/domain.js";
+import type {
+  Actor,
+  BudgetPeriodUnit,
+  ForecastBasis,
+  RecurrenceShape,
+} from "../../shared/domain.js";
 import { forecastQuerySchema, MAX_FORECAST_PERIODS } from "../../shared/domain.js";
 import { occurrencesBetween, todayIn } from "../../shared/recurrence-dates.js";
 import { getDb } from "../db/client.js";
@@ -55,6 +60,17 @@ export type ForecastPeriod = {
   budgetedSpending: string;
   /** The part of `budgetedSpending` no recurrence in the same category covers. */
   uncoveredBudget: string;
+  /**
+   * What this ledger has typically spent and received in a period like this
+   * one, averaged over recent finished periods.
+   *
+   * Zero under the two schedule-derived bases, which is not the same claim as
+   * "this ledger spends nothing" — it is "this basis did not ask". Reported
+   * separately from `expectedSpending` so a reader can always decompose the
+   * total into the part a schedule dated and the part history inferred.
+   */
+  typicalSpending: string;
+  typicalIncome: string;
   /** Opening plus income less whatever the basis counts as spending. */
   projectedBalance: string;
   /** How many recurrence occurrences fall in this period. */
@@ -71,7 +87,7 @@ export type ForecastView = {
   /** The day the projection starts from, which is today where this person lives. */
   from: string;
   periodUnit: BudgetPeriodUnit;
-  basis: "recurring" | "recurring_and_budgets";
+  basis: ForecastBasis;
   currencies: ForecastCurrency[];
   /**
    * What could not be projected, and why.
@@ -177,6 +193,85 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
     for (const row of rows.rows) {
       if (row.category_id === null) continue;
       spentThisPeriod.set(`${String(row.currency)}:${String(row.category_id)}`, String(row.spent));
+    }
+  }
+
+  // What this ledger typically does, per finished period, for the one basis
+  // that projects from history rather than from a schedule.
+  //
+  // Read here rather than folded into the query above because the window is a
+  // different one: that query is about the period already running, and this is
+  // about the periods before it. Bucketed on the same grid as everything else,
+  // so a "month" here is the month the budget report means.
+  //
+  // No transaction, no write. `tests/forecast-boundary.test.ts` holds this file
+  // to reading only, and the invariant behind it is that a forecast is a
+  // projection and never a balance — reading what did happen and calling the
+  // result `typical` is exactly the direction that rule permits.
+  const typicalSpendingByCategory = new Map<string, string>();
+  const typicalIncomeByCurrency = new Map<string, string>();
+  if (parsed.basis === "recurring_and_history" && firstPeriod) {
+    // Whole finished periods only. The current one is excluded because a period
+    // is not part of its own average — the same rule `trailing_average` follows
+    // in `budgets.ts`, and the two must agree or the product answers one
+    // question about one category with two numbers.
+    const lookbackStart = await getDb().execute(sql`
+      select (date_trunc(${unit}, ${firstPeriod.start}::date)
+        - ((${parsed.lookback * multiple} || ' ${sql.raw(interval)}')::interval))::date as start
+    `);
+    const historyFrom = String(lookbackStart.rows[0]?.start ?? firstPeriod.start);
+    const spendingRows = await getDb().execute(sql`
+      select
+        case when p.leg_id is not null then l.category_id else t.category_id end as category_id,
+        p.currency as currency,
+        count(distinct date_trunc(${unit}, p.date))::int as periods,
+        sum(p.amount)::text as spent
+      from posting p
+      join ledger_account a
+        on a.user_id = p.user_id and a.id = p.account_id and a.system_kind = 'expense'
+      left join transaction_leg l on l.user_id = p.user_id and l.id = p.leg_id
+      left join ledger_transaction t
+        on p.leg_id is null and t.user_id = p.user_id and t.id = p.transaction_id
+      where p.user_id = ${actor.userId}
+        and p.date >= ${historyFrom}::date
+        and p.date < ${firstPeriod.start}::date
+      group by 1, 2
+    `);
+    for (const row of spendingRows.rows) {
+      if (row.category_id === null) continue;
+      // Divided by the periods that exist rather than the periods asked for, so
+      // a ledger two months old is not told it spends a third of what it does.
+      // Floored at zero because spending is signed and a period with more
+      // refunds than purchases in it can come out negative.
+      const periodsSeen = Number(row.periods) || 1;
+      const average = decimal(String(row.spent)).div(periodsSeen);
+      if (average.cmp(0) <= 0) continue;
+      typicalSpendingByCategory.set(
+        `${String(row.currency)}:${String(row.category_id)}`,
+        canonicalDecimal(average),
+      );
+    }
+    // Income in total rather than per category, because the column it feeds is
+    // a currency total and income categories are too sparse for a per-category
+    // average to say much.
+    const incomeRows = await getDb().execute(sql`
+      select
+        p.currency as currency,
+        count(distinct date_trunc(${unit}, p.date))::int as periods,
+        sum(-p.amount)::text as received
+      from posting p
+      join ledger_account a
+        on a.user_id = p.user_id and a.id = p.account_id and a.system_kind = 'income'
+      where p.user_id = ${actor.userId}
+        and p.date >= ${historyFrom}::date
+        and p.date < ${firstPeriod.start}::date
+      group by 1
+    `);
+    for (const row of incomeRows.rows) {
+      const periodsSeen = Number(row.periods) || 1;
+      const average = decimal(String(row.received)).div(periodsSeen);
+      if (average.cmp(0) <= 0) continue;
+      typicalIncomeByCurrency.set(String(row.currency), canonicalDecimal(average));
     }
   }
 
@@ -437,18 +532,54 @@ export async function getForecast(actor: Actor, input: unknown): Promise<Forecas
         const gap = intended.minus(covered);
         if (gap.cmp(0) > 0) uncovered = uncovered.plus(gap);
       }
-      const spending = decimal(bucket.spending).plus(
-        parsed.basis === "recurring_and_budgets" ? uncovered : decimal(ZERO),
-      );
+      // What history says this period would cost, less whatever a recurrence
+      // already puts in it. Same shape as the budget arm above and for the same
+      // reason: a category covered by a dated recurrence is already counted,
+      // and adding its average on top would spend the rent twice.
+      let uncoveredHistory = decimal(ZERO);
+      let typicalSpending = decimal(ZERO);
+      if (parsed.basis === "recurring_and_history") {
+        for (const [key, amount] of typicalSpendingByCategory) {
+          const [keyCurrency, categoryId] = key.split(":");
+          if (keyCurrency !== currency || !categoryId) continue;
+          typicalSpending = typicalSpending.plus(amount);
+          const covered = decimal(
+            spendingByCategory.get(`${currency}:${period.start}:${categoryId}`) ?? ZERO,
+          ).plus(
+            period.start === firstPeriod?.start
+              ? (spentThisPeriod.get(`${currency}:${categoryId}`) ?? ZERO)
+              : ZERO,
+          );
+          const gap = decimal(amount).minus(covered);
+          if (gap.cmp(0) > 0) uncoveredHistory = uncoveredHistory.plus(gap);
+        }
+      }
+      const typicalIncome =
+        parsed.basis === "recurring_and_history"
+          ? decimal(typicalIncomeByCurrency.get(currency) ?? ZERO)
+          : decimal(ZERO);
+      // The same subtraction on the income side: a salary that a recurrence
+      // already schedules is in `bucket.income`, so only the part history saw
+      // and the schedule does not is added.
+      const uncoveredIncome = (() => {
+        const gap = typicalIncome.minus(bucket.income);
+        return gap.cmp(0) > 0 ? gap : decimal(ZERO);
+      })();
+      const spending = decimal(bucket.spending)
+        .plus(parsed.basis === "recurring_and_budgets" ? uncovered : decimal(ZERO))
+        .plus(uncoveredHistory);
+      const income = decimal(bucket.income).plus(uncoveredIncome);
       const openingBalance = canonicalDecimal(running);
-      running = running.plus(bucket.income).minus(spending);
+      running = running.plus(income).minus(spending);
       rows.push({
         periodStart: period.start,
         start: period.start,
         end: period.end,
         openingBalance,
-        expectedIncome: bucket.income,
+        expectedIncome: canonicalDecimal(income),
         expectedSpending: canonicalDecimal(spending),
+        typicalSpending: canonicalDecimal(typicalSpending),
+        typicalIncome: canonicalDecimal(typicalIncome),
         budgetedSpending: canonicalDecimal(budgeted),
         uncoveredBudget: canonicalDecimal(uncovered),
         projectedBalance: canonicalDecimal(running),

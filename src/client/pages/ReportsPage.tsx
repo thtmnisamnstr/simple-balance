@@ -232,7 +232,7 @@ export default function ReportsPage() {
 
       {query.isPending ? (
         <div className="currency-sections">
-          <Skeleton height={220} />
+          <Skeleton height={220} label="Loading the report…" />
         </div>
       ) : query.error ? null : !data?.currencies.length ? (
         <EmptyState
@@ -298,7 +298,12 @@ export default function ReportsPage() {
                   </>
                 ) : null}
 
-                <div className="table-wrap">
+                <div
+                  className="table-wrap"
+                  tabIndex={0}
+                  role="region"
+                  aria-label={`${TITLES[report]} in ${currency.currency}`}
+                >
                   <table className="data-table report-table">
                     <caption className="sr-only">
                       {TITLES[report]} in {currency.currency}

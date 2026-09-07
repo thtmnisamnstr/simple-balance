@@ -192,7 +192,13 @@ function renderAt(path: string, page: "transactions" | "staged") {
     <QueryClientProvider client={queryClient()}>
       <TimezoneProvider timezone="UTC">
         <BrowserRouter>
-          {page === "transactions" ? <TransactionBrowser /> : <StagingPage />}
+          {page === "transactions" ? (
+            <TransactionBrowser
+              heading={{ kind: "section", title: "Transactions", description: "For this test." }}
+            />
+          ) : (
+            <StagingPage />
+          )}
         </BrowserRouter>
       </TimezoneProvider>
     </QueryClientProvider>,

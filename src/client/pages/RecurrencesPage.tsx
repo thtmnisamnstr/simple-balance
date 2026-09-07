@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Pencil, Plus, Repeat, Trash2 } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Repeat, Search, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   api,
@@ -17,6 +17,7 @@ import {
   ConfirmDialog,
   EmptyState,
   Input,
+  Select,
   Modal,
   PageHeader,
   RowMenu,
@@ -35,6 +36,7 @@ type RecurrenceSortField = "name" | "schedule" | "amount" | "next" | "proposed" 
 export default function RecurrencesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [sort, setSort] = useState<SortState<RecurrenceSortField>>({
     field: "next",
     direction: "asc",
@@ -76,12 +78,19 @@ export default function RecurrencesPage() {
 
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
-    const matching = (recurrences.data?.items ?? []).filter(
-      (recurrence) =>
+    // Both filters here rather than on the request: the endpoint takes no
+    // query, the list is capped at two hundred, and the browser already holds
+    // all of it — the same reason Templates filters where it does. A server
+    // parameter would also have to appear on `list_recurrences` in the same
+    // change, for a filter nothing outside this page is asking for.
+    const matching = (recurrences.data?.items ?? []).filter((recurrence) => {
+      if (typeFilter && recurrence.shape.type !== typeFilter) return false;
+      return (
         !term ||
         recurrence.name.toLowerCase().includes(term) ||
-        recurrence.shape.payee.toLowerCase().includes(term),
-    );
+        recurrence.shape.payee.toLowerCase().includes(term)
+      );
+    });
     const key = (recurrence: Recurrence) => {
       switch (sort.field) {
         case "name":
@@ -111,7 +120,7 @@ export default function RecurrencesPage() {
       }
       return compareForSort(key(left), key(right), sort.direction);
     });
-  }, [recurrences.data, search, sort]);
+  }, [recurrences.data, search, typeFilter, sort]);
 
   const overdue = visible.filter((recurrence) => recurrence.overdue).length;
   const error = recurrences.error ?? accounts.error ?? deletion.error;
@@ -139,14 +148,25 @@ export default function RecurrencesPage() {
 
       <div className="category-toolbar">
         <label className="search-box">
-          <span className="sr-only">Search recurrences</span>
+          <Search size={16} />
           <Input
             type="search"
+            aria-label="Search recurrences"
             placeholder="Search recurrences"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
+        <Select
+          aria-label="Filter by type"
+          value={typeFilter}
+          onChange={(event) => setTypeFilter(event.target.value)}
+        >
+          <option value="">Every type</option>
+          <option value="deposit">Deposit</option>
+          <option value="withdrawal">Withdrawal</option>
+          <option value="transfer">Transfer</option>
+        </Select>
       </div>
 
       {recurrences.isPending || accounts.isPending ? (
@@ -163,7 +183,12 @@ export default function RecurrencesPage() {
         />
       ) : (
         <section className="panel">
-          <div className="table-wrap">
+          <div
+            className="table-wrap"
+            tabIndex={0}
+            role="region"
+            aria-label="Recurring transactions"
+          >
             <table className="data-table">
               <caption className="sr-only">Recurring transactions</caption>
               <thead>
@@ -200,12 +225,12 @@ export default function RecurrencesPage() {
               <tbody>
                 {visible.map((recurrence) => (
                   <tr key={recurrence.id}>
-                    <td>
+                    <th scope="row">
                       <strong>{recurrence.name}</strong>
                       <span className="table-subtitle">
                         {transactionTypeLabels[recurrence.shape.type]} · {recurrence.shape.payee}
                       </span>
-                    </td>
+                    </th>
                     <td>{scheduleSentence(recurrence)}</td>
                     <td
                       className={`align-right money ${movementSign(recurrence.shape.type).className}`}

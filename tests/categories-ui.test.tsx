@@ -2,9 +2,9 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CategorySummary } from "../src/client/api.js";
+import type { CategoryGroup, CategorySummary } from "../src/client/api.js";
 import CategoriesPage from "../src/client/pages/CategoriesPage.js";
 import { BrowserRouter } from "../src/client/router.js";
 
@@ -41,22 +41,53 @@ function queryClient() {
   });
 }
 
-function stubCategories(rows: CategorySummary[]) {
+function stubCategories(
+  rows: CategorySummary[],
+  options: { groups?: CategoryGroup[] | "error" } = {},
+) {
   const requested: string[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(String(input), window.location.origin);
       if (url.pathname === "/api/v1/categories/duplicates") return Response.json([]);
+      if (url.pathname === "/api/v1/category-groups") {
+        if (options.groups === "error") {
+          return Response.json(
+            { error: { code: "INTERNAL_ERROR", message: "No." } },
+            { status: 500 },
+          );
+        }
+        return Response.json(options.groups ?? []);
+      }
       if (url.pathname === "/api/v1/categories/summaries") {
         requested.push(url.search);
         return Response.json(rows);
+      }
+      if (url.pathname.startsWith("/api/v1/categories")) {
+        writes.push({
+          path: url.pathname,
+          method: init?.method ?? "POST",
+          body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+        });
+        return Response.json({ ...rows[0], id: "written" });
       }
       return new Response("Not found", { status: 404 });
     }),
   );
   return requested;
 }
+
+/** Every write the page made, so a request field can be asserted rather than implied. */
+let writes: { path: string; method: string; body: Record<string, unknown> }[] = [];
+
+const household: CategoryGroup = {
+  id: "99999999-9999-4999-8999-999999999999",
+  name: "Household",
+  policy: "sum_of_children",
+  categoryCount: 0,
+  version: 1,
+};
 
 function renderCategories() {
   window.history.replaceState(null, "", "/categories");
@@ -80,6 +111,7 @@ const listedNames = () =>
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  writes = [];
   window.history.replaceState(null, "", "/");
 });
 
@@ -156,5 +188,84 @@ describe("how much each category is used", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Show archived/ }));
     await screen.findByText("Groceries");
     expect(requested).toContain("?includeArchived=true");
+  });
+});
+
+/**
+ * Putting a category in a group.
+ *
+ * The control existed before this: a "Group" select inside the edit modal,
+ * behind a pencil icon whose only label was "Edit Groceries". Nothing on the
+ * page said a category had a group, nothing on the Groups panel led to one, and
+ * the reasonable conclusion — the one that was reported — was that groups
+ * cannot be filled at all. None of that was reachable by a test either, because
+ * nothing in this file mentioned a group.
+ */
+describe("filing a category under a group", () => {
+  it("offers the group on the row, and says which one it is already in", async () => {
+    stubCategories([{ ...groceries, groupId: household.id }, rent], { groups: [household] });
+    renderCategories();
+    await screen.findByText("Groceries");
+
+    expect(screen.getByLabelText("Group of Groceries")).toHaveValue(household.id);
+    expect(screen.getByLabelText("Group of Rent")).toHaveValue("");
+  });
+
+  it("sends the group and the version it was read at", async () => {
+    stubCategories([groceries], { groups: [household] });
+    renderCategories();
+    await screen.findByText("Groceries");
+
+    fireEvent.change(screen.getByLabelText("Group of Groceries"), {
+      target: { value: household.id },
+    });
+
+    await waitFor(() => expect(writes.some((one) => one.method === "PUT")).toBe(true));
+    const write = writes.find((one) => one.method === "PUT");
+    expect(write?.path).toBe(`/api/v1/categories/${groceries.id}`);
+    expect(write?.body["groupId"]).toBe(household.id);
+    // Without it the write is a lost update waiting for two tabs.
+    expect(write?.body["expectedVersion"]).toBe(groceries.version);
+  });
+
+  it("clears a group with null rather than by leaving the field out", async () => {
+    stubCategories([{ ...groceries, groupId: household.id }], { groups: [household] });
+    renderCategories();
+    await screen.findByText("Groceries");
+
+    fireEvent.change(screen.getByLabelText("Group of Groceries"), { target: { value: "" } });
+
+    await waitFor(() => expect(writes.some((one) => one.method === "PUT")).toBe(true));
+    const write = writes.find((one) => one.method === "PUT");
+    // The server reads an absent key as "leave the group alone", so omitting it
+    // would silently do nothing at all.
+    expect(write?.body).toHaveProperty("groupId", null);
+  });
+
+  it("files a new category on the way in", async () => {
+    stubCategories([groceries], { groups: [household] });
+    renderCategories();
+    await screen.findByText("Groceries");
+
+    fireEvent.change(screen.getByLabelText("Category name"), { target: { value: "Water" } });
+    fireEvent.change(screen.getByLabelText("Category group"), { target: { value: household.id } });
+    fireEvent.click(screen.getByRole("button", { name: /Add category/ }));
+
+    // `create_category` has always taken a groupId. Until this the browser did
+    // not send one, which made it a request field only an agent could set.
+    await waitFor(() => expect(writes.some((one) => one.path === "/api/v1/categories")).toBe(true));
+    const write = writes.find((one) => one.path === "/api/v1/categories");
+    expect(write?.body).toMatchObject({ name: "Water", groupId: household.id });
+  });
+
+  it("says the groups could not be read rather than that there are none", async () => {
+    stubCategories([groceries], { groups: "error" });
+    renderCategories();
+    await screen.findByText("Groceries");
+
+    // The failure used to render as "No groups yet." beside a picker offering
+    // only "No group" — indistinguishable from a product that cannot group.
+    expect(await screen.findByText(/groups could not be loaded/i)).toBeInTheDocument();
+    expect(screen.queryByText("No groups yet.")).toBeNull();
   });
 });

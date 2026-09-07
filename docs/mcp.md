@@ -419,9 +419,17 @@ March answering with what last March intended.
 have dates and amounts. Nothing it returns is a balance: money dated in the
 future has not moved, and a projection reported as a balance would make the
 ledger claim something happened because somebody expected it to. Say
-"projected". The projection uses recurrences alone unless `basis` asks for the
-budgets as well, and a recurrence with no amount comes back in `unprojectable`
-rather than being counted as nothing.
+"projected". The projection uses recurrences alone unless `basis` asks for more:
+`recurring_and_budgets` adds the part of each budget no recurrence covers, and
+`recurring_and_history` instead adds what recent finished periods actually did —
+per category for spending, in total for income, less whatever a recurrence
+already accounts for, over the window `lookback` names. The current period is
+never part of its own average. Whichever basis is asked for, `typicalSpending`
+and `typicalIncome` report the history term on its own, so an inferred figure
+can always be told from a scheduled one; both are zero under the other two
+bases, which means the basis did not ask rather than that the ledger does
+nothing. A recurrence with no amount comes back in `unprojectable` rather than
+being counted as nothing.
 
 `list_budget_entries`, `set_budget_entry` and `delete_budget_entry` handle a
 single period. Use one for a one-off, such as a larger food budget in December.

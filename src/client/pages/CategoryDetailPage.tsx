@@ -43,13 +43,12 @@ export default function CategoryDetailPage() {
       />
       <DateRangeBar />
       <section className="account-transactions">
-        <div className="section-title">
-          <div>
-            <h2>Transactions</h2>
-            <p>Filter, search, export, or add activity in this category.</p>
-          </div>
-        </div>
         <TransactionBrowser
+          heading={{
+            kind: "section",
+            title: "Transactions",
+            description: "Filter, search, export, or add activity in this category.",
+          }}
           includeStaged
           fixedCategoryId={categoryId}
           initialType={category.data.kind === "income" ? "deposit" : "withdrawal"}

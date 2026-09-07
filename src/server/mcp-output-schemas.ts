@@ -1099,6 +1099,16 @@ export const forecastResultSchema = z.object({
           uncoveredBudget: z
             .string()
             .describe("The part of budgetedSpending no recurrence in the same category covers."),
+          typicalSpending: z
+            .string()
+            .describe(
+              'What this ledger has typically spent in a period like this one, averaged over recent finished periods. Zero under any basis but "recurring_and_history", which does not mean the ledger spends nothing — it means the basis did not ask.',
+            ),
+          typicalIncome: z
+            .string()
+            .describe(
+              'What this ledger has typically received in a period like this one, on the same average. Zero under any basis but "recurring_and_history".',
+            ),
           projectedBalance: z.string(),
           occurrences: z.number().int(),
         }),

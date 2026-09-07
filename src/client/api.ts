@@ -1,3 +1,9 @@
+import {
+  createProgressDecoder,
+  PROGRESS_MEDIA_TYPE,
+  type ProgressEvent,
+  type ProgressFrame,
+} from "../shared/progress.js";
 import type {
   ActorSource,
   UserAccountType,
@@ -44,53 +50,69 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    const details = payload?.error?.details;
-    // A Zod refusal arrives as "Request validation failed" with the sentences
-    // somebody actually wrote buried in details. Showing the envelope instead
-    // of the messages is how "A budget cannot be negative" became
-    // "Request validation failed" on screen, and taking only the first of them
-    // is how a refusal naming three bad fields showed one, leaving the second to
-    // be found by fixing the first and pressing the button again.
-    //
-    // Discriminated on `path`, not on `message`. A Zod issue always carries a
-    // path; an AppError that happens to hand over an array of its own does not.
-    // The CSV import passes Papa's parser errors — `{ type, code, message, row }`
-    // — so reading those as field messages is how the sentence somebody wrote,
-    // "CSV contains malformed quoted data", showed up on screen as Papa's
-    // "Quoted field unterminated". Guarding on the path lets that one fall
-    // through to the envelope, which is the sentence worth reading.
-    const issues = Array.isArray(details)
-      ? details.filter(
-          (entry: unknown): entry is { path: unknown[]; message: string } =>
-            typeof (entry as { message?: unknown })?.message === "string" &&
-            Array.isArray((entry as { path?: unknown })?.path),
-        )
-      : [];
-    // Deduplicated on the (path, sentence) pair rather than the sentence, because
-    // Zod gives identical wording to different fields: two blank fields are two
-    // "Invalid input: expected string, received undefined", and three split legs
-    // left at zero are three "Amount must be greater than zero". Collapsing by
-    // wording would say one amount is wrong when three are, which is the case a
-    // summary exists for. Only an exact repeat — the same path refused twice, by
-    // a regex and then a refinement — is dropped.
-    const seen = new Set<string>();
-    const messages: string[] = [];
-    for (const issue of issues) {
-      const key = `${issue.path.join(".")} ${issue.message}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      messages.push(issue.message);
-    }
-    throw new ApiClientError(
-      payload?.error?.code ?? `HTTP_${response.status}`,
-      messages[0] ?? payload?.error?.message ?? response.statusText,
-      details,
-      messages,
+    throw refusalFrom(
+      await response.json().catch(() => null),
+      response.statusText,
+      response.status,
     );
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+/**
+ * One refusal envelope, read the same way wherever it arrives.
+ *
+ * A streamed reply cannot use a status code — its 200 went out with the first
+ * frame — so the same object turns up in a terminal `error` frame instead. It
+ * is read here rather than twice, because everything below is hard-won and a
+ * second copy would be the copy that stops being updated.
+ */
+function refusalFrom(payload: unknown, fallbackMessage: string, status?: number): ApiClientError {
+  const envelope = payload as { error?: { code?: string; message?: string; details?: unknown } };
+  const details = envelope?.error?.details;
+  // A Zod refusal arrives as "Request validation failed" with the sentences
+  // somebody actually wrote buried in details. Showing the envelope instead
+  // of the messages is how "A budget cannot be negative" became
+  // "Request validation failed" on screen, and taking only the first of them
+  // is how a refusal naming three bad fields showed one, leaving the second to
+  // be found by fixing the first and pressing the button again.
+  //
+  // Discriminated on `path`, not on `message`. A Zod issue always carries a
+  // path; an AppError that happens to hand over an array of its own does not.
+  // The CSV import passes Papa's parser errors — `{ type, code, message, row }`
+  // — so reading those as field messages is how the sentence somebody wrote,
+  // "CSV contains malformed quoted data", showed up on screen as Papa's
+  // "Quoted field unterminated". Guarding on the path lets that one fall
+  // through to the envelope, which is the sentence worth reading.
+  const issues = Array.isArray(details)
+    ? details.filter(
+        (entry: unknown): entry is { path: unknown[]; message: string } =>
+          typeof (entry as { message?: unknown })?.message === "string" &&
+          Array.isArray((entry as { path?: unknown })?.path),
+      )
+    : [];
+  // Deduplicated on the (path, sentence) pair rather than the sentence, because
+  // Zod gives identical wording to different fields: two blank fields are two
+  // "Invalid input: expected string, received undefined", and three split legs
+  // left at zero are three "Amount must be greater than zero". Collapsing by
+  // wording would say one amount is wrong when three are, which is the case a
+  // summary exists for. Only an exact repeat — the same path refused twice, by
+  // a regex and then a refinement — is dropped.
+  const seen = new Set<string>();
+  const messages: string[] = [];
+  for (const issue of issues) {
+    const key = `${issue.path.join(".")} ${issue.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    messages.push(issue.message);
+  }
+  return new ApiClientError(
+    envelope?.error?.code ?? (status === undefined ? "HTTP_ERROR" : `HTTP_${status}`),
+    messages[0] ?? envelope?.error?.message ?? fallbackMessage,
+    details,
+    messages,
+  );
 }
 
 /**
@@ -102,10 +124,105 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export const errorMessages = (error: unknown): string[] =>
   error instanceof ApiClientError ? error.messages : error instanceof Error ? [error.message] : [];
 
+/**
+ * A stream that stopped without saying how it went. Client-side, deliberately:
+ * nothing on the wire names it, so the published enumeration is untouched.
+ */
+const STREAM_TRUNCATED = "HTTP_STREAM_TRUNCATED";
+
+/**
+ * Whether a failure means the write did not happen.
+ *
+ * Only true when the server answered — a refusal has a code and a sentence, and
+ * an atomic write that was refused wrote nothing. A connection that died says
+ * nothing about the outcome: the transaction is not cancelled when a browser
+ * goes away, so a commit that vanished on the way back may well be in the
+ * books, which is what the retained idempotency key exists for. Telling
+ * somebody "nothing was committed" there is a guess, and the wrong one more
+ * often than not.
+ */
+export const writeDidNotHappen = (error: unknown) =>
+  error instanceof ApiClientError && error.code !== STREAM_TRUNCATED;
+
 export const json = (value: unknown): RequestInit => ({
   method: "POST",
   body: JSON.stringify(value),
 });
+
+/**
+ * The same call, watched rather than waited on.
+ *
+ * Two routes will report their own progress if asked, on the response that is
+ * doing the work — there is nowhere else it could come from, because the work
+ * is one transaction and nothing inside it is visible until it commits. Asking
+ * costs a request header and nothing else: the request body, the work and the
+ * final payload are identical either way.
+ *
+ * Falls back to reading the reply as JSON whenever it did not arrive as frames.
+ * That is not defensive habit: it is what keeps an older deployment, a proxy
+ * that rewrote the content type, and every test that stubs `fetch` with a plain
+ * response all working through this function rather than only through the other
+ * one.
+ */
+export async function apiStreamed<T>(
+  path: string,
+  init: RequestInit,
+  onProgress: (event: ProgressEvent) => void,
+): Promise<T> {
+  const response = await fetch(path, {
+    credentials: "include",
+    ...init,
+    headers: {
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      Accept: PROGRESS_MEDIA_TYPE,
+      ...init.headers,
+    },
+  });
+  const framed = (response.headers.get("Content-Type") ?? "").includes(PROGRESS_MEDIA_TYPE);
+  if (!response.ok || !framed || !response.body) {
+    if (!response.ok) {
+      throw refusalFrom(
+        await response.json().catch(() => null),
+        response.statusText,
+        response.status,
+      );
+    }
+    if (response.status === 204) return undefined as T;
+    return response.json() as Promise<T>;
+  }
+
+  // `getReader`, not `for await`. Asynchronous iteration over a body is newer
+  // than the browsers this is built for, and the reader loop is what the server
+  // reads its own request bodies with.
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const frames = createProgressDecoder();
+  let terminal: ProgressFrame | null = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    // `stream: true` keeps a multi-byte character split across two chunks
+    // whole. A payee named in any alphabet but this one would otherwise arrive
+    // as a replacement character on exactly the frames a person is watching.
+    for (const frame of frames(decoder.decode(value, { stream: !done }))) {
+      if (frame.type === "progress") onProgress(frame.event);
+      else terminal = frame;
+    }
+    if (done) break;
+  }
+  if (!terminal) {
+    // Ambiguous by nature, and the sentence has to be: the connection went away
+    // before the outcome arrived, and the work may well have finished anyway.
+    // Saying it failed would be a guess, and the wrong one more often than not.
+    throw new ApiClientError(
+      STREAM_TRUNCATED,
+      "The connection ended before this reported back. Reload to see whether it completed.",
+    );
+  }
+  if (terminal.type === "error") {
+    throw refusalFrom(terminal.error, terminal.error.error.message);
+  }
+  return terminal.value as T;
+}
 
 export type Session = {
   user: { id: string; name: string; email: string; image?: string | null };
@@ -618,7 +735,7 @@ export type BudgetReportRow = {
 export type Forecast = {
   from: string;
   periodUnit: BudgetPeriodUnitName;
-  basis: "recurring" | "recurring_and_budgets";
+  basis: "recurring" | "recurring_and_budgets" | "recurring_and_history";
   unprojectable: { id: string; name: string; reason: string }[];
   /** Units this person budgets in that this projection did not read. */
   otherPeriodUnits: BudgetPeriodUnitName[];
@@ -634,6 +751,9 @@ export type Forecast = {
       expectedSpending: string;
       budgetedSpending: string;
       uncoveredBudget: string;
+      /** Both zero unless the basis is `recurring_and_history`. */
+      typicalSpending: string;
+      typicalIncome: string;
       projectedBalance: string;
       occurrences: number;
     }[];

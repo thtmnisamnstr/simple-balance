@@ -168,7 +168,7 @@ export default function DuplicateReviewPage() {
   // Reached without naming a row, which is how the queue is entered from the
   // list: start at the first one that needs looking at.
   if (!id) {
-    if (duplicates.isPending) return <Skeleton height={320} />;
+    if (duplicates.isPending) return <Skeleton height={320} label="Loading duplicates…" />;
     if (!queue[0]) {
       return (
         <>
@@ -229,7 +229,7 @@ export default function DuplicateReviewPage() {
 
       {review.isPending || !ready ? (
         <div className="duplicate-review">
-          <Skeleton height={320} />
+          <Skeleton height={320} label="Loading the comparison…" />
           <Skeleton height={320} />
         </div>
       ) : !review.data ? null : !review.data.second ? (

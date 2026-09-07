@@ -73,7 +73,7 @@ what the person typed.
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
 `inlineInFlight`, `inlineCancelled` and `focusAfterInline` in refs
-(`src/client/pages/StagingPage.tsx:515-526`) even though the first shadows
+(`src/client/pages/StagingPage.tsx:534-545`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
 render that would have set `isPending`, so the state version double-submits —
@@ -154,16 +154,29 @@ split the server refused with a 422 nobody could predict from the screen.
 
 ## 3. Components
 
-### 3.1 `Field` wraps every labelled control
+### 3.1 `Field` wraps every labelled control in a form
 
 **House.** Layout, label and hint in one place
-(`src/client/components.tsx:389`). Two consequences worth
+(`src/client/components.tsx:390`). Two consequences worth
 knowing:
 
 - The accessible name of a control includes its hint. A test looking for a
   control by name has to account for "Password At least 12 characters".
 - `jsx-a11y/label-has-associated-control` cannot see through it, which is why
   that rule is off. See [`index.md`](index.md).
+
+**In a form that stacks.** Two shapes take a bare control and an `aria-label`
+instead: a filter bar, which `web.md` §7.6 governs, and `.inline-form` — the
+one-row "add a category", "add a group", "add a payee" bar. In the second, a
+stacked label per control would treble the row's height for three words that the
+button beside them already implies, and a field-level error has nowhere to go
+because the refusal comes back as one `Alert` under the row. The carve-out is written here rather
+than left implicit because this sentence used to say "every labelled control"
+without qualification, and the one page that obeyed it literally — Templates,
+which wrapped its Type filter in a `Field` — ended up with a filter twenty
+pixels taller than the search box beside it. A filter takes effect on change,
+has no error state, no required state, no submit and never reaches an error
+summary; none of what `Field` carries is about it.
 
 ### 3.2 A native control keeps its native semantics
 
@@ -199,7 +212,7 @@ level down, at the field.
 | 1.1 Server state is a query | Not mechanisable. |
 | 2.1 `Number()` only where approximate | A lint rule banning `Number(` in `src/client` would fire on legitimate uses; a narrower one keyed on variable names is possible and fiddly. |
 | 2.2 The preview calls the rule rather than copying it | Checkable one rule at a time — that `forms.tsx` imports `resolveEntrySide` is a grep — but what needs catching is the next preview somebody writes, and a copy of a rule that has no shared home yet reads as ordinary client code. `tests/module-boundaries.test.ts` proves the import is allowed, not that it was taken. |
-| 3.1 `Field` wraps every labelled control | The lint rule that would have seen it is off precisely because it cannot see through `Field` — see [`index.md`](index.md). A control that lost its label fails whichever UI test reaches for it by name; one labelled by hand beside `Field` fails nothing, because the accessible name comes out the same either way. |
+| 3.1 `Field` wraps every labelled control in a form | The lint rule that would have seen it is off precisely because it cannot see through `Field` — see [`index.md`](index.md). A control that lost its label fails whichever UI test reaches for it by name; one labelled by hand beside `Field` fails nothing, because the accessible name comes out the same either way. |
 | 3.3 Fields reachable from the browser | Parity checks routes, not fields. This is the gap that let `categoryKind` through. |
 
 Five `human` rules in this guide. It said three until 2.2 and 3.1 were counted:

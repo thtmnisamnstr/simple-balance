@@ -93,7 +93,7 @@ the file.
 The exception is `staged_status` (`src/server/db/schema.ts:198`), an inline
 literal with no shared tuple behind it, whose three members are written out
 again in `src/server/mcp-output-schemas.ts:296` and
-`src/client/api.ts:340`. Nothing in `src/shared` lists staged statuses, so the
+`src/client/api.ts:437`. Nothing in `src/shared` lists staged statuses, so the
 mechanism above cannot fire for it: the inline literal imports nothing for
 `noUnusedLocals` to catch, and a member added to the `pgEnum` alone surfaces
 only when a tool's output validation refuses the reply in front of an agent.

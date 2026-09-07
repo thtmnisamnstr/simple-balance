@@ -10,7 +10,6 @@ import {
   type BudgetEntry,
   type BudgetPlan,
   type BudgetReport,
-  type BudgetReportRow,
   type Category,
   type CategoryGroup,
   type Forecast,
@@ -32,7 +31,17 @@ import {
   useConfirm,
 } from "../components.js";
 import { useDateRange } from "../date-range.js";
-import { compareMoney, formatDate, formatMoney, isNegativeMoney, moneyUnits } from "../money.js";
+import { Link, useLocation } from "../router.js";
+import {
+  fillPercent,
+  periodName,
+  rowState,
+  stateLabel,
+  stateTone,
+  unitNoun,
+  unitNounPlural,
+} from "../budget-display.js";
+import { compareMoney, formatDate, formatMoney } from "../money.js";
 
 const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
   { value: "week", label: "Weekly" },
@@ -41,113 +50,9 @@ const periodUnits: { value: BudgetPeriodUnitName; label: string }[] = [
   { value: "year", label: "Yearly" },
 ];
 
-/**
- * The period a stored date names, written the way somebody would say it.
- *
- * Both ends of a window are stored as the first day of a period, so printing
- * one raw says "to 1 June" about a budget that covers all of June, and a budget
- * covering exactly one month reads as a single day. The date is right; it is
- * the name of a period rather than a boundary, so it is rendered as one.
- */
-function periodName(unit: BudgetPeriodUnitName, isoDate: string) {
-  const [year, month, day] = isoDate.split("-").map(Number);
-  const at = new Date(Date.UTC(year!, month! - 1, day!));
-  const month_ = at.toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-  if (unit === "month") return month_;
-  if (unit === "year") return String(year);
-  if (unit === "quarter") return `Q${Math.floor((month! - 1) / 3) + 1} ${year}`;
-  return `week of ${formatDate(isoDate)}`;
-}
-
-const unitNoun: Record<BudgetPeriodUnitName, string> = {
-  week: "week",
-  month: "month",
-  quarter: "quarter",
-  year: "year",
-};
-
-/** Only the plural is irregular enough to be worth a second map. */
-const unitNounPlural: Record<BudgetPeriodUnitName, string> = {
-  week: "Weeks",
-  month: "Months",
-  quarter: "Quarters",
-  year: "Years",
-};
-
-/**
- * How far through a limit the spending has got, as a width.
- *
- * Clamped at a hundred, because a bar that runs off the panel says less than
- * one that is full beside a number saying how far over. The number is always
- * there and is what anybody reads; the bar is the glance.
- */
-function fillPercent(limit: string, actual: string) {
-  // Scaled units rather than Number, because these are money. The float only
-  // appears at the very end, where the answer is a CSS width and lossiness is
-  // the same lossiness a pixel already is. `moneyRatioPercent` is the wrong
-  // helper here: it floors at four percent so a chart bar stays visible, and a
-  // budget nobody has spent against must read as nothing, not as a sliver.
-  const cap = moneyUnits(limit);
-  const spent = moneyUnits(actual);
-  if (spent === null || spent <= 0n) return 0;
-  if (cap === null || cap <= 0n) return 100;
-  const hundredths = (spent * 10_000n) / cap;
-  return Math.min(100, Number(hundredths) / 100);
-}
-
-/**
- * What the row is doing, as a word.
- *
- * A word rather than only a colour, because colour alone fails anybody who
- * cannot separate the two and it fails everybody in a printout. The bar takes
- * its colour from this, so the two can never disagree.
- */
-function rowState(row: BudgetReportRow, partial = false) {
-  if (row.limit === null || row.remaining === null) return "unbudgeted" as const;
-  // Compared as money rather than as floats. Which side of a limit somebody is
-  // on is a decision, and eighteen fractional digits do not survive a float.
-  if (isNegativeMoney(row.remaining)) return "over" as const;
-  // Spent exactly the limit is neither over nor nearly there. Saying "nearly"
-  // to somebody who has spent all of it is the sort of small wrongness that
-  // makes a person stop trusting the rest of the page.
-  if (compareMoney(row.remaining, "0") === 0) return "spent" as const;
-  // While a period is still running, "within budget" is a claim about a month
-  // that has not finished. Over is still over, and spent is still spent, but
-  // there is nothing to say yet about the rest.
-  if (partial) return "running" as const;
-  // Against what there was to spend, which for an envelope is its limit plus
-  // what it carried in. `remaining` already counts the carry, so a bar drawn
-  // against the bare limit disagreed with the word beside it: a category that
-  // had rolled money forward showed "nearly there" while its own figure said
-  // most of the money was still available.
-  if (fillPercent(row.available ?? row.limit, row.actual) >= 80) return "close" as const;
-  return "within" as const;
-}
-
-const stateLabel = {
-  running: "So far",
-  over: "Over",
-  spent: "All spent",
-  close: "Nearly there",
-  within: "Within budget",
-  unbudgeted: "No budget",
-} as const;
-
-const stateTone = {
-  running: "blue",
-  over: "red",
-  spent: "amber",
-  close: "amber",
-  within: "green",
-  unbudgeted: "neutral",
-} as const;
-
 export default function BudgetsPage({ session }: { session: Session }) {
   const queryClient = useQueryClient();
+  const location = useLocation();
   const { start, end } = useDateRange();
   const [periodUnit, setPeriodUnit] = useState<BudgetPeriodUnitName>("month");
   const [error, setError] = useState("");
@@ -198,6 +103,20 @@ export default function BudgetsPage({ session }: { session: Session }) {
   const [editRollover, setEditRollover] = useState(false);
   const [editRolloverCap, setEditRolloverCap] = useState("");
 
+  /**
+   * Four fields of the report this page deliberately does not render, named
+   * here so the next reader can tell restraint from oversight (§11.9).
+   *
+   * `asOf` — the day the summary actually stopped at. Every period already
+   * carries `partial`, which the tables render as "(so far)", and a second
+   * date beside it invites the reading that the two could disagree.
+   * `carriedOut` on a row and on a group — what this period hands to the next.
+   * It is the next period's `carriedIn`, which is rendered, so showing both
+   * prints one number twice under two names in adjacent tables.
+   * `priority` and `funded` on a group row — the funding order is a
+   * category-level decision here; a group is reported as a subtotal of the
+   * categories beside it, and both figures are rendered on those.
+   */
   const report = useQuery({
     queryKey: ["budgets", "report", start, end, periodUnit, includeArchived, includeUnbudgeted],
     queryFn: () =>
@@ -386,15 +305,22 @@ export default function BudgetsPage({ session }: { session: Session }) {
   // the panel that shows one says "projected" everywhere the rest of the page
   // says "spent".
   const [forecastPeriods, setForecastPeriods] = useState("6");
-  const [forecastBasis, setForecastBasis] = useState<Forecast["basis"]>("recurring");
+  // History, not schedules, because a schedule is the one thing a new ledger has
+  // none of: a household with four months of real spending and no recurrences
+  // saw $0.00 in both money columns and no way to tell that from a household
+  // that spends nothing. The wire default stays "recurring" — this is the page
+  // choosing what to ask for, not a change to what an unchanged request returns.
+  const [forecastLookback, setForecastLookback] = useState("3");
+  const [forecastBasis, setForecastBasis] = useState<Forecast["basis"]>("recurring_and_history");
   const forecast = useQuery({
-    queryKey: ["forecast", periodUnit, forecastPeriods, forecastBasis],
+    queryKey: ["forecast", periodUnit, forecastPeriods, forecastBasis, forecastLookback],
     queryFn: () =>
       api<Forecast>(
         `/api/v1/forecast?${queryString({
           periodUnit,
           periods: forecastPeriods,
           basis: forecastBasis,
+          lookback: forecastLookback,
         })}`,
       ),
   });
@@ -427,8 +353,20 @@ export default function BudgetsPage({ session }: { session: Session }) {
 
   const periods = report.data?.periods ?? [];
 
+  // Empty means every figure is zero, in every period of every currency — not
+  // "the server sent no currencies", which it always does for anybody with an
+  // account.
+  const forecastIsEmpty = (forecast.data?.currencies ?? []).every((currency) =>
+    currency.periods.every(
+      (period) =>
+        period.occurrences === 0 &&
+        compareMoney(period.expectedIncome, "0") === 0 &&
+        compareMoney(period.expectedSpending, "0") === 0,
+    ),
+  );
+
   return (
-    <div className="page">
+    <>
       <PageHeader
         eyebrow="Planning"
         title="Budgets"
@@ -485,10 +423,10 @@ export default function BudgetsPage({ session }: { session: Session }) {
         </label>
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
+      <section className="panel">
+        <header className="panel-header">
           <h3>Set a budget</h3>
-        </div>
+        </header>
         {error && editing === null && override === null ? (
           <Alert kind="error">{error}</Alert>
         ) : null}
@@ -678,7 +616,512 @@ export default function BudgetsPage({ session }: { session: Session }) {
               : `Each ${unitNoun[periodUnit]} starts again at the amount. Tick the box to carry the difference forward instead.`
             : `Each ${unitNoun[periodUnit]} puts aside what is still needed, divided by the ${unitNoun[periodUnit]}s left before the date. There is no amount to type: the figure changes as the fund fills up, and stops once it is full.`}
         </p>
-      </div>
+      </section>
+
+      <section className="panel">
+        <header className="panel-header">
+          <h3>Standing budgets</h3>
+        </header>
+        {plans.isError ? (
+          <Alert kind="error">
+            The standing budgets could not be loaded, so this is not a list of them.{" "}
+            {(plans.error as Error).message}
+          </Alert>
+        ) : plans.isPending ? (
+          <Skeleton height={80} label="Loading standing budgets…" />
+        ) : (plans.data ?? []).length === 0 ? (
+          <p className="settings-note">No standing budgets yet.</p>
+        ) : (
+          <div className="table-wrap" tabIndex={0} role="region" aria-label="Standing budgets">
+            <table className="data-table">
+              <caption className="sr-only">Standing budgets</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col" className="align-right">
+                    Amount
+                  </th>
+                  <th scope="col">Every</th>
+                  <th scope="col">Runs</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {(plans.data ?? []).map((plan) => (
+                  <tr key={plan.id}>
+                    <th scope="row">
+                      {plan.targetName}{" "}
+                      {plan.amountRule === "sinking_fund" ? (
+                        <Badge tone="neutral">
+                          Saving {formatMoney(plan.targetAmount ?? "0", plan.currency)} by{" "}
+                          {periodName(plan.periodUnit, plan.targetDate ?? plan.activeFrom)}
+                        </Badge>
+                      ) : plan.rollover ? (
+                        <Badge tone="neutral">
+                          Carries over
+                          {plan.rolloverCap
+                            ? `, up to ${formatMoney(plan.rolloverCap, plan.currency)}`
+                            : ""}
+                        </Badge>
+                      ) : null}{" "}
+                      {plan.amountRule === "trailing_average" ? (
+                        <Badge tone="neutral">
+                          Average of {plan.lookbackPeriods} {unitNoun[plan.periodUnit]}
+                          {plan.lookbackPeriods === 1 ? "" : "s"}
+                        </Badge>
+                      ) : plan.amountRule === "incremental" ? (
+                        <Badge tone="neutral">+{plan.percentOfPrevious}% each period</Badge>
+                      ) : plan.amountRule === "percent_of_income" ? (
+                        <Badge tone="neutral">{plan.percentOfIncome}% of income</Badge>
+                      ) : null}{" "}
+                      {plan.priority === 0 ? null : (
+                        <Badge tone="neutral">Funded {plan.priority}</Badge>
+                      )}
+                    </th>
+                    <td className="align-right money">
+                      {plan.amountRule === "fixed" || plan.amountRule === "incremental"
+                        ? formatMoney(plan.amount, plan.currency)
+                        : "Worked out"}
+                    </td>
+                    <td>{unitNoun[plan.periodUnit]}</td>
+                    <td>
+                      {periodName(plan.periodUnit, plan.activeFrom)}
+                      {plan.activeTo
+                        ? plan.activeTo === plan.activeFrom
+                          ? " only"
+                          : ` to ${periodName(plan.periodUnit, plan.activeTo)}`
+                        : " onward"}
+                    </td>
+                    <td className="align-right">
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setError("");
+                          setEditing(plan);
+                          setEditAmount(plan.amount);
+                          setEditActiveTo(plan.activeTo ?? "");
+                          setEditRollover(plan.rollover);
+                          setEditRolloverCap(plan.rolloverCap ?? "");
+                        }}
+                      >
+                        Change {plan.targetName}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => remove.ask(plan, () => deletePlan.mutate(plan))}
+                      >
+                        Delete {plan.targetName}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <Modal
+        open={editing !== null}
+        title={editing ? `Budget for ${editing.targetName}` : "Budget"}
+        description="Changing the amount changes every period this budget covers, past ones included. To leave what earlier periods intended alone, give it an end date and set a new budget starting after it."
+        onClose={() => {
+          setError("");
+          setEditing(null);
+        }}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setError("");
+                setEditing(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              loading={editPlan.isPending}
+              onClick={() => {
+                startAttempt();
+                if (editing) editPlan.mutate(editing);
+              }}
+            >
+              Save budget
+            </Button>
+          </>
+        }
+      >
+        {error ? <Alert kind="error">{error}</Alert> : null}
+        {editing &&
+        editing.amountRule !== "fixed" &&
+        editing.amountRule !== "incremental" &&
+        editing.amountRule !== "trailing_average" ? (
+          <p className="settings-note">
+            {editing.amountRule === "sinking_fund"
+              ? `This one is saving ${formatMoney(editing.targetAmount ?? "0", editing.currency)} by ${periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works out its own amount each ${unitNoun[editing.periodUnit]}.`
+              : `This one takes ${editing.percentOfIncome}% of the income before it, so it works out its own amount and there is nothing here to type.`}{" "}
+            Delete it and set a plain budget if that is not what you want.
+          </p>
+        ) : (
+          <>
+            <Field label="Amount">
+              <Input
+                inputMode="decimal"
+                value={editAmount}
+                onChange={(event) => setEditAmount(event.target.value)}
+              />
+            </Field>
+            <label className="date-bar-check">
+              <input
+                type="checkbox"
+                checked={editRollover}
+                onChange={(event) => setEditRollover(event.target.checked)}
+              />
+              Carry what is left over into the next {unitNoun[editing?.periodUnit ?? periodUnit]}
+            </label>
+            {editRollover ? (
+              <Field label="Most to carry" hint="Leave blank for no limit.">
+                <Input
+                  inputMode="decimal"
+                  value={editRolloverCap}
+                  onChange={(event) => setEditRolloverCap(event.target.value)}
+                />
+              </Field>
+            ) : null}
+          </>
+        )}
+        <Field label="Ends after" hint="Leave blank to keep running.">
+          <Input
+            type="date"
+            value={editActiveTo}
+            onChange={(event) => setEditActiveTo(event.target.value)}
+          />
+        </Field>
+      </Modal>
+
+      <ConfirmDialog
+        open={remove.open}
+        title={
+          remove.value ? `Delete the ${remove.value.targetName} budget?` : "Delete this budget?"
+        }
+        confirmLabel="Delete budget"
+        onConfirm={remove.confirm}
+        onCancel={remove.cancel}
+      >
+        It wrote nothing to the books, so deleting it changes no balance and no report. This page
+        simply stops comparing against it.
+      </ConfirmDialog>
+
+      {(entries.data ?? []).length > 0 ? (
+        <section className="panel">
+          <header className="panel-header">
+            <h3>Single periods</h3>
+          </header>
+          {/* Listed because an override set in one period was invisible from
+              every other, so it could be created and then lost: the figure it
+              changed was somewhere nobody was looking. */}
+          <div
+            className="table-wrap"
+            tabIndex={0}
+            role="region"
+            aria-label="Amounts set for one period"
+          >
+            <table className="data-table">
+              <caption className="sr-only">
+                Amounts set for one period, overriding the standing budget
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Category</th>
+                  <th scope="col" className="align-right">
+                    Amount
+                  </th>
+                  <th scope="col">Period</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {(entries.data ?? []).map((entry) => (
+                  <tr key={entry.id}>
+                    <th scope="row">{entry.targetName}</th>
+                    <td className="align-right money">
+                      {formatMoney(entry.amount, entry.currency)}
+                    </td>
+                    <td>{periodName(entry.periodUnit, entry.periodStart)}</td>
+                    <td className="align-right">
+                      <Button
+                        variant="ghost"
+                        loading={clearEntry.isPending}
+                        onClick={() => clearEntry.mutate(entry)}
+                      >
+                        Remove {entry.targetName} override
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      <Modal
+        open={override !== null}
+        title={
+          override
+            ? `${override.category}, ${periodName(periodUnit, override.periodStart)}`
+            : "Budget one period"
+        }
+        description={`An amount for this ${unitNoun[periodUnit]} alone. The standing budget is left exactly as it is, and every other ${unitNoun[periodUnit]} still follows it.`}
+        onClose={() => {
+          setError("");
+          setOverride(null);
+        }}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setError("");
+                setOverride(null);
+              }}
+            >
+              Cancel
+            </Button>
+            {override?.existing ? (
+              <Button
+                type="button"
+                variant="danger"
+                loading={clearEntry.isPending}
+                onClick={() => override.existing && clearEntry.mutate(override.existing)}
+              >
+                Use the standing budget
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              loading={setEntry.isPending}
+              onClick={() => {
+                startAttempt();
+                setEntry.mutate();
+              }}
+            >
+              Save
+            </Button>
+          </>
+        }
+      >
+        {/* Inside the dialog, because a modal is a focus trap: an alert
+            rendered on the page behind it is unreachable and unannounced, so
+            every refusal of this form was invisible. */}
+        {error ? <Alert kind="error">{error}</Alert> : null}
+        <Field label="Amount" hint={`Applies to this ${unitNoun[periodUnit]} only.`}>
+          <Input
+            inputMode="decimal"
+            value={overrideAmount}
+            onChange={(event) => setOverrideAmount(event.target.value)}
+          />
+        </Field>
+      </Modal>
+
+      <section className="panel">
+        <header className="panel-header">
+          <h3>What happens next</h3>
+          <span className="subtle">
+            {forecastBasis === "recurring"
+              ? "Projected from your recurring transactions."
+              : forecastBasis === "recurring_and_budgets"
+                ? "Projected from your recurring transactions and what your budgets intend."
+                : "Projected from your recurring transactions and what recent months actually did."}{" "}
+            Nothing here has happened yet, and none of it is a balance.
+          </span>
+        </header>
+        {/* Bare controls with their own labels, like every other view control in
+            the app. A `Field` stacks a label above and made this bar half again
+            as tall as the one at the top of the page — §7.6. */}
+        <div className="date-bar">
+          <div className="date-bar-title">
+            <span>{unitNounPlural[periodUnit]} ahead</span>
+          </div>
+          <Select
+            aria-label={`${unitNounPlural[periodUnit]} ahead`}
+            value={forecastPeriods}
+            onChange={(event) => setForecastPeriods(event.target.value)}
+          >
+            {["3", "6", "12", "24"].map((count) => (
+              <option key={count} value={count}>
+                {count}
+              </option>
+            ))}
+          </Select>
+          <div className="date-bar-title">
+            <span>Counting</span>
+          </div>
+          <Select
+            aria-label="Counting"
+            value={forecastBasis}
+            onChange={(event) => setForecastBasis(event.target.value as Forecast["basis"])}
+          >
+            <option value="recurring_and_history">Recurring plus what you usually spend</option>
+            <option value="recurring">Recurring transactions only</option>
+            <option value="recurring_and_budgets">Recurring plus what budgets intend</option>
+          </Select>
+          {/* Only where it changes anything. `lookback` is the window the
+              history basis averages over and the other two never read it, so
+              offering it beside them would be a control that does nothing —
+              and leaving it off the page entirely would make it a request field
+              only an agent could set, which is the defect this page just fixed
+              one section up for `groupId`. */}
+          {forecastBasis === "recurring_and_history" ? (
+            <>
+              <div className="date-bar-title">
+                <span>Averaged over</span>
+              </div>
+              <Select
+                aria-label="Averaged over"
+                value={forecastLookback}
+                onChange={(event) => setForecastLookback(event.target.value)}
+              >
+                {["3", "6", "12"].map((count) => (
+                  <option key={count} value={count}>
+                    {count} {unitNoun[periodUnit]}s
+                  </option>
+                ))}
+              </Select>
+            </>
+          ) : null}
+        </div>
+        {forecast.isError ? (
+          <Alert kind="error">
+            The projection could not be worked out, so nothing below is a projection of anything.{" "}
+            {(forecast.error as Error).message}
+          </Alert>
+        ) : forecast.isPending ? (
+          <Skeleton height={120} label="Loading the projection…" />
+        ) : forecastIsEmpty ? (
+          /* Tested on the figures, not on whether a currency came back. Anybody
+             who owns an account has a currency, so the old test never fired:
+             a ledger with nothing to project showed a table of zeroes and no
+             sentence saying why. */
+          <p className="settings-note">
+            Nothing to project yet.{" "}
+            {forecastBasis === "recurring"
+              ? "This basis counts recurring transactions alone, and there are none. Set one up, or count what you usually spend instead."
+              : forecastBasis === "recurring_and_budgets"
+                ? "This basis counts recurring transactions and budgets, and there are neither."
+                : "There is no spending or income behind this yet — a finished period has to have something in it before an average means anything."}
+          </p>
+        ) : (
+          (forecast.data?.currencies ?? []).map((currency) => (
+            <div
+              className="table-wrap"
+              key={currency.currency}
+              tabIndex={0}
+              role="region"
+              aria-label={`Projected balances in ${currency.currency}`}
+            >
+              <table className="data-table">
+                <caption className="sr-only">
+                  Projected balances in {currency.currency}, from {forecast.data?.from}
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{unitNoun[periodUnit]}</th>
+                    <th scope="col" className="align-right">
+                      Expected in
+                    </th>
+                    <th scope="col" className="align-right">
+                      Expected out
+                    </th>
+                    <th scope="col" className="align-right">
+                      Budgets intend
+                    </th>
+                    {/* Only under the pessimistic basis, where the figure is
+                        part of the arithmetic on screen: it is the slice of
+                        each budget no recurrence covers, which is exactly what
+                        that basis adds to the spending column. */}
+                    {forecastBasis === "recurring_and_budgets" ? (
+                      <th scope="col" className="align-right">
+                        Of that, unscheduled
+                      </th>
+                    ) : null}
+                    {/* The same rule one basis over: under the history basis
+                        this is the part of the two money columns that came from
+                        an average rather than from a date, and a reader who
+                        cannot separate the two cannot tell a projection from a
+                        schedule. */}
+                    {forecastBasis === "recurring_and_history" ? (
+                      <th scope="col" className="align-right">
+                        Of that, typical
+                      </th>
+                    ) : null}
+                    <th scope="col" className="align-right">
+                      Scheduled
+                    </th>
+                    <th scope="col" className="align-right">
+                      Projected balance
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currency.periods.map((period) => (
+                    <tr key={period.periodStart}>
+                      <th scope="row">{periodName(periodUnit, period.periodStart)}</th>
+                      <td className="align-right money">
+                        {formatMoney(period.expectedIncome, currency.currency)}
+                      </td>
+                      <td className="align-right money">
+                        {formatMoney(period.expectedSpending, currency.currency)}
+                      </td>
+                      <td className="align-right money">
+                        {formatMoney(period.budgetedSpending, currency.currency)}
+                      </td>
+                      {forecastBasis === "recurring_and_budgets" ? (
+                        <td className="align-right money">
+                          {formatMoney(period.uncoveredBudget, currency.currency)}
+                        </td>
+                      ) : null}
+                      {forecastBasis === "recurring_and_history" ? (
+                        <td className="align-right money">
+                          {formatMoney(period.typicalSpending, currency.currency)} out,{" "}
+                          {formatMoney(period.typicalIncome, currency.currency)} in
+                        </td>
+                      ) : null}
+                      <td className="align-right">{period.occurrences}</td>
+                      <td className="align-right money">
+                        {formatMoney(period.projectedBalance, currency.currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))
+        )}
+        {(forecast.data?.unprojectable ?? []).length > 0 ? (
+          <Alert kind="info">
+            {(forecast.data?.unprojectable ?? []).map((entry) => entry.name).join(", ")} could not
+            be projected, so the figures above are short by whatever they are worth. A recurring
+            transaction with no amount proposes a row for you to fill in rather than a figure
+            anything can project.
+          </Alert>
+        ) : null}
+        {(forecast.data?.otherPeriodUnits ?? []).length > 0 ? (
+          <Alert kind="info">
+            You also budget by {(forecast.data?.otherPeriodUnits ?? []).join(" and ")}, and this
+            projection reads only {unitNoun[periodUnit].toLowerCase()}ly budgets. Switch the period
+            above to see what the others intend.
+          </Alert>
+        ) : null}
+      </section>
 
       {(report.data?.otherPeriodUnits ?? []).length > 0 ? (
         <Alert kind="info">
@@ -691,13 +1134,13 @@ export default function BudgetsPage({ session }: { session: Session }) {
 
       {report.isError ? (
         <Alert kind="error">
-          The budget figures could not be loaded, so nothing below is a report of anything.{" "}
+          The budget figures could not be loaded, so nothing here is a report of anything.{" "}
           {(report.error as Error).message}
         </Alert>
       ) : report.isPending ? (
-        <div className="panel">
-          <Skeleton height={140} />
-        </div>
+        <section className="panel">
+          <Skeleton height={140} label="Loading budget figures…" />
+        </section>
       ) : periods.length === 0 ? (
         <EmptyState
           icon={<Target size={20} />}
@@ -716,7 +1159,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           const ranked = period.unfunded !== null;
           return (
             <div className="panel" key={`${period.periodStart}:${period.currency}`}>
-              <div className="panel-header">
+              <header className="panel-header">
                 <h3>
                   {periodName(periodUnit, period.periodStart)}, {period.currency}
                   {period.partial ? " (so far)" : ""}
@@ -747,9 +1190,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
                     </>
                   )}
                 </span>
-              </div>
+              </header>
               {period.groups.length > 0 ? (
-                <div className="table-wrap">
+                <div
+                  className="table-wrap"
+                  tabIndex={0}
+                  role="region"
+                  aria-label={`Groups for ${period.start} to ${period.end}`}
+                >
                   <table className="data-table">
                     <caption className="sr-only">
                       Groups for {period.start} to {period.end} in {period.currency}
@@ -794,7 +1242,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   </table>
                 </div>
               ) : null}
-              <div className="table-wrap">
+              <div
+                className="table-wrap"
+                tabIndex={0}
+                role="region"
+                aria-label={`Budget against spending for ${period.start} to ${period.end}`}
+              >
                 <table className="data-table">
                   <caption className="sr-only">
                     Budget against spending for {period.start} to {period.end} in {period.currency}
@@ -838,7 +1291,22 @@ export default function BudgetsPage({ session }: { session: Session }) {
                       return (
                         <tr key={`${row.categoryId ?? "unfiled"}`}>
                           <th scope="row">
-                            {row.category}{" "}
+                            {/* §11.10: the row names a category the app has a
+                                page for, and "why is this one over?" is the
+                                question this table provokes. Unfiled spending
+                                has no id and stays plain text. */}
+                            {row.categoryId ? (
+                              <Link
+                                to={{
+                                  pathname: `/categories/${row.categoryId}`,
+                                  search: location.search,
+                                }}
+                              >
+                                {row.category}
+                              </Link>
+                            ) : (
+                              row.category
+                            )}{" "}
                             {row.source === "entry" ? (
                               <Badge tone="neutral">This {unitNoun[periodUnit]} only</Badge>
                             ) : null}
@@ -941,445 +1409,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
         </p>
       ) : null}
 
-      <div className="panel">
-        <div className="panel-header">
-          <h3>What happens next</h3>
-          <span className="subtle">
-            Projected from your recurring transactions. Nothing here has happened yet, and none of
-            it is a balance.
-          </span>
-        </div>
-        <div className="date-bar">
-          <Field label={`${unitNounPlural[periodUnit]} ahead`}>
-            <Select
-              value={forecastPeriods}
-              onChange={(event) => setForecastPeriods(event.target.value)}
-            >
-              {["3", "6", "12", "24"].map((count) => (
-                <option key={count} value={count}>
-                  {count}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Counting">
-            <Select
-              value={forecastBasis}
-              onChange={(event) => setForecastBasis(event.target.value as Forecast["basis"])}
-            >
-              <option value="recurring">Recurring transactions only</option>
-              <option value="recurring_and_budgets">Recurring plus what budgets intend</option>
-            </Select>
-          </Field>
-        </div>
-        {forecast.isError ? (
-          <Alert kind="error">
-            The projection could not be worked out, so nothing below is a projection of anything.{" "}
-            {(forecast.error as Error).message}
-          </Alert>
-        ) : forecast.isPending ? (
-          <Skeleton height={120} />
-        ) : (forecast.data?.currencies ?? []).length === 0 ? (
-          <p className="settings-note">
-            Nothing to project yet. A forecast comes from recurring transactions, so set one up and
-            this fills in.
-          </p>
-        ) : (
-          (forecast.data?.currencies ?? []).map((currency) => (
-            <div className="table-wrap" key={currency.currency}>
-              <table className="data-table">
-                <caption className="sr-only">
-                  Projected balances in {currency.currency}, from {forecast.data?.from}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">{unitNoun[periodUnit]}</th>
-                    <th scope="col" className="align-right">
-                      Expected in
-                    </th>
-                    <th scope="col" className="align-right">
-                      Expected out
-                    </th>
-                    <th scope="col" className="align-right">
-                      Budgets intend
-                    </th>
-                    {/* Only under the pessimistic basis, where the figure is
-                        part of the arithmetic on screen: it is the slice of
-                        each budget no recurrence covers, which is exactly what
-                        that basis adds to the spending column. */}
-                    {forecastBasis === "recurring_and_budgets" ? (
-                      <th scope="col" className="align-right">
-                        Of that, unscheduled
-                      </th>
-                    ) : null}
-                    <th scope="col" className="align-right">
-                      Scheduled
-                    </th>
-                    <th scope="col" className="align-right">
-                      Projected balance
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currency.periods.map((period) => (
-                    <tr key={period.periodStart}>
-                      <th scope="row">{periodName(periodUnit, period.periodStart)}</th>
-                      <td className="align-right money">
-                        {formatMoney(period.expectedIncome, currency.currency)}
-                      </td>
-                      <td className="align-right money">
-                        {formatMoney(period.expectedSpending, currency.currency)}
-                      </td>
-                      <td className="align-right money">
-                        {formatMoney(period.budgetedSpending, currency.currency)}
-                      </td>
-                      {forecastBasis === "recurring_and_budgets" ? (
-                        <td className="align-right money">
-                          {formatMoney(period.uncoveredBudget, currency.currency)}
-                        </td>
-                      ) : null}
-                      <td className="align-right">{period.occurrences}</td>
-                      <td className="align-right money">
-                        {formatMoney(period.projectedBalance, currency.currency)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))
-        )}
-        {(forecast.data?.unprojectable ?? []).length > 0 ? (
-          <Alert kind="info">
-            {(forecast.data?.unprojectable ?? []).map((entry) => entry.name).join(", ")} could not
-            be projected, so the figures above are short by whatever they are worth. A recurring
-            transaction with no amount proposes a row for you to fill in rather than a figure
-            anything can project.
-          </Alert>
-        ) : null}
-        {(forecast.data?.otherPeriodUnits ?? []).length > 0 ? (
-          <Alert kind="info">
-            You also budget by {(forecast.data?.otherPeriodUnits ?? []).join(" and ")}, and this
-            projection reads only {unitNoun[periodUnit].toLowerCase()}ly budgets. Switch the period
-            above to see what the others intend.
-          </Alert>
-        ) : null}
-      </div>
-
-      <div className="panel">
-        <div className="panel-header">
-          <h3>Standing budgets</h3>
-        </div>
-        {plans.isError ? (
-          <Alert kind="error">
-            The standing budgets could not be loaded, so this is not a list of them.{" "}
-            {(plans.error as Error).message}
-          </Alert>
-        ) : plans.isPending ? (
-          <Skeleton height={80} />
-        ) : (plans.data ?? []).length === 0 ? (
-          <p className="settings-note">No standing budgets yet.</p>
-        ) : (
-          <div className="table-wrap">
-            <table className="data-table">
-              <caption className="sr-only">Standing budgets</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Category</th>
-                  <th scope="col" className="align-right">
-                    Amount
-                  </th>
-                  <th scope="col">Every</th>
-                  <th scope="col">Runs</th>
-                  <th scope="col">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {(plans.data ?? []).map((plan) => (
-                  <tr key={plan.id}>
-                    <th scope="row">
-                      {plan.targetName}{" "}
-                      {plan.amountRule === "sinking_fund" ? (
-                        <Badge tone="neutral">
-                          Saving {formatMoney(plan.targetAmount ?? "0", plan.currency)} by{" "}
-                          {periodName(plan.periodUnit, plan.targetDate ?? plan.activeFrom)}
-                        </Badge>
-                      ) : plan.rollover ? (
-                        <Badge tone="neutral">
-                          Carries over
-                          {plan.rolloverCap
-                            ? `, up to ${formatMoney(plan.rolloverCap, plan.currency)}`
-                            : ""}
-                        </Badge>
-                      ) : null}{" "}
-                      {plan.amountRule === "trailing_average" ? (
-                        <Badge tone="neutral">
-                          Average of {plan.lookbackPeriods} {unitNoun[plan.periodUnit]}
-                          {plan.lookbackPeriods === 1 ? "" : "s"}
-                        </Badge>
-                      ) : plan.amountRule === "incremental" ? (
-                        <Badge tone="neutral">+{plan.percentOfPrevious}% each period</Badge>
-                      ) : plan.amountRule === "percent_of_income" ? (
-                        <Badge tone="neutral">{plan.percentOfIncome}% of income</Badge>
-                      ) : null}{" "}
-                      {plan.priority === 0 ? null : (
-                        <Badge tone="neutral">Funded {plan.priority}</Badge>
-                      )}
-                    </th>
-                    <td className="align-right money">
-                      {plan.amountRule === "fixed" || plan.amountRule === "incremental"
-                        ? formatMoney(plan.amount, plan.currency)
-                        : "Worked out"}
-                    </td>
-                    <td>{unitNoun[plan.periodUnit]}</td>
-                    <td>
-                      {periodName(plan.periodUnit, plan.activeFrom)}
-                      {plan.activeTo
-                        ? plan.activeTo === plan.activeFrom
-                          ? " only"
-                          : ` to ${periodName(plan.periodUnit, plan.activeTo)}`
-                        : " onward"}
-                    </td>
-                    <td className="align-right">
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setError("");
-                          setEditing(plan);
-                          setEditAmount(plan.amount);
-                          setEditActiveTo(plan.activeTo ?? "");
-                          setEditRollover(plan.rollover);
-                          setEditRolloverCap(plan.rolloverCap ?? "");
-                        }}
-                      >
-                        Change {plan.targetName}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => remove.ask(plan, () => deletePlan.mutate(plan))}
-                      >
-                        Delete {plan.targetName}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <Modal
-        open={editing !== null}
-        title={editing ? `Budget for ${editing.targetName}` : "Budget"}
-        description="Changing the amount changes every period this budget covers, past ones included. To leave what earlier periods intended alone, give it an end date and set a new budget starting after it."
-        onClose={() => {
-          setError("");
-          setEditing(null);
-        }}
-        footer={
-          <>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setError("");
-                setEditing(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              loading={editPlan.isPending}
-              onClick={() => {
-                startAttempt();
-                if (editing) editPlan.mutate(editing);
-              }}
-            >
-              Save budget
-            </Button>
-          </>
-        }
-      >
-        {error ? <Alert kind="error">{error}</Alert> : null}
-        {editing &&
-        editing.amountRule !== "fixed" &&
-        editing.amountRule !== "incremental" &&
-        editing.amountRule !== "trailing_average" ? (
-          <p className="settings-note">
-            {editing.amountRule === "sinking_fund"
-              ? `This one is saving ${formatMoney(editing.targetAmount ?? "0", editing.currency)} by ${periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works out its own amount each ${unitNoun[editing.periodUnit]}.`
-              : `This one takes ${editing.percentOfIncome}% of the income before it, so it works out its own amount and there is nothing here to type.`}{" "}
-            Delete it and set a plain budget if that is not what you want.
-          </p>
-        ) : (
-          <>
-            <Field label="Amount">
-              <Input
-                inputMode="decimal"
-                value={editAmount}
-                onChange={(event) => setEditAmount(event.target.value)}
-              />
-            </Field>
-            <label className="date-bar-check">
-              <input
-                type="checkbox"
-                checked={editRollover}
-                onChange={(event) => setEditRollover(event.target.checked)}
-              />
-              Carry what is left over into the next {unitNoun[editing?.periodUnit ?? periodUnit]}
-            </label>
-            {editRollover ? (
-              <Field label="Most to carry" hint="Leave blank for no limit.">
-                <Input
-                  inputMode="decimal"
-                  value={editRolloverCap}
-                  onChange={(event) => setEditRolloverCap(event.target.value)}
-                />
-              </Field>
-            ) : null}
-          </>
-        )}
-        <Field label="Ends after" hint="Leave blank to keep running.">
-          <Input
-            type="date"
-            value={editActiveTo}
-            onChange={(event) => setEditActiveTo(event.target.value)}
-          />
-        </Field>
-      </Modal>
-
       {entries.isError ? (
         <Alert kind="error">
           Single-period amounts could not be loaded, so any that exist are not shown and the rows
           above may be overridden without saying so. {(entries.error as Error).message}
         </Alert>
       ) : null}
-      {(entries.data ?? []).length > 0 ? (
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Single periods</h3>
-          </div>
-          {/* Listed because an override set in one period was invisible from
-              every other, so it could be created and then lost: the figure it
-              changed was somewhere nobody was looking. */}
-          <div className="table-wrap">
-            <table className="data-table">
-              <caption className="sr-only">
-                Amounts set for one period, overriding the standing budget
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Category</th>
-                  <th scope="col" className="align-right">
-                    Amount
-                  </th>
-                  <th scope="col">Period</th>
-                  <th scope="col">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {(entries.data ?? []).map((entry) => (
-                  <tr key={entry.id}>
-                    <th scope="row">{entry.targetName}</th>
-                    <td className="align-right money">
-                      {formatMoney(entry.amount, entry.currency)}
-                    </td>
-                    <td>{periodName(entry.periodUnit, entry.periodStart)}</td>
-                    <td className="align-right">
-                      <Button
-                        variant="ghost"
-                        loading={clearEntry.isPending}
-                        onClick={() => clearEntry.mutate(entry)}
-                      >
-                        Remove {entry.targetName} override
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : null}
-
-      <Modal
-        open={override !== null}
-        title={
-          override
-            ? `${override.category}, ${periodName(periodUnit, override.periodStart)}`
-            : "Budget one period"
-        }
-        description={`An amount for this ${unitNoun[periodUnit]} alone. The standing budget is left exactly as it is, and every other ${unitNoun[periodUnit]} still follows it.`}
-        onClose={() => {
-          setError("");
-          setOverride(null);
-        }}
-        footer={
-          <>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setError("");
-                setOverride(null);
-              }}
-            >
-              Cancel
-            </Button>
-            {override?.existing ? (
-              <Button
-                type="button"
-                variant="danger"
-                loading={clearEntry.isPending}
-                onClick={() => override.existing && clearEntry.mutate(override.existing)}
-              >
-                Use the standing budget
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              loading={setEntry.isPending}
-              onClick={() => {
-                startAttempt();
-                setEntry.mutate();
-              }}
-            >
-              Save
-            </Button>
-          </>
-        }
-      >
-        {/* Inside the dialog, because a modal is a focus trap: an alert
-            rendered on the page behind it is unreachable and unannounced, so
-            every refusal of this form was invisible. */}
-        {error ? <Alert kind="error">{error}</Alert> : null}
-        <Field label="Amount" hint={`Applies to this ${unitNoun[periodUnit]} only.`}>
-          <Input
-            inputMode="decimal"
-            value={overrideAmount}
-            onChange={(event) => setOverrideAmount(event.target.value)}
-          />
-        </Field>
-      </Modal>
-
-      <ConfirmDialog
-        open={remove.open}
-        title={
-          remove.value ? `Delete the ${remove.value.targetName} budget?` : "Delete this budget?"
-        }
-        confirmLabel="Delete budget"
-        onConfirm={remove.confirm}
-        onCancel={remove.cancel}
-      >
-        It wrote nothing to the books, so deleting it changes no balance and no report. This page
-        simply stops comparing against it.
-      </ConfirmDialog>
-    </div>
+    </>
   );
 }

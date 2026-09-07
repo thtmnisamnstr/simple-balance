@@ -38,13 +38,13 @@ export default function TemplateDetailPage() {
       />
       <DateRangeBar />
       <section className="account-transactions">
-        <div className="section-title">
-          <div>
-            <h2>Transactions</h2>
-            <p>What this template was used for. Changing one here does not change the template.</p>
-          </div>
-        </div>
         <TransactionBrowser
+          heading={{
+            kind: "section",
+            title: "Transactions",
+            description:
+              "What this template was used for. Changing one here does not change the template.",
+          }}
           includeStaged
           fixedTemplateId={templateId}
           initialType={draft.type === "deposit" ? "deposit" : "withdrawal"}

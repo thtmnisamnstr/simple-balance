@@ -1195,6 +1195,21 @@ export const stageCreateSchema = z
  */
 export const MAX_BULK_SELECTION_ENTRIES = 10_000;
 
+/**
+ * The point at which a batch is long enough to be worth drawing a bar for.
+ *
+ * Not a boundary in nature, and the guide says so. It is a proxy for "long
+ * enough that somebody needs telling", derived from what this repository has
+ * already measured: about eleven database round trips a row on a commit, at
+ * roughly a millisecond each over a network link. Fifty rows is about half a
+ * second — the point where a bar starts earning its row of layout rather than
+ * flashing — and ten thousand, the cap, is the minute people describe.
+ *
+ * Two pages decide against it, so it is a named export rather than a literal in
+ * either of them.
+ */
+export const PROGRESS_STREAM_MIN_ROWS = 50;
+
 export const stageUpdateSchema = z.object({
   draft: stagedDraftSchema.describe(
     "The proposed entry. Unlike a committed transaction this may be incomplete or unreadable in places — a row imported from a bank file is staged as it arrived, issues and all, because that is the row somebody opened the queue to repair.",
@@ -1796,6 +1811,16 @@ export const MAX_ROLLOVER_PERIODS = 120;
 export const MAX_FORECAST_PERIODS = 24;
 
 /**
+ * How far back a forecast will look for what a ledger typically does.
+ *
+ * A year, so a projection can see a full cycle of seasons without reaching into
+ * a period whose spending no longer describes this household. Capped for the
+ * same reason `MAX_ROLLOVER_PERIODS` is: an unbounded window is an unbounded
+ * scan, and the answer stops improving long before the cost does.
+ */
+export const MAX_FORECAST_LOOKBACK = 12;
+
+/**
  * What a projection is worked out from.
  *
  * A recurrence is a dated intention with an amount, so it projects directly. A
@@ -1804,7 +1829,11 @@ export const MAX_FORECAST_PERIODS = 24;
  * is the recurrences alone, and the other basis adds only the part of each
  * category's budget its recurrences do not already account for.
  */
-export const forecastBases = ["recurring", "recurring_and_budgets"] as const;
+export const forecastBases = [
+  "recurring",
+  "recurring_and_budgets",
+  "recurring_and_history",
+] as const;
 export type ForecastBasis = (typeof forecastBases)[number];
 
 export const forecastQuerySchema = z
@@ -1828,7 +1857,16 @@ export const forecastQuerySchema = z
       .enum(forecastBases)
       .default("recurring")
       .describe(
-        'What the projected balance is worked out from. "recurring" uses the dated recurrences alone. "recurring_and_budgets" also subtracts the part of each category\'s budget that its recurrences do not already cover, which is the pessimistic reading and the more useful one for a month with a lot of discretionary spending. Budgeted figures are reported either way.',
+        'What the projected balance is worked out from. "recurring" uses the dated recurrences alone. "recurring_and_budgets" also adds the part of each category\'s budget that its recurrences do not already cover, which is the pessimistic reading and the more useful one for a month with a lot of discretionary spending. "recurring_and_history" instead adds what this ledger typically does — the average of recent finished periods, per category for spending and in total for income, less whatever a recurrence already accounts for — which is the only basis that says anything at all about a ledger with no recurrences and no budgets. Budgeted figures are reported either way.',
+      ),
+    lookback: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_FORECAST_LOOKBACK)
+      .default(3)
+      .describe(
+        'How many finished periods "recurring_and_history" averages over. The current period is never one of them: a period is not part of its own average, or the figure would chase the spending it is meant to be predicting. Ignored by the other two bases.',
       ),
   })
   .strict();

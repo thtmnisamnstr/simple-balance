@@ -567,7 +567,9 @@ describe("transaction drill-down links", () => {
       <QueryClientProvider client={queryClient()}>
         <TimezoneProvider timezone="UTC">
           <BrowserRouter>
-            <TransactionBrowser />
+            <TransactionBrowser
+              heading={{ kind: "section", title: "Transactions", description: "For this test." }}
+            />
           </BrowserRouter>
         </TimezoneProvider>
       </QueryClientProvider>,
@@ -652,7 +654,9 @@ describe("cloning a transaction to the staged queue", () => {
       <QueryClientProvider client={queryClient()}>
         <TimezoneProvider timezone="UTC">
           <BrowserRouter>
-            <TransactionBrowser />
+            <TransactionBrowser
+              heading={{ kind: "section", title: "Transactions", description: "For this test." }}
+            />
           </BrowserRouter>
         </TimezoneProvider>
       </QueryClientProvider>,
@@ -932,6 +936,9 @@ describe("staged queue pagination", () => {
       name: "Commit staged transaction",
     });
     fireEvent.click(commitButton);
+    // The sentence alone, with nothing appended. A refusal earns "Nothing was
+    // committed."; a connection that died does not, because the commit may well
+    // have landed — which is the whole reason the key below is retained.
     expect(await page.findByText("Commit response lost")).toBeInTheDocument();
     fireEvent.click(commitButton);
 
