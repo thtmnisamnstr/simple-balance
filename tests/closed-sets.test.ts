@@ -53,7 +53,14 @@ function unions() {
   const found: { where: string; name: string; members: string[] }[] = [];
   for (const relative of SOURCES) {
     const source = readFileSync(relative, "utf8");
-    for (const match of source.matchAll(/type (\w+)\s*=\s*((?:\s*\|?\s*"[^"]+")+)\s*;/g)) {
+    // The separator is anchored on a literal `|`, deliberately. Writing the
+    // alternative as `(?:\s*\|?\s*"[^"]+")+` reads the same and backtracks
+    // exponentially on `type a=` followed by many quoted words and no `;`,
+    // because the two `\s*` either side of an optional pipe can split one run
+    // of whitespace in as many ways as it is long. CodeQL caught it.
+    for (const match of source.matchAll(
+      /type (\w+)\s*=\s*\|?\s*("[^"]+"(?:\s*\|\s*"[^"]+")*)\s*;/g,
+    )) {
       const members = [...match[2]!.matchAll(/"([^"]+)"/g)].map((one) => one[1]!);
       if (members.length < 2) continue;
       const at = source.slice(0, match.index).split("\n").length;
