@@ -182,6 +182,81 @@ describe("what mcp.md says it measured", () => {
   });
 
   /**
+   * One spelling per concept, across every description and field description.
+   *
+   * `common.md` settles the voice for the whole product and this surface drifted
+   * from it in two places: two descriptions said "this user's" where seventeen
+   * said "this person", and one said "normalization" where the rest of the
+   * product's prose is British. An agent reading two spellings of one concept
+   * has to work out whether they are one concept, which is exactly the cost the
+   * glossary exists to avoid.
+   *
+   * A count held at zero rather than a list of the winning spelling: a
+   * seventeenth "this person" needs no edit here, and a third "this user's"
+   * fails. The `normalizedName` *field* is out of scope by name — a field name
+   * is published contract and an identifier, not prose.
+   */
+  it("uses one spelling per concept", () => {
+    const surface = JSON.stringify(tools).replaceAll("normalizedName", "");
+    for (const losing of ["this user's", "the user's", "normalization", "normalized"]) {
+      const found = [...surface.matchAll(new RegExp(losing, "gi"))];
+      expect(found, `"${losing}" is the spelling this surface does not use`).toEqual([]);
+    }
+    // And the winning spellings are there, so this is not passing because the
+    // surface stopped saying anything.
+    expect([...surface.matchAll(/this person/gi)].length).toBeGreaterThan(10);
+    expect([...surface.matchAll(/normalis/gi)].length).toBeGreaterThan(1);
+  });
+
+  /**
+   * The two that cannot be undone say so in words.
+   *
+   * `ToolAnnotations` has three booleans and no fourth field, so
+   * `destructiveHint` covers both "posts a reversal you can undo" and "there is
+   * no going back" — and those are different decisions for whoever approves the
+   * call. `mcp.md` records the split; the description is the only channel that
+   * can carry it, so a tool in the unrecoverable class has to spell it out.
+   *
+   * Named rather than derived from the annotation, because the annotation is
+   * identical on the wire by design: inventing a field the specification does
+   * not have would be worse than a list of two.
+   *
+   * **Two, and the first draft of this list had four.** The other two are
+   * recoverable and their own descriptions said so before anybody checked:
+   * deleting posts a reversal that `set_transaction_deleted` puts back, and a
+   * revoked agent can be authorised again from a browser. Writing the list
+   * first and reading the descriptions second is what caught it.
+   */
+  const UNRECOVERABLE = ["merge_categories", "merge_payees"];
+
+  it("says so in words where a client cannot be told in a field", () => {
+    const NO_WAY_BACK = /(cannot be undone|no undo|permanent|irreversible)/i;
+    const silent: string[] = [];
+    for (const name of UNRECOVERABLE) {
+      const tool = tools.find((one) => one.name === name);
+      expect(tool, `${name} should be registered`).toBeDefined();
+      // Destructive, which the wire does say.
+      expect(tool!.annotations?.["destructiveHint"], name).toBe(true);
+      if (!NO_WAY_BACK.test(tool!.description ?? "")) silent.push(name);
+    }
+    expect(silent, "the description is the only place this can be said").toEqual([]);
+    // And the recoverable ones are not in the list, which is what makes the
+    // list a distinction rather than a synonym for destructive. All three say
+    // how to get back, which is the other half of the wording rule.
+    const BACK = /(can be undone|has to be authorized again|restore)/i;
+    for (const name of [
+      "set_transaction_deleted",
+      "bulk_delete_transactions",
+      "revoke_connected_agent",
+    ]) {
+      const tool = tools.find((one) => one.name === name);
+      expect(tool?.annotations?.["destructiveHint"], name).toBe(true);
+      expect(UNRECOVERABLE).not.toContain(name);
+      expect(BACK.test(tool?.description ?? ""), `${name} should say how to get back`).toBe(true);
+    }
+  });
+
+  /**
    * A description that names a tool has to name one that exists.
    *
    * Eleven descriptions point the agent at another tool — `create_budget_plan`

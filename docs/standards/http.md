@@ -87,7 +87,7 @@ count is the table's, and only the table is pinned:
 ways, and this sentence just reports them. The scope column is the scope the
 equivalent MCP tool needs today, and therefore the scope a bearer token will
 need once SB-030 lands; `ledger:read` is implied by both of the others
-(`src/server/mcp.ts:448-459`). Routes marked session only are named exceptions
+(`src/server/mcp.ts:499-510`). Routes marked session only are named exceptions
 in `tests/mcp-parity.test.ts:19-28`, each carrying its reason.
 
 **House.** This table is the published list. Adding a route means adding a row
@@ -696,7 +696,7 @@ derives by reading the `(code, status)` pair off every `AppError` and
 - **House, and settled the same way.** Field errors are `{field, message}` with
   `field` a dotted path. `zodIssues()` produces exactly that
   (`src/server/services/errors.ts:76-81`) and MCP uses it
-  (`src/server/mcp.ts:288`); the global HTTP handler shipped `error.issues`
+  (`src/server/mcp.ts:293`); the global HTTP handler shipped `error.issues`
   straight from Zod, putting the validator's own discriminators on the wire as
   public contract. Each issue now carries `field` beside what it already had
   (`src/server/api.ts:321-325`), because 0.1.5 shipped the raw issue and a client
@@ -750,7 +750,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   ordering a keyset cannot resume, such as one that sorts by a name reached from
   another table (`src/server/services/sorting.ts:4-11`).
 - **House.** When both `cursor` and `page` are sent, the cursor wins and `page`
-  is reported as 1 (`src/server/services/transactions.ts:1379-1381`).
+  is reported as 1 (`src/server/services/transactions.ts:1380-1382`).
 - **House, following AIP-158.** `nextCursor: null` is the end signal, and the
   only one. The Azure guidelines forbid exactly that spelling; AIP-158 permits
   it. Keep the null, because the field's presence is contractual: Zod output
@@ -869,7 +869,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   exists to be cheap.
   **The code disagrees with that bound today.** `listTransactions` runs its
   `count()` unconditionally, before it looks at whether a cursor was sent
-  (`src/server/services/transactions.ts:1375-1380`), so a cursor page pays for a
+  (`src/server/services/transactions.ts:1376-1381`), so a cursor page pays for a
   full count it does not use. Skip the count when a cursor is present.
 - **House, four keyset pitfalls,** written here because they currently live only
   in code comments, where nobody looks before adding the seventh sortable
@@ -972,7 +972,7 @@ a misspelled `sort` key still answers 200 with page one in the default order.
   grounds that the other exists.
 - **House, and the objection is open on HTTP today.** Over MCP every mutation is
   wrapped in an idempotency record by the transport itself
-  (`runIdempotentMcpMutation`, `src/server/mcp.ts:299-321`, used on twenty-nine
+  (`runIdempotentMcpMutation`, `src/server/mcp.ts:304-338`, used on twenty-nine
   tools at last count — nothing pins the number, so recount before leaning on
   it), so the Azure objection does not bite there. Over HTTP only the writes
   whose schema declares an `idempotencyKey` are protected, and no update or
@@ -1015,12 +1015,12 @@ so a second submit fails rather than duplicating."
 - **House, matching Zalando rule 230 point for point.** The key is scoped to
   `(user, operation, key)`, stored with a hash of the canonical request and the
   response, replayed on repeat, and refused with a 409 when the same key arrives
-  with a different request (`src/server/services/helpers.ts:90-128`). The
+  with a different request (`src/server/services/helpers.ts:90-171`). The
   request is canonicalised before hashing, with object keys sorted and `Date`
   instances stringified, so key order cannot change the fingerprint
-  (`src/server/services/helpers.ts:124-163`). Concurrent uses of one key are
+  (`src/server/services/helpers.ts:167-206`). Concurrent uses of one key are
   serialised by a transaction-scoped advisory lock
-  (`src/server/services/helpers.ts:166-178`), which is stronger than Stripe,
+  (`src/server/services/helpers.ts:209-221`), which is stronger than Stripe,
   which errors on a concurrent conflict rather than waiting.
 - **House, a deliberate divergence worth writing down.** Stripe replays
   failures, including 500s. Simple Balance writes the idempotency record inside
@@ -1115,7 +1115,7 @@ edit, a mass delete, a commit, and a CSV import."
   map rather than a list of pairs. That is the older spelling and it stays.
   Moving it changes the wire on the one route that puts money in the books, and
   the request shape is what the recorded idempotency payload is hashed from
-  (`src/server/services/staging.ts:1128-1133`), so a commit retried across the
+  (`src/server/services/staging.ts:1129-1134`), so a commit retried across the
   deploy would come back `CONFLICT` instead of replaying — a self-inflicted
   failure on the write that can least afford one, in exchange for no behaviour a
   caller can observe. A missing map entry already refused rather than wrote.
@@ -1126,7 +1126,7 @@ edit, a mass delete, a commit, and a CSV import."
   fault named: nothing went stale, the request arrived incomplete, and an agent
   told to read the row again and retry sends the same payload back. Both
   services now refuse it by name with the offending id in the details
-  (`src/server/services/staging.ts:1010-1028`), the way `mergeCategories`
+  (`src/server/services/staging.ts:1011-1029`), the way `mergeCategories`
   (`src/server/services/categories.ts:928-934`) already did with the identical
   encoding, and a repeated id is refused as a duplicate rather than reported as
   a missing row. A superset map is still accepted: naming a version the caller
@@ -1157,7 +1157,7 @@ edit, a mass delete, a commit, and a CSV import."
   must send back (`src/server/api.ts:1454-1461`, `:1518-1520`). The fingerprint
   is a SHA-256 over the sorted `id:version` pairs, computed by one function so
   the transaction and staged paths cannot drift into accepting different sets
-  (`src/server/services/helpers.ts:230-245`).
+  (`src/server/services/helpers.ts:273-288`).
 - **House.** If the set has moved, the write is refused with the current count
   and fingerprint in the details, and the caller previews again. It is never
   silently applied to whatever matches now. The message is in
@@ -1194,7 +1194,7 @@ edit, a mass delete, a commit, and a CSV import."
   against very carefully specified request limits. The bound it needed is now
   stated and enforced: `CSV_EXPORT_MAX_ROWS` (`src/server/config-limits.ts:30`)
   refuses a larger export with the remedy named — narrow the date range and
-  export one range at a time (`src/server/services/transactions.ts:1333-1338`).
+  export one range at a time (`src/server/services/transactions.ts:1334-1339`).
   [`csv.md`](csv.md) records the decision as settled, and
   `tests/bulk-row-cap.test.ts` holds both refusals to their message.
   **Reporting progress does not reopen this.** Two of these bounded writes now
@@ -1237,7 +1237,7 @@ socket already open is the only channel that exists.
   payload is identical; only the transcript differs, which is what `Accept` is
   for. A body field would have put the switch in the contract and published it
   on a tool whose transport answers in a single JSON object
-  (`enableJsonResponse: true`, `src/server/mcp.ts:2060`) and could never honour
+  (`enableJsonResponse: true`, `src/server/mcp.ts:2114`) and could never honour
   it — advertising a capability an agent cannot reach, which is the
   `categoryKind` defect pointing the other way.
 - **Three frame types, and exactly one terminal frame, last:** `progress` while

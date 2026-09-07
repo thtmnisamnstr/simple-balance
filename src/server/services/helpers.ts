@@ -121,6 +121,49 @@ export async function getIdempotent<T>(
   return (record?.response as T | undefined) ?? null;
 }
 
+/**
+ * Counts that belong to a transaction somebody else will commit.
+ *
+ * `ledger_writes_total` names the books rather than the traffic, so a count
+ * that stands for a write that rolled back is a lie about the books. Every
+ * service already counts after *its* transaction settles — but every MCP write
+ * hands the service a transaction the transport opened, so "after the service
+ * returns" is several statements before the commit. The transport still has an
+ * idempotency record to write and the commit itself to survive.
+ *
+ * Keyed on the transaction object in a `WeakMap`, which is what makes this
+ * safe. A module-level queue would be shared between concurrent requests and
+ * one request could flush another's counts — the worse bug the comment at the
+ * first of these call sites was right to refuse. Two requests hold two
+ * transaction objects, so there is nothing to share, and the entry goes when
+ * the transaction is collected whether anybody flushed it or not.
+ */
+const deferredCounts = new WeakMap<DbTransaction, (() => void)[]>();
+
+/**
+ * Count now if this call owns its transaction, or when the owner commits.
+ *
+ * `transaction === undefined` means the service opened its own and has already
+ * committed by the time it counts, which is what every caller but MCP does.
+ */
+export function countAfterCommit(transaction: DbTransaction | undefined, count: () => void) {
+  if (transaction === undefined) {
+    count();
+    return;
+  }
+  deferredCounts.set(transaction, [...(deferredCounts.get(transaction) ?? []), count]);
+}
+
+/**
+ * Flush what a committed transaction earned. Called by whoever opened it, after
+ * it has committed — never inside, or the rollback case is exactly the one this
+ * exists to get right.
+ */
+export function flushDeferredCounts(transaction: DbTransaction) {
+  for (const count of deferredCounts.get(transaction) ?? []) count();
+  deferredCounts.delete(transaction);
+}
+
 function canonicalizeRequestPayload(value: unknown): unknown {
   if (value === undefined) return undefined;
   if (value === null || typeof value === "string" || typeof value === "boolean") {

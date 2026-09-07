@@ -424,6 +424,31 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**What an agent is told about four tools it can call.**
+`list_transactions` was 54 characters on the entry point to the biggest
+collection in the ledger, saying nothing about the order it comes back in, the
+page size, or that a cursor is refused once the ordering or the filters it was
+issued for have changed. `list_accounts` did not say that a `balance` counts
+future-dated postings, which is the one thing about it an agent would otherwise
+get wrong. And the two bulk-selection previews described their count-and-
+fingerprint pair as something that goes stale, which reads as a race to beat —
+it is not: the write re-resolves the filter and compares, so the pair stops
+matching the moment the set changes and there is no window at all.
+
+**Two tools now say in words what the protocol has no field for.** An MCP
+annotation can say a tool is destructive and cannot say whether it can be
+undone, which are different decisions for whoever approves the call. Merging
+categories or payees collapses rows into one and there is nothing to unpick, so
+both say so. The four-item list this started from was wrong, and the code caught
+it: deleting transactions in bulk already said it posts a reversal that can be
+undone, and revoking an agent already said it can be authorised again.
+
+**And a write is counted when it commits.** Every MCP write hands the service a
+transaction the transport opened, so the `ledger_writes_total` increment
+happened while there was still an idempotency record to write and a commit to
+survive — a count that could stand for a write that then rolled back, in a
+figure that names the books rather than the traffic.
+
 **Six smaller things a person would meet.** An empty state always has its icon
 now — three of the sixteen had none, which left a heading and a sentence
 floating in a card, reading as a page that failed to load rather than one that

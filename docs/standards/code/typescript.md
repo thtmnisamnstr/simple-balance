@@ -298,7 +298,7 @@ updateTransaction(actor, id, input, transaction?)
 setTransactionDeleted(actor, id, expectedVersion, deleted, allowDuplicate?, transaction?)
 ```
 
-(`src/server/services/transactions.ts:1035`, `:2294` and `:2383`.)
+(`src/server/services/transactions.ts:1036`, `:2299` and `:2388`.)
 
 Note that `updateTransaction` takes `input: unknown` and parses it, rather than
 a typed object: the version and the draft arrive together inside it. An update

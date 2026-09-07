@@ -61,7 +61,7 @@ function count(value: unknown) {
 
 /**
  * List exact stored spellings. Logical duplicate grouping is deliberately done
- * in JavaScript so Unicode NFKC normalization is identical to browser/import
+ * in JavaScript so Unicode NFKC normalisation is identical to browser/import
  * canonicalization rather than dependent on database collation behavior.
  */
 export async function payeeSummaries(executor: Executor, actor: Actor) {

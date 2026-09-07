@@ -394,7 +394,7 @@ and nothing would catch it until an importer did.
 **House, the per-shape column contract.** **A deposit** fills
 `destination_amount` and `destination_currency`; the source columns are empty.
 **A withdrawal** fills the source columns. **A transfer** fills both and
-`effective_rate` (`src/server/services/transactions.ts:430-531`).
+`effective_rate` (`src/server/services/transactions.ts:431-532`).
 
 **House, the split contract.** **A split** travels in `legs_json` as an array of
 at least two objects, each with `categoryName`, `amount` and `note`
@@ -422,7 +422,7 @@ that transfer actually got. On import the two amounts travel on the staged row
 and the rate does not, because the rate is `destination / source` and
 recomputing it from the amounts cannot disagree with them. If the two accounts
 chosen at commit share a currency, the commit refuses: "Same-currency transfer
-amounts must match" (`src/server/services/transactions.ts:504-559`). That is the
+amounts must match" (`src/server/services/transactions.ts:505-560`). That is the
 right refusal. A rate is a fact about a movement, not a preference.
 
 **Binding.** `AGENTS.md`: "Preserve audit history, transaction provenance, and
@@ -569,10 +569,10 @@ Three mechanisms, and they are deliberately not the same strictness:
 1. **The stored fingerprint.** Every staged row gets one key: the external
    reference when the row has one, because that is an identity rather than a
    guess, otherwise a heuristic key over type, date, payee, account and amount
-   (`stagedDuplicateKey`, `src/server/services/transactions.ts:2569-2707`).
+   (`stagedDuplicateKey`, `src/server/services/transactions.ts:2576-2714`).
 2. **The advisory badge.** The queue also looks for a committed transaction of
    the same type, account and amount within `LIKELY_DUPLICATE_DAYS`, which is
-   three (`src/shared/domain.ts:1294`, `src/server/services/staging.ts:545-621`).
+   three (`src/shared/domain.ts:1294`, `src/server/services/staging.ts:546-622`).
    The payee is ignored outright and the date gets three days of latitude, on
    purpose: the bank posts when it settles rather than when the card was swiped,
    and it names the merchant its own way. This decides nothing. It opens a

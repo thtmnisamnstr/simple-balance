@@ -153,6 +153,46 @@ integration("what a write adds to the metrics", () => {
     expect(await counterValue("simple_balance_ledger_writes_total")).toBe(before);
   });
 
+  /**
+   * And a write inside somebody else's transaction is counted when *that*
+   * commits, not when the service returns.
+   *
+   * Every MCP write hands the service a transaction the transport opened, so
+   * "after the service's transaction settles" is several statements before the
+   * commit — the transport still has an idempotency record to write and the
+   * commit itself to survive. A count made in that window stands for a write
+   * that may yet roll back, and `ledger_writes_total` names the books rather
+   * than the traffic, so that is a lie about the books.
+   *
+   * The transaction here is rolled back by hand after the service returns,
+   * which is the shape of the failure without needing one to happen.
+   */
+  it("counts nothing for a write whose transaction rolls back after it", async () => {
+    const before = await counterValue("simple_balance_ledger_writes_total");
+    const rolledBack = new Error("rolled back on purpose");
+    await expect(
+      getDb().transaction(async (tx) => {
+        await createTransaction(
+          actor,
+          {
+            type: "deposit" as const,
+            date: "2026-02-09",
+            payee: "Never committed",
+            description: null,
+            toAccountId: accountId,
+            amount: "5.00",
+          },
+          nextKey(),
+          false,
+          tx,
+        );
+        // The service has returned and its count would already have been made.
+        throw rolledBack;
+      }),
+    ).rejects.toBe(rolledBack);
+    expect(await counterValue("simple_balance_ledger_writes_total")).toBe(before);
+  });
+
   it("counts a replayed key as a replay and not as a second write", async () => {
     const key = nextKey();
     const draft = {

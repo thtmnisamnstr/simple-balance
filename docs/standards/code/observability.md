@@ -91,19 +91,34 @@ and never on a path that did not do the work:
   the counter did not move.
 - An idempotent replay is not a second write. Five counters double-counted one
   until each mutation started signalling replay out of its transaction callback
-  (`src/server/services/transactions.ts:1047`, `:1058`, `:1084`), and the
+  (`src/server/services/transactions.ts:1048`, `:1058`, `:1084`), and the
   visible cost was a client retrying a four-thousand-row edit reporting eight
   thousand rows changed. The retry is a fact about the client, and it has its
   own counter.
 
-The honest limit: where the **caller** supplies the transaction — which is every
-MCP write — the increment happens before that caller commits. The comment at the
-call site says so rather than claiming otherwise.
+**That limit is closed.** Where the **caller** supplies the transaction — which
+is every MCP write — the increment used to happen before that caller committed:
+the transport still had an idempotency record to write and the commit itself to
+survive, so a count could stand for a write that then rolled back. The comment
+at the call site said so rather than claiming otherwise, and rejected the fix on
+the grounds that a queue of pending counts would be shared between concurrent
+requests.
+
+It would have been, written as a module-level queue. Keyed on the **transaction
+object** in a `WeakMap` it is not: two requests hold two transaction objects, so
+there is nothing to share, and the entry goes when the transaction is collected
+whether anybody flushed it or not. `countAfterCommit` takes the count and either
+makes it — when the service owns its transaction, which is every caller but MCP
+— or defers it, and `flushDeferredCounts` runs after the outer transaction has
+committed, at the one place that owns it.
 
 *Checked by:* `tests/integration/metrics.integration.test.ts`, which is the only
-tier that can check it: a create, a delete and a restore counted as three
-different operations, a refused write counted nowhere, and a replayed
-idempotency key counted as a replay and not as a second write.
+tier that can check any of it: a create, a delete and a restore counted as three
+different operations, a refused write counted nowhere, a replayed idempotency key
+counted as a replay and not as a second write, and — the case the deferral is
+for — **nothing counted for a write whose transaction rolls back after the
+service returned**, which is the shape of the failure without needing one to
+happen.
 
 ### 1.6 A metric proved only by its failure is not proved
 
@@ -116,7 +131,7 @@ produce refusals, is where the label itself is checked.
 ### 1.7 Instrument the seam, not the call sites
 
 **House.** Seventy-six tools are timed and counted by wrapping `registerTool`
-once (`src/server/mcp.ts:559`), and every HTTP request by one middleware
+once (`src/server/mcp.ts:610`), and every HTTP request by one middleware
 mounted above everything, including the guards (`src/server/api.ts:204`). Both
 are chosen so a tool or a route added tomorrow is instrumented by existing
 rather than by somebody remembering.
@@ -216,7 +231,7 @@ deliberately leaves out:
   (`src/server/api.ts:229`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
-  (`src/server/mcp.ts:585`) and never the arguments, which are somebody's ledger
+  (`src/server/mcp.ts:636`) and never the arguments, which are somebody's ledger
   by definition.
 - **A message** logs `message.about` — "the password reset", "the reminder" —
   and never the recipient or the subject (`src/server/mail.ts:174`, `:180`), and

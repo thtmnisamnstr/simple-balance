@@ -136,7 +136,7 @@ and ends the tenant whose work anything composing with it would be doing. A
 seventh has to argue that nothing will ever want to compose with it.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:305-315`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:310-328`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -200,7 +200,7 @@ something else and silently returning the old answer would be worse than
 refusing.
 
 The hash is over a canonicalised payload
-(`src/server/services/helpers.ts:124`):
+(`src/server/services/helpers.ts:167`):
 keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
 identical requests whose JSON key order differed would hash differently and the
 retry would be refused.
@@ -228,7 +228,7 @@ service function reached from a route has nothing equivalent behind it.
 **Binding.** Anything that decides "does this name already exist?" takes an
 advisory lock on that namespace first, and there are five namespaces:
 accounts, categories, payees, templates and recurrences
-(`src/server/services/helpers.ts:263-292`). Otherwise two concurrent requests
+(`src/server/services/helpers.ts:306-335`). Otherwise two concurrent requests
 both read "no", and both create.
 
 Accounts were the fifth and were added late, which is the point of listing them.
@@ -245,7 +245,7 @@ has to be serialised.
 Two more rules ride on the locks, and both live in comments a new path will not
 stumble on by itself. First, the order is fixed: all account locks in sorted id
 order, then the account namespace, then the category namespace, then the payee
-namespace (`src/server/services/helpers.ts:246-251`), with the template and
+namespace (`src/server/services/helpers.ts:289-294`), with the template and
 recurrence locks after those. Two writers that take the same locks in
 different orders deadlock under concurrency, and nothing but the order stops
 it. Second, the category lock is not only for paths deciding a name: a write

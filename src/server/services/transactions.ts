@@ -65,6 +65,7 @@ import {
   exceedsBulkSelectionCap,
   getIdempotent,
   likePattern,
+  countAfterCommit,
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
@@ -1076,12 +1077,12 @@ export async function createTransaction(
   // The retry is counted separately, as `idempotency_replays_total`, which is
   // the question it actually answers.
   //
-  // One case this cannot see: a caller that supplied its own transaction — every
-  // MCP write does — is counted when this call returns rather than when that
-  // transaction commits. The window is the few statements the transport runs
-  // after the service, and closing it would take a queue of pending counts
-  // shared between concurrent requests, which is a worse bug than the one it fixes.
-  if (!replayed) ledgerWrites.inc({ operation: "create" });
+  // A caller that supplied its own transaction — every MCP write does — has not
+  // committed by the time this returns: the transport still has an idempotency
+  // record to write and the commit itself to survive. So the count is deferred
+  // to whoever owns the transaction, keyed on the transaction object rather
+  // than queued in the module, which is what makes it safe under concurrency.
+  if (!replayed) countAfterCommit(transaction, () => ledgerWrites.inc({ operation: "create" }));
   return written;
 }
 
@@ -2135,7 +2136,9 @@ export async function bulkEditTransactions(
   // A replay writes nothing and must not add its rows a second time: a client
   // retrying a four-thousand-row edit would otherwise report eight thousand.
   if (!edited.dryRun && !editReplayed) {
-    ledgerWrites.inc({ operation: "bulk_edit" }, edited.updatedCount);
+    countAfterCommit(transaction, () =>
+      ledgerWrites.inc({ operation: "bulk_edit" }, edited.updatedCount),
+    );
   }
   return edited;
 }
@@ -2286,7 +2289,9 @@ export async function bulkDeleteTransactions(
     return result;
   });
   if (!removed.dryRun && !deleteReplayed) {
-    ledgerWrites.inc({ operation: "bulk_delete" }, removed.updatedCount);
+    countAfterCommit(transaction, () =>
+      ledgerWrites.inc({ operation: "bulk_delete" }, removed.updatedCount),
+    );
   }
   return removed;
 }
@@ -2376,7 +2381,7 @@ export async function updateTransaction(
     );
     return hydrateTransaction(tx, actor, updated);
   });
-  ledgerWrites.inc({ operation: "update" });
+  countAfterCommit(transaction, () => ledgerWrites.inc({ operation: "update" }));
   return updated;
 }
 
@@ -2450,7 +2455,9 @@ export async function setTransactionDeleted(
   // Deleting and restoring are one function with a flag, and they are two
   // things to watch: a deployment deleting steadily is somebody tidying up, and
   // one restoring steadily is somebody undoing a mistake being made repeatedly.
-  ledgerWrites.inc({ operation: deleted ? "delete" : "restore" });
+  countAfterCommit(transaction, () =>
+    ledgerWrites.inc({ operation: deleted ? "delete" : "restore" }),
+  );
   return changed;
 }
 

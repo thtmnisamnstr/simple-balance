@@ -48,6 +48,7 @@ import {
   exceedsBulkSelectionCap,
   getIdempotent,
   likePattern,
+  countAfterCommit,
   lockAccountReferences,
   lockCategoryNamespace,
   lockIdempotencyKey,
@@ -1290,8 +1291,10 @@ export async function commitStages(
   // import and every accepted recurrence — was invisible in the figure named
   // after writes.
   if (!replayed && "committed" in outcome) {
-    stagedRowsCommitted.inc(outcome.committed.length);
-    ledgerWrites.inc({ operation: "create" }, outcome.committed.length);
+    countAfterCommit(transaction, () => {
+      stagedRowsCommitted.inc(outcome.committed.length);
+      ledgerWrites.inc({ operation: "create" }, outcome.committed.length);
+    });
   }
   return outcome;
 }

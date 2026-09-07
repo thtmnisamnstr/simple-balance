@@ -205,7 +205,7 @@ somebody gives it a case where the two tables disagree.
 **House, with a reason.** Names are compared after normalisation — case folded,
 whitespace collapsed, NFKC — so a unique index on the raw column would not
 express the rule. The lock serialises the read-then-create
-(`src/server/services/helpers.ts:263`),
+(`src/server/services/helpers.ts:306`),
 and it is scoped per user so two people naming a category at once do not queue
 behind each other.
 

@@ -87,7 +87,12 @@ import {
 } from "./services/transaction-templates.js";
 import { mcpToolCalls, mcpToolDuration } from "./metrics.js";
 import { AppError, zodIssues } from "./services/errors.js";
-import { getIdempotent, lockIdempotencyKey, setIdempotent } from "./services/helpers.js";
+import {
+  flushDeferredCounts,
+  getIdempotent,
+  lockIdempotencyKey,
+  setIdempotent,
+} from "./services/helpers.js";
 import {
   csvStageInputSchema,
   exportTransactionsCsv,
@@ -303,7 +308,15 @@ async function runIdempotentMcpMutation(
   requestPayload: unknown,
   fn: (tx: DbTransaction) => Promise<unknown>,
 ) {
-  return getDb().transaction(async (tx) => {
+  // The transaction, captured so its deferred counts can be flushed after it
+  // commits. Every service this wraps hands its `ledger_writes_total` increment
+  // to `countAfterCommit` rather than making it, because inside here there is
+  // still an idempotency record to write and a commit to survive — and a count
+  // that stands for a write that rolled back is a lie about the books, which is
+  // the one thing that figure is named for.
+  let opened: DbTransaction | undefined;
+  const result = await getDb().transaction(async (tx) => {
+    opened = tx;
     await lockIdempotencyKey(tx, actor, operation, key);
     const existing = await getIdempotent<unknown>(
       tx,
@@ -313,10 +326,14 @@ async function runIdempotentMcpMutation(
       requestPayload,
     );
     if (existing) return existing;
-    const result = await fn(tx);
-    await setIdempotent(tx, actor, `mcp.${operation}`, key, requestPayload, result);
-    return result;
+    const written = await fn(tx);
+    await setIdempotent(tx, actor, `mcp.${operation}`, key, requestPayload, written);
+    return written;
   });
+  // Only here, which is the whole point: a throw anywhere above rolls the
+  // transaction back and never reaches this line, so nothing is counted.
+  if (opened) flushDeferredCounts(opened);
+  return result;
 }
 
 const readAnnotations = {
@@ -331,12 +348,46 @@ const additiveAnnotations = {
   idempotentHint: true,
   openWorldHint: false,
 };
+/**
+ * Destructive and undoable, which is most of what wears this label here.
+ *
+ * `set_transaction_deleted` is the shape: deleting posts a reversal and
+ * restoring posts it back, so the books never lose the entry and the word
+ * "destructive" is about what a person sees rather than about what survives.
+ */
 const destructiveAnnotations = {
   readOnlyHint: false,
   destructiveHint: true,
   idempotentHint: true,
   openWorldHint: false,
 };
+
+/**
+ * Destructive and *not* undoable, which four tools are and the wire cannot say.
+ *
+ * `ToolAnnotations` has three booleans and no fourth field, so `destructiveHint`
+ * is the only thing a client reads and it covers both "posts a reversal you can
+ * undo" and "there is no going back". Those are different decisions for whoever
+ * is approving the call, and the specification gives nowhere to put the
+ * difference.
+ *
+ * So this buys a class and a wording rule rather than wire data: a tool
+ * registered here has to say "this cannot be undone" in its own description,
+ * because the description is the only channel that can carry it.
+ *
+ * **Two tools, not four.** The obvious longer list was wrong and the code said
+ * so: `bulk_delete_transactions` already reads "deleting posts a reversal
+ * rather than erasing, so it can be undone with set_transaction_deleted",
+ * which is the invariant working — a delete voids an entry and a restore posts
+ * it back, so nothing is lost. And a revoked agent can be authorised again
+ * from a browser, which its own description says. The two merges are the real
+ * case: they collapse rows into one and there is nothing left to unpick.
+ *
+ * Identical to `destructiveAnnotations` on the wire, deliberately. Naming it is
+ * what makes the wording rule checkable; making it differ would be inventing a
+ * field the specification does not have.
+ */
+const unrecoverableAnnotations = destructiveAnnotations;
 
 /** The three tiers a tool can be registered behind, in widening order. */
 export type LedgerTier = "ledger:read" | "ledger:stage" | "ledger:write";
@@ -594,7 +645,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "list_accounts",
       {
         title: "List accounts",
-        description: "List this user's accounts and balances in their native currencies.",
+        description:
+          "List this person's accounts and balances in their native currencies. Each `balance` counts every posting on the account, **future-dated ones included**, unless `end` narrows it — so it is not the same figure as \"money available today\". `get_account_balances` reports a balance per currency across the whole ledger, and `get_financial_summary` stops at today in this person's own timezone.",
         inputSchema: toolInput({
           end: isoDateSchema
             .optional()
@@ -647,7 +699,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "list_duplicate_categories",
       {
         title: "List duplicate categories",
-        description: "Find this user's categories whose names match after normalization.",
+        description:
+          "Find this person's categories whose names match after normalisation. Two spellings that normalise to one name are one category somebody entered twice; `merge_categories` is what joins them, and it cannot be undone.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(duplicateCategoriesResultSchema),
         annotations: readAnnotations,
@@ -685,7 +738,8 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       "list_transactions",
       {
         title: "List committed transactions",
-        description: "Search committed deposits, withdrawals, and transfers.",
+        description:
+          "Search committed deposits, withdrawals, and transfers. Newest first by default; `sort` and `direction` order by any column the browser shows, and ordering never changes which rows match. 50 rows a page, up to 200. Walk forward with `nextCursor` — a cursor records the ordering and the filters it was issued for and is refused under either changed, so start from page 1 after changing one. `cursorAvailable` says whether this ordering can be resumed at all; where it cannot, page by number with `page`. Staged rows are not here: they are `list_staged_transactions`.",
         inputSchema: listQuerySchema.strict(),
         outputSchema: mcpOutputSchema(pageResultSchema(transactionResultSchema)),
         annotations: readAnnotations,
@@ -708,7 +762,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Preview a bulk transaction selection",
         description:
-          "Resolve all transactions matching a filter, minus explicit exclusions, into the count and fingerprint required for a safe all-matching bulk edit.",
+          "Resolve all transactions matching a filter, minus explicit exclusions, into the count and fingerprint required for a safe all-matching bulk edit. **The pair goes stale when the set does, not after a while**: the write re-resolves the filter and compares, so anything that changes what matches — a row edited, deleted or created, by you or by somebody in the browser — makes it no longer describe the set and the write is refused. There is no window to beat; preview again and send the pair it returns.",
         inputSchema: bulkTransactionFilterSelectionRequestSchema.strict(),
         outputSchema: mcpOutputSchema(bulkTransactionSelectionSnapshotResultSchema),
         annotations: readAnnotations,
@@ -876,7 +930,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Preview a bulk staged selection",
         description:
-          "Resolve all staged transactions matching a filter, minus explicit exclusions, into the count and fingerprint required for a safe all-matching bulk edit.",
+          "Resolve all staged transactions matching a filter, minus explicit exclusions, into the count and fingerprint required for a safe all-matching bulk edit. **The pair goes stale when the set does, not after a while**: the write re-resolves the filter and compares, so anything that changes what matches — a row edited, committed, deleted or imported — makes it no longer describe the set and the write is refused. There is no window to beat; preview again and send the pair it returns.",
         inputSchema: bulkStageFilterSelectionRequestSchema.strict(),
         outputSchema: mcpOutputSchema(bulkStageSelectionSnapshotResultSchema),
         annotations: readAnnotations,
@@ -1822,7 +1876,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           })
           .strict(),
         outputSchema: mcpOutputSchema(mergedCategoriesResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       ({ idempotencyKey, ...input }) =>
         runTool(() =>
@@ -1839,7 +1893,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
           "Rewrite selected committed and staged payee spellings to one canonical name. Confirm it with the person first: the source payees are gone afterwards and there is no undo.",
         inputSchema: payeeMergeSchema.strict(),
         outputSchema: mcpOutputSchema(mergedPayeesResultSchema),
-        annotations: destructiveAnnotations,
+        annotations: unrecoverableAnnotations,
       },
       (input) => runTool(() => mergePayees(actor, input)),
     );
