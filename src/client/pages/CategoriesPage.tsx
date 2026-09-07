@@ -103,7 +103,12 @@ function CategoryDialog({
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" form="category-edit" disabled={!trimmed}>
+          <Button
+            type="submit"
+            form="category-edit"
+            disabled={!trimmed}
+            disabledReason="Give the category a name."
+          >
             Save category
           </Button>
         </>
@@ -633,6 +638,11 @@ export default function CategoriesPage() {
             variant="danger"
             loading={mergeMutation.isPending}
             disabled={!target || sourceCategories.length === 0}
+            disabledReason={
+              target
+                ? "Select at least one category to merge into it."
+                : "Choose the category to keep."
+            }
             onClick={() => {
               merge.ask(target?.name ?? "", () => mergeMutation.mutate());
             }}

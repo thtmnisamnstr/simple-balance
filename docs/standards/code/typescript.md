@@ -158,7 +158,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (`src/server/db/schema.ts:196`),
-and the UI iterates it (`src/client/pages/CategoriesPage.tsx:128`).
+and the UI iterates it (`src/client/pages/CategoriesPage.tsx:133`).
 Adding a member is one edit, and every one of those follows.
 
 *Checked by:* `npm run typecheck`, for the half of it that is a refusal:

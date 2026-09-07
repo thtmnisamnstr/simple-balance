@@ -497,6 +497,7 @@ function DeleteAccount({ session }: { session: Session }) {
               variant="danger"
               disabled={!matches}
               loading={deletion.isPending}
+              disabledReason="Type your email address exactly as it appears above."
               onClick={() => setConfirmDelete(true)}
             >
               Delete my account and all my data

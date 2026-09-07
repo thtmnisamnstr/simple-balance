@@ -54,7 +54,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1711-1723` and `:1720`), and every one of them would be
+(`src/client/forms.tsx:1716-1728` and `:1720`), and every one of them would be
 a synchronisation bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
@@ -159,7 +159,7 @@ split the server refused with a 422 nobody could predict from the screen.
 ### 3.1 `Field` wraps every labelled control in a form
 
 **House.** Layout, label, hint and error in one place
-(`src/client/components.tsx:431`). Three consequences worth knowing, and the
+(`src/client/components.tsx:470`). Three consequences worth knowing, and the
 first of them used to be the opposite:
 
 - **The accessible name of a control no longer includes its hint.** It used to,

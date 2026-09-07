@@ -692,6 +692,7 @@ export default function TemplatesPage() {
               form="template-bulk-edit-form"
               disabled={!anyChange}
               loading={bulkEdit.isPending}
+              disabledReason="Change at least one field above."
             >
               Save changes
             </Button>

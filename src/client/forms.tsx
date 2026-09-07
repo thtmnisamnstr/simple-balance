@@ -1474,7 +1474,12 @@ export function TemplateForm({
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" loading={mutation.isPending} disabled={!name.trim()}>
+        <Button
+          type="submit"
+          loading={mutation.isPending}
+          disabled={!name.trim()}
+          disabledReason="Give the template a name."
+        >
           {template ? "Save template" : "Save as template"}
         </Button>
       </div>
@@ -2388,6 +2393,13 @@ export function TransactionForm({
           type="submit"
           loading={mutation.isPending}
           disabled={!splitSettled || Boolean(entrySideError)}
+          // The remainder line above already says what is left to assign, so
+          // this names the other condition, which had nothing beside it.
+          disabledReason={
+            entrySideError
+              ? "Fix the category above before saving."
+              : "The split has to add up before this can be saved."
+          }
         >
           {transaction || staged
             ? "Save changes"
@@ -3197,7 +3209,27 @@ export function RecurrenceForm({
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
         </Button>
-        <Button type="submit" loading={mutation.isPending} disabled={!ready}>
+        <Button
+          type="submit"
+          loading={mutation.isPending}
+          disabledReason={
+            // The first unmet condition rather than a list, in the order the
+            // form asks for them: a person reads down the form and wants to
+            // know what to do next, not everything still outstanding.
+            !name.trim()
+              ? "Give the recurrence a name."
+              : !payee.trim()
+                ? "Enter a payee."
+                : !accountReady || !transferReady
+                  ? "Choose the account or accounts this moves money between."
+                  : !splitSettled || !legsComplete
+                    ? "The split has to add up, and every leg needs a category."
+                    : entrySideError
+                      ? "Fix the category above."
+                      : "Set a schedule this can repeat on."
+          }
+          disabled={!ready}
+        >
           {recurrence ? "Save recurrence" : "Create recurrence"}
         </Button>
       </div>

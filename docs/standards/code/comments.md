@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**19.8% of the non-blank lines in `src` are comments** — 9,360 of 47,333. That
+**19.8% of the non-blank lines in `src` are comments** — 9,389 of 47,417. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -22,7 +22,7 @@ percentage anyway.
 
 *Checked by:* `tests/comment-density.test.ts`, which recounts `src`, fails under
 the floor, refuses two documents that quote different numbers, and compares
-`9,360 of 47,333` against the recount exactly.
+`9,389 of 47,417` against the recount exactly.
 
 ## 1. What a comment is for here
 
@@ -106,12 +106,12 @@ a paragraph arguing why the rule is wrong about that line:
 // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
 ```
 
-That one is `src/client/forms.tsx:535`. `src/client/components.tsx:639`
+That one is `src/client/forms.tsx:535`. `src/client/components.tsx:678`
 silences two rules in a single comment and does not borrow this argument: it
 makes its own, that a keyboard user's activation of the buttons inside bubbles
 to the same handler, so the element is a catcher for its children's events
 rather than a mouse-only control. Thirteen of the fourteen paragraphs sit
-directly above the disable. The exception is `src/client/forms.tsx:1648`, where
+directly above the disable. The exception is `src/client/forms.tsx:1653`, where
 the reason is about the whole effect and sits above it, and the disable reaches
 only the first of the two lines inside that assign. The second lints clean
 anyway — the rule reports once per effect, on the first setter it sees — which

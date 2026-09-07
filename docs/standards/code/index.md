@@ -177,9 +177,9 @@ codebase rather than about accessibility:
 
 | Rule | Why off |
 | --- | --- |
-| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:431`). Every site it flagged was correctly labelled. |
+| `jsx-a11y/label-has-associated-control` | Cannot see through `Field`, which wraps every control (`src/client/components.tsx:470`). Every site it flagged was correctly labelled. |
 | `jsx-a11y/control-has-associated-label` | Same, and it also flags `<option>` inside `<datalist>`, which needs no label. |
-| `jsx-a11y/prefer-tag-over-role` | Flags `<svg role="img">`, which is the recommended way to expose an SVG, and a `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:632`). |
+| `jsx-a11y/prefer-tag-over-role` | Flags `<svg role="img">`, which is the recommended way to expose an SVG, and a `<summary role="button">` whose comment already explains itself (`src/client/components.tsx:671`). |
 | `jsx-a11y/anchor-has-content` | Content arrives through `children`, which it cannot follow. |
 | `jsx-a11y/no-autofocus` | **Contested.** jsx-a11y bans it; WCAG does not. This product autofocuses two things: the first field of a form somebody deliberately opened, and the inline editor a click on a staged-list cell just summoned. Nine sites, all one of those two shapes — in both, focus lands where the person's own gesture was already headed. |
 
@@ -193,7 +193,7 @@ rule that is *narrowed* is the same kind of decision as one turned off:
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
 `src/client/forms.tsx:535`, and both that and `click-events-have-key-events` at
-`src/client/components.tsx:639`. Both are elements catching events that bubble
+`src/client/components.tsx:678`. Both are elements catching events that bubble
 from real controls inside them.
 
 *Checked by:* `npm run lint`, in `npm run verify`.

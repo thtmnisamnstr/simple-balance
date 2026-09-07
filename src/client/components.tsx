@@ -281,13 +281,35 @@ export function Button({
   children,
   variant = "primary",
   loading,
+  disabledReason,
   className = "",
   ...props
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "ghost" | "danger";
   loading?: boolean;
+  /**
+   * Why this button is disabled, in words, beside itself.
+   *
+   * A submit disabled on a computed predicate is the one control that can go
+   * completely silent: nothing has been typed wrongly, so there is no field
+   * error, and nothing has been submitted, so there is no summary. Six of them
+   * shipped and one had a sentence — the split remainder line, which is the
+   * model this generalises.
+   *
+   * Rendered only while `disabled` is true and `loading` is not, because a
+   * button that is working already says so and a reason for that state would
+   * be a second answer to a question already answered.
+   *
+   * Wired with `aria-describedby` rather than left as a neighbouring
+   * paragraph: a sighted person reads what is next to the button, and somebody
+   * on a screen reader is told the button's name and its state and then has to
+   * go looking. The description is what makes "disabled" say why.
+   */
+  disabledReason?: string;
 }) {
-  return (
+  const reasonId = useId();
+  const explained = Boolean(disabledReason) && Boolean(props.disabled) && !loading;
+  const button = (
     // A spinner is a picture of waiting, which is nothing at all to somebody who
     // cannot see it. `aria-busy` says the control is working and the `.sr-only`
     // word says so in text, because a disabled button otherwise goes silent at
@@ -296,12 +318,29 @@ export function Button({
       {...props}
       disabled={loading || props.disabled}
       aria-busy={loading || undefined}
+      aria-describedby={explained ? reasonId : props["aria-describedby"]}
       className={`button button-${variant} ${className}`}
     >
       {loading ? <LoaderCircle size={16} className="animate-spin" /> : null}
       {loading ? <span className="sr-only">Working…</span> : null}
       {children}
     </button>
+  );
+  // Always wrapped, and the wrapper is `display: contents` until there is a
+  // reason to show. Wrapping conditionally was the obvious version and it
+  // remounts the button every time the reason appears or disappears — which
+  // means a focused disabled button loses focus at the moment it becomes
+  // usable, the exact defect 13.3 is about. One element in the tree, out of
+  // layout when it has nothing to lay out.
+  return (
+    <span className="button-with-reason">
+      {button}
+      {explained ? (
+        <small className="button-reason" id={reasonId}>
+          {disabledReason}
+        </small>
+      ) : null}
+    </span>
   );
 }
 

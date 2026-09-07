@@ -640,6 +640,36 @@ a {
   background: var(--green-fill-hover);
 }
 
+/* A disabled button and the sentence saying why, laid out as one thing so the
+   sentence cannot drift away from the control it explains.
+
+   `display: contents` until there is a reason, which is what lets the wrapper
+   be unconditional: every `<Button>` in the app is inside a `.form-actions` row
+   or a toolbar that lays its children out directly, and a box around every one
+   of them would move every one of them. Wrapping only when a reason exists was
+   the alternative and it remounts the button as the reason comes and goes,
+   which takes focus off it at the moment it becomes usable.
+
+   Column when it does have one, because the reason is a caption under the
+   button rather than a label beside it, and every toolbar it appears in is
+   already a row. */
+.button-with-reason {
+  display: contents;
+}
+
+.button-with-reason:has(> .button-reason) {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.button-reason {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
 .button-secondary {
   border-color: var(--line-strong);
   color: var(--ink-soft);

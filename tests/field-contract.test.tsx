@@ -2,7 +2,7 @@
 import { globSync, readFileSync } from "node:fs";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Field, Input, Select, Textarea } from "../src/client/components.js";
+import { Button, Field, Input, Select, Textarea } from "../src/client/components.js";
 
 /**
  * The three things `Field` was wrong about, and the one it still cannot do.
@@ -197,5 +197,91 @@ describe("every control in the client", () => {
       });
     }
     expect(raw, "use Input, Select or Textarea, so a Field can reach it").toEqual([]);
+  });
+});
+
+/**
+ * A disabled submit says why, next to itself.
+ *
+ * `web.md` 12.3 says so and six controls disabled on a computed predicate had
+ * one sentence between them. It is the one control that can go completely
+ * silent: nothing was typed wrongly, so there is no field error, and nothing was
+ * submitted, so there is no summary — the button is simply grey and the person
+ * has to guess which of the form's conditions is unmet.
+ *
+ * The guide called this "structural and has nothing to key on today". `Button`
+ * takes a `disabledReason` now, which is the thing to key on.
+ */
+describe("a disabled button", () => {
+  it("shows its reason and points at it", () => {
+    render(
+      <Button disabled disabledReason="Give the category a name.">
+        Save category
+      </Button>,
+    );
+    const button = screen.getByRole("button", { name: "Save category" });
+    const described = button.getAttribute("aria-describedby");
+    expect(described, "the reason has to be pointed at, not merely nearby").not.toBeNull();
+    expect(document.getElementById(described!)?.textContent).toBe("Give the category a name.");
+  });
+
+  it("shows nothing while it is enabled", () => {
+    const { container } = render(
+      <Button disabledReason="Give the category a name.">Save category</Button>,
+    );
+    expect(container.querySelector(".button-reason")).toBeNull();
+    expect(screen.getByRole("button").getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("stays out of the way while it is working", () => {
+    // A button that is working already says so, and a reason for that state
+    // would be a second answer to a question already answered.
+    const { container } = render(
+      <Button disabled loading disabledReason="Give the category a name.">
+        Save category
+      </Button>,
+    );
+    expect(container.querySelector(".button-reason")).toBeNull();
+    expect(screen.getByRole("button").getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("keeps the same element when the reason comes and goes", () => {
+    // Wrapping only when a reason exists remounts the button, which takes focus
+    // off it at the moment it becomes usable — the defect 13.3 is about. The
+    // wrapper is unconditional and `display: contents` until it has something
+    // to lay out.
+    const { rerender, container } = render(
+      <Button disabled disabledReason="Give the category a name.">
+        Save
+      </Button>,
+    );
+    const before = screen.getByRole("button");
+    rerender(<Button disabledReason="Give the category a name.">Save</Button>);
+    expect(screen.getByRole("button")).toBe(before);
+    expect(container.querySelector(".button-with-reason")).not.toBeNull();
+  });
+
+  it("is used at every submit disabled on a computed predicate", () => {
+    // The six the guide names. Read from the source, because each is inside a
+    // page that needs a router, a query client and a session to render — and
+    // what is under test is that the prop is passed, not what it says.
+    for (const path of [
+      "src/client/forms.tsx",
+      "src/client/pages/TemplatesPage.tsx",
+      "src/client/pages/SettingsPage.tsx",
+      "src/client/pages/PayeesPage.tsx",
+      "src/client/pages/CategoriesPage.tsx",
+    ]) {
+      const source = readFileSync(path, "utf8");
+      const disabled = [...source.matchAll(/<Button[^>]*?\sdisabled=\{[^}]*\}/gs)];
+      expect(disabled.length, `${path} has a computed-predicate button`).toBeGreaterThan(0);
+      for (const match of disabled) {
+        // The tag through to its closing `>`, so the reason can sit either side
+        // of `disabled`.
+        const from = match.index;
+        const tag = source.slice(from, source.indexOf(">", from + match[0].length) + 1);
+        expect(tag, `${path}: ${match[0].slice(0, 60)}`).toContain("disabledReason");
+      }
+    }
   });
 });

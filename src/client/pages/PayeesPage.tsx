@@ -187,6 +187,7 @@ export default function PayeesPage() {
             variant="danger"
             loading={mergeMutation.isPending}
             disabled={!selectedTarget}
+            disabledReason="Choose the spelling to keep."
             onClick={() => {
               merge.ask(selectedTarget?.name ?? "", () => mergeMutation.mutate());
             }}

@@ -424,6 +424,15 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**A greyed-out button says why it is greyed out.** Eight submit and merge
+controls are disabled until the form is ready and one of them had a sentence
+beside it. It is the one control that can go completely silent: nothing has been
+typed wrongly, so there is no field error, and nothing has been submitted, so
+there is no summary — the button is grey and you guess which of the form's
+conditions is unmet. Each now carries a sentence under it, wired so a screen
+reader hears it as part of the button rather than as text somewhere nearby, and
+it names the *first* thing to fix rather than everything outstanding.
+
 **A line chart no longer relies on colour alone.** Ten account colours cannot
 all be told apart under colour-blind vision — the palette here is the best
 available set and is measured at three times the separation of the six it
