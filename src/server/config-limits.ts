@@ -83,6 +83,75 @@ function boundedEnvironmentInteger(name: string, fallback: number, maximum: numb
   return configured;
 }
 
+/**
+ * How long a used idempotency key keeps replaying, in hours. Zero is forever.
+ *
+ * Zalando is blunt about the cost of forever: the key cache "is not intended as
+ * request log, and therefore should have a limited lifetime, else it could
+ * easily exceed the data resource in size". Every create, commit and bulk write
+ * stores a full JSONB copy of its response, so on a busy deployment this table
+ * outgrows the ledger it protects.
+ *
+ * **Off by default, and that is the whole of what makes this release-safe.** A
+ * deployment that sets nothing keeps every record exactly as it does today, so
+ * nothing an operator relied on changes on upgrade — the same rule
+ * `METRICS_ENABLED` follows. Turning it on is a decision somebody makes, and
+ * the sources do not settle the number: 24 hours is Stripe's figure for a
+ * payments API, and an agent retrying a commit a week later is plausible here.
+ *
+ * What a pruned key costs is worth writing down, because it is the reason this
+ * can be offered at all. A retry whose record has gone does the work again, and
+ * for every operation that stores one the second attempt is refused by
+ * something else: a repeated `transaction.create` meets the duplicate guard,
+ * `stage.commit` finds its rows already committed rather than staged, a bulk
+ * edit or delete carries a count and fingerprint that no longer describe the
+ * set, and a merge finds its sources gone. The record makes a retry *quiet*; it
+ * is not the only thing making it safe.
+ */
+export const MAX_IDEMPOTENCY_RETENTION_HOURS = 24 * 365;
+
+/**
+ * How many records one sweep removes.
+ *
+ * A deployment turning retention on after a year has a year of records to
+ * remove, and one unbounded `delete` would hold a lock over the whole table
+ * while it ran. The scheduler comes back every few minutes, so a bounded batch
+ * drains a backlog rather than rushing it — the same shape as the recurrence
+ * catch-up cap, and for the same reason.
+ */
+export const IDEMPOTENCY_SWEEP_BATCH = 5_000;
+
+/**
+ * The same bounded read, with zero admitted and meaning off.
+ *
+ * `boundedEnvironmentInteger` refuses anything below 1, which is right for a
+ * cap — a limit of zero rows is a broken deployment — and wrong for a window,
+ * where zero is the honest spelling of "do not prune". Written as a sibling
+ * rather than a flag on the shared reader, so the meaning of zero is stated
+ * where it applies rather than becoming a mode every caller has to know about.
+ */
+export function configuredIdempotencyRetentionHours() {
+  const value = process.env["IDEMPOTENCY_RETENTION_HOURS"];
+  if (value === undefined || value === "") return 0;
+  const configured = Number(value);
+  if (
+    !Number.isSafeInteger(configured) ||
+    configured < 0 ||
+    configured > MAX_IDEMPOTENCY_RETENTION_HOURS
+  ) {
+    if (!warned.has("IDEMPOTENCY_RETENTION_HOURS")) {
+      warned.add("IDEMPOTENCY_RETENTION_HOURS");
+      console.warn(
+        `IDEMPOTENCY_RETENTION_HOURS is set to ${JSON.stringify(value)}, which is not an integer ` +
+          `between 0 and ${MAX_IDEMPOTENCY_RETENTION_HOURS}. Keeping every record instead. ` +
+          "Fix the value or remove it; it is having no effect.",
+      );
+    }
+    return 0;
+  }
+  return configured;
+}
+
 export function configuredCsvMaxBytes() {
   return boundedEnvironmentInteger(
     "CSV_MAX_BYTES",

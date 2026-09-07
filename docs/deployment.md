@@ -54,6 +54,7 @@ than warning about.
 | `RECURRENCE_TICK_SECONDS` | `300` | How often it looks for work that has come due, meaning both a recurrence to propose and a reminder to send. Latency only for a recurrence: whatever a missed tick leaves behind, the next one catches up. A reminder whose moment passed is not sent late, so this is also how close to the requested time a reminder lands. Ceiling 3600. |
 | `RECURRENCE_CATCH_UP_LIMIT` | `50` | Most occurrences one recurrence catches up in one tick. Nothing is dropped; a tick that hits the cap comes straight back rather than waiting out the interval. Ceiling 500. |
 | `RECURRENCE_CLAIM_LIMIT` | `500` | Most recurrences examined in one tick. Ceiling 5000. |
+| `IDEMPOTENCY_RETENTION_HOURS` | `0`, meaning forever | How long a used idempotency key keeps replaying. Every create, commit and bulk write stores a copy of its response so a retried request answers the same way twice; nothing prunes those copies unless you set this, and on a busy deployment the table outgrows the ledger. Zero, unset or empty all mean keep everything, which is what every release before this one did. A window is safe because the record makes a retry *quiet* rather than safe: a repeated create still meets the duplicate check, a repeated commit finds its rows already committed, and a repeated bulk write carries a count and fingerprint that no longer match. Ceiling 8760, one year. Needs `RECURRENCE_SCHEDULER` on somewhere, since the sweep rides its tick. |
 | `METRICS_ENABLED` | `false` | Whether this process answers `GET /metrics` in Prometheus' text format. Off unless you ask for it. |
 | `METRICS_TOKEN` | unset | A bearer token `GET /metrics` demands before it answers. Optional; unset means anybody who can reach the port can scrape it. It is a secret, so it also takes a `METRICS_TOKEN_FILE`; see below. |
 
@@ -63,6 +64,12 @@ than warning about.
 shown. Anything else — a word, a zero, a negative, something past the ceiling —
 warns at startup, names the variable and the value, and uses the default.
 Leaving one out is the only way to ask for its default without a warning.
+
+`IDEMPOTENCY_RETENTION_HOURS` follows the same rule with one difference: zero is
+a real answer there rather than a mistake, because "keep everything" is a
+setting somebody may want to state rather than only inherit. So zero is accepted
+in silence, and anything unreadable warns and keeps everything — falling back to
+*off* rather than to a window, since the other direction would prune on a typo.
 
 All six are read at startup, before anything is served, so the warning is in
 front of whoever just deployed rather than in a log nobody opens until the day

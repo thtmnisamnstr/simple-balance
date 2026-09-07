@@ -571,7 +571,7 @@ startup rather than at the call site. `configuredCsvMaxRows()` used to run insid
 an import (`src/server/services/import-export.ts:795`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
-`assertConfiguredLimits()` (`src/server/config-limits.ts:155-162`) reads all six
+`assertConfiguredLimits()` (`src/server/config-limits.ts:224-231`) reads all six
 and `getConfig()` calls it (`src/server/config.ts:178-183`), which every
 entrypoint runs before it serves anything.
 
@@ -590,7 +590,7 @@ happens when it is set wrong.
 
 There is no specification for this. `docs/deployment.md` delivers the first five
 for every variable. The sixth is given wherever there is a ceiling
-(`docs/deployment.md:51-56`, of which `CSV_MAX_ROWS` at `:52` is the fullest: the
+(`docs/deployment.md:51-57`, of which `CSV_MAX_ROWS` at `:52` is the fullest: the
 cap matches the bulk-action cap so an import always fits one review-queue
 action). The seventh appears for `TRUST_PROXY` (`:48`, "getting it wrong costs
 per-visitor rate limiting"), `RECURRENCE_SCHEDULER` (`:53`, "A value other than
@@ -651,7 +651,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:428`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:435`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -679,7 +679,7 @@ sentence is one an operator searching the tables concludes does not exist.
 
 **The other three are a named exception rather than an omission, and this is the
 reason.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT` and `SB_MAX_UPLOAD_SIZE`
-(`docs/deployment.md:528-530`) belong to the nginx container, and neither example
+(`docs/deployment.md:535-537`) belong to the nginx container, and neither example
 file configures it: the root file serves the single container, which has no
 nginx in it, and the compose recipe sets all three on the frontend service
 itself (`deploy/compose/compose.distributed.yml:206-210`), where a value can
@@ -781,7 +781,7 @@ returns 200 or 503 (`src/server/api.ts:357-372`, and the same pair on the
 scheduler at `src/server/scheduler.ts:23-32`). Both are registered above every
 auth middleware and neither is authenticated.
 
-The rule that generalises best is already written in `docs/deployment.md:640`: "A
+The rule that generalises best is already written in `docs/deployment.md:647`: "A
 process with the scheduler switched off is not an unhealthy one." A readiness
 check that fails because an optional subsystem is off takes a working server out
 of rotation. Readiness must not consult mail, and it must not consult the
@@ -797,7 +797,7 @@ shutdown, is the slow half.** Migrations run at startup under advisory lock
 (`src/server/index.ts:27,68`; `src/server/scheduler.ts:67,74`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:92-93`). So the generous number is `--start-period`, currently
+(`docs/upgrades.md:106-107`). So the generous number is `--start-period`, currently
 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the shutdown
 deadline.
 
@@ -805,7 +805,7 @@ deadline.
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:631-636` and `README.md:131-134` describe one statement
+`docs/deployment.md:638-643` and `README.md:131-134` describe one statement
 against the database and nothing else, and `src/server/api.ts:358-371` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
@@ -994,7 +994,7 @@ chart sets `terminationGracePeriodSeconds: 30`
 (`deploy/helm/simple-balance/values.yaml:232`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:118-123`, `docs/deployment.md:422-429`). Docker's
+`--stop-timeout 30` (`README.md:118-123`, `docs/deployment.md:429-436`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 

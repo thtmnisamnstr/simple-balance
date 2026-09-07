@@ -11,9 +11,9 @@ and `numeric`, and pretending otherwise would cost more than it bought.
 ### 1.1 A shipped migration is frozen
 
 **Binding.** `AGENTS.md`: "Every migration that has shipped is frozen:"
-Twenty-one migrations, `0000_initial.sql` through `0020_reference_indexes.sql`.
+Twenty-two migrations, `0000_initial.sql` through `0021_idempotency_retention.sql`.
 Frozen is about shipping, not about existing: `0000` through `0012` went out in
-released versions and may never change, while `0013` through `0020` are written
+released versions and may never change, while `0013` through `0021` are written
 and unreleased, so `AGENTS.md` says they may still be regenerated — they freeze
 when they ship. A change to what has shipped is a new forward-only migration,
 generated with `npm run db:generate`.
@@ -205,7 +205,7 @@ somebody gives it a case where the two tables disagree.
 **House, with a reason.** Names are compared after normalisation — case folded,
 whitespace collapsed, NFKC — so a unique index on the raw column would not
 express the rule. The lock serialises the read-then-create
-(`src/server/services/helpers.ts:306`),
+(`src/server/services/helpers.ts:307`),
 and it is scoped per user so two people naming a category at once do not queue
 behind each other.
 

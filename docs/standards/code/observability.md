@@ -189,7 +189,7 @@ because an exception nobody needs any more proves nothing.
 | `error` | Something failed. | A tick that threw, a relay that refused, a query that failed. |
 
 The split that matters is `debug` against `info`, and the scheduler is the case
-that defines it (`src/server/recurrence-scheduler.ts:154-161`): a tick that
+that defines it (`src/server/recurrence-scheduler.ts:186-195`): a tick that
 proposed a row, sent a reminder or failed at either is `info`, and a tick that
 found nothing due is `debug`. Most ticks find nothing, and an `info` line every
 five minutes saying so is how a log stops being read.
@@ -313,7 +313,7 @@ oversight, which is the difference that matters when a failure disappears.
   counted in the service, because both transports call the same service and a
   count in one of them is a count of half the product.
 - A process fact — pool depth, heap, event loop lag — is a gauge with a
-  `collect()` that reads what already exists (`src/server/metrics.ts:207-221`),
+  `collect()` that reads what already exists (`src/server/metrics.ts:223-237`),
   never a poller of its own.
 
 The pool gauge shows what "reads what already exists" is protecting: it holds

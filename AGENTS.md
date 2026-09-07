@@ -204,9 +204,10 @@
   `0013_budget_plans_and_entries.sql`,
   `0014_budget_rollover_and_targets.sql`, `0015_budget_amount_rules.sql`,
   `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
-  `0018_incremental_taper.sql`, `0019_budget_target_pair.sql` and
-  `0020_reference_indexes.sql` are written and unreleased, so they are the ones
-  here that may still be regenerated; they freeze when they ship. `0016` is the
+  `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
+  `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` are written
+  and unreleased, so they are the ones here that may still be regenerated; they
+  freeze when they ship. `0016` is the
   one exception to the composite-key habit and says why in the schema: a
   category's group is a single-column reference, because `on delete set null`
   nulls every column of the constraint it is on and the tenant is not nullable.
@@ -254,7 +255,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 19.8% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 19.9% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelised.** Legs resolve one at a time so two

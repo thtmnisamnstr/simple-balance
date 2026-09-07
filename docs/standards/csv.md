@@ -205,7 +205,7 @@ happily turn the column into a float the moment it opens.
 - **An amount in an exported cell is a canonical decimal string.** No thousands
   separator, `.` as the decimal mark, trailing zeros stripped, at most 26
   integer and 18 fractional digits. That is `canonicalDecimal`
-  (`src/server/services/helpers.ts:23-28`), the same function the API returns.
+  (`src/server/services/helpers.ts:24-29`), the same function the API returns.
 - **An exported amount is never negative.** Direction is the `transaction_type`
   column. `positiveDecimalStringSchema` already says it: "Direction comes from
   the transaction type, so this is never negative."

@@ -263,7 +263,7 @@ fails there rather than at the next person's build.
 floating-point numbers."
 
 The server uses `decimal.js` through one wrapper
-(`src/server/services/helpers.ts:21`).
+(`src/server/services/helpers.ts:22`).
 The client uses scaled `bigint` (`src/client/money.ts:160`,
 `src/client/money.ts:175`),
 because the browser bundle should not carry a decimal library to render a table.

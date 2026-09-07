@@ -8,11 +8,12 @@ keep, so upgrading is swapping it for a newer one.
 Nothing refuses to start that 0.1.5 accepted, and nothing about an existing
 configuration has to change. Five things are worth knowing.
 
-**Eight migrations run at startup, and none rewrites a row.** They create the
+**Nine migrations run at startup, and none rewrites a row.** They create the
 budget tables, the category-group table and the types they use; they add
 columns to `budget_plan`, `budget_entry`, `category` and `ledger_account` —
 every one nullable or with a default, so nothing is backfilled; they add
-indexes; one swaps a check constraint on the new budget tables for a wider
+indexes, including one on `idempotency_record.created_at` for the retention
+sweep below; one swaps a check constraint on the new budget tables for a wider
 one and another trades two unique constraints for partial unique indexes,
 touching no data because the tables they sit on ship in this same release. The pause is the length of a handful of `create table`,
 `alter table` and `create index` statements whatever the size of your ledger.
@@ -58,6 +59,19 @@ puts a bearer token in front of it. A deployment that sets neither has no such
 route and nothing changes. `LOG_LEVEL` now governs this application's own log
 lines as well as the auth library's, so `warn` and `error` are quieter than they
 were; the first-run setup code prints at every level.
+
+**Used idempotency keys can be pruned now, and are not pruned unless you ask.**
+`IDEMPOTENCY_RETENTION_HOURS` sets how long a used key keeps replaying, and it
+defaults to zero, which means forever — exactly what every release before this
+one did. Nothing about your data changes on upgrade. Set it if the table has
+grown: every create, commit and bulk write stores a copy of its response there,
+and on a busy deployment it outgrows the ledger it protects. It is safe to set
+because the record makes a retry *quiet* rather than safe — a repeated create
+still meets the duplicate check, a repeated commit finds its rows already
+committed, and a repeated bulk write still carries a count and fingerprint that
+no longer match. The sweep rides the recurrence scheduler's tick, so it needs
+`RECURRENCE_SCHEDULER` on somewhere, and it removes a bounded batch per pass so
+a first sweep after a year drains rather than locking the table.
 
 **Pagination cursors are signed now, and 0.1.5's are still accepted.** A
 `nextCursor` this release hands out carries an HMAC keyed to your

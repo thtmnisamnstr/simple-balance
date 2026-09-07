@@ -7,7 +7,7 @@ keeping.
 | --- | --- | --- | --- |
 | Unit (node) | 80 | `npm test` | nothing |
 | Unit (jsdom) | 40 | `npm test` | nothing |
-| Integration | 56 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Integration | 57 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -18,9 +18,15 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 121 pass, 55 skip | **1,215 pass, 658 skip** |
-| `npm test`, database set | 176 pass | **1,873 pass** |
-| `npm run test:integration` | 56 pass | 659 pass |
+| `npm test`, no database | 121 pass, 56 skip | **1,223 pass, 664 skip** |
+| `npm test`, database set | 177 pass | **1,887 pass** |
+| `npm run test:integration` | 57 pass | 665 pass |
+
+The integration tier reports 665 tests on its own and 664 skips inside a
+database-less `npm test`, and the one-test difference is not an error: one case
+in that tier needs no database and so runs either way. It is counted among the
+1,223 rather than among the skips, which is why the two rows add up to 1,887
+both times.
 
 The third row is one test larger than the first row's skip count, and the odd
 one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one

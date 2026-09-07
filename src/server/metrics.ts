@@ -139,6 +139,22 @@ export const reminderSweeps = new Counter({
   registers: [registry],
 });
 
+/**
+ * Idempotency records the retention sweep removed, by outcome.
+ *
+ * `off` rather than a silent zero: retention is off unless a deployment asks
+ * for it, and a sweep that ran and pruned nothing looks identical in a bare
+ * count to one that never ran — which is the same "a metric that was never
+ * wired up looks like one nothing has reached" problem `observability.md` 1.6
+ * is about. An operator who turned it on can see that it is doing something.
+ */
+export const idempotencySweeps = new Counter({
+  name: `${prefix}idempotency_sweeps_total`,
+  help: "Idempotency records the retention sweep removed, by outcome.",
+  labelNames: ["outcome"] as const,
+  registers: [registry],
+});
+
 export const mailMessages = new Counter({
   name: `${prefix}mail_messages_total`,
   help: "Messages this process handed to the relay, by outcome.",

@@ -30,11 +30,16 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
   // would be swallowed by the loop's own guard, which is exactly why leaving it
   // out would make these tests pass while proving nothing about it.
   const runReminders = vi.fn(async () => ({ examined: 0, sent: 0, failed: 0 }));
+  // Stubbed for the same reason, and the same hazard: the real sweep reaches a
+  // real database, the loop's own guard would swallow the failure, and these
+  // tests would pass while proving nothing about the third thing on the tick.
+  const runIdempotencySweep = vi.fn(async () => ({ swept: 0, capped: false }));
   const scheduler = createRecurrenceScheduler({
     enabled: true,
     tickSeconds: 60,
     runTick,
     runReminders,
+    runIdempotencySweep,
     schedule,
     jitter: () => 0,
     logger,
@@ -44,7 +49,16 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
     armed.at(-1)!.fire();
     await vi.waitFor(() => expect(armed.length).toBeGreaterThan(1));
   };
-  return { armed, fireLast, logger, runTick, runReminders, schedule, scheduler };
+  return {
+    armed,
+    fireLast,
+    logger,
+    runTick,
+    runReminders,
+    runIdempotencySweep,
+    schedule,
+    scheduler,
+  };
 }
 
 describe("the recurrence scheduler loop", () => {
@@ -209,11 +223,62 @@ describe("the recurrence scheduler loop", () => {
         order.push("remind");
         return { examined: 0, sent: 0, failed: 0 };
       }),
+      runIdempotencySweep: vi.fn(async () => {
+        order.push("prune");
+        return { swept: 0, capped: false };
+      }),
     });
 
     await harness.fireLast();
 
-    expect(order).toEqual(["propose", "remind"]);
+    // Proposals, then reminders, then the prune. The order is the order
+    // somebody is waiting on: a recurrence that proposes and a template that
+    // reminds on one day arrive in that order, and nobody is waiting on the
+    // retention sweep at all — which is also why it goes last.
+    expect(order).toEqual(["propose", "remind", "prune"]);
+  });
+
+  /**
+   * And the third sweep cannot stop the other two either.
+   *
+   * Three things share one tick and each has its own `try`, so a database that
+   * refuses the prune costs the proposals nothing. This is the same case as the
+   * reminder one below it, written out because "the same reasoning applies" is
+   * how the third one comes to have no guard.
+   */
+  it("keeps ticking when the idempotency sweep throws", async () => {
+    const harness = schedulerHarness({
+      runTick: vi.fn(async () => ({ ...nothing, capped: true })),
+      runIdempotencySweep: vi.fn(async () => {
+        throw new Error("the database is having a bad minute");
+      }),
+    });
+
+    await harness.fireLast();
+
+    expect(harness.logger.failure).toHaveBeenCalledWith(
+      "Idempotency retention sweep failed",
+      expect.any(Error),
+    );
+    // Still armed, and still armed immediately, because the tick that threw was
+    // capped and its own signal must survive a failure beside it.
+    expect(harness.armed.at(-1)!.delay).toBe(0);
+  });
+
+  it("says how many records it pruned, and says nothing when it pruned none", async () => {
+    const quiet = schedulerHarness();
+    await quiet.fireLast();
+    expect(quiet.logger.debug).toHaveBeenCalled();
+    expect(String(quiet.logger.debug.mock.calls.at(-1))).not.toContain("idempotency");
+
+    const busy = schedulerHarness({
+      runIdempotencySweep: vi.fn(async () => ({ swept: 12, capped: false })),
+    });
+    await busy.fireLast();
+    // A tick that pruned something acted, so it is `info` rather than `debug`:
+    // an operator who turned retention on should see it working without
+    // enabling metrics.
+    expect(String(busy.logger.info.mock.calls.at(-1))).toContain("pruned 12 idempotency records");
   });
 
   /**

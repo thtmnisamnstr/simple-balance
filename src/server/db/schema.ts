@@ -877,6 +877,10 @@ export const idempotencyRecords = pgTable(
   (table) => [
     primaryKey({ columns: [table.userId, table.operation, table.key] }),
     check("idempotency_record_request_hash_check", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
+    // For the retention sweep, which reads by age and nothing else. The primary
+    // key is (user, operation, key), so without this a sweep is a full scan of
+    // the table it exists to keep small — and it runs every few minutes.
+    index("idempotency_record_created_at_idx").on(table.createdAt),
   ],
 );
 

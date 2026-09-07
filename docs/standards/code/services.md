@@ -193,14 +193,14 @@ key makes the retry safe.
 
 The mechanism is worth understanding rather than copying. `getIdempotent` looks
 the key up **and hashes the request**
-(`src/server/services/helpers.ts:90-121`).
+(`src/server/services/helpers.ts:91-122`).
 Same key and same request returns the stored response. Same key and a
 *different* request is a `conflict`, because the caller has reused a key for
 something else and silently returning the old answer would be worse than
 refusing.
 
 The hash is over a canonicalised payload
-(`src/server/services/helpers.ts:167`):
+(`src/server/services/helpers.ts:168`):
 keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
 identical requests whose JSON key order differed would hash differently and the
 retry would be refused.
@@ -228,7 +228,7 @@ service function reached from a route has nothing equivalent behind it.
 **Binding.** Anything that decides "does this name already exist?" takes an
 advisory lock on that namespace first, and there are five namespaces:
 accounts, categories, payees, templates and recurrences
-(`src/server/services/helpers.ts:306-335`). Otherwise two concurrent requests
+(`src/server/services/helpers.ts:307-336`). Otherwise two concurrent requests
 both read "no", and both create.
 
 Accounts were the fifth and were added late, which is the point of listing them.
@@ -245,7 +245,7 @@ has to be serialised.
 Two more rules ride on the locks, and both live in comments a new path will not
 stumble on by itself. First, the order is fixed: all account locks in sorted id
 order, then the account namespace, then the category namespace, then the payee
-namespace (`src/server/services/helpers.ts:289-294`), with the template and
+namespace (`src/server/services/helpers.ts:290-295`), with the template and
 recurrence locks after those. Two writers that take the same locks in
 different orders deadlock under concurrency, and nothing but the order stops
 it. Second, the category lock is not only for paths deciding a name: a write
@@ -403,7 +403,7 @@ rule with an opinion about it is the one turned off.
 ### 3.3 Money is summed in the database or in `decimal.js`, never in JavaScript numbers
 
 **Binding.** `AGENTS.md`. On the server that means `decimal()`
-(`src/server/services/helpers.ts:21`)
+(`src/server/services/helpers.ts:22`)
 and `canonicalDecimal` on the way out, so every amount that crosses a boundary
 is the same string for the same value.
 

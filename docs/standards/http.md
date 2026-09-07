@@ -1015,12 +1015,12 @@ so a second submit fails rather than duplicating."
 - **House, matching Zalando rule 230 point for point.** The key is scoped to
   `(user, operation, key)`, stored with a hash of the canonical request and the
   response, replayed on repeat, and refused with a 409 when the same key arrives
-  with a different request (`src/server/services/helpers.ts:90-171`). The
+  with a different request (`src/server/services/helpers.ts:91-172`). The
   request is canonicalised before hashing, with object keys sorted and `Date`
   instances stringified, so key order cannot change the fingerprint
-  (`src/server/services/helpers.ts:167-206`). Concurrent uses of one key are
+  (`src/server/services/helpers.ts:168-207`). Concurrent uses of one key are
   serialised by a transaction-scoped advisory lock
-  (`src/server/services/helpers.ts:209-221`), which is stronger than Stripe,
+  (`src/server/services/helpers.ts:210-222`), which is stronger than Stripe,
   which errors on a concurrent conflict rather than waiting.
 - **House, a deliberate divergence worth writing down.** Stripe replays
   failures, including 500s. Simple Balance writes the idempotency record inside
@@ -1029,14 +1029,50 @@ so a second submit fails rather than duplicating."
   safer direction, and it matches Stripe's own carve-out that results are saved
   only once execution begins. Said out loud, because the alternative reading is
   that nobody thought about it.
-- **House, and the one real gap.** Nothing prunes `idempotency_record`. Every
-  create, commit and bulk write stores a full JSONB copy of its response,
-  forever. Zalando is blunt about the consequence: the key cache "is not
-  intended as request log, and therefore should have a limited lifetime, else it
-  could easily exceed the data resource in size". Set a retention window and let
-  the existing scheduler enforce it. **The number is a product decision the
-  sources do not settle:** 24 hours is Stripe's figure for a payments API, and
-  an agent retrying a commit a week later is plausible here.
+- **House, and it is a setting rather than a number.** Nothing pruned
+  `idempotency_record`, and every create, commit and bulk write stores a full
+  JSONB copy of its response in it. Zalando is blunt about the consequence: the
+  key cache "is not intended as request log, and therefore should have a limited
+  lifetime, else it could easily exceed the data resource in size".
+  `IDEMPOTENCY_RETENTION_HOURS` sets a window and the existing scheduler tick
+  enforces it.
+
+  **Zero is the default and means forever**, which is the whole of what makes
+  this safe to add in a release rather than a decision imposed by one. A
+  deployment that sets nothing keeps every record exactly as it did — the same
+  rule `METRICS_ENABLED` follows, and the same rule the upgrade invariant
+  demands: "A capability a client had does not narrow." The number the sources
+  do not settle stays unsettled, because it is now an operator's to pick: 24
+  hours is Stripe's figure for a payments API, and an agent retrying a commit a
+  week later is plausible here.
+
+  **What a pruned key costs, said rather than implied**, because it is the
+  reason a window can be offered at all. A retry whose record has gone does the
+  work again — and for every operation that stores one, the second attempt is
+  refused by something other than the record: a repeated `transaction.create`
+  meets the duplicate guard, `stage.commit` finds its rows already committed
+  rather than staged, a bulk edit or delete carries a count and fingerprint that
+  no longer describe the set, and a merge finds its sources gone. The record
+  makes a retry *quiet*; it was never the only thing making it safe.
+
+  Two details are load-bearing. The sweep is **bounded per pass**
+  (`IDEMPOTENCY_SWEEP_BATCH`), because a deployment turning this on after a year
+  has a year of records to remove and one unbounded `delete` would hold a lock
+  over the whole table; the scheduler returns in minutes, so a full batch is
+  drained rather than rushed. And it reads by `created_at`, which the primary
+  key of (user, operation, key) cannot serve — so `0021_idempotency_retention.sql`
+  adds the index, without which the sweep is a full scan of the table it runs to
+  keep small.
+
+  *Checked by:* `tests/config-limits.test.ts` for the reader — unset, empty and
+  an explicit zero all mean forever, and an unreadable value falls back to
+  forever with a warning, which is the safe direction because the alternative
+  prunes on a typo. `tests/recurrence-scheduler.test.ts` for its place on the
+  tick: last of the three, with its own `try`, so a database refusing the prune
+  costs the proposals nothing. And
+  `tests/integration/idempotency-retention.integration.test.ts` for the SQL,
+  including that a deployment which asked for nothing keeps everything, that the
+  batch bound reports itself, and that an index can serve the read.
 - **House, MAY.** Accept `Idempotency-Key` as a header alias for the body field,
   with documented precedence, so a client written against Stripe habits works.
   One line of middleware and no change to the MCP contract. It is also the only
@@ -1157,7 +1193,7 @@ edit, a mass delete, a commit, and a CSV import."
   must send back (`src/server/api.ts:1454-1461`, `:1518-1520`). The fingerprint
   is a SHA-256 over the sorted `id:version` pairs, computed by one function so
   the transaction and staged paths cannot drift into accepting different sets
-  (`src/server/services/helpers.ts:273-288`).
+  (`src/server/services/helpers.ts:274-289`).
 - **House.** If the set has moved, the write is refused with the current count
   and fingerprint in the details, and the caller previews again. It is never
   silently applied to whatever matches now. The message is in

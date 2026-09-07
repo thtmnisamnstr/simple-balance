@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { Decimal } from "decimal.js";
 import { MAX_BULK_SELECTION_ENTRIES, type Actor } from "../../shared/domain.js";
-import type { Database, DbTransaction } from "../db/client.js";
+import { getDb, type Database, type DbTransaction } from "../db/client.js";
 import { auditEvents, idempotencyRecords } from "../db/schema.js";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, lt, or, sql } from "drizzle-orm";
 import { conflict } from "./errors.js";
 import { idempotencyReplays } from "../metrics.js";
+import { IDEMPOTENCY_SWEEP_BATCH, configuredIdempotencyRetentionHours } from "../config-limits.js";
 
 export type Executor = Database | DbTransaction;
 
@@ -369,4 +370,58 @@ export function serializeRow<T>(row: T): T {
   return JSON.parse(
     JSON.stringify(row, (_key, value) => (value instanceof Date ? value.toISOString() : value)),
   ) as T;
+}
+
+/**
+ * Delete idempotency records older than the configured window.
+ *
+ * Nothing pruned this table, and every create, commit and bulk write stores a
+ * full JSONB copy of its response in it — so on a busy deployment it outgrows
+ * the ledger it protects. `http.md` calls this the one real gap in that
+ * section, and Zalando says why: the key cache "is not intended as request log,
+ * and therefore should have a limited lifetime".
+ *
+ * **Returns without a query when the window is off**, which is the default.
+ * A deployment that sets nothing keeps every record exactly as before, so
+ * nothing changes on upgrade for anybody who has not asked — the rule
+ * `METRICS_ENABLED` already follows. That is what makes offering this safe in a
+ * release rather than a decision imposed by one.
+ *
+ * Bounded per sweep. A deployment turning this on after a year has a year of
+ * records to remove, and one unbounded `delete` would hold a lock over the
+ * whole table while it ran; the scheduler comes back every few minutes, so a
+ * batch that reports having filled its bound is drained rather than rushed.
+ * `created_at` carries the index that makes the range read cheap
+ * (`0021_idempotency_retention.sql`).
+ */
+export async function pruneIdempotencyRecords(
+  now = new Date(),
+): Promise<{ swept: number; capped: boolean }> {
+  const hours = configuredIdempotencyRetentionHours();
+  if (hours === 0) return { swept: 0, capped: false };
+  const cutoff = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  const doomed = await getDb()
+    .select({
+      userId: idempotencyRecords.userId,
+      operation: idempotencyRecords.operation,
+      key: idempotencyRecords.key,
+    })
+    .from(idempotencyRecords)
+    .where(lt(idempotencyRecords.createdAt, cutoff))
+    .limit(IDEMPOTENCY_SWEEP_BATCH);
+  if (doomed.length === 0) return { swept: 0, capped: false };
+  await getDb()
+    .delete(idempotencyRecords)
+    .where(
+      or(
+        ...doomed.map((row) =>
+          and(
+            eq(idempotencyRecords.userId, row.userId),
+            eq(idempotencyRecords.operation, row.operation),
+            eq(idempotencyRecords.key, row.key),
+          ),
+        ),
+      ),
+    );
+  return { swept: doomed.length, capped: doomed.length === IDEMPOTENCY_SWEEP_BATCH };
 }

@@ -424,6 +424,22 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**Used idempotency keys can be pruned, and are not pruned unless you ask.**
+Every create, commit and bulk write stores a copy of its response so a retried
+request answers the same way twice, and nothing removed those copies — on a busy
+deployment that table outgrows the ledger it protects.
+`IDEMPOTENCY_RETENTION_HOURS` sets a window and the scheduler's existing tick
+enforces it. **It defaults to zero, which means forever**, so nothing about your
+data changes on upgrade and the number stays an operator's to pick rather than
+one this release imposes.
+
+Setting it is safe because the record makes a retry *quiet* rather than safe: a
+repeated create still meets the duplicate check, a repeated commit finds its
+rows already committed, and a repeated bulk write still carries a count and
+fingerprint that no longer match the set. The sweep removes a bounded batch per
+pass, so a first sweep after a year of records drains over a few ticks instead
+of locking the table, and it reads by age through an index added for it.
+
 **A greyed-out button says why it is greyed out.** Eight submit and merge
 controls are disabled until the form is ready and one of them had a sentence
 beside it. It is the one control that can go completely silent: nothing has been

@@ -4,9 +4,11 @@ import {
   configuredCsvMaxBytes,
   configuredCsvMaxRows,
   configuredDatabasePoolSize,
+  configuredIdempotencyRetentionHours,
   DEFAULT_CSV_MAX_BYTES,
   DEFAULT_CSV_MAX_ROWS,
   DEFAULT_DATABASE_POOL_SIZE,
+  MAX_IDEMPOTENCY_RETENTION_HOURS,
 } from "../src/server/config-limits.js";
 
 const bounded = [
@@ -126,6 +128,68 @@ describe("the startup check over every bounded limit", () => {
     const limits = await import("../src/server/config-limits.js");
     expect(() => limits.assertConfiguredLimits()).not.toThrow();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(name));
+    warn.mockRestore();
+  });
+});
+
+/**
+ * The retention window, which is off unless somebody asks.
+ *
+ * Zero is the honest spelling of "do not prune", and it is the default — that is
+ * the whole of what makes this safe to add in a release. A deployment that sets
+ * nothing keeps every idempotency record exactly as it did before, so nothing an
+ * operator relied on changes on upgrade. `boundedEnvironmentInteger` refuses
+ * anything below 1, which is right for a cap and wrong for a window, so this
+ * reader is a sibling rather than a mode.
+ */
+describe("the idempotency retention window", () => {
+  const restore = process.env.IDEMPOTENCY_RETENTION_HOURS;
+  afterEach(() => {
+    if (restore === undefined) delete process.env.IDEMPOTENCY_RETENTION_HOURS;
+    else process.env.IDEMPOTENCY_RETENTION_HOURS = restore;
+  });
+
+  it("is off when nothing is set, which is the release-safe default", () => {
+    delete process.env.IDEMPOTENCY_RETENTION_HOURS;
+    expect(configuredIdempotencyRetentionHours()).toBe(0);
+  });
+
+  it("is off on an empty value, silently", () => {
+    // `.env.example` ships blanks and a compose file ships `${VAR:-}`; warning
+    // about those would train everybody to ignore the warning that matters.
+    process.env.IDEMPOTENCY_RETENTION_HOURS = "";
+    expect(configuredIdempotencyRetentionHours()).toBe(0);
+  });
+
+  it("takes a window somebody asked for", () => {
+    process.env.IDEMPOTENCY_RETENTION_HOURS = "168";
+    expect(configuredIdempotencyRetentionHours()).toBe(168);
+  });
+
+  it("takes an explicit zero as off rather than as an error", () => {
+    process.env.IDEMPOTENCY_RETENTION_HOURS = "0";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(configuredIdempotencyRetentionHours()).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("keeps everything and says so on a value it cannot read", () => {
+    // Warns rather than refusing, like every other bounded value here: a typo
+    // in a tuning knob must not stop a ledger from starting, and must not stop
+    // it on upgrade over a value the previous release accepted. Falling back to
+    // *off* is the safe direction — the alternative would prune on a typo.
+    process.env.IDEMPOTENCY_RETENTION_HOURS = "1 week";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(configuredIdempotencyRetentionHours()).toBe(0);
+    expect(String(warn.mock.calls.at(0))).toContain("Keeping every record instead");
+    warn.mockRestore();
+  });
+
+  it("refuses a window longer than a year, and keeps everything", () => {
+    process.env.IDEMPOTENCY_RETENTION_HOURS = String(MAX_IDEMPOTENCY_RETENTION_HOURS + 1);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(configuredIdempotencyRetentionHours()).toBe(0);
     warn.mockRestore();
   });
 });

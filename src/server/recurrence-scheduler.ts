@@ -1,9 +1,14 @@
 import { getConfig } from "./config.js";
-import { configuredRecurrenceTickSeconds } from "./config-limits.js";
+import {
+  configuredIdempotencyRetentionHours,
+  configuredRecurrenceTickSeconds,
+} from "./config-limits.js";
+import { pruneIdempotencyRecords } from "./services/helpers.js";
 import { runDueNotifications, type NotificationTickSummary } from "./services/notifications.js";
 import { runDueRecurrences, type TickSummary } from "./services/recurrences.js";
 import { log } from "./log.js";
 import {
+  idempotencySweeps,
   recurrenceOccurrences,
   reminderSweeps,
   schedulerTickDuration,
@@ -68,6 +73,8 @@ export type RecurrenceSchedulerOptions = {
    * sweep drifting into meaning different things.
    */
   runReminders?: (stopped: () => boolean) => Promise<NotificationTickSummary>;
+  /** Substitutable for the same reason the other two are: a test needs a fake. */
+  runIdempotencySweep?: () => Promise<{ swept: number; capped: boolean }>;
   schedule?: (callback: () => void, milliseconds: number) => Timer;
   jitter?: () => number;
   logger?: SchedulerLogger;
@@ -86,6 +93,7 @@ export function createRecurrenceScheduler(
     tickSeconds = configuredRecurrenceTickSeconds(),
     runTick = runDueRecurrences,
     runReminders = runDueNotifications,
+    runIdempotencySweep = pruneIdempotencyRecords,
     schedule = defaultSchedule,
     jitter = () => Math.random() * FIRST_TICK_JITTER_MS,
     logger = log,
@@ -139,6 +147,30 @@ export function createRecurrenceScheduler(
           reminderSweeps.inc({ outcome: "swept_failed" });
           logger.failure("Template reminder sweep failed", error);
         }
+        // And the idempotency sweep, on the same tick and for the same reason
+        // the reminders ride it: due on a schedule of the same shape, and a
+        // second timer would be a second thing to configure, shut down and
+        // notice had stopped.
+        //
+        // Its own try, so a sweep that fails costs the proposals and the
+        // reminders nothing — and last, because it is the only one of the three
+        // nobody is waiting on. It returns without a query when retention is
+        // off, which is the default, so a deployment that never asked pays a
+        // function call per tick.
+        let sweptRecords = 0;
+        try {
+          const pruned = await runIdempotencySweep();
+          if (configuredIdempotencyRetentionHours() === 0) {
+            idempotencySweeps.inc({ outcome: "off" });
+          } else {
+            idempotencySweeps.inc({ outcome: "swept" }, pruned.swept);
+            if (pruned.capped) idempotencySweeps.inc({ outcome: "capped" });
+          }
+          sweptRecords = pruned.swept;
+        } catch (error) {
+          idempotencySweeps.inc({ outcome: "failed" });
+          logger.failure("Idempotency retention sweep failed", error);
+        }
         // Said out loud, and not only counted.
         //
         // `/metrics` is off unless a deployment asks for it, so without this a
@@ -153,11 +185,13 @@ export function createRecurrenceScheduler(
         // Counts and no identities. Which recurrence proposed what is the audit
         // trail's business and the ledger's; this line is about whether the
         // schedule is running.
-        const acted = summary.proposed + summary.notified + summary.failed + sent + sweepFailed;
+        const acted =
+          summary.proposed + summary.notified + summary.failed + sent + sweepFailed + sweptRecords;
         const line =
           `Scheduler tick: examined ${summary.examined} recurrence${summary.examined === 1 ? "" : "s"}, ` +
           `proposed ${summary.proposed}, failed ${summary.failed}, notified ${summary.notified}; ` +
           `sent ${sent} reminder${sent === 1 ? "" : "s"}, ${sweepFailed} failed` +
+          (sweptRecords > 0 ? `; pruned ${sweptRecords} idempotency records` : "") +
           (summary.capped ? "; capped, so the next tick follows immediately" : "");
         if (acted > 0) logger.info(line);
         else logger.debug(line);
