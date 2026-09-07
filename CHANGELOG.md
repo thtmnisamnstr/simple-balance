@@ -424,6 +424,17 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**An agent loads 12% less to learn what this server can do.** Every id on the
+MCP surface was published as `"format":"uuid"` and, beside it, a 166-character
+regular expression saying the same thing — 352 copies of it, 58,432 characters,
+11% of the whole `tools/list` payload. The regex bought nothing: a client that
+cannot read `format: "uuid"` cannot use this API anyway, since every id it will
+ever hold came from a list or a create. One shared schema drops it and leaves
+the check alone, so a value that is not a UUID is still refused. The write tier
+went from 534,682 characters to 471,674 and the read tier from 191,414 to
+166,712 — about sixteen thousand tokens back at the write tier, on every
+connection.
+
 **The words on screen now match the ones written down.** `web.md` §16 and
 `common.md` settle the voice and neither was checked, so the product had drifted
 from both in eleven places. "Invalid" is banned outright — it describes the rule

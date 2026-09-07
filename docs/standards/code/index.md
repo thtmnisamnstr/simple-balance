@@ -166,7 +166,7 @@ thing they ever see:
 
 One `eslint` rule is off. **`no-control-regex`** flags a regular expression that
 matches control characters, and all three sites here exist *to reject* them: two
-sanitise user input (`src/shared/domain.ts:251-252`) and one is the
+sanitise user input (`src/shared/domain.ts:274-275`) and one is the
 CSV-injection defence (`src/shared/csv.ts:464`).
 The rule exists to catch a control character written by accident; every one of
 these was written on purpose, and the code that strips control characters is

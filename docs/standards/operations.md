@@ -156,7 +156,7 @@ conformance.
 
 **Binding, and already met by accident of the schema.** A subject cannot contain
 CR or LF. Recurrence and template names go through `oneLine`
-(`src/shared/domain.ts:252-258`), which refuses every character
+(`src/shared/domain.ts:275-281`), which refuses every character
 from U+0000 to U+001F and U+007F, so header injection through a subject is
 closed at the schema rather than at the mailer. Worth writing down precisely because the
 defence is nowhere near the code it defends.
@@ -568,7 +568,7 @@ it was given, the range it had to be in, and the number in force instead — and
 is printed once per name at startup, in front of whoever just deployed. What was
 kept from the first pass is the part that mattered most: all six are read at
 startup rather than at the call site. `configuredCsvMaxRows()` used to run inside
-an import (`src/server/services/import-export.ts:793`) and the recurrence limits
+an import (`src/server/services/import-export.ts:791`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
 `assertConfiguredLimits()` (`src/server/config-limits.ts:155-162`) reads all six

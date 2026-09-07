@@ -154,7 +154,7 @@ export const categoryKinds = ["income", "expense", "both"] as const;
 export type CategoryKind = (typeof categoryKinds)[number];
 ```
 
-(`src/shared/domain.ts:97-98`.)
+(`src/shared/domain.ts:120-121`.)
 
 The array is the single source: Zod validates from it, the database enum is
 generated from it (`src/server/db/schema.ts:196`),
@@ -190,7 +190,7 @@ export const budgetPeriodUnits = [
 ] as const satisfies readonly ReportBucket[];
 ```
 
-(`src/shared/domain.ts:1334`.)
+(`src/shared/domain.ts:1325`.)
 
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
@@ -205,7 +205,7 @@ into that type.
 ### 2.5 Discriminated unions carry the discriminant in the name
 
 **House.** A transaction draft is a union on `type`, and each member declares it
-as a literal (`src/shared/domain.ts:559`). Every
+as a literal (`src/shared/domain.ts:568`). Every
 function that takes one either handles all three or narrows first. This is why
 `noFallthroughCasesInSwitch` was free: there was nothing to find.
 
@@ -320,7 +320,7 @@ nothing to say about the signature, which is the side this rule is about.
   improve on it. Everything in `src/server/services` does this.
 - **Return a result** when the caller is going to render the failure rather than
   propagate it. `resolveEntrySide` returns `{ ok: false, message }`
-  (`src/shared/domain.ts:127`) precisely so the
+  (`src/shared/domain.ts:150`) precisely so the
   browser can preview the refusal without provoking it.
 
 That second shape exists because of a real defect: the form used to let somebody

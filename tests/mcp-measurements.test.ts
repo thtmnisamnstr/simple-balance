@@ -121,6 +121,27 @@ describe("what mcp.md says it measured", () => {
     expect(cost(tiers.write)).toBe(claimed(/\| `ledger:write` \| \d+ \| ([\d,]+) \|/));
   });
 
+  /**
+   * And the pattern that was a tenth of the payload does not come back.
+   *
+   * `z.string().uuid()` emits `"format":"uuid"` *and* a 166-character regex
+   * saying the same thing, and 352 copies of it were 11% of everything an agent
+   * loaded to learn what this server can do. The `uuid()` helper in
+   * `src/shared/domain.ts` drops the regex and keeps the check.
+   *
+   * A count rather than a size, because the failure is one declaration written
+   * the old way: sixty sites were converted, and the sixty-first is what this
+   * is here for. The tier costs above would catch it too, but they would say
+   * "191,414 is not 166,712", which is a puzzle where this is a fix.
+   */
+  it("publishes a uuid as a format and not also as a regex", () => {
+    const text = JSON.stringify(tiers.write);
+    expect([...text.matchAll(/"pattern":"\^\(\[0-9a-fA-F\]\{8\}/g)]).toEqual([]);
+    // And the format is still there, so this is not passing because the ids
+    // stopped being described at all.
+    expect([...text.matchAll(/"format":"uuid"/g)].length).toBeGreaterThan(300);
+  });
+
   it("counts what the write tier is made of", () => {
     const sum = (parts: number[]) => parts.reduce((a, b) => a + b, 0);
     const composition = {

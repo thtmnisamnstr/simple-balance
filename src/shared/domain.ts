@@ -1,5 +1,28 @@
 import { z } from "zod";
 
+/**
+ * A UUID, published as a format and not also as a 166-character regex.
+ *
+ * `uuid()` emits both `"format":"uuid"` and a `pattern` spelling the
+ * same constraint out. On the agent surface that pattern appears **352 times**
+ * across the write tier's `tools/list` — 58,432 characters, 11% of everything an
+ * agent loads to learn what this server can do, and a higher share at the two
+ * smaller tiers. A client that cannot read `format: "uuid"` cannot use this API
+ * anyway, since every id it will ever hold came from a list or a create.
+ *
+ * `.meta({ pattern: undefined })` drops it from the published schema and leaves
+ * the check itself alone: the value is still refused if it is not a UUID. Here
+ * rather than at sixty declaration sites, so a sixty-first cannot forget.
+ */
+export const uuid = (): z.ZodString =>
+  // `pattern: undefined` is metadata the registry's own type does not declare,
+  // and that is exactly what it is for: it lands in the JSON Schema output,
+  // where an undefined value removes the key Zod would otherwise have written.
+  z
+    .string()
+    .uuid()
+    .meta({ pattern: undefined } as unknown as Record<string, string>);
+
 /** Types a person can pick when creating an account. */
 export const userAccountTypes = [
   "checking",
@@ -311,16 +334,12 @@ export const MAX_TRANSACTION_LEGS = 50;
  */
 const transactionLegSchema = z
   .object({
-    id: z
-      .string()
-      .uuid()
+    id: uuid()
       .optional()
       .describe(
         "The existing leg this entry of the list is about, so it is changed rather than replaced. Left out, the old leg is zeroed and a new one written, appending a reversal and a repost for money that never moved. A leg missing from the list is removed.",
       ),
-    categoryId: z
-      .string()
-      .uuid()
+    categoryId: uuid()
       .optional()
       .nullable()
       .describe(
@@ -443,9 +462,7 @@ const transactionShapeCommon = {
     .describe(
       "A short line saying what this entry was, matched by the search filter alongside the payee and notes. Anything longer than a line belongs in notes.",
     ),
-  categoryId: z
-    .string()
-    .uuid()
+  categoryId: uuid()
     .optional()
     .nullable()
     .describe(
@@ -502,9 +519,7 @@ const transactionCommon = {
     ),
   // Which template this was made from, kept so a template can report what came
   // of it. Provenance only: nothing reads it back into the entry.
-  templateId: z
-    .string()
-    .uuid()
+  templateId: uuid()
     .optional()
     .nullable()
     .describe(
@@ -521,12 +536,9 @@ const depositDraftSchema = z
         "Which way the money moved, and what else the draft needs: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both and sourceAmount. Direction lives here alone, so amounts are always positive; a transfer refuses legs, and a category on one is stored but never posted.",
       ),
     ...transactionCommon,
-    toAccountId: z
-      .string()
-      .uuid()
-      .describe(
-        "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
-      ),
+    toAccountId: uuid().describe(
+      "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
+    ),
     amount: positiveDecimalStringSchema,
   })
   .superRefine(checkTransactionLegs);
@@ -539,12 +551,9 @@ const withdrawalDraftSchema = z
         "Which way the money moved, and what else the draft needs: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both and sourceAmount. Direction lives here alone, so amounts are always positive; a transfer refuses legs, and a category on one is stored but never posted.",
       ),
     ...transactionCommon,
-    fromAccountId: z
-      .string()
-      .uuid()
-      .describe(
-        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
-      ),
+    fromAccountId: uuid().describe(
+      "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+    ),
     amount: positiveDecimalStringSchema,
   })
   .superRefine(checkTransactionLegs);
@@ -557,18 +566,12 @@ const transferDraftSchema = z
         "Which way the money moved, and what else the draft needs: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both and sourceAmount. Direction lives here alone, so amounts are always positive; a transfer refuses legs, and a category on one is stored but never posted.",
       ),
     ...transactionCommon,
-    fromAccountId: z
-      .string()
-      .uuid()
-      .describe(
-        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
-      ),
-    toAccountId: z
-      .string()
-      .uuid()
-      .describe(
-        "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
-      ),
+    fromAccountId: uuid().describe(
+      "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+    ),
+    toAccountId: uuid().describe(
+      "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
+    ),
     sourceAmount: positiveDecimalStringSchema.describe(
       "How much left fromAccountId, in that account's currency. On a cross-currency transfer it is only one side: destinationAmount says what arrived, and the rate is implied by the pair rather than given.",
     ),
@@ -715,7 +718,7 @@ const emptyListToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
  */
 const transactionTemplateLegSchema = z
   .object({
-    categoryId: blankToAbsent(z.string().uuid()).describe(
+    categoryId: blankToAbsent(uuid()).describe(
       "Which existing category this share of the split goes to. One that no longer resolves is cleared with a notice when the template is used, so the leg reads as unfinished rather than showing an empty picker holding a dead id.",
     ),
     categoryName: blankToAbsent(oneLine(z.string().trim().max(120))).describe(
@@ -760,10 +763,10 @@ export const transactionTemplateDraftSchema = z
     payee: blankToAbsent(oneLine(z.string().trim().max(160))).describe(
       "Who entries made from this are with, prefilled. Left out, the form keeps whatever is in the field already, so omit it deliberately for a template standing for a kind of spending rather than one shop.",
     ),
-    fromAccountId: blankToAbsent(z.string().uuid()).describe(
+    fromAccountId: blankToAbsent(uuid()).describe(
       "The account the money leaves, prefilled, for a withdrawal or a transfer. Left out, the person chooses each time. Stored on a deposit template nothing ever reads it, and an account archived since is dropped with a notice when the template is used.",
     ),
-    toAccountId: blankToAbsent(z.string().uuid()).describe(
+    toAccountId: blankToAbsent(uuid()).describe(
       "The account the money arrives in, prefilled, for a deposit or a transfer. Left out, the person chooses each time. Stored on a withdrawal template nothing ever reads it, and an account archived since is dropped with a notice when the template is used.",
     ),
     amount: blankToAbsent(positiveDecimalStringSchema).describe(
@@ -772,7 +775,7 @@ export const transactionTemplateDraftSchema = z
     destinationAmount: blankToAbsent(positiveDecimalStringSchema).describe(
       "What arrives in the destination account, for a transfer template between two currencies where the two sides are different figures. Only a transfer has one: changing a template's type to anything else drops it, and a bulk edit refuses to set it on a row that is not a transfer.",
     ),
-    categoryId: blankToAbsent(z.string().uuid()).describe(
+    categoryId: blankToAbsent(uuid()).describe(
       "Files every entry started from this under a category that already exists. Refused alongside legs, and an id that no longer resolves is cleared with a notice when somebody uses the template rather than prefilled invisibly.",
     ),
     categoryName: blankToAbsent(oneLine(z.string().trim().max(120))).describe(
@@ -807,12 +810,9 @@ export const transactionTemplateBulkSelectionSchema = z
       .array(
         z
           .object({
-            id: z
-              .string()
-              .uuid()
-              .describe(
-                "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
-              ),
+            id: uuid().describe(
+              "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
+            ),
             expectedVersion: expectedVersionSchema,
           })
           .strict(),
@@ -863,17 +863,13 @@ export const transactionTemplateBulkPatchSchema = z
       .describe(
         "The payee every selected template fills into the form, or null to leave it blank for whoever uses it. An empty string is refused rather than read as that clear, because blank and absent are the whole of what a stored template records.",
       ),
-    fromAccountId: z
-      .string()
-      .uuid()
+    fromAccountId: uuid()
       .nullable()
       .optional()
       .describe(
         "The account a withdrawal or transfer template draws from, or null to leave the form asking. Refused rather than dropped while any selected template is, or is being made into, a deposit, which has no source account.",
       ),
-    toAccountId: z
-      .string()
-      .uuid()
+    toAccountId: uuid()
       .nullable()
       .optional()
       .describe(
@@ -891,9 +887,7 @@ export const transactionTemplateBulkPatchSchema = z
       .describe(
         "What arrives on the far side of a transfer between currencies, in the destination account's currency, so the pair records the rate actually paid. Refused on any selected template that is not a transfer, and setting type to anything else drops it.",
       ),
-    categoryId: z
-      .string()
-      .uuid()
+    categoryId: uuid()
       .nullable()
       .optional()
       .describe(
@@ -971,7 +965,7 @@ export const transactionTemplateBulkResultSchema = z
     items: z.array(
       z
         .object({
-          id: z.string().uuid(),
+          id: uuid(),
           name: z.string(),
           version: z.number().int().positive(),
         })
@@ -1035,9 +1029,7 @@ export const categoryCreateSchema = z.object({
     .describe(
       'Whether this category is for money coming in, money going out, or both. It decides which side of the books an entry naming it posts to, and an entry running against it is a refund rather than a mistake. Prefer "income" or "expense": "both" agrees with whichever direction it is handed, which destroys the signal that makes a refund a refund.',
     ),
-  groupId: z
-    .string()
-    .uuid()
+  groupId: uuid()
     .nullable()
     .optional()
     .describe(
@@ -1051,16 +1043,15 @@ export const categoryUpdateSchema = categoryCreateSchema
 
 export const categoryMergeSchema = z.object({
   sourceCategoryIds: z
-    .array(z.string().uuid())
+    .array(uuid())
     .min(1)
     .max(100)
     .describe(
       "The categories to merge away. Their transactions and staged rows move to the target and the sources are removed.",
     ),
-  targetCategoryId: z
-    .string()
-    .uuid()
-    .describe("The category to keep. Everything filed under the sources ends up here."),
+  targetCategoryId: uuid().describe(
+    "The category to keep. Everything filed under the sources ends up here.",
+  ),
   expectedVersions: z
     .record(z.string(), z.number().int().positive())
     .describe(
@@ -1248,7 +1239,7 @@ export const stageUpdateSchema = z.object({
  */
 export const commitStageSchema = z.object({
   stagedIds: z
-    .array(z.string().uuid())
+    .array(uuid())
     .min(1)
     .max(MAX_BULK_SELECTION_ENTRIES)
     .describe(
@@ -1287,7 +1278,7 @@ export const commitStageSchema = z.object({
  */
 export const bulkDeleteStageSchema = z.object({
   stagedIds: z
-    .array(z.string().uuid())
+    .array(uuid())
     .min(1)
     .max(MAX_BULK_SELECTION_ENTRIES)
     .describe(
@@ -1439,16 +1430,12 @@ const budgetAmountSchema = decimalStringSchema.refine(
 );
 
 const budgetTarget = {
-  categoryId: z
-    .string()
-    .uuid()
+  categoryId: uuid()
     .optional()
     .describe(
       "The category this budget is about. One budget per category, currency and period length. Send this or groupId, never both.",
     ),
-  groupId: z
-    .string()
-    .uuid()
+  groupId: uuid()
     .optional()
     .describe(
       "The category group this budget is about, for a group that holds a budget of its own. A group budgeted as whatever its categories add up to is refused, because it already has an amount and a second one would have an equal claim to be the group's.",
@@ -2001,11 +1988,9 @@ export const listQuerySchema = dateRangeSchema.extend({
     .max(200)
     .default(50)
     .describe("Rows per page, 1 to 200. Defaults to 50."),
-  accountId: z.string().uuid().optional().describe("Only rows touching this account."),
-  categoryId: z.string().uuid().optional().describe("Only rows filed under this category."),
-  templateId: z
-    .string()
-    .uuid()
+  accountId: uuid().optional().describe("Only rows touching this account."),
+  categoryId: uuid().optional().describe("Only rows filed under this category."),
+  templateId: uuid()
     .optional()
     .describe(
       "Only rows started from this template. Provenance only; a deleted template leaves its rows alone.",
@@ -2053,12 +2038,9 @@ const bulkTransactionIdSelectionSchema = z
       .array(
         z
           .object({
-            id: z
-              .string()
-              .uuid()
-              .describe(
-                "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
-              ),
+            id: uuid().describe(
+              "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
+            ),
             expectedVersion: expectedVersionSchema,
           })
           .strict(),
@@ -2092,7 +2074,7 @@ const bulkTransactionFilterSelectionSchema = z
       "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
     ),
     excludedIds: z
-      .array(z.string().uuid())
+      .array(uuid())
       .max(MAX_BULK_SELECTION_ENTRIES)
       .default([])
       .describe(
@@ -2135,7 +2117,7 @@ export const bulkTransactionFilterSelectionRequestSchema = z
       "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
     ),
     excludedIds: z
-      .array(z.string().uuid())
+      .array(uuid())
       .max(MAX_BULK_SELECTION_ENTRIES)
       .default([])
       .describe(
@@ -2177,17 +2159,13 @@ const bulkTransactionPatchSchema = z
       .describe(
         'Renames the payee on every selected row to this one, canonicalised against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
       ),
-    categoryId: z
-      .string()
-      .uuid()
+    categoryId: uuid()
       .nullable()
       .optional()
       .describe(
         "Files every selected entry under this category, or under none when null. A selection holding a split is refused, and so is a category whose kind runs against an entry's direction: that would make those entries refunds for rows nobody looked at.",
       ),
-    accountId: z
-      .string()
-      .uuid()
+    accountId: uuid()
       .optional()
       .describe(
         "Moves every selected entry to this account, on the side its type reads: destination for a deposit, source for a withdrawal. A selection holding a transfer is refused, and so is an account in another currency, since a bulk edit never re-denominates money.",
@@ -2260,7 +2238,7 @@ export const bulkTransactionDeleteSchema = z
 
 const bulkTransactionEditItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: uuid(),
     previousVersion: z.number().int().positive(),
     nextVersion: z.number().int().positive(),
     type: z.enum(transactionTypes),
@@ -2311,8 +2289,8 @@ export const stageListQuerySchema = listQuerySchema
       .describe(
         "Which column to order by. Ordering is presentation only and never changes which rows match.",
       ),
-    importBatchId: z.string().uuid().optional().describe("Only rows from this CSV import."),
-    recurrenceId: z.string().uuid().optional().describe("Only rows proposed by this recurrence."),
+    importBatchId: uuid().optional().describe("Only rows from this CSV import."),
+    recurrenceId: uuid().optional().describe("Only rows proposed by this recurrence."),
     validity: z
       .enum(["valid", "invalid", "duplicate"])
       .optional()
@@ -2350,12 +2328,9 @@ const bulkStageIdSelectionSchema = z
       .array(
         z
           .object({
-            id: z
-              .string()
-              .uuid()
-              .describe(
-                "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
-              ),
+            id: uuid().describe(
+              "Which row this entry of the selection is about. It has to exist and be yours: one that does not resolve fails the whole call rather than being passed over, so the rows changed always match the rows you named.",
+            ),
             expectedVersion: expectedVersionSchema,
           })
           .strict(),
@@ -2389,7 +2364,7 @@ const bulkStageFilterSelectionSchema = z
       "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
     ),
     excludedIds: z
-      .array(z.string().uuid())
+      .array(uuid())
       .max(MAX_BULK_SELECTION_ENTRIES)
       .default([])
       .describe(
@@ -2432,7 +2407,7 @@ export const bulkStageFilterSelectionRequestSchema = z
       "The same filters the matching list route takes. Preview it first: the preview returns the count and the fingerprint a write has to send back.",
     ),
     excludedIds: z
-      .array(z.string().uuid())
+      .array(uuid())
       .max(MAX_BULK_SELECTION_ENTRIES)
       .default([])
       .describe(
@@ -2478,17 +2453,13 @@ const bulkStagePatchSchema = z
       .describe(
         'Renames the payee on every selected row to this one, canonicalised against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
       ),
-    categoryId: z
-      .string()
-      .uuid()
+    categoryId: uuid()
       .nullable()
       .optional()
       .describe(
         "Files every selected draft under this category, or under none when null. A selection holding a split is refused, and with ledger:write, moving the last row off a category also removes that category when nothing else refers to it.",
       ),
-    accountId: z
-      .string()
-      .uuid()
+    accountId: uuid()
       .optional()
       .describe(
         "Sets the account on every selected draft, on the side its type reads. A selection holding a transfer is refused, and so is a row that does not yet say which way the money went unless you set type in the same patch.",
@@ -2549,7 +2520,7 @@ export const bulkStageEditSchema = z
 
 const bulkStageEditItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: uuid(),
     version: z.number().int().positive(),
     issueCount: z.number().int().nonnegative(),
     possiblyDuplicate: z.boolean(),
@@ -2693,9 +2664,7 @@ export const MAX_RECURRENCE_INTERVAL = 366;
  */
 const recurrenceLegSchema = z
   .object({
-    categoryId: z
-      .string()
-      .uuid()
+    categoryId: uuid()
       .optional()
       .describe(
         "Which category this leg's share files under. It wins over this leg's categoryName, and the legs answer the direction question together, so an income category on one leg beside an expense category on another is refused.",
@@ -2821,12 +2790,9 @@ export const recurrenceShapeSchema = z.discriminatedUnion("type", [
           "Which way the money moves on every occurrence: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both. Direction lives here alone, so the amount is always positive, and a transfer carries no legs.",
         ),
       ...recurrenceShapeFields,
-      toAccountId: z
-        .string()
-        .uuid()
-        .describe(
-          "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
-        ),
+      toAccountId: uuid().describe(
+        "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
+      ),
       amount: positiveDecimalStringSchema.optional(),
     })
     .strict()
@@ -2839,12 +2805,9 @@ export const recurrenceShapeSchema = z.discriminatedUnion("type", [
           "Which way the money moves on every occurrence: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both. Direction lives here alone, so the amount is always positive, and a transfer carries no legs.",
         ),
       ...recurrenceShapeFields,
-      fromAccountId: z
-        .string()
-        .uuid()
-        .describe(
-          "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
-        ),
+      fromAccountId: uuid().describe(
+        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+      ),
       amount: positiveDecimalStringSchema.optional(),
     })
     .strict()
@@ -2857,18 +2820,12 @@ export const recurrenceShapeSchema = z.discriminatedUnion("type", [
           "Which way the money moves on every occurrence: a deposit names toAccountId, a withdrawal fromAccountId, a transfer both. Direction lives here alone, so the amount is always positive, and a transfer carries no legs.",
         ),
       ...recurrenceShapeFields,
-      fromAccountId: z
-        .string()
-        .uuid()
-        .describe(
-          "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
-        ),
-      toAccountId: z
-        .string()
-        .uuid()
-        .describe(
-          "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
-        ),
+      fromAccountId: uuid().describe(
+        "Where the money came from: a withdrawal's account, or a transfer's source, whose currency sourceAmount is in. A transfer's two sides must differ, so moving money within one account is refused.",
+      ),
+      toAccountId: uuid().describe(
+        "Where the money landed: a deposit's account, or a transfer's destination. Its currency is the currency the money arrived in, so a transfer whose two accounts differ in currency is refused without destinationAmount.",
+      ),
       amount: positiveDecimalStringSchema.optional(),
       destinationAmount: positiveDecimalStringSchema.optional(),
     })

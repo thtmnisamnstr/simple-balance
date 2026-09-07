@@ -176,7 +176,7 @@ specific messages.
 **House.** Some rules the browser has to know before it submits, or the person
 gets a 422 the screen never hinted at. Those live in `src/shared` as a function
 returning a result rather than throwing
-(`src/shared/domain.ts:127`):
+(`src/shared/domain.ts:150`):
 
 ```ts
 { ok: false, message: "An entry is either income or a refund, not both." }
@@ -219,7 +219,7 @@ unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
 the row's own issue list's job.
 
 *Checked by:* `human`. The instance is pinned where it bit
-(`src/shared/domain.ts:1083-1088`, the comment on `payeeSummarySchema.name`).
+(`src/shared/domain.ts:1074-1079`, the comment on `payeeSummarySchema.name`).
 
 ## 5. What is not enforced
 

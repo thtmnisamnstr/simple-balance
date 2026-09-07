@@ -6,6 +6,7 @@ import {
   categoryCreateSchema,
   idempotencyKeySchema,
   transactionDraftSchema,
+  uuid,
   type Actor,
   type CategoryKind,
   type Page,
@@ -73,12 +74,9 @@ export const csvStageInputSchema = z.object({
       "What the file was called. Recorded on the import batch so somebody can tell one import from another later.",
     ),
   idempotencyKey: idempotencyKeySchema,
-  defaultAccountId: z
-    .string()
-    .uuid()
-    .describe(
-      "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land.",
-    ),
+  defaultAccountId: uuid().describe(
+    "The account every row is posted against. Accounts are never read out of the file, so this is the only thing that decides where the rows land.",
+  ),
   mapping: csvMappingSchema
     .optional()
     .describe(

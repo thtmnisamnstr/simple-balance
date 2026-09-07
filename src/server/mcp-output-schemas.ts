@@ -20,9 +20,10 @@ import {
   recurrenceWeekendPolicies,
   stagedStatuses,
   transactionTypes,
+  uuid,
 } from "../shared/domain.js";
 
-const uuidSchema = z.string().uuid();
+const uuidSchema = uuid();
 
 /**
  * The output side's primitives, each carrying what it is.
@@ -756,16 +757,16 @@ const recurrenceOccurrenceSchema = z.object({
 const recurrenceShapeResultSchema = z.object({
   type: z.enum(transactionTypes),
   payee: z.string(),
-  fromAccountId: z.string().uuid().optional(),
-  toAccountId: z.string().uuid().optional(),
+  fromAccountId: uuid().optional(),
+  toAccountId: uuid().optional(),
   amount: z.string().optional(),
   destinationAmount: z.string().optional(),
-  categoryId: z.string().uuid().nullable().optional(),
+  categoryId: uuid().nullable().optional(),
   categoryName: z.string().nullable().optional(),
   legs: z
     .array(
       z.object({
-        categoryId: z.string().uuid().optional(),
+        categoryId: uuid().optional(),
         categoryName: z.string().optional(),
         amount: z.string(),
         note: z.string().optional(),
@@ -818,7 +819,7 @@ export const recurrenceListResultSchema = z.object({
  */
 export const budgetPlanResultSchema = z
   .object({
-    id: z.string().uuid(),
+    id: uuid(),
     // Both nullable, and exactly one is set: a budget is about a category or a
     // group. Declared non-nullable, every group budget failed its own tool with
     // an output validation error.
@@ -890,7 +891,7 @@ export const budgetPlanResultSchema = z
 
 export const budgetEntryResultSchema = z
   .object({
-    id: z.string().uuid(),
+    id: uuid(),
     categoryId: nullableStringSchema,
     categoryName: nullableStringSchema,
     groupId: nullableStringSchema,
@@ -970,7 +971,7 @@ export const budgetReportResultSchema = z.object({
       groups: z
         .array(
           z.object({
-            groupId: z.string().uuid(),
+            groupId: uuid(),
             name: z.string(),
             policy: z.enum(budgetGroupPolicies),
             limit: nullableStringSchema.describe(
@@ -1035,7 +1036,7 @@ export const budgetReportResultSchema = z.object({
 
 export const categoryGroupResultSchema = z
   .object({
-    id: z.string().uuid(),
+    id: uuid(),
     name: z.string(),
     policy: z
       .enum(budgetGroupPolicies)
@@ -1050,7 +1051,7 @@ export const categoryGroupResultSchema = z
   })
   .passthrough();
 
-export const deletedCategoryGroupResultSchema = z.object({ id: z.string().uuid() });
+export const deletedCategoryGroupResultSchema = z.object({ id: uuid() });
 
 export const forecastResultSchema = z.object({
   from: isoDateSchema.describe(
@@ -1065,7 +1066,7 @@ export const forecastResultSchema = z.object({
   unprojectable: z
     .array(
       z.object({
-        id: z.string().uuid(),
+        id: uuid(),
         name: z.string(),
         reason: z.string(),
       }),
@@ -1118,4 +1119,4 @@ export const forecastResultSchema = z.object({
   ),
 });
 
-export const deletedBudgetResultSchema = z.object({ id: z.string().uuid() });
+export const deletedBudgetResultSchema = z.object({ id: uuid() });

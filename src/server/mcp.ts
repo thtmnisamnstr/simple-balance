@@ -44,6 +44,7 @@ import {
   transactionTemplateCreateSchema,
   transactionTemplateUpdateSchema,
   transactionUpdateSchema,
+  uuid,
 } from "../shared/domain.js";
 import { getConfig } from "./config.js";
 import { apiRequestBodyLimit } from "./http-security.js";
@@ -476,17 +477,14 @@ const toolInput = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict(
 /**
  * The record a tool acts on.
  *
- * Twenty-seven tools took a bare `z.string().uuid()`, which tells an agent the
+ * Twenty-seven tools took a bare `uuid()`, which tells an agent the
  * shape and nothing about where to get one. Every id on this surface comes from
  * a list or a create, and none of them is guessable, so saying that is what
  * stops a model inventing a plausible UUID and getting a 404 it cannot explain.
  */
-const recordIdSchema = z
-  .string()
-  .uuid()
-  .describe(
-    "The record's `id`, as returned by a list or a create on this surface. Ids are not guessable and cannot be constructed.",
-  );
+const recordIdSchema = uuid().describe(
+  "The record's `id`, as returned by a list or a create on this surface. Ids are not guessable and cannot be constructed.",
+);
 
 export function createMcpServer(actor: Actor, scopes: Set<string>) {
   // The raw grant, not what `hasScope` derives from it. The point of saying it

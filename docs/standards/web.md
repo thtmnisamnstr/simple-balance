@@ -1822,7 +1822,7 @@ The rules, in the order they matter:
   that guessed would guess wrong in the direction that matters: telling somebody
   their four thousand rows did not post when they did.
 - **The threshold at which a bar earns its row of layout is
-  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1235`), not a literal in a
+  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1226`), not a literal in a
   page. Fifty is a judgement rather than a boundary in nature — below it the work
   is over before a bar could be read, and a bar that flashes is worse than none.
   It sits under the cap `AGENTS.md` fixes: "Ten thousand rows is the cap, and it

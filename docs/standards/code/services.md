@@ -136,7 +136,7 @@ and ends the tenant whose work anything composing with it would be doing. A
 seventh has to argue that nothing will ever want to compose with it.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:304-314`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:305-315`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
