@@ -894,6 +894,22 @@ a {
   font-size: 12px;
 }
 
+/* The field's own error sentence, above the control the way GOV.UK orders them.
+   Red text on the page's own background rather than a tinted box: an error box
+   here would stack with `ErrorSummary`'s at the top of the same form, and two
+   boxes saying one thing reads as two problems. The control beside it carries
+   `aria-invalid` and points at this sentence, so the colour is a third cue
+   rather than the only one. */
+.field-error {
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--red);
+}
+
 .form-grid {
   display: grid;
   gap: 16px;

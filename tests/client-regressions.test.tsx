@@ -432,7 +432,7 @@ describe("transaction payee and category entry", () => {
     ).toBeTruthy();
 
     fireEvent.change(payee, { target: { value: "acme market" } });
-    fireEvent.change(form.getByLabelText(/Category/), {
+    fireEvent.change(form.getByRole("combobox", { name: "Category" }), {
       target: { value: "groceries" },
     });
     fireEvent.change(form.getByLabelText("Amount (USD)"), {
@@ -441,7 +441,7 @@ describe("transaction payee and category entry", () => {
 
     await waitFor(() => {
       expect(payee).toHaveValue("Acme Market");
-      expect(form.getByLabelText(/Category/)).toHaveValue("Groceries");
+      expect(form.getByRole("combobox", { name: "Category" })).toHaveValue("Groceries");
     });
     fireEvent.submit(container.querySelector("form")!);
 
@@ -499,7 +499,7 @@ describe("transaction payee and category entry", () => {
     );
     const form = within(container);
     const payee = form.getByLabelText("Payee");
-    const category = form.getByLabelText(/Category/);
+    const category = form.getByRole("combobox", { name: "Category" });
 
     fireEvent.change(payee, { target: { value: "acme market" } });
     fireEvent.change(category, { target: { value: "groceries" } });

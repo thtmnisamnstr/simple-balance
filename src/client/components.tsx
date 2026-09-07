@@ -16,7 +16,9 @@ import {
   type InputHTMLAttributes,
   type PropsWithChildren,
   type ReactNode,
+  createContext,
   forwardRef,
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -387,37 +389,176 @@ export function ErrorSummary({
   );
 }
 
+/**
+ * What a `Field` tells the control inside it.
+ *
+ * Through context rather than by cloning the child. `Field` is used at 96 sites
+ * and its children are arbitrary JSX — an `<Input>`, a `<Select>`, a
+ * `CategoryPicker` that renders one three levels down — so `cloneElement` would
+ * reach the first case and silently miss the rest. A context reaches all of
+ * them, wires nothing at the call sites, and costs a `useId` per field.
+ *
+ * `null` means "there is no single control here to point at": that is the
+ * `as="group"` case, where the label belongs to the group and each control
+ * inside carries its own name.
+ */
+type FieldWiring = { id: string; describedBy: string | undefined; invalid: boolean } | null;
+
+const FieldContext = createContext<FieldWiring>(null);
+
+/**
+ * A label, a hint, an error, and one control that all three point at.
+ *
+ * **Binding, SC 1.3.1 and SC 4.1.2.** This was wrong in three ways at once and
+ * each was a failure of one of those criteria rather than a preference.
+ *
+ * It associated its label by *wrapping* the control. W3C's forms tutorial asks
+ * for explicit `for`/`id`, and there was exactly one `htmlFor` in the whole
+ * client. The wrapper stays — it is what makes the label clickable and what all
+ * the CSS is written against — and now carries `htmlFor` naming the control's
+ * own `id`, so the association is stated rather than inferred from nesting.
+ *
+ * Its hint rendered *after* the control, with no `id` and nothing pointing at
+ * it, so a screen reader read the label and the control and never the sentence
+ * explaining what to type. GOV.UK's order is label, hint, error, input, all
+ * wired by `aria-describedby`, and that is the order here. Nothing in WCAG
+ * decides where a hint sits; what is Binding is that the control points at it.
+ *
+ * And it had no error slot at all — zero `aria-invalid` anywhere in the client.
+ * A field that is wrong now says so in three places that agree: the sentence,
+ * `aria-invalid` on the control, and `aria-describedby` naming the sentence.
+ */
 export function Field({
   label,
   hint,
+  error,
+  as,
   children,
-}: PropsWithChildren<{ label: string; hint?: string }>) {
+}: PropsWithChildren<{
+  label: string;
+  hint?: string;
+  error?: string;
+  /**
+   * `"group"` for a composite: `CategoryLegs` renders up to fifty rows of three
+   * inputs, and a wrapping `<label>` binds to the first of them, so legs two
+   * onward had no accessible name while the amounts beside them did. A group
+   * names the whole thing and leaves each control to name itself.
+   */
+  as?: "group";
+}>) {
+  const base = useId();
+  const controlId = `${base}-control`;
+  const hintId = hint ? `${base}-hint` : undefined;
+  const errorId = error ? `${base}-error` : undefined;
+  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
   return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      {children}
-      {hint ? <span className="field-hint">{hint}</span> : null}
-    </label>
+    // A `<div>` rather than a wrapping `<label>`, and the hint and the error
+    // outside the label rather than inside it. This is not tidiness: a name
+    // computed from `<label for>` is the label element's *entire* text content,
+    // so a hint inside the label becomes part of the control's name — "Amount
+    // Up to eighteen decimal places" — instead of its description. The old
+    // markup got away with it because the hint was not associated at all.
+    //
+    // The cost is that clicking the field's whitespace no longer focuses the
+    // control; clicking the label still does, which is what GOV.UK ships and
+    // what a `<label for>` is for.
+    <div
+      className="field"
+      {...(as === "group" ? { role: "group", "aria-labelledby": `${base}-label` } : {})}
+    >
+      {as === "group" ? (
+        <span className="field-label" id={`${base}-label`}>
+          {label}
+        </span>
+      ) : (
+        <label className="field-label" htmlFor={controlId}>
+          {label}
+        </label>
+      )}
+      {hint ? (
+        <span className="field-hint" id={hintId}>
+          {hint}
+        </span>
+      ) : null}
+      {error ? (
+        <span className="field-error" id={errorId}>
+          {error}
+        </span>
+      ) : null}
+      <FieldContext.Provider
+        value={as === "group" ? null : { id: controlId, describedBy, invalid: Boolean(error) }}
+      >
+        {children}
+      </FieldContext.Provider>
+    </div>
   );
+}
+
+/**
+ * The wiring one control takes from the `Field` around it.
+ *
+ * A prop the caller passed always wins: the queue's inline cells label
+ * themselves, and a control outside a `Field` gets nothing, which is the same
+ * as before.
+ */
+function fieldProps(
+  own: {
+    id?: string | undefined;
+    "aria-describedby"?: string | undefined;
+    // The DOM type admits "grammar" and "spelling" as well, which nothing here
+    // uses; the parameter takes what the attribute takes so a caller passing
+    // one still wins over the Field.
+    "aria-invalid"?: React.AriaAttributes["aria-invalid"];
+  },
+  field: FieldWiring,
+) {
+  if (!field) return {};
+  return {
+    ...(own.id === undefined ? { id: field.id } : {}),
+    ...(own["aria-describedby"] === undefined && field.describedBy
+      ? { "aria-describedby": field.describedBy }
+      : {}),
+    ...(own["aria-invalid"] === undefined && field.invalid ? { "aria-invalid": true } : {}),
+  };
 }
 
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   function Input(props, ref) {
-    return <input ref={ref} {...props} className={`input ${props.className ?? ""}`} />;
+    const field = useContext(FieldContext);
+    return (
+      <input
+        ref={ref}
+        {...fieldProps(props, field)}
+        {...props}
+        className={`input ${props.className ?? ""}`}
+      />
+    );
   },
 );
 
 export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  const field = useContext(FieldContext);
   return (
     <span className="select-wrap">
-      <select {...props} className={`input select ${props.className ?? ""}`} />
+      <select
+        {...fieldProps(props, field)}
+        {...props}
+        className={`input select ${props.className ?? ""}`}
+      />
       <ChevronDown size={15} aria-hidden />
     </span>
   );
 }
 
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={`input textarea ${props.className ?? ""}`} />;
+  const field = useContext(FieldContext);
+  return (
+    <textarea
+      {...fieldProps(props, field)}
+      {...props}
+      className={`input textarea ${props.className ?? ""}`}
+    />
+  );
 }
 
 /**

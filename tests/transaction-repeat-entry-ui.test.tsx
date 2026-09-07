@@ -212,7 +212,7 @@ describe("transaction repeat-entry controls", () => {
     fireEvent.change(form.getByLabelText(/Notes/), {
       target: { value: "Met a friend" },
     });
-    fireEvent.change(form.getByLabelText(/Category/), {
+    fireEvent.change(form.getByRole("combobox", { name: "Category" }), {
       target: { value: utilitiesCategory.name },
     });
     fireEvent.click(
@@ -229,7 +229,7 @@ describe("transaction repeat-entry controls", () => {
     expect(form.getByLabelText("Amount (USD)")).toHaveValue("7.25");
     expect(form.getByLabelText(/Description/)).toHaveValue("Morning coffee");
     expect(form.getByLabelText(/Notes/)).toHaveValue("Met a friend");
-    expect(form.getByLabelText(/Category/)).toHaveValue("Utilities");
+    expect(form.getByRole("combobox", { name: "Category" })).toHaveValue("Utilities");
 
     fireEvent.submit(container.querySelector("form")!);
     await waitFor(() => expect(requests).toHaveLength(2));
@@ -265,7 +265,7 @@ describe("transaction repeat-entry controls", () => {
     fireEvent.change(form.getByLabelText(/Notes/), {
       target: { value: "Changed notes" },
     });
-    fireEvent.change(form.getByLabelText(/Category/), {
+    fireEvent.change(form.getByRole("combobox", { name: "Category" }), {
       target: { value: utilitiesCategory.name },
     });
     fireEvent.change(form.getByLabelText("Account"), {
@@ -285,7 +285,7 @@ describe("transaction repeat-entry controls", () => {
     expect(form.getByLabelText("Date")).toHaveValue(initialDate);
     expect(form.getByLabelText("Payee")).toHaveValue("Context Payee");
     expect(form.getByLabelText("Account")).toHaveValue(checkingAccount.id);
-    expect(form.getByLabelText(/Category/)).toHaveValue("Groceries");
+    expect(form.getByRole("combobox", { name: "Category" })).toHaveValue("Groceries");
     expect(form.getByRole("radio", { name: /Withdrawal/ })).toBeChecked();
     expect(form.getByLabelText("Amount (USD)")).toHaveValue("");
     expect(form.getByLabelText(/Description/)).toHaveValue("");

@@ -169,7 +169,16 @@ function renderForm() {
   );
 }
 
-const field = (label: RegExp | string) => screen.getByLabelText(label);
+/**
+ * A field by its label, and never the group around it.
+ *
+ * `Field as="group"` names the composite it wraps, so "Category" now names both
+ * the group and the picker inside it: a bare label query finds two elements and
+ * the first is a `<div>` with no value. `selector` says which one this wants,
+ * which is the control every case here is about.
+ */
+const field = (label: RegExp | string) =>
+  screen.getByLabelText(label, { selector: "input, select, textarea" });
 
 afterEach(() => {
   cleanup();

@@ -708,10 +708,16 @@ function CategoryLegs({
   if (!legs.length) {
     return (
       <div className="category-legs">
+        {/* Named even though there is only one of it. The `<Field>` above is a
+            group in both shapes — it holds a picker and a button here, and up to
+            fifty rows of three controls once split — and a group labels itself
+            rather than the control inside it, so a picker with no `ariaLabel`
+            inside one has no accessible name at all. */}
         <CategoryPicker
           categories={categories}
           categoryId={categoryId}
           categoryName={categoryName}
+          ariaLabel="Category"
           onChange={onCategoryChange}
         />
         <button
@@ -744,10 +750,17 @@ function CategoryLegs({
     <div className="category-legs">
       {legs.map((leg, index) => (
         <div className="category-leg" key={leg.id || leg.formKey}>
+          {/* Named, like the amount and the note beside it. The `<Field>` above
+              is a group precisely because it cannot name fifty controls, and
+              until this prop was passed the first leg borrowed the group's
+              label while every leg after it had no accessible name at all — the
+              amount and note in the same row did, which is what made it look
+              deliberate. */}
           <CategoryPicker
             categories={categories}
             categoryId={leg.categoryId}
             categoryName={leg.categoryName}
+            ariaLabel={`Category for split ${index + 1}`}
             onChange={(nextId, nextName) =>
               replace(index, { categoryId: nextId, categoryName: nextName })
             }
@@ -1189,7 +1202,7 @@ export function TemplateForm({
       ) : null}
 
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional">
+        <Field label="Category" hint="Optional" as="group">
           <CategoryLegs
             categories={categories}
             categoryId={categoryId}
@@ -2261,7 +2274,7 @@ export function TransactionForm({
         </Field>
       </div>
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional">
+        <Field label="Category" hint="Optional" as="group">
           <CategoryLegs
             key={categoryPickerVersion}
             categories={categories}
@@ -2931,7 +2944,7 @@ export function RecurrenceForm({
       </div>
 
       {type === "transfer" ? null : (
-        <Field label="Category" hint="Optional">
+        <Field label="Category" hint="Optional" as="group">
           <CategoryLegs
             categories={categories}
             categoryId={categoryId}

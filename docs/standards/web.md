@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,707 lines of hand-written CSS in
+Query for server state, and 3,723 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -222,7 +222,7 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:731-735` for `.input` and at `styles.css:3134-3138` for
+`styles.css:731-735` for `.input` and at `styles.css:3260-3264` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
@@ -342,7 +342,7 @@ of what is here, and it is four steps plus a pill:
 
 ### 3.3 Type
 
-Today: 111 `font-size` declarations across nine pixel values (11, 12, 13, 14,
+Today: 112 `font-size` declarations across nine pixel values (11, 12, 13, 14,
 15, 16, 17, 20, 32) plus two `clamp()` expressions.
 
 Proposed: seven points, and GOV.UK's rule that a new style aligns to an existing
@@ -369,7 +369,7 @@ accounts.
 
 ### 3.4 Weight
 
-Today: **29 `font-weight` declarations carrying 14 distinct values**: 400, 500,
+Today: **30 `font-weight` declarations carrying 14 distinct values**: 400, 500,
 570, 600, 620, 630, 650, 660, 700, 720, 730, 750, 760, 780. That is very nearly
 a weight per component.
 
@@ -440,7 +440,7 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
-`visibility`, `styles.css:3449-3451`), and there are two reduced-motion
+`visibility`, `styles.css:3553-3555`), and there are two reduced-motion
 blocks: `styles.css:681-685`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
 (section 7.3), and `styles.css:3583-3592`, a blanket rule setting
@@ -449,7 +449,7 @@ everything.
 
 **The blanket rule had a defect, and it was user-visible.** It also sets
 `animation-iteration-count: 1 !important`, which froze the button's
-`.animate-spin` loader (`src/client/components.tsx:299`) into a static icon:
+`.animate-spin` loader (`src/client/components.tsx:301`) into a static icon:
 somebody who asked for reduced motion got no busy indicator at all. `.skeleton`
 was exempted by hand and the spinner was not, and nothing said which of the two
 was the oversight. A slow rotation is acceptable under `reduce`, which asks for
@@ -759,56 +759,74 @@ that is not programmatically associated, a hint the control does not point at,
 and a composite control with no accessible name are failures of those two
 criteria rather than preferences.
 
-`Field` exists. It is at `src/client/components.tsx:390-402` and it is used at
-96 sites — three fewer than it was, because section 7.6 took the filter bar's
-controls out of it. It is wrong in three specific ways rather than absent:
-
-```tsx
-export function Field({ label, hint, children }: PropsWithChildren<{ label: string; hint?: string }>) {
-  return (
-    <label className="field">
-      <span className="field-label">{label}</span>
-      {children}
-      {hint ? <span className="field-hint">{hint}</span> : null}
-    </label>
-  );
-}
-```
+`Field` was wrong in three specific ways rather than absent, and all three were
+the same omission from different angles: the label, the hint and the error were
+on screen and none of them was connected to the control.
 
 1. **Implicit association by wrapping.** W3C's forms tutorial asks for explicit
-   `for`/`id`, where the `for` exactly matches the control's `id`. There is
-   exactly one `htmlFor` in the whole client, at `components.tsx:118`.
-2. **The hint renders after the control, with no `id` and no
+   `for`/`id`, where the `for` exactly matches the control's `id`. There was
+   exactly one `htmlFor` in the whole client.
+2. **The hint rendered after the control, with no `id` and no
    `aria-describedby`.** GOV.UK's order is label, hint, error, then the input,
-   all wired by `aria-describedby`. There is exactly one `aria-describedby` in
-   the whole client, at `components.tsx:540`, and it belongs to `Modal`.
-3. **There is no error slot.** Zero `aria-invalid`, zero `aria-errormessage`,
+   all wired by `aria-describedby`.
+3. **There was no error slot.** Zero `aria-invalid`, zero `aria-errormessage`,
    and no per-field error markup anywhere in `src/client`.
 
-The amendment: add `useId`, switch to explicit `for`/`id`, add an `error` prop,
-and compose `aria-describedby` from the hint id and the error id.
+All three are closed. `Field` takes a `useId`, names its control explicitly,
+takes an `error` prop, and composes `aria-describedby` from the hint id and the
+error id. Three things about how, each of which was a way to get it wrong:
+
+- **The wiring travels by context, not by cloning the child.** `Field` is used
+  at 96 sites and its children are arbitrary JSX — an `<Input>`, a `<Select>`, a
+  `CategoryPicker` that renders one three levels down — so `cloneElement` would
+  have reached the first case and silently missed the rest. `Input`, `Select` and
+  `Textarea` read the context, which reaches all of them, changes nothing at the
+  call sites, and lets a prop the caller passed win: the queue's inline cells
+  label themselves and must keep doing so.
+- **The hint and the error sit outside the `<label>`.** This is not tidiness. A
+  name computed from `<label for>` is the label element's *entire* text content,
+  so a hint inside the label becomes part of the control's **name** — "Amount Up
+  to eighteen decimal places" — rather than its description. The old markup got
+  away with it only because the hint was not associated at all. The field's
+  wrapper is a `<div>` and the `<label>` holds the label. The cost is that
+  clicking the field's whitespace no longer focuses the control; clicking the
+  label still does, which is what GOV.UK ships.
+- **A wrong field says so in three places that agree**: the sentence,
+  `aria-invalid` on the control, and `aria-describedby` naming the sentence. The
+  sentence is red text on the page's own background rather than a tinted box,
+  because a box here would stack with `ErrorSummary`'s at the top of the same
+  form and two boxes saying one thing read as two problems.
 
 **House, the ordering.** The hint goes above the control, following GOV.UK's
 label, hint, error, input order. Nothing in WCAG decides where a hint sits; what
 is Binding is that the control points at it.
 
-**Second defect, from the same component.** `Field` is a wrapping `<label>`,
-which is correct around one control and wrong around a composite. `<Field
-label="Category">` wraps `CategoryLegs` at `src/client/forms.tsx:1193`, `:2265`
-and `:2935`, which renders up to fifty rows of three inputs.
-The label binds to the first leg's `CategoryPicker`, so legs two onward have no
-accessible name at all, while the amount and note inputs in the same rows do.
-The amendment is half landed: `CategoryPicker` now takes an `ariaLabel` prop
-(`forms.tsx:598`, added for the review queue's inline cells, which pass it),
-but `CategoryLegs` still passes none, so the defect stands with the prop
-sitting unused beside it. Finish it: give `Field` an `as="group"` variant
-rendering `<div role="group" aria-labelledby>`, and pass `CategoryPicker`
-`Category for split {n}` from `CategoryLegs`.
+**Second defect, from the same component, and also closed.** A wrapping
+`<label>` is correct around one control and wrong around a composite.
+`<Field label="Category">` wraps `CategoryLegs` at three sites, which renders up
+to fifty rows of three inputs; the label bound to the first leg's
+`CategoryPicker`, so legs two onward had no accessible name at all while the
+amount and note inputs in the same rows did — which is what made it look
+deliberate. `CategoryPicker` had taken an `ariaLabel` prop since the review
+queue's inline cells needed one, and `CategoryLegs` passed none, so the defect
+stood with the fix sitting unused beside it.
 
-*Not checked mechanically.* Once `Field` carries the contract, a test asserting
-that every `<input>`, `<select>` and `<textarea>` in JSX is inside a `Field`
-becomes possible and is worth writing. `eslint-plugin-jsx-a11y` covers the
-label-association half off the shelf and is cheaper than writing it.
+`Field` now takes `as="group"`, rendering `<div role="group" aria-labelledby>`,
+and the three call sites use it. A group names the composite and hands out no
+control id, because there is no one control to point at — so **every** picker
+inside has to name itself, including the single one in the unsplit shape. That
+was the trap: making the field a group without naming that picker moved the
+defect from legs two-and-up to the only leg there is.
+
+*Checked by:* `tests/field-contract.test.tsx`, which renders a field and reads
+back the association, the hint, the error and the group, and holds the last
+thing this section said was not yet possible: **every `<input>`, `<select>` and
+`<textarea>` in `src/client` goes through the three shared components**, so
+every one of them is reachable by a `Field`. Two categories are excluded with
+their reasons — a checkbox or a radio is named by the `<label>` it sits in or by
+the `radiogroup` around it, and the CSV drop zone is named by name, being a
+hidden `type="file"` inside a wrapping label whose text is the whole affordance
+(13.2).
 
 ### 8.2 When errors appear
 
@@ -950,7 +968,7 @@ float. GOV.UK's reasons (accidental scroll increments, no feedback on a
 non-numeric entry) are secondary and point the same way.
 
 **Scope this exactly.** A blanket ban on `type="number"` in the client would
-fail on correct code: `src/client/forms.tsx:1282` and `:2978` both use it for
+fail on correct code: `src/client/forms.tsx:1297` and `:3014` both use it for
 the recurrence interval, with `min` and `max`, which is an integer count where a
 spinner is arguably right. The rule is: no `type="number"` on a field bound to a
 decimal-string money value.
@@ -1058,7 +1076,7 @@ semantics, and add ARIA only where there is no native element to lean on.
 `TransactionForm` used to re-implement the payee combobox byte for byte, which
 is exactly what `PayeeInput`'s docstring exists to prevent — a second copy is a
 second answer to "what counts as the same payee". The copy is retired
-(`forms.tsx:2173-2176` now renders the component under a comment saying so),
+(`forms.tsx:2186-2189` now renders the component under a comment saying so),
 and 6.1's inventory listing `PayeeInput` is what gives the duplicate check a
 row to fire against next time.
 
@@ -1121,7 +1139,7 @@ and the editors a split does not get.
 
 **House.** Cloning a transaction prefills the staging form from the source, and
 three fields are scrubbed rather than carried
-(`src/client/forms.tsx:1492-1519`): leg ids, so the copy grows its own legs
+(`src/client/forms.tsx:1505-1532`): leg ids, so the copy grows its own legs
 rather than claiming the source's; `externalId`, because it is a bank file's
 identity for one real row, and a copy carrying it would be swallowed by the
 duplicate check as already-imported; and `templateId`, because provenance
@@ -1151,7 +1169,7 @@ This product stays a table. A grid means writing arrow-key focus management
 across thousands of rows to shorten a tab sequence nobody has complained about,
 and there is no roving tabindex anywhere else in the client, which is the same
 reason `RowMenu` deliberately refuses `role="menu"`
-(`src/client/components.tsx:433-436`). A transactions row carries a checkbox
+(`src/client/components.tsx:574-577`). A transactions row carries a checkbox
 and a row menu; a review-queue row now carries up to ten stops — the checkbox,
 four click-to-edit triggers (8.10), sometimes a duplicate link, three icon
 buttons and the menu — so the tab-sequence cost the APG worries about is real
@@ -1179,7 +1197,7 @@ a name is harder to place, and the caption is the cheapest way to give it one.
 `<caption>`, and every header cell carries a `scope`. Four of the tables people
 live in had neither — the register, the review queue, templates and recurrences
 — while reports and budgets did. `SortableHeader`
-(`src/client/components.tsx:50-97`) now emits `scope="col"` alongside its
+(`src/client/components.tsx:52-99`) now emits `scope="col"` alongside its
 `aria-sort`, which was the fix worth making because that one change covers every
 sortable column in the product.
 
@@ -1246,7 +1264,7 @@ selected" come from two different code paths and the second must never be
 produced by the first.
 
 The mixed state is already handled. `SelectionCheckbox`
-(`src/client/components.tsx:180-195`) takes an `indeterminate` prop and writes it
+(`src/client/components.tsx:182-197`) takes an `indeterminate` prop and writes it
 onto the DOM node in an effect, because React does not expose it, and all three
 select-all checkboxes pass it: `TransactionBrowser.tsx:795`,
 `TemplatesPage.tsx:474`, `StagingPage.tsx:899`.
@@ -1293,9 +1311,9 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | `.sidebar` | `styles.css:359` | fixed |
 | `.row-menu-popover` | `styles.css:1597` | fixed |
 | `.modal` | `styles.css:2175` | fixed |
-| `.modal-header` | `styles.css:2204` | sticky |
-| `.import-preview` | `styles.css:2336` | sticky |
-| `.merge-panel` | `styles.css:2618` | sticky |
+| `.modal-header` | `styles.css:2221` | sticky |
+| `.import-preview` | `styles.css:2353` | sticky |
+| `.merge-panel` | `styles.css:2640` | sticky |
 | `.nav-scrim` | `styles.css:3554` | fixed |
 | `.mobile-header` | `styles.css:3564` | sticky |
 
@@ -1465,7 +1483,7 @@ where all adjacent colours clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
-This product keeps ten, on measured grounds recorded at `styles.css:3196-3222`.
+This product keeps ten, on measured grounds recorded at `styles.css:3320-3332`.
 The previous six-colour set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
 the same colour; the current ten reach 5.6 in light and 4.7 in dark. Going from
@@ -1512,7 +1530,7 @@ and Okabe and Ito recommend it over a legend for lines. Use it where a chart has
 few enough series to fit labels; keep the legend where it does not.
 
 *Not checked mechanically.* A test asserting that every series swatch carries a
-dash pattern becomes possible once the patterns exist, and is item 8 in 17.2.
+dash pattern becomes possible once the patterns exist, and is item 6 in 17.2.
 It was cited to item 5 for a release, which covered bar separation and never
 mentioned dash patterns — so this rule appeared in none of 17.1, 17.2 or 17.3
 while a sentence here said it did.
@@ -1663,7 +1681,7 @@ The title states the situation in the plural, the body carries the explanation,
 and the button carries the imperative. `EmptyState` is used at 16 sites — the
 sixteenth is the categories list, which now says "no categories yet" and "no
 categories match this search" as the two screens this rule asks for. The icon is
-optional today (`icon?: ReactNode`, `src/client/components.tsx:768`, rendered
+optional today (`icon?: ReactNode`, `src/client/components.tsx:909`, rendered
 conditionally at `:775`) and three of the sixteen omit it; make it required. The heading is always `<h3>`; make the level a prop, because an empty
 state is not a document section under the page `<h1>`.
 
@@ -1715,7 +1733,7 @@ not where the skeleton is used. A grep test for a loading paragraph would.
 
 **House, settled.** `Button` couples `loading` to `disabled` and now says so:
 `aria-busy` while it works and an `.sr-only` "Working…" beside the spinner
-(`components.tsx:278-306`). A spinner is a picture of waiting, which is nothing
+(`components.tsx:280-306`). A spinner is a picture of waiting, which is nothing
 at all to somebody who cannot see it, and a disabled button otherwise goes
 silent at exactly the moment a person most wants to know their click landed. See
 section 4 for the reduced-motion half of the same defect.
@@ -1738,7 +1756,7 @@ confirmations and progress, and reaches for `role="alert"` only for something
 time-sensitive that interrupts.
 
 Announcement is already handled: `Alert` sets `role={kind === "error" ? "alert"
-: "status"}` (`src/client/components.tsx:789`), so a success alert is a polite
+: "status"}` (`src/client/components.tsx:930`), so a success alert is a polite
 live region and an error alert interrupts. The two real defects are elsewhere.
 There are three separate `aria-live="polite"` regions in the client
 (`components.tsx:230`, `TransactionBrowser.tsx:719`, `TemplatesPage.tsx:424`),
@@ -2155,6 +2173,8 @@ is which.
 | `tests/theme-tokens.test.ts` (chart palette) | `.chart-bar` declares a stroke, and not `none`, so two adjacent bars at 1.05:1 have an edge (11.2) |
 | `tests/progress-bar-ui.test.tsx`, `tests/progress-frames.test.ts` | When a progress bar is drawn, what it says, and that it is removed rather than frozen (12.6) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
+| `tests/field-contract.test.tsx` | A field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labelled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
+| `tests/shell-focus.test.tsx`, `tests/browser/budgets.spec.ts` | The skip link is first and lands in `<main>`; a route change moves focus and resets scroll; the drawer makes the page behind it inert, moves focus in and out, and closes on Escape; a finished bulk action puts focus on the sentence saying so (13.3) |
 | `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; and every worked sentence in `common.md`'s table appears verbatim in `src` (6.2, 16) |
 
 ### 17.2 Worth building, ranked by bugs caught per hour
@@ -2175,27 +2195,24 @@ is which.
    not here, because section 11.2 argues at length that the ten-colour set beats
    a compliant six-colour one on the measure that matters, and a test demanding
    3:1 between adjacent series would contradict the guide it is attached to.
-   Section 11.3's dash patterns are the honest successor and are item 8 below.
+   Section 11.3's dash patterns are the honest successor and are item 6 below.
 4. **No `type="number"` on a field bound to a decimal-string money value.**
-   Scope it, or it fails on the recurrence interval at `forms.tsx:1282` and
-   `:2978` and gets deleted on first contact.
-5. **Every form control is inside a `Field`**, once `Field` carries the full
-   contract. Structural, and it is what makes the error contract enforceable by
-   inspection.
-6. **`th[scope="col"]` on every column header of every `.data-table`.**
+   Scope it, or it fails on the recurrence interval at `forms.tsx:1297` and
+   `:3014` and gets deleted on first contact.
+5. **`th[scope="col"]` on every column header of every `.data-table`.**
    `tests/table-overflow.test.ts` covers the caption and that every `th` carries
    *a* scope; which one it should be is still uncounted, and a `scope="row"` in a
    `thead` would pass today.
-7. **A per-series `stroke-dasharray`**, so the line chart carries a second
-   channel that is not colour (11.3). The CSS comment at `styles.css:3272-3278`
+6. **A per-series `stroke-dasharray`**, so the line chart carries a second
+   channel that is not colour (11.3). The CSS comment at `styles.css:3328-3332`
    already names it; nothing in these three lists did.
-8. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
+7. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
    against four deliberate paragraphs, at `App.tsx:205`,
    `AccountDetailPage.tsx:72`, `CategoryDetailPage.tsx:24` and
    `TemplateDetailPage.tsx:19`, each of which is a whole-page swap rather than a
    region — so this is a grep with a four-line allow-list rather than a grep
    waiting on a migration.
-9. **The progress bar is actually painted.** Moved here from 17.3, where it was
+8. **The progress bar is actually painted.** Moved here from 17.3, where it was
    filed as untestable. Chromium resolves `::-webkit-progress-value` through
    `getComputedStyle(element, "::-webkit-progress-value")`, so the browser tier
    can see it; filing it as review meant the one tier built to catch it would

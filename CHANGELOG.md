@@ -424,6 +424,29 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**Every field's label, hint and error now reach the control they are about.**
+They were all on screen and none of them was connected: a label associated by
+wrapping rather than by name, a hint rendered *after* the control with nothing
+pointing at it, and no error slot at all — no `aria-invalid` anywhere in the
+app. So a screen reader read a box with a name and no explanation of what to
+type, and a field that was wrong said so in colour and in nothing else. A field
+that is wrong now says so in three places that agree: the sentence, the control
+marked invalid, and the control pointing at the sentence.
+
+One visible consequence: **a hint sits above its control now, not below it.**
+That is GOV.UK's order, and it is also what fixes the deeper problem — a name
+computed from a label is that label's whole text content, so a hint inside the
+label was becoming part of the control's *name* ("Amount Up to eighteen decimal
+places") instead of its description. The old markup got away with it only
+because the hint was not associated at all.
+
+**And a split's categories are all named.** `<Field label="Category">` wrapped
+up to fifty rows of three inputs, and a label around that binds to the first of
+them — so the first leg borrowed the label and every leg after it had no
+accessible name, while the amount and note boxes in the same row had one. The
+field is a labelled group now and each picker names itself: "Category for split
+2", and so on.
+
 **A keyboard user can get past the navigation, and stays where they were.**
 Four holes, each the same shape: something moved or vanished and focus was left
 behind, so the next Tab started at the top of the document — past eleven

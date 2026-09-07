@@ -54,7 +54,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1701-1713` and `:1769`), and every one of them would be
+(`src/client/forms.tsx:1714-1726` and `:1769`), and every one of them would be
 a synchronisation bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
@@ -158,14 +158,24 @@ split the server refused with a 422 nobody could predict from the screen.
 
 ### 3.1 `Field` wraps every labelled control in a form
 
-**House.** Layout, label and hint in one place
-(`src/client/components.tsx:390`). Two consequences worth
-knowing:
+**House.** Layout, label, hint and error in one place
+(`src/client/components.tsx:431`). Three consequences worth knowing, and the
+first of them used to be the opposite:
 
-- The accessible name of a control includes its hint. A test looking for a
-  control by name has to account for "Password At least 12 characters".
-- `jsx-a11y/label-has-associated-control` cannot see through it, which is why
-  that rule is off. See [`index.md`](index.md).
+- **The accessible name of a control no longer includes its hint.** It used to,
+  because the hint lived inside the wrapping `<label>` and a name computed from
+  a label is that element's whole text content — so a test reaching for a
+  control by name had to ask for "Password At least 12 characters". The hint is
+  now outside the label and reaches the control through `aria-describedby`,
+  which is the point of the fix rather than a side effect of it: a hint is a
+  description, and a name that swallows it is a name nobody can predict.
+  **A test looking for a control by its label now asks for the label**, and one
+  written against the old behaviour asks for a string nothing has.
+- A `Field` holding a composite is `as="group"`, and hands out no id. Every
+  control inside then has to name itself — see `web.md` 8.1, where forgetting
+  the single unsplit picker was the trap.
+- `jsx-a11y/label-has-associated-control` still cannot see through it, which is
+  why that rule is off. See [`index.md`](index.md).
 
 **In a form that stacks.** Two shapes take a bare control and an `aria-label`
 instead: a filter bar, which `web.md` §7.6 governs, and `.inline-form` — the
@@ -214,7 +224,7 @@ level down, at the field.
 | 1.1 Server state is a query | Not mechanisable. |
 | 2.1 `Number()` only where approximate | A lint rule banning `Number(` in `src/client` would fire on legitimate uses; a narrower one keyed on variable names is possible and fiddly. |
 | 2.2 The preview calls the rule rather than copying it | Checkable one rule at a time — that `forms.tsx` imports `resolveEntrySide` is a grep — but what needs catching is the next preview somebody writes, and a copy of a rule that has no shared home yet reads as ordinary client code. `tests/module-boundaries.test.ts` proves the import is allowed, not that it was taken. |
-| 3.1 `Field` wraps every labelled control in a form | The lint rule that would have seen it is off precisely because it cannot see through `Field` — see [`index.md`](index.md). A control that lost its label fails whichever UI test reaches for it by name; one labelled by hand beside `Field` fails nothing, because the accessible name comes out the same either way. |
+| 3.1 `Field` wraps every labelled control in a form | Half checked now. `tests/field-contract.test.tsx` holds that every `<input>`, `<select>` and `<textarea>` in `src/client` goes through the three shared components, so every one of them is *reachable* by a `Field`; whether a given call site wrapped it is still a reader's job, because the lint rule that would see that is off precisely because it cannot see through `Field`. A control labelled by hand beside a `Field` fails nothing, since the accessible name comes out the same either way. |
 | 3.3 Fields reachable from the browser | Parity checks routes, not fields. This is the gap that let `categoryKind` through. |
 
 Five `human` rules in this guide. It said three until 2.2 and 3.1 were counted:
