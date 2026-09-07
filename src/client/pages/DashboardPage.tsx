@@ -72,7 +72,6 @@ export default function DashboardPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Overview"
         title="Overview"
         description="Where your money sits and how it moved."
         actions={

@@ -62,7 +62,7 @@ section used to be about. The already-configured-password site was byte-for-byte
 what `conflict()` produces and now calls it (`:1128`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1074`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1080`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.

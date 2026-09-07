@@ -167,7 +167,7 @@ import {
 } from "./services/transactions.js";
 import { isOwnerSetupTokenValid } from "./setup-token.js";
 
-const uuidPathSchema = z.string().uuid("Not a valid identifier");
+const uuidPathSchema = z.string().uuid("Use an id returned by a list or a create");
 
 type Variables = {
   actor: Actor;
@@ -491,7 +491,10 @@ app.post("/api/auth/sign-up/email", async (c) => {
   }
   if (!(await isOwnerSetupTokenValid(field("setupToken")))) {
     return c.json(
-      transportError("INVALID_SETUP_TOKEN", "The setup code is missing or invalid."),
+      transportError(
+        "INVALID_SETUP_TOKEN",
+        "That setup code was not recognised. Copy it from the server log at startup.",
+      ),
       403,
     );
   }
@@ -1002,7 +1005,10 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
         JSON.stringify({
           jsonrpc: "2.0",
           id: null,
-          error: { code: -32000, message: "Forbidden: this token's user may not use the ledger" },
+          error: {
+            code: -32000,
+            message: "This token's account cannot reach the ledger. Connect again.",
+          },
         }),
         {
           status: 403,

@@ -424,6 +424,28 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**The words on screen now match the ones written down.** `web.md` §16 and
+`common.md` settle the voice and neither was checked, so the product had drifted
+from both in eleven places. "Invalid" is banned outright — it describes the rule
+rather than the input — and it shipped seven times, from the CSV preview's
+"Amount has invalid decimal or thousands separators" to a setup code the sign-up
+screen called invalid to somebody who had just copied it out of the server log.
+A button leads with a verb and takes an object, and two shipped as a bare
+"Save". The bulk-action bar said "Mass edit" on Transactions and "Edit selected"
+on the other two screens, and "Clear" on one where the others said "Clear
+selection". Two pages carried an eyebrow repeating their own title. And a staged
+row on the transactions list showed a dash where its category should be, so a
+row read as uncategorised on one page and categorised on the next.
+
+`common.md`'s table of worked error sentences is now the sentences the product
+actually says. Six of its thirteen rows named messages that were nowhere in the
+source, which makes a reference into a wish: the next person writes a fourteenth
+message rather than reusing one of the thirteen. Three situations it listed have
+no message on purpose, and it now says which and why — an empty required field is
+the browser's own sentence in the person's own language, an idempotent replay
+succeeded so there is nothing to report, and a row belonging to somebody else is
+"Account not found" rather than a bare "Not found".
+
 **Four additive answers on the HTTP API, none of which changes an existing
 one.** A malformed request body is now `MALFORMED_BODY` at 400 rather than
 `VALIDATION_ERROR`, which meant both 400 and 422 and so carried information the

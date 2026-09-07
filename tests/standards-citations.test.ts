@@ -554,6 +554,48 @@ describe("what the standards guides cite", () => {
     );
   });
 
+  /**
+   * A guide quotes `AGENTS.md` verbatim, or it is paraphrasing an invariant.
+   *
+   * `index.md`: "A guide cites `AGENTS.md` by quoting the sentence, never by
+   * paraphrasing it. A rule in two places drifts, and the copy that drifts is
+   * always the paraphrase." Forty-six quotations were exact and two were not,
+   * and both failures are the shape the rule predicts. `services.md` truncated
+   * "Never accept a public `userId`. Derive it from the authenticated `Actor`,
+   * and scope every finance read/write by that ID" before the clause that does
+   * the work, so it read as a rule about a parameter rather than about every
+   * query below it. `http.md` quotes the same invariant in full, which is how
+   * you can tell which one moved.
+   *
+   * Scoped to paragraphs whose nearest attribution is `AGENTS.md`. Without that
+   * every RFC and specification quotation in these guides is a false positive,
+   * and there are more of those than there are of these.
+   */
+  it("quotes AGENTS.md rather than paraphrasing it", () => {
+    // Lowercased on both sides. A quotation folded into a sentence lowercases
+    // the invariant's opening capital, which is grammar rather than drift, and
+    // this is looking for words that moved.
+    const invariants = readFileSync("AGENTS.md", "utf8").replaceAll(/\s+/g, " ").toLowerCase();
+    const drifted: string[] = [];
+    for (const guide of globSync("docs/standards/**/*.md")) {
+      const text = readFileSync(guide, "utf8");
+      // Attribution has to be immediate. A paragraph that merely mentions
+      // `AGENTS.md` usually also quotes an RFC or a published style guide, and
+      // there are more of those in this set than there are of these — so the
+      // quotation has to follow the name with nothing but attributive words in
+      // between, which is the shape all forty-eight of them are written in.
+      const flat = text.replaceAll(/\s+/g, " ");
+      for (const quoted of flat.matchAll(/`AGENTS\.md`[^"`]{0,40}"([^"]{40,})"/g)) {
+        // An ellipsis is an explicit elision and says so; anything else is a
+        // claim to be reproducing the sentence.
+        if (/\u2026|\.\.\./.test(quoted[1]!)) continue;
+        if (invariants.includes(quoted[1]!.toLowerCase())) continue;
+        drifted.push(`${guide}: "${quoted[1]!.slice(0, 70)}…"`);
+      }
+    }
+    expect(drifted, "quote it exactly, or elide with an ellipsis").toEqual([]);
+  });
+
   it("never cites a range backwards", () => {
     const backwards = all
       .filter((citation) => citation.to < citation.from)

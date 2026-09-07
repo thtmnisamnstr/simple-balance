@@ -914,7 +914,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 setEntry.mutate();
               }}
             >
-              Save
+              Save override
             </Button>
           </>
         }

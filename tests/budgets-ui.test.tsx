@@ -361,7 +361,7 @@ describe("the budgets page", () => {
     fireEvent.change(dialog.getByLabelText(/Amount/), {
       target: { value: "300.00" },
     });
-    fireEvent.click(dialog.getByRole("button", { name: "Save" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Save override" }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body).toMatchObject({

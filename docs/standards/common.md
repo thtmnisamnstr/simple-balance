@@ -110,26 +110,49 @@ is, so this one is review.
   overlap refusal in `src/server/services/budgets.ts`, which had to learn the
   difference between "end the other budget" and "change the one you have".
 
-Worked sentences, so the voice is not reinvented per site:
+Worked sentences, so the voice is not reinvented per site. **These are the
+strings the product ships, quoted**, and that distinction is the whole value of
+the table: it was written as prose and half of it described sentences nothing
+said, which makes it a wish rather than a reference. A row here is checkable and
+is checked.
 
 | Situation | Message |
 | --- | --- |
 | Amount empty | Enter an amount |
-| Amount not a decimal | Amount must be a number, like 24.50 |
-| Amount negative where it may not be | A budget cannot be negative. Use zero to budget nothing. |
-| Date empty | Enter a date |
-| Future-dated committed entry | Date must be today or earlier |
-| Split legs do not sum | The legs must add up to 100.00. They currently add up to 94.00 |
-| Transfer with one account | Choose the account the money went to |
-| Version conflict, browser | This changed while you were editing it. Reload to see the current version |
-| Version conflict, agent | This changed since you read it. Read it again and retry with the version in `details.currentVersion` |
-| Idempotent replay | This was already saved |
-| Stale bulk fingerprint | The rows this was about have changed. Preview the selection again and retry with the count and fingerprint it returns |
-| Cursor under a changed ordering | This page marker was issued for a different order. Start from the first page |
-| Row belongs to another tenant | Not found |
+| Amount not a decimal, in a CSV cell | Amount must be a number. Check the decimal and thousands separators. |
+| Amount zero or negative where it may not be | Amount must be greater than zero |
+| Budget amount negative | A budget cannot be negative. Use zero to budget nothing. |
+| Date is not a calendar date | That date does not exist |
+| Date in the wrong shape | Use YYYY-MM-DD |
+| Version conflict, browser | This changed while you were editing it. Reload to see the current version. |
+| Version conflict, agent | This changed since you read it. Read it again and retry with the version in details.currentVersion. |
+| Stale bulk fingerprint | The rows this was about have changed. Preview the selection again and retry with the count and fingerprint it returns. |
+| Cursor under a changed ordering | This cursor belongs to a different sort order. Start again from the first page. |
+| Cursor that cannot be read at all | This page marker cannot be read. Start again from the first page. |
+| A staged row that is not ready to commit | Every selected row must be complete before it can commit. |
+| A path id that is not an id this API issues | Use an id returned by a list or a create |
 
-*Checked by:* `tests/api-security.test.ts`, `tests/mcp-output.test.ts`. Not yet
-checked: that every code an interface can emit is in the published enumeration.
+Three situations a reader will look for are deliberately not in that table,
+because the product has no sentence for them and should not:
+
+- **An empty required field.** The control carries `required` and the browser
+  says so in the person's own language. Writing our own would be a second answer
+  in one language, shown after theirs.
+- **An idempotent replay.** It returns the stored response, unchanged and
+  successful. Telling somebody "this was already saved" would describe our
+  bookkeeping rather than their outcome, which is that it is saved.
+- **A row belonging to somebody else.** It is `<Thing> not found` — "Account not
+  found", "Category not found" — because the rule above is that whether a row
+  exists must not depend on who is asking, and a bare "Not found" says less than
+  the sentence a missing row of your own gets.
+
+*Checked by:* `tests/ui-copy.test.ts`, which requires every message in the table
+above to appear verbatim in `src` and refuses the banned words anywhere a person
+can read them, across all three of `src/client`, `src/shared` and `src/server` —
+`common.md` settles the voice for both surfaces and a service's refusal is
+rendered on a screen. Also `tests/api-security.test.ts` and
+`tests/mcp-output.test.ts` for the envelope. Not yet checked: that every code an
+interface can emit is in the published enumeration.
 
 ## The glossary
 

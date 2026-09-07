@@ -294,8 +294,8 @@ describe("transaction mass selection", () => {
       await screen.findByText("1 transaction matching this view selected"),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
-    const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit selected transactions" });
     fireEvent.click(within(dialog).getByText("Change date"));
     fireEvent.change(within(dialog).getByLabelText("New date"), {
       target: { value: "2026-07-20" },
@@ -340,8 +340,8 @@ describe("transaction mass selection", () => {
       name: "Select all transactions on this page",
     });
     fireEvent.click(header);
-    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
-    const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit selected transactions" });
 
     for (const label of [
       "Change date",
@@ -419,8 +419,8 @@ describe("transaction mass selection", () => {
         })
       )[0]!,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
-    const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit selected transactions" });
 
     expect(within(dialog).getByLabelText("Change account")).toBeDisabled();
     expect(within(dialog).getByLabelText("Change type")).toBeDisabled();
@@ -528,8 +528,8 @@ describe("transaction mass selection", () => {
     await client.invalidateQueries({ queryKey: ["transactions"] });
     await waitFor(() => expect(listRequests).toBeGreaterThanOrEqual(2));
 
-    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
-    const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit selected transactions" });
     fireEvent.click(within(dialog).getByText("Change description"));
     fireEvent.change(within(dialog).getByLabelText("New description"), {
       target: { value: "Version-safe edit" },
@@ -577,8 +577,8 @@ describe("transaction mass selection", () => {
       })
     )[0]!;
     fireEvent.click(row);
-    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
-    const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit selected transactions" });
     fireEvent.click(within(dialog).getByText("Change description"));
     fireEvent.change(within(dialog).getByLabelText("New description"), {
       target: { value: "Potential duplicate" },
@@ -640,8 +640,8 @@ describe("transaction mass selection", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "Select all 3 matching" }));
     await screen.findByText("2 transactions matching this view selected");
-    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
-    const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit selected transactions" });
     fireEvent.click(within(dialog).getByText("Change description"));
     fireEvent.change(within(dialog).getByLabelText("New description"), {
       target: { value: "Snapshot retry" },
@@ -690,8 +690,8 @@ describe("transaction mass selection", () => {
       })
     )[0]!;
     fireEvent.click(row);
-    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
-    const dialog = screen.getByRole("dialog", { name: "Mass edit transactions" });
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit selected transactions" });
     fireEvent.click(within(dialog).getByText("Change description"));
     fireEvent.change(within(dialog).getByLabelText("New description"), {
       target: { value: "Will be stale" },
@@ -723,9 +723,9 @@ describe("transaction mass selection", () => {
 
     // Opening and closing the mass editor renders repeatedly and changes no
     // filter, so the selection it is about has to survive it.
-    fireEvent.click(screen.getByRole("button", { name: "Mass edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit selected" }));
     const dialog = await screen.findByRole("dialog", {
-      name: "Mass edit transactions",
+      name: "Edit selected transactions",
     });
     expect(screen.getByText("2 transactions selected")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));

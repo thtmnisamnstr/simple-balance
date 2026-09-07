@@ -448,7 +448,7 @@ export default function TemplatesPage() {
               <Trash2 size={16} /> Delete selected
             </Button>
             <Button type="button" variant="ghost" onClick={clearSelection}>
-              Clear
+              Clear selection
             </Button>
           </div>
         </div>
@@ -688,7 +688,7 @@ export default function TemplatesPage() {
               disabled={!anyChange}
               loading={bulkEdit.isPending}
             >
-              Apply
+              Save changes
             </Button>
           </>
         }

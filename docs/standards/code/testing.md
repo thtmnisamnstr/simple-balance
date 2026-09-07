@@ -5,7 +5,7 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 79 | `npm test` | nothing |
+| Unit (node) | 80 | `npm test` | nothing |
 | Unit (jsdom) | 38 | `npm test` | nothing |
 | Integration | 56 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 118 pass, 55 skip | **1,165 pass, 653 skip** |
-| `npm test`, database set | 173 pass | **1,818 pass** |
+| `npm test`, no database | 119 pass, 55 skip | **1,173 pass, 653 skip** |
+| `npm test`, database set | 174 pass | **1,826 pass** |
 | `npm run test:integration` | 56 pass | 654 pass |
 
 The third row is one test larger than the first row's skip count, and the odd

@@ -210,7 +210,7 @@ export const isoDateSchema = z
   .refine((value) => {
     const parsed = new Date(`${value}T00:00:00.000Z`);
     return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().startsWith(value);
-  }, "Date is not valid")
+  }, "That date does not exist")
   .describe("Calendar date as YYYY-MM-DD, for example 2026-03-14.");
 
 export const currencyCodeSchema = z

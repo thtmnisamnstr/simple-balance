@@ -1365,7 +1365,7 @@ export async function listTransactions(
     try {
       plan.parseCursorValue?.(cursor.sort);
     } catch {
-      throw validationError("Cursor is invalid");
+      throw validationError("This page marker cannot be read. Start again from the first page.");
     }
     conditions.push(plan.keyset(cursor.sort, cursor.id));
   }

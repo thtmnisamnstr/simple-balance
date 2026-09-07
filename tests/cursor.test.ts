@@ -14,7 +14,7 @@ describe("opaque pagination cursors", () => {
   });
 
   it("rejects malformed client input", () => {
-    expect(() => decodeCursor("not-a-cursor", ordering)).toThrow(/Cursor is invalid/);
+    expect(() => decodeCursor("not-a-cursor", ordering)).toThrow(/page marker cannot be read/);
   });
 
   // A cursor marks a place in one particular order. Resuming it under another

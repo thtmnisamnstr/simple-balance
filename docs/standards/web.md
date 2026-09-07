@@ -75,7 +75,7 @@ it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the seven inline `style` props in the client
 (`charts.tsx:273`, `charts.tsx:322`, `components.tsx:501`, `components.tsx:758`,
-`BudgetsPage.tsx:1358`, `DashboardPage.tsx:251`, `DashboardPage.tsx:330`) are all
+`BudgetsPage.tsx:1358`, `DashboardPage.tsx:250`, `DashboardPage.tsx:329`) are all
 runtime geometry — a bar's width, a chart's offset — and are correct as they
 are. The count matters beyond tidiness: it is what
 `src/server/http-security.ts:22-29` reasons about when it declines
@@ -561,15 +561,17 @@ Three things in the app are past the threshold and are not components yet:
 - **A bulk-action bar.** Three toolbars, three label sets, three variant
   assignments. Fix the vocabulary at "Edit selected", "Delete selected", "Clear
   selection", "Select all N matching".
-- **A blank-cell placeholder.** An em dash on seventeen sites
-  (`TransactionBrowser.tsx:845`, `:853`, `:857`, `AccountDetailPage.tsx:105`,
-  seven in `BudgetsPage.tsx:1179-1271`, four in `StagingPage.tsx:997-1190` where
-  the inline-edit cells fall back, and `ImportPage.tsx:628`, `:652`), an italic
-  muted word on others, and `Uncategorized` styled `.subtle` on one page and
-  bare on another. One of the seventeen, `TransactionBrowser.tsx:853`, writes
-  the dash as literal cell text rather than as a fallback expression. The
-  em-dash and italic-word distinction is real and worth keeping; the
-  `Uncategorized` difference is not.
+- **A blank-cell placeholder.** An em dash on seventeen sites and an italic muted
+  word on others. The em-dash and italic-word distinction is real and worth
+  keeping, so what remains here is the repetition rather than a defect. Two
+  defects that were in this bullet are fixed: one of the seventeen wrote the dash
+  as literal cell text rather than as a fallback, so a staged row on the
+  transactions list read as having no category while the review queue showed the
+  one it had; and `Uncategorized` was `.subtle` on one page and bare on another,
+  which is one state rendered two ways on two screens a person moves between.
+  Both are held by `tests/ui-copy.test.ts`. The word stays plain inside the two
+  inline-edit cells, where it is a button's own label and takes the button's
+  colour, and the test says so rather than skipping them.
 
 *Not checked mechanically.* Whether something has crossed the threshold is
 judgement; that a repeated markup has one owner is what a component test would
@@ -2063,14 +2065,26 @@ consistently. Banned outright: "please", "sorry", "valid", "invalid", "oops",
 are the same sentence, word for word.
 
 **House.** The `PageHeader` eyebrow names a section, never repeats the title,
-and is dropped where there is nothing to say. It repeats the title on two pages
-today.
+and is dropped where there is nothing to say. It repeated the title on Accounts
+and Overview, which is a line of uppercase text above a heading saying the same
+word — decoration that reads as structure, and a second thing for a screen
+reader to announce. Both are dropped.
 
-*Not checked mechanically, and two halves of it could be.* A regex over
-`src/client` and `src/shared` for the banned words is one grep. A check that
-button labels start with an approved verb, or are one of the four bare actions,
-is nearly as cheap. Whether a message names the *right* next action is review
-and always will be.
+*Checked by:* `tests/ui-copy.test.ts`, in four parts. The banned words, in every
+string literal a person can reach — and across `src/server` too, because
+`common.md` settles the voice for both surfaces and a service's refusal is
+rendered on a screen: six shipped there, including a cursor that "is invalid"
+and a setup code the sign-up screen called invalid to somebody who had just
+copied it out of a log. Every `<Button>` with a literal child carries a verb
+phrase or one of the four bare actions, which is where two bare `Save`s were.
+The three bulk-action bars use the four sanctioned strings and no fifth
+spelling. And no eyebrow equals its own title.
+
+Two limits, stated rather than implied. Only twenty of roughly a hundred
+`<Button>` uses have a literal child; the rest compute their label and need
+rendering to read, and the failure this catches is one somebody types as a
+literal. And whether a message names the *right* next action is review and
+always will be.
 
 ## 17. What is checked, and what is not
 
@@ -2099,6 +2113,7 @@ is which.
 | `tests/theme-tokens.test.ts` (chart palette) | `.chart-bar` declares a stroke, and not `none`, so two adjacent bars at 1.05:1 have an edge (11.2) |
 | `tests/progress-bar-ui.test.tsx`, `tests/progress-frames.test.ts` | When a progress bar is drawn, what it says, and that it is removed rather than frozen (12.6) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
+| `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; and every worked sentence in `common.md`'s table appears verbatim in `src` (6.2, 16) |
 
 ### 17.2 Worth building, ranked by bugs caught per hour
 
@@ -2129,23 +2144,20 @@ is which.
    `tests/table-overflow.test.ts` covers the caption and that every `th` carries
    *a* scope; which one it should be is still uncounted, and a `scope="row"` in a
    `thead` would pass today.
-7. **Banned words in UI strings**, one regex over `src/client` and `src/shared`,
-   and **button labels start with an approved verb** or are one of the four bare
-   actions.
-8. **A per-series `stroke-dasharray`**, so the line chart carries a second
+7. **A per-series `stroke-dasharray`**, so the line chart carries a second
    channel that is not colour (11.3). The CSS comment at `styles.css:3272-3278`
    already names it; nothing in these three lists did.
-9. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
+8. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
    against four deliberate paragraphs, at `App.tsx:205`,
    `AccountDetailPage.tsx:72`, `CategoryDetailPage.tsx:24` and
    `TemplateDetailPage.tsx:19`, each of which is a whole-page swap rather than a
    region — so this is a grep with a four-line allow-list rather than a grep
    waiting on a migration.
-10. **The progress bar is actually painted.** Moved here from 17.3, where it was
-    filed as untestable. Chromium resolves `::-webkit-progress-value` through
-    `getComputedStyle(element, "::-webkit-progress-value")`, so the browser tier
-    can see it; filing it as review meant the one tier built to catch it would
-    never be asked.
+9. **The progress bar is actually painted.** Moved here from 17.3, where it was
+   filed as untestable. Chromium resolves `::-webkit-progress-value` through
+   `getComputedStyle(element, "::-webkit-progress-value")`, so the browser tier
+   can see it; filing it as review meant the one tier built to catch it would
+   never be asked.
 
 `eslint-plugin-jsx-a11y` used to be item 7 here and has been removed rather than
 demoted: it is enabled at `.oxlintrc.json:15` with 38 rules, and the two this

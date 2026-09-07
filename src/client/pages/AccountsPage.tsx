@@ -137,7 +137,6 @@ export default function AccountsPage({ session }: { session: Session }) {
   return (
     <>
       <PageHeader
-        eyebrow="Accounts"
         title="Accounts"
         description="Everything you track, from checking and cards to cash and crypto wallets."
         actions={

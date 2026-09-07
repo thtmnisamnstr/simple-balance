@@ -22,7 +22,7 @@ let cachedToken: string | undefined;
  * Generated once for the *deployment*, not for the process. Held in a module
  * variable it belonged to whichever pod made it, so on a web tier running more
  * than one replica the code printed in the log was rejected by every other pod,
- * and the operator saw "The setup code is missing or invalid." for a code they
+ * and the operator was told the setup code was not recognised, for a code they
  * had just copied out of it. Every other piece of state that has to agree across
  * replicas already lives in PostgreSQL for exactly this reason.
  *

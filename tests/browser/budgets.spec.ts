@@ -392,7 +392,7 @@ test.describe("the budgets page in a browser", () => {
       name: new RegExp(`${groceries}, ${currentMonthName}`),
     });
     await dialog.getByLabel(/^Amount/).fill("300.00");
-    await dialog.getByRole("button", { name: /^save$/i }).click();
+    await dialog.getByRole("button", { name: /^save override$/i }).click();
 
     await expect(row).toContainText("£300.00");
     await expect(row.getByText(/this month only/i)).toBeVisible();
@@ -644,7 +644,7 @@ test.describe("the budgets page in a browser", () => {
     await page.getByRole("button", { name: `Edit ${rent}` }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Group").selectOption({ label: groupName });
-    await dialog.getByRole("button", { name: "Save" }).click();
+    await dialog.getByRole("button", { name: "Save category" }).click();
 
     await page.goto("/budgets");
     const setBudget = page.locator("form.budget-form");

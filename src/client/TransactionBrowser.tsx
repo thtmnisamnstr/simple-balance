@@ -55,7 +55,10 @@ import {
 import { formatDate, formatMoney, movementSign, sumMoney, compareMoney } from "./money.js";
 import {
   draftForTransactionForm,
+  largestStagedLeg,
   recurrenceShapeFromDraft,
+  stagedLegs,
+  stagedString,
   summarizeStagedDraft,
   templateDraftFromDraft,
 } from "./staged-draft.js";
@@ -779,7 +782,7 @@ export function TransactionBrowser({
               Delete selected
             </Button>
             <Button type="button" onClick={openBulkEditor} disabled={!filterSelectionReady}>
-              Mass edit
+              Edit selected
             </Button>
             <Button type="button" variant="ghost" onClick={clearTransactionSelection}>
               Clear selection
@@ -878,6 +881,17 @@ export function TransactionBrowser({
                   // transfer reports an amount here rather than nothing and the
                   // figure is formatted like every other on the page.
                   const stagedSummary = summarizeStagedDraft(stage.draft, accounts.data ?? []);
+                  // A draft names its category by id when it has one and by name
+                  // when the import proposed one that does not exist yet, and a
+                  // split holds them on its legs. The queue reads all three; this
+                  // page wrote a literal dash and showed none of them.
+                  const stagedLegList = stagedLegs(draft.legs);
+                  const stagedCategoryId = stagedLegList.length
+                    ? (largestStagedLeg(stagedLegList)?.categoryId ?? "")
+                    : stagedString(draft.categoryId);
+                  const stagedCategory =
+                    (categories.data ?? []).find((one) => one.id === stagedCategoryId)?.name ??
+                    stagedString(draft.categoryName).trim();
                   return (
                     <tr key={`staged-${stage.id}`} className="row-staged">
                       <td className="checkbox-cell">
@@ -892,7 +906,17 @@ export function TransactionBrowser({
                         </div>
                       </td>
                       <td>{stagedSummary.account}</td>
-                      <td>—</td>
+                      {/* The draft's own category, not a literal dash. This cell
+                          wrote one as cell text rather than as a fallback, so a
+                          staged row read as having no category on this page while
+                          the review queue showed the one it has. */}
+                      <td>
+                        {stagedCategory ? (
+                          stagedCategory
+                        ) : (
+                          <span className="subtle">Uncategorized</span>
+                        )}
+                      </td>
                       <td className="align-right">
                         {stagedSummary.amount && stagedSummary.currency
                           ? formatMoney(stagedSummary.amount, stagedSummary.currency)
@@ -1183,7 +1207,7 @@ export function TransactionBrowser({
       <Modal
         open={bulkEditing}
         onClose={closeBulkEditor}
-        title="Mass edit transactions"
+        title="Edit selected transactions"
         description="Choose only the fields you want to change. The entire update is atomic: either every selected transaction is updated or none are."
         footer={
           <div className="form-actions">
@@ -1383,8 +1407,8 @@ export function TransactionBrowser({
 
           {accountChangeBlocked ? (
             <Alert>
-              Choose an account in the selected transactions’ existing currency. Mass editing an
-              account never performs an FX conversion.
+              Choose an account in the selected transactions’ existing currency. Editing a selection
+              of them never performs an FX conversion.
             </Alert>
           ) : null}
 

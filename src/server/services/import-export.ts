@@ -364,7 +364,8 @@ function appExportDraft(row: Record<string, string>, accountId: string): CsvStag
         ...legIssues,
         {
           field: "roundtrip_text_json",
-          message: "The Simple Balance round-trip text payload is invalid",
+          message:
+            "The Simple Balance round-trip column cannot be read. Clear it, or export the file again.",
         },
       ],
     };
@@ -732,7 +733,8 @@ async function resolveImportedCategories(
       kind: group.kind ?? "both",
     });
     if (!parsedCategory.success) {
-      const message = parsedCategory.error.issues[0]?.message ?? "Category is invalid";
+      const message =
+        parsedCategory.error.issues[0]?.message ?? "That category name cannot be used.";
       for (const rowIndex of [
         ...group.rowIndexes,
         ...group.legTargets.map((target) => target.rowIndex),

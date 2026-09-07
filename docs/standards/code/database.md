@@ -10,7 +10,7 @@ and `numeric`, and pretending otherwise would cost more than it bought.
 
 ### 1.1 A shipped migration is frozen
 
-**Binding.** `AGENTS.md`: "Every migration that has shipped is frozen."
+**Binding.** `AGENTS.md`: "Every migration that has shipped is frozen:"
 Twenty-one migrations, `0000_initial.sql` through `0020_reference_indexes.sql`.
 Frozen is about shipping, not about existing: `0000` through `0012` went out in
 released versions and may never change, while `0013` through `0020` are written

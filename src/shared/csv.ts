@@ -348,19 +348,19 @@ export function normalizeCsvRows(
     if (mapping.amount && signedRaw.trim() && signedAmount === null) {
       issues.push({
         field: "amount",
-        message: "Amount has invalid decimal or thousands separators",
+        message: "Amount must be a number. Check the decimal and thousands separators.",
       });
     }
     if (!mapping.amount && mapping.debit && debitRaw.trim() && debit === null) {
       issues.push({
         field: "debit",
-        message: "Debit has invalid decimal or thousands separators",
+        message: "Debit must be a number. Check the decimal and thousands separators.",
       });
     }
     if (!mapping.amount && mapping.credit && creditRaw.trim() && credit === null) {
       issues.push({
         field: "credit",
-        message: "Credit has invalid decimal or thousands separators",
+        message: "Credit must be a number. Check the decimal and thousands separators.",
       });
     }
 

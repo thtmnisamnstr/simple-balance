@@ -187,7 +187,7 @@ const select = (payee: string) =>
 
 async function openEditor() {
   fireEvent.click(screen.getByRole("button", { name: /Edit selected/ }));
-  return screen.getByRole("dialog", { name: "Mass edit staged rows" });
+  return screen.getByRole("dialog", { name: "Edit selected staged rows" });
 }
 
 afterEach(() => {

@@ -839,7 +839,7 @@ export default function StagingPage() {
                 bulkRemoval.ask(selectedRows.length, () => bulkMutation.mutate("delete"));
               }}
             >
-              <Trash2 size={16} /> Delete
+              <Trash2 size={16} /> Delete selected
             </Button>
             <Button type="button" variant="ghost" onClick={() => setSelected(new Map())}>
               Clear selection
@@ -1052,11 +1052,23 @@ export default function StagingPage() {
                         // is the honest editor: an inline cell could only lie
                         // about which leg it was changing.
                         <div className="transaction-payee">
-                          <span>
-                            {categoryNames.get(
-                              largestStagedLeg(stagedLegs(draft.legs))?.categoryId ?? "",
-                            ) ?? "Uncategorized"}
-                          </span>
+                          {/* `.subtle` here and nowhere else on this row: the
+                              two inline-edit cells below render the same word as
+                              a button's own label, where it takes the button's
+                              colour. This one is plain text and matches the
+                              transactions list, which is the page a person
+                              compares it against. */}
+                          {categoryNames.get(
+                            largestStagedLeg(stagedLegs(draft.legs))?.categoryId ?? "",
+                          ) ? (
+                            <span>
+                              {categoryNames.get(
+                                largestStagedLeg(stagedLegs(draft.legs))?.categoryId ?? "",
+                              )}
+                            </span>
+                          ) : (
+                            <span className="subtle">Uncategorized</span>
+                          )}
                           <Badge tone="blue">Split · {stagedLegs(draft.legs).length}</Badge>
                         </div>
                       ) : type === "transfer" ? (
@@ -1331,7 +1343,7 @@ export default function StagingPage() {
       <Modal
         open={bulkEditing}
         onClose={closeBulkEditor}
-        title="Mass edit staged rows"
+        title="Edit selected staged rows"
         description="Choose only the fields you want to change. Nothing is committed: the rows are updated in the queue and checked again, so filling in what was missing can clear their warnings."
         footer={
           <div className="form-actions">

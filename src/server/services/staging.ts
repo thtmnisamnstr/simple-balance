@@ -1177,7 +1177,7 @@ export async function commitStages(
         withDuplicate: false,
       });
       if (!result.draft || result.issues.length) {
-        throw validationError("All selected staged transactions must be valid", {
+        throw validationError("Every selected row must be complete before it can commit.", {
           id: row.id,
           issues: result.issues,
         });

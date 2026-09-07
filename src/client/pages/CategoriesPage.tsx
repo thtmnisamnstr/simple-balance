@@ -103,7 +103,7 @@ function CategoryDialog({
             Cancel
           </Button>
           <Button type="submit" form="category-edit" disabled={!trimmed}>
-            Save
+            Save category
           </Button>
         </>
       }

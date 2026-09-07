@@ -40,7 +40,10 @@ There are 202 `userId, actor.userId` comparisons in this directory, which is
 roughly one per query, and that is the right ratio.
 
 `AGENTS.md` is the authority: "Never accept a public `userId`. Derive it from
-the authenticated `Actor`."
+the authenticated `Actor`, and scope every finance read/write by that ID." The
+second half is the half that does the work, and this guide had been quoting the
+first half alone — which reads as a rule about a parameter rather than a rule
+about every query below it.
 
 **One named exception.** `revokeAllConnectedApps(userId: string, …)`
 (`src/server/services/connected-apps.ts:206`)

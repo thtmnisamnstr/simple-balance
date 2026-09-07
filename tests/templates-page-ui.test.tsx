@@ -222,7 +222,7 @@ describe("the templates screen", () => {
     fireEvent.change(screen.getByLabelText("New payee"), {
       target: { value: "New landlord" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]!.path).toBe("/api/v1/transaction-templates/bulk-edit");
@@ -254,7 +254,7 @@ describe("the templates screen", () => {
     fireEvent.change(screen.getByLabelText("Amount"), {
       target: { value: "clear" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
     const patch = (posts[0]!.body as { patch: Record<string, unknown> }).patch;
@@ -375,7 +375,7 @@ describe("the templates screen", () => {
     fireEvent.change(screen.getByLabelText("New payee"), {
       target: { value: "Nope" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
     // Inside the dialog, because the page banner sits behind an open one.
     const dialog = await screen.findByRole("dialog");

@@ -35,7 +35,7 @@ export function decodeCursor(
   try {
     parsed = cursorSchema.parse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
   } catch {
-    throw validationError("Cursor is invalid");
+    throw validationError("This page marker cannot be read. Start again from the first page.");
   }
   if (parsed.key !== expected.key || parsed.direction !== expected.direction) {
     throw validationError(
@@ -57,7 +57,7 @@ export function decodeCursor(
 export function cursorInstant(cursor: CursorValue) {
   const instant = new Date(cursor.sort);
   if (Number.isNaN(instant.getTime())) {
-    throw validationError("Cursor is invalid");
+    throw validationError("This page marker cannot be read. Start again from the first page.");
   }
   return instant;
 }

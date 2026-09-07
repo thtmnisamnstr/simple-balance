@@ -48,7 +48,7 @@ declares its fields and assigns them somewhere unreadable erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1066`, `src/server/http-security.ts:160` and `:559`),
+(`src/server/api.ts:1072`, `src/server/http-security.ts:160` and `:559`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
