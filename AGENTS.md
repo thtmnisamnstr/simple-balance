@@ -293,6 +293,25 @@ exactly that to store its credentials, so the guard is right to object and CI is
 the wrong place to ask it. The guard itself is covered by unit tests, which do
 run in CI.
 
+## Recurring tasks
+
+Five skills in `.claude/skills/` hold the procedures for work that repeats, so
+the order and the traps do not have to be rediscovered:
+
+- `guides-update` — bring the guides, `AGENTS.md`, `CHANGELOG.md` and
+  `docs/upgrades.md` back to true after work lands.
+- `guides-comply` — sweep every page section, route, tool and service against
+  the guides, and mechanise rules nothing checks.
+- `design-review` — review the browser app against `docs/standards/web.md`,
+  comparing each section across pages rather than reading a page at a time.
+- `release-prep` — upgrade-safety audit, adversarial audit, dead code, recount,
+  three test tiers, commit and push. Cuts nothing.
+- `cut-release` — the procedure in `docs/upgrades.md`, and only on an explicit
+  go-ahead.
+
+Each points at the guides rather than restating them, because a copied rule
+drifts.
+
 ## Definition of done
 
 - Add focused tests for changed domain behavior and run the story verification

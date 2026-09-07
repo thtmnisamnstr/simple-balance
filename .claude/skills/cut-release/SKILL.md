@@ -1,0 +1,158 @@
+---
+name: cut-release
+description: Cut a release — set the version everywhere, date the changelog, freeze the release's migrations, commit, tag and publish. Use only when explicitly asked to cut, tag or publish a specific version in the current turn. Follows the procedure in docs/upgrades.md.
+---
+
+# Cut a release
+
+`docs/upgrades.md` §Cutting a release is the procedure and this skill follows
+it. Read that section before starting; if the two ever disagree, the document
+wins and this file is wrong.
+
+## Before anything: the go-ahead
+
+**A version is never cut on inference.** Not a bump, not a tag, not a changelog
+date, not even locally. The go-ahead must be explicit, name the version or
+clearly authorise choosing one, and be given **in the current turn** — an
+earlier "we're close to a release" is not it, and neither is a branch that
+looks ready.
+
+If a previous instruction said not to cut, that instruction stands until it is
+withdrawn in as many words.
+
+Every step below is easy to reverse *until* step 8. Say so when confirming.
+
+## 1. Check the branch is releasable
+
+```sh
+git branch --show-current && git status --short
+gh pr checks "$(git branch --show-current)" 2>/dev/null || gh run list --limit 3
+```
+
+Releases are cut on the default branch. If the work is on a feature branch, that
+branch merges first — and merging is its own decision, not part of this skill.
+
+Require: a clean tree, every check green, and `release-prep` already run. If it
+has not been, run it first. Cutting on top of an unprepped branch is how a
+release ships with a stale count or an unwritten upgrade note.
+
+## 2. Choose the number
+
+Semantic Versioning 2.0.0, per `docs/standards/writing.md` §Versioning. This
+product is not a library, so "breaking" is defined against four surfaces — HTTP
+`/api/v1`, MCP, CSV and the deployment — and that section holds the table.
+
+A migration is **never** a breaking change under this scheme: migrations run
+forward on their own at startup and every shipped one is frozen. What a
+migration can break is the way back, which belongs to the upgrade notes.
+
+Read `## Unreleased` in `CHANGELOG.md` and decide from what is actually there.
+State the number and the reasoning before running anything.
+
+Prereleases are allowed (`0.2.0-rc.1`) and are accepted by `set-version`, by
+`tests/version.test.ts` and by `tasks/product.prd.schema.json` — all three carry
+the same pattern, after a release where two of them disagreed.
+
+## 3. Confirm the upgrade note exists
+
+```sh
+grep -n "^## Before you upgrade to" docs/upgrades.md | head -3
+```
+
+The section for **this** version must already be written — it is written as the
+work lands, not here. `tests/version.test.ts` refuses a release without it, and
+the publish runs `npm run verify` first, so a missing note stops the release
+rather than reaching an operator mid-upgrade.
+
+It must say what runs automatically, what an operator does by hand, what changed
+under them, and what to check afterwards — even when the answer is that nothing
+changed.
+
+## 4. Set the version
+
+```sh
+npm run set-version X.Y.Z
+```
+
+Seventeen files: three manifests and their three lockfiles, four Dockerfiles'
+`ARG APP_VERSION`, the chart's `appVersion` and its own `version`, the constant
+the MCP server announces, the product backlog, and the pinned example image tags
+in the split compose file and the Pulumi README.
+
+Never edit any of these by hand. `tests/version.test.ts` holds fifteen locations
+to `package.json` and asserts the script knows about every one, so a hand edit
+that misses one fails late and confusingly.
+
+## 5. Date the changelog
+
+`## Unreleased` becomes `## X.Y.Z - YYYY-MM-DD`, with today's real date.
+
+Nothing does this for you and nothing checks it — `writing.md` names it as a
+hand step in the recipe. The upgrade notes send people here to read it.
+
+## 6. Freeze this release's migrations
+
+In `AGENTS.md`, move this release's migrations from "written and unreleased" to
+the frozen list, attributed to this version, and leave behind only migrations
+that are still genuinely unreleased.
+
+Once an image has run a migration against somebody's data it can never be edited
+again, and that list is what says so. `tests/migrations.test.ts` holds the list
+to what is on disk.
+
+## 7. Verify and commit
+
+```sh
+npm run verify
+```
+
+Subject `Cut X.Y.Z`. The body names what the release touched: the version
+locations, the dated changelog heading, and the migrations added to the frozen
+list with a word on why that matters. Six release commits exist in four forms;
+`Cut X.Y.Z` is the current one.
+
+```text
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+```
+
+```sh
+git push
+```
+
+Wait for CI green before step 8.
+
+## 8. Publish — the irreversible step
+
+```sh
+gh release create vX.Y.Z --title "X.Y.Z" --notes "<the changelog section>"
+```
+
+Confirm with the user immediately before this. Everything up to here can be
+undone with a revert; a published image and a moved `latest` tag cannot.
+
+Publishing keys off the **release**, not the tag push, so it runs once whether
+the tag existed beforehand or GitHub creates it. The workflow runs the full
+suite first, refuses to publish if the tag and the manifest disagree, then
+pushes multi-architecture images to GHCR. `latest` moves unless the release is
+marked prerelease or the version carries a suffix.
+
+Mark a prerelease with `--prerelease` so `latest` stays put.
+
+## 9. Watch the publish
+
+```sh
+gh run watch "$(gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')" --exit-status
+```
+
+If it fails for a reason unrelated to the code, re-run the release workflow by
+hand from the Actions tab with the tag. It publishes the same version tag
+without a new release, and leaves `latest` alone unless asked — a hand-started
+run cannot see whether the release was a prerelease and must not guess.
+
+## 10. Report
+
+The version, the tag, the images published, whether `latest` moved, and the
+migrations now frozen. Then open the next cycle: `## Unreleased` returns to
+`CHANGELOG.md` when the next work lands, and the next
+`## Before you upgrade to` section is written as that work lands rather than at
+the next cut.
