@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**19.5% of the non-blank lines in `src` are comments** — 9,133 of 46,909. That
+**19.6% of the non-blank lines in `src` are comments** — 9,193 of 47,035. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.
@@ -22,7 +22,7 @@ percentage anyway.
 
 *Checked by:* `tests/comment-density.test.ts`, which recounts `src`, fails under
 the floor, refuses two documents that quote different numbers, and compares
-`9,133 of 46,909` against the recount exactly.
+`9,193 of 47,035` against the recount exactly.
 
 ## 1. What a comment is for here
 

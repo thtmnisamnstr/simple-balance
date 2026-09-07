@@ -6,7 +6,7 @@ keeping.
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
 | Unit (node) | 80 | `npm test` | nothing |
-| Unit (jsdom) | 38 | `npm test` | nothing |
+| Unit (jsdom) | 39 | `npm test` | nothing |
 | Integration | 56 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 119 pass, 55 skip | **1,183 pass, 657 skip** |
-| `npm test`, database set | 174 pass | **1,840 pass** |
+| `npm test`, no database | 120 pass, 55 skip | **1,194 pass, 657 skip** |
+| `npm test`, database set | 175 pass | **1,851 pass** |
 | `npm run test:integration` | 56 pass | 658 pass |
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -75,7 +75,7 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Eighteen tests, one file, one worker, against a real API and a real
+**House.** Twenty tests, one file, one worker, against a real API and a real
 PostgreSQL. It is slow and it is the only tier that proves the whole stack
 works, so it covers a path per capability rather than a case per branch.
 `tests/testing-guide-counts.test.ts` holds this number to the file, because it

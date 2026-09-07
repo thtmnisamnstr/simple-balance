@@ -788,11 +788,39 @@ export function EmptyState({
 
 export function Alert({
   kind = "error",
+  takeFocus = false,
   children,
-}: PropsWithChildren<{ kind?: "error" | "success" | "info" }>) {
+}: PropsWithChildren<{ kind?: "error" | "success" | "info"; takeFocus?: boolean }>) {
   const Icon = kind === "success" ? CheckCircle2 : AlertCircle;
+  const box = useRef<HTMLDivElement>(null);
+  /**
+   * Where focus goes when the control that started the work has gone.
+   *
+   * `web.md` 13.3 asks for focus to land somewhere deliberate after an action,
+   * and a bulk action is the case with nowhere obvious: the button somebody
+   * pressed is inside the selection bar, and finishing the work unmounts the
+   * bar. Focus fell to `<body>`, so the next Tab started from the top of the
+   * page — past the skip link and the whole sidebar — to get back to a list
+   * they were in the middle of.
+   *
+   * It lands on the sentence saying what happened, which is both the thing they
+   * want to read and the place their next Tab should start from. `role="status"`
+   * already announces it to a screen reader; this is for the sighted keyboard
+   * user, who is announced nothing.
+   *
+   * Opt-in, because most alerts render beside a control that still exists and
+   * moving focus away from it would be the defect rather than the fix.
+   */
+  useEffect(() => {
+    if (takeFocus) box.current?.focus();
+  }, [takeFocus, children]);
   return (
-    <div className={`alert alert-${kind}`} role={kind === "error" ? "alert" : "status"}>
+    <div
+      ref={box}
+      className={`alert alert-${kind}`}
+      role={kind === "error" ? "alert" : "status"}
+      {...(takeFocus ? { tabIndex: -1 } : {})}
+    >
       <Icon size={17} />
       <div>{children}</div>
     </div>

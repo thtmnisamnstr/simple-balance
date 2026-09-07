@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,684 lines of hand-written CSS in
+Query for server state, and 3,707 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -289,7 +289,7 @@ section is a proposal, and says so.
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 281 padding, margin and gap declarations across **35 distinct pixel
+Today: 282 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
 takes 17 distinct single values, the commonest being 8px seventeen times, 10px
@@ -323,7 +323,7 @@ of it.**
 
 ### 3.2 Radius
 
-Today: 60 declarations across **19 distinct values**. No two cards match:
+Today: 61 declarations across **19 distinct values**. No two cards match:
 `.metric-card` and `.balance-snapshot` at 11px, `.table-card` at 12px, `.panel`
 and `.account-card` at 13px, `.modal` at 15px, `.auth-ledger-card` at 18px,
 `.auth-art` at 20px.
@@ -342,7 +342,7 @@ of what is here, and it is four steps plus a pill:
 
 ### 3.3 Type
 
-Today: 110 `font-size` declarations across nine pixel values (11, 12, 13, 14,
+Today: 111 `font-size` declarations across nine pixel values (11, 12, 13, 14,
 15, 16, 17, 20, 32) plus two `clamp()` expressions.
 
 Proposed: seven points, and GOV.UK's rule that a new style aligns to an existing
@@ -369,7 +369,7 @@ accounts.
 
 ### 3.4 Weight
 
-Today: **28 `font-weight` declarations carrying 14 distinct values**: 400, 500,
+Today: **29 `font-weight` declarations carrying 14 distinct values**: 400, 500,
 570, 600, 620, 630, 650, 660, 700, 720, 730, 750, 760, 780. That is very nearly
 a weight per component.
 
@@ -415,8 +415,8 @@ layer in the app are free to coincide, and that is the one exception it carries.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:3479`), 980px
-(`styles.css:3503`), 780px (`styles.css:3510`) and 560px (`styles.css:3589`).
+stylesheet in descending order: 1050px (`styles.css:3502`), 980px
+(`styles.css:3526`), 780px (`styles.css:3533`) and 560px (`styles.css:3612`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -1296,8 +1296,8 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | `.modal-header` | `styles.css:2204` | sticky |
 | `.import-preview` | `styles.css:2336` | sticky |
 | `.merge-panel` | `styles.css:2618` | sticky |
-| `.nav-scrim` | `styles.css:3531` | fixed |
-| `.mobile-header` | `styles.css:3541` | sticky |
+| `.nav-scrim` | `styles.css:3554` | fixed |
+| `.mobile-header` | `styles.css:3564` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1741,7 +1741,7 @@ Announcement is already handled: `Alert` sets `role={kind === "error" ? "alert"
 : "status"}` (`src/client/components.tsx:789`), so a success alert is a polite
 live region and an error alert interrupts. The two real defects are elsewhere.
 There are three separate `aria-live="polite"` regions in the client
-(`components.tsx:230`, `TransactionBrowser.tsx:674`, `TemplatesPage.tsx:414`),
+(`components.tsx:230`, `TransactionBrowser.tsx:719`, `TemplatesPage.tsx:424`),
 so a page can carry four polite regions at once and nothing decides which speaks
 first. And a success alert persists until the next render, with no rule for how
 long it stays.
@@ -1894,33 +1894,72 @@ the test says which one is bare.
 
 ### 13.3 Focus management
 
-**House, and the largest hole in this section.**
+**House.** This was the largest hole in this section, and it was four holes:
+each one something that moved or vanished with focus left wherever it had been,
+so the next Tab started from the top of the document. On a page whose first
+eleven stops are navigation links, that is the difference between carrying on
+and starting again.
 
-- **A skip link.** There is none. Add one before the sidebar, targeting the
-  `<main>`.
+- **A skip link.** There was none. There is one now, first in the DOM and so
+  first in the tab order, before the eleven links rather than after them. A
+  plain anchor rather than a `Link`, so the browser moves focus to the fragment
+  itself, and `<main>` carries `id="main"` and `tabIndex={-1}` — without which
+  the browser scrolls and leaves focus on the link, which looks like it worked
+  and did not. It is off-screen by transform rather than by `display: none` or a
+  1px box: it has to be focusable to be reachable, and a zero-size box is a
+  focus ring nobody can see.
 - **Route change.** `router.tsx` navigates by `pushState` and moves neither
-  focus nor scroll, so following a link from the bottom of the transactions
-  table lands mid-page with focus on a link that no longer exists. Move focus to
-  the page heading and reset scroll on navigation.
-- **After an action.** Nothing says where focus goes when a modal closes, a row
-  is deleted, or a mass edit lands. The rule: back to the control that opened the
-  overlay, or to the nearest surviving row's first cell when the focused row is
-  gone.
-- **The mobile drawer.** It is an `<aside>` toggled by an
-  `.open` class (`App.tsx:652`) with a scrim button beside it (`App.tsx:723`),
-  not a dialog. Opening it leaves focus on the hamburger and Tab
-  walks the page behind the scrim. Either trap focus in it or make it a
-  `<dialog>`.
+  focus nor scroll, so following a link from the foot of the transactions table
+  landed mid-page with focus on an anchor that no longer existed. Navigation now
+  resets scroll and moves focus to `<main>`. **The region rather than the
+  `<h1>`**, which both satisfy the rule: entering the region announces the
+  landmark and reads from the top, where focusing the heading announces one line
+  and leaves the reader to find the rest. Keyed on the **pathname alone** — every
+  filter, sort and page change on this app rewrites the query string, and moving
+  focus on those would take it out of the control somebody is still typing in —
+  and skipped on the first render, because stealing focus on load is worse than
+  leaving it where the browser put it.
+- **After an action.** Two halves, and the platform already had one. A modal is
+  a native `<dialog>`, so `close()` returns focus to whatever opened it, and
+  `RowMenu` returns focus itself. The half that was missing is a **bulk action**:
+  the button is inside the selection bar and finishing the work unmounts the
+  bar, so focus fell to `<body>`. It now lands on the sentence saying what
+  happened — `Alert` takes an opt-in `takeFocus`, used on the three pages that
+  unmount their own button. That is both the thing somebody wants to read and
+  the place their next Tab should start from; `role="status"` already announces
+  it to a screen reader, and this is for the sighted keyboard user, who is
+  announced nothing. Opt-in because most alerts render beside a control that
+  still exists, where moving focus away would be the defect rather than the fix.
+- **The mobile drawer.** An `<aside>` toggled by an `.open` class is not a
+  dialog, so opening it left focus on the hamburger and Tab walked the page
+  behind the scrim. The column behind it now carries **`inert`**, which is the
+  platform's answer: it takes the whole column out of the tab order and out of
+  the accessibility tree in one attribute, where a hand-rolled trap has to
+  enumerate what is focusable and be wrong about the next thing somebody adds.
+  The scrim stays outside that column on purpose, so Escape is not the only way
+  out. Focus moves in on open and back to the hamburger on close, and Escape
+  closes — the three things a `<dialog>` gives for nothing.
 
-Modals are correct as they are: a native `<dialog>` driven by `showModal()` and
+  **The dialog semantics are conditional, and have to be.** The same `<aside>`
+  is the permanent sidebar above 780px, so marking it a modal unconditionally
+  would announce a visible navigation landmark as one. Rather than read the
+  width in two places, the drawer closes itself when the media query stops
+  matching — which also fixes opening it and then widening the window, which
+  used to leave a scrim over a page nobody could dismiss.
+
+Modals were already correct: a native `<dialog>` driven by `showModal()` and
 `close()`, labelled by `aria-labelledby` from a `useId()`, with `onCancel`
 intercepted (`components.tsx:480-530`), and with the form body mounted only while
-the dialog is open so closing discards what was half-typed. `RowMenu` is also
-correct: it closes on Escape and returns focus.
+the dialog is open so closing discards what was half-typed.
 
-*Checked by:* `tests/modal-layout.test.ts` pins the dialog centring against the
-global margin reset. `tests/row-menu.test.tsx` covers the menu's dismissal. The
-rest is the keyboard pass.
+*Checked by:* `tests/shell-focus.test.tsx` for all four, and `tests/browser/budgets.spec.ts`
+for the two halves only a browser can see — that pressing the skip link actually
+moves focus into `<main>`, and that following a navigation link lands focus on
+the page it opened. jsdom has neither layout nor fragment navigation, so it can
+say the link exists and nothing about whether it works, which is exactly the
+split section 1.1 of `testing.md` is about. `tests/modal-layout.test.ts` pins the
+dialog centring and `tests/row-menu.test.tsx` covers the menu's dismissal. The
+keyboard pass in section 14 remains a person's job.
 
 ### 13.4 Target size
 
@@ -1982,7 +2021,10 @@ mean something rather than an instruction to be careful.
 - Enter submits from any single-line field.
 - The row menu is operable and dismissible from the keyboard alone.
 - Every icon-only control has an accessible name.
-- The skip link works and lands in `<main>`.
+- The skip link works and lands in `<main>`. **This one is now a test rather
+  than a pass** — `tests/browser/budgets.spec.ts` presses Tab, presses Enter and
+  reads back where focus went — and it is on this list because a person could
+  not complete it while there was no skip link to try.
 - A horizontally scrolling table can be scrolled from the keyboard.
 - No control needs a mouse, including the file picker on the import page.
 
@@ -2119,7 +2161,7 @@ is which.
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
    trick the colour test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 281
+   percentages. This is the largest unmanaged surface in the stylesheet: 282
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting

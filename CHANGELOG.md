@@ -424,6 +424,23 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**A keyboard user can get past the navigation, and stays where they were.**
+Four holes, each the same shape: something moved or vanished and focus was left
+behind, so the next Tab started at the top of the document — past eleven
+navigation links — to get back to a list somebody was in the middle of.
+
+There is a **skip link** now, first in the tab order, and it lands *in* the main
+region rather than merely scrolling to it. **Following a link** moves focus to
+the page it opened and resets the scroll, where `pushState` used to do neither —
+only on a real navigation, so changing a filter or a sort leaves focus in the
+control you are using. **Finishing a bulk action** puts focus on the sentence
+saying what happened, because the button you pressed is inside the selection bar
+and the bar goes away with it. And the **mobile navigation drawer** is a drawer:
+the page behind it is `inert`, so Tab no longer walks it through the scrim,
+Escape closes it, focus moves in when it opens and back to the menu button when
+it closes — and it closes itself if you widen the window, which used to leave a
+scrim over a page with no way to dismiss it.
+
 **A pagination cursor is signed.** It was base64url of plain JSON, which is
 exactly the case AIP-158 names as insufficient obfuscation: a caller could read
 it, and worse, build one — and would then be building against an encoding

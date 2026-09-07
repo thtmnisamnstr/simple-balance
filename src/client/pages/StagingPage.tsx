@@ -882,7 +882,11 @@ export default function StagingPage() {
           {commitRefused ? " Nothing was committed." : null}
         </Alert>
       ) : null}
-      {bulkEditNotice ? <Alert kind="info">{bulkEditNotice}</Alert> : null}
+      {bulkEditNotice ? (
+        <Alert kind="info" takeFocus>
+          {bulkEditNotice}
+        </Alert>
+      ) : null}
       {inlineError ? <Alert>{inlineError}</Alert> : null}
       {stagePages.error || batchPages.error ? (
         <Alert>{(stagePages.error ?? batchPages.error)!.message}</Alert>

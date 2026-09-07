@@ -377,7 +377,11 @@ export default function TemplatesPage() {
       />
 
       {error ? <Alert>{error.message}</Alert> : null}
-      {notice ? <Alert kind="success">{notice}</Alert> : null}
+      {notice ? (
+        <Alert kind="success" takeFocus>
+          {notice}
+        </Alert>
+      ) : null}
 
       {/* A bare control with an `aria-label`, not a `Field`. A filter takes
           effect on change: it has no error state, no required state, no submit

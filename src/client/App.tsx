@@ -639,7 +639,78 @@ function useAdoptBrowserRegion(session: Session) {
 function Shell({ session }: { session: Session }) {
   const [mobileNav, setMobileNav] = useState(false);
   const location = useLocation();
+  const main = useRef<HTMLElement>(null);
+  const hamburger = useRef<HTMLButtonElement>(null);
+  const drawerClose = useRef<HTMLButtonElement>(null);
   useAdoptBrowserRegion(session);
+
+  /**
+   * Where focus and scroll go when the route changes.
+   *
+   * This router navigates with `pushState`, which moves neither: following a
+   * link from the foot of the transactions table landed the next page
+   * mid-scroll with focus on an anchor that no longer existed, so a keyboard
+   * user's next Tab started from wherever the browser decided.
+   *
+   * Focus goes to `<main>` rather than to the page's `<h1>`. Both satisfy the
+   * rule; the region is better, because a screen reader entering it announces
+   * the landmark and reads from the top, where focusing the heading announces
+   * one line and leaves the reader to find the rest. `<main>` carries
+   * `tabIndex={-1}` for this and for the skip link.
+   *
+   * Keyed on the pathname alone, deliberately. Every filter, sort and page
+   * change on this app rewrites the query string, and moving focus on those
+   * would take it out of the control somebody is still using.
+   */
+  const previousPath = useRef(location.pathname);
+  useEffect(() => {
+    // Not on the first render: nothing has navigated yet, and stealing focus
+    // on load is worse than leaving it where the browser put it.
+    if (previousPath.current === location.pathname) return;
+    previousPath.current = location.pathname;
+    window.scrollTo({ top: 0 });
+    main.current?.focus();
+  }, [location.pathname]);
+
+  /**
+   * The drawer is only a dialog while it is a drawer.
+   *
+   * This one `<aside>` is the permanent sidebar above 780px and a modal drawer
+   * below it, so the dialog semantics have to be conditional or a wide window
+   * gets a navigation landmark announcing itself as a modal. Rather than read
+   * the width in two places, the state is closed when the query stops matching
+   * — which also fixes the case of opening the drawer and then widening the
+   * window, which used to leave a scrim over a page nobody could dismiss.
+   */
+  useEffect(() => {
+    if (!mobileNav) return;
+    const narrow = window.matchMedia("(max-width: 780px)");
+    const onChange = () => {
+      if (!narrow.matches) setMobileNav(false);
+    };
+    narrow.addEventListener("change", onChange);
+    return () => narrow.removeEventListener("change", onChange);
+  }, [mobileNav]);
+
+  // Focus into the drawer when it opens and back to the hamburger when it
+  // closes, which is what a `<dialog>` would do and what this cannot inherit.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (mobileNav) drawerClose.current?.focus();
+    else if (wasOpen.current) hamburger.current?.focus();
+    wasOpen.current = mobileNav;
+  }, [mobileNav]);
+
+  // And Escape closes it, the third thing a `<dialog>` gives for nothing. On
+  // the document rather than on the drawer, because focus may be on the scrim.
+  useEffect(() => {
+    if (!mobileNav) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNav(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [mobileNav]);
   const theme = useThemeSetting(session);
   const initials = session.user.name
     .split(/\s+/)
@@ -649,7 +720,18 @@ function Shell({ session }: { session: Session }) {
     .toUpperCase();
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
+      {/* First in the DOM and first in the tab order, which is the whole point:
+          a keyboard user meets it before the eleven navigation links. A plain
+          anchor rather than a `Link`, so the browser moves focus to the
+          fragment itself; `<main>` is not focusable on its own, which is why it
+          carries `tabIndex={-1}`. */}
+      <a className="skip-link" href="#main">
+        Skip to main content
+      </a>
+      <aside
+        className={`sidebar ${mobileNav ? "open" : ""}`}
+        {...(mobileNav ? { role: "dialog", "aria-modal": true, "aria-label": "Navigation" } : {})}
+      >
         <div className="brand">
           <span className="brand-mark">
             <CircleDollarSign size={23} />
@@ -659,6 +741,7 @@ function Shell({ session }: { session: Session }) {
             <small>Personal accounting</small>
           </div>
           <button
+            ref={drawerClose}
             className="mobile-close"
             aria-label="Close navigation"
             onClick={() => setMobileNav(false)}
@@ -725,9 +808,16 @@ function Shell({ session }: { session: Session }) {
           onClick={() => setMobileNav(false)}
         />
       ) : null}
-      <div className="main-column">
+      {/* `inert` while the drawer is open, which is the platform's answer to
+          "Tab walks the page behind the scrim": it takes the whole column out
+          of the tab order and out of the accessibility tree in one attribute,
+          where a hand-rolled trap has to enumerate what is focusable and be
+          wrong about the next thing somebody adds. The scrim is outside this
+          column on purpose, so it stays reachable and Escape is not the only
+          way out. */}
+      <div className="main-column" inert={mobileNav}>
         <header className="mobile-header">
-          <button onClick={() => setMobileNav(true)} aria-label="Open navigation">
+          <button ref={hamburger} onClick={() => setMobileNav(true)} aria-label="Open navigation">
             <Menu size={21} />
           </button>
           <div className="brand">
@@ -737,7 +827,7 @@ function Shell({ session }: { session: Session }) {
             <strong>Simple Balance</strong>
           </div>
         </header>
-        <main className="content">
+        <main className="content" id="main" tabIndex={-1} ref={main}>
           <TimezoneProvider timezone={session.preferences.timezone}>
             <Routes>
               <Route path="/" element={<DashboardPage />} />

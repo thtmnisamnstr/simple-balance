@@ -431,6 +431,46 @@ test.describe("the budgets page in a browser", () => {
     expect(reached.filter((r) => r.startsWith("select")).length).toBeGreaterThan(1);
   });
 
+  /**
+   * The skip link, in the one tier that can see whether it works.
+   *
+   * jsdom has no layout and no fragment navigation, so it can say the link
+   * exists and points at `#main` and nothing about whether pressing it moves
+   * focus. That half is what makes a skip link real: `<main>` is not focusable
+   * on its own, so without `tabIndex={-1}` the browser scrolls and leaves focus
+   * on the link — which looks like it worked and did not.
+   */
+  test("the skip link is the first stop and lands in the main region", async () => {
+    await page.goto("/budgets");
+    await page.keyboard.press("Tab");
+    const first = await page.evaluate(() => document.activeElement?.textContent?.trim());
+    expect(first).toBe("Skip to main content");
+    // Visible once focused. It is off-screen by transform until then, so a
+    // sighted keyboard user can see where they are.
+    const box = await page.locator(".skip-link").boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    await page.keyboard.press("Enter");
+    const landed = await page.evaluate(() => document.activeElement?.id);
+    expect(landed).toBe("main");
+    // And the next Tab is inside the page rather than back at the navigation.
+    await page.keyboard.press("Tab");
+    const after = await page.evaluate(() =>
+      document.activeElement?.closest("main") ? "inside main" : "outside",
+    );
+    expect(after).toBe("inside main");
+  });
+
+  test("following a link moves focus to the page it opened", async () => {
+    // `pushState` moves neither focus nor scroll, so this used to leave focus
+    // on an anchor the next page had unmounted.
+    await page.goto("/budgets");
+    await page.getByRole("link", { name: "Accounts", exact: true }).click();
+    await page.waitForURL(/\/accounts/);
+    const landed = await page.evaluate(() => document.activeElement?.id);
+    expect(landed).toBe("main");
+  });
+
   test("no console error and no failed request on the page", async () => {
     const problems: string[] = [];
     page.on("console", (message) => {

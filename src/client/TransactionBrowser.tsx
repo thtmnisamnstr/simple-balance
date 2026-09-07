@@ -794,7 +794,11 @@ export function TransactionBrowser({
         <Alert>{filterSelectionPreview.error.message}</Alert>
       ) : null}
       {bulkDeleteMutation.error ? <Alert>{bulkDeleteMutation.error.message}</Alert> : null}
-      {bulkNotice ? <Alert kind={bulkNotice.kind}>{bulkNotice.message}</Alert> : null}
+      {bulkNotice ? (
+        <Alert kind={bulkNotice.kind} takeFocus>
+          {bulkNotice.message}
+        </Alert>
+      ) : null}
       {deleteMutation.error ? (
         <Alert>
           {deleteMutation.error.message}

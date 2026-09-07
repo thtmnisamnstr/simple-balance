@@ -3020,6 +3020,29 @@ input[type="radio"] {
   margin: 0;
 }
 
+/* The skip link, which is `.sr-only` until it is focused and then is not.
+   Positioned rather than transformed so it lands over the sidebar instead of
+   pushing it, and above every layer in the ladder because it is the first thing
+   a keyboard user meets and has to be visible over whatever is on screen. */
+.skip-link {
+  position: fixed;
+  z-index: 40;
+  top: 8px;
+  left: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: var(--on-accent);
+  background: var(--green-fill);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
 .sr-only {
   position: absolute;
   top: 0;
