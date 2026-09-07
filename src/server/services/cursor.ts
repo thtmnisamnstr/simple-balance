@@ -3,6 +3,7 @@ import { z } from "zod";
 import { sortDirections } from "../../shared/domain.js";
 import { getConfig } from "../config.js";
 import { validationError } from "./errors.js";
+import { idempotencyRequestHash } from "./helpers.js";
 
 /**
  * A cursor walks one specific ordering. It carries the column and direction it
@@ -21,7 +22,54 @@ const cursorSchema = z.object({
    */
   sort: z.string(),
   id: z.string().uuid(),
+  /**
+   * A fingerprint of the filters the walk was issued under.
+   *
+   * A cursor bound its ordering and nothing else, so changing the *sort*
+   * between pages was caught and changing a *filter* was not: `accountId`,
+   * `payee`, `search`, `start`, `end` and the rest could all move and the
+   * keyset resumed silently into a different collection, handing back rows from
+   * a query nobody asked for with the count still reporting the truth.
+   *
+   * A cursor binds the collection it walks, the way a bulk selection binds the
+   * rows it changes. Both refuse rather than quietly covering something else.
+   *
+   * Optional, because a cursor issued before this existed does not carry one
+   * and `AGENTS.md` does not let a release narrow a working client. Absent
+   * means unbound and is accepted; present and different is refused.
+   */
+  filters: z.string().optional(),
 });
+
+/**
+ * Which query keys describe the collection rather than the view of it.
+ *
+ * Derived by exclusion rather than enumerated, so a filter added to a list
+ * schema is bound without anybody remembering to add it here — which is the
+ * failure this whole member exists to prevent, one level up. The five excluded
+ * are the ones `AGENTS.md` calls presentation: "Order is presentation, so it
+ * stays out of the fingerprinted bulk selection filter."
+ */
+const PRESENTATION = new Set(["sort", "direction", "cursor", "page", "limit"]);
+
+/**
+ * The fingerprint of one collection, from the parsed query that defines it.
+ *
+ * `idempotencyRequestHash` is the canonicaliser this product already has: keys
+ * sorted, `undefined` dropped, dates as ISO strings, so two spellings of one
+ * query hash alike. Reused rather than reimplemented, because two canonical
+ * forms is a way for one of them to drift.
+ *
+ * Truncated to sixteen hex characters. The payload is signed, so nobody can
+ * construct a cursor whose hash matches a collection it did not come from;
+ * what is left is accidental collision between two of one person's own filter
+ * combinations, and 64 bits is far past enough for that. The rest would be 48
+ * characters on every cursor for nothing.
+ */
+export function collectionFingerprint(query: Record<string, unknown>) {
+  const scope = Object.fromEntries(Object.entries(query).filter(([key]) => !PRESENTATION.has(key)));
+  return idempotencyRequestHash(scope).slice(0, 16);
+}
 
 export type CursorValue = z.infer<typeof cursorSchema>;
 
@@ -79,7 +127,7 @@ export function encodeCursor(value: CursorValue) {
 
 export function decodeCursor(
   value: string,
-  expected: { key: string; direction: string },
+  expected: { key: string; direction: string; filters?: string },
 ): CursorValue {
   // Unsigned cursors are still read, for this release only.
   //
@@ -127,6 +175,20 @@ export function decodeCursor(
     throw validationError(
       "This cursor belongs to a different sort order. Start again from the first page.",
       { cursorSort: parsed.key, cursorDirection: parsed.direction },
+    );
+  }
+  // A filter that moved, said as its own sentence rather than folded into the
+  // sort one: the caller changed a different thing and the move that works is
+  // the same either way, but a message naming the sort when the sort is
+  // unchanged is the kind of advice that sends somebody looking in the wrong
+  // place.
+  if (
+    expected.filters !== undefined &&
+    parsed.filters !== undefined &&
+    parsed.filters !== expected.filters
+  ) {
+    throw validationError(
+      "This cursor was issued for a different set of filters. Start again from the first page.",
     );
   }
   return parsed;

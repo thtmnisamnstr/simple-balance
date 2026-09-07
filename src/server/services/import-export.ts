@@ -159,6 +159,10 @@ export async function listActiveImportBatches(
   const query = importBatchListQuerySchema.parse(input);
   const conditions = [eq(importBatches.userId, actor.userId)];
   if (query.cursor) {
+    // No filter fingerprint, because this listing has no filters: its schema is
+    // `cursor` and `limit`. Adding one means passing `collectionFingerprint(query)`
+    // here and to `encodeCursor` below, or the walk resumes into a different
+    // collection — which is the defect that member exists to prevent.
     const cursor = decodeCursor(query.cursor, { key: "created", direction: "desc" });
     const createdAt = cursorInstant(cursor);
     conditions.push(

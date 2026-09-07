@@ -11,6 +11,9 @@ export async function listAuditEvents(actor: Actor, input: unknown = {}) {
   // defence for a value the other caller had already bounded.
   const options = auditListQuerySchema.parse(input);
   const limit = options.limit;
+  // No filter fingerprint: the audit log takes `cursor` and `limit` and nothing
+  // that narrows what it walks. A filter added to `auditListQuerySchema` needs
+  // `collectionFingerprint(options)` passed here and to `encodeCursor` below.
   const cursor = options.cursor
     ? decodeCursor(options.cursor, { key: "created", direction: "desc" })
     : null;

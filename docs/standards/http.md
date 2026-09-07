@@ -750,7 +750,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   ordering a keyset cannot resume, such as one that sorts by a name reached from
   another table (`src/server/services/sorting.ts:4-11`).
 - **House.** When both `cursor` and `page` are sent, the cursor wins and `page`
-  is reported as 1 (`src/server/services/transactions.ts:1378-1380`).
+  is reported as 1 (`src/server/services/transactions.ts:1379-1381`).
 - **House, following AIP-158.** `nextCursor: null` is the end signal, and the
   only one. The Azure guidelines forbid exactly that spelling; AIP-158 permits
   it. Keep the null, because the field's presence is contractual: Zod output
@@ -765,19 +765,56 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   same field on the tool side.
 - **Binding.** A cursor binds the ordering it was issued for and is refused
   under another, with a message telling the caller to start again from the first
-  page (`src/server/services/cursor.ts:80-132`).
+  page (`src/server/services/cursor.ts:128-194`).
   *Checked by:* `tests/cursor.test.ts`.
-- **House, and a real gap.** A cursor must bind everything that defines the
-  collection, and today it binds only the ordering. It carries `key`,
-  `direction`, `sort` and `id` (`src/server/services/cursor.ts:12-24`), so
-  changing the sort between pages is caught, and changing a **filter** is not:
-  `accountId`, `categoryId`, `templateId`, `payee`, `type`, `currency`,
-  `search`, `start`, `end` and `includeDeleted` can all change and the keyset
-  resumes silently into a different collection. The fix is a hash of the
-  canonical filter object, and the machinery exists, because the fingerprinted
-  bulk selection solves the same problem for a different contract. **State the
+- **House, and it used to bind only the ordering.** A cursor must bind
+  everything that defines the collection. It carried `key`, `direction`, `sort`
+  and `id`, so changing the sort between pages was caught and changing a
+  **filter** was not: `accountId`, `categoryId`, `templateId`, `payee`, `type`,
+  `currency`, `search`, `start`, `end` and `includeDeleted` could all move and
+  the keyset resumed silently into a different collection — handing back rows
+  from a query nobody asked for, with the row count still reporting the truth of
+  the *new* collection, which is what made it silent.
+
+  It now carries `filters`, a fingerprint of the query with the presentation
+  keys taken out (`src/server/services/cursor.ts:74-132`). **State the
   symmetry:** a cursor binds the collection it walks, a bulk selection binds the
   rows it changes, and both refuse rather than quietly covering something else.
+  Four things about how it is built, each of which was a way to get it wrong:
+
+  - **The scope is derived by exclusion, not enumerated.** Everything except
+    `sort`, `direction`, `cursor`, `page` and `limit` is part of the
+    collection, so a filter added to a list schema is bound without anybody
+    remembering — which is the failure the member exists to prevent, one level
+    up. The five excluded are the ones `AGENTS.md` calls presentation.
+  - **The canonicaliser is the one this product already has.**
+    `idempotencyRequestHash` sorts keys, drops `undefined` and renders dates as
+    ISO strings, so two spellings of one query hash alike. Two canonical forms
+    is a way for one of them to drift.
+  - **Sixteen hex characters.** The payload is signed, so no caller can build a
+    cursor whose fingerprint matches a collection it did not come from; what is
+    left is accidental collision between two of one person's own filter
+    combinations, and 64 bits is far past enough. The rest would be 48
+    characters on every cursor for nothing.
+  - **Absent means unbound, and is accepted.** A cursor issued before this
+    existed carries no fingerprint, and refusing it would narrow a working
+    client. It goes with the unsigned encoding, on the same date.
+
+  Two of the four cursor-taking listings pass one, because the other two have no
+  filters to bind: the audit log and the import-batch list take `cursor` and
+  `limit` and nothing that narrows what they walk. Both say so at the call site,
+  so a filter added there is a decision rather than an omission.
+
+  A refusal names which of the two moved. A message about the sort when the sort
+  is unchanged sends somebody looking in the wrong place, so the two are two
+  sentences.
+
+  *Checked by:* `tests/cursor.test.ts` for the fingerprint and the refusal, and
+  — separately and necessarily — `tests/integration/sorting.integration.test.ts`
+  and `tests/integration/staged-cursor.integration.test.ts` for the two call
+  sites. The unit test can only reach `decodeCursor`, and the defect was that
+  the call sites passed it nothing to compare: dropping `filters:` from either
+  listing leaves every unit test green.
 - **Contested: is a cursor opaque? Settled by signing it.** AIP-158 says page
   tokens "must be opaque (but URL-safe) strings, and must not be user-parseable",
   and names base64-encoding an otherwise-transparent token as insufficient
@@ -785,7 +822,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   case, and no invariant protected the encoding — so a reader of the base64 would
   have built against it. **The published guidance won.** A cursor is now
   `<payload>.<mac>`, where the MAC is HMAC-SHA256 over the payload under a key
-  derived from `AUTH_SECRET` (`src/server/services/cursor.ts:30-78`).
+  derived from `AUTH_SECRET` (`src/server/services/cursor.ts:78-126`).
 
   Signed rather than encrypted, and the difference is the whole argument. The
   contents are a boundary value and a row id the caller already holds, so there
@@ -832,7 +869,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   exists to be cheap.
   **The code disagrees with that bound today.** `listTransactions` runs its
   `count()` unconditionally, before it looks at whether a cursor was sent
-  (`src/server/services/transactions.ts:1374-1379`), so a cursor page pays for a
+  (`src/server/services/transactions.ts:1375-1380`), so a cursor page pays for a
   full count it does not use. Skip the count when a cursor is present.
 - **House, four keyset pitfalls,** written here because they currently live only
   in code comments, where nobody looks before adding the seventh sortable
@@ -859,7 +896,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
      one into "start from the first page" rather than a 500. The value inside
      one becomes a bound parameter compared against a date or a numeric column,
      and PostgreSQL answers a value it cannot read with an error
-     (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:135-148`).
+     (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:197-210`).
 - **House.** `limit` is optional, defaults to 50 and is capped at 200
   (`src/shared/domain.ts:1404`). A server may return fewer rows than asked for.
 - **House.** Every list contract on this surface is a published Zod schema, and
@@ -1078,7 +1115,7 @@ edit, a mass delete, a commit, and a CSV import."
   map rather than a list of pairs. That is the older spelling and it stays.
   Moving it changes the wire on the one route that puts money in the books, and
   the request shape is what the recorded idempotency payload is hashed from
-  (`src/server/services/staging.ts:1126-1131`), so a commit retried across the
+  (`src/server/services/staging.ts:1128-1133`), so a commit retried across the
   deploy would come back `CONFLICT` instead of replaying — a self-inflicted
   failure on the write that can least afford one, in exchange for no behaviour a
   caller can observe. A missing map entry already refused rather than wrote.
@@ -1089,7 +1126,7 @@ edit, a mass delete, a commit, and a CSV import."
   fault named: nothing went stale, the request arrived incomplete, and an agent
   told to read the row again and retry sends the same payload back. Both
   services now refuse it by name with the offending id in the details
-  (`src/server/services/staging.ts:1008-1026`), the way `mergeCategories`
+  (`src/server/services/staging.ts:1010-1028`), the way `mergeCategories`
   (`src/server/services/categories.ts:928-934`) already did with the identical
   encoding, and a repeated id is refused as a duplicate rather than reported as
   a missing row. A superset map is still accepted: naming a version the caller
@@ -1153,7 +1190,7 @@ edit, a mass delete, a commit, and a CSV import."
   the work so it finishes inside a request: ten thousand rows everywhere, with
   the body limit derived from that cap rather than guessed.
   **The one operation that outgrows this is CSV export**, which buffers up to
-  100,000 transactions in memory (`src/server/services/import-export.ts:1027`)
+  100,000 transactions in memory (`src/server/services/import-export.ts:1031`)
   against very carefully specified request limits. The bound it needed is now
   stated and enforced: `CSV_EXPORT_MAX_ROWS` (`src/server/config-limits.ts:30`)
   refuses a larger export with the remedy named — narrow the date range and
@@ -1543,6 +1580,8 @@ than rediscovering the disagreement.
 | The route tables in this guide name every registered route and nothing else | `tests/http-route-table.test.ts` |
 | A streamed reply is optional, keeps `no-store`, ends in the plain branch's payload, and writes nothing when it ends in a refusal | `tests/integration/streamed-commit.integration.test.ts`, `tests/progress-frames.test.ts` |
 | One error code maps to one status, and no route builds an error body by hand outside two named exceptions | `tests/service-errors.test.ts` |
+| A cursor is signed, refuses a forged or truncated MAC, and still reads the previous encoding | `tests/cursor.test.ts` |
+| A cursor binds the filters it was issued under, at both call sites that have filters | `tests/integration/sorting.integration.test.ts`, `tests/integration/staged-cursor.integration.test.ts` |
 | Every 429 names an interval, and the limiter derives it from the window it counts by | `tests/http-security.test.ts` |
 | No `/api/v1` handler converts a query parameter itself, and the four it still reads one at a time are named | `tests/http-route-table.test.ts` |
 | Every health response says which build is answering, in both entrypoints | `tests/version.test.ts` |
@@ -1552,9 +1591,7 @@ than rediscovering the disagreement.
 1. `listQuerySchema` and the bulk filter schema accept the same parameter names.
    `idempotencyKeySchema`'s own bounds, the 200-character ceiling and the trim,
    which no test reaches today.
-2. Every list endpoint's cursor round-trips through its filters, once the cursor
-   binds them.
-3. The generated OpenAPI document is checked in and CI fails when it changes
+2. The generated OpenAPI document is checked in and CI fails when it changes
    without a changelog entry.
 
 **Review only, and honestly so:**

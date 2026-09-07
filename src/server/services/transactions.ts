@@ -58,7 +58,7 @@ import {
   type TransactionRow,
 } from "../db/schema.js";
 import { duplicate, notFound, staleVersion, validationError } from "./errors.js";
-import { decodeCursor, encodeCursor } from "./cursor.js";
+import { collectionFingerprint, decodeCursor, encodeCursor } from "./cursor.js";
 import {
   canonicalDecimal,
   decimal,
@@ -1361,6 +1361,7 @@ export async function listTransactions(
     const cursor = decodeCursor(query.cursor, {
       key: query.sort,
       direction: query.direction,
+      filters: collectionFingerprint(query),
     });
     try {
       plan.parseCursorValue?.(cursor.sort);
@@ -1411,6 +1412,7 @@ export async function listTransactions(
             direction: query.direction,
             sort: plan.cursorValue(last),
             id: last.id,
+            filters: collectionFingerprint(query),
           })
         : null,
     // Whether this ordering can be resumed at all, said plainly.

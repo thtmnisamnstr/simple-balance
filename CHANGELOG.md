@@ -433,6 +433,17 @@ rather than merely validated. Signed and not encrypted, deliberately: the
 contents are a boundary value and a row id the caller already holds, so there is
 nothing to hide, and a scheme a reader can check beats one they have to trust.
 
+**And it binds the filters it was issued under.** A cursor bound its ordering
+and nothing else, so paging through Transactions and changing the search or the
+account between pages resumed the walk inside a *different* collection — rows
+from a query nobody asked for, with the row count reporting the truth of the new
+collection, so nothing on screen said anything had gone wrong. Every cursor now
+carries a fingerprint of the filters, and one that no longer matches is refused
+with "This cursor was issued for a different set of filters. Start again from
+the first page." Changing the sort order still gets its own sentence, because a
+message about the sort when the sort has not moved sends you looking in the
+wrong place. Changing the page size does not invalidate anything.
+
 **Nothing you do changes, and a cursor 0.1.5 issued still works.** A cursor is
 held rather than stored — a browser tab keeps one in component state, an agent
 may send one back minutes later — so a rolling deploy has a window where a

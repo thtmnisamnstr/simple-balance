@@ -43,7 +43,7 @@ import {
   zodIssues,
   AppError,
 } from "./errors.js";
-import { decodeCursor, encodeCursor } from "./cursor.js";
+import { collectionFingerprint, decodeCursor, encodeCursor } from "./cursor.js";
 import {
   exceedsBulkSelectionCap,
   getIdempotent,
@@ -750,6 +750,7 @@ export async function listStages(actor: Actor, input: unknown): Promise<Paginate
     const cursor = decodeCursor(query.cursor, {
       key: query.sort,
       direction: query.direction,
+      filters: collectionFingerprint(query),
     });
     conditions.push(plan.keyset(cursor.sort, cursor.id));
   }
@@ -794,6 +795,7 @@ export async function listStages(actor: Actor, input: unknown): Promise<Paginate
             direction: query.direction,
             sort: plan.cursorValue(last),
             id: last.id,
+            filters: collectionFingerprint(query),
           })
         : null,
     // See the same field on the transaction listing: null `nextCursor` means

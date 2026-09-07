@@ -130,4 +130,40 @@ integration("paging the queue by date", () => {
     const folded = await listStages(actor, { payee: "Caf\u00e9 fine", limit: 50 });
     expect(folded.items.length, "the folded spelling matches as well").toBeGreaterThan(0);
   });
+
+  /**
+   * A cursor here binds its filters too, and the queue is the second call site.
+   *
+   * The unit tests reach `decodeCursor` and can only prove that a mismatch is
+   * refused when one is handed to it. What was wrong is that the call sites
+   * handed it nothing to compare — so this listing needs its own case, or
+   * dropping `filters:` from `listStages` leaves the whole suite green while the
+   * queue resumes into a different collection.
+   */
+  it("refuses a cursor issued under a different filter", async () => {
+    const first = await listStages(actor, { sort: "date", direction: "asc", limit: 1 });
+    expect(first.nextCursor).not.toBeNull();
+    await expect(
+      listStages(actor, {
+        sort: "date",
+        direction: "asc",
+        limit: 1,
+        payee: "A string date",
+        cursor: first.nextCursor,
+      }),
+    ).rejects.toThrow(/different set of filters/);
+  });
+
+  it("resumes the queue when the filters have not moved", async () => {
+    // The other half, and the reason the fingerprint covers the filters rather
+    // than the whole query: `limit` differs between these two calls by design.
+    const first = await listStages(actor, { sort: "date", direction: "asc", limit: 1 });
+    const second = await listStages(actor, {
+      sort: "date",
+      direction: "asc",
+      limit: 4,
+      cursor: first.nextCursor,
+    });
+    expect(second.items.map((item) => item.id)).not.toContain(first.items[0]!.id);
+  });
 });

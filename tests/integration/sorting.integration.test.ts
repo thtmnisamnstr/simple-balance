@@ -160,6 +160,56 @@ integration("list ordering", () => {
     ).rejects.toThrow(/different sort order/);
   });
 
+  /**
+   * And a cursor from a different *filter*, which is the half that was silent.
+   *
+   * The ordering check above has been there since the cursor was written. A
+   * filter that moved was not checked at all: the keyset resumed into whatever
+   * the new filter matched, handed back rows from a query nobody asked for, and
+   * reported a row count that was true of the new collection — so nothing on
+   * screen or on the wire said anything had gone wrong.
+   *
+   * Here rather than in `tests/cursor.test.ts` because the unit test can only
+   * reach `decodeCursor`, and the defect was that the *call sites* passed it
+   * nothing to compare. Dropping `filters:` from either call in
+   * `listTransactions` leaves every unit test green.
+   */
+  it("refuses a cursor issued under a different filter", async () => {
+    const first = await listTransactions(actor, { sort: "payee", direction: "asc", limit: 2 });
+    expect(first.nextCursor).not.toBeNull();
+    await expect(
+      listTransactions(actor, {
+        sort: "payee",
+        direction: "asc",
+        limit: 2,
+        search: "Yarrow",
+        cursor: first.nextCursor,
+      }),
+    ).rejects.toThrow(/different set of filters/);
+  });
+
+  it("resumes a walk whose filters have not moved", async () => {
+    // The other half: binding the filters must not refuse a legitimate walk.
+    // A fingerprint over the whole query object rather than over the filters
+    // alone would fail here, because `limit` and `cursor` differ by
+    // construction on the second call.
+    const first = await listTransactions(actor, {
+      sort: "payee",
+      direction: "asc",
+      limit: 2,
+      search: "a",
+    });
+    if (first.nextCursor === null) return;
+    const second = await listTransactions(actor, {
+      sort: "payee",
+      direction: "asc",
+      limit: 5,
+      search: "a",
+      cursor: first.nextCursor,
+    });
+    expect(second.items.map((item) => item.id)).not.toContain(first.items[0]!.id);
+  });
+
   // The default view is the one every person lands on. Ordering it in a way the
   // index cannot serve turns reading a page into sorting the whole ledger, and
   // nothing about the result would look wrong, so the plan itself is asserted.

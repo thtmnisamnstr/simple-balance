@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { decodeCursor, encodeCursor } from "../src/server/services/cursor.js";
+import {
+  collectionFingerprint,
+  decodeCursor,
+  encodeCursor,
+} from "../src/server/services/cursor.js";
 
 const ordering = { key: "date", direction: "desc" } as const;
 
@@ -135,5 +139,88 @@ describe("what this release deprecates", () => {
     // string.
     const spelled = `${day.getUTCDate()} ${day.toLocaleString("en-GB", { month: "long", timeZone: "UTC" })} ${day.getUTCFullYear()}`;
     expect(cursor, `the cursor's window should end on ${spelled}`).toContain(spelled);
+  });
+});
+
+/**
+ * The filters, which a cursor bound to nothing at all.
+ *
+ * Changing the *sort* between pages was caught; changing a *filter* was not, so
+ * a walk resumed into a different collection and handed back rows from a query
+ * nobody asked for — with the row count still reporting the truth, which is
+ * what made it silent. A cursor binds the collection it walks the way a bulk
+ * selection binds the rows it changes.
+ */
+describe("a cursor and the filters it was issued under", () => {
+  const walk = { ...ordering, sort: value.sort, id: value.id };
+
+  it("hashes the filters and not the view of them", () => {
+    const base = { accountId: "a", search: "rent", sort: "date", direction: "desc" };
+    // Order and paging are presentation: changing them must not invalidate a
+    // walk, because the sort already has its own check and page size is not
+    // part of what the rows are.
+    expect(collectionFingerprint(base)).toBe(
+      collectionFingerprint({ ...base, page: 4, limit: 200, cursor: "x" }),
+    );
+    // Key order in the object is not part of the query either.
+    expect(collectionFingerprint(base)).toBe(
+      collectionFingerprint({ search: "rent", direction: "desc", sort: "date", accountId: "a" }),
+    );
+    // A filter that moves is a different collection.
+    expect(collectionFingerprint(base)).not.toBe(
+      collectionFingerprint({ ...base, search: "groceries" }),
+    );
+    expect(collectionFingerprint(base)).not.toBe(
+      collectionFingerprint({ ...base, accountId: "b" }),
+    );
+    // And a filter that arrives.
+    expect(collectionFingerprint(base)).not.toBe(
+      collectionFingerprint({ ...base, includeDeleted: true }),
+    );
+    // Sixteen hex characters, so a cursor stays short.
+    expect(collectionFingerprint(base)).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("refuses a cursor whose filters have moved", () => {
+    const issued = { accountId: "a", search: "rent" };
+    const cursor = encodeCursor({ ...walk, filters: collectionFingerprint(issued) });
+    expect(decodeCursor(cursor, { ...ordering, filters: collectionFingerprint(issued) })).toEqual({
+      ...walk,
+      filters: collectionFingerprint(issued),
+    });
+    expect(() =>
+      decodeCursor(cursor, {
+        ...ordering,
+        filters: collectionFingerprint({ accountId: "a", search: "groceries" }),
+      }),
+    ).toThrow(/different set of filters/);
+  });
+
+  it("says which of the two moved, rather than blaming the sort", () => {
+    // A message naming the sort when the sort is unchanged sends somebody
+    // looking in the wrong place, so the two refusals are two sentences.
+    const cursor = encodeCursor({ ...walk, filters: collectionFingerprint({ search: "rent" }) });
+    expect(() =>
+      decodeCursor(cursor, { ...ordering, filters: collectionFingerprint({ search: "x" }) }),
+    ).toThrow(/different set of filters/);
+    expect(() =>
+      decodeCursor(cursor, {
+        key: "payee",
+        direction: "desc",
+        filters: collectionFingerprint({ search: "rent" }),
+      }),
+    ).toThrow(/different sort order/);
+  });
+
+  /**
+   * And a cursor from before this existed still walks.
+   *
+   * Absent means unbound. Refusing it would narrow a working client's
+   * pagination, which is what a release may not do; it goes with the unsigned
+   * form on the same date.
+   */
+  it("accepts a cursor that carries no filter fingerprint", () => {
+    const cursor = encodeCursor(walk);
+    expect(decodeCursor(cursor, { ...ordering, filters: "0123456789abcdef" })).toEqual(walk);
   });
 });
