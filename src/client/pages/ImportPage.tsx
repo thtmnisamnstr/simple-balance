@@ -3,7 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
-import { PROGRESS_STREAM_MIN_ROWS, type StagedDraft } from "../../shared/domain.js";
+import {
+  PROGRESS_STREAM_MIN_ROWS,
+  type CategoryKind,
+  type StagedDraft,
+} from "../../shared/domain.js";
 import { progressFraction, type ProgressEvent } from "../../shared/progress.js";
 import {
   api,
@@ -49,7 +53,7 @@ type StageResult = {
       inputName: string;
       resolvedName: string;
       categoryId: string | null;
-      kind: "income" | "expense" | "both";
+      kind: CategoryKind;
       resolution: "existing" | "new" | "updated" | "deferred";
       unarchived: boolean;
     }[];

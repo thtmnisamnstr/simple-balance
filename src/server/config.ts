@@ -2,6 +2,17 @@ import { z } from "zod";
 import { readSecret, resolveFileBackedSecrets } from "./config-files.js";
 import { assertConfiguredLimits } from "./config-limits.js";
 
+/**
+ * The four `LOG_LEVEL` accepts, in the order severity increases.
+ *
+ * Spelled here rather than in `log.ts` because the dependency runs that way:
+ * `log.ts` already reads `getConfig().logLevel`, so the level's home is the
+ * layer underneath it. It was three hand-written copies — this type, the enum
+ * that parses the variable, and `ORDER` in `log.ts` — agreeing by coincidence.
+ */
+export const logLevels = ["debug", "info", "warn", "error"] as const;
+export type LogLevel = (typeof logLevels)[number];
+
 function isLoopbackHostname(hostname: string) {
   if (hostname === "localhost" || hostname === "[::1]") return true;
   const octets = hostname.split(".");
@@ -137,7 +148,7 @@ export type AppConfig = {
    */
   mail?: MailSettings;
   port: number;
-  logLevel: "debug" | "info" | "warn" | "error";
+  logLevel: LogLevel;
   trustProxy: boolean;
   /**
    * Whether this process proposes recurring transactions.
@@ -208,7 +219,7 @@ export function getConfig(): AppConfig {
     .max(65535, { error: () => portRule })
     .parse(process.env.PORT ?? 3000);
   const logLevel = z
-    .enum(["debug", "info", "warn", "error"], {
+    .enum(logLevels, {
       error: () => "LOG_LEVEL must be debug, info, warn or error",
     })
     .parse((process.env.LOG_LEVEL ?? "info").toLowerCase());

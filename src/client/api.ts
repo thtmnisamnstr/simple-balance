@@ -22,6 +22,10 @@ import type {
   TransactionTemplateDraft,
   TransactionType,
   ValidationIssue,
+  ReportAccumulation,
+  BudgetGroupPolicy,
+  BudgetAmountRule,
+  ForecastBasis,
 } from "../shared/domain.js";
 
 export class ApiClientError extends Error {
@@ -595,7 +599,7 @@ export type Report = {
   /** The day the figures are really as of, which is today when the range runs past it. */
   asOf: string;
   bucket: ReportBucket;
-  accumulation: "change" | "historical";
+  accumulation: ReportAccumulation;
   includesArchived: boolean;
   buckets: { start: string; end: string }[];
   currencies: {
@@ -674,7 +678,7 @@ export type BudgetPeriodUnitName = BudgetPeriodUnit;
 export type CategoryGroup = {
   id: string;
   name: string;
-  policy: "standalone" | "sum_of_children";
+  policy: BudgetGroupPolicy;
   categoryCount: number;
   version: number;
 };
@@ -700,7 +704,7 @@ export type BudgetPlan = {
   percentOfPrevious: string | null;
   percentOfIncome: string | null;
   priority: number;
-  amountRule: "fixed" | "sinking_fund" | "trailing_average" | "incremental" | "percent_of_income";
+  amountRule: BudgetAmountRule;
   version: number;
 };
 
@@ -737,7 +741,7 @@ export type BudgetReportRow = {
 export type Forecast = {
   from: string;
   periodUnit: BudgetPeriodUnitName;
-  basis: "recurring" | "recurring_and_budgets" | "recurring_and_history";
+  basis: ForecastBasis;
   unprojectable: { id: string; name: string; reason: string }[];
   /** Units this person budgets in that this projection did not read. */
   otherPeriodUnits: BudgetPeriodUnitName[];
@@ -765,7 +769,7 @@ export type Forecast = {
 export type BudgetGroupRow = {
   groupId: string;
   name: string;
-  policy: "standalone" | "sum_of_children";
+  policy: BudgetGroupPolicy;
   limit: string | null;
   actual: string;
   remaining: string | null;

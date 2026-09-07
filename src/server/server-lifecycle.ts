@@ -1,6 +1,6 @@
 import { log } from "./log.js";
 
-export const DEFAULT_SHUTDOWN_DEADLINE_MS = 10_000;
+const DEFAULT_SHUTDOWN_DEADLINE_MS = 10_000;
 
 export type DrainableServer = {
   close(callback: (error?: Error) => void): void;

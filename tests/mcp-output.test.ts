@@ -85,6 +85,106 @@ describe("MCP output contracts", () => {
   });
 });
 
+/**
+ * The envelope a collection comes back in, and the eleven that predate the rule.
+ *
+ * `http.md`: "A single resource is returned as the object itself, with no
+ * envelope. A collection is returned as one of two envelopes and no third."
+ * That rule was stated and never checked, and eleven listings return a bare
+ * array — which is the third shape, arrived at by there being no rule when they
+ * were written.
+ *
+ * **They stay.** Turning `[…]` into `{items: […]}` removes nothing and adds
+ * nothing to a field: it changes the type of the whole response, so every
+ * client reading `response[0]` breaks. `http.md`'s own breaking-change list
+ * names that, and `AGENTS.md` forbids a release from doing it. Closing this
+ * needs either `/api/v2` or a deprecation cycle, and it is a later release's
+ * job.
+ *
+ * So this is a register, and the value is the twelfth. A listing added now has
+ * to use an envelope, because adding one to the list below is a decision
+ * somebody makes in a diff rather than a shape that arrives by not thinking
+ * about it.
+ */
+describe("the envelope a collection arrives in", () => {
+  const resources: {
+    client?: Client;
+    server?: ReturnType<typeof createMcpServer>;
+  } = {};
+
+  afterEach(async () => {
+    await resources.client?.close();
+    await resources.server?.close();
+    resources.client = undefined;
+    resources.server = undefined;
+  });
+
+  /**
+   * Eleven bare arrays and one third envelope, each predating the rule.
+   *
+   * `list_recurrences` is the odd one: `{today, items}` rather than an array,
+   * because a schedule read on Tuesday means something different from one read
+   * on Wednesday and `AGENTS.md` requires a summary to report the day it used.
+   * That datum is real; the shape around it is still not one of the two.
+   */
+  const BEFORE_THE_RULE = new Set([
+    "list_accounts",
+    "list_categories",
+    "list_payees",
+    "list_payee_suggestions",
+    "list_transaction_templates",
+    "list_category_groups",
+    "list_budget_plans",
+    "list_budget_entries",
+    "list_duplicate_categories",
+    "list_duplicate_payees",
+    "list_connected_agents",
+    "list_recurrences",
+  ]);
+
+  it("is one of the two envelopes, or is on the list of the ones that predate the rule", async () => {
+    resources.server = createMcpServer(
+      { userId: "envelope-user", source: "mcp", clientId: "envelope-test" },
+      new Set(["ledger:read", "ledger:stage", "ledger:write"]),
+    );
+    resources.client = new Client({ name: "envelope", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await resources.server.connect(serverTransport);
+    await resources.client.connect(clientTransport);
+    const { tools } = await resources.client.listTools();
+
+    const wrong: string[] = [];
+    let enveloped = 0;
+    for (const tool of tools) {
+      if (!tool.name.startsWith("list_")) continue;
+      // The success arm of the two-member `anyOf` every output schema is.
+      const success = (tool.outputSchema as { properties?: { result?: { anyOf?: unknown[] } } })
+        ?.properties?.result?.anyOf?.[0] as
+        | { type?: string; properties?: Record<string, unknown> }
+        | undefined;
+      const isEnvelope =
+        success?.type === "object" &&
+        Boolean(success.properties?.["items"]) &&
+        Boolean(success.properties?.["nextCursor"]);
+      if (isEnvelope) {
+        enveloped += 1;
+        continue;
+      }
+      if (BEFORE_THE_RULE.has(tool.name)) continue;
+      wrong.push(`${tool.name} returns neither Page nor PaginatedPage`);
+    }
+    // Four are enveloped today, so this is not passing by finding no listings.
+    expect(enveloped).toBeGreaterThan(3);
+    expect(wrong, "use Page or PaginatedPage, or say why in BEFORE_THE_RULE").toEqual([]);
+
+    // And every name on the register is still a listing. One left behind after
+    // the tool it excused was renamed is the register drifting the way the
+    // shapes did.
+    const listings = new Set(tools.map((tool) => tool.name));
+    expect([...BEFORE_THE_RULE].filter((name) => !listings.has(name))).toEqual([]);
+  });
+});
+
 describe("revoking an agent over MCP", () => {
   const resources: {
     client?: Client;

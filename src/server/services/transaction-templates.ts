@@ -296,7 +296,7 @@ const accountSides = {
  * because a template holding an account nothing looks at is worse than a blank
  * the person fills in on use.
  */
-export function applyTemplateBulkPatch(
+function applyTemplateBulkPatch(
   draft: TransactionTemplateDraft,
   patch: TransactionTemplateBulkPatch,
 ): TransactionTemplateDraft {

@@ -174,7 +174,7 @@ describe("a field around a composite", () => {
  *
  * Named, so a second file input has to come here and make its own case.
  */
-const NOT_A_FIELD = new Set(["src/client/pages/ImportPage.tsx:318"]);
+const NOT_A_FIELD = new Set(["src/client/pages/ImportPage.tsx:322"]);
 
 describe("every control in the client", () => {
   it("goes through the three shared components", () => {

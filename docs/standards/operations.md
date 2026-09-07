@@ -214,7 +214,7 @@ the whole reason `sendMail` returns `false` rather than throwing
 
 **House, and this is the constraint to state as a defence rather than as
 strictness.** The URL in a reset message is built from `APP_BASE_URL`, which
-`config.ts:15-49` validates as an exact HTTP(S) origin with no credentials, path,
+`config.ts:26-60` validates as an exact HTTP(S) origin with no credentials, path,
 query or fragment, HTTPS everywhere but loopback. That is the Host-header
 injection defence: a reset link assembled from the request's `Host` header lets a
 stranger send a real user a real reset link pointing at the stranger's server.
@@ -392,7 +392,7 @@ the database or the process.
 
 **House.** A list is comma-separated, each entry trimmed, and empty entries are
 skipped rather than refused. `parseRegistrationRule`
-(`src/server/config.ts:440-475`) is the model: split, trim, lowercase, drop the
+(`src/server/config.ts:451-486`) is the model: split, trim, lowercase, drop the
 blanks, then validate what is left with a message naming the bad entry.
 
 *Checked by:* `tests/config.test.ts:145-166`, which asserts that
@@ -520,7 +520,7 @@ and that it does so in a process that never calls `getConfig` at all.
 endpoint, so the seventh name rests on the resolver's registry
 (`src/server/config-files.ts:15-23`) alone.
 
-**House, and stronger than the litmus test.** `config.ts:58-70` holds a
+**House, and stronger than the litmus test.** `config.ts:69-81` holds a
 `publicAuthSecrets` set and refuses an `AUTH_SECRET` matching any value this
 project has ever published, including whatever `.env.example` last carried, with
 the message "AUTH_SECRET is a published placeholder. Generate one, for example

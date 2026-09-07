@@ -928,7 +928,7 @@ export const transactionTemplateBulkPatchSchema = z
 export const transactionTemplateBulkEditSchema = z
   .object({
     selection: transactionTemplateBulkSelectionSchema.describe(
-      "Which rows to act on: either an explicit list with the version you read for each, or a filter plus the count and fingerprint a preview handed back. The filter form is refused if the matching set changed since the preview, so a row somebody added in between is never swept up silently.",
+      "Which rows to act on: an explicit list, with the version you read for each. There is no filter form here — the template list is capped and comes back whole, so a caller already holds every id and every version and can name them rather than describing them and asking the server to agree. A row whose version has moved is refused, and the refusal reports the version it has now.",
     ),
     patch: transactionTemplateBulkPatchSchema.describe(
       "The fields to set on every row in the selection. A key left out is left alone; a key set to null clears it. An empty string is refused rather than read as a clear, because the two mean different things and only one of them is ever what somebody meant.",
@@ -946,7 +946,7 @@ export const transactionTemplateBulkEditSchema = z
 export const transactionTemplateBulkDeleteSchema = z
   .object({
     selection: transactionTemplateBulkSelectionSchema.describe(
-      "Which rows to act on: either an explicit list with the version you read for each, or a filter plus the count and fingerprint a preview handed back. The filter form is refused if the matching set changed since the preview, so a row somebody added in between is never swept up silently.",
+      "Which rows to act on: an explicit list, with the version you read for each. There is no filter form here — the template list is capped and comes back whole, so a caller already holds every id and every version and can name them rather than describing them and asking the server to agree. A row whose version has moved is refused, and the refusal reports the version it has now.",
     ),
     idempotencyKey: idempotencyKeySchema,
     dryRun: z
@@ -1462,7 +1462,7 @@ const budgetTarget = {
  * closed account silently leaves the figures. The default is the only thing
  * that differed, so it is a parameter now rather than a reason to hand-roll it.
  */
-export const queryBoolean = (whenAbsent: boolean) =>
+const queryBoolean = (whenAbsent: boolean) =>
   z
     .union([
       z.boolean(),
@@ -1778,7 +1778,7 @@ export const budgetReportQuerySchema = z
   .strict();
 
 /** How a report treats time: a period's own movement, or the balance it ends on. */
-export const reportAccumulations = ["change", "historical"] as const;
+const reportAccumulations = ["change", "historical"] as const;
 export type ReportAccumulation = (typeof reportAccumulations)[number];
 
 /**
@@ -1829,7 +1829,7 @@ export const MAX_FORECAST_PERIODS = 24;
  * same reason `MAX_ROLLOVER_PERIODS` is: an unbounded window is an unbounded
  * scan, and the answer stops improving long before the cost does.
  */
-export const MAX_FORECAST_LOOKBACK = 12;
+const MAX_FORECAST_LOOKBACK = 12;
 
 /**
  * What a projection is worked out from.
@@ -2568,7 +2568,7 @@ export const serviceErrorCodes = [
  * rest, and all five sat on the wire in no enumeration at all for a while,
  * because nothing constrained what a refusal was allowed to name.
  */
-export const transportErrorCodes = [
+const transportErrorCodes = [
   "CROSS_ORIGIN_REQUEST",
   "UNSUPPORTED_MEDIA_TYPE",
   "PAYLOAD_TOO_LARGE",
@@ -2996,7 +2996,7 @@ export const recurrenceSchedulePatchSchema = z
  * look at their mail, so seconds would be a precision the delivery cannot keep
  * and the scheduler's tick interval would make a lie of.
  */
-export const clockTimeSchema = z
+const clockTimeSchema = z
   .string()
   .regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, "Use a time of day as HH:MM, from 00:00 to 23:59")
   .describe(

@@ -62,7 +62,7 @@ export function withClause(...parts: (SQL | null)[]): SQL {
  * expression, and two copies of `date_trunc` are two chances to disagree about
  * which month a purchase fell in.
  */
-export const PERIOD_STEPS: Record<Exclude<ReportBucket, "none">, SQL> = {
+const PERIOD_STEPS: Record<Exclude<ReportBucket, "none">, SQL> = {
   week: sql`interval '1 week'`,
   month: sql`interval '1 month'`,
   quarter: sql`interval '3 months'`,

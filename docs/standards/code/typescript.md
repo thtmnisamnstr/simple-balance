@@ -33,7 +33,7 @@ The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
 (`src/server/services/errors.ts:31-52`,
-`src/client/api.ts:27-40`).
+`src/client/api.ts:31-44`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -176,6 +176,27 @@ The rule it enforces is deliberately narrow: not "every closed set must be a
 tuple", which would fire on correct inline unions used once, but "no union whose
 member set equals a tuple that already exists". That is one set spelled twice,
 and the two can come apart.
+
+A `type X = "a" | "b";` alias is only where such a union is easiest to see, not
+where it stops. The same set restated as a property or a parameter type reads as
+part of a shape rather than as a declaration, and nine had accumulated there:
+four response shapes in `src/client/api.ts` (`accumulation`, `policy` twice,
+`amountRule` and `basis`), `initialType` in `TransactionBrowser.tsx`, `kind` in
+`ImportPage.tsx`, `mode` in `src/server/auth-policy.ts`, and `LOG_LEVEL`, which
+was the worst of them: the four levels were spelled three times over — the
+`logLevel` field's type, the `z.enum` that parses the variable, and `ORDER` in
+`log.ts` — agreeing only by coincidence. Every one of the nine had the shared
+type already imported into the same file, or one line away from being.
+
+`LOG_LEVEL` is also where the fix had a direction to get right. The tuple went
+into `src/server/config.ts:5` rather than `log.ts`, because `log.ts` already
+reads `getConfig().logLevel`: a closed set belongs to the layer underneath
+everything that reads it, and putting it in `log.ts` would have made the
+configuration layer import the logger to describe its own field.
+
+Both halves of the check share one index of tuples, and the inline half carries
+a `COINCIDENCE` register for a union whose members equal a tuple's by accident
+rather than by meaning. It is empty.
 
 ### 2.4 `satisfies` where a value must stay inside a type without losing its own
 

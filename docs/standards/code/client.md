@@ -73,7 +73,7 @@ what the person typed.
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
 `inlineInFlight`, `inlineCancelled` and `focusAfterInline` in refs
-(`src/client/pages/StagingPage.tsx:534-545`) even though the first shadows
+(`src/client/pages/StagingPage.tsx:538-549`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
 render that would have set `isPending`, so the state version double-submits —

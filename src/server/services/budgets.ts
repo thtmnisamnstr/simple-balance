@@ -97,7 +97,7 @@ export type BudgetEntryView = {
   version: number;
 };
 
-export type BudgetPeriodRow = {
+type BudgetPeriodRow = {
   categoryId: string | null;
   category: string;
   /** Absent when nothing budgeted this category for this period. */
@@ -176,7 +176,7 @@ export type BudgetGroupRow = {
   funded: string | null;
 };
 
-export type BudgetPeriodView = {
+type BudgetPeriodView = {
   periodStart: string;
   /**
    * The period's own bounds, never the window's.

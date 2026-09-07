@@ -570,3 +570,41 @@ describe("the watermark a schedule seeks from", () => {
     );
   });
 });
+
+/**
+ * A bare `at time zone` in SQL, and why the two that exist are not the defect.
+ *
+ * `AGENTS.md`: "Whether it is a given day, or a given time of day, where
+ * somebody lives is answered in one place. PostgreSQL reads a bare offset
+ * timezone with the POSIX sign convention and `Intl` reads it as ISO, so the
+ * two disagree by up to sixteen hours for anyone whose stored timezone is an
+ * offset. Ask `calendarDayIn`, `clockTimeIn` or `todayIn` … never ask the
+ * database."
+ *
+ * Two queries name a timezone anyway, and both are correct: they bound which
+ * rows are *candidates* and decide nothing, with the real answer coming per row
+ * from the shared helpers. That distinction is invisible from the SQL, which is
+ * why both carry the sentence — and why this check is about the sentence rather
+ * than about the SQL. One of the two had the reasoning and the other had
+ * copied the query.
+ */
+describe("asking the database about a timezone", () => {
+  it("happens twice, and both say why it is not deciding a day", async () => {
+    const { globSync, readFileSync } = await import("node:fs");
+    const found: string[] = [];
+    for (const file of globSync("src/server/**/*.ts")) {
+      const lines = readFileSync(file, "utf8").split("\n");
+      lines.forEach((line, index) => {
+        if (!/at time zone/i.test(line)) return;
+        // The SQL comment lines above it, which is where the reason goes in a
+        // template literal: `//` would be inside the query string.
+        const above = lines.slice(Math.max(0, index - 12), index).join(" ");
+        const explains = /bounds candidates|decides nothing|forbidden move/i.test(above);
+        found.push(`${file}:${index + 1}${explains ? "" : " — says nothing"}`);
+      });
+    }
+    // Two, and no more: a third is a decision somebody should have to defend.
+    expect(found).toHaveLength(2);
+    expect(found.filter((one) => one.includes("says nothing"))).toEqual([]);
+  });
+});

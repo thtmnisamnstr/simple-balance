@@ -18,7 +18,7 @@ const fallbackCurrencies = [
   "USD",
 ] as const;
 
-export const popularCryptocurrencies = [
+const popularCryptocurrencies = [
   "BTC",
   "ETH",
   "SOL",

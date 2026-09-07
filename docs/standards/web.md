@@ -924,14 +924,22 @@ wording would say one amount is wrong when three are, which is the case a
 summary exists for.
 
 **Still to do: the links.** GOV.UK's list entries are anchors to the failing
-field, and there is nothing to anchor to — `Field` gives its control no `id`
-(section 8.1). The links arrive with that change. Shipping them first would have
-meant anchors pointing nowhere, which is worse than plain text.
+field. The blocker this note used to give — that `Field` gives its control no
+`id` — is gone: section 8.1 landed and every field hands its control one. What
+is left is the wiring, and it is the harder half. `errorMessages` returns
+sentences, having used each issue's `path` to deduplicate and then dropped it,
+so the summary no longer knows which field a line is about; and a `useId` is
+opaque, so knowing the path would not give the id either. Anchors need a path
+kept beside each message and a registry a `Field` puts its (name, id) into, per
+form rather than per page — two forms open at once, a modal over the list
+behind it, both have a `payee`. Shipping links before that would mean anchors
+pointing nowhere or at the wrong form, which is worse than plain text.
 
 **Still to do: the other eleven forms.** The auth forms (`src/client/App.tsx`)
 stack a client-side string and a mutation error as two separate red boxes, which
-is the case this section exists for, but folding them together wants section
-8.1's error prop first. The bulk forms in `TransactionBrowser.tsx`,
+is the case this section exists for. Section 8.1's `error` prop has since landed,
+so the blocker is gone and what remains is deciding, per form, which of the two
+boxes is the field's and which is the summary's. The bulk forms in `TransactionBrowser.tsx`,
 `StagingPage.tsx` and `TemplatesPage.tsx` fail per row and want a different
 shape, not this one.
 
@@ -1107,7 +1115,7 @@ same query passes in a browser — which is why the browser tier owns that check
 comments that first specified it.** The queue is where imports get repaired,
 and repairing a date or a payee through the full modal is four clicks for a
 one-word change, so a row's date, payee, category and amount cells open an
-editor in place (`src/client/pages/StagingPage.tsx:516-526`). The pattern has
+editor in place (`src/client/pages/StagingPage.tsx:520-530`). The pattern has
 six rules, and each exists because the obvious alternative shipped a bug or an
 inconsistency during review:
 
@@ -1129,9 +1137,9 @@ inconsistency during review:
    gesture (`StagingPage.tsx:1063-1067`). This is the second exception 8.2
    records: a cell with no submit button makes blur the submit.
 4. **Emptying a date or an amount reads as abandoning the edit, not as a
-   request to erase the field** (`StagingPage.tsx:607-610`). The modal is where
+   request to erase the field** (`StagingPage.tsx:616-620`). The modal is where
    a deliberate clear belongs, beside everything else the emptiness affects.
-5. **A same-value blur writes nothing** (`StagingPage.tsx:634-637`): no version
+5. **A same-value blur writes nothing** (`StagingPage.tsx:643-646`): no version
    bump, no invalidated bulk-selection fingerprint, no audit entry saying an
    edit happened.
 6. **The trigger's accessible name leads with its visible text** — `30 Jul
@@ -1251,7 +1259,7 @@ and is used by nothing; delete it or adopt it at the 69 `formatMoney` call
 sites, some of which render currency outside a table in proportional digits. And
 `.money`'s weight and `white-space: nowrap` reach three files rather than the
 transaction register alone — `BudgetsPage.tsx` seventeen times,
-`ImportPage.tsx:657` and `TransactionBrowser.tsx:1025` — so folding them into
+`ImportPage.tsx:657` and `TransactionBrowser.tsx:1061` — so folding them into
 `.data-table :is(th, td).align-right` is still the right cleanup, but the
 argument for it is consistency rather than a rule that only fires on one page.
 

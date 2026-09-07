@@ -201,7 +201,7 @@ export async function listDuplicatePayees(actor: Actor) {
  * question, and a duplicate group listing them in a different order than this
  * invites a merge into the untidy spelling.
  */
-export function preferredPayeeOrder(left: PayeeSummary, right: PayeeSummary) {
+function preferredPayeeOrder(left: PayeeSummary, right: PayeeSummary) {
   const leftClean = left.name === cleanHumanName(left.name) ? 1 : 0;
   const rightClean = right.name === cleanHumanName(right.name) ? 1 : 0;
   return (

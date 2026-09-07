@@ -1,4 +1,4 @@
-import { getConfig } from "./config.js";
+import { getConfig, logLevels, type LogLevel } from "./config.js";
 
 /**
  * Everything this product writes to stdout, at the level an operator asked for.
@@ -20,9 +20,9 @@ import { getConfig } from "./config.js";
  * observability is `/metrics`, which is a better shape for it than a log a
  * human has to reread through `jq`.
  */
-const ORDER = ["debug", "info", "warn", "error"] as const;
+const ORDER = logLevels;
 
-type Level = (typeof ORDER)[number];
+type Level = LogLevel;
 
 /**
  * Read once, on the first line logged rather than at import.

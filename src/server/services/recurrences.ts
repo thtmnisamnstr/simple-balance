@@ -66,7 +66,7 @@ export function ruleOf(row: RecurrenceRow): RecurrenceRule {
  * Keeping them in separate columns is what lets "has never run" stay a null
  * check while a backfill stays impossible.
  */
-export const scheduleCursor = sharedScheduleCursor;
+const scheduleCursor = sharedScheduleCursor;
 
 /** The only expression that ever writes `next_occurrence_date`. */
 export function nextOccurrenceDateFor(row: RecurrenceRow) {

@@ -216,12 +216,41 @@ describe("an account's register", () => {
     expect(screen.queryByRole("table")).toBeNull();
   });
 
-  it("says so when the range holds nothing", async () => {
+  /**
+   * Two empty screens, not one.
+   *
+   * `web.md` 12.1: "nothing yet" and "nothing matching" are different sentences
+   * with different next actions, and collapsing them is the most common way a
+   * list lies to somebody. This register said "No postings in this range" to a
+   * person looking at a brand-new account, telling them to adjust a range that
+   * was never the problem.
+   *
+   * The opening balance is what tells the two apart: it is what the account held
+   * before the range began, so a non-zero one means the postings exist and are
+   * outside the window.
+   */
+  it("says the postings are outside the range when the account was not empty before it", async () => {
     stub({ ...register, entries: [], openingBalance: "900", closingBalance: "900" });
     renderPage();
     await screen.findByRole("heading", { name: "Register" });
     fireEvent.click(screen.getByRole("button", { name: "Show register" }));
 
-    expect(await screen.findByText("No postings in this range.")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "No postings in this range" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/widen the dates/i)).toBeInTheDocument();
+  });
+
+  it("says nothing has posted yet when the account was empty before the range too", async () => {
+    stub({ ...register, entries: [], openingBalance: "0", closingBalance: "0" });
+    renderPage();
+    await screen.findByRole("heading", { name: "Register" });
+    fireEvent.click(screen.getByRole("button", { name: "Show register" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Nothing posted to this account yet" }),
+    ).toBeInTheDocument();
+    // And it does not tell them to change a range that is not the problem.
+    expect(screen.queryByText(/widen the dates/i)).toBeNull();
   });
 });

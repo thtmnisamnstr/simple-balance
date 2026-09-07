@@ -29,7 +29,7 @@ export type Resolved = "light" | "dark";
  * the guard every test that renders the shell throws. A machine that cannot say
  * counts as light, which is what this app looked like before it had a choice.
  */
-export function systemTheme(): Resolved {
+function systemTheme(): Resolved {
   try {
     if (typeof window.matchMedia !== "function") return "light";
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -38,7 +38,7 @@ export function systemTheme(): Resolved {
   }
 }
 
-export function resolveTheme(preference: Theme): Resolved {
+function resolveTheme(preference: Theme): Resolved {
   return preference === "system" ? systemTheme() : preference;
 }
 
@@ -57,7 +57,7 @@ export function resolveTheme(preference: Theme): Resolved {
  * the account's setting is what gets applied on mount, and this is written from
  * it rather than consulted.
  */
-export function writeCachedTheme(theme: Theme) {
+function writeCachedTheme(theme: Theme) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme }));
   } catch {
@@ -127,7 +127,7 @@ function applyChrome(preference: Theme) {
  * label names the theme it would switch to and would otherwise go stale, saying
  * "Switch to dark mode" on an already-dark screen.
  */
-export function watchSystemTheme(onChange: (resolved: Resolved) => void) {
+function watchSystemTheme(onChange: (resolved: Resolved) => void) {
   try {
     if (typeof window.matchMedia !== "function") return () => {};
     const query = window.matchMedia("(prefers-color-scheme: dark)");

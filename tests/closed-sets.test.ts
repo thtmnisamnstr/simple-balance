@@ -70,6 +70,40 @@ function unions() {
   return found;
 }
 
+/**
+ * Every inline union of two or more string literals, wherever it stands.
+ *
+ * `unions()` above only sees a `type X = "a" | "b";` alias. The same set
+ * restated as a property type — `policy: "standalone" | "sum_of_children";` —
+ * is the identical defect and was invisible to it, which is how nine of them
+ * accumulated: four response shapes in the client, the log level in three
+ * places, and `initialType`, `kind` and `mode`.
+ *
+ * The position is anchored on what can precede a type: a `:` for a property or
+ * an annotation, a `(` or `,` for a parameter, a `<` for a type argument.
+ */
+function inlineUnions() {
+  const found: { where: string; members: string[]; text: string }[] = [];
+  for (const relative of SOURCES) {
+    const source = readFileSync(relative, "utf8");
+    for (const match of source.matchAll(/(?:^|[:(<,])\s*("[^"\n]+"(?:\s*\|\s*"[^"\n]+")+)/g)) {
+      const members = [...match[1]!.matchAll(/"([^"]+)"/g)].map((one) => one[1]!);
+      const at = source.slice(0, match.index).split("\n").length;
+      found.push({ where: `${relative}:${at}`, members, text: match[1]! });
+    }
+  }
+  return found;
+}
+
+/**
+ * An inline union that equals a tuple and is deliberately not derived from it.
+ *
+ * Empty, and that is the point: every one that existed had the shared type
+ * already in scope. A new entry has to argue that the two sets are the same
+ * members by coincidence rather than by meaning.
+ */
+const COINCIDENCE = new Set<string>([]);
+
 describe("a closed set", () => {
   it("is not also spelled as a bare union somewhere else", () => {
     const byMembers = tuples();
@@ -81,6 +115,18 @@ describe("a closed set", () => {
           `${union.where} ${union.name} restates ${byMembers.get(key(union.members))!.join(", ")}`,
       );
     expect(duplicated).toEqual([]);
+  });
+
+  it("is not restated inline where a property or a parameter takes it", () => {
+    const byMembers = tuples();
+    const restated = inlineUnions()
+      .filter((union) => !COINCIDENCE.has(union.where))
+      .filter((union) => byMembers.has(key(union.members)))
+      .map(
+        (union) =>
+          `${union.where} spells out ${byMembers.get(key(union.members))!.join(", ")}: ${union.text}`,
+      );
+    expect(restated).toEqual([]);
   });
 
   /**

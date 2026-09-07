@@ -182,6 +182,59 @@ describe("what mcp.md says it measured", () => {
   });
 
   /**
+   * A selection field describes the selection modes it actually accepts.
+   *
+   * This is the `categoryKind` defect in the other direction: a *field* that
+   * advertises a capability the schema does not have. Both template bulk
+   * schemas carried the transaction one's sentence — "either an explicit list …
+   * or a filter plus the count and fingerprint a preview handed back" — and
+   * `AGENTS.md` says a template mass edit "names explicit rows with expected
+   * versions and has no filtered selection". An agent reading it would build a
+   * filter form, be refused, and have nothing in the reply saying the
+   * instruction was wrong rather than its own call.
+   *
+   * Read off the published JSON Schema rather than the source, so the check is
+   * about what an agent is told: `anyOf` is how a discriminated union arrives,
+   * and a `mode` property is how each arm names itself.
+   */
+  it("describes only the selection modes a schema accepts", () => {
+    const wrong: string[] = [];
+    for (const tool of tools) {
+      const input = tool.inputSchema as
+        | { properties?: Record<string, { description?: string; anyOf?: unknown[] }> }
+        | undefined;
+      const selection = input?.properties?.["selection"];
+      if (!selection) continue;
+      // The *claim*, not the word. A description saying "there is no filter
+      // form here" is correct and mentions filters; what is refused is offering
+      // one as an alternative, which is the construction the transaction
+      // sentence uses and the template ones had copied.
+      const describesFilter = /\bor a filter\b|\ba filter plus\b/i.test(
+        selection.description ?? "",
+      );
+      // A filter arm is one of the `anyOf` members; an explicit-only selection
+      // is a plain object with `items` and no union at all.
+      const hasFilterArm = JSON.stringify(selection).includes('"filter"');
+      if (describesFilter !== hasFilterArm) {
+        wrong.push(
+          `${tool.name}: description ${describesFilter ? "claims" : "omits"} a filter form the schema ` +
+            `${hasFilterArm ? "has" : "does not have"}`,
+        );
+      }
+    }
+    // There are selections on both sides of this to get wrong: the transaction
+    // and staged bulk tools take a filter, the template ones do not.
+    expect(
+      tools.filter(
+        (tool) =>
+          (tool.inputSchema as { properties?: object })?.properties &&
+          "selection" in ((tool.inputSchema as { properties: object }).properties as object),
+      ).length,
+    ).toBeGreaterThan(3);
+    expect(wrong).toEqual([]);
+  });
+
+  /**
    * One spelling per concept, across every description and field description.
    *
    * `common.md` settles the voice for the whole product and this surface drifted

@@ -1,7 +1,7 @@
 import { MAX_BULK_SELECTION_ENTRIES } from "../shared/domain.js";
 
 export const DEFAULT_CSV_MAX_BYTES = 10 * 1024 * 1024;
-export const MAX_CSV_CONFIGURATION_BYTES = 100 * 1024 * 1024;
+const MAX_CSV_CONFIGURATION_BYTES = 100 * 1024 * 1024;
 /**
  * One import stages at most what one mass action can then commit, edit or
  * delete. A larger import produced a queue that could only be cleared a
@@ -29,13 +29,13 @@ export const MAX_CSV_CONFIGURATION_ROWS = MAX_BULK_SELECTION_ENTRIES;
  */
 export const CSV_EXPORT_MAX_ROWS = 100_000;
 export const DEFAULT_DATABASE_POOL_SIZE = 10;
-export const MAX_DATABASE_POOL_SIZE = 100;
-export const DEFAULT_RECURRENCE_TICK_SECONDS = 300;
-export const MAX_RECURRENCE_TICK_SECONDS = 3_600;
-export const DEFAULT_RECURRENCE_CATCH_UP_LIMIT = 50;
-export const MAX_RECURRENCE_CATCH_UP_LIMIT = 500;
-export const DEFAULT_RECURRENCE_CLAIM_LIMIT = 500;
-export const MAX_RECURRENCE_CLAIM_LIMIT = 5_000;
+const MAX_DATABASE_POOL_SIZE = 100;
+const DEFAULT_RECURRENCE_TICK_SECONDS = 300;
+const MAX_RECURRENCE_TICK_SECONDS = 3_600;
+const DEFAULT_RECURRENCE_CATCH_UP_LIMIT = 50;
+const MAX_RECURRENCE_CATCH_UP_LIMIT = 500;
+const DEFAULT_RECURRENCE_CLAIM_LIMIT = 500;
+const MAX_RECURRENCE_CLAIM_LIMIT = 5_000;
 
 /**
  * A bounded integer falls back to its default and says so, once, by name.

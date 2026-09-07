@@ -90,7 +90,7 @@ export function stagedString(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-export function stagedType(value: unknown): TransactionType | null {
+function stagedType(value: unknown): TransactionType | null {
   if (typeof value !== "string") return null;
   return transactionTypes.find((type) => type === value) ?? null;
 }

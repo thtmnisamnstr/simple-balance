@@ -5,13 +5,14 @@ import {
   isRegistrationClosed,
   isRegistrationOpenToAnyone,
 } from "./config.js";
+import type { AuthMode } from "../shared/domain.js";
 import { mailEnabled } from "./mail.js";
 import { getDb } from "./db/client.js";
 import { account as authAccount, user } from "./db/schema.js";
 import { isBootstrapClaim } from "./registration-context.js";
 
 export type UserAuthState = {
-  mode: "local" | "google" | "both";
+  mode: AuthMode;
   localEnabled: boolean;
   googleEnabled: boolean;
   localPasswordConfigured: boolean;

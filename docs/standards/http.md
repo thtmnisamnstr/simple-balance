@@ -474,8 +474,37 @@ or that the two patch schemas agree with each other.
 
 ## Responses
 
-- **House.** A single resource is returned as the object itself, with no
-  envelope. A collection is returned as one of two envelopes and no third.
+- **House, and eleven listings predate it.** A single resource is returned as
+  the object itself, with no envelope. A collection is returned as one of two
+  envelopes and no third.
+
+  **The rule stands and the code does not follow it yet, and that is a decision
+  rather than an oversight.** Eleven listings return a bare array —
+  `list_accounts`, `list_categories`, `list_payees`,
+  `list_payee_suggestions`, `list_transaction_templates`,
+  `list_category_groups`, `list_budget_plans`, `list_budget_entries`,
+  `list_duplicate_categories`, `list_duplicate_payees` and
+  `list_connected_agents` — which is the third shape, arrived at by there being
+  no rule when they were written. `list_recurrences` is a twelfth case of its
+  own: `{today, items}`, because a schedule read on Tuesday means something
+  different from one read on Wednesday and `AGENTS.md` requires a summary to
+  report the day it used. That datum is real; the shape around it is still not
+  one of the two.
+
+  Turning `[…]` into `{items: […]}` is not additive. It removes no field and
+  changes no field's type — it changes the type of the *whole response*, so
+  every client reading `response[0]` breaks, which the breaking-change list
+  below names and `AGENTS.md` forbids a release from doing. Closing it needs
+  `/api/v2` or a deprecation cycle, and it is a later release's job.
+
+  *Checked by:* `tests/mcp-output.test.ts`, which reads the success arm of every
+  listing's published output schema and requires `items` and `nextCursor` — with
+  the twelve named in a register carrying this reason. The value of the check is
+  the **thirteenth**: a listing added now has to use an envelope, because adding
+  a name to that register is a decision somebody makes in a diff rather than a
+  shape that arrives by nobody thinking about it. A register entry naming a tool
+  that no longer exists fails too, so the register cannot drift the way the
+  shapes did.
 - **House.** Two list envelopes:
   - `Page<T>`: `{items, nextCursor}` (`src/shared/domain.ts:2609-2613`), where
     callers only stream forward.
@@ -590,10 +619,11 @@ code.
 
 *Checked by:* `tests/http-security.test.ts` for the security and cache headers
 and for the body limits, and `tests/cursor.test.ts` for the cursor's ordering
-binding. *Not checked:* that a collection uses one of the two envelopes and not
-a third, that every 429 carries `Retry-After`, and that a single resource is
-returned without an envelope. All three are a walk over the registered routes,
-which `tests/http-security.test.ts` already does for body limits.
+binding. *Not checked:* that a single resource is returned without an envelope,
+which is a walk over the registered routes of the kind
+`tests/http-security.test.ts` already does for body limits. The other two on this
+list are checked now: the envelope rule by `tests/mcp-output.test.ts` and
+`Retry-After` by `tests/http-security.test.ts`.
 
 ## Errors
 
@@ -632,7 +662,7 @@ and does not know this product's envelope. **The rule:**
 - **The migration keeps `error` as an extension member** for one deprecation
   window, because the browser client reads `payload.error.code`,
   `payload.error.message` and `payload.error.details`
-  (`src/client/api.ts:67-113`), and so may anybody who built against the API
+  (`src/client/api.ts:71-117`), and so may anybody who built against the API
   before this guide existed. Then it goes at the sunset date.
 
 Until that lands, the honest statement is: **this API does not conform to its own

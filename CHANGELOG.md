@@ -796,6 +796,44 @@ both succeed. Categories, payees, templates and recurrences each took a lock
 before deciding a name was free; accounts had the check and no lock, and there
 was no lock to have taken.
 
+**A third pass, over every page, route, tool and service at once.** The second
+pass read the guides' own records; this one read the guides against the whole
+surface, section by section. Most of what it found was already right, and the
+value is in the four places it was not.
+
+An empty list now says which kind of empty it is. The transactions browser, the
+staged queue and an account's register all showed one message whether a ledger
+had nothing in it or a filter had excluded everything, so narrowing a search to
+nothing looked identical to having never imported anything — and the way out of
+the two is opposite. Each now reads the filters that are actually set and says
+either "nothing yet", with the control that fixes that, or "nothing matches this
+view", with the way back. The register keys on its opening balance instead,
+because a range with no postings in it is not an empty account.
+
+A template bulk edit described a filter form that does not exist. The
+selection's own description offered to act on "everything matching the current
+filters" — the wording the transactions and queue lists use, where a filter form
+is on the page. The templates list is capped and the browser holds all of it, so
+there are no filters to match and the sentence promised a scope the request
+cannot express.
+
+The four `LOG_LEVEL` values were written out three times: the type on
+`AppConfig`, the `z.enum` that parses the variable, and `ORDER` in `log.ts`,
+which decides what is loud enough to print. Nothing connected them, so they
+agreed by coincidence, and a fifth level added to two of the three would have
+type-checked. They come from one tuple now, in the configuration layer that
+`log.ts` already reads. Eight more closed sets were spelled twice the same way —
+four response shapes on the client, a transaction type, a category kind and an
+auth mode — each with the shared type already imported into the same file. The
+check that was meant to catch this only looked at `type X = "a" | "b"`
+declarations, so a set restated as a property type was invisible to it; it reads
+both now.
+
+And a sweep for dead code found none: no unreachable module, no unused
+dependency, and of 263 CSS classes none unreferenced. What it did find was 34
+exports nothing outside their own file imported, now narrowed to what actually
+uses them, and a client type barrel that is deliberate and stays.
+
 ## 0.1.5 - 2026-08-22
 
 ### Added

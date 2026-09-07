@@ -140,7 +140,7 @@ function requestOrigin(request: Request) {
   return headerOrigin(request.headers.get("referer"));
 }
 
-export async function cancelRequestBody(request: Request) {
+async function cancelRequestBody(request: Request) {
   if (!request.body || request.body.locked) return;
   try {
     await request.body.cancel();

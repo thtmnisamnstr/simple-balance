@@ -9,8 +9,17 @@ import {
   type AccountBalanceSnapshot,
   type AccountRegister,
 } from "../api.js";
-import { Alert, Badge, Button, DateRangeBar, Note, PageHeader, Skeleton } from "../components.js";
-import { formatDate, formatMoney, isNegativeMoney } from "../money.js";
+import {
+  Alert,
+  Badge,
+  Button,
+  DateRangeBar,
+  EmptyState,
+  Note,
+  PageHeader,
+  Skeleton,
+} from "../components.js";
+import { compareMoney, formatDate, formatMoney, isNegativeMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
 
@@ -228,7 +237,29 @@ export default function AccountDetailPage() {
                   </table>
                 </div>
               ) : (
-                <Note>No postings in this range.</Note>
+                // An `EmptyState` rather than a muted line, and two of them.
+                // `web.md` 12.1: a list's empty state is this component, and
+                // "nothing yet" and "nothing in this range" are different
+                // sentences with different next actions — a line reading "no
+                // postings in this range" told somebody looking at a brand-new
+                // account to adjust a range that was never the problem.
+                //
+                // The opening balance is what tells them apart. It is what the
+                // account held before this range began, so a non-zero one means
+                // the postings exist and are simply outside the window.
+                <EmptyState
+                  icon={<Landmark size={22} />}
+                  title={
+                    compareMoney(register.data.openingBalance, "0") === 0
+                      ? "Nothing posted to this account yet"
+                      : "No postings in this range"
+                  }
+                  body={
+                    compareMoney(register.data.openingBalance, "0") === 0
+                      ? "Every deposit, withdrawal and transfer that touches this account shows up here, oldest first."
+                      : "This account was not empty before this range began, so widen the dates to find what it holds."
+                  }
+                />
               )}
             </>
           )

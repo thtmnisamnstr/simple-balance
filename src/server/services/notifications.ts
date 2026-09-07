@@ -62,7 +62,7 @@ export type NotificationOccurrence = {
  * what a null return means and what leaves `nextNotificationDate` null so the
  * scheduler stops looking at the row.
  */
-export function nextNotificationAfter(
+function nextNotificationAfter(
   rule: NotificationRule,
   cursor: string | null,
 ): NotificationOccurrence | null {
@@ -119,12 +119,7 @@ export const notificationRuleOf = (row: {
  * and a recurrence — so a reminder set for the evening does not go out at one in
  * the morning to somebody who asked for eight.
  */
-export function notificationIsDue(
-  sendDate: string,
-  notifyAt: string,
-  today: string,
-  nowTime: string,
-) {
+function notificationIsDue(sendDate: string, notifyAt: string, today: string, nowTime: string) {
   if (sendDate < today) return true;
   return sendDate === today && nowTime >= notifyAt;
 }
@@ -223,6 +218,14 @@ export async function runDueNotifications(
       from ${templateNotifications} n
       left join user_preferences p on p.user_id = n.user_id
      where n.next_notification_date is not null
+     -- The same bound the recurrence sweep uses, and the same reason it is not
+     -- AGENTS.md's forbidden move: this database date bounds candidates and
+     -- decides nothing. +1 is wide enough to catch every zone ahead of UTC, a
+     -- zone behind waits for a later tick, and whether a row is really due is
+     -- answered per row below by calendarDayIn and clockTimeIn against the
+     -- person's own timezone. Asking the database what day it is for them is
+     -- the move the invariant forbids; asking it for a wide enough window is
+     -- not.
        and n.next_notification_date <= ((now() at time zone 'UTC')::date + 1)
      order by n.next_notification_date, n.user_id, n.id
      limit ${configuredRecurrenceClaimLimit()}

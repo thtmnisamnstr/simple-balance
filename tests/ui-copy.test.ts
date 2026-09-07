@@ -254,3 +254,65 @@ describe("the worked sentences", () => {
     expect(missing, "quote what ships, or ship what is quoted").toEqual([]);
   });
 });
+
+/**
+ * A list with nothing in it says which kind of nothing.
+ *
+ * `web.md` 12.1: every list has four states and they are four different
+ * screens — loading, empty because nothing exists yet, empty because nothing
+ * matches the filter, and error. "No transactions yet" and "No transactions
+ * match this view" are different sentences with different next actions, and
+ * collapsing them is the most common way a list lies to somebody: the
+ * transactions list told a person with an empty ledger to adjust a date range,
+ * and the staged queue told somebody who had just imported four hundred rows
+ * that nothing was staged.
+ *
+ * Read from the source, because each of these lists needs a router, a query
+ * client and a session to render, and what is under test is that the two
+ * screens exist rather than which words they use. The words are held where the
+ * list is rendered — `tests/account-register-ui.test.tsx` does it for the
+ * register, which is the same rule on a third list.
+ */
+describe("a filtered list with nothing in it", () => {
+  /**
+   * The lists that carry a filter and so need two empty screens.
+   *
+   * Named rather than derived: whether a list is filtered is a fact about the
+   * controls above it, and a derivation that guessed would either miss one or
+   * demand two screens from a list that cannot be narrowed.
+   */
+  const FILTERED = [
+    "src/client/TransactionBrowser.tsx",
+    "src/client/pages/StagingPage.tsx",
+    "src/client/pages/TemplatesPage.tsx",
+    "src/client/pages/RecurrencesPage.tsx",
+  ];
+
+  it("distinguishes nothing-yet from nothing-matching", () => {
+    for (const path of FILTERED) {
+      const source = readFileSync(path, "utf8");
+      const at = source.indexOf("<EmptyState");
+      expect(at, `${path} renders no EmptyState`).toBeGreaterThan(-1);
+      const element = source.slice(at, at + 900);
+      // A conditional title is the shape: one element, two sentences. A literal
+      // title is one sentence for two situations, which is the defect.
+      expect(element, `${path}'s empty state says one thing for two states`).toMatch(
+        /title=\{[^}]*\?/s,
+      );
+    }
+  });
+
+  it("decides it from the filters and not from the row count", () => {
+    // The row count is zero either way, so a check on it cannot tell the two
+    // apart. The date range is deliberately excluded from what counts as
+    // narrowing: every view carries one, so counting it would report an empty
+    // ledger as a filtered one — the same defect from the other side.
+    for (const path of ["src/client/TransactionBrowser.tsx", "src/client/pages/StagingPage.tsx"]) {
+      const source = readFileSync(path, "utf8");
+      const narrowed = /const narrowed = Boolean\(([\s\S]*?)\);/.exec(source);
+      expect(narrowed, `${path} should decide narrowed from its filters`).not.toBeNull();
+      expect(narrowed![1]).not.toContain("length");
+      expect(narrowed![1]).not.toMatch(/\bstart\b|\bend\b/);
+    }
+  });
+});

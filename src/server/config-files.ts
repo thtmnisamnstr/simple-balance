@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
  * `METRICS_TOKEN` is the seventh and joined for the same reason: it is the only
  * thing standing between a scrape endpoint and anybody who can reach the port.
  */
-export const FILE_BACKED_SECRETS = [
+const FILE_BACKED_SECRETS = [
   "AUTH_SECRET",
   "DATABASE_URL",
   "DIRECT_DATABASE_URL",

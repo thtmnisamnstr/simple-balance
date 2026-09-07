@@ -32,9 +32,28 @@ second row under another name:
 `selectBulkFilterRows(executor: Database | DbTransaction, …)` and
 `legsByTransaction(db, …)` are helpers whose first parameter is spelled to admit
 the pool as well. The rest are entry points with no actor to take, either
-because no request made them run (`runDueNotifications`, `runDueRecurrences`) or
-because of the exception below. None of the 21 is a fourth shape, and a
-genuinely new one belongs in the table rather than in this paragraph.
+because no request made them run or because of the exception below. There are
+six, and naming two of them was how this paragraph fell behind: the fifth,
+`pruneIdempotencyRecords`, arrived after the sentence was written and nothing
+asked it again.
+
+| Entry point | Why it has no actor |
+| --- | --- |
+| `runDueRecurrences` | The proposal sweep, on the scheduler's tick |
+| `runDueNotifications` | The reminder sweep, on the same tick |
+| `pruneIdempotencyRecords` | The retention sweep, on the same tick |
+| `pruneAbandonedClients` | A scheduled sweep of OAuth clients nobody completed |
+| `reconcileArchivedAccountClosings` | A repair of somebody's postings, run at startup rather than by a request |
+| `revokeAllConnectedApps` | The exception below: a `userId`, reached from a session or a password reset rather than from a request naming one |
+
+None of the 21 is a fourth shape.
+
+*Checked by:* `tests/service-entry-points.test.ts`, which walks every exported
+service function, sorts it into "takes an actor", "takes an executor" or
+"reaches the database with neither", and requires the third kind to be on that
+list — **and requires this table to name it too**, because a reader meets the
+paragraph before the test and the two came apart once already. A name left
+behind after the sweep it excused was renamed fails as well.
 
 There are 202 `userId, actor.userId` comparisons in this directory, which is
 roughly one per query, and that is the right ratio.

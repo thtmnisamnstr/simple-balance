@@ -30,7 +30,7 @@ import type {
   recurrenceWeekendPolicies,
 } from "./domain.js";
 
-export type RecurrenceFrequency = (typeof recurrenceFrequencies)[number];
+type RecurrenceFrequency = (typeof recurrenceFrequencies)[number];
 export type RecurrenceMonthPolicy = (typeof recurrenceMonthPolicies)[number];
 export type RecurrenceWeekendPolicy = (typeof recurrenceWeekendPolicies)[number];
 
@@ -71,7 +71,7 @@ export type RecurrenceRule = {
  * Nothing here can be clamped, which is why a positioned rule ignores the
  * month-length policy entirely.
  */
-export function weekdayOfMonth(year: number, month: number, position: RecurrencePosition) {
+function weekdayOfMonth(year: number, month: number, position: RecurrencePosition) {
   if (position.ordinal === -1) {
     const last = daysInMonth(year, month);
     const lastWeekday = weekdayOf(iso(year, month, last));

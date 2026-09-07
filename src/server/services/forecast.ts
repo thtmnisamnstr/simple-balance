@@ -42,7 +42,7 @@ import { gridQuery, PERIOD_UNITS } from "./report-sql.js";
  * already account for.
  */
 
-export type ForecastPeriod = {
+type ForecastPeriod = {
   periodStart: string;
   start: string;
   end: string;
@@ -77,7 +77,7 @@ export type ForecastPeriod = {
   occurrences: number;
 };
 
-export type ForecastCurrency = {
+type ForecastCurrency = {
   currency: string;
   openingBalance: string;
   periods: ForecastPeriod[];

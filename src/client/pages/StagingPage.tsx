@@ -155,6 +155,10 @@ export default function StagingPage() {
     setBulkValues((current) => ({ ...current, ...patch }));
   const [bulkEditKey, setBulkEditKey] = useState<string | null>(null);
   const [bulkEditNotice, setBulkEditNotice] = useState<string | null>(null);
+  // Whether anything but the date range is narrowing this queue. The range is
+  // left out because every view carries one, so counting it would report an
+  // empty queue as a filtered one.
+  const narrowed = Boolean(settledSearch || validity || accountId || importBatchId || recurrenceId);
   const payeeListId = useId();
   const { start, end } = useDateRange();
   const queryClient = useQueryClient();
@@ -1283,8 +1287,18 @@ export default function StagingPage() {
       ) : (
         <EmptyState
           icon={<ClipboardList size={24} />}
-          title="Nothing staged"
-          body="Imported rows, drafts you save for later, and anything an agent prepares land here."
+          // Two screens. This queue has five filters — a search, a validity, an
+          // account, an import batch and a recurrence — and the last two are
+          // seeded from the link an import hands over, so arriving here with
+          // nothing matching is the *common* case rather than an edge. It said
+          // "Nothing staged" either way, which tells somebody who has just
+          // imported four hundred rows that their import did nothing.
+          title={narrowed ? "Nothing here matches those filters" : "Nothing staged"}
+          body={
+            narrowed
+              ? "Clear the search and the filters above to see the whole queue."
+              : "Imported rows, drafts you save for later, and anything an agent prepares land here."
+          }
         />
       )}
       <Modal open={Boolean(cloning)} onClose={() => setCloning(null)} title="Stage a transaction">

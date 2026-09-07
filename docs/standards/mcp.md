@@ -293,7 +293,7 @@ unrepresentable, so the model's own sampling cannot produce it.
   model has to hold; an enum is a choice it cannot get wrong. Measured: 70
   enums across the input schemas, and 165 more on the output side, where they
   constrain nothing a model sends but are what
-  `tests/mcp-output.test.ts:151-174` exists to guard. Half of that output figure
+  `tests/mcp-output.test.ts:251-274` exists to guard. Half of that output figure
   is the error code, published once per tool for the reason the errors section
   gives. Nesting exists where the
   domain is nested (`legs`) and nowhere else.
@@ -407,7 +407,7 @@ the schema their service actually parses, `list_transactions`,
 `list_staged_transactions` and `list_import_batches`, because "a tool declaring
 a wider schema than its service parses is worse than a missing filter".
 `list_audit_events` is the fourth cursor-taking listing and is not pinned.
-*Also checked by:* `tests/mcp-measurements.test.ts:322-344` for the closed
+*Also checked by:* `tests/mcp-measurements.test.ts:375-397` for the closed
 objects and `:271-302` for the described fields, both against the counts above,
 so an open schema or an undescribed field fails the suite rather than the
 sentence. *Not checked:* that no money argument is a number.
@@ -426,10 +426,10 @@ them still answer to their date.
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
 | `ledger:read` | 37 | 168,380 | ~42,000 |
 | `ledger:stage` | 42 | 205,066 | ~51,000 |
-| `ledger:write` | 76 | 473,342 | ~118,000 |
+| `ledger:write` | 76 | 473,528 | ~118,000 |
 
 Composition at the write tier: names 1,448, titles 1,851, descriptions 26,596,
-input schemas 206,967, output schemas 220,123. **Descriptions are 5.6% of what
+input schemas 207,153, output schemas 220,123. **Descriptions are 5.6% of what
 an agent loads; names, titles and descriptions together are 6.3%.** Output
 schemas are 46.5%.
 
@@ -473,7 +473,7 @@ The rules:
   behaviour that happens to be there. The failure it exists to stop is the quiet
   one: an enum pinned to a subset of the actor sources "makes every page of the
   audit log containing a new source come back empty"
-  (`tests/mcp-output.test.ts:151-174`).
+  (`tests/mcp-output.test.ts:251-274`).
 - **Binding.** One envelope, from `common.md`:
   `{ result: <success> | { error: { code, message, details? } } }`, published as
   a two-member `anyOf` by `mcpOutputSchema`
@@ -909,7 +909,7 @@ it means choosing which half to defer to anyway.
   client opts in.
 
 *Checked by:* `tests/mcp-parity.test.ts:326-334` and `:381-413`;
-`tests/mcp-output.test.ts:118-127`, which asserts that a token holding no ledger
+`tests/mcp-output.test.ts:218-227`, which asserts that a token holding no ledger
 scope gets no tools at all rather than merely missing the two the test was
 written for, "because naming them left the branch accepting any other tool
 reaching a token with no ledger scope"; `tests/mcp-scope-challenge.test.ts` for
@@ -995,7 +995,7 @@ are pinned by name at `:309-319`.
   silent empty result. The bulk selection fingerprint is the case here.
 
 *Checked by:* the idempotency and version behaviour at the service layer, and
-`tests/mcp-measurements.test.ts:408-430` on this surface, which is what stops
+`tests/mcp-measurements.test.ts:461-483` on this surface, which is what stops
 `idempotentHint` becoming a lie: it counts the mutating tools from the
 annotations and the keys from the schemas, so a tool added without one moves one
 number and not the other rather than moving both and agreeing with itself, and
@@ -1135,7 +1135,7 @@ which is an evaluation rather than a test.
 | A read-only token sees nothing that declares itself a write | `tests/mcp-parity.test.ts:326-334` |
 | A listing declares the schema its service parses | `tests/mcp-parity.test.ts:503-517` |
 | Every tool publishes a concrete two-member output schema | `tests/mcp-output.test.ts:26-52` |
-| A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:118-127` |
+| A token with no ledger scope gets no tools | `tests/mcp-output.test.ts:218-227` |
 | A description is longer than thirty characters | `tests/mcp-parity.test.ts:415-433` |
 | A tool name is well formed and no title claims another tier's verb | `tests/mcp-parity.test.ts` |
 | The `tools/list` payload stays under its ceiling | `tests/mcp-measurements.test.ts`, and more strictly than a ceiling: each of the three tiers' exact character cost is pinned to the number this guide publishes, so a payload that grows fails whether or not it has passed a threshold |
@@ -1149,7 +1149,7 @@ which is an evaluation rather than a test.
 | A tool named in a description exists | `tests/mcp-measurements.test.ts`, which reads every `snake_case` word in a description as a claim about a tool |
 | A tool that cannot be undone says so, and a recoverable one says how to get back | `tests/mcp-measurements.test.ts` |
 | One spelling per concept across every description | `tests/mcp-measurements.test.ts` |
-| A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:408-430` |
+| A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:461-483` |
 | `readOnlyHint` matches where the tool is registered | **Not checked.** |
 | Tool order is deterministic | **Not checked.** Registration order is the de facto order. |
 | CIMD is offered before DCR, and the documents say which is current | **Not a rule.** The priority order is a rule for a *client* choosing how to obtain a client id, and a server that advertises no CIMD support moves the client to the fallback this deployment implements. Concluded in the specification-gaps section below, where this row used to contradict it |
@@ -1157,7 +1157,7 @@ which is an evaluation rather than a test.
 | The server instructions name the grant, the two error envelopes and untrusted text | `tests/mcp-instructions.test.ts` |
 | The named revision is the one the SDK negotiates | **Not checked.** |
 | Every parameter carries a description | `tests/mcp-measurements.test.ts`, held at zero |
-| Every input schema is closed | `tests/mcp-measurements.test.ts:268-275` |
+| Every input schema is closed | `tests/mcp-measurements.test.ts:321-328` |
 | Every output field carries a description | **Not checked**, and deliberately not a rule. The misleading ones are checked by name above. |
 | Whether a description teaches | **Review only,** and the evaluation above is the nearest thing to a check. |
 

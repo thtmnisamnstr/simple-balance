@@ -62,7 +62,7 @@ import {
   summarizeStagedDraft,
   templateDraftFromDraft,
 } from "./staged-draft.js";
-import type { TransactionSortField } from "../shared/domain.js";
+import type { TransactionSortField, TransactionType } from "../shared/domain.js";
 
 /** The share a split is named by in a list: its biggest one. */
 function largestLeg(legs: Transaction["legs"]) {
@@ -141,7 +141,7 @@ export function TransactionBrowser({
   fixedCategoryId?: string;
   fixedTemplateId?: string;
   fixedPayee?: string;
-  initialType?: "deposit" | "withdrawal" | "transfer";
+  initialType?: TransactionType;
   allowCreate?: boolean;
   showDateRange?: boolean;
   /**
@@ -189,6 +189,14 @@ export function TransactionBrowser({
     payee: fixedPayee || undefined,
     includeDeleted: showDeleted ? "true" : undefined,
   };
+  // Whether anything but the date range is narrowing this view.
+  //
+  // The range is left out on purpose: every view has one, so a filtered-empty
+  // test that counted it would report every empty ledger as filtered — which is
+  // the failure this distinction exists to prevent, from the other side.
+  const narrowed = Boolean(
+    settledSearch || type || selectedAccountId || fixedCategoryId || fixedTemplateId || fixedPayee,
+  );
   const bulkFilter: TransactionBulkEditFilter = {
     ...(start ? { start } : {}),
     ...(end ? { end } : {}),
@@ -1135,8 +1143,22 @@ export function TransactionBrowser({
       ) : (
         <EmptyState
           icon={<ArrowLeftRight size={24} />}
-          title="No transactions in this view"
-          body="Adjust the date range or add a deposit, withdrawal, or transfer."
+          // Two screens, not one. `web.md` 12.1: "No transactions yet" and "no
+          // transactions match this view" are different sentences with
+          // different next actions, and collapsing them is the most common way
+          // a list lies to somebody — this one said "adjust the date range" to
+          // a person with an empty ledger and nothing to adjust.
+          //
+          // Narrowed is read off the filters rather than off the row count,
+          // because the row count is the thing that is zero either way. The
+          // date range is deliberately not one of them: every view carries one,
+          // so counting it would make every empty ledger look filtered.
+          title={narrowed ? "No transactions match this view" : "No transactions yet"}
+          body={
+            narrowed
+              ? "Widen the date range, or clear the search and filters above."
+              : "Add a deposit, a withdrawal or a transfer, or import a CSV of what has already happened."
+          }
           action={
             allowCreate && accounts.data?.length ? (
               <Button onClick={() => setEditing("new")}>Add transaction</Button>

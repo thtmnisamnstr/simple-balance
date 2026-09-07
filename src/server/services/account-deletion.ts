@@ -37,7 +37,7 @@ import { log } from "../log.js";
  * would be the one piece of the person left behind.
  */
 
-export const accountDeletionSchema = z
+const accountDeletionSchema = z
   .object({
     // Typing the address is the "you meant this" gate. It is the only thing on
     // the screen that cannot be produced by clicking, which is the point: an

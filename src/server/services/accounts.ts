@@ -193,7 +193,7 @@ async function ensureSystemAccountUncached(
  * Like every other correction this appends the difference rather than editing
  * what is already posted, and writes nothing when nothing changed.
  */
-export async function postOpeningBalance(
+async function postOpeningBalance(
   tx: DbTransaction,
   actor: Actor,
   account: {

@@ -7,7 +7,7 @@ import { userPreferences } from "../db/schema.js";
 import { validationError } from "./errors.js";
 import { serializeRow, writeAudit, type Executor } from "./helpers.js";
 
-export const preferenceSchema = z.object({
+const preferenceSchema = z.object({
   timezone: z
     .string()
     .min(1)

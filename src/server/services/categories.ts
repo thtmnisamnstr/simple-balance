@@ -62,7 +62,7 @@ async function assertNormalizedNameAvailable(
 }
 
 /** The kind an entry of this type needs a category to cover. */
-export function categoryKindForDraft(draft: TransactionDraft): CategoryKind {
+function categoryKindForDraft(draft: TransactionDraft): CategoryKind {
   if (draft.type === "deposit") return "income";
   if (draft.type === "withdrawal") return "expense";
   return "both";
@@ -123,7 +123,7 @@ export function preferredCategory(left: CategoryRow, right: CategoryRow) {
  * This writes, so it belongs only on paths that are already committing. Callers
  * that merely validate must not use it.
  */
-export async function resolveCategoryByName(
+async function resolveCategoryByName(
   tx: DbTransaction,
   actor: Actor,
   name: string,
