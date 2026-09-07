@@ -424,6 +424,15 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**A line chart no longer relies on colour alone.** Ten account colours cannot
+all be told apart under colour-blind vision — the palette here is the best
+available set and is measured at three times the separation of the six it
+replaced, which is still not enough by itself. Nine of the ten line series now
+carry their own dash rhythm, and the legend swatch beside each one shows the
+same rhythm rather than a block of colour, so a line can be matched to its
+label by shape. The first series stays solid, which is what a single-line chart
+should look like.
+
 **What an agent is told about four tools it can call.**
 `list_transactions` was 54 characters on the entry point to the biggest
 collection in the ledger, saying nothing about the order it comes back in, the

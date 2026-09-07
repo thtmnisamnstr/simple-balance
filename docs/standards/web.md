@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,736 lines of hand-written CSS in
+Query for server state, and 3,832 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -440,7 +440,7 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
-`visibility`, `styles.css:3553-3555`), and there are two reduced-motion
+`visibility`, `styles.css:3662-3664`), and there are two reduced-motion
 blocks: `styles.css:681-685`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
 (section 7.3), and `styles.css:3583-3592`, a blanket rule setting
@@ -1534,25 +1534,39 @@ test that contradicts the guide it is attached to.
 
 **Binding, SC 1.4.1, level A, plus the source guidance.** Ten categorical
 colours cannot all be told apart under dichromatic vision, and no choice of ten
-fixes that. The CSS comment says this out loud and names the remedy: a dash
-pattern per series.
+fixes that: the palette in 11.2 is the best available set and reaches 5.6 in
+light, which is three times better than the six it replaced and still not enough
+on its own.
 
-Until that lands, two things carry identity and both are always present: the
-legend and the table under every chart. But the legend as built is the wrong way
-round for the reader who needs it. `ChartLegend` (`src/client/charts.tsx:448-462`)
-renders the swatch with `aria-hidden="true"` and the label as text, so a screen
-reader gets the label and a colour-blind sighted reader gets only a swatch they
-may not be able to match. A dash pattern in the swatch fixes both halves at once.
+**The remedy the CSS comment named has landed.** Nine of the ten line series
+carry a `stroke-dasharray` (`styles.css:3366-3374`) and series 0 stays solid,
+because that is what a single-series chart gets and what a plain line should look
+like. A dash pattern is orthogonal to hue, which is the whole point: two series
+that look alike to one reader are still two different lines. The patterns differ
+in **rhythm** rather than only in length — a long dash against a short one is
+easy to tell apart, a 6-4 against an 8-4 is not — and `stroke-linecap: round`
+turns the one-unit dashes into dots, which is a third rhythm rather than a
+defect.
+
+**And the legend carries the same rhythm**, which is the half that was
+backwards. `ChartLegend` renders the swatch with `aria-hidden="true"` and the
+label as text, so a screen reader gets the label and a colour-blind sighted
+reader got only a block of colour to match against a line. A swatch that shows
+the line's pattern can be matched by shape. It is a repeating gradient rather
+than a border, because the swatch is a `<span>` and has no stroke to dash, and
+the stops are the dash arrays scaled to a 10px box so the two rhythms are the
+same rather than similar.
 
 Direct labelling is the other published answer, and both the Analysis Function
 and Okabe and Ito recommend it over a legend for lines. Use it where a chart has
 few enough series to fit labels; keep the legend where it does not.
 
-*Not checked mechanically.* A test asserting that every series swatch carries a
-dash pattern becomes possible once the patterns exist, and is item 6 in 17.2.
-It was cited to item 5 for a release, which covered bar separation and never
-mentioned dash patterns — so this rule appeared in none of 17.1, 17.2 or 17.3
-while a sentence here said it did.
+*Checked by:* `tests/theme-tokens.test.ts`, which requires nine dashed series and
+no two sharing a rhythm — two series on one pattern would put them back on colour
+alone for the reader this exists for — and a patterned swatch for every dashed
+line. And `tests/browser/budgets.spec.ts` for the half only a browser resolves:
+jsdom computes no styles for an SVG `<path>` and no gradients at all, so it can
+say the rules exist and nothing about whether the engine applies them.
 
 ### 11.4 Every chart ships its table
 
@@ -2202,7 +2216,7 @@ is which.
 | `tests/row-menu.test.tsx` | The row menu's dismissal and focus return (13.3) |
 | `tests/bulk-row-cap.test.ts` | The ten thousand row cap behind the selection contract (9.5) |
 | `tests/page-stack.test.ts` | The page's rhythm comes from `.content` and no page-level block carries a vertical margin or a negative one; no filter bar wraps a control in `Field`; every one of the twelve scrolling table containers is a named, focusable region; the focus-indicator selectors cover every focusable element type and `.file-drop` carries `:focus-within`; every sticky or fixed region is paired with a container declaring `scroll-padding` (7.4, 7.5, 7.6, 9.5, 9.6, 13.2) |
-| `tests/theme-tokens.test.ts` (chart palette) | `.chart-bar` declares a stroke, and not `none`, so two adjacent bars at 1.05:1 have an edge (11.2) |
+| `tests/theme-tokens.test.ts` (chart palette) | `.chart-bar` declares a stroke, and not `none`, so two adjacent bars at 1.05:1 have an edge; nine of the ten line series carry a distinct dash rhythm and every dashed series' legend swatch carries the same one (11.2, 11.3) |
 | `tests/progress-bar-ui.test.tsx`, `tests/progress-frames.test.ts` | When a progress bar is drawn, what it says, and that it is removed rather than frozen (12.6) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of twenty-one registered components; every full-height rule measures `dvh`; a right-aligned cell gets tabular figures whether it is a header or not (6.3, 9.3, 15) |
@@ -2228,7 +2242,7 @@ is which.
    not here, because section 11.2 argues at length that the ten-colour set beats
    a compliant six-colour one on the measure that matters, and a test demanding
    3:1 between adjacent series would contradict the guide it is attached to.
-   Section 11.3's dash patterns are the honest successor and are item 6 below.
+   Section 11.3's dash patterns were the honest successor and have landed.
 4. **No `type="number"` on a field bound to a decimal-string money value.**
    Scope it, or it fails on the recurrence interval at `forms.tsx:1297` and
    `:3014` and gets deleted on first contact.
@@ -2236,16 +2250,13 @@ is which.
    `tests/table-overflow.test.ts` covers the caption and that every `th` carries
    *a* scope; which one it should be is still uncounted, and a `scope="row"` in a
    `thead` would pass today.
-6. **A per-series `stroke-dasharray`**, so the line chart carries a second
-   channel that is not colour (11.3). The CSS comment at `styles.css:3328-3332`
-   already names it; nothing in these three lists did.
-7. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
+6. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
    against four deliberate paragraphs, at `App.tsx:205`,
    `AccountDetailPage.tsx:72`, `CategoryDetailPage.tsx:24` and
    `TemplateDetailPage.tsx:19`, each of which is a whole-page swap rather than a
    region — so this is a grep with a four-line allow-list rather than a grep
    waiting on a migration.
-8. **The progress bar is actually painted.** Moved here from 17.3, where it was
+7. **The progress bar is actually painted.** Moved here from 17.3, where it was
    filed as untestable. Chromium resolves `::-webkit-progress-value` through
    `getComputedStyle(element, "::-webkit-progress-value")`, so the browser tier
    can see it; filing it as review meant the one tier built to catch it would

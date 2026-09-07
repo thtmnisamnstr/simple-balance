@@ -461,6 +461,35 @@ test.describe("the budgets page in a browser", () => {
     expect(after).toBe("inside main");
   });
 
+  /**
+   * The dash channel, in the one tier that can resolve it.
+   *
+   * jsdom computes no styles for an SVG `<path>` and no gradients at all, so it
+   * can say the rules exist and nothing about whether the browser applies them.
+   * That is the half that matters: a `stroke-dasharray` on the wrong selector,
+   * or a gradient the engine cannot parse, leaves a reader with colour alone —
+   * which looks fine to whoever wrote it.
+   */
+  test("a chart line and its legend swatch carry the same second channel", async () => {
+    await page.goto("/reports");
+    const line = page.locator(".chart-line.chart-series-1").first();
+    if ((await line.count()) === 0) return;
+    const dash = await line.evaluate((el) => getComputedStyle(el).strokeDasharray);
+    expect(dash).not.toBe("none");
+    expect(dash).not.toBe("");
+    // Series 0 is solid, which is what makes the rest a distinction.
+    const solid = page.locator(".chart-line.chart-series-0").first();
+    if ((await solid.count()) > 0) {
+      expect(await solid.evaluate((el) => getComputedStyle(el).strokeDasharray)).toBe("none");
+    }
+    // And the swatch beside it is patterned rather than a solid block.
+    const swatch = page.locator(".chart-swatch.chart-series-1").first();
+    if ((await swatch.count()) > 0) {
+      const paint = await swatch.evaluate((el) => getComputedStyle(el).backgroundImage);
+      expect(paint).toContain("repeating-linear-gradient");
+    }
+  });
+
   test("following a link moves focus to the page it opened", async () => {
     // `pushState` moves neither focus nor scroll, so this used to leave focus
     // on an anchor the next page had unmounted.

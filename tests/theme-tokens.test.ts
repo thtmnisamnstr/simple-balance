@@ -289,3 +289,53 @@ describe("the browser chrome", () => {
   // checked in tests/api-security.test.ts, alongside the rest of what the
   // client bundle serves.
 });
+
+/**
+ * A second channel that is not colour, per `web.md` 11.3.
+ *
+ * Ten categorical colours cannot all be told apart under dichromatic vision and
+ * no choice of ten fixes that: the palette this product ships is the best
+ * available set and still reaches only 5.6 in light. A dash pattern is
+ * orthogonal to hue, so two series that look alike to one reader are still two
+ * different lines.
+ *
+ * The legend half is the part that was backwards. The swatch is `aria-hidden`,
+ * so a screen reader gets the label and a colour-blind sighted reader gets only
+ * a block of colour to match against a line — a swatch carrying the line's
+ * rhythm can be matched by shape.
+ */
+describe("a chart series and its second channel", () => {
+  it("gives every line but the first its own dash rhythm", () => {
+    const patterns = new Map<string, string>();
+    for (const match of css.matchAll(
+      /\.chart-line\.chart-series-(\d+)\s*\{\s*stroke-dasharray:\s*([^;]+);/g,
+    )) {
+      patterns.set(match[1]!, match[2]!.trim());
+    }
+    // Nine, because series 0 is solid: it is what a single-series chart gets
+    // and what a plain line should look like.
+    expect([...patterns.keys()].sort()).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+    expect(css).not.toMatch(/\.chart-line\.chart-series-0\s*\{\s*stroke-dasharray/);
+    // And no two share a rhythm, which would put two series back on colour
+    // alone for the reader this exists for.
+    expect(new Set(patterns.values()).size).toBe(patterns.size);
+  });
+
+  it("shows the same rhythm in the legend", () => {
+    // The swatch is a `<span>` with no stroke to dash, so the pattern is a
+    // repeating gradient. What matters is that a swatch exists for every dashed
+    // series: one that stayed a solid block could not be matched to its line.
+    const dashed = [
+      ...css.matchAll(/\.chart-line\.chart-series-(\d+)\s*\{\s*stroke-dasharray/g),
+    ].map((match) => match[1]!);
+    expect(dashed.length).toBeGreaterThan(8);
+    for (const index of dashed) {
+      const rule = new RegExp(
+        `\\.chart-swatch\\.chart-series-${index}\\s*\\{[^}]*repeating-linear-gradient`,
+      );
+      expect(css, `series ${index}'s swatch should carry its pattern`).toMatch(rule);
+    }
+    // Series 0 stays a solid block, matching its solid line.
+    expect(css).toMatch(/\.chart-swatch\.chart-series-0\s*\{\s*background:\s*var\(--series-0\);/);
+  });
+});

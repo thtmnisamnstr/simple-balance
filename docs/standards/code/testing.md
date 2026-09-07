@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 121 pass, 55 skip | **1,208 pass, 658 skip** |
-| `npm test`, database set | 176 pass | **1,866 pass** |
+| `npm test`, no database | 121 pass, 55 skip | **1,210 pass, 658 skip** |
+| `npm test`, database set | 176 pass | **1,868 pass** |
 | `npm run test:integration` | 56 pass | 659 pass |
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -75,7 +75,7 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Twenty tests, one file, one worker, against a real API and a real
+**House.** Twenty-one tests, one file, one worker, against a real API and a real
 PostgreSQL. It is slow and it is the only tier that proves the whole stack
 works, so it covers a path per capability rather than a case per branch.
 `tests/testing-guide-counts.test.ts` holds this number to the file, because it
