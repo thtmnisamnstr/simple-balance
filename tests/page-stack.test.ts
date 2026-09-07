@@ -220,3 +220,158 @@ describe("a filter bar", () => {
     expect(offenders, "a filter takes a bare control and an aria-label").toEqual([]);
   });
 });
+
+/**
+ * A page-prefixed class is used on that page and nowhere else.
+ *
+ * `web.md` 6.3 asks for a class named for its component rather than for a page,
+ * and `.settings-note` was the counter-example: named after the page it was born
+ * on and then used 26 times across eight files, none of them Settings. It is a
+ * `Note` component now, and this is what would have said so — the drift is
+ * invisible from any one file, because every use of it looks local.
+ *
+ * The prefix comes from the page's own filename, so a new page is covered the
+ * day it is added rather than the day somebody remembers.
+ */
+describe("a page-scoped class", () => {
+  /**
+   * Utilities, which are legitimately used everywhere, and the four are the
+   * four `web.md` 6.3 names. A fifth has to come here and argue.
+   */
+  const UTILITIES = new Set(["align-right", "nowrap", "subtle", "sr-only"]);
+
+  /**
+   * Names that read like a page's and belong to a component, one line each.
+   *
+   * This is a register rather than a rule, because the distinction the rule
+   * draws — is this class named for a *page* or for a *component that happens
+   * to share the page's word* — is a judgement no pattern makes. `.settings-note`
+   * was named for a page and used on eight files; `.account-icon` is named for
+   * an account and appears wherever an account does. Nothing structural tells
+   * them apart: `.settings-note` was used on its own page too.
+   *
+   * The value is that a *new* off-page use has to be classified here, which is
+   * the reading `.settings-note` never got in 26 uses across four releases.
+   */
+  const COMPONENTS = new Map([
+    ["account-icon", "An account's coloured glyph, wherever an account is listed"],
+    ["budget-display", "The budget section the dashboard and the budgets page share"],
+    ["budget-report", "Same section, same reason"],
+    ["budget-progress", "The bar inside it"],
+    ["budget-bar", "The bar inside it"],
+    ["import-batches", "The import-batch list, read by the staged queue as well"],
+    ["template-blank", "A template's unfilled field, shown wherever one is applied"],
+    ["account-mini-group", "The dashboard's compact account list"],
+    ["account-mini-heading", "Same list"],
+    ["account-mini-row", "Same list"],
+    ["account-register", "The register of one account's entries, on its detail page"],
+    ["account-transactions", "Same register, and the category detail page shows one too"],
+    ["recurrence-preview", "A schedule's next few dates, previewed in the form as well"],
+    ["recurrence-preview-label", "Same preview"],
+    ["transaction-cell", "A cell in the transaction register, wherever the register appears"],
+    ["transaction-icon", "Same register"],
+    ["transaction-payee", "Same register, and the staged queue shows the same shape"],
+    ["transaction-selection-bar", "The bulk-action bar, on all three pages that have one"],
+    ["transaction-selection-actions", "Same bar"],
+    ["transaction-type", "The deposit/withdrawal/transfer choice, in every form that asks"],
+    ["transaction-type-grid", "Same choice"],
+  ]);
+
+  it("is used on the page it is named for and nowhere else", () => {
+    const pages = globSync("src/client/pages/*.tsx");
+    // Both spellings, because pages disagree about which they use.
+    // `AccountsPage.tsx` names its classes `.account-card`, singular, and
+    // `SettingsPage.tsx` names its `.settings-section`, plural. Deriving only
+    // the singular is why a `.settings-` class dropped on the dashboard went
+    // unnoticed by the first version of this check.
+    const prefixesOf = (path: string) => {
+      const stem = path
+        .slice(path.lastIndexOf("/") + 1)
+        .replace(/Page\.tsx$/, "")
+        .replace(/([a-z])([A-Z])/g, "$1-$2")
+        .toLowerCase();
+      return [...new Set([stem, stem.replace(/s$/, "")])].filter((one) => one.length >= 4);
+    };
+    const strays: string[] = [];
+    let checked = 0;
+    for (const page of pages) {
+      const prefixes = prefixesOf(page);
+      if (prefixes.length === 0) continue;
+      checked += 1;
+      const used = new RegExp(`\\b(?:${prefixes.join("|")})-[a-z-]+`, "g");
+      for (const other of globSync("src/client/**/*.tsx")) {
+        if (other === page) continue;
+        const source = readFileSync(other, "utf8");
+        // A class name inside a comment is a comment about it. Every docstring
+        // here that explains a rename names the class it replaced, which is
+        // the reason to keep the comment rather than a reason to fail.
+        const code = source.replaceAll(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+        for (const match of code.matchAll(used)) {
+          const name = match[0];
+          if (UTILITIES.has(name) || COMPONENTS.has(name)) continue;
+          // A real class rather than a word that happens to start the same way.
+          // Keyed on the stylesheet and not on "does its own page use it too":
+          // that guard let the worse case through, a `.settings-` class used on
+          // the dashboard and *not* on Settings at all.
+          if (!css.includes(`.${name}`)) continue;
+          strays.push(`${other} uses ${name}, which belongs to ${page}`);
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(8);
+    expect(
+      [...new Set(strays)],
+      "name it for its component, not for a page — or say which it is in COMPONENTS",
+    ).toEqual([]);
+    // Every register entry still earns its place. One left behind after the
+    // class it excused was renamed is the register drifting the way the class
+    // did.
+    const everything = globSync("src/client/**/*.tsx")
+      .map((path) => readFileSync(path, "utf8"))
+      .join("\n");
+    const stale = [...COMPONENTS.keys()].filter((name) => !everything.includes(name));
+    expect(stale, "these are excused and unused").toEqual([]);
+  });
+});
+
+/**
+ * Full height means the viewport somebody actually has.
+ *
+ * `100vh` is the *largest* viewport height, so on a mobile browser with a
+ * retracting toolbar it is taller than what is on screen and the bottom of the
+ * page cannot be reached until the toolbar hides itself. The modal was where it
+ * mattered: `max-height: calc(100vh - 28px)` put a tall form's last field and
+ * its submit button below the fold.
+ *
+ * `vw` is deliberately not in scope. Nothing retracts horizontally, so the two
+ * `100vw` in the modal's width arithmetic are correct as they are.
+ */
+describe("a full-height rule", () => {
+  it("measures the dynamic viewport", () => {
+    const offenders = css
+      .split("\n")
+      .map((line, index) => ({ line, at: index + 1 }))
+      .filter(({ line }) => /\b\d+vh\b/.test(line) && !/^\s*(?:\/\*|\*)/.test(line))
+      .map(({ line, at }) => `styles.css:${at} ${line.trim()}`);
+    expect(offenders, "use dvh, which is the viewport as it is now").toEqual([]);
+    // And there are heights to have got wrong: an empty result here would mean
+    // the stylesheet stopped setting one rather than that it sets them well.
+    expect([...css.matchAll(/\b\d+dvh\b/g)].length).toBeGreaterThan(4);
+  });
+});
+
+/**
+ * Header alignment, cell alignment and tabular figures travel together.
+ *
+ * `web.md` 9.3 says exactly that and the selector said otherwise: it was
+ * `.data-table td.align-right`, so a `<th className="align-right">` on Reports
+ * and Budgets got the alignment and not the figures — a column of period totals
+ * in a header row that failed to line up with the identical column beneath it.
+ */
+describe("a right-aligned table cell", () => {
+  it("gets tabular figures whether it is a header or not", () => {
+    const rule = css.slice(css.indexOf(".align-right,\n.amount"));
+    expect(css).toContain(".data-table :is(th, td).align-right");
+    expect(rule.slice(0, rule.indexOf("}"))).toContain("font-variant-numeric: tabular-nums");
+  });
+});

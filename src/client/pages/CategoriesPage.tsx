@@ -33,6 +33,7 @@ import {
   Field,
   Input,
   Modal,
+  Note,
   PageHeader,
   Select,
   Skeleton,
@@ -392,7 +393,7 @@ export default function CategoriesPage() {
         title="Categories"
         description="Group income and spending, with how much each one is used across the whole ledger. Spot near-duplicates and merge them."
       />
-      <section className="panel settings-section">
+      <section className="panel panel-stack">
         <form className="inline-form" onSubmit={addCategory}>
           <Input
             required
@@ -429,7 +430,7 @@ export default function CategoriesPage() {
         {categoryMutation.error ? <Alert>{categoryMutation.error.message}</Alert> : null}
       </section>
 
-      <section className="panel settings-section">
+      <section className="panel panel-stack">
         <div className="section-title">
           <span>
             <FolderTree size={19} />
@@ -484,7 +485,7 @@ export default function CategoriesPage() {
         ) : groups.isPending ? (
           <Skeleton height={90} label="Loading groups…" />
         ) : groups.data.length === 0 ? (
-          <p className="settings-note">No groups yet.</p>
+          <Note>No groups yet.</Note>
         ) : (
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Category groups">
             <table className="data-table">

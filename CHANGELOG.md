@@ -424,6 +424,19 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**Six smaller things a person would meet.** An empty state always has its icon
+now — three of the sixteen had none, which left a heading and a sentence
+floating in a card, reading as a page that failed to load rather than one that
+answered — and its heading takes the level the document needs rather than always
+`<h3>`. A right-aligned column header gets the same tabular figures its cells
+get, so a header row of period totals on Reports and Budgets lines up with the
+column beneath it instead of drifting a pixel per digit. Full-height layouts
+measure the viewport somebody actually has, which matters most in a modal: a
+tall form's last field and its submit button used to sit below the fold on a
+phone until the browser toolbar hid itself. And the generic muted paragraph is a
+`Note` component rather than a class called `.settings-note` used on eight files,
+none of them Settings; the stacked panel it sat in got the same treatment.
+
 **Every field's label, hint and error now reach the control they are about.**
 They were all on screen and none of them was connected: a label associated by
 wrapping rather than by name, a hint rendered *after* the control with nothing

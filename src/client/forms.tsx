@@ -55,6 +55,7 @@ import {
   ErrorSummary,
   Field,
   Input,
+  Note,
   RequiredNote,
   Select,
   Textarea,
@@ -273,11 +274,11 @@ export function AccountForm({
         />
         The budget is about the money in this account
       </label>
-      <p className="settings-note">
+      <Note>
         On for everything by default, cards included: spending on a card empties an envelope, so
         leaving cards out would say there is more money to assign than there is. Turn it off for
         something the budget should not see, such as a pension. It changes no balance and no report.
-      </p>
+      </Note>
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel
@@ -1133,13 +1134,9 @@ export function TemplateForm({
           no type at all — so these are toggles, not radios. */}
       <TransactionTypeChoice allowNone value={type} onChange={setType} />
       {type ? (
-        <p className="settings-note">
-          Chosen again to leave the type out, so it is picked each time.
-        </p>
+        <Note>Chosen again to leave the type out, so it is picked each time.</Note>
       ) : (
-        <p className="settings-note">
-          No type saved, so it is picked each time you use this template.
-        </p>
+        <Note>No type saved, so it is picked each time you use this template.</Note>
       )}
 
       <div className="two-columns">
@@ -1243,10 +1240,10 @@ export function TemplateForm({
         {/* Directly under the checkbox it explains. It used to sit at the very
             bottom, after every schedule field, where it read as a footnote to
             the weekend policy rather than as what the setting above does. */}
-        <p className="settings-note">
+        <Note>
           A reminder only asks. It never records anything, because a template is something you fill
           in yourself.
-        </p>
+        </Note>
 
         {reminding ? (
           <>
@@ -1424,10 +1421,10 @@ export function TemplateForm({
               </Field>
             ) : null}
             {reminderBusinessDayBlocked ? (
-              <p className="settings-note">
+              <Note>
                 A daily reminder of one or two days moved on to a business day would land two on the
                 same date. Make the interval three days or more to use those two.
-              </p>
+              </Note>
             ) : null}
 
             {reminderPreview.length ? (
@@ -3118,11 +3115,11 @@ export function RecurrenceForm({
           </Select>
         </Field>
         {businessDayBlocked ? (
-          <p className="settings-note">
+          <Note>
             A daily schedule of one or two days moved onto a business day puts two occurrences on
             the same date, and Staged transactions refuses to commit rows that alike. Make the
             interval three days or more to use those two.
-          </p>
+          </Note>
         ) : null}
 
         {preview.length ? (
@@ -3178,10 +3175,10 @@ export function RecurrenceForm({
           />
           Email me when this proposes a transaction
         </label>
-        <p className="settings-note">
+        <Note>
           Sent when the scheduler adds rows to Staged transactions, not when you commit them. One
           message per proposal, however many rows it holds.
-        </p>
+        </Note>
         {notifyOnCreate && notificationsAvailable === false ? (
           <Alert kind="info">
             This deployment has no mail server configured, so the setting will be saved and nothing

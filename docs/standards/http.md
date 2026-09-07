@@ -361,7 +361,7 @@ add it.
   (`src/server/http-security.ts:178-187`). The consequence is real and the
   browser client lives with it: revoking an agent is a `DELETE` that sends `{}`
   purely so it can declare a content type
-  (`src/client/pages/SettingsPage.tsx:554-562`).
+  (`src/client/pages/SettingsPage.tsx:555-563`).
   *Checked by:* `tests/api-security.test.ts:64-88`, both halves, the refusal and
   the bodyless request that gets through the gate.
 - **House.** A malformed or absent JSON body is a 400 with a message saying so,

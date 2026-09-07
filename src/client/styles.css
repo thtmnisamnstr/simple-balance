@@ -324,7 +324,7 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100dvh;
   background:
     radial-gradient(circle at 72% -20%, var(--ambient), transparent 32rem),
     var(--ground);
@@ -342,7 +342,7 @@ a {
 
 
 .app-shell {
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* The layer ladder, in one place because a z-index chosen alone is a z-index
@@ -524,7 +524,7 @@ a {
 }
 
 .main-column {
-  min-height: 100vh;
+  min-height: 100dvh;
   margin-left: 248px;
 }
 
@@ -724,8 +724,14 @@ a {
   }
 }
 
-/* Money lines up column to column only when every digit is the same width. */
-.data-table td.align-right,
+/* Money lines up column to column only when every digit is the same width.
+   `:is(th, td)` rather than `td` alone: `web.md` 9.3 says header alignment, cell
+   alignment and tabular figures travel together, and this selector was the
+   sentence not being true — `<th className="align-right">` on Reports and
+   Budgets got the alignment and not the figures, so a column of period totals
+   in a header row failed to line up with the identical column beneath it. A
+   `th[scope="row"]` holding a date wants them for the same reason. */
+.data-table :is(th, td).align-right,
 .amount,
 .currency-heading h2 {
   font-variant-numeric: tabular-nums;
@@ -2052,7 +2058,7 @@ input[type="radio"] {
   font-style: italic;
 }
 
-.bulk-edit-field > .settings-note {
+.bulk-edit-field > .note {
   grid-column: 2;
   margin: 0;
 }
@@ -2193,7 +2199,11 @@ input[type="radio"] {
   inset: 0;
   width: min(650px, calc(100vw - 28px));
   height: fit-content;
-  max-height: calc(100vh - 28px);
+  /* `dvh`, not `vh`: on a mobile browser with a retracting toolbar `100vh` is
+     taller than the viewport, so a tall form's last field and its submit
+     button sat below the fold until the toolbar hid itself. `vw` stays, because
+     the width has no equivalent problem — nothing retracts horizontally. */
+  max-height: calc(100dvh - 28px);
   margin: auto;
   padding: 0;
   overflow: hidden;
@@ -2209,7 +2219,7 @@ input[type="radio"] {
 }
 
 .modal-card {
-  max-height: calc(100vh - 28px);
+  max-height: calc(100dvh - 28px);
   overflow-y: auto;
   background: var(--surface);
   /* Its own scroller, and `.modal-header` sticks inside it. A long form's last
@@ -2426,7 +2436,10 @@ input[type="radio"] {
   min-width: 0;
 }
 
-.settings-section {
+/* A panel whose contents stack. Named for what it does rather than for the page
+   it was born on: it was `.settings-section` and Categories used it too, which
+   is the same naming debt `.settings-note` carried before it became `Note`. */
+.panel-stack {
   display: grid;
   gap: 20px;
 }
@@ -2704,7 +2717,7 @@ input[type="radio"] {
 
 .auth-shell {
   display: grid;
-  min-height: 100vh;
+  min-height: 100dvh;
   grid-template-columns: minmax(340px, 0.85fr) minmax(440px, 1.15fr);
   background: var(--surface-soft);
 }
@@ -2908,7 +2921,7 @@ input[type="radio"] {
   overflow-wrap: anywhere;
 }
 
-.connected-app .settings-note {
+.connected-app .note {
   margin: 0;
 }
 
@@ -2917,7 +2930,7 @@ input[type="radio"] {
   gap: 10px;
 }
 
-.settings-note {
+.note {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
@@ -3024,7 +3037,7 @@ input[type="radio"] {
 
 .loading-screen {
   display: grid;
-  min-height: 100vh;
+  min-height: 100dvh;
   place-items: center;
   align-content: center;
   gap: 13px;

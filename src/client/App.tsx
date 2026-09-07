@@ -25,7 +25,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation, useSearchParams } from "./router.js";
 import { api, ApiClientError, json, type AuthPublicOptions, type Session } from "./api.js";
 import { authClient } from "./auth-client.js";
-import { Alert, Button, Field, Input } from "./components.js";
+import { Alert, Button, Field, Input, Note } from "./components.js";
 import AccountsPage from "./pages/AccountsPage.js";
 import AccountDetailPage from "./pages/AccountDetailPage.js";
 import ActivityPage from "./pages/ActivityPage.js";
@@ -212,11 +212,11 @@ function SignIn({ error }: { error?: Error }) {
         {awaitingVerification ? (
           <div className="local-auth-form">
             <h2>Confirm your email address</h2>
-            <p className="settings-note">
+            <Note>
               A message is on its way to {email}. Open the link in it to confirm the address. Until
               that is done the account cannot be signed in to. The link lasts an hour, and trying to
               sign in again sends a fresh one.
-            </p>
+            </Note>
             <Button
               type="button"
               variant="secondary"
@@ -235,10 +235,10 @@ function SignIn({ error }: { error?: Error }) {
             <h2>Reset your password</h2>
             {resetRequested ? (
               <>
-                <p className="settings-note">
+                <Note>
                   If {email} has an account here, a link to choose a new password is on its way. It
                   works once and expires in an hour.
-                </p>
+                </Note>
                 <Button
                   type="button"
                   variant="secondary"
@@ -252,10 +252,10 @@ function SignIn({ error }: { error?: Error }) {
               </>
             ) : (
               <>
-                <p className="settings-note">
+                <Note>
                   Tell us the address on the account and we will send a link to choose a new
                   password.
-                </p>
+                </Note>
                 <Field label="Email address">
                   <Input
                     required

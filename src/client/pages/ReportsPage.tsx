@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { BarChart3 } from "lucide-react";
 import { useRef, useState } from "react";
 import { BarChart, ChartLegend, LineChart } from "../charts.js";
 import { api, queryString, type Report } from "../api.js";
@@ -6,6 +7,7 @@ import {
   Alert,
   DateRangeBar,
   EmptyState,
+  Note,
   PageHeader,
   RowMenu,
   Select,
@@ -170,7 +172,7 @@ export default function ReportsPage() {
           whether a row flat at zero is listed. On a movement report it decides
           whether a closed account's activity is counted at all. */}
       {data ? (
-        <p className="settings-note">
+        <Note>
           {data.accumulation === "historical"
             ? includeArchived
               ? "Closed accounts are listed. What they held before they closed is in these figures either way."
@@ -178,7 +180,7 @@ export default function ReportsPage() {
             : includeArchived
               ? "What was earned and spent through closed accounts is counted here."
               : "What was earned and spent through closed accounts is left out."}
-        </p>
+        </Note>
       ) : null}
 
       {report === "cash-flow" ? (
@@ -236,6 +238,7 @@ export default function ReportsPage() {
         </div>
       ) : query.error ? null : !data?.currencies.length ? (
         <EmptyState
+          icon={<BarChart3 size={22} />}
           title="Nothing to report yet"
           body="Once there are transactions in this date range, this report will fill in."
           action={

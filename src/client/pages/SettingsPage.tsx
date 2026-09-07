@@ -14,6 +14,7 @@ import {
   ConfirmDialog,
   Field,
   Input,
+  Note,
   PageHeader,
   Select,
   Skeleton,
@@ -120,7 +121,7 @@ export default function SettingsPage({ session }: { session: Session }) {
             leaving a stretch of nothing between this card and the next one
             under it. */}
         <div className="settings-column">
-          <section className="panel settings-section">
+          <section className="panel panel-stack">
             <header className="section-title">
               <span>
                 <SunMoon size={19} />
@@ -157,15 +158,15 @@ export default function SettingsPage({ session }: { session: Session }) {
                 </label>
               ))}
             </div>
-            <p className="settings-note">
+            <Note>
               Follow my system takes whatever this device is set to, and changes when it does. Light
               and Dark stay where you put them. Whichever you choose is saved to your account, so it
               comes back on any browser you sign in from.
-            </p>
+            </Note>
             {theme.error ? <Alert>{theme.error.message}</Alert> : null}
           </section>
 
-          <section className="panel settings-section">
+          <section className="panel panel-stack">
             <header className="section-title">
               <span>
                 <Settings2 size={19} />
@@ -227,7 +228,7 @@ export default function SettingsPage({ session }: { session: Session }) {
 
         <div className="settings-column">
           {session.auth.localEnabled || session.auth.googleEnabled ? (
-            <section className="panel settings-section">
+            <section className="panel panel-stack">
               <header className="section-title">
                 <span>
                   <KeyRound size={19} />
@@ -287,7 +288,7 @@ export default function SettingsPage({ session }: { session: Session }) {
               and the note ended up below the Google button rather than beside
               the form it is about. */}
           {session.auth.localEnabled ? (
-            <section className="panel settings-section">
+            <section className="panel panel-stack">
               <header className="section-title">
                 <span>
                   <KeyRound size={19} />
@@ -360,11 +361,11 @@ export default function SettingsPage({ session }: { session: Session }) {
                 </div>
               </form>
               {session.auth.localPasswordConfigured ? (
-                <p className="settings-note">
+                <Note>
                   {authOptions.data?.passwordResetAvailable
                     ? "Forgotten this password? The sign-in screen can send a link to reset it."
                     : "This deployment has no mail server, so a forgotten password cannot be reset. Keep it in a password manager."}
-                </p>
+                </Note>
               ) : null}
             </section>
           ) : null}
@@ -428,7 +429,7 @@ function DeleteAccount({ session }: { session: Session }) {
   const matches = confirmEmail.trim().toLowerCase() === session.user.email.trim().toLowerCase();
 
   return (
-    <section className="panel settings-section danger-zone">
+    <section className="panel panel-stack danger-zone">
       <header className="section-title">
         <span>
           <TriangleAlert size={19} />
@@ -448,7 +449,7 @@ function DeleteAccount({ session }: { session: Session }) {
           {summary.isLoading ? <Skeleton height={20} label="Counting your records…" /> : null}
           {summary.error ? <Alert>{summary.error.message}</Alert> : null}
           {summary.data ? (
-            <p className="settings-note">
+            <Note>
               This will delete {plural(summary.data.transactions, "transaction")} across{" "}
               {plural(summary.data.accounts, "account")}, along with{" "}
               {readableList([
@@ -468,7 +469,7 @@ function DeleteAccount({ session }: { session: Session }) {
                   : null,
               ])}
               .
-            </p>
+            </Note>
           ) : null}
           <Field label="Type your email address to confirm" hint={session.user.email}>
             <Input
@@ -577,7 +578,7 @@ function ConnectedApps() {
   });
 
   return (
-    <section className="panel settings-section">
+    <section className="panel panel-stack">
       <header className="section-title">
         <span>
           <Bot size={19} />
@@ -593,10 +594,10 @@ function ConnectedApps() {
       {revokeMutation.error ? <Alert>{revokeMutation.error.message}</Alert> : null}
 
       {apps.data && apps.data.length === 0 ? (
-        <p className="settings-note">
+        <Note>
           Nothing is connected. An agent appears here once you approve it, and you can withdraw that
           approval at any time.
-        </p>
+        </Note>
       ) : null}
 
       {apps.data?.map((app) => (
@@ -606,7 +607,7 @@ function ConnectedApps() {
             <Badge tone={app.hasLiveAccess ? "green" : undefined}>
               {app.hasLiveAccess ? "Active" : "No live token"}
             </Badge>
-            <p className="settings-note">
+            <Note>
               {/* When it last took a token and how many it holds, because
                   "is this thing still using my ledger" is the question this
                   page exists to answer — the API sent both from the first
@@ -621,7 +622,7 @@ function ConnectedApps() {
               {app.activeTokenCount > 0
                 ? ` · ${app.activeTokenCount} active token${app.activeTokenCount === 1 ? "" : "s"}`
                 : ""}
-            </p>
+            </Note>
           </div>
           <Button
             type="button"

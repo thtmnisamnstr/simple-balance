@@ -23,8 +23,9 @@ import {
   DateRangeBar,
   EmptyState,
   Field,
-  Modal,
   Input,
+  Modal,
+  Note,
   PageHeader,
   Select,
   Skeleton,
@@ -604,18 +605,18 @@ export default function BudgetsPage({ session }: { session: Session }) {
             Set budget
           </Button>
         </form>
-        <p className="settings-note">
+        <Note>
           One budget covers every {unitNoun[periodUnit]} from the date it starts, so there is
           nothing to set again next {unitNoun[periodUnit]}. To change it later without rewriting
           what past {unitNoun[periodUnit]}s intended, end this one and start another.
-        </p>
-        <p className="settings-note">
+        </Note>
+        <Note>
           {targetAmount === ""
             ? rollover
               ? `What this ${unitNoun[periodUnit]} does not spend is added to the next one, and anything overspent is taken off it. Nothing is stored ${unitNoun[periodUnit]} by ${unitNoun[periodUnit]}: the figures are worked out from what you budgeted and what you spent, so turning this off leaves nothing behind.`
               : `Each ${unitNoun[periodUnit]} starts again at the amount. Tick the box to carry the difference forward instead.`
             : `Each ${unitNoun[periodUnit]} puts aside what is still needed, divided by the ${unitNoun[periodUnit]}s left before the date. There is no amount to type: the figure changes as the fund fills up, and stops once it is full.`}
-        </p>
+        </Note>
       </section>
 
       <section className="panel">
@@ -630,7 +631,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         ) : plans.isPending ? (
           <Skeleton height={80} label="Loading standing budgets…" />
         ) : (plans.data ?? []).length === 0 ? (
-          <p className="settings-note">No standing budgets yet.</p>
+          <Note>No standing budgets yet.</Note>
         ) : (
           <div className="table-wrap" tabIndex={0} role="region" aria-label="Standing budgets">
             <table className="data-table">
@@ -761,12 +762,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
         editing.amountRule !== "fixed" &&
         editing.amountRule !== "incremental" &&
         editing.amountRule !== "trailing_average" ? (
-          <p className="settings-note">
+          <Note>
             {editing.amountRule === "sinking_fund"
               ? `This one is saving ${formatMoney(editing.targetAmount ?? "0", editing.currency)} by ${periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works out its own amount each ${unitNoun[editing.periodUnit]}.`
               : `This one takes ${editing.percentOfIncome}% of the income before it, so it works out its own amount and there is nothing here to type.`}{" "}
             Delete it and set a plain budget if that is not what you want.
-          </p>
+          </Note>
         ) : (
           <>
             <Field label="Amount">
@@ -1011,14 +1012,14 @@ export default function BudgetsPage({ session }: { session: Session }) {
              who owns an account has a currency, so the old test never fired:
              a ledger with nothing to project showed a table of zeroes and no
              sentence saying why. */
-          <p className="settings-note">
+          <Note>
             Nothing to project yet.{" "}
             {forecastBasis === "recurring"
               ? "This basis counts recurring transactions alone, and there are none. Set one up, or count what you usually spend instead."
               : forecastBasis === "recurring_and_budgets"
                 ? "This basis counts recurring transactions and budgets, and there are neither."
                 : "There is no spending or income behind this yet — a finished period has to have something in it before an average means anything."}
-          </p>
+          </Note>
         ) : (
           (forecast.data?.currencies ?? []).map((currency) => (
             <div
@@ -1401,12 +1402,12 @@ export default function BudgetsPage({ session }: { session: Session }) {
         })
       )}
       {report.data?.rollover ? (
-        <p className="settings-note">
+        <Note>
           Carried-in figures were worked out from {formatDate(report.data.rollover.from)} onward.
           {report.data.rollover.clipped
             ? " That is as far back as this page looks, so the carry starts from nothing there rather than from the beginning of the budget."
             : ""}
-        </p>
+        </Note>
       ) : null}
 
       {entries.isError ? (

@@ -9,7 +9,7 @@ import {
   type AccountBalanceSnapshot,
   type AccountRegister,
 } from "../api.js";
-import { Alert, Badge, Button, DateRangeBar, PageHeader, Skeleton } from "../components.js";
+import { Alert, Badge, Button, DateRangeBar, Note, PageHeader, Skeleton } from "../components.js";
 import { formatDate, formatMoney, isNegativeMoney } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import { TransactionBrowser } from "../TransactionBrowser.js";
@@ -151,11 +151,11 @@ export default function AccountDetailPage() {
             <Skeleton height={220} label="Loading the register…" />
           ) : (
             <>
-              <p className="settings-note">
+              <Note>
                 Opening {formatMoney(register.data.openingBalance, register.data.currency)}, closing{" "}
                 {formatMoney(register.data.closingBalance, register.data.currency)}, as of{" "}
                 {formatDate(register.data.asOf)}.
-              </p>
+              </Note>
               {register.data.entries.length ? (
                 <div className="table-wrap" tabIndex={0} role="region" aria-label="Register">
                   <table className="data-table">
@@ -228,7 +228,7 @@ export default function AccountDetailPage() {
                   </table>
                 </div>
               ) : (
-                <p className="settings-note">No postings in this range.</p>
+                <Note>No postings in this range.</Note>
               )}
             </>
           )

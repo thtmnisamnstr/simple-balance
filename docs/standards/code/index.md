@@ -192,7 +192,7 @@ rule that is *narrowed* is the same kind of decision as one turned off:
 
 Two more are denied but disabled at two individual sites, each carrying its
 reason in the code: `jsx-a11y/no-static-element-interactions` at
-`src/client/forms.tsx:534`, and both that and `click-events-have-key-events` at
+`src/client/forms.tsx:535`, and both that and `click-events-have-key-events` at
 `src/client/components.tsx:639`. Both are elements catching events that bubble
 from real controls inside them.
 

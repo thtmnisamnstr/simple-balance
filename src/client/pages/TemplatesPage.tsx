@@ -12,6 +12,7 @@ import {
   Field,
   Input,
   Modal,
+  Note,
   PageHeader,
   Pagination,
   RowMenu,
@@ -735,11 +736,11 @@ export default function TemplatesPage() {
                     </Select>
                   </Field>
                   {blocked ? (
-                    <p className="settings-note">
+                    <Note>
                       {field.key === "fromAccountId"
                         ? "A deposit has no source account, so this cannot be set for everything selected."
                         : "A withdrawal has no destination account, so this cannot be set for everything selected."}
-                    </p>
+                    </Note>
                   ) : null}
                   {field.key === "type" ? (
                     <Select

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { CheckCheck, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import {
   api,
   json,
@@ -138,6 +138,10 @@ export default function DuplicateReviewPage() {
 
   const caughtUp = (
     <EmptyState
+      icon={<CheckCheck size={22} />}
+      // The answer to the whole screen rather than a section of it: this
+      // replaces the review, so its heading is the page's own.
+      level={2}
       title="No duplicates left to review"
       body="Nothing in the queue looks like a copy of anything else. Rows still waiting on you are on the queue itself."
       action={
@@ -234,6 +238,7 @@ export default function DuplicateReviewPage() {
         </div>
       ) : !review.data ? null : !review.data.second ? (
         <EmptyState
+          icon={<CheckCheck size={22} />}
           title="Nothing repeats this any more"
           body="Whatever it looked like a copy of has been changed, committed or dropped. This row is on its own now."
           action={

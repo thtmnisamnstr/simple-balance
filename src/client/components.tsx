@@ -911,16 +911,33 @@ export function EmptyState({
   title,
   body,
   action,
+  level = 3,
 }: {
-  icon?: ReactNode;
+  /**
+   * Required, and it used to be optional with three of the sixteen sites
+   * omitting it. An empty state is the whole of what somebody sees on a page
+   * that answered their question with nothing, and the three that had no icon
+   * were a heading and a sentence floating in a card — which reads as a page
+   * that failed to load rather than as an answer.
+   */
+  icon: ReactNode;
   title: string;
   body: string;
   action?: ReactNode;
+  /**
+   * The heading level, because a component that hard-codes one misstates the
+   * document wherever it is used. `<h3>` is right under a page `<h1>` and a
+   * section `<h2>`, and wrong where the empty state *is* the page's content —
+   * the duplicate review's "nothing left to review" is the answer to the whole
+   * screen, not a subsection of it. Same reasoning as `ErrorSummary`'s.
+   */
+  level?: 2 | 3;
 }) {
+  const Heading = level === 2 ? "h2" : "h3";
   return (
     <div className="empty-state">
-      {icon ? <div className="empty-icon">{icon}</div> : null}
-      <h3>{title}</h3>
+      <div className="empty-icon">{icon}</div>
+      <Heading>{title}</Heading>
       <p>{body}</p>
       {action}
     </div>
@@ -966,6 +983,25 @@ export function Alert({
       <div>{children}</div>
     </div>
   );
+}
+
+/**
+ * A muted paragraph: the sentence under a control that says what it means.
+ *
+ * A component rather than a class because the class was `.settings-note`, named
+ * after the page it was born on and then used 26 times across eight files —
+ * `App.tsx`, `forms.tsx` and six pages, none of them Settings. `web.md` 6.3
+ * asks for a class to be named for its component and not for a page, and
+ * offered two ways out: rename it, or make the paragraph real. This is the
+ * second, which also puts it in 6.1's inventory, where the duplicate check has
+ * something to fire against next time somebody writes a muted `<p>` by hand.
+ *
+ * No props beyond its children. Every one of the 26 was the same element with
+ * the same class and nothing else, which is what made it a component rather
+ * than a utility.
+ */
+export function Note({ children }: PropsWithChildren) {
+  return <p className="note">{children}</p>;
 }
 
 export function Badge({
