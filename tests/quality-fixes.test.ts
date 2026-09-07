@@ -140,3 +140,56 @@ describe("every staged filter the schema accepts is one the query applies", () =
     expect(ignored, `accepted but never applied: ${ignored.join(", ")}`).toEqual([]);
   });
 });
+
+/**
+ * And the same rule on the server, where a float would reach the books.
+ *
+ * `services.md` section 3.3 is **Binding** — `AGENTS.md`'s "Never represent
+ * money with JavaScript/JSON floating-point numbers" — and it was the one
+ * Binding rule in that guide with no mechanism named. A money value's whole life
+ * on the server is `numeric(44,18)` in, `decimal()` through, canonical decimal
+ * string out, and no stage in between is a `number`.
+ *
+ * Refusing `Number(` outright is the wrong rule and the first run proved it: six
+ * of the six sites in the services are counts — periods, entries, staged rows —
+ * and a count is a number. What has to be refused is `Number(` reaching a value
+ * whose *name* is money, which is the vocabulary this codebase actually uses for
+ * one. A count passes, `Number(row.amount)` does not, and somebody who wants to
+ * add a money word has to come here and say so.
+ *
+ * `value` is deliberately not one of them. It is the most generic identifier in
+ * the language and names a bounded integer in four places here, so including it
+ * measures naming rather than arithmetic.
+ */
+const MONEY_WORDS =
+  /\b(amount|balance|spent|received|remaining|limit|available|assigned|carried|funded|total|net|opening|closing|rate|price|debit|credit)\b/i;
+
+describe("money on the server", () => {
+  it("never travels through a JavaScript number", async () => {
+    const { globSync } = await import("node:fs");
+    const floats: string[] = [];
+    let converted = 0;
+    for (const path of globSync("src/server/**/*.ts")) {
+      const lines = (await readFile(path, "utf8")).split("\n");
+      lines.forEach((line, index) => {
+        // Comments talk about `Number(...)`; only code converts with it.
+        if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return;
+        for (const call of line.matchAll(/\b(?:Number|parseFloat)\s*\(([^)]*)/g)) {
+          converted += 1;
+          // `Number.isSafeInteger` and friends are the guard, not a conversion.
+          if (/^\s*$/.test(call[1]!)) continue;
+          if (MONEY_WORDS.test(call[1]!)) floats.push(`${path}:${index + 1} ${call[0]!.trim()})`);
+        }
+      });
+    }
+    // A walk that converted nothing would pass by looking at nothing.
+    expect(converted).toBeGreaterThan(5);
+    expect(floats, "convert money with `decimal()`, never with Number()").toEqual([]);
+  });
+
+  it("gives every service the two helpers that replace it", async () => {
+    const helpers = await readFile("src/server/services/helpers.ts", "utf8");
+    expect(helpers).toContain("export const decimal");
+    expect(helpers).toContain("export function canonicalDecimal");
+  });
+});

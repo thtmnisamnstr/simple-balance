@@ -407,6 +407,14 @@ is the same string for the same value.
 `numeric(44, 18)` in, canonical decimal string out. No stage in between is a
 `number`.
 
+*Checked by:* `tests/quality-fixes.test.ts`, which refuses `Number(` or
+`parseFloat(` reaching a value whose name is money. Refusing the conversion
+outright would be the wrong rule and the first run said so: every site in the
+services is a count — periods, entries, staged rows — and a count is a number.
+So it is the vocabulary that decides, which means somebody adding a money word
+to the codebase has to add it to the list, and that is the honest limit of what
+a source read can settle here.
+
 ## 4. Naming a category, and why it is in this guide
 
 **Binding**, because it is the rule most recently got wrong.

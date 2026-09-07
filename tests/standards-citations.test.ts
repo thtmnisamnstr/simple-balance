@@ -524,17 +524,28 @@ describe("what the standards guides cite", () => {
       const lines = text.split("\n");
       const notEnforced = text.slice(text.indexOf("not enforced"));
       unenforced += [...notEnforced.matchAll(/^\| (?!Rule|---)[^|]+\|/gm)].length;
-      const starts = lines.flatMap((line, index) => (line.startsWith("### ") ? [index] : []));
+      // Every heading, at any depth, because a section ends at the next heading
+      // rather than at the next one of its own level. Ending only at the next
+      // `###` let the last `###` in a file swallow the `##` section after it and
+      // borrow its footer, and it never looked at a `##`-level rule at all —
+      // which is three labelled rules in this set answering to nothing.
+      const starts = lines.flatMap((line, index) => (/^#{2,6} /.test(line) ? [index] : []));
       for (const [position, start] of starts.entries()) {
         const end = starts[position + 1] ?? lines.length;
         const body = lines.slice(start, end).join("\n");
         if (!/\*\*(Binding|House|Contested)/.test(body)) continue;
         if (body.includes("*Checked by:*")) continue;
-        const number = lines[start]!.slice(4).split(" ")[0]!;
+        const heading = lines[start]!.replace(/^#+ /, "");
+        // `## 4.` and `### 3.3` number themselves differently — a top-level
+        // heading carries the trailing dot a subsection does not — and the
+        // tables spell both without it. Normalised here rather than in seven
+        // tables, because the tables are what a person reads.
+        const number = heading.split(" ")[0]!.replace(/\.$/, "");
         // A row in the file's own table is the other way to name a mechanism:
         // `human`, said in the place that counts them.
-        if (new RegExp(`^\\| ${number.replace(".", "\\.")}[ .]`, "m").test(notEnforced)) continue;
-        silent.push(`${guide.split("/").pop()}: ${lines[start]!.slice(4)}`);
+        if (new RegExp(`^\\| ${number.replaceAll(".", "\\.")}[ .]`, "m").test(notEnforced))
+          continue;
+        silent.push(`${guide.split("/").pop()}: ${heading}`);
       }
     }
     expect(silent, "name a mechanism, or add a row to the file's table").toEqual([]);

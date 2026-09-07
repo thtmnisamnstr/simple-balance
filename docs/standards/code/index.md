@@ -57,8 +57,8 @@ Four mechanisms, and every rule names exactly one:
 | `test` | A named test fails. |
 | `human` | Nothing catches it. A rule marked `human` is a candidate for deletion, and the count below is a number that should be going down. |
 
-**There are 45 `human` rules across the eight guides** — 40 in the seven that
-enforce something, and five in `comments.md`, which argues rather than enforces
+**There are 47 `human` rules across the eight guides** — 41 in the seven that
+enforce something, and six in `comments.md`, which argues rather than enforces
 and says so. `tests/standards-citations.test.ts` counts the rows and holds this
 sentence to them, so the number cannot drift by a guide gaining a rule and
 nobody coming back here.
@@ -70,6 +70,14 @@ is checked is `human`, whether or not the word appears; leaving those silent
 made the count flattering rather than useful. Every rule now names one, so the
 count is of rules that really have nobody but a reader behind them, and it can
 go down again by being worked on rather than by being unstated.
+
+It went up twice more, for the same reason one level down. The check that reads
+these pages ended a rule at the next `###`, so a `##`-level rule was never
+scanned at all and the last `###` in a file borrowed the footer of the `##`
+section beneath it. Four rules were answering to nothing: `comments.md` §5 and
+§6, `services.md` §3.3 — **Binding**, and the one this set most wanted a test
+for — and `testing.md` §4. Two of the four now have one; the other two are rows
+in their own tables, which is why the number moved by two rather than by four.
 
 It then went 33 → 40 when `observability.md` arrived carrying seven of its own,
 the most of any guide until `testing.md`'s table grew to ten, and the honest

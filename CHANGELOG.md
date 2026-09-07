@@ -574,7 +574,12 @@ half waits for a release where it has been deprecated first.
 **A second pass, from the guides rather than from the code.** The standards
 guides record what nothing checks about them, and a sweep of those records found
 eight shipped defects that had been written down and left. Every one is fixed
-and every one now has a test, so the record and the code agree again:
+and every one now has a test, so the record and the code agree again. The check
+that reads those records was part of the problem: it ended a rule at the next
+subsection heading, so a top-level rule was never scanned and the last
+subsection in a file borrowed the footer beneath it — four rules were answering
+to nothing, one of them the **Binding** rule that money is never summed in
+JavaScript numbers.
 
 Somebody who asks their system for reduced motion gets a busy indicator again.
 The blanket rule at the foot of the stylesheet sets

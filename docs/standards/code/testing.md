@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 118 pass, 55 skip | **1,162 pass, 653 skip** |
-| `npm test`, database set | 173 pass | **1,815 pass** |
+| `npm test`, no database | 118 pass, 55 skip | **1,165 pass, 653 skip** |
+| `npm test`, database set | 173 pass | **1,818 pass** |
 | `npm run test:integration` | 56 pass | 654 pass |
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -395,13 +395,16 @@ cannot do that should leave the number alone and fail loudly instead.
 | 2.5 An absence beside a presence | Judgement about state, not syntax. A rule could find a bare `toHaveCount(0)`; only a person can say whether the assertion beside it is about the same moment. |
 | 2.6 The keys a test builds | Nothing reads the key builders under `tests/`, and the suite cannot: the collision is what makes the test green. |
 | 5.2 One database per file | Convention. |
+| 4 The vitest plugin is off | The four counts in that section move with the suite and this page says to re-measure rather than quote them; what decides the section is the proportion, and no test can hold a proportion it has to recompute by running a linter. |
 | 5.3 Stubbed globals, if the setting goes | Nothing reads the runner configuration back, and the file that would fail is not the file that changed. |
 
-Ten `human` rules in this guide. It said four when the count was first written,
+Eleven `human` rules in this guide. It said four when the count was first written,
 and nine was the true figure: three of the difference is rules that named no
 mechanism anywhere on the page, which is the state this count exists to make
 uncomfortable, and the rest is one row that read 2.1–2.3 and counted once. The
-tenth is 2.5, added after CI found the test that rule is about. Two of the ten
-are worth an attempt: 2.6 is a scan of `tests/` for the `padEnd` shape it was,
-and 5.3 is a test that reads one line of `vitest.config.ts`, which is what
+tenth is 2.5, added after CI found the test that rule is about. The eleventh is
+section 4, which had been counted as nothing at all: it is a `##`-level rule, and
+the check that reads this page only ever looked at `###` headings. Two of the
+eleven are worth an attempt: 2.6 is a scan of `tests/` for the `padEnd` shape it
+was, and 5.3 is a test that reads one line of `vitest.config.ts`, which is what
 `tests/theme-tokens.test.ts` already does to a stylesheet.

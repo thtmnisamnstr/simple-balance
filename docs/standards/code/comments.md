@@ -136,6 +136,17 @@ above the element the rule reports. Inside a JSX attribute list it targets the
 attribute and does nothing; at the top of a `return (` it works, and for a JSX
 child it must be the `{/* … */}` form.
 
+*Checked by:* `tests/lint-config-documented.test.ts`, which walks up from every
+`oxlint-disable` in `src` and requires the run of comment lines directly above it
+to carry an argument — two words, so a URL or the rule name repeated back is not
+mistaken for one. Contiguous rather than nearby: a check that accepted any
+comment within a dozen lines passed on a bare disable in a file commented as
+densely as these, which is every file here. It allows the two shapes above — a
+JSX comment whose last line ends in `*/}`, and the one disable whose paragraph
+sits above the `useEffect(` that opens the block — and nothing else. The count is
+deliberately not pinned: this section says a rising count is not the failure, and
+a count rising faster than the paragraphs is what this refuses.
+
 ## 6. Comments and the formatter
 
 **Binding, and this is why the formatter was allowed in.**
@@ -179,8 +190,9 @@ than on every run.
 | 2 What a comment must not be | A restatement detector would flag good comments too. |
 | 3 Where the density goes | The floor holds the total. Where it lands is distribution, and nothing reads that. |
 | 4 Docstrings say what a thing is for | Editorial. |
+| 6 Comments and the formatter | The measurement is run when the formatter changes rather than on every run, because it compares the tree against itself before and after a tool this repository is not currently changing. |
 | 7 Prose style | Editorial. |
 
-**Five `human` rules, and that is every rule here that is not about a tool.**
+**Six `human` rules, and that is every rule here that is not about a tool.**
 This is the guide that argues rather than enforces, which is appropriate for the
 one convention here that a newcomer is most likely to think is a mistake.
