@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 119 pass, 55 skip | **1,173 pass, 653 skip** |
-| `npm test`, database set | 174 pass | **1,826 pass** |
+| `npm test`, no database | 119 pass, 55 skip | **1,179 pass, 653 skip** |
+| `npm test`, database set | 174 pass | **1,832 pass** |
 | `npm run test:integration` | 56 pass | 654 pass |
 
 The third row is one test larger than the first row's skip count, and the odd

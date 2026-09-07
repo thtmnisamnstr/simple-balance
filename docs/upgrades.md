@@ -59,6 +59,20 @@ route and nothing changes. `LOG_LEVEL` now governs this application's own log
 lines as well as the auth library's, so `warn` and `error` are quieter than they
 were; the first-run setup code prints at every level.
 
+**Pagination cursors are signed now, and 0.1.5's are still accepted.** A
+`nextCursor` this release hands out carries an HMAC keyed to your
+`AUTH_SECRET`, so a cursor cannot be hand-built and a client cannot come to
+depend on what is inside one. Nothing you do changes: a cursor a 0.1.5 client is
+still holding when you swap the container keeps working, which is what makes
+this safe to deploy while somebody is halfway down a list. **The unsigned form
+stops being accepted on 1 March 2027**, which is the same date the four renamed
+paths above stop answering — one date for everything this release deprecates —
+and by then no build in the field will be issuing one. Two consequences worth knowing: replacing `AUTH_SECRET`
+invalidates every outstanding cursor along with every session, so whoever is
+mid-list starts again from page one — which is the same thing a sign-out already
+does to them; and every replica needs the same `AUTH_SECRET`, which is already
+true of everything else.
+
 ## Before you upgrade to 0.1.5
 
 Nothing refuses to start that 0.1.4 accepted, and nothing about an existing

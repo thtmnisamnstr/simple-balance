@@ -424,6 +424,27 @@ at all, and the rules in that last group are counted on the index page so the
 number is visible and can be argued down. Seven of them became tests in the pass
 that followed writing them.
 
+**A pagination cursor is signed.** It was base64url of plain JSON, which is
+exactly the case AIP-158 names as insufficient obfuscation: a caller could read
+it, and worse, build one — and would then be building against an encoding
+nothing in this product promises to keep. Every `nextCursor` now carries an
+HMAC keyed to a subkey of your `AUTH_SECRET`, so a hand-built cursor is refused
+rather than merely validated. Signed and not encrypted, deliberately: the
+contents are a boundary value and a row id the caller already holds, so there is
+nothing to hide, and a scheme a reader can check beats one they have to trust.
+
+**Nothing you do changes, and a cursor 0.1.5 issued still works.** A cursor is
+held rather than stored — a browser tab keeps one in component state, an agent
+may send one back minutes later — so a rolling deploy has a window where a
+working client legitimately holds an old one, and refusing it would narrow that
+client's pagination. The unsigned form is read and never issued, and stops being
+read on **1 March 2027**, the same date the four renamed paths stop answering.
+Two consequences: replacing `AUTH_SECRET` invalidates outstanding cursors along
+with every session, which is the same thing a sign-out already does to whoever
+is mid-list; and every replica needs the same `AUTH_SECRET`, which was already
+true. It costs about seven microseconds to sign and seven to verify, against a
+page read that costs milliseconds.
+
 **An agent loads 12% less to learn what this server can do.** Every id on the
 MCP surface was published as `"format":"uuid"` and, beside it, a 166-character
 regular expression saying the same thing — 352 copies of it, 58,432 characters,

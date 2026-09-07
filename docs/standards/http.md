@@ -765,11 +765,11 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   same field on the tool side.
 - **Binding.** A cursor binds the ordering it was issued for and is refused
   under another, with a message telling the caller to start again from the first
-  page (`src/server/services/cursor.ts:30-46`).
+  page (`src/server/services/cursor.ts:80-132`).
   *Checked by:* `tests/cursor.test.ts`.
 - **House, and a real gap.** A cursor must bind everything that defines the
   collection, and today it binds only the ordering. It carries `key`,
-  `direction`, `sort` and `id` (`src/server/services/cursor.ts:10-22`), so
+  `direction`, `sort` and `id` (`src/server/services/cursor.ts:12-24`), so
   changing the sort between pages is caught, and changing a **filter** is not:
   `accountId`, `categoryId`, `templateId`, `payee`, `type`, `currency`,
   `search`, `start`, `end` and `includeDeleted` can all change and the keyset
@@ -778,17 +778,49 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   bulk selection solves the same problem for a different contract. **State the
   symmetry:** a cursor binds the collection it walks, a bulk selection binds the
   rows it changes, and both refuse rather than quietly covering something else.
-- **Contested: is a cursor opaque?** AIP-158 says page tokens "must be opaque
-  (but URL-safe) strings, and must not be user-parseable", and names
-  base64-encoding an otherwise-transparent token as insufficient obfuscation.
-  This cursor is base64url of plain JSON (`src/server/services/cursor.ts:26-28`),
-  which is precisely that case. **The published guidance wins**, because no
-  invariant protects the current encoding and a reader of the base64 will
-  otherwise build against it. Two acceptable resolutions and one unacceptable
-  one: sign it with an HMAC keyed to the deployment, which also makes a
-  hand-built cursor refusable rather than merely validated; or declare it
-  inspectable and unstable in writing and say its contents may change in any
-  release. Leaving it undeclared is the unacceptable one.
+- **Contested: is a cursor opaque? Settled by signing it.** AIP-158 says page
+  tokens "must be opaque (but URL-safe) strings, and must not be user-parseable",
+  and names base64-encoding an otherwise-transparent token as insufficient
+  obfuscation. This cursor was base64url of plain JSON, which is precisely that
+  case, and no invariant protected the encoding — so a reader of the base64 would
+  have built against it. **The published guidance won.** A cursor is now
+  `<payload>.<mac>`, where the MAC is HMAC-SHA256 over the payload under a key
+  derived from `AUTH_SECRET` (`src/server/services/cursor.ts:30-78`).
+
+  Signed rather than encrypted, and the difference is the whole argument. The
+  contents are a boundary value and a row id the caller already holds, so there
+  is nothing here to keep from them; what mattered is that they could *build*
+  one. A signed cursor is refusable rather than merely validated, and a scheme a
+  reader can check beats one they have to trust.
+
+  Three things worth knowing about it. The key is **derived** from `AUTH_SECRET`
+  rather than being it — the standard subkey construction, so a weakness in
+  either purpose does not reach the other while an operator still sets one
+  secret. It is keyed to the **deployment** and not to the process, which is what
+  lets a cursor issued by one replica be read by another; rotating `AUTH_SECRET`
+  invalidates every cursor along with every session, which is the right pairing
+  because a rotation already sends everybody to a sign-in screen. And it costs
+  about **seven microseconds** to sign and seven to verify, against a page read
+  that costs milliseconds, and adds 44 characters to a cursor whose declared
+  ceiling is 500.
+
+  **The previous encoding is still read, for this release only.** A cursor is
+  held rather than stored — a browser tab keeps one in component state, an agent
+  may send one back minutes later — so a rolling deploy has a window in which a
+  caller legitimately holds one the previous build issued, and refusing it would
+  narrow a working client's pagination to "start from page 1". That is what the
+  breaking-change list below means by "changing the cursor encoding *without
+  still accepting the old one*". The cost of the window, stated rather than
+  implied: an unsigned cursor can be hand-built, and what that buys is a
+  different starting boundary inside a query already scoped to the caller's own
+  `userId`. No cursor has ever been an authorisation boundary, so the window
+  costs opacity for one release and nothing else. `docs/upgrades.md` schedules
+  the removal.
+
+  This does not close the filter-binding gap two bullets up. A cursor still
+  binds its ordering and not the filters it was issued under; signing it first
+  makes that fix additive — a `filters` member inside a payload that is already
+  signed — rather than a second change to the encoding.
 - **Contested: total counts.** Zalando rule 254 and the Azure guidelines both
   say not to return a count of all matching objects, because counting a complex
   query is a full index scan and because clients integrate against a number that
@@ -827,7 +859,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
      one into "start from the first page" rather than a 500. The value inside
      one becomes a bound parameter compared against a date or a numeric column,
      and PostgreSQL answers a value it cannot read with an error
-     (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:49-62`).
+     (`src/server/services/sorting.ts:29-39`, `src/server/services/cursor.ts:135-148`).
 - **House.** `limit` is optional, defaults to 50 and is capped at 200
   (`src/shared/domain.ts:1404`). A server may return fewer rows than asked for.
 - **House.** Every list contract on this surface is a published Zod schema, and
@@ -1424,6 +1456,16 @@ draft's `true`, and the sunset is 188 days later, which clears both the ninety
 days and the one minor release. It was a date in the past for a while, which is
 worse than no header at all: a client reading it is told the path is already
 gone while it is still answering.
+
+**The unsigned cursor encoding is the second use, and it does not get the
+headers.** A deprecated *encoding* is not a route or a field: the old form
+arrives inside a request rather than being addressed by one, so there is nothing
+for a middleware to annotate and a per-request header would break the "one
+middleware, not per route" rule above for no reader's benefit. What it does get
+is the rest of the policy — announced in `CHANGELOG.md` with the replacement
+named, recorded in `docs/upgrades.md`, and **sunset on the same 1 March 2027**,
+so this release deprecates two things on one date rather than asking an operator
+to hold two.
 
 *Checked by:* `tests/http-route-table.test.ts` reads both values as dates: that
 `Deprecation` is `@<seconds>`, that the sunset parses, that the window is at
