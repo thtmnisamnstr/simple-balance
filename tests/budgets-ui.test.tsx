@@ -311,7 +311,7 @@ describe("the budgets page", () => {
     );
     renderBudgets();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Change Groceries" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change the budget for Groceries" }));
     fireEvent.change(screen.getByLabelText(/Ends after/), {
       target: { value: "2026-06-30" },
     });

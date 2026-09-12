@@ -807,6 +807,14 @@ a {
   background: var(--surface);
 }
 
+/* The two dates and their joining word, kept together so the bar wraps around
+   the group rather than through it. */
+.date-bar-range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .date-bar-title {
   display: flex;
   align-items: center;
@@ -1879,7 +1887,11 @@ input[type="radio"] {
   vertical-align: middle;
 }
 
-.data-table tbody tr:last-child td {
+/* `th` as well as `td`. A row's first cell is a `th[scope="row"]` (section
+   9.2), which carries its own bottom border, so dropping the rule from `td`
+   alone left the last row of every table with a stub of a rule under its first
+   column and nothing under the rest. */
+.data-table tbody tr:last-child :is(td, th) {
   border-bottom: 0;
 }
 
@@ -2527,7 +2539,11 @@ input[type="radio"] {
    (0,1,0) — leaving the group form in three columns on a phone with nothing in
    either rule to say why. */
 .inline-form:has(> :where(:nth-child(3):last-child)) {
-  grid-template-columns: minmax(120px, 1fr) 160px auto;
+  /* The middle column sizes to its content rather than to 160px. A select is
+     as wide as its longest option, and this form's is "Adds up its categories'
+     budgets" — at 160px the chevron ate the last two words, so the control
+     said "Has a budget of its" and the choice could not be read. */
+  grid-template-columns: minmax(120px, 1fr) minmax(160px, max-content) auto;
 }
 
 .category-picker {
@@ -3785,6 +3801,14 @@ polyline.chart-line {
 
 /* --break-mobile: 560px */
 @media (max-width: 560px) {
+  /* A panel header is a title and something said about it, side by side. At
+     this width that is two narrow columns: "September 2026, GBP (so far)" over
+     three lines beside a sentence over three more. Stacked, both read. */
+  .panel-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
   .date-bar {
     width: 100%;
     flex-wrap: wrap;

@@ -875,6 +875,59 @@ is always there now and says which kind of empty it is. It had no test of any
 kind, which is how a branch that could never run shipped; it has seven.
 
 
+**A design review, run across pages rather than down them.** Comparing each
+section of the app against the same section on every other page — rather than
+reading one page at a time — turned up defects that are invisible from inside
+any single screen.
+
+A panel header never stacked. It is a flex row with the title at one end and
+what is said about it at the other, and no breakpoint changed that, so on a
+phone "September 2026, GBP (so far)" ran down three lines beside a sentence
+running down three more. It stacks at 560px now, and §15's table of what that
+step does says so.
+
+The date range broke in the middle. Wrapping put the two dates and the word
+between them on whatever line they fell on, which stranded "to" at the end of
+one line with its date on the next. They are one group now, so the bar wraps
+around them.
+
+Every table ended in a stub of a rule. The rule that clears the border under the
+last row named `td`, and a row's first cell is a `th` — so eight tables drew a
+line under their first column and nothing under the rest.
+
+Two standing-budget actions were full-text buttons reading "Change Groceries"
+and "Delete Groceries" in a row whose first cell already said Groceries. They
+are the icon buttons every other list uses, with the name in the label.
+
+A group's budget policy could not be read: the select was pinned at 160px and
+"Adds up its categories' budgets" did not fit, so the control said "Has a budget
+of its". It sizes to its longest option now.
+
+The import preview showed a tick over "No file yet" — a success mark for
+something that had not started. It shows the file icon the rest of the page
+uses.
+
+Reports put the date range below its own options bar, the only page that did not
+put it directly under the picker.
+
+**Two accessibility defects, one of them on the consent screen.** Denying an
+agent's request put the spinner on "Allow access" — the button nobody pressed —
+while the pressed one only greyed out. Both buttons now show the state of the
+answer actually in flight. And the two CSV preview tables were the only
+scrolling regions in the app a keyboard could not reach, so the columns past the
+right edge could not be read at all.
+
+**And fourteen buttons went grey without saying why**, against a rule that says
+they must. The check meant to catch that had been passing since it was written:
+it read a hand-written list of five files, and matched with a pattern that
+cannot cross the `>` inside `onClick={() => …}`, so an arrow-function-first
+button was invisible even in the five it did read. It saw eight buttons and
+eight reasons and reported success. Counting properly finds 22. Ten now carry a
+reason they did not have — including "Add transaction" on three pages, which
+goes grey before you have an account and used to leave a first-time reader with
+a dead button and an empty list telling them to add a transaction.
+
+
 ## 0.1.5 - 2026-08-22
 
 ### Added

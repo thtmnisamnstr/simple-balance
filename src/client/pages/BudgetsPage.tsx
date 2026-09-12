@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Target } from "lucide-react";
+import { Pencil, Target, Trash2 } from "lucide-react";
 import { useState } from "react";
 import {
   api,
@@ -383,7 +383,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
       {/* The group and the control inside it must not share a name: two things
           answering to "Budget period" is ambiguous to anything navigating by
           accessible name, and a browser test found it by matching both. */}
-      <div className="date-bar" aria-label="Budget view">
+      <div className="date-bar" role="group" aria-label="Budget view">
         <div className="date-bar-title">
           <Target size={17} />
           <span>Budgeting by</span>
@@ -695,9 +695,17 @@ export default function BudgetsPage({ session }: { session: Session }) {
                           : ` to ${periodName(plan.periodUnit, plan.activeTo)}`
                         : " onward"}
                     </td>
-                    <td className="align-right">
-                      <Button
-                        variant="ghost"
+                    {/* Icon buttons naming their row, which is what every
+                        other list here does. These were text buttons reading
+                        "Change Groceries" and "Delete Groceries" in a row whose
+                        first cell already said Groceries, so the actions column
+                        was the widest on the table and said the same word
+                        three times. The name a screen reader needs is still
+                        there; it is in the label rather than on screen. */}
+                    <td className="row-actions">
+                      <button
+                        type="button"
+                        aria-label={`Change the budget for ${plan.targetName}`}
                         onClick={() => {
                           setError("");
                           setEditing(plan);
@@ -707,14 +715,15 @@ export default function BudgetsPage({ session }: { session: Session }) {
                           setEditRolloverCap(plan.rolloverCap ?? "");
                         }}
                       >
-                        Change {plan.targetName}
-                      </Button>
-                      <Button
-                        variant="ghost"
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete the budget for ${plan.targetName}`}
                         onClick={() => remove.ask(plan, () => deletePlan.mutate(plan))}
                       >
-                        Delete {plan.targetName}
-                      </Button>
+                        <Trash2 size={16} />
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -1241,7 +1250,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         {/* Bare controls with their own labels, like every other view control in
             the app. A `Field` stacks a label above and made this bar half again
             as tall as the one at the top of the page — §7.6. */}
-        <div className="date-bar">
+        <div className="date-bar" role="group" aria-label="Projection options">
           <div className="date-bar-title">
             <span>{unitNounPlural[periodUnit]} ahead</span>
           </div>

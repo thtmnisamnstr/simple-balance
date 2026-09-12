@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,882 lines of hand-written CSS in
+Query for server state, and 3,906 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -75,8 +75,8 @@ it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the eight inline `style` props in the client
 (`charts.tsx:273`, `charts.tsx:322`, `components.tsx:501`, `components.tsx:938`,
-`BudgetsPage.tsx:1168`, `DashboardPage.tsx:288`, `DashboardPage.tsx:396`,
-`DashboardPage.tsx:441`) are all runtime geometry — a bar's width, a chart's offset — and are correct as they
+`BudgetsPage.tsx:1168`, `DashboardPage.tsx:292`, `DashboardPage.tsx:400`,
+`DashboardPage.tsx:445`) are all runtime geometry — a bar's width, a chart's offset — and are correct as they
 are. The count matters beyond tidiness: it is what
 `src/server/http-security.ts:22-29` reasons about when it declines
 `'unsafe-inline'`.
@@ -289,7 +289,7 @@ section is a proposal, and says so.
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 285 padding, margin and gap declarations across **35 distinct pixel
+Today: 287 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
 takes 17 distinct single values, the commonest being 8px seventeen times, 10px
@@ -646,7 +646,7 @@ there silently outranked the responsive overrides above it —
 would have lost to `.chart-grid` written later, with nothing on screen to say
 why. `.report-tabs` and the chart grid appear in no breakpoint block, and
 neither is a gap. `.report-tabs` carries `flex-wrap: wrap`
-(`styles.css:3152-3156`), which reflows at every width rather than at three
+(`styles.css:3198-3202`), which reflows at every width rather than at three
 chosen ones and is the better answer; and `.chart-grid` is an SVG stroke with no
 layout to change. This sentence used to call both a gap "somebody can fill",
 which is how a list of work comes to include work nobody should do — the
@@ -1337,8 +1337,8 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | --- | --- | --- |
 | `.sidebar` | `styles.css:359` | fixed |
 | `.row-menu-popover` | `styles.css:1597` | fixed |
-| `.modal` | `styles.css:2175` | fixed |
-| `.modal-header` | `styles.css:2261` | sticky |
+| `.modal` | `styles.css:2239` | fixed |
+| `.modal-header` | `styles.css:2272` | sticky |
 | `.import-preview` | `styles.css:2362` | sticky |
 | `.merge-panel` | `styles.css:2647` | sticky |
 | `.nav-scrim` | `styles.css:3554` | fixed |
@@ -1352,7 +1352,7 @@ scroll container holding a sticky element sets `scroll-padding-top` (or
 There are two scroll containers, so there are two declarations: `html` carries
 `scroll-padding-top: 80px` (`styles.css:321`), which clears the mobile header
 and the merge panel alike, and `.modal-card` carries 64px
-(`styles.css:2257`) for the sticky `.modal-header` inside it. The other six
+(`styles.css:2269`) for the sticky `.modal-header` inside it. The other six
 regions are inside one of those two or are the container itself.
 
 *Checked by:* `tests/page-stack.test.ts`, which pairs each sticky or fixed
@@ -1814,6 +1814,18 @@ across the change — and requires the prop at every `<Button>` in the client wi
 a computed `disabled`. That last part is what this section said it had nothing to
 key on; the prop is the thing to key on.
 
+The census walks brace depth rather than matching a regular expression, and the
+reason is worth recording because the first version of it claimed this coverage
+without having it. It read a hand-written list of five files and matched
+`/<Button[^>]*?\sdisabled=\{[^}]*\}/`, where `[^>]*?` cannot cross the `>` in
+`onClick={() => …}` — so an arrow-function-first button was invisible even in
+the five. Eight buttons carried the prop and the check saw exactly those eight,
+which is what a passing check looks like when it is measuring itself. Walking
+the client properly finds 22, and the fourteen it had never seen were fourteen
+controls that went grey and said nothing. Four of those are exempt and named in
+`WORKING_NOT_BLOCKED`: the unpressed half of a pair, greyed while its sibling
+works, where the answer is the sibling's spinner.
+
 ### 12.4 One live region per page
 
 **House.** A page has one polite live region, `role="status"`, for
@@ -1824,7 +1836,7 @@ Announcement is already handled: `Alert` sets `role={kind === "error" ? "alert"
 : "status"}` (`src/client/components.tsx:986`), so a success alert is a polite
 live region and an error alert interrupts. The two real defects are elsewhere.
 There are three separate `aria-live="polite"` regions in the client
-(`components.tsx:230`, `TransactionBrowser.tsx:719`, `TemplatesPage.tsx:424`),
+(`components.tsx:230`, `TransactionBrowser.tsx:731`, `TemplatesPage.tsx:424`),
 so a page can carry four polite regions at once and nothing decides which speaks
 first. And a success alert persists until the next render, with no rule for how
 long it stays.
@@ -2128,7 +2140,7 @@ about how many steps this product has.
 | 1050px | Card grids drop to two columns; the import and settings two-column layouts become one; `.import-preview` stops being sticky |
 | 980px | The duplicate-review comparison drops to one column, and nothing else |
 | 780px | The sidebar translates off-screen and becomes a drawer with a scrim; a `.mobile-header` appears; the page header and its actions stack; the sign-in art panel is dropped |
-| 560px | Every card grid drops to one column; the date bar, filter bar, search box, bulk actions and selection bar stack; buttons go full width |
+| 560px | Every card grid drops to one column; the date bar, filter bar, search box, bulk actions and selection bar stack; a panel header stacks its title above what is said about it; buttons go full width |
 
 Two rules that follow:
 
@@ -2253,7 +2265,7 @@ is which.
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
    trick the colour test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 285
+   percentages. This is the largest unmanaged surface in the stylesheet: 287
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting

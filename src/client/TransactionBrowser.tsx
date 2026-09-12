@@ -654,7 +654,11 @@ export function TransactionBrowser({
         <Download size={16} /> Export CSV
       </a>
       {allowCreate ? (
-        <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
+        <Button
+          onClick={() => setEditing("new")}
+          disabled={!accounts.data?.length}
+          disabledReason="Create an account first."
+        >
           <Plus size={16} /> Add transaction
         </Button>
       ) : null}
@@ -785,11 +789,17 @@ export function TransactionBrowser({
               variant="danger"
               onClick={submitBulkDelete}
               disabled={!filterSelectionReady}
+              disabledReason="Wait for the selection to be counted."
               loading={bulkDeleteMutation.isPending}
             >
               Delete selected
             </Button>
-            <Button type="button" onClick={openBulkEditor} disabled={!filterSelectionReady}>
+            <Button
+              type="button"
+              onClick={openBulkEditor}
+              disabled={!filterSelectionReady}
+              disabledReason="Wait for the selection to be counted."
+            >
               Edit selected
             </Button>
             <Button type="button" variant="ghost" onClick={clearTransactionSelection}>
@@ -1250,6 +1260,7 @@ export function TransactionBrowser({
               form="transaction-bulk-edit-form"
               loading={bulkMutation.isPending}
               disabled={!canSubmitBulkEdit}
+              disabledReason="Change at least one field above."
             >
               Apply changes
             </Button>

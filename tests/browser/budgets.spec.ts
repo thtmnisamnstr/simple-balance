@@ -812,6 +812,15 @@ test.describe("the budgets page in a browser", () => {
   test("puts the running period above the projection", async () => {
     await page.goto("/budgets");
     await expect(page.getByRole("heading", { name: "What happens next" })).toBeVisible();
+    // And wait for the report itself, not only for the panel below it. The two
+    // are separate queries: the forecast can answer first, leaving the report's
+    // slot showing a skeleton with no heading in it, and reading the headings
+    // then finds no report and fails on timing rather than on order.
+    await expect(
+      page.getByRole("heading", {
+        name: /, [A-Z]{3}( \(so far\))?$|^Nothing budgeted in this range$/,
+      }),
+    ).toBeVisible();
     const headings = await page.locator("main h3").allTextContents();
     const at = (match: RegExp) => headings.findIndex((text) => match.test(text));
     const setBudget = at(/^Set a budget$/);

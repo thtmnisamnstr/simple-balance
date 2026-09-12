@@ -138,3 +138,24 @@ describe("table semantics", () => {
     expect(bare).toEqual([]);
   });
 });
+
+/**
+ * And the last row's rule is dropped from every cell in it, not only from `td`.
+ *
+ * A row's first cell is a `th[scope="row"]` (`web.md` 9.2), which carries the
+ * same bottom border its `td` siblings do. The rule that clears the border on
+ * the last row named `td` alone, so every table whose rows are headed by a `th`
+ * — eight of them — ended in a stub of a rule under its first column and
+ * nothing under the rest. Invisible in jsdom, and obvious in a screenshot.
+ */
+describe("the last row of a table", () => {
+  it("drops its border from the header cell as well as the data cells", async () => {
+    const css = await readFile(new URL("styles.css", CLIENT), "utf8");
+    const selector = /\.data-table tbody tr:last-child ([^{]+)\{[^}]*border-bottom:\s*0/;
+    const found = selector.exec(css);
+    expect(found, "the last-row border rule is still there").not.toBeNull();
+    // Both cell types, however the selector spells it.
+    expect(found![1]).toMatch(/\bth\b/);
+    expect(found![1]).toMatch(/\btd\b/);
+  });
+});

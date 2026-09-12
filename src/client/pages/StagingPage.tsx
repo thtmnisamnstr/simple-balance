@@ -741,7 +741,11 @@ export default function StagingPage() {
                 {duplicateCount.data === 1 ? " duplicate" : " duplicates"}
               </Link>
             ) : null}
-            <Button onClick={() => setEditing("new")} disabled={!accounts.data?.length}>
+            <Button
+              onClick={() => setEditing("new")}
+              disabled={!accounts.data?.length}
+              disabledReason="Create an account first."
+            >
               <Plus size={16} /> Stage transaction
             </Button>
           </>
@@ -828,6 +832,11 @@ export default function StagingPage() {
             <Button
               variant="secondary"
               disabled={invalidSelected || (duplicateSelected && !allowDuplicates)}
+              disabledReason={
+                invalidSelected
+                  ? "Some selected rows have issues to fix first."
+                  : "Some selected rows look like duplicates. Tick the box to commit them anyway."
+              }
               loading={bulkMutation.isPending}
               onClick={() => bulkMutation.mutate("commit")}
             >
@@ -1378,6 +1387,7 @@ export default function StagingPage() {
               form="staged-bulk-edit-form"
               loading={bulkEditMutation.isPending}
               disabled={!canSubmitBulkEdit}
+              disabledReason="Change at least one field above."
             >
               Apply changes
             </Button>

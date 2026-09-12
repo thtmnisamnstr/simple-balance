@@ -142,7 +142,12 @@ export default function ReportsPage() {
         ))}
       </nav>
 
-      <div className="date-bar" aria-label="Report options">
+      {/* The range sits directly under the picker, as it does on every other
+          page that has one. It was below the options bar here alone, so the
+          one control every page shares was the one in a different place. */}
+      <DateRangeBar />
+
+      <div className="date-bar" role="group" aria-label="Report options">
         <Select
           aria-label="Group by"
           value={bucket}
@@ -164,7 +169,6 @@ export default function ReportsPage() {
           Include closed accounts
         </label>
       </div>
-      <DateRangeBar />
 
       {/* The flag cannot mean one thing on both kinds of report, so the page says
           which. On a balance it changes no figure — a closed account holds

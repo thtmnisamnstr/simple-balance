@@ -1,6 +1,6 @@
 import { Link } from "../router.js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle2, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
+import { ArrowRight, FileSpreadsheet, FlaskConical, Upload } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { isAppExportCsv, type CsvMapping } from "../../shared/csv.js";
 import {
@@ -479,6 +479,7 @@ export default function ImportPage() {
                   <Button
                     variant="secondary"
                     disabled={!ready}
+                    disabledReason="Choose a file and an account, and map date, payee and amount."
                     loading={stageMutation.isPending}
                     onClick={() => stageMutation.mutate(true)}
                   >
@@ -486,6 +487,7 @@ export default function ImportPage() {
                   </Button>
                   <Button
                     disabled={!ready}
+                    disabledReason="Choose a file and an account, and map date, payee and amount."
                     loading={stageMutation.isPending}
                     onClick={() => stageMutation.mutate(false)}
                   >
@@ -609,8 +611,18 @@ export default function ImportPage() {
                 <Badge tone="blue">{preview.rows.length} sampled</Badge>
               ) : null}
             </header>
+            {/* Both preview tables are reachable, like every other scrolling
+                table region (9.6). They were the only ones in the client that
+                scrolled and could not be focused, so a keyboard could not read
+                the columns past the edge. Each is named by the caption its
+                table already carries rather than by the panel heading. */}
             {interpreted ? (
-              <div className="preview-table-wrap">
+              <div
+                className="preview-table-wrap"
+                tabIndex={0}
+                role="region"
+                aria-label="The first rows of the file as the import will read them"
+              >
                 <table className="preview-table">
                   <caption className="sr-only">
                     The first rows of the file as the import will read them
@@ -684,7 +696,12 @@ export default function ImportPage() {
               </div>
             ) : preview?.rows.length ? (
               <>
-                <div className="preview-table-wrap">
+                <div
+                  className="preview-table-wrap"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Preview of the file being imported"
+                >
                   <table className="preview-table">
                     <caption className="sr-only">Preview of the file being imported</caption>
                     <thead>
@@ -711,7 +728,10 @@ export default function ImportPage() {
               </>
             ) : (
               <EmptyState
-                icon={<CheckCircle2 size={23} />}
+                // The subject, like every other empty state here. A tick meant
+                // "done" on a panel that has not started: nothing had been
+                // imported, and the screen congratulated the reader for it.
+                icon={<FileSpreadsheet size={23} />}
                 title="No file yet"
                 body="A sample of the file appears here before anything is staged."
               />

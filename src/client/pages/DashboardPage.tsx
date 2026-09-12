@@ -113,7 +113,11 @@ export default function DashboardPage() {
         title="Overview"
         description="Where your money sits and how it moved."
         actions={
-          <Button onClick={() => setOpen(true)} disabled={!accounts.data?.length}>
+          <Button
+            onClick={() => setOpen(true)}
+            disabled={!accounts.data?.length}
+            disabledReason="Create an account first."
+          >
             <Plus size={16} /> Add transaction
           </Button>
         }

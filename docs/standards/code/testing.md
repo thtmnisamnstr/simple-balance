@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 123 pass, 56 skip | **1,244 pass, 664 skip** |
-| `npm test`, database set | 179 pass | **1,908 pass** |
+| `npm test`, no database | 123 pass, 56 skip | **1,245 pass, 664 skip** |
+| `npm test`, database set | 179 pass | **1,909 pass** |
 | `npm run test:integration` | 57 pass | 665 pass |
 
 The integration tier reports 665 tests on its own and 664 skips inside a

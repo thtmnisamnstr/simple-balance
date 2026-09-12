@@ -261,27 +261,76 @@ describe("a disabled button", () => {
     expect(container.querySelector(".button-with-reason")).not.toBeNull();
   });
 
-  it("is used at every submit disabled on a computed predicate", () => {
-    // The six the guide names. Read from the source, because each is inside a
-    // page that needs a router, a query client and a session to render — and
-    // what is under test is that the prop is passed, not what it says.
-    for (const path of [
-      "src/client/forms.tsx",
-      "src/client/pages/TemplatesPage.tsx",
-      "src/client/pages/SettingsPage.tsx",
-      "src/client/pages/PayeesPage.tsx",
-      "src/client/pages/CategoriesPage.tsx",
-    ]) {
+  /**
+   * Every computed-disabled `<Button>` in the client, not five files' worth.
+   *
+   * This check used to hold a hand-written list of five files and match with
+   * `/<Button[^>]*?\sdisabled=\{[^}]*\}/`. Both halves were wrong, and the
+   * second is the instructive one: `[^>]*?` cannot cross the `>` in
+   * `onClick={() => …}`, so an arrow-function-first button was invisible even
+   * in the files it did read. A census that walks braces finds 22 such buttons
+   * where the old one saw 8 — every one of the fourteen it missed was a
+   * control that goes grey and says nothing.
+   *
+   * Brace depth rather than a regex, because the thing being matched is
+   * nested and a regular expression is the wrong tool for it.
+   */
+  const computedDisabledButtons = () => {
+    const found: { where: string; tag: string }[] = [];
+    for (const path of globSync("src/client/**/*.tsx")) {
       const source = readFileSync(path, "utf8");
-      const disabled = [...source.matchAll(/<Button[^>]*?\sdisabled=\{[^}]*\}/gs)];
-      expect(disabled.length, `${path} has a computed-predicate button`).toBeGreaterThan(0);
-      for (const match of disabled) {
-        // The tag through to its closing `>`, so the reason can sit either side
-        // of `disabled`.
-        const from = match.index;
-        const tag = source.slice(from, source.indexOf(">", from + match[0].length) + 1);
-        expect(tag, `${path}: ${match[0].slice(0, 60)}`).toContain("disabledReason");
+      for (let at = source.indexOf("<Button"); at !== -1; at = source.indexOf("<Button", at + 1)) {
+        let depth = 0;
+        let close = -1;
+        for (let scan = at; scan < source.length; scan += 1) {
+          const character = source[scan];
+          if (character === "{") depth += 1;
+          else if (character === "}") depth -= 1;
+          else if (character === ">" && depth === 0) {
+            close = scan;
+            break;
+          }
+        }
+        if (close === -1) continue;
+        const tag = source.slice(at, close + 1);
+        if (!/\sdisabled=\{/.test(tag)) continue;
+        found.push({ where: `${path}:${source.slice(0, at).split("\n").length}`, tag });
       }
     }
+    return found;
+  };
+
+  /**
+   * Disabled because something else is in flight, which 12.3 exempts.
+   *
+   * The rule's own words: "a button that is working already says so, and a
+   * reason for that state would be a second answer to a question already
+   * answered". These four are the other half of a pair — the one not pressed,
+   * greyed while its sibling works — so the answer is the sibling's spinner.
+   * Named rather than pattern-matched, because "is this predicate a busy
+   * flag" is a judgement.
+   */
+  const WORKING_NOT_BLOCKED = new Set([
+    "src/client/App.tsx",
+    "src/client/TransactionBrowser.tsx",
+    "src/client/pages/StagingPage.tsx",
+  ]);
+
+  it("says why at every submit disabled on a computed predicate", () => {
+    const silent = computedDisabledButtons().filter(({ where, tag }) => {
+      if (/disabledReason/.test(tag)) return false;
+      // The in-flight half of a pair: its sibling carries the spinner.
+      const file = where.slice(0, where.lastIndexOf(":"));
+      if (WORKING_NOT_BLOCKED.has(file) && /disabled=\{[^}]*([Pp]ending|deciding)/.test(tag))
+        return false;
+      return true;
+    });
+    expect(
+      silent.map((one) => one.where),
+      "a disabled button says why, or is disabled only because something else is working",
+    ).toEqual([]);
+    // And the census is really finding them, so a broken matcher reads as a
+    // pass rather than as nothing to check.
+    expect(computedDisabledButtons().length).toBeGreaterThan(15);
   });
 });

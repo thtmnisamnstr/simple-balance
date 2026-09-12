@@ -819,7 +819,7 @@ const presets: { value: DatePreset; label: string }[] = [
 export function DateRangeBar() {
   const { start, end, preset, setPreset, setRange } = useDateRange();
   return (
-    <div className="date-bar" aria-label="Visible date range">
+    <div className="date-bar" role="group" aria-label="Visible date range">
       <div className="date-bar-title">
         <CalendarDays size={17} />
         <span>Viewing</span>
@@ -835,19 +835,25 @@ export function DateRangeBar() {
           </option>
         ))}
       </Select>
-      <Input
-        aria-label="Start date"
-        type="date"
-        value={start}
-        onChange={(event) => setRange({ start: event.target.value, end, preset: "custom" })}
-      />
-      <span className="date-separator">to</span>
-      <Input
-        aria-label="End date"
-        type="date"
-        value={end}
-        onChange={(event) => setRange({ start, end: event.target.value, preset: "custom" })}
-      />
+      {/* The two dates and the word joining them are one group, so the bar
+          wraps around them rather than through them. Unwrapped, the 560px step
+          broke after "to" and left it stranded at the end of a line with its
+          date on the next. */}
+      <div className="date-bar-range">
+        <Input
+          aria-label="Start date"
+          type="date"
+          value={start}
+          onChange={(event) => setRange({ start: event.target.value, end, preset: "custom" })}
+        />
+        <span className="date-separator">to</span>
+        <Input
+          aria-label="End date"
+          type="date"
+          value={end}
+          onChange={(event) => setRange({ start, end: event.target.value, preset: "custom" })}
+        />
+      </div>
     </div>
   );
 }

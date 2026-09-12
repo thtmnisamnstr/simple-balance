@@ -519,7 +519,10 @@ export function OAuthConsent() {
   const [params] = useSearchParams();
   const consentCode = params.get("consent_code") ?? "";
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
+  // Which answer is in flight, not merely that one is. A single boolean put
+  // the spinner on "Allow access" when Deny was pressed — the busy state on the
+  // button nobody touched, while the pressed one only greyed out.
+  const [deciding, setDeciding] = useState<null | boolean>(null);
   const request = useQuery<ConsentRequest>({
     queryKey: ["consent-request", consentCode],
     enabled: Boolean(consentCode),
@@ -530,7 +533,7 @@ export function OAuthConsent() {
       ),
   });
   const decide = async (accept: boolean) => {
-    setPending(true);
+    setDeciding(accept);
     try {
       const response = await fetch("/api/auth/oauth2/consent", {
         method: "POST",
@@ -543,7 +546,9 @@ export function OAuthConsent() {
       window.location.assign(payload.redirectURI);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Consent failed");
-      setPending(false);
+      // Only here: the success path navigates away, so clearing it there would
+      // un-busy a screen that is leaving.
+      setDeciding(null);
     }
   };
   const unavailable =
@@ -580,10 +585,19 @@ export function OAuthConsent() {
             </ul>
             {error ? <Alert>{error}</Alert> : null}
             <div className="form-actions">
-              <Button disabled={pending} variant="secondary" onClick={() => decide(false)}>
+              <Button
+                disabled={deciding !== null}
+                loading={deciding === false}
+                variant="secondary"
+                onClick={() => decide(false)}
+              >
                 Deny
               </Button>
-              <Button loading={pending} onClick={() => decide(true)}>
+              <Button
+                disabled={deciding !== null}
+                loading={deciding === true}
+                onClick={() => decide(true)}
+              >
                 Allow access
               </Button>
             </div>
