@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,973 lines of hand-written CSS in
+Query for server state, and 3,986 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -73,10 +73,10 @@ The rule, from here: **a value becomes a token when it is a decision that has to
 be the same in two places.** A colour qualifies because a theme must answer for
 it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
-value does not qualify: the eight inline `style` props in the client
+value does not qualify: the nine inline `style` props in the client
 (`charts.tsx:273`, `charts.tsx:322`, `components.tsx:501`, `components.tsx:938`,
-`BudgetsPage.tsx:1177`, `DashboardPage.tsx:292`, `DashboardPage.tsx:400`,
-`DashboardPage.tsx:445`) are all runtime geometry — a bar's width, a chart's offset — and are correct as they
+`BudgetsPage.tsx:1177`, `DashboardPage.tsx:278`, `DashboardPage.tsx:409`,
+`DashboardPage.tsx:469`, `DashboardPage.tsx:515`) are all runtime geometry — a bar's width, a chart's offset — and are correct as they
 are. The count matters beyond tidiness: it is what
 `src/server/http-security.ts:22-29` reasons about when it declines
 `'unsafe-inline'`.
@@ -227,7 +227,7 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
 `.commit-choice label` and `.report-tab` — along with `.button-secondary`
-(`styles.css:643`) and `.file-drop` (`styles.css:2405`), both of which rested on
+(`styles.css:643`) and `.file-drop` (`styles.css:2418`), both of which rested on
 the failing token and reached the compliant one only on hover. Both now hold it
 at rest, as `.input` already did; their hover states also shift `background`, so
 the hover affordance survives the change.
@@ -415,8 +415,8 @@ layer in the app are free to coincide, and that is the one exception it carries.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:3733`), 980px
-(`styles.css:3757`), 780px (`styles.css:3764`) and 560px (`styles.css:3843`).
+stylesheet in descending order: 1050px (`styles.css:3746`), 980px
+(`styles.css:3770`), 780px (`styles.css:3777`) and 560px (`styles.css:3856`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -443,7 +443,7 @@ declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
 `visibility`, `styles.css:3662-3664`), and there are two reduced-motion
 blocks: `styles.css:681-685`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:3853-3862`, a blanket rule setting
+(section 7.3), and `styles.css:3977-3986`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything.
 
@@ -456,7 +456,7 @@ was the oversight. A slow rotation is acceptable under `reduce`, which asks for
 minimised non-essential motion; no indicator is not.
 
 The spinner now swaps its rotation for an opacity pulse rather than stopping
-(`styles.css:738-745`), which carries the same meaning with no motion across the
+(`styles.css:775-782`), which carries the same meaning with no motion across the
 screen — the thing the preference is actually about.
 
 *Checked by:* `tests/styles-skeleton.test.ts`, twice. The shimmer animation
@@ -689,7 +689,7 @@ moved to a new page brought a spacing opinion with it that nobody could see in
 the markup.
 
 **Flex rather than grid, and it is load-bearing rather than taste.**
-`.merge-panel` (`styles.css:2733`) is `position: sticky` and sits at page level
+`.merge-panel` (`styles.css:2746`) is `position: sticky` and sits at page level
 on Categories and Payees. A sticky *grid item* is bounded by its own grid area,
 which in a single-column grid is its own height, so it would stop following the
 list with nothing on screen to say why. A sticky *flex item* is bounded by the
@@ -1347,13 +1347,13 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | Selector | Line | Position |
 | --- | --- | --- |
 | `.sidebar` | `styles.css:359` | fixed |
-| `.row-menu-popover` | `styles.css:1685` | fixed |
-| `.modal` | `styles.css:2267` | fixed |
-| `.modal-header` | `styles.css:2300` | sticky |
-| `.import-preview` | `styles.css:2444` | sticky |
-| `.merge-panel` | `styles.css:2733` | sticky |
-| `.nav-scrim` | `styles.css:3785` | fixed |
-| `.mobile-header` | `styles.css:3795` | sticky |
+| `.row-menu-popover` | `styles.css:1690` | fixed |
+| `.modal` | `styles.css:2280` | fixed |
+| `.modal-header` | `styles.css:2313` | sticky |
+| `.import-preview` | `styles.css:2457` | sticky |
+| `.merge-panel` | `styles.css:2746` | sticky |
+| `.nav-scrim` | `styles.css:3798` | fixed |
+| `.mobile-header` | `styles.css:3808` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1363,7 +1363,7 @@ scroll container holding a sticky element sets `scroll-padding-top` (or
 There are two scroll containers, so there are two declarations: `html` carries
 `scroll-padding-top: 80px` (`styles.css:321`), which clears the mobile header
 and the merge panel alike, and `.modal-card` carries 64px
-(`styles.css:2269`) for the sticky `.modal-header` inside it. The other six
+(`styles.css:2310`) for the sticky `.modal-header` inside it. The other six
 regions are inside one of those two or are the container itself.
 
 *Checked by:* `tests/page-stack.test.ts`, which pairs each sticky or fixed
@@ -1456,7 +1456,7 @@ code path renders them.
 
 **Settled, with two named exceptions.** Calendar dates go through `formatDate`,
 including the two "As of" lines that printed raw ISO directly above formatted
-tables (`DashboardPage.tsx:183` and `ReportsPage.tsx:257` were the offenders).
+tables (`DashboardPage.tsx:194` and `ReportsPage.tsx:257` were the offenders).
 Instants go through `formatTimestamp(instant, timezone)`
 (`src/client/money.ts:333-348`), whose zone comes from `useTimezone()`: the
 activity log (`src/client/pages/ActivityPage.tsx:60`) and the connected-apps
@@ -1503,7 +1503,7 @@ Series 3 at 3.64 light is the tightest and is the one to watch.
 Gridlines do not have to contrast with the data. The Understanding document for
 1.4.11 says data lines "should have 3:1 contrast against their background, but
 as there is little overlap with other lines they do not need to contrast with
-each other or the graduated lines". `.chart-grid` at `styles.css:3292-3299` is
+each other or the graduated lines". `.chart-grid` at `styles.css:3361-3368` is
 correctly faint and says why; `.chart-zero` is correctly held to 3:1 because it
 is where money in becomes money out, and says why.
 
@@ -1898,7 +1898,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:3853-3862` freezes it into a bar that reads as stuck.
+  block at `styles.css:3977-3986` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -1950,9 +1950,9 @@ The rules, in the order they matter:
 - **Binding, SC 1.4.11.** The fill is `--green-fill` on `--track`, measured in
   2.2, and the bar keeps the `--line-strong` edge 2.2 requires of a control.
 - **Three bars now, and a fourth has to say which of them it is not.**
-  `.progress-track` (`styles.css:1340`, `DashboardPage.tsx:287`) is a decorative
+  `.progress-track` (`styles.css:1345`, `DashboardPage.tsx:254`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3686`, `BudgetsPage.tsx:1168`) is money, with an
+  `.budget-bar` (`styles.css:3699`, `BudgetsPage.tsx:1168`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -2087,9 +2087,9 @@ subject to the spacing exception: if a 24px circle centred on each target's
 bounding box does not intersect another target's circle, the target passes.
 
 This is already solved, deliberately. `.icon-button` is 31 by 31
-(`styles.css:2255-2266`) with an `::after` at `inset: -7px` giving a 45px hit
+(`styles.css:2296-2307`) with an `::after` at `inset: -7px` giving a 45px hit
 area without growing the row, and a comment saying why
-(`styles.css:2043-2047`). **That is the house answer for a dense-row control.**
+(`styles.css:2061-2065`). **That is the house answer for a dense-row control.**
 
 The spacing exception never has to be reached here. It applies only to targets
 under 24 by 24 CSS pixels, and `.icon-button` is 31 by 31, so it passes on size

@@ -183,6 +183,66 @@ const unspent: BudgetReport = {
   ],
 };
 
+/**
+ * Budgeted only at the group level, which the panel used to hide entirely.
+ *
+ * `period.budgeted` sums category limits alone, so this period reads zero and
+ * was filtered out — taking its group rows with it. The panel said nothing was
+ * budgeted while the budgets page showed the group, and one unrelated £1
+ * category budget was enough to make the whole thing reappear.
+ */
+const groupOnly: BudgetReport = {
+  ...report,
+  periods: [
+    {
+      ...report.periods[0]!,
+      budgeted: "0",
+      available: "0",
+      spent: "500",
+      groups: [
+        {
+          groupId: "bbbbbbbb-2222-4222-8222-222222222222",
+          name: "Fixed costs",
+          policy: "standalone",
+          limit: "800",
+          actual: "500",
+          remaining: "300",
+          source: "plan",
+          carriedIn: null,
+          available: "800",
+          carriedOut: null,
+          priority: 0,
+          funded: null,
+        },
+      ],
+      rows: [report.periods[0]!.rows[2]!],
+    },
+  ],
+};
+
+/**
+ * Seven budgeted categories, which is one more than the cap that used to exist.
+ *
+ * The fixture matters: the first version of the "caps nothing" test used two
+ * budgeted rows, and two is under a cap of six — it passed against the code it
+ * was written to refuse.
+ */
+const sevenBudgets: BudgetReport = {
+  ...report,
+  periods: [
+    {
+      ...report.periods[0]!,
+      rows: Array.from({ length: 7 }, (_, index) => ({
+        ...report.periods[0]!.rows[1]!,
+        categoryId: `cccccccc-${String(index).padStart(4, "0")}-4000-8000-000000000000`,
+        category: `Budget ${index + 1}`,
+        actual: "0",
+        remaining: "500",
+      })),
+    },
+  ],
+};
+
 /** The same range, with every limit gone: spending, and nothing budgeted. */
 const nothingBudgeted: BudgetReport = {
   ...report,
@@ -261,7 +321,7 @@ describe("the Overview's budget panel", () => {
     stub(nothingBudgeted);
     renderOverview();
     expect(await screen.findByRole("heading", { name: "Budget" })).toBeInTheDocument();
-    expect(screen.getByText(/No category budgeted in this range/)).toBeInTheDocument();
+    expect(screen.getByText(/No budget set in this range/)).toBeInTheDocument();
   });
 
   it("says no CATEGORY is budgeted, because a group budget is not counted here", async () => {
@@ -273,7 +333,7 @@ describe("the Overview's budget panel", () => {
     stub(nothingBudgeted);
     renderOverview();
     const panel = await budgetPanel();
-    expect(within(panel).getByText(/No category budgeted in this range/)).toBeInTheDocument();
+    expect(within(panel).getByText(/No budget set in this range/)).toBeInTheDocument();
   });
 
   it("shows the period and what it stands at", async () => {
@@ -316,11 +376,27 @@ describe("the Overview's budget panel", () => {
   });
 
   it("caps nothing: every budget somebody set is shown", async () => {
-    stub(unspent);
+    // Seven, because the cap that used to be here was six. A fixture with two
+    // budgeted rows passes against the capped code as well as the uncapped, so
+    // it proves nothing — which is what the first version of this did.
+    stub(sevenBudgets);
     renderOverview();
     const panel = await budgetPanel();
-    await within(panel).findByRole("link", { name: "Rent" });
+    await within(panel).findByRole("link", { name: "Budget 1" });
+    expect(within(panel).getByRole("link", { name: "Budget 7" })).toBeInTheDocument();
     expect(within(panel).queryByText(/more categor/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a ledger budgeted only at the group level", async () => {
+    stub(groupOnly);
+    renderOverview();
+    const panel = await budgetPanel();
+    expect(await within(panel).findByText("Fixed costs")).toBeInTheDocument();
+    expect(within(panel).queryByText(/No budget set in this range/)).not.toBeInTheDocument();
+    // And the period line says its name alone: it totals the category budgets,
+    // which here are none, so a figure would read "£500.00 of £0.00, Over"
+    // above a group row saying £500.00 of £800.00.
+    expect(within(panel).queryByText(/of £0\.00/)).not.toBeInTheDocument();
   });
 
   it("leaves out a category nobody budgeted", async () => {

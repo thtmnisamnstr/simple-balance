@@ -61,25 +61,36 @@ export default function DashboardPage() {
   // The same report the budgets page reads, over the range this page is
   // showing. Keyed under "budgets" so setting one over there refreshes this.
   //
-  // Some of what it carries is dropped here on purpose (§11.9), and `rows` is
-  // no longer among them. "How is the budget going" turned out to be two
-  // questions — how is it going, and where is it going wrong — and the second
-  // needs the categories, so a reader had to leave the page to learn which
-  // budget the period's red bar was about. The six with most of their money
-  // gone are shown per period; `groups`, `carriedIn`, `toAssign`, `perimeter`
-  // and `unfunded` are still the budgets page's subject, and the link in the
-  // header is what reaches them. `otherPeriodUnits` is dropped for the same
-  // reason: acting on it means changing the period unit, and that control
-  // lives over there.
+  // Some of what it carries is dropped here on purpose (§11.9), and neither
+  // `rows` nor `groups` is among them any more. "How is the budget going"
+  // turned out to be two questions — how is it going, and where is it going
+  // wrong — and the second needs the categories, so a reader had to leave the
+  // page to learn which budget the period's red bar was about. Every budgeted
+  // category and every budgeted group is shown for the period the range ends
+  // in. What is still dropped: `carriedIn`, `toAssign`, `perimeter` and
+  // `unfunded`, which are the budgets page's subject and are reached by the
+  // link in the header, and `otherPeriodUnits`, because acting on it means
+  // changing the period unit and that control lives over there.
   const budgets = useQuery({
     queryKey: ["budgets", "report", start, end],
     queryFn: () => api<BudgetReport>(`/api/v1/budget-report?${queryString({ start, end })}`),
   });
   // A period with nothing budgeted in it is not a budget to report on, so a
   // ledger that has never set one gets no panel rather than a row of zeroes.
+  //
+  // "Nothing budgeted" has to mean the groups too. `period.budgeted` sums
+  // category limits alone — `budgets.ts:1520-1533` iterates `rows`, and a
+  // group's own budget is pushed to `groups` and skipped — so a ledger
+  // budgeted entirely at the group level had a period of zero and was filtered
+  // out, taking its group rows with it. It said nothing was budgeted while the
+  // budgets page showed the group, and one unrelated £1 category budget was
+  // enough to make the whole thing appear.
   const budgetPeriodsFor = (currency: string) =>
     (budgets.data?.periods ?? []).filter(
-      (period) => period.currency === currency && compareMoney(period.budgeted, "0") > 0,
+      (period) =>
+        period.currency === currency &&
+        (compareMoney(period.budgeted, "0") > 0 ||
+          period.groups.some((group) => group.limit !== null)),
     );
 
   return (
@@ -312,16 +323,16 @@ export default function DashboardPage() {
                 {!budgets.isError &&
                 !budgets.isPending &&
                 budgetPeriodsFor(currency.currency).length === 0 ? (
-                  <p className="panel-empty">No category budgeted in this range.</p>
+                  <p className="panel-empty">No budget set in this range.</p>
                 ) : null}
                 {budgetPeriodsFor(currency.currency).map((period, index, all) => {
                   const state = periodState(period);
                   // Only the period the range ends in is broken down. A range
-                  // of a year is twelve monthly periods, and six categories
-                  // under each would put seventy-two rows on a page whose job
-                  // is a glance — per currency. The newest is the one still
-                  // worth acting on; the ones before it are settled, and the
-                  // budgets page has them in full.
+                  // of a year is twelve monthly periods, and this list is
+                  // uncapped, so expanding all of them would put every budget
+                  // on the page twelve times over — per currency. The newest is
+                  // the one still worth acting on; the ones before it are
+                  // settled, and the budgets page has them in full.
                   const expanded = index === all.length - 1;
                   // Everything with a budget, in the report's own order, and
                   // nothing else. Spend is not the filter: a category budgeted
@@ -346,47 +357,71 @@ export default function DashboardPage() {
                       className="budget-period-group"
                       key={`${period.periodStart}:${period.currency}`}
                     >
-                      <div className="spending-row">
-                        <div>
-                          <span>
-                            {periodName(budgets.data!.periodUnit, period.periodStart)}
-                            {period.partial ? " (so far)" : ""}
-                          </span>
-                          {/* `available`, like the bar at the end of this row
+                      {/* The period line totals the CATEGORY budgets, so a
+                          period budgeted only at the group level has nothing
+                          for it to measure: `available` is zero, which
+                          `periodState` reads as over and `fillPercent` draws as
+                          a full bar. It would say "£500.00 of £0.00, Over"
+                          directly above a group row reading "£500.00 of
+                          £800.00, So far". The name alone is honest; the group
+                          rows beneath carry the figures. Folding group limits
+                          into the total is the other tempting answer and is
+                          refused in the service for the same reason
+                          (`budgets.ts:1495-1510`): a group budget and its
+                          categories' budgets are two plans over one set of
+                          spending, and adding them counts it twice. */}
+                      {compareMoney(period.available, "0") > 0 ? (
+                        <div className="spending-row">
+                          <div>
+                            <span>
+                              {periodName(budgets.data!.periodUnit, period.periodStart)}
+                              {period.partial ? " (so far)" : ""}
+                            </span>
+                            {/* `available`, like the bar at the end of this row
                               and the badge beside it. It printed `budgeted`, so
                               a period carrying money forward read "£450.00 of
                               £100.00" next to a bar at 90% and a "Nearly there"
                               badge — the disagreement the category rows below
                               were written to end, left in the line above them. */}
-                          <strong>
-                            {formatMoney(period.spent, currency.currency)} of{" "}
-                            {formatMoney(period.available, currency.currency)}
-                          </strong>
-                        </div>
-                        <div className="budget-progress">
-                          <div
-                            className="budget-bar"
-                            data-state={state}
-                            role="img"
-                            aria-label={`${stateLabel[state]}, ${formatMoney(
-                              period.spent,
-                              currency.currency,
-                            )} of ${formatMoney(period.available, currency.currency)}`}
-                          >
-                            {/* Against `available`, not `budgeted`. `rowState`
+                            <strong>
+                              {formatMoney(period.spent, currency.currency)} of{" "}
+                              {formatMoney(period.available, currency.currency)}
+                            </strong>
+                          </div>
+                          <div className="budget-progress">
+                            <div
+                              className="budget-bar"
+                              data-state={state}
+                              role="img"
+                              aria-label={`${stateLabel[state]}, ${formatMoney(
+                                period.spent,
+                                currency.currency,
+                              )} of ${formatMoney(period.available, currency.currency)}`}
+                            >
+                              {/* Against `available`, not `budgeted`. `rowState`
                                 decides the badge beside this from the same
                                 figure, and a bar drawn against the bare limit
                                 said "nearly there" beside a badge saying most
                                 of the money was still there — a period that
                                 carried something forward has more to spend than
                                 its limit. */}
-                            <span
-                              style={{ width: `${fillPercent(period.available, period.spent)}%` }}
-                            />
+                              <span
+                                style={{ width: `${fillPercent(period.available, period.spent)}%` }}
+                              />
+                            </div>
+                            <Badge tone={stateTone[state]}>{stateLabel[state]}</Badge>
                           </div>
-                          <Badge tone={stateTone[state]}>{stateLabel[state]}</Badge>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="spending-row">
+                          <div>
+                            <span>
+                              {periodName(budgets.data!.periodUnit, period.periodStart)}
+                              {period.partial ? " (so far)" : ""}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                       {/* Groups first, as on the budgets page, and badged the
                           same way. A group budgeted as the sum of its
                           categories shows beside them rather than instead of

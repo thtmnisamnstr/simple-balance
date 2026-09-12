@@ -45,19 +45,18 @@ wire default is unchanged**, so no existing client's answer moves.
 
 **The overview says where the budget stands** over the range it is showing, under
 Accounts and Spending by category, one row per period the report covers rather
-than a total the server never computes — and under each period, the categories
-it is made of: the six with most of their money gone, each with what it spent
-against what it may actually spend, a bar, and a word for the state it is in.
-Most consumed first rather than in the report's own order, because a cap that
-can hide the category somebody is overspending is a cap that hides the only row
-worth showing — and the line deferring the rest says how many of them are over,
-so the ordering does not have to be taken on trust. A category with no budget is
+than a total the server never computes — and under it, what the period is made
+of: every group and every category you have budgeted, each with what it spent
+against what it may actually spend, a bar, and a word for the state it is in. A
+budget with nothing spent against it yet is shown like any other, because a
+budget is what you set rather than what you spent. A category with no budget is
 left out; the panel above already reports that spending, and "£100.00 of —" is
-not a budget. Only the period the range ends in is broken down: a year-long
-range is twelve monthly periods, and six rows under each would be seventy-two
-rows on a page whose job is a glance, per currency. **And the categories
-in Spending by category are links** to the category, carrying the date range
-with them.
+not a budget. Groups are badged the way the budgets page badges them, so a group
+budgeted as the sum of its categories is not read as a figure to add to them.
+Only the period the range ends in is broken down, which is what keeps a
+year-long range from putting twelve expanded periods on a page whose job is a
+glance. **And the categories in Spending by category are links** to the
+category, carrying the date range with them.
 
 **A long commit and a long import say how far along they are.** Committing fifty
 staged rows or more, or staging a CSV of fifty rows or more, now draws a
@@ -1004,17 +1003,6 @@ table's own structure read out as though it were the data. It says Account,
 Category, Line or Movement now, depending on what the report actually lists.
 
 
-**The overview's budget panel now shows every budget, not the six most spent.**
-It ranked categories by how much of their money was gone and stopped at six,
-which put a budget nobody had spent against at the bottom of the list and then
-cut it — so the panel hid exactly the budgets that were going well. A budget is
-what somebody set, not what they spent, and a category budgeted at £500 with
-nothing against it yet is a row worth seeing. Groups that hold a budget appear
-too, badged the way the budgets page badges them so that a group and its own
-categories are not read as figures to add together. No cap: the list is as long
-as the budgets you set, which is what the budgets page shows and what this was
-meant to be a filtered view of.
-
 **A disabled button no longer distorts the bar it sits in.** In a selection bar
 the reason was laid out as a caption under one button, which made that button as
 wide as the sentence — "Commit selected" stretched to 470px while "Edit
@@ -1023,8 +1011,17 @@ on a narrower window pushed the duplicate checkbox onto a row of its own. The
 sentence takes a line of its own under the whole bar now. In a form the caption
 is still under the button, where the actions are the last thing on a stack.
 
-**"Amount decided by" reads "The amount, every period"** for the plain case,
-which says what the rule does rather than where the number came from.
+
+**A budget set on a group and on no category was invisible on the overview.**
+The panel kept a period only when its category budgets came to more than zero,
+and a group's own budget is not counted there — so somebody budgeting the way
+the 50/30/20 recipe describes saw "nothing budgeted in this range" while the
+budgets page showed the group, and one unrelated £1 category budget was enough
+to make the whole section appear. The gate asks whether anything is budgeted
+now, groups included. Where a period has only group budgets its summary line
+shows the period's name alone: the line totals the category budgets, so a figure
+there would read "£500.00 of £0.00" with a full red bar directly above a group
+row saying £500.00 of £800.00.
 
 
 ## 0.1.5 - 2026-08-22

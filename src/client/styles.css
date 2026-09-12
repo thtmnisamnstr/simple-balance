@@ -671,7 +671,12 @@ a {
 }
 
 /* In a wrapping toolbar the reason is a line of its own, not a caption under
-   one button.
+   one button. Both bars named below wrap and end their rows to the right —
+   `.bulk-actions` did already, and `.transaction-selection-actions` is given
+   both above, because it is the box these buttons actually sit in: the bar
+   itself is `space-between` with a count on one side and the actions on the
+   other, so the rule has to reach the inner group or it lands on the wrong
+   container.
 
    The column above is right in a form, where the actions are the last thing on
    a stack. In a selection bar it is wrong twice over: the wrapper is
@@ -692,9 +697,9 @@ a {
 :is(.bulk-actions, .transaction-selection-bar) .button-reason {
   order: 1;
   flex-basis: 100%;
-  /* Right, like the bar it explains. These bars carry `justify-content:
-     flex-end`, so a left-aligned sentence under a right-aligned row of buttons
-     reads as a note about the panel rather than about the button. */
+  /* Right, like the buttons it explains, which end their row at the right in
+     both bars. A left-aligned sentence under a right-aligned row reads as a
+     note about the panel rather than about the button. */
   text-align: right;
 }
 
@@ -1767,6 +1772,14 @@ input[type="radio"] {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* The actions group wraps, so a disabled button's reason can take a line under
+   it. Without this the rule below put a full-basis item in a nowrap row, which
+   squeezes the buttons instead of dropping the sentence beneath them. */
+.transaction-selection-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .transaction-selection-bar > div:first-child {

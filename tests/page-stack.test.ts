@@ -270,7 +270,7 @@ describe("a page-scoped class", () => {
     ["budget-progress", "The bar inside it"],
     ["budget-bar", "The bar inside it"],
     ["budget-period-group", "One period's categories, grouped under the period's own line"],
-    ["budget-category-row", "A category's line inside that group"],
+    ["budget-category-row", "A budgeted group or category, inside a period's group"],
     ["import-batches", "The import-batch list, read by the staged queue as well"],
     ["template-blank", "A template's unfilled field, shown wherever one is applied"],
     ["account-mini-group", "The dashboard's compact account list"],
