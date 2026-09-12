@@ -1312,7 +1312,7 @@ export default function StagingPage() {
             onPageChange={setPage}
           />
         </div>
-      ) : stagePages.isLoading ? (
+      ) : stagePages.error || batchPages.error ? null : stagePages.isPending ? (
         // The busiest list in the product used to show nothing here, so the
         // page looked finished and empty until the rows arrived.
         <Skeleton height={160} label="Loading staged transactions…" />
@@ -1396,7 +1396,7 @@ export default function StagingPage() {
         title="Edit selected staged rows"
         description="Choose only the fields you want to change. Nothing is committed: the rows are updated in the queue and checked again, so filling in what was missing can clear their warnings."
         footer={
-          <div className="form-actions">
+          <>
             <Button
               type="button"
               variant="secondary"
@@ -1414,7 +1414,7 @@ export default function StagingPage() {
             >
               Apply changes
             </Button>
-          </div>
+          </>
         }
       >
         <form id="staged-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>

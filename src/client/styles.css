@@ -2315,7 +2315,19 @@ input[type="radio"] {
   padding: 21px;
 }
 
+/* The footer lays its own actions out, rather than depending on whoever fills
+   it to remember. It carried padding and a border and no `display`, so the five
+   call sites passing a bare fragment left two `display: contents` wrappers in a
+   block container — two inline-flex buttons in an inline formatting context,
+   left-aligned and touching, while the two sites that happened to wrap in
+   `.form-actions` looked right. `align-items: center` rather than the flex
+   default, because `stretch` would pull a button that is showing its
+   disabled reason to the full height of the one beside it. */
 .modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   padding: 14px 21px;
   border-top: 1px solid var(--line);
 }

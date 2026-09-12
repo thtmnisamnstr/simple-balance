@@ -1173,7 +1173,7 @@ export function TransactionBrowser({
             />
           </div>
         </>
-      ) : transactions.isPending ? (
+      ) : transactions.error ? null : transactions.isPending ? (
         <Skeleton height={120} label="Loading transactions…" />
       ) : (
         <EmptyState
@@ -1271,7 +1271,7 @@ export function TransactionBrowser({
         title="Edit selected transactions"
         description="Choose only the fields you want to change. The entire update is atomic: either every selected transaction is updated or none are."
         footer={
-          <div className="form-actions">
+          <>
             <Button
               type="button"
               variant="secondary"
@@ -1289,7 +1289,7 @@ export function TransactionBrowser({
             >
               Apply changes
             </Button>
-          </div>
+          </>
         }
       >
         <form id="transaction-bulk-edit-form" className="bulk-edit-form" onSubmit={submitBulkEdit}>

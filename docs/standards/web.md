@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,933 lines of hand-written CSS in
+Query for server state, and 3,945 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -227,7 +227,7 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
 `.commit-choice label` and `.report-tab` — along with `.button-secondary`
-(`styles.css:643`) and `.file-drop` (`styles.css:2365`), both of which rested on
+(`styles.css:643`) and `.file-drop` (`styles.css:2377`), both of which rested on
 the failing token and reached the compliant one only on hover. Both now hold it
 at rest, as `.input` already did; their hover states also shift `background`, so
 the hover affordance survives the change.
@@ -289,7 +289,7 @@ section is a proposal, and says so.
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 288 padding, margin and gap declarations across **35 distinct pixel
+Today: 289 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
 takes 17 distinct single values, the commonest being 8px seventeen times, 10px
@@ -415,8 +415,8 @@ layer in the app are free to coincide, and that is the one exception it carries.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:3657`), 980px
-(`styles.css:3681`), 780px (`styles.css:3688`) and 560px (`styles.css:3787`).
+stylesheet in descending order: 1050px (`styles.css:3705`), 980px
+(`styles.css:3729`), 780px (`styles.css:3736`) and 560px (`styles.css:3815`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -689,7 +689,7 @@ moved to a new page brought a spacing opinion with it that nobody could see in
 the markup.
 
 **Flex rather than grid, and it is load-bearing rather than taste.**
-`.merge-panel` (`styles.css:2693`) is `position: sticky` and sits at page level
+`.merge-panel` (`styles.css:2705`) is `position: sticky` and sits at page level
 on Categories and Payees. A sticky *grid item* is bounded by its own grid area,
 which in a single-column grid is its own height, so it would stop following the
 list with nothing on screen to say why. A sticky *flex item* is bounded by the
@@ -1350,10 +1350,10 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | `.row-menu-popover` | `styles.css:1657` | fixed |
 | `.modal` | `styles.css:2239` | fixed |
 | `.modal-header` | `styles.css:2272` | sticky |
-| `.import-preview` | `styles.css:2404` | sticky |
-| `.merge-panel` | `styles.css:2693` | sticky |
-| `.nav-scrim` | `styles.css:3745` | fixed |
-| `.mobile-header` | `styles.css:3755` | sticky |
+| `.import-preview` | `styles.css:2416` | sticky |
+| `.merge-panel` | `styles.css:2705` | sticky |
+| `.nav-scrim` | `styles.css:3757` | fixed |
+| `.mobile-header` | `styles.css:3767` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1744,8 +1744,21 @@ duplicate review's "nothing left to review" *is* the page's content and takes
 
 *Checked by:* `npm run typecheck`, which is the whole check for the required
 icon and is why making it required was worth more than a test — the three sites
-that omitted it were three compile errors. Whether the copy actually
-distinguishes the two empty states is review, and honestly so.
+that omitted it were three compile errors. `tests/ui-copy.test.ts` holds two
+more: that a filtered list's title is a conditional rather than one sentence for
+two situations, and that an empty state sits *behind* its query's error rather
+than beside it.
+
+That last one had been three screens and a banner on six lists. React Query's
+`isPending` is `status === "pending"`, so a query that errored is not pending
+and fell past the loading branch into the empty state — the page said "No
+transactions yet" over the top of an alert explaining that it could not tell.
+The check reads the slot rather than the file, because every one of these pages
+mentions its query's `error` somewhere anyway: a first version grepped the
+source and passed on all six defects. Two empty states are exempt and named with
+the reason each is: the account register guards at the head of the same ternary
+ninety lines up, and the CSV preview's "No file yet" has no query behind it at
+all. Whether the two empty *sentences* are the right sentences is still review.
 
 ### 12.2 Loading
 
@@ -1939,7 +1952,7 @@ The rules, in the order they matter:
 - **Three bars now, and a fourth has to say which of them it is not.**
   `.progress-track` (`styles.css:1312`, `DashboardPage.tsx:287`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3646`, `BudgetsPage.tsx:1168`) is money, with an
+  `.budget-bar` (`styles.css:3658`, `BudgetsPage.tsx:1168`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -2276,7 +2289,7 @@ is which.
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
    trick the colour test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 288
+   percentages. This is the largest unmanaged surface in the stylesheet: 289
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting

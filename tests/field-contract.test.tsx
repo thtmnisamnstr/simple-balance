@@ -309,6 +309,13 @@ describe("a disabled button", () => {
    * greyed while its sibling works — so the answer is the sibling's spinner.
    * Named rather than pattern-matched, because "is this predicate a busy
    * flag" is a judgement.
+   *
+   * The file is only half of it: the predicate has to be a busy flag AND
+   * NOTHING ELSE, which is why the pattern refuses `|` and `&` between the
+   * braces. The first version matched `isPending` anywhere before the closing
+   * brace, so appending `|| mutation.isPending` to a genuinely blocking
+   * predicate excused the whole button — a register written to name four
+   * buttons in fact named three whole files.
    */
   const WORKING_NOT_BLOCKED = new Set([
     "src/client/App.tsx",
@@ -321,7 +328,12 @@ describe("a disabled button", () => {
       if (/disabledReason/.test(tag)) return false;
       // The in-flight half of a pair: its sibling carries the spinner.
       const file = where.slice(0, where.lastIndexOf(":"));
-      if (WORKING_NOT_BLOCKED.has(file) && /disabled=\{[^}]*([Pp]ending|deciding)/.test(tag))
+      // A busy flag AND NOTHING ELSE: `|` and `&` are refused between the
+      // braces, so a compound predicate that merely ends in one is not excused.
+      if (
+        WORKING_NOT_BLOCKED.has(file) &&
+        /(?:^|\s)disabled=\{[^|&}]*(?:[Pp]ending|deciding)[^|&}]*\}/.test(tag)
+      )
         return false;
       return true;
     });

@@ -27,6 +27,28 @@ const TITLES: Record<ReportName, string> = {
   "trial-balance": "Trial balance",
 };
 
+/**
+ * What the first column holds, per report.
+ *
+ * It said "Row" on all six. Every body row is a `th scope="row"`, so a screen
+ * reader pairs the two and announced "Row: Rent" — the table's own structure
+ * read out as though it were the data. Every other first-column header in the
+ * client names the thing, and `BudgetsPage` already computes one.
+ *
+ * Six entries rather than a categories/else pair: `income-expense` rows are the
+ * literals "Income" and "Expenses" and `cash-flow` rows are activity segments,
+ * so neither holds an account and both would be mislabelled by the obvious
+ * two-way answer.
+ */
+const ROW_HEADINGS: Record<ReportName, string> = {
+  "net-worth": "Account",
+  "income-expense": "Line",
+  categories: "Category",
+  "cash-flow": "Movement",
+  "balance-sheet": "Account",
+  "trial-balance": "Account",
+};
+
 const BLURBS: Record<ReportName, string> = {
   "net-worth": "What your accounts held at the end of each period.",
   "income-expense": "What came in and what went out over each period.",
@@ -317,7 +339,7 @@ export default function ReportsPage() {
                     </caption>
                     <thead>
                       <tr>
-                        <th scope="col">Row</th>
+                        <th scope="col">{ROW_HEADINGS[report]}</th>
                         {data.buckets.map((entry) => (
                           <th scope="col" className="align-right" key={entry.start}>
                             {columnHeading(entry)}

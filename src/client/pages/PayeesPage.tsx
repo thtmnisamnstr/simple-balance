@@ -268,7 +268,7 @@ export default function PayeesPage() {
             </div>
           ))}
         </div>
-      ) : payees.isPending ? (
+      ) : payees.error ? null : payees.isPending ? (
         <Skeleton height={120} label="Loading payees…" />
       ) : (
         <EmptyState

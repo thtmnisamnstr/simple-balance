@@ -169,7 +169,10 @@ export default function RecurrencesPage() {
         </Select>
       </div>
 
-      {recurrences.isPending || accounts.isPending ? (
+      {/* As on Templates: an errored query is not pending, so the empty state
+          announced there were no recurrences over an alert saying the list
+          could not be read. */}
+      {error ? null : recurrences.isPending || accounts.isPending ? (
         <Skeleton height={120} label="Loading recurrences…" />
       ) : visible.length === 0 ? (
         <EmptyState

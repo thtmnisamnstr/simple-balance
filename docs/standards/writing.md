@@ -673,7 +673,7 @@ edit.
   the repository grows, which is the case for scoping it rather than for
   restating it. In user-visible copy the rule holds almost everywhere, with
   four exceptions: `App.tsx:582`, `select-options.ts:110`,
-  `TemplatesPage.tsx:595`, and the review queue's inline-edit labels
+  `TemplatesPage.tsx:611`, and the review queue's inline-edit labels
   (`StagingPage.tsx:995`), which lead with the visible value and set the
   instruction off behind a dash. The lone "—" in an empty table cell is a
   placeholder glyph rather than punctuation and is not counted here. Two

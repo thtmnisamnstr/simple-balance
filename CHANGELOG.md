@@ -977,6 +977,32 @@ sentence counts category limits only; it says "No category budgeted" now, which
 is what it knows.
 
 
+**Six lists told you they were empty when the truth was that they could not be
+read.** Transactions, the staged queue, Templates, Recurring, Payees and the
+duplicate review each showed "No transactions yet" — or its equivalent — over
+the top of an alert explaining that the request had failed. A query that errored
+is not a query that is loading, so it fell past the loading branch straight into
+the empty state. Telling somebody their ledger is empty when the truth is that
+nothing could be fetched is the most consequential way a list can mislead, and
+all six now show the failure in the list's own place instead of beside it.
+
+**Enter now submits the two budget dialogs.** Changing a budget's amount, or
+overriding one month, meant reaching for the mouse: both dialogs held their
+fields loose in the body with no form around them, alone among the app's
+dialogs, so Enter did nothing and the fields sat flush against each other.
+
+**A modal's buttons sit where every other modal's buttons sit.** The footer
+carried padding and a border and no layout of its own, so the five dialogs that
+passed their buttons directly left them jammed against the left edge and
+touching, while the two that happened to wrap theirs in a container looked
+right.
+
+**Each report names its first column.** It said "Row" on all six, which pairs
+with every row's header cell so a screen reader announced "Row: Rent" — the
+table's own structure read out as though it were the data. It says Account,
+Category, Line or Movement now, depending on what the report actually lists.
+
+
 ## 0.1.5 - 2026-08-22
 
 ### Added

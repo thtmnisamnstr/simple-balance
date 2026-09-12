@@ -753,65 +753,72 @@ export default function BudgetsPage({ session }: { session: Session }) {
             >
               Cancel
             </Button>
-            <Button
-              type="button"
-              loading={editPlan.isPending}
-              onClick={() => {
-                startAttempt();
-                if (editing) editPlan.mutate(editing);
-              }}
-            >
+            <Button type="submit" form="budget-edit" loading={editPlan.isPending}>
               Save budget
             </Button>
           </>
         }
       >
-        {error ? <Alert kind="error">{error}</Alert> : null}
-        {editing &&
-        editing.amountRule !== "fixed" &&
-        editing.amountRule !== "incremental" &&
-        editing.amountRule !== "trailing_average" ? (
-          <Note>
-            {editing.amountRule === "sinking_fund"
-              ? `This one is saving ${formatMoney(editing.targetAmount ?? "0", editing.currency)} by ${periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works out its own amount each ${unitNoun[editing.periodUnit]}.`
-              : `This one takes ${editing.percentOfIncome}% of the income before it, so it works out its own amount and there is nothing here to type.`}{" "}
-            Delete it and set a plain budget if that is not what you want.
-          </Note>
-        ) : (
-          <>
-            <Field label="Amount">
-              <Input
-                inputMode="decimal"
-                value={editAmount}
-                onChange={(event) => setEditAmount(event.target.value)}
-              />
-            </Field>
-            <label className="date-bar-check">
-              <input
-                type="checkbox"
-                checked={editRollover}
-                onChange={(event) => setEditRollover(event.target.checked)}
-              />
-              Carry what is left over into the next {unitNoun[editing?.periodUnit ?? periodUnit]}
-            </label>
-            {editRollover ? (
-              <Field label="Most to carry" hint="Leave blank for no limit.">
+        {/* A form, so Enter submits from any field — every other field-bearing
+            dialog here is one, and this was two of the three that were not.
+            `form-grid` is what gives the fields their gap; without it they
+            touched, which is how the missing form looked from outside. */}
+        <form
+          id="budget-edit"
+          className="form-grid"
+          onSubmit={(event) => {
+            event.preventDefault();
+            startAttempt();
+            if (editing) editPlan.mutate(editing);
+          }}
+        >
+          {error ? <Alert kind="error">{error}</Alert> : null}
+          {editing &&
+          editing.amountRule !== "fixed" &&
+          editing.amountRule !== "incremental" &&
+          editing.amountRule !== "trailing_average" ? (
+            <Note>
+              {editing.amountRule === "sinking_fund"
+                ? `This one is saving ${formatMoney(editing.targetAmount ?? "0", editing.currency)} by ${periodName(editing.periodUnit, editing.targetDate ?? editing.activeFrom)}, and works out its own amount each ${unitNoun[editing.periodUnit]}.`
+                : `This one takes ${editing.percentOfIncome}% of the income before it, so it works out its own amount and there is nothing here to type.`}{" "}
+              Delete it and set a plain budget if that is not what you want.
+            </Note>
+          ) : (
+            <>
+              <Field label="Amount">
                 <Input
                   inputMode="decimal"
-                  value={editRolloverCap}
-                  onChange={(event) => setEditRolloverCap(event.target.value)}
+                  value={editAmount}
+                  onChange={(event) => setEditAmount(event.target.value)}
                 />
               </Field>
-            ) : null}
-          </>
-        )}
-        <Field label="Ends after" hint="Leave blank to keep running.">
-          <Input
-            type="date"
-            value={editActiveTo}
-            onChange={(event) => setEditActiveTo(event.target.value)}
-          />
-        </Field>
+              <label className="date-bar-check">
+                <input
+                  type="checkbox"
+                  checked={editRollover}
+                  onChange={(event) => setEditRollover(event.target.checked)}
+                />
+                Carry what is left over into the next {unitNoun[editing?.periodUnit ?? periodUnit]}
+              </label>
+              {editRollover ? (
+                <Field label="Most to carry" hint="Leave blank for no limit.">
+                  <Input
+                    inputMode="decimal"
+                    value={editRolloverCap}
+                    onChange={(event) => setEditRolloverCap(event.target.value)}
+                  />
+                </Field>
+              ) : null}
+            </>
+          )}
+          <Field label="Ends after" hint="Leave blank to keep running.">
+            <Input
+              type="date"
+              value={editActiveTo}
+              onChange={(event) => setEditActiveTo(event.target.value)}
+            />
+          </Field>
+        </form>
       </Modal>
 
       <ConfirmDialog
@@ -916,14 +923,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                 Use the standing budget
               </Button>
             ) : null}
-            <Button
-              type="button"
-              loading={setEntry.isPending}
-              onClick={() => {
-                startAttempt();
-                setEntry.mutate();
-              }}
-            >
+            <Button type="submit" form="budget-override" loading={setEntry.isPending}>
               Save override
             </Button>
           </>
@@ -933,13 +933,25 @@ export default function BudgetsPage({ session }: { session: Session }) {
             rendered on the page behind it is unreachable and unannounced, so
             every refusal of this form was invisible. */}
         {error ? <Alert kind="error">{error}</Alert> : null}
-        <Field label="Amount" hint={`Applies to this ${unitNoun[periodUnit]} only.`}>
-          <Input
-            inputMode="decimal"
-            value={overrideAmount}
-            onChange={(event) => setOverrideAmount(event.target.value)}
-          />
-        </Field>
+        {/* A form, for the same reason as the dialog above: one amount field,
+            and Enter did nothing in it. */}
+        <form
+          id="budget-override"
+          className="form-grid"
+          onSubmit={(event) => {
+            event.preventDefault();
+            startAttempt();
+            setEntry.mutate();
+          }}
+        >
+          <Field label="Amount" hint={`Applies to this ${unitNoun[periodUnit]} only.`}>
+            <Input
+              inputMode="decimal"
+              value={overrideAmount}
+              onChange={(event) => setOverrideAmount(event.target.value)}
+            />
+          </Field>
+        </form>
       </Modal>
 
       {(report.data?.otherPeriodUnits ?? []).length > 0 ? (

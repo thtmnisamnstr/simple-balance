@@ -459,7 +459,12 @@ export default function TemplatesPage() {
         </div>
       ) : null}
 
-      {templates.isPending || accounts.isPending || categories.isPending ? (
+      {/* The error takes the list's slot rather than stacking above it. An
+          errored query is not pending, so it fell through to the empty state
+          and the page said "No templates yet" over an alert explaining that it
+          could not tell — 12.1's four states collapsed into three and a banner.
+          The Alert above already carries the message. */}
+      {error ? null : templates.isPending || accounts.isPending || categories.isPending ? (
         <Skeleton height={120} label="Loading templates…" />
       ) : filtered.length === 0 ? (
         <EmptyState

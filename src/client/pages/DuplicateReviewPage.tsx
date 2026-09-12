@@ -181,8 +181,12 @@ export default function DuplicateReviewPage() {
             title="Possible duplicates"
             description="Two records of what might be one payment, checked one pair at a time."
           />
-          {error ? <Alert>{error.message}</Alert> : null}
-          {caughtUp}
+          {/* One or the other, never both. An errored query is not pending and
+              leaves the queue empty, so "No duplicates left to review" was
+              printed over the alert saying the queue could not be read — the
+              one screen that tells somebody they are finished, shown when
+              nothing is known. */}
+          {error ? <Alert>{error.message}</Alert> : caughtUp}
         </>
       );
     }

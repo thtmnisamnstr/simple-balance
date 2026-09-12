@@ -316,3 +316,100 @@ describe("a filtered list with nothing in it", () => {
     }
   });
 });
+
+/**
+ * The fourth state, which is not a banner above the other three.
+ *
+ * `web.md` 12.1 asks for four screens — loading, nothing yet, nothing matching,
+ * and error — and six lists were showing three of them plus a stripe. React
+ * Query's `isPending` is `status === "pending"`, so an errored query is not
+ * pending: it fell straight past the loading branch into the empty state, and
+ * the page said "No transactions yet" over the top of an alert explaining that
+ * it could not tell. Telling somebody their ledger is empty when the truth is
+ * that the request failed is the most consequential way a list can lie.
+ *
+ * Read from the source, because the shape is structural: a list slot that can
+ * render an `EmptyState` has to consult the query's `error` somewhere in the
+ * same expression. jsdom would need every one of these pages mounted with a
+ * failing fetch to see the same thing.
+ */
+describe("a list whose query failed", () => {
+  /**
+   * Every list that renders an `EmptyState`, checked at the slot rather than
+   * in the file.
+   *
+   * The first version of this grepped the whole source for the query's `error`,
+   * which every one of these pages mentions anyway in the alert above the list
+   * — so it passed on all nine and would have passed on all six defects. The
+   * guard has to be in the expression that decides the slot, so the window is
+   * the text immediately before the `EmptyState` it governs.
+   */
+  const WINDOW = 700;
+  const GUARD = /\b[A-Za-z]*[Ee]rror\b[^;]{0,40}\?/;
+
+  /**
+   * Two that the window cannot read, named with what makes each exempt.
+   *
+   * The register is by the empty state's own title, which is stable, rather
+   * than by a line number that drifts with every edit above it.
+   */
+  const EXEMPT = new Map([
+    [
+      "Nothing posted to this account yet",
+      // Guarded at the head of the same chain rather than beside the slot:
+      // `AccountDetailPage.tsx:157` is `register.error ? <Alert> : …`, and the
+      // register's table sits ninety lines below it inside that same ternary.
+      /register\.error \?/,
+    ],
+    [
+      "No file yet",
+      // No query behind it. This is the CSV preview before a file is chosen —
+      // local state, not a request that can fail, so there is no error for it
+      // to be behind.
+      /const \[csv, setCsv\]|setCsv\(/,
+    ],
+  ]);
+
+  /**
+   * `DuplicateReviewPage` is the one that cannot be read this way: its empty
+   * state is a `caughtUp` constant defined far above, and the guard sits at the
+   * two use sites. Named, and its shape asserted directly.
+   */
+  const AT_THE_USE_SITE = "src/client/pages/DuplicateReviewPage.tsx";
+
+  it("shows the failure instead of claiming there is nothing", () => {
+    const unguarded: string[] = [];
+    let checked = 0;
+    for (const path of globSync("src/client/**/*.tsx")) {
+      if (path === AT_THE_USE_SITE) continue;
+      const source = readFileSync(path, "utf8");
+      for (const match of source.matchAll(/<EmptyState/g)) {
+        const before = source.slice(Math.max(0, match.index - WINDOW), match.index);
+        const after = source.slice(match.index, match.index + WINDOW);
+        checked += 1;
+        const exemption = [...EXEMPT].find(([title]) => after.includes(`"${title}"`));
+        if (exemption) {
+          // The exemption is only good while the reason for it still holds.
+          expect(source, `${path} no longer matches its exemption`).toMatch(exemption[1]);
+          continue;
+        }
+        if (!GUARD.test(before)) {
+          unguarded.push(`${path}:${source.slice(0, match.index).split("\n").length}`);
+        }
+      }
+    }
+    expect(unguarded, "the empty state has to be behind the error, not beside it").toEqual([]);
+    expect(checked, "no empty states found, so this examined nothing").toBeGreaterThan(8);
+  });
+
+  it("puts the duplicate queue's finished screen behind its error too", () => {
+    const source = readFileSync(AT_THE_USE_SITE, "utf8");
+    // One or the other, never both: "No duplicates left to review" is the one
+    // screen that says somebody is finished, and it was printed over an alert
+    // saying the queue could not be read.
+    expect(source).toMatch(/error \? <Alert>\{error\.message\}<\/Alert> : caughtUp/);
+    expect(source).not.toMatch(
+      /\{error \? <Alert>\{error\.message\}<\/Alert> : null\}\s*\{caughtUp\}/,
+    );
+  });
+});
