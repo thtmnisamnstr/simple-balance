@@ -116,7 +116,7 @@ export default function DashboardPage() {
           <Button
             onClick={() => setOpen(true)}
             disabled={!accounts.data?.length}
-            disabledReason="Create an account first."
+            disabledReason={accounts.isPending ? undefined : "Create an account first."}
           >
             <Plus size={16} /> Add transaction
           </Button>
@@ -337,7 +337,7 @@ export default function DashboardPage() {
                 {!budgets.isError &&
                 !budgets.isPending &&
                 budgetPeriodsFor(currency.currency).length === 0 ? (
-                  <p className="panel-empty">Nothing budgeted in this range.</p>
+                  <p className="panel-empty">No category budgeted in this range.</p>
                 ) : null}
                 {budgetPeriodsFor(currency.currency).map((period, index, all) => {
                   const state = periodState(period);
@@ -374,9 +374,15 @@ export default function DashboardPage() {
                             {periodName(budgets.data!.periodUnit, period.periodStart)}
                             {period.partial ? " (so far)" : ""}
                           </span>
+                          {/* `available`, like the bar at the end of this row
+                              and the badge beside it. It printed `budgeted`, so
+                              a period carrying money forward read "£450.00 of
+                              £100.00" next to a bar at 90% and a "Nearly there"
+                              badge — the disagreement the category rows below
+                              were written to end, left in the line above them. */}
                           <strong>
                             {formatMoney(period.spent, currency.currency)} of{" "}
-                            {formatMoney(period.budgeted, currency.currency)}
+                            {formatMoney(period.available, currency.currency)}
                           </strong>
                         </div>
                         <div className="budget-progress">
@@ -387,7 +393,7 @@ export default function DashboardPage() {
                             aria-label={`${stateLabel[state]}, ${formatMoney(
                               period.spent,
                               currency.currency,
-                            )} of ${formatMoney(period.budgeted, currency.currency)}`}
+                            )} of ${formatMoney(period.available, currency.currency)}`}
                           >
                             {/* Against `available`, not `budgeted`. `rowState`
                                 decides the badge beside this from the same

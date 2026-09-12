@@ -220,6 +220,12 @@ how the source is written; read the one for the surface you are touching. Every
 rule in both says how it is checked, so a rule you have not broken is one you
 can prove you have not.
 
+Five procedures that repeat are written down in [`.claude/skills/`](.claude/skills):
+bringing the documents back to true after work lands, sweeping the product
+against the guides, reviewing the browser app, preparing a release, and cutting
+one. They hold the order the steps go in and the traps in them, and they cite
+the guides rather than restating them, so the rules still live in one place.
+
 `npm run verify` is typecheck, lint, format, tests and build, and it has to pass.
 Add a test for the behaviour you changed: this repository tests heavily and a
 change with no test is a change nobody can keep. If you touched anything with a

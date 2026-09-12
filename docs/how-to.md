@@ -321,7 +321,11 @@ your honesty. The report only works if the entries are true.
 
 - **Overview**: balances, cash flow, and spending by category for any date
   range. It stops at today whatever range you pick, because money dated next
-  week has not moved.
+  week has not moved. Below those, **Budget** shows where the period stands —
+  what it has spent against what it was allowed, and under it the six categories
+  with most of their money gone, worst first, each linking to its own page. Only
+  the period your range ends in is broken down; **See budgets** opens the rest.
+  When nothing is budgeted in the range it says so rather than disappearing.
 - **Reports**: net worth, income against expenses, spending by category, a
   cash flow statement, a balance sheet, and a trial balance that totals zero
   when the books are whole. On the categories report, one outsized category

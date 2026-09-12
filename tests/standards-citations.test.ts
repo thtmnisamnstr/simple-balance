@@ -603,3 +603,56 @@ describe("what the standards guides cite", () => {
     expect(backwards).toEqual([]);
   });
 });
+
+/**
+ * And the half the check above says it cannot do, for the case where it can.
+ *
+ * Its own docblock is honest that it proves only that a file exists and the
+ * line is inside it — "what it cannot prove is that the line still holds the
+ * thing the sentence claims". That is true in general and false for one shape
+ * that is common here: a sentence naming a CSS class and citing `styles.css`.
+ * There the claim is checkable, because the class is a string and the rule it
+ * names is on or beside that line.
+ *
+ * Seven citations had drifted this way at once — `.progress-track`,
+ * `.import-preview`, `.file-drop`, `.merge-panel` twice, `.row-menu-popover`,
+ * `.nav-scrim` and `.mobile-header` — every one of them landing on a non-blank
+ * line of some other rule, so the check above passed on all seven. A citation
+ * pointing at the wrong rule is worse than one pointing at nothing: it reads as
+ * evidence.
+ *
+ * A window rather than the exact line, because a citation legitimately points
+ * at a declaration inside a block as well as at the selector that opens it.
+ */
+describe("a citation that names a class", () => {
+  it("lands on or beside that class's own rule", () => {
+    const css = readFileSync("src/client/styles.css", "utf8").split("\n");
+    const wrong: string[] = [];
+    for (const guide of globSync("docs/standards/**/*.md")) {
+      readFileSync(guide, "utf8")
+        .split("\n")
+        .forEach((line, index) => {
+          for (const match of line.matchAll(/`(\.[a-z][\w-]*)`[^`\n]{0,40}`styles\.css:(\d+)`/g)) {
+            const at = Number(match[2]);
+            const window = css.slice(Math.max(0, at - 3), at + 2).join("\n");
+            if (!window.includes(match[1]!)) {
+              wrong.push(
+                `${guide}:${index + 1} says ${match[1]} is at styles.css:${at}, which is «${(
+                  css[at - 1] ?? ""
+                ).trim()}»`,
+              );
+            }
+          }
+        });
+    }
+    expect(wrong).toEqual([]);
+    // It has to be reading something: a pattern that matched nothing would pass
+    // the line above in silence, which is how the first version of the
+    // disabled-button census spent a release checking nothing.
+    const counted = globSync("docs/standards/**/*.md")
+      .map((guide) => readFileSync(guide, "utf8"))
+      .join("\n")
+      .match(/`\.[a-z][\w-]*`[^`\n]{0,40}`styles\.css:\d+`/g);
+    expect(counted?.length ?? 0).toBeGreaterThan(10);
+  });
+});

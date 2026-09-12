@@ -2592,6 +2592,17 @@ export const apiErrorCodes = [...serviceErrorCodes, ...transportErrorCodes] as c
 
 export type ServiceErrorCode = (typeof serviceErrorCodes)[number];
 export type TransportErrorCode = (typeof transportErrorCodes)[number];
+/**
+ * The union of the two above, and nothing imports it — deliberately kept.
+ *
+ * A dead-code sweep finds it every time, so the answer is written here rather
+ * than worked out again. It is the third of three derived types over three
+ * tuples, which is the shape `typescript.md` 2.3 holds up as the model, and it
+ * is the name both halves of the codebase use for the whole contract when they
+ * explain themselves — `services/errors.ts:26` calls its own set "narrower than
+ * the published `ApiErrorCode`". Deleting the name would leave those sentences
+ * pointing at nothing, to remove a line that costs nothing.
+ */
 export type ApiErrorCode = (typeof apiErrorCodes)[number];
 
 export type Actor = {

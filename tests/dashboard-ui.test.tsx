@@ -110,6 +110,12 @@ const carrying: BudgetReport = {
   periods: [
     {
       ...report.periods[0]!,
+      // The period totals diverge too, so the header is covered by the same
+      // case as the row. They used to be left equal, which is why the header
+      // printing `budgeted` beside a bar drawn against `available` survived.
+      budgeted: "700",
+      available: "750",
+      spent: "620",
       rows: [
         {
           ...report.periods[0]!.rows[0]!,
@@ -217,7 +223,19 @@ describe("the Overview's budget panel", () => {
     stub(nothingBudgeted);
     renderOverview();
     expect(await screen.findByRole("heading", { name: "Budget" })).toBeInTheDocument();
-    expect(screen.getByText(/Nothing budgeted in this range/)).toBeInTheDocument();
+    expect(screen.getByText(/No category budgeted in this range/)).toBeInTheDocument();
+  });
+
+  it("says no CATEGORY is budgeted, because a group budget is not counted here", async () => {
+    // The sentence used to say "Nothing budgeted in this range", which is false
+    // for a ledger budgeted entirely at the group level: `period.budgeted` sums
+    // category limits only, so the panel filtered the period out and then
+    // asserted something the figure behind it does not know. The budgets page
+    // has the same care in its own summary — "budgeted across the categories".
+    stub(nothingBudgeted);
+    renderOverview();
+    const panel = await budgetPanel();
+    expect(within(panel).getByText(/No category budgeted in this range/)).toBeInTheDocument();
   });
 
   it("shows the period and what it stands at", async () => {
@@ -300,6 +318,18 @@ describe("what the overview's budget panel leaves out", () => {
     await within(panel).findByRole("link", { name: "Groceries" });
     expect(within(panel).getByText(/£120\.00 of £250\.00/)).toBeInTheDocument();
     expect(within(panel).queryByText(/£120\.00 of £200\.00/)).not.toBeInTheDocument();
+  });
+
+  it("measures the period line against what the period may spend", async () => {
+    // Same rule as the row beneath it: the figure, the bar and the badge take
+    // one denominator. With £50 carried in, the line reads against £750 and
+    // not against the £700 that was planned.
+    stub(carrying);
+    renderOverview();
+    const panel = await budgetPanel();
+    await within(panel).findByRole("link", { name: "Groceries" });
+    expect(within(panel).getByText(/£620\.00 of £750\.00/)).toBeInTheDocument();
+    expect(within(panel).queryByText(/£620\.00 of £700\.00/)).not.toBeInTheDocument();
   });
 
   it("breaks down only the period the range ends in", async () => {

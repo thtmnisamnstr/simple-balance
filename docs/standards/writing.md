@@ -29,6 +29,7 @@ of them unusually, so an unwritten convention is a convention with one holder.
 | `SECURITY.md` | Somebody who found a hole in it | How-to | The reporting channel changes, or what is in scope does |
 | `deploy/compose/README.md`, `deploy/helm/simple-balance/README.md`, `deploy/pulumi/README.md` | An operator running that one recipe | How-to | That recipe changes |
 | `scripts/ralph/README.md`, `guardrails.md`, `iteration-prompt.md`, `progress.md` | The build loop and whoever runs it | Reference | The loop changes |
+| `.claude/skills/*/SKILL.md` | Whoever is starting one of five tasks that repeat | How-to | The order of a procedure changes, or a trap in it is found |
 | `CLAUDE.md` | A Claude Code session | One line, `@AGENTS.md` | Never, by design |
 
 **House. A new document names a reader and a mode before it is created.** If it
@@ -36,7 +37,35 @@ cannot name both, it is a section of a document that already exists. The corpus
 is small enough to list on one screen, and the reason a reader can find the
 right document in it is that none of them overlap.
 
-*Not checked mechanically.* A test cannot tell whether a document has a reader.
+**House, and the reason the skills are not a tenth guide.** Five procedures
+repeat — bringing the documents back to true after work lands, sweeping the
+product against the guides, reviewing the browser app, preparing a release, and
+cutting one — and each was being rediscovered, in the wrong order, every time.
+They are `.claude/skills/`, and the rule that keeps them from becoming a second
+copy of this set is that **a skill cites a guide and never restates it.** A rule
+written down twice drifts, which is the defect the whole set exists to prevent;
+so a skill says "read `web.md` section 9" where it is tempted to summarise
+section 9. What a skill is allowed to hold is what a guide has no place for: the
+order the steps go in, and the traps. `release-prep` says twice that the recount
+is last, because doing it early cost four passes in one session.
+
+One mechanical hazard, learned by tripping over it. A `SKILL.md` is expanded
+when it loads, so a bare dollar-sign followed by a name or a digit is replaced
+before a reader sees it: `design-review` quoted a defect report saying a figure
+"always show[ed] $0" and the loaded skill said it showed the skill's own name.
+Command substitution and brace-wrapped forms survive; the bare form does not.
+Write the word instead.
+
+*Checked by:* `tests/skills.test.ts` for the four things about a skill a test
+can decide — that the set on disk and the set `AGENTS.md` promises are the same
+five, both ways round; that each carries frontmatter naming its own directory
+and describing itself; that none contains a bare dollar-variable the loader
+would swallow; and that each cites at least one of the documents it defers to,
+since a skill that mentions no guide is either covering ground the guides do not
+or quietly becoming a copy of one.
+
+*Not checked mechanically:* whether a document has a reader, and whether a
+skill's order is the right order. Both are review.
 
 ### Diátaxis, answered
 
@@ -341,7 +370,7 @@ with `docs/guide.md` keeping the explanations.
   everything else it does, run it locally, run the tests, host it, connect an
   agent, security, not built yet, more, built with, license.
 - **The licence is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the licence is a term of use. `README.md:263-273` names it, links it,
+  project the licence is a term of use. `README.md:269-279` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older licence.
 - **No badge wall.** There are none today.

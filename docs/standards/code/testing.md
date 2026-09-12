@@ -5,7 +5,7 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 81 | `npm test` | nothing |
+| Unit (node) | 82 | `npm test` | nothing |
 | Unit (jsdom) | 41 | `npm test` | nothing |
 | Integration | 57 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 123 pass, 56 skip | **1,245 pass, 664 skip** |
-| `npm test`, database set | 179 pass | **1,909 pass** |
+| `npm test`, no database | 124 pass, 56 skip | **1,251 pass, 664 skip** |
+| `npm test`, database set | 180 pass | **1,916 pass** |
 | `npm run test:integration` | 57 pass | 665 pass |
 
 The integration tier reports 665 tests on its own and 664 skips inside a
@@ -81,7 +81,7 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Twenty-two tests, one file, one worker, against a real API and a real
+**House.** Twenty-three tests, one file, one worker, against a real API and a real
 PostgreSQL. It is slow and it is the only tier that proves the whole stack
 works, so it covers a path per capability rather than a case per branch.
 `tests/testing-guide-counts.test.ts` holds this number to the file, because it
@@ -318,7 +318,7 @@ the setting.
 
 | Test | Holds |
 | --- | --- |
-| `tests/standards-citations.test.ts` | Every citation a guide makes, in all three forms, plus every internal link and heading anchor. |
+| `tests/standards-citations.test.ts` | Every citation a guide makes, in all three forms, plus every internal link and heading anchor — and, where a sentence names a CSS class beside a `styles.css` line, that the line is that class's own rule rather than merely non-blank. Seven had drifted onto other rules at once, which the line check passed. |
 | `tests/testing-guide-counts.test.ts` | The file counts in both tables at the top of this page, recounted from disk. The test counts beside them are deliberately left alone. |
 | `tests/comment-density.test.ts` | The density `AGENTS.md` and `comments.md` both quote: one number in both places, within a point and a half of what `src` measures, and the counts behind it exactly. |
 | `tests/lint-budget.test.ts` | The lint warning budget, per rule and ratcheted down only. All three rules it once held are cleared and now denied outright, so every budget in it reads zero and the linter fails before this test is reached. What is left is the rule that starts warning and that nobody has decided about. |

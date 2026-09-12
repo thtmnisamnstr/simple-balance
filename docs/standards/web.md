@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,906 lines of hand-written CSS in
+Query for server state, and 3,933 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -75,7 +75,7 @@ it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the eight inline `style` props in the client
 (`charts.tsx:273`, `charts.tsx:322`, `components.tsx:501`, `components.tsx:938`,
-`BudgetsPage.tsx:1168`, `DashboardPage.tsx:292`, `DashboardPage.tsx:400`,
+`BudgetsPage.tsx:1177`, `DashboardPage.tsx:292`, `DashboardPage.tsx:400`,
 `DashboardPage.tsx:445`) are all runtime geometry — a bar's width, a chart's offset — and are correct as they
 are. The count matters beyond tidiness: it is what
 `src/server/http-security.ts:22-29` reasons about when it declines
@@ -227,7 +227,7 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
 `.commit-choice label` and `.report-tab` — along with `.button-secondary`
-(`styles.css:643`) and `.file-drop` (`styles.css:2323`), both of which rested on
+(`styles.css:643`) and `.file-drop` (`styles.css:2365`), both of which rested on
 the failing token and reached the compliant one only on hover. Both now hold it
 at rest, as `.input` already did; their hover states also shift `background`, so
 the hover affordance survives the change.
@@ -289,7 +289,7 @@ section is a proposal, and says so.
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 287 padding, margin and gap declarations across **35 distinct pixel
+Today: 288 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
 takes 17 distinct single values, the commonest being 8px seventeen times, 10px
@@ -689,7 +689,7 @@ moved to a new page brought a spacing opinion with it that nobody could see in
 the markup.
 
 **Flex rather than grid, and it is load-bearing rather than taste.**
-`.merge-panel` (`styles.css:2647`) is `position: sticky` and sits at page level
+`.merge-panel` (`styles.css:2693`) is `position: sticky` and sits at page level
 on Categories and Payees. A sticky *grid item* is bounded by its own grid area,
 which in a single-column grid is its own height, so it would stop following the
 list with nothing on screen to say why. A sticky *flex item* is bounded by the
@@ -1171,7 +1171,7 @@ future field: identity and provenance never travel, values always do.
 
 The same reasoning holds one level down in the queue's inline category editor,
 which drops a stored `categoryKind` when the category is re-chosen
-(`StagingPage.tsx:629-632`): the stored kind was somebody's answer about the
+(`StagingPage.tsx:656-660`): the stored kind was somebody's answer about the
 old name, and riding along it would file a brand-new category on a side nobody
 chose.
 
@@ -1259,7 +1259,7 @@ and is used by nothing; delete it or adopt it at the 69 `formatMoney` call
 sites, some of which render currency outside a table in proportional digits. And
 `.money`'s weight and `white-space: nowrap` reach three files rather than the
 transaction register alone — `BudgetsPage.tsx` seventeen times,
-`ImportPage.tsx:657` and `TransactionBrowser.tsx:1061` — so folding them into
+`ImportPage.tsx:657` and `TransactionBrowser.tsx:1096` — so folding them into
 `.data-table :is(th, td).align-right` is still the right cleanup, but the
 argument for it is consistency rather than a rule that only fires on one page.
 
@@ -1304,8 +1304,16 @@ cover the contract. The two sentences are review.
 **Binding, WCAG 2.2 SC 2.1.1 Keyboard, level A.** A horizontally scrolling
 container must be reachable by keyboard. `.data-table` carries `min-width:
 760px` and always sits in a container that scrolls, so on a narrow panel it
-always scrolls. **Every `.table-card` and `.table-wrap` carries `tabIndex={0}`,
-`role="region"` and an accessible name.** The pairing is good practice; the
+always scrolls. **Every `.table-card`, `.table-wrap` and `.preview-table-wrap`
+carries `tabIndex={0}`, `role="region"` and an accessible name.**
+
+The third class is named because leaving it out is what the defect was. The rule
+is about a container that scrolls, and this section used to enumerate two class
+names as though they were the same thing — so the import preview, which scrolls
+harder than anything else here (six columns of arbitrary CSV headers inside a
+300px aside), was the one scrolling container in the client a keyboard could not
+reach. Nothing was wrong with the rule; the check and the sentence had both been
+written against the classes that existed the day they were written. The pairing is good practice; the
 `tabindex` is the rule, and a focusable region with no name is an unlabelled tab
 stop, which is why the two travel together. The name repeats the table's
 `.sr-only` caption, so the two cannot describe different tables.
@@ -1320,8 +1328,11 @@ transaction list the essential three are date, payee and amount; account,
 category and status may drop or move to a second line below a breakpoint.
 
 *Checked by:* `tests/table-overflow.test.ts` covers the wrapper.
-`tests/page-stack.test.ts` covers the `tabindex`: every `.table-card` and
-`.table-wrap` in `src/client` carries one, with a role and a name.
+`tests/page-stack.test.ts` covers the `tabindex`: all fourteen scrolling
+containers in `src/client` carry one, with a role and a name. It asserts the
+count as well as the absence of offenders, so widening the pattern is a decision
+somebody makes rather than something that slips in — and so a pattern that
+matches nothing fails instead of passing quietly.
 
 ### 9.7 Sticky regions
 
@@ -1336,13 +1347,13 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | Selector | Line | Position |
 | --- | --- | --- |
 | `.sidebar` | `styles.css:359` | fixed |
-| `.row-menu-popover` | `styles.css:1597` | fixed |
+| `.row-menu-popover` | `styles.css:1657` | fixed |
 | `.modal` | `styles.css:2239` | fixed |
 | `.modal-header` | `styles.css:2272` | sticky |
-| `.import-preview` | `styles.css:2362` | sticky |
-| `.merge-panel` | `styles.css:2647` | sticky |
-| `.nav-scrim` | `styles.css:3554` | fixed |
-| `.mobile-header` | `styles.css:3739` | sticky |
+| `.import-preview` | `styles.css:2404` | sticky |
+| `.merge-panel` | `styles.css:2693` | sticky |
+| `.nav-scrim` | `styles.css:3745` | fixed |
+| `.mobile-header` | `styles.css:3755` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1836,7 +1847,7 @@ Announcement is already handled: `Alert` sets `role={kind === "error" ? "alert"
 : "status"}` (`src/client/components.tsx:986`), so a success alert is a polite
 live region and an error alert interrupts. The two real defects are elsewhere.
 There are three separate `aria-live="polite"` regions in the client
-(`components.tsx:230`, `TransactionBrowser.tsx:731`, `TemplatesPage.tsx:424`),
+(`components.tsx:230`, `TransactionBrowser.tsx:756`, `TemplatesPage.tsx:424`),
 so a page can carry four polite regions at once and nothing decides which speaks
 first. And a success alert persists until the next render, with no rule for how
 long it stays.
@@ -1926,9 +1937,9 @@ The rules, in the order they matter:
 - **Binding, SC 1.4.11.** The fill is `--green-fill` on `--track`, measured in
   2.2, and the bar keeps the `--line-strong` edge 2.2 requires of a control.
 - **Three bars now, and a fourth has to say which of them it is not.**
-  `.progress-track` (`styles.css:1304`, `DashboardPage.tsx:287`) is a decorative
+  `.progress-track` (`styles.css:1312`, `DashboardPage.tsx:287`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3610`, `BudgetsPage.tsx:1159`) is money, with an
+  `.budget-bar` (`styles.css:3646`, `BudgetsPage.tsx:1168`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -2265,7 +2276,7 @@ is which.
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
    trick the colour test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 287
+   percentages. This is the largest unmanaged surface in the stylesheet: 288
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting

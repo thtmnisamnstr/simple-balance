@@ -842,6 +842,42 @@ test.describe("the budgets page in a browser", () => {
     expect(next).toBeGreaterThan(period);
   });
 
+  /**
+   * SC 1.4.10 Reflow, measured rather than asserted.
+   *
+   * `web.md` 15 makes 320px Binding and `html`/`body` carry `min-width: 320px`,
+   * which is where the belief that it held came from — a minimum width is not a
+   * promise that the content inside fits. Two things were over it at once and
+   * neither is visible at any width a person develops at: the budget period
+   * bar's checkboxes are 325px of `white-space: nowrap` text, and the date
+   * range's two inputs were pinned at 135px each inside a group that could not
+   * shrink.
+   *
+   * Document width against window width, because that is what "scrolls
+   * sideways" means. A table that scrolls inside its own container is fine and
+   * does not move either number — which is why this can be one assertion rather
+   * than a list of exceptions.
+   */
+  test("does not scroll sideways at 320px", async () => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    try {
+      for (const path of ["/", "/transactions", "/budgets", "/reports", "/staged"]) {
+        await page.goto(path);
+        await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+        const measured = await page.evaluate(() => ({
+          document: document.documentElement.scrollWidth,
+          window: window.innerWidth,
+        }));
+        expect(measured.document, `${path} is wider than the window`).toBeLessThanOrEqual(
+          measured.window,
+        );
+      }
+    } finally {
+      // The rest of the file is a serial story at the default size.
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
+  });
+
   test("projects what happens next, in its own words", async () => {
     await page.goto("/budgets");
     const panel = page.getByRole("heading", { name: "What happens next" });

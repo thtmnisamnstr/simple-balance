@@ -148,7 +148,14 @@ describe("a scrolling table", () => {
       // `[\s\S]*?` and no anchor on `className`: the formatter breaks a tag with
       // four attributes across five lines, and a pattern that wanted them on one
       // saw half the wrappers and reported the other half as passing.
-      for (const match of source.matchAll(/<div\s[^>]*?className="table-(?:card|wrap)"[^>]*>/g)) {
+      // `preview-table-wrap` is in the alternation because it was not, and
+      // that was the whole defect: the import preview scrolls harder than any
+      // other table here — six columns of arbitrary CSV headers in a 300px
+      // aside — and was the one scrolling container in the client a keyboard
+      // could not reach, because the pattern only knew two class names.
+      for (const match of source.matchAll(
+        /<div\s[^>]*?className="(?:table-(?:card|wrap)|preview-table-wrap)"[^>]*>/g,
+      )) {
         checked += 1;
         const tag = match[0];
         if (!tag.includes("tabIndex={0}")) offenders.push(`${path} (no tabIndex)`);
@@ -159,7 +166,10 @@ describe("a scrolling table", () => {
     expect(offenders).toEqual([]);
     // The count, because a pattern that matched nothing would pass the line
     // above and say nothing — which is exactly what the first version did.
-    expect(checked).toBe(12);
+    // Twelve became fourteen when the two import-preview wrappers joined the
+    // alternation, which is the other thing a pinned count buys: widening the
+    // pattern has to be a decision rather than something that slips in.
+    expect(checked).toBe(14);
   });
 });
 

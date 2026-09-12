@@ -396,6 +396,31 @@ export function TransactionBrowser({
     !accountChangeBlocked &&
     !categoryChangeBlocked &&
     !typeChangeBlocked;
+  /**
+   * The first unmet condition, in the order the form asks for them.
+   *
+   * `web.md` 12.3 asks for the first, not all of them, and a single sentence
+   * asserted over a seven-conjunct predicate is false six ways: it said
+   * "Change at least one field above" to somebody who had changed a field and
+   * typed a date wrongly. In the same order the eye moves — is anything
+   * selected, is the selection settled, has a field been turned on, is what
+   * was typed usable, and then the three the ledger refuses.
+   */
+  const bulkEditBlockedBecause = !hasSelection
+    ? "Select at least one transaction."
+    : !filterSelectionReady
+      ? "Waiting for the selection to be counted."
+      : !hasEnabledBulkField
+        ? "Change at least one field above."
+        : !enabledRequiredValuesAreValid
+          ? "Fill in the fields you switched on."
+          : accountChangeBlocked
+            ? "These rows are in more than one currency, so the account cannot change."
+            : categoryChangeBlocked
+              ? "A split cannot be flattened into one category."
+              : typeChangeBlocked
+                ? "A transfer cannot become a deposit or a withdrawal."
+                : undefined;
   // Stable so that the reset below can name it as a dependency and still run
   // only when the filter changes. Rebuilt on every render it would look like a
   // new filter on every render, and the reset writes a fresh empty selection
@@ -657,7 +682,7 @@ export function TransactionBrowser({
         <Button
           onClick={() => setEditing("new")}
           disabled={!accounts.data?.length}
-          disabledReason="Create an account first."
+          disabledReason={accounts.isPending ? undefined : "Create an account first."}
         >
           <Plus size={16} /> Add transaction
         </Button>
@@ -1260,7 +1285,7 @@ export function TransactionBrowser({
               form="transaction-bulk-edit-form"
               loading={bulkMutation.isPending}
               disabled={!canSubmitBulkEdit}
-              disabledReason="Change at least one field above."
+              disabledReason={bulkEditBlockedBecause}
             >
               Apply changes
             </Button>

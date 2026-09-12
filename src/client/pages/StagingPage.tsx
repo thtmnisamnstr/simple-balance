@@ -365,6 +365,29 @@ export default function StagingPage() {
     !accountChangeBlocked &&
     !categoryChangeBlocked &&
     !typeChangeBlocked;
+  /**
+   * The first unmet condition, in the order the form asks for them.
+   *
+   * `web.md` 12.3 wants the first rather than all of them. One fixed sentence
+   * over a seven-conjunct predicate told somebody who had changed a field and
+   * mistyped a date to change a field.
+   */
+  const bulkEditBlockedBecause =
+    selectedRows.length === 0
+      ? "Select at least one row."
+      : !hasEnabledBulkField
+        ? "Change at least one field above."
+        : bulkEnabled.date && !/^\d{4}-\d{2}-\d{2}$/.test(bulkValues.date)
+          ? "Give the date as YYYY-MM-DD."
+          : bulkEnabled.payee && !bulkValues.payee.trim()
+            ? "Give the payee a name."
+            : accountChangeBlocked
+              ? "These rows are in more than one currency, so the account cannot change."
+              : categoryChangeBlocked
+                ? "A split cannot be flattened into one category."
+                : typeChangeBlocked
+                  ? "A transfer cannot become a deposit or a withdrawal."
+                  : undefined;
 
   const bulkEditMutation = useMutation<
     StagedBulkEditResult,
@@ -744,7 +767,7 @@ export default function StagingPage() {
             <Button
               onClick={() => setEditing("new")}
               disabled={!accounts.data?.length}
-              disabledReason="Create an account first."
+              disabledReason={accounts.isPending ? undefined : "Create an account first."}
             >
               <Plus size={16} /> Stage transaction
             </Button>
@@ -1387,7 +1410,7 @@ export default function StagingPage() {
               form="staged-bulk-edit-form"
               loading={bulkEditMutation.isPending}
               disabled={!canSubmitBulkEdit}
-              disabledReason="Change at least one field above."
+              disabledReason={bulkEditBlockedBecause}
             >
               Apply changes
             </Button>

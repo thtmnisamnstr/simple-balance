@@ -928,6 +928,55 @@ goes grey before you have an account and used to leave a first-time reader with
 a dead button and an empty list telling them to add a transaction.
 
 
+**Five procedures that kept being rediscovered are written down.** Bringing the
+documents back to true after work lands, sweeping the product against the
+guides, reviewing the browser app, preparing a release, and cutting one — each
+was being worked out again, in the wrong order, every time it came round. They
+are `.claude/skills/` now, and `writing.md` names their reader and their mode
+beside every other document in the repository.
+
+What keeps them from becoming a second copy of the standards is that a skill
+cites a guide and never restates it: a rule written down twice drifts, which is
+the defect the guides exist to prevent. What a skill is allowed to hold is the
+part a guide has no place for — the order the steps go in, and the traps.
+`release-prep` says twice that the recount goes last, because doing it early
+cost four passes in a single session.
+
+`tests/skills.test.ts` holds the set on disk to the set `AGENTS.md` promises,
+both directions, and refuses a bare dollar-variable in any of them: a `SKILL.md`
+is expanded when it loads, so one of the five quoted a defect report about a
+figure that "always showed $0" and the loaded skill said it showed the skill's
+own name. Command substitution survives; the bare form does not. Neither is
+visible in the file, which is why it is a test rather than a note.
+
+
+**Two pages scrolled sideways on a 320px screen**, which the standards make a
+binding failure and nothing had ever measured. `html` and `body` carry a
+`min-width: 320px`, and that was mistaken for a promise that what sits inside
+them fits. Two things were over it: the budget period bar's checkboxes are 325px
+of text that was told never to wrap, and the date range's two inputs were pinned
+at 135px each inside a group that could not shrink. Both fixed, and the browser
+tier now measures document width against window width on five pages rather than
+asserting the rule holds.
+
+**A disabled button gave one fixed reason for a seven-condition predicate.** The
+two bulk editors said "Change at least one field above" to somebody who had
+changed a field and mistyped a date — the sentence was true in one of the seven
+states it was shown in. Each now names the first unmet condition in the order
+the form asks for it. And "Create an account first" is no longer asserted while
+the accounts are still loading, when nobody knows yet whether there are any.
+
+**The overview's budget line disagreed with its own bar.** It printed what the
+period was allowed while the bar and the badge beside it measured what the
+period may actually spend, so a budget carrying money forward read "£450.00 of
+£100.00" next to a bar at 90% and a "Nearly there" badge. That is the same
+disagreement the category rows below it were written to end, and it had been
+left in the line directly above them. It also said "Nothing budgeted in this
+range" to anybody budgeting at the group level, where the figure behind the
+sentence counts category limits only; it says "No category budgeted" now, which
+is what it knows.
+
+
 ## 0.1.5 - 2026-08-22
 
 ### Added

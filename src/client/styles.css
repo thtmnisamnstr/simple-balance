@@ -3822,6 +3822,33 @@ polyline.chart-line {
   .date-bar .input[type="date"] {
     width: 135px;
   }
+  /* The group takes the line and the two dates share it, rather than holding
+     135px each. Grouping them stopped the bar wrapping through "to" and, left
+     rigid, made the group 328px wide inside a 320px viewport — a reflow failure
+     (SC 1.4.10) in place of a cosmetic one. `min-width: 0` on both, because a
+     flex item will not shrink below its intrinsic width without it. */
+  .date-bar-range {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  /* "Count spending through closed accounts" is 325px of unwrappable text, so
+     at 320px the two budget checkboxes pushed the document wider than the
+     window — SC 1.4.10, which section 15 makes Binding. `nowrap` is right in a
+     control row and wrong when the row is narrower than one control; the box
+     keeps its size and aligns with the first line of what it labels. */
+  .date-bar-check {
+    align-items: flex-start;
+    white-space: normal;
+  }
+  .date-bar-check > input {
+    flex: none;
+    margin-top: 2px;
+  }
+  .date-bar-range .input[type="date"] {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
   .metric-grid,
   .account-card-grid,
   .balance-snapshot-grid,

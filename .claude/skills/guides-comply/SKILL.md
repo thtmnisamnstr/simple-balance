@@ -25,11 +25,15 @@ problem in writing rather than shipping the break.
 ## 1. Build the rule inventory
 
 ```sh
-for label in Binding House Contested; do
-  printf "%-10s %s\n" "$label" "$(grep -rc "^\*\*$label" docs/standards/ | awk -F: '{s+=$2} END{print s}')"
-done
-grep -rn "\*Checked by:\*" docs/standards/ | wc -l
+grep -rhoE '^\*\*(Binding|House|Contested)' docs/standards/ | sort | uniq -c
+grep -rn '\*Checked by:\*' docs/standards/ | wc -l
 ```
+
+(No shell variable in either line, deliberately. A `SKILL.md` is expanded when
+it loads, so a bare dollar-sign followed by a name or a digit becomes empty
+before you ever see it — which silently turned the first version of this census
+into a command that counted nothing. Command substitution and brace-wrapped
+forms survive; the bare form does not.)
 
 For each rule record: the guide and heading, the label, and its `*Checked by:*`
 — a named test, `human`, or nothing. That is several hundred rules across some

@@ -110,7 +110,7 @@ one at a time produces four inconsistent fixes; fixing the cause fixes all of
 them and usually removes code.
 
 Watch for the finding that is not cosmetic. "Expected in and Expected Out always
-show $0" was reported alongside spacing complaints and was a projection bug in
+show zero" was reported alongside spacing complaints and was a projection bug in
 the service, not a design problem. Sort each report into *layout*, *behaviour* or
 *data* before starting, and send the last two to the service that owns them.
 
