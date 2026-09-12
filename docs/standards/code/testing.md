@@ -81,7 +81,7 @@ two assumptions with nothing watching.
 
 ### 1.2 The browser tier is small on purpose
 
-**House.** Twenty-one tests, one file, one worker, against a real API and a real
+**House.** Twenty-two tests, one file, one worker, against a real API and a real
 PostgreSQL. It is slow and it is the only tier that proves the whole stack
 works, so it covers a path per capability rather than a case per branch.
 `tests/testing-guide-counts.test.ts` holds this number to the file, because it

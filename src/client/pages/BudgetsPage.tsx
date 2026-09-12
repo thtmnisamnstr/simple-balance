@@ -489,7 +489,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   setRuleValue("");
                 }}
               >
-                <option value="fixed">The amount above, every period</option>
+                <option value="fixed">The amount you type, every period</option>
                 <option value="average">What the last few periods spent</option>
                 <option value="step">The last period, plus a percentage</option>
                 <option value="income">A share of the income before it</option>
@@ -933,197 +933,6 @@ export default function BudgetsPage({ session }: { session: Session }) {
         </Field>
       </Modal>
 
-      <section className="panel">
-        <header className="panel-header">
-          <h3>What happens next</h3>
-          <span className="subtle">
-            {forecastBasis === "recurring"
-              ? "Projected from your recurring transactions."
-              : forecastBasis === "recurring_and_budgets"
-                ? "Projected from your recurring transactions and what your budgets intend."
-                : "Projected from your recurring transactions and what recent months actually did."}{" "}
-            Nothing here has happened yet, and none of it is a balance.
-          </span>
-        </header>
-        {/* Bare controls with their own labels, like every other view control in
-            the app. A `Field` stacks a label above and made this bar half again
-            as tall as the one at the top of the page — §7.6. */}
-        <div className="date-bar">
-          <div className="date-bar-title">
-            <span>{unitNounPlural[periodUnit]} ahead</span>
-          </div>
-          <Select
-            aria-label={`${unitNounPlural[periodUnit]} ahead`}
-            value={forecastPeriods}
-            onChange={(event) => setForecastPeriods(event.target.value)}
-          >
-            {["3", "6", "12", "24"].map((count) => (
-              <option key={count} value={count}>
-                {count}
-              </option>
-            ))}
-          </Select>
-          <div className="date-bar-title">
-            <span>Counting</span>
-          </div>
-          <Select
-            aria-label="Counting"
-            value={forecastBasis}
-            onChange={(event) => setForecastBasis(event.target.value as Forecast["basis"])}
-          >
-            <option value="recurring_and_history">Recurring plus what you usually spend</option>
-            <option value="recurring">Recurring transactions only</option>
-            <option value="recurring_and_budgets">Recurring plus what budgets intend</option>
-          </Select>
-          {/* Only where it changes anything. `lookback` is the window the
-              history basis averages over and the other two never read it, so
-              offering it beside them would be a control that does nothing —
-              and leaving it off the page entirely would make it a request field
-              only an agent could set, which is the defect this page just fixed
-              one section up for `groupId`. */}
-          {forecastBasis === "recurring_and_history" ? (
-            <>
-              <div className="date-bar-title">
-                <span>Averaged over</span>
-              </div>
-              <Select
-                aria-label="Averaged over"
-                value={forecastLookback}
-                onChange={(event) => setForecastLookback(event.target.value)}
-              >
-                {["3", "6", "12"].map((count) => (
-                  <option key={count} value={count}>
-                    {count} {unitNoun[periodUnit]}s
-                  </option>
-                ))}
-              </Select>
-            </>
-          ) : null}
-        </div>
-        {forecast.isError ? (
-          <Alert kind="error">
-            The projection could not be worked out, so nothing below is a projection of anything.{" "}
-            {(forecast.error as Error).message}
-          </Alert>
-        ) : forecast.isPending ? (
-          <Skeleton height={120} label="Loading the projection…" />
-        ) : forecastIsEmpty ? (
-          /* Tested on the figures, not on whether a currency came back. Anybody
-             who owns an account has a currency, so the old test never fired:
-             a ledger with nothing to project showed a table of zeroes and no
-             sentence saying why. */
-          <Note>
-            Nothing to project yet.{" "}
-            {forecastBasis === "recurring"
-              ? "This basis counts recurring transactions alone, and there are none. Set one up, or count what you usually spend instead."
-              : forecastBasis === "recurring_and_budgets"
-                ? "This basis counts recurring transactions and budgets, and there are neither."
-                : "There is no spending or income behind this yet — a finished period has to have something in it before an average means anything."}
-          </Note>
-        ) : (
-          (forecast.data?.currencies ?? []).map((currency) => (
-            <div
-              className="table-wrap"
-              key={currency.currency}
-              tabIndex={0}
-              role="region"
-              aria-label={`Projected balances in ${currency.currency}`}
-            >
-              <table className="data-table">
-                <caption className="sr-only">
-                  Projected balances in {currency.currency}, from {forecast.data?.from}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">{unitNoun[periodUnit]}</th>
-                    <th scope="col" className="align-right">
-                      Expected in
-                    </th>
-                    <th scope="col" className="align-right">
-                      Expected out
-                    </th>
-                    <th scope="col" className="align-right">
-                      Budgets intend
-                    </th>
-                    {/* Only under the pessimistic basis, where the figure is
-                        part of the arithmetic on screen: it is the slice of
-                        each budget no recurrence covers, which is exactly what
-                        that basis adds to the spending column. */}
-                    {forecastBasis === "recurring_and_budgets" ? (
-                      <th scope="col" className="align-right">
-                        Of that, unscheduled
-                      </th>
-                    ) : null}
-                    {/* The same rule one basis over: under the history basis
-                        this is the part of the two money columns that came from
-                        an average rather than from a date, and a reader who
-                        cannot separate the two cannot tell a projection from a
-                        schedule. */}
-                    {forecastBasis === "recurring_and_history" ? (
-                      <th scope="col" className="align-right">
-                        Of that, typical
-                      </th>
-                    ) : null}
-                    <th scope="col" className="align-right">
-                      Scheduled
-                    </th>
-                    <th scope="col" className="align-right">
-                      Projected balance
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {currency.periods.map((period) => (
-                    <tr key={period.periodStart}>
-                      <th scope="row">{periodName(periodUnit, period.periodStart)}</th>
-                      <td className="align-right money">
-                        {formatMoney(period.expectedIncome, currency.currency)}
-                      </td>
-                      <td className="align-right money">
-                        {formatMoney(period.expectedSpending, currency.currency)}
-                      </td>
-                      <td className="align-right money">
-                        {formatMoney(period.budgetedSpending, currency.currency)}
-                      </td>
-                      {forecastBasis === "recurring_and_budgets" ? (
-                        <td className="align-right money">
-                          {formatMoney(period.uncoveredBudget, currency.currency)}
-                        </td>
-                      ) : null}
-                      {forecastBasis === "recurring_and_history" ? (
-                        <td className="align-right money">
-                          {formatMoney(period.typicalSpending, currency.currency)} out,{" "}
-                          {formatMoney(period.typicalIncome, currency.currency)} in
-                        </td>
-                      ) : null}
-                      <td className="align-right">{period.occurrences}</td>
-                      <td className="align-right money">
-                        {formatMoney(period.projectedBalance, currency.currency)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))
-        )}
-        {(forecast.data?.unprojectable ?? []).length > 0 ? (
-          <Alert kind="info">
-            {(forecast.data?.unprojectable ?? []).map((entry) => entry.name).join(", ")} could not
-            be projected, so the figures above are short by whatever they are worth. A recurring
-            transaction with no amount proposes a row for you to fill in rather than a figure
-            anything can project.
-          </Alert>
-        ) : null}
-        {(forecast.data?.otherPeriodUnits ?? []).length > 0 ? (
-          <Alert kind="info">
-            You also budget by {(forecast.data?.otherPeriodUnits ?? []).join(" and ")}, and this
-            projection reads only {unitNoun[periodUnit].toLowerCase()}ly budgets. Switch the period
-            above to see what the others intend.
-          </Alert>
-        ) : null}
-      </section>
-
       {(report.data?.otherPeriodUnits ?? []).length > 0 ? (
         <Alert kind="info">
           You also budget by{" "}
@@ -1416,6 +1225,197 @@ export default function BudgetsPage({ session }: { session: Session }) {
           above may be overridden without saying so. {(entries.error as Error).message}
         </Alert>
       ) : null}
+
+      <section className="panel">
+        <header className="panel-header">
+          <h3>What happens next</h3>
+          <span className="subtle">
+            {forecastBasis === "recurring"
+              ? "Projected from your recurring transactions."
+              : forecastBasis === "recurring_and_budgets"
+                ? "Projected from your recurring transactions and what your budgets intend."
+                : "Projected from your recurring transactions and what recent months actually did."}{" "}
+            Nothing here has happened yet, and none of it is a balance.
+          </span>
+        </header>
+        {/* Bare controls with their own labels, like every other view control in
+            the app. A `Field` stacks a label above and made this bar half again
+            as tall as the one at the top of the page — §7.6. */}
+        <div className="date-bar">
+          <div className="date-bar-title">
+            <span>{unitNounPlural[periodUnit]} ahead</span>
+          </div>
+          <Select
+            aria-label={`${unitNounPlural[periodUnit]} ahead`}
+            value={forecastPeriods}
+            onChange={(event) => setForecastPeriods(event.target.value)}
+          >
+            {["3", "6", "12", "24"].map((count) => (
+              <option key={count} value={count}>
+                {count}
+              </option>
+            ))}
+          </Select>
+          <div className="date-bar-title">
+            <span>Counting</span>
+          </div>
+          <Select
+            aria-label="Counting"
+            value={forecastBasis}
+            onChange={(event) => setForecastBasis(event.target.value as Forecast["basis"])}
+          >
+            <option value="recurring_and_history">Recurring plus what you usually spend</option>
+            <option value="recurring">Recurring transactions only</option>
+            <option value="recurring_and_budgets">Recurring plus what budgets intend</option>
+          </Select>
+          {/* Only where it changes anything. `lookback` is the window the
+              history basis averages over and the other two never read it, so
+              offering it beside them would be a control that does nothing —
+              and leaving it off the page entirely would make it a request field
+              only an agent could set, which is the defect this page just fixed
+              one section up for `groupId`. */}
+          {forecastBasis === "recurring_and_history" ? (
+            <>
+              <div className="date-bar-title">
+                <span>Averaged over</span>
+              </div>
+              <Select
+                aria-label="Averaged over"
+                value={forecastLookback}
+                onChange={(event) => setForecastLookback(event.target.value)}
+              >
+                {["3", "6", "12"].map((count) => (
+                  <option key={count} value={count}>
+                    {count} {unitNoun[periodUnit]}s
+                  </option>
+                ))}
+              </Select>
+            </>
+          ) : null}
+        </div>
+        {forecast.isError ? (
+          <Alert kind="error">
+            The projection could not be worked out, so nothing here is a projection of anything.{" "}
+            {(forecast.error as Error).message}
+          </Alert>
+        ) : forecast.isPending ? (
+          <Skeleton height={120} label="Loading the projection…" />
+        ) : forecastIsEmpty ? (
+          /* Tested on the figures, not on whether a currency came back. Anybody
+             who owns an account has a currency, so the old test never fired:
+             a ledger with nothing to project showed a table of zeroes and no
+             sentence saying why. */
+          <Note>
+            Nothing to project yet.{" "}
+            {forecastBasis === "recurring"
+              ? "This basis counts recurring transactions alone, and there are none. Set one up, or count what you usually spend instead."
+              : forecastBasis === "recurring_and_budgets"
+                ? "This basis counts recurring transactions and budgets, and there are neither."
+                : "There is no spending or income behind this yet — a finished period has to have something in it before an average means anything."}
+          </Note>
+        ) : (
+          (forecast.data?.currencies ?? []).map((currency) => (
+            <div
+              className="table-wrap"
+              key={currency.currency}
+              tabIndex={0}
+              role="region"
+              aria-label={`Projected balances in ${currency.currency}`}
+            >
+              <table className="data-table">
+                <caption className="sr-only">
+                  Projected balances in {currency.currency}, from {forecast.data?.from}
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">{unitNoun[periodUnit]}</th>
+                    <th scope="col" className="align-right">
+                      Expected in
+                    </th>
+                    <th scope="col" className="align-right">
+                      Expected out
+                    </th>
+                    <th scope="col" className="align-right">
+                      Budgets intend
+                    </th>
+                    {/* Only under the pessimistic basis, where the figure is
+                        part of the arithmetic on screen: it is the slice of
+                        each budget no recurrence covers, which is exactly what
+                        that basis adds to the spending column. */}
+                    {forecastBasis === "recurring_and_budgets" ? (
+                      <th scope="col" className="align-right">
+                        Of that, unscheduled
+                      </th>
+                    ) : null}
+                    {/* The same rule one basis over: under the history basis
+                        this is the part of the two money columns that came from
+                        an average rather than from a date, and a reader who
+                        cannot separate the two cannot tell a projection from a
+                        schedule. */}
+                    {forecastBasis === "recurring_and_history" ? (
+                      <th scope="col" className="align-right">
+                        Of that, typical
+                      </th>
+                    ) : null}
+                    <th scope="col" className="align-right">
+                      Scheduled
+                    </th>
+                    <th scope="col" className="align-right">
+                      Projected balance
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currency.periods.map((period) => (
+                    <tr key={period.periodStart}>
+                      <th scope="row">{periodName(periodUnit, period.periodStart)}</th>
+                      <td className="align-right money">
+                        {formatMoney(period.expectedIncome, currency.currency)}
+                      </td>
+                      <td className="align-right money">
+                        {formatMoney(period.expectedSpending, currency.currency)}
+                      </td>
+                      <td className="align-right money">
+                        {formatMoney(period.budgetedSpending, currency.currency)}
+                      </td>
+                      {forecastBasis === "recurring_and_budgets" ? (
+                        <td className="align-right money">
+                          {formatMoney(period.uncoveredBudget, currency.currency)}
+                        </td>
+                      ) : null}
+                      {forecastBasis === "recurring_and_history" ? (
+                        <td className="align-right money">
+                          {formatMoney(period.typicalSpending, currency.currency)} out,{" "}
+                          {formatMoney(period.typicalIncome, currency.currency)} in
+                        </td>
+                      ) : null}
+                      <td className="align-right">{period.occurrences}</td>
+                      <td className="align-right money">
+                        {formatMoney(period.projectedBalance, currency.currency)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))
+        )}
+        {(forecast.data?.unprojectable ?? []).length > 0 ? (
+          <Alert kind="info">
+            {(forecast.data?.unprojectable ?? []).map((entry) => entry.name).join(", ")} could not
+            be projected, so the figures above are short by whatever they are worth. A recurring
+            transaction with no amount proposes a row for you to fill in rather than a figure
+            anything can project.
+          </Alert>
+        ) : null}
+        {(forecast.data?.otherPeriodUnits ?? []).length > 0 ? (
+          <Alert kind="info">
+            You also budget by {(forecast.data?.otherPeriodUnits ?? []).join(" and ")}, and this
+            projection reads only {unitNoun[periodUnit].toLowerCase()}ly budgets. Change "Budgeting
+            by" above to see what the others intend.
+          </Alert>
+        ) : null}
+      </section>
     </>
   );
 }

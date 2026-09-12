@@ -263,10 +263,14 @@ actions against the whole text block, so a two-line description pushed them a
 line lower — the entire difference between Recurring and Templates. The header
 is two rows now, actions beside the title, and both negative margins are gone.
 
-**The Budgets page reads in the order the work happens**: set a budget, the
-standing budgets that result, the single-period exceptions to them, what happens
-next, then the period that is running. What it spends is last because it is the
-longest, not because it is the least important.
+**The Budgets page reads in the order the work happens, and then in time
+order**: set a budget, the standing budgets that result, the single-period
+exceptions to them, the period that is running, then what happens next. An
+earlier arrangement put the projection above the month somebody is actually in,
+on the argument that the period tables are the longest and belong last. Length
+is the wrong reason to order a page: it meant the first figures under the
+budgets were ones that have not happened yet, with the month being spent below
+them.
 
 **Settings is two balanced columns.** Three cards shared the narrow one while
 Sign-in methods had the wide one to itself, which left a stretch of nothing under
@@ -833,6 +837,20 @@ And a sweep for dead code found none: no unreachable module, no unused
 dependency, and of 263 CSS classes none unreferenced. What it did find was 34
 exports nothing outside their own file imported, now narrowed to what actually
 uses them, and a client type barrel that is deliberate and stays.
+
+**Five pieces of copy no longer name a position the layout does not keep.** "The
+amount above, every period" described where the Amount field sits, and on a
+desktop it sits to the left — the form is a wrapping flex row, so "above" was
+only ever true once the row broke. It reads "The amount you type, every period"
+now, which is what the how-to has called it all along and is true at every width.
+The duplicate review promised two records "side by side" in the two states where
+nothing is on screen at all, and the grid it meant collapses to one column below
+980px anyway. A budget alert said the projection failure meant "nothing below is
+a projection" while sitting where the projection would have been, with nothing
+under it. And the alert about budgets in other period units told you to switch
+"the period above", which on that panel is the forecast's own horizon control;
+it names "Budgeting by" now, as the identical alert on the same page already did.
+
 
 ## 0.1.5 - 2026-08-22
 

@@ -108,6 +108,8 @@ describe("testing.md file counts", () => {
       19: "Nineteen",
       20: "Twenty",
       21: "Twenty-one",
+      22: "Twenty-two",
+      23: "Twenty-three",
     };
     expect(guide, `the browser tier holds ${tests} tests`).toContain(
       `${words[tests] ?? String(tests)} tests, one file, one worker`,

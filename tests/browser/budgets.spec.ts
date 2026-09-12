@@ -795,6 +795,44 @@ test.describe("the budgets page in a browser", () => {
    * The arithmetic is held against the service. What this checks is that the
    * panel says what it is: a projection, in its own words, and never a balance.
    */
+  /**
+   * The page runs present before future.
+   *
+   * The order was once "set a budget, the standing budgets that result, what
+   * happens next, then the period that is running", on the argument that the
+   * period tables are the longest and belong last. Reading it that way puts a
+   * projection of next month above the month somebody is actually in, so the
+   * first figures on the page are the ones that have not happened. The running
+   * period comes first now and the projection follows it.
+   *
+   * Asserted on DOM order rather than on coordinates: the panels are a single
+   * column at every breakpoint, so source order is the reading order, and a
+   * bounding-box comparison would only re-measure the stylesheet.
+   */
+  test("puts the running period above the projection", async () => {
+    await page.goto("/budgets");
+    await expect(page.getByRole("heading", { name: "What happens next" })).toBeVisible();
+    const headings = await page.locator("main h3").allTextContents();
+    const at = (match: RegExp) => headings.findIndex((text) => match.test(text));
+    const setBudget = at(/^Set a budget$/);
+    const standing = at(/^Standing budgets$/);
+    // Either the period panels, which name their own month — "September 2026,
+    // USD (so far)" — or the report's own empty state when nothing is budgeted
+    // in the range. Both are the report, and what is under test is where the
+    // report sits, so matching either is the point rather than a weakening:
+    // alone this test meets the empty state, in file order it meets the panels.
+    const period = at(/, [A-Z]{3}( \(so far\))?$|^Nothing budgeted in this range$/);
+    const next = at(/^What happens next$/);
+    expect(
+      setBudget,
+      `no "Set a budget" heading in ${headings.join(" | ")}`,
+    ).toBeGreaterThanOrEqual(0);
+    expect(period, `no budget report in ${headings.join(" | ")}`).toBeGreaterThanOrEqual(0);
+    expect(standing).toBeGreaterThan(setBudget);
+    expect(period).toBeGreaterThan(standing);
+    expect(next).toBeGreaterThan(period);
+  });
+
   test("projects what happens next, in its own words", async () => {
     await page.goto("/budgets");
     const panel = page.getByRole("heading", { name: "What happens next" });

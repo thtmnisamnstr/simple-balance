@@ -160,7 +160,7 @@ export default function DuplicateReviewPage() {
         <PageHeader
           eyebrow="Review queue"
           title="Possible duplicates"
-          description="Two records of what might be one payment, side by side."
+          description="Two records of what might be one payment, checked one pair at a time."
         />
         {caughtUp}
       </>
@@ -179,7 +179,7 @@ export default function DuplicateReviewPage() {
           <PageHeader
             eyebrow="Review queue"
             title="Possible duplicates"
-            description="Two records of what might be one payment, side by side."
+            description="Two records of what might be one payment, checked one pair at a time."
           />
           {error ? <Alert>{error.message}</Alert> : null}
           {caughtUp}

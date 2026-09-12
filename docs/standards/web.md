@@ -75,7 +75,7 @@ it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the seven inline `style` props in the client
 (`charts.tsx:273`, `charts.tsx:322`, `components.tsx:501`, `components.tsx:938`,
-`BudgetsPage.tsx:1358`, `DashboardPage.tsx:250`, `DashboardPage.tsx:329`) are all
+`BudgetsPage.tsx:1168`, `DashboardPage.tsx:250`, `DashboardPage.tsx:329`) are all
 runtime geometry — a bar's width, a chart's offset — and are correct as they
 are. The count matters beyond tidiness: it is what
 `src/server/http-security.ts:22-29` reasons about when it declines
@@ -1916,7 +1916,7 @@ The rules, in the order they matter:
 - **Three bars now, and a fourth has to say which of them it is not.**
   `.progress-track` (`styles.css:1304`, `DashboardPage.tsx:250`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3610`, `BudgetsPage.tsx:1349`) is money, with an
+  `.budget-bar` (`styles.css:3610`, `BudgetsPage.tsx:1159`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
