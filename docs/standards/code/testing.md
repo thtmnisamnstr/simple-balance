@@ -6,7 +6,7 @@ keeping.
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
 | Unit (node) | 81 | `npm test` | nothing |
-| Unit (jsdom) | 40 | `npm test` | nothing |
+| Unit (jsdom) | 41 | `npm test` | nothing |
 | Integration | 57 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 122 pass, 56 skip | **1,233 pass, 664 skip** |
-| `npm test`, database set | 178 pass | **1,897 pass** |
+| `npm test`, no database | 123 pass, 56 skip | **1,244 pass, 664 skip** |
+| `npm test`, database set | 179 pass | **1,908 pass** |
 | `npm run test:integration` | 57 pass | 665 pass |
 
 The integration tier reports 665 tests on its own and 664 skips inside a

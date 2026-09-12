@@ -45,8 +45,19 @@ wire default is unchanged**, so no existing client's answer moves.
 
 **The overview says where the budget stands** over the range it is showing, under
 Accounts and Spending by category, one row per period the report covers rather
-than a total the server never computes. **And the categories in Spending by
-category are links** to the category, carrying the date range with them.
+than a total the server never computes — and under each period, the categories
+it is made of: the six with most of their money gone, each with what it spent
+against what it may actually spend, a bar, and a word for the state it is in.
+Most consumed first rather than in the report's own order, because a cap that
+can hide the category somebody is overspending is a cap that hides the only row
+worth showing — and the line deferring the rest says how many of them are over,
+so the ordering does not have to be taken on trust. A category with no budget is
+left out; the panel above already reports that spending, and "£100.00 of —" is
+not a budget. Only the period the range ends in is broken down: a year-long
+range is twelve monthly periods, and six rows under each would be seventy-two
+rows on a page whose job is a glance, per currency. **And the categories
+in Spending by category are links** to the category, carrying the date range
+with them.
 
 **A long commit and a long import say how far along they are.** Committing fifty
 staged rows or more, or staging a CSV of fifty rows or more, now draws a
@@ -850,6 +861,18 @@ a projection" while sitting where the projection would have been, with nothing
 under it. And the alert about budgets in other period units told you to switch
 "the period above", which on that panel is the forecast's own horizon control;
 it names "Budgeting by" now, as the identical alert on the same page already did.
+
+
+**The overview's budget panel could not say it was empty, so it disappeared
+instead.** The panel was drawn only when the report was loading, had failed, or
+had at least one budgeted period; the "Nothing budgeted in this range" message
+inside it was drawn only when the report had loaded, had not failed, and had no
+budgeted period — the exact complement, so the message was unreachable and the
+whole section vanished. Anybody whose budgets sit in another month, or in
+another currency, met an Overview with no budget section and nothing saying why,
+which is indistinguishable from the feature never having been built. The panel
+is always there now and says which kind of empty it is. It had no test of any
+kind, which is how a branch that could never run shipped; it has seven.
 
 
 ## 0.1.5 - 2026-08-22

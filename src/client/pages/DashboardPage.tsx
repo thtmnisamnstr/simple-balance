@@ -8,6 +8,7 @@ import {
   queryString,
   type Account,
   type BudgetReport,
+  type BudgetReportRow,
   type Category,
   type Summary,
 } from "../api.js";
@@ -18,6 +19,7 @@ import {
   DateRangeBar,
   EmptyState,
   Modal,
+  Note,
   PageHeader,
   Skeleton,
 } from "../components.js";
@@ -28,10 +30,42 @@ import {
   isNegativeMoney,
   largestMoney,
   moneyRatioPercent,
+  moneyUnits,
 } from "../money.js";
 import { useDateRange } from "../date-range.js";
-import { fillPercent, periodName, periodState, stateLabel, stateTone } from "../budget-display.js";
+import {
+  fillPercent,
+  periodName,
+  periodState,
+  rowState,
+  stateLabel,
+  stateTone,
+} from "../budget-display.js";
 import { TransactionForm } from "../forms.js";
+
+/** How many categories of one period the overview shows before deferring. */
+const BUDGET_ROWS_SHOWN = 6;
+
+/**
+ * How much of a category's money is gone, for ordering alone.
+ *
+ * Unclamped on purpose, which is why `fillPercent` is not reused: that one
+ * stops at a hundred so a bar cannot run off its panel, and stopping there
+ * would tie every category that is over its limit with every category that has
+ * spent exactly all of it — collapsing the ordering at the top, which is the
+ * end that matters. Against `available` rather than the bare limit, for the
+ * same reason the bar is: a category that carried money forward has more to
+ * spend than its limit says.
+ */
+function consumed(row: BudgetReportRow) {
+  const cap = moneyUnits(row.available ?? row.limit ?? "0");
+  const spent = moneyUnits(row.actual);
+  if (spent === null || spent <= 0n) return 0;
+  // Spending against a limit of nothing is as over as it gets, and dividing by
+  // it is the other kind of wrong.
+  if (cap === null || cap <= 0n) return Number.MAX_SAFE_INTEGER;
+  return Number((spent * 10_000n) / cap);
+}
 
 export default function DashboardPage() {
   const { start, end } = useDateRange();
@@ -52,12 +86,16 @@ export default function DashboardPage() {
   // The same report the budgets page reads, over the range this page is
   // showing. Keyed under "budgets" so setting one over there refreshes this.
   //
-  // Most of what it carries is dropped here on purpose (§11.9). A period's
-  // `rows`, `groups`, `carriedIn`, `toAssign`, `perimeter` and `unfunded` are
-  // the budgets page's subject; this panel answers one question — how is the
-  // budget going — and a reader who wants the breakdown follows the link in its
-  // header. `otherPeriodUnits` is dropped for the same reason: acting on it
-  // means changing the period unit, and that control lives over there.
+  // Some of what it carries is dropped here on purpose (§11.9), and `rows` is
+  // no longer among them. "How is the budget going" turned out to be two
+  // questions — how is it going, and where is it going wrong — and the second
+  // needs the categories, so a reader had to leave the page to learn which
+  // budget the period's red bar was about. The six with most of their money
+  // gone are shown per period; `groups`, `carriedIn`, `toAssign`, `perimeter`
+  // and `unfunded` are still the budgets page's subject, and the link in the
+  // header is what reaches them. `otherPeriodUnits` is dropped for the same
+  // reason: acting on it means changing the period unit, and that control
+  // lives over there.
   const budgets = useQuery({
     queryKey: ["budgets", "report", start, end],
     queryFn: () => api<BudgetReport>(`/api/v1/budget-report?${queryString({ start, end })}`),
@@ -267,37 +305,66 @@ export default function DashboardPage() {
                   the product does. Each row says which period it is, which also
                   answers the all-time case, where the range is empty and the
                   report falls back to the period today is in. */}
-              {budgets.isError ||
-              budgets.isPending ||
-              budgetPeriodsFor(currency.currency).length ? (
-                <section className="panel">
-                  <header className="panel-header">
-                    <h3>Budget</h3>
-                    <span>
-                      <Link to={{ pathname: "/budgets", search: location.search }}>
-                        See budgets
-                      </Link>
-                    </span>
-                  </header>
-                  {budgets.isError ? (
-                    <Alert kind="error">
-                      The budget figures could not be loaded, so this panel is empty for a reason
-                      that is not the ledger. {(budgets.error as Error).message}
-                    </Alert>
-                  ) : null}
-                  {budgets.isPending ? <Skeleton height={54} label="Loading budgets…" /> : null}
-                  {!budgets.isError &&
-                  !budgets.isPending &&
-                  budgetPeriodsFor(currency.currency).length === 0 ? (
-                    <p className="panel-empty">Nothing budgeted in this range.</p>
-                  ) : null}
-                  {budgetPeriodsFor(currency.currency).map((period) => {
-                    const state = periodState(period);
-                    return (
-                      <div
-                        className="spending-row"
-                        key={`${period.periodStart}:${period.currency}`}
-                      >
+              {/* Always rendered, which it was not.
+                  
+                  The panel used to be gated on
+                  `isError || isPending || periods.length`, while the empty
+                  state inside it was gated on the exact complement
+                  `!isError && !isPending && periods.length === 0` — so the
+                  message could never appear and the whole panel vanished
+                  instead. Somebody who budgets in another month, or in another
+                  currency, met a page with no budget section and nothing
+                  saying why, which reads as a feature that was never built.
+                  Section 12.1: a list says which kind of empty it is. */}
+              <section className="panel">
+                <header className="panel-header">
+                  <h3>Budget</h3>
+                  <span>
+                    <Link to={{ pathname: "/budgets", search: location.search }}>See budgets</Link>
+                  </span>
+                </header>
+                {budgets.isError ? (
+                  <Alert kind="error">
+                    The budget figures could not be loaded, so this panel is empty for a reason that
+                    is not the ledger. {(budgets.error as Error).message}
+                  </Alert>
+                ) : null}
+                {budgets.isPending ? <Skeleton height={54} label="Loading budgets…" /> : null}
+                {!budgets.isError &&
+                !budgets.isPending &&
+                budgetPeriodsFor(currency.currency).length === 0 ? (
+                  <p className="panel-empty">Nothing budgeted in this range.</p>
+                ) : null}
+                {budgetPeriodsFor(currency.currency).map((period, index, all) => {
+                  const state = periodState(period);
+                  // Only the period the range ends in is broken down. A range
+                  // of a year is twelve monthly periods, and six categories
+                  // under each would put seventy-two rows on a page whose job
+                  // is a glance — per currency. The newest is the one still
+                  // worth acting on; the ones before it are settled, and the
+                  // budgets page has them in full.
+                  const expanded = index === all.length - 1;
+                  // Only what has a budget. An unbudgeted category is spending
+                  // this panel has nothing to say about — "Spending by
+                  // category" above already reports it, and a row reading
+                  // "£100 of —" is a budget nobody set.
+                  const budgeted = expanded ? period.rows.filter((row) => row.limit !== null) : [];
+                  // Most of the money gone first, so the cap can never be what
+                  // hides the category in trouble. Ordering the report's own
+                  // way and then taking the first six would do exactly that.
+                  const ranked = [...budgeted].sort((a, b) => consumed(b) - consumed(a));
+                  const shown = ranked.slice(0, BUDGET_ROWS_SHOWN);
+                  const rest = ranked.slice(BUDGET_ROWS_SHOWN);
+                  // Ranked truncation still selects for trouble, so the line
+                  // that defers the rest says whether any of them is over
+                  // rather than leaving a reader to trust the ordering.
+                  const restOver = rest.filter((row) => rowState(row, period.partial) === "over");
+                  return (
+                    <div
+                      className="budget-period-group"
+                      key={`${period.periodStart}:${period.currency}`}
+                    >
+                      <div className="spending-row">
                         <div>
                           <span>
                             {periodName(budgets.data!.periodUnit, period.periodStart)}
@@ -332,10 +399,81 @@ export default function DashboardPage() {
                           <Badge tone={stateTone[state]}>{stateLabel[state]}</Badge>
                         </div>
                       </div>
-                    );
-                  })}
-                </section>
-              ) : null}
+                      {shown.map((row) => {
+                        // Each category judged by the same rule the budgets
+                        // page uses, from `budget-display.ts`, so the two
+                        // pages can never call one category over and fine.
+                        const rowIs = rowState(row, period.partial);
+                        // One denominator for the figure, the bar and the
+                        // badge. `remaining` is `available` minus what was
+                        // spent (`budgets.ts:1665`), so printing the bare
+                        // limit beside a bar drawn against `available` made a
+                        // category that carried money forward read "£245.00 of
+                        // £200.00" next to a bar under half full.
+                        const room = row.available ?? row.limit!;
+                        const spent = formatMoney(row.actual, currency.currency);
+                        const limit = formatMoney(room, currency.currency);
+                        return (
+                          <div className="spending-row budget-category-row" key={row.categoryId}>
+                            <div>
+                              {/* The range travels, so the category page opens
+                                  on the month the figure was read in. */}
+                              <Link
+                                to={{
+                                  pathname: `/categories/${row.categoryId}`,
+                                  search: location.search,
+                                }}
+                              >
+                                {row.category}
+                              </Link>
+                              <strong>
+                                {spent} of {limit}
+                              </strong>
+                            </div>
+                            <div className="budget-progress">
+                              <div
+                                className="budget-bar"
+                                data-state={rowIs}
+                                role="img"
+                                aria-label={`${row.category}: ${stateLabel[rowIs]}, ${spent} of ${limit}`}
+                              >
+                                <span
+                                  style={{
+                                    width: `${fillPercent(room, row.actual)}%`,
+                                  }}
+                                />
+                              </div>
+                              <Badge tone={stateTone[rowIs]}>{stateLabel[rowIs]}</Badge>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {rest.length > 0 ? (
+                        <Note>
+                          <Link to={{ pathname: "/budgets", search: location.search }}>
+                            {`And ${rest.length} more ${
+                              rest.length === 1 ? "category" : "categories"
+                            }${restOver.length > 0 ? `, ${restOver.length} over budget` : ""}`}
+                          </Link>
+                        </Note>
+                      ) : null}
+                    </div>
+                  );
+                })}
+                {/* The carry is folded at read time and the fold is bounded, so
+                    a report that hit the bound has to say so — `AGENTS.md`
+                    makes that an invariant, and every figure above counts a
+                    carry. Only when it was actually clipped: the budgets page
+                    names the date it folded from either way, because that page
+                    is the subject; here it would be a sentence about method
+                    under a panel somebody is glancing at. */}
+                {budgets.data?.rollover?.clipped ? (
+                  <Note>
+                    Carried-in figures start from {formatDate(budgets.data.rollover.from)}, which is
+                    as far back as this looks.
+                  </Note>
+                ) : null}
+              </section>
             </section>
           ))}
         </div>

@@ -3601,6 +3601,26 @@ polyline.chart-line {
 }
 .budget-form .field { margin-bottom: 0; }
 
+/* One period's categories, under the period's own line.
+
+   Indented rather than given a heading of their own: the panel is already
+   inside a currency section inside a page, and a fifth heading level to say
+   "these three rows belong to the line above" is more structure than the
+   relationship needs. The left rule carries it instead, and the last row in a
+   group keeps the separator the flat list would have given it. */
+.budget-period-group + .budget-period-group {
+  margin-top: 6px;
+}
+
+.budget-category-row {
+  padding-left: 14px;
+  border-left: 2px solid var(--line-soft);
+}
+
+.budget-period-group .spending-row:last-child {
+  border-bottom: 0;
+}
+
 .budget-progress {
   display: flex;
   align-items: center;
