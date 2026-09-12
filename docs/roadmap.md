@@ -211,7 +211,7 @@ Two decisions worth writing down rather than leaving implied:
 
 ## SB-018 — Reporting — **done**
 
-**Priority 180. Depends on SB-015. Built, unreleased, and needing no migration.**
+**Priority 180. Depends on SB-015. Shipped in 0.1.5, needing no migration.**
 
 Net worth over time, income against expense, and category trends across a range.
 
@@ -287,7 +287,8 @@ both were nearly free once the engine existed.
 **Priority 190. Depends on SB-018. Built, unreleased, and carrying migration
 0013.** The first of six. SB-025 to SB-029 are the other five and are all built,
 carrying migrations 0014 to 0019 between them, with 0020 adding the indexes the
-audit priced.
+audit priced. 0021 is not part of this arc: it indexes the idempotency keys a
+deployment may now prune.
 
 Every kind of budgeting, from one model. That sounds like scope and it is
 mostly arithmetic: of the sixteen rows in the table below, four need no storage
@@ -630,8 +631,8 @@ for the once-a-year case where the books and the statement have quietly drifted.
 
 ## SB-025 — Rollover and sinking funds — **done**
 
-**Priority 250. Depends on SB-019. Built, unreleased, and carrying migration
-0014.**
+**Priority 250. Depends on SB-019. Built, unreleased, and carrying migrations
+0014 and 0019.**
 
 Two columns on the plan and a fold at read time. Unspent money carries forward,
 overspending carries forward as a debt, and a cap stops either running away. A
@@ -685,8 +686,8 @@ is missing.
 
 ## SB-026 — Derived amounts — **done**
 
-**Priority 260. Depends on SB-019. Built, unreleased, and carrying migration
-0015.**
+**Priority 260. Depends on SB-019. Built, unreleased, and carrying migrations
+0015 and 0018.**
 
 A trailing average of what was actually spent, last period plus a percentage, a
 share of income, and a funding order for when there is not enough to go round.
