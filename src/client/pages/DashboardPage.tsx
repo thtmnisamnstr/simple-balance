@@ -30,7 +30,6 @@ import {
   isNegativeMoney,
   largestMoney,
   moneyRatioPercent,
-  moneyUnits,
 } from "../money.js";
 import { useDateRange } from "../date-range.js";
 import {
@@ -42,30 +41,6 @@ import {
   stateTone,
 } from "../budget-display.js";
 import { TransactionForm } from "../forms.js";
-
-/** How many categories of one period the overview shows before deferring. */
-const BUDGET_ROWS_SHOWN = 6;
-
-/**
- * How much of a category's money is gone, for ordering alone.
- *
- * Unclamped on purpose, which is why `fillPercent` is not reused: that one
- * stops at a hundred so a bar cannot run off its panel, and stopping there
- * would tie every category that is over its limit with every category that has
- * spent exactly all of it — collapsing the ordering at the top, which is the
- * end that matters. Against `available` rather than the bare limit, for the
- * same reason the bar is: a category that carried money forward has more to
- * spend than its limit says.
- */
-function consumed(row: BudgetReportRow) {
-  const cap = moneyUnits(row.available ?? row.limit ?? "0");
-  const spent = moneyUnits(row.actual);
-  if (spent === null || spent <= 0n) return 0;
-  // Spending against a limit of nothing is as over as it gets, and dividing by
-  // it is the other kind of wrong.
-  if (cap === null || cap <= 0n) return Number.MAX_SAFE_INTEGER;
-  return Number((spent * 10_000n) / cap);
-}
 
 export default function DashboardPage() {
   const { start, end } = useDateRange();
@@ -348,21 +323,24 @@ export default function DashboardPage() {
                   // worth acting on; the ones before it are settled, and the
                   // budgets page has them in full.
                   const expanded = index === all.length - 1;
-                  // Only what has a budget. An unbudgeted category is spending
-                  // this panel has nothing to say about — "Spending by
-                  // category" above already reports it, and a row reading
-                  // "£100 of —" is a budget nobody set.
-                  const budgeted = expanded ? period.rows.filter((row) => row.limit !== null) : [];
-                  // Most of the money gone first, so the cap can never be what
-                  // hides the category in trouble. Ordering the report's own
-                  // way and then taking the first six would do exactly that.
-                  const ranked = [...budgeted].sort((a, b) => consumed(b) - consumed(a));
-                  const shown = ranked.slice(0, BUDGET_ROWS_SHOWN);
-                  const rest = ranked.slice(BUDGET_ROWS_SHOWN);
-                  // Ranked truncation still selects for trouble, so the line
-                  // that defers the rest says whether any of them is over
-                  // rather than leaving a reader to trust the ordering.
-                  const restOver = rest.filter((row) => rowState(row, period.partial) === "over");
+                  // Everything with a budget, in the report's own order, and
+                  // nothing else. Spend is not the filter: a category budgeted
+                  // at two hundred and spent nothing on is the row this panel
+                  // exists to show, and an unbudgeted category is spending
+                  // "Spending by category" above already reports — a row
+                  // reading "£100.00 of —" is a budget nobody set.
+                  //
+                  // Uncapped, because a cap on a list somebody chose the length
+                  // of is a cap on their own budget: the budgets page shows all
+                  // of them and this is meant to be that section, filtered. The
+                  // length is bounded by the period instead — only the one the
+                  // range ends in is broken down.
+                  const budgetedGroups = expanded
+                    ? period.groups.filter((group) => group.limit !== null)
+                    : [];
+                  const budgetedRows = expanded
+                    ? period.rows.filter((row) => row.limit !== null)
+                    : [];
                   return (
                     <div
                       className="budget-period-group"
@@ -409,7 +387,58 @@ export default function DashboardPage() {
                           <Badge tone={stateTone[state]}>{stateLabel[state]}</Badge>
                         </div>
                       </div>
-                      {shown.map((row) => {
+                      {/* Groups first, as on the budgets page, and badged the
+                          same way. A group budgeted as the sum of its
+                          categories shows beside them rather than instead of
+                          them, so the badge is what says the two are not to be
+                          added — the same care the budgets page takes when it
+                          calls its own total "across the categories". */}
+                      {budgetedGroups.map((group) => {
+                        // Only these four decide a state, which is why the
+                        // whole group is not passed: a group's `source` can be
+                        // "sum", a value no category row ever carries.
+                        // `periodState` narrows the same way for the same
+                        // reason.
+                        const groupIs = rowState(
+                          {
+                            limit: group.limit,
+                            actual: group.actual,
+                            remaining: group.remaining,
+                            available: group.available,
+                          } as BudgetReportRow,
+                          period.partial,
+                        );
+                        const room = group.available ?? group.limit!;
+                        const spent = formatMoney(group.actual, currency.currency);
+                        const limit = formatMoney(room, currency.currency);
+                        return (
+                          <div className="spending-row budget-category-row" key={group.groupId}>
+                            <div>
+                              <span>
+                                {group.name}{" "}
+                                <Badge tone="neutral">
+                                  {group.policy === "sum_of_children" ? "Adds up" : "Own budget"}
+                                </Badge>
+                              </span>
+                              <strong>
+                                {spent} of {limit}
+                              </strong>
+                            </div>
+                            <div className="budget-progress">
+                              <div
+                                className="budget-bar"
+                                data-state={groupIs}
+                                role="img"
+                                aria-label={`${group.name}: ${stateLabel[groupIs]}, ${spent} of ${limit}`}
+                              >
+                                <span style={{ width: `${fillPercent(room, group.actual)}%` }} />
+                              </div>
+                              <Badge tone={stateTone[groupIs]}>{stateLabel[groupIs]}</Badge>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {budgetedRows.map((row) => {
                         // Each category judged by the same rule the budgets
                         // page uses, from `budget-display.ts`, so the two
                         // pages can never call one category over and fine.
@@ -458,15 +487,6 @@ export default function DashboardPage() {
                           </div>
                         );
                       })}
-                      {rest.length > 0 ? (
-                        <Note>
-                          <Link to={{ pathname: "/budgets", search: location.search }}>
-                            {`And ${rest.length} more ${
-                              rest.length === 1 ? "category" : "categories"
-                            }${restOver.length > 0 ? `, ${restOver.length} over budget` : ""}`}
-                          </Link>
-                        </Note>
-                      ) : null}
                     </div>
                   );
                 })}

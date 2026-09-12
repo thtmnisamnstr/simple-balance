@@ -852,8 +852,9 @@ uses them, and a client type barrel that is deliberate and stays.
 **Five pieces of copy no longer name a position the layout does not keep.** "The
 amount above, every period" described where the Amount field sits, and on a
 desktop it sits to the left — the form is a wrapping flex row, so "above" was
-only ever true once the row broke. It reads "The amount you type, every period"
-now, which is what the how-to has called it all along and is true at every width.
+only ever true once the row broke. It reads "The amount, every period" now,
+which says what the rule does — the amount does not change — and is true at
+every width.
 The duplicate review promised two records "side by side" in the two states where
 nothing is on screen at all, and the grid it meant collapses to one column below
 980px anyway. A budget alert said the projection failure meant "nothing below is
@@ -1001,6 +1002,29 @@ right.
 with every row's header cell so a screen reader announced "Row: Rent" — the
 table's own structure read out as though it were the data. It says Account,
 Category, Line or Movement now, depending on what the report actually lists.
+
+
+**The overview's budget panel now shows every budget, not the six most spent.**
+It ranked categories by how much of their money was gone and stopped at six,
+which put a budget nobody had spent against at the bottom of the list and then
+cut it — so the panel hid exactly the budgets that were going well. A budget is
+what somebody set, not what they spent, and a category budgeted at £500 with
+nothing against it yet is a row worth seeing. Groups that hold a budget appear
+too, badged the way the budgets page badges them so that a group and its own
+categories are not read as figures to add together. No cap: the list is as long
+as the budgets you set, which is what the budgets page shows and what this was
+meant to be a filtered view of.
+
+**A disabled button no longer distorts the bar it sits in.** In a selection bar
+the reason was laid out as a caption under one button, which made that button as
+wide as the sentence — "Commit selected" stretched to 470px while "Edit
+selected" beside it stayed normal, sat above the line its siblings were on, and
+on a narrower window pushed the duplicate checkbox onto a row of its own. The
+sentence takes a line of its own under the whole bar now. In a form the caption
+is still under the button, where the actions are the last thing on a stack.
+
+**"Amount decided by" reads "The amount, every period"** for the plain case,
+which says what the rule does rather than where the number came from.
 
 
 ## 0.1.5 - 2026-08-22

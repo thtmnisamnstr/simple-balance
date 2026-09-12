@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,945 lines of hand-written CSS in
+Query for server state, and 3,973 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -222,12 +222,12 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:866-875` for `.input` and at `styles.css:3302-3306` for
+`styles.css:867-876` for `.input` and at `styles.css:3358-3362` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
 `.commit-choice label` and `.report-tab` — along with `.button-secondary`
-(`styles.css:643`) and `.file-drop` (`styles.css:2377`), both of which rested on
+(`styles.css:643`) and `.file-drop` (`styles.css:2405`), both of which rested on
 the failing token and reached the compliant one only on hover. Both now hold it
 at rest, as `.input` already did; their hover states also shift `background`, so
 the hover affordance survives the change.
@@ -362,7 +362,7 @@ Name the productive set and the expressive set separately. The expressive set
 has two members and both are the `clamp()` expressions counted above:
 `clamp(28px, 3.2vw, 40px)` on `.page-header h1` (`styles.css:575`), which is the
 `<h1>` of every page, and `clamp(35px, 4vw, 52px)` on the sign-in shell
-(`styles.css:2771`). The page title is deliberately outside the productive ramp
+(`styles.css:2811`). The page title is deliberately outside the productive ramp
 because it is the one size that answers to the viewport rather than to the
 scale. Naming both is what stops a display size leaking into a page of
 accounts.
@@ -415,8 +415,8 @@ layer in the app are free to coincide, and that is the one exception it carries.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:3705`), 980px
-(`styles.css:3729`), 780px (`styles.css:3736`) and 560px (`styles.css:3815`).
+stylesheet in descending order: 1050px (`styles.css:3733`), 980px
+(`styles.css:3757`), 780px (`styles.css:3764`) and 560px (`styles.css:3843`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -689,7 +689,7 @@ moved to a new page brought a spacing opinion with it that nobody could see in
 the markup.
 
 **Flex rather than grid, and it is load-bearing rather than taste.**
-`.merge-panel` (`styles.css:2705`) is `position: sticky` and sits at page level
+`.merge-panel` (`styles.css:2733`) is `position: sticky` and sits at page level
 on Categories and Payees. A sticky *grid item* is bounded by its own grid area,
 which in a single-column grid is its own height, so it would stop following the
 list with nothing on screen to say why. A sticky *flex item* is bounded by the
@@ -1246,7 +1246,7 @@ both the header and the cell but applies tabular figures to the cell only; the
 stronger rule is this product's.
 
 Implemented: `className="align-right"` on a money cell is what turns on tabular
-figures, through `.data-table :is(th, td).align-right` at `styles.css:757-768`.
+figures, through `.data-table :is(th, td).align-right` at `styles.css:792-803`.
 
 **The sentence above was not true of the CSS, and now is.** The selector was
 `.data-table td.align-right`, so a `<th className="align-right">` — Reports and
@@ -1347,13 +1347,13 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | Selector | Line | Position |
 | --- | --- | --- |
 | `.sidebar` | `styles.css:359` | fixed |
-| `.row-menu-popover` | `styles.css:1657` | fixed |
-| `.modal` | `styles.css:2239` | fixed |
-| `.modal-header` | `styles.css:2272` | sticky |
-| `.import-preview` | `styles.css:2416` | sticky |
-| `.merge-panel` | `styles.css:2705` | sticky |
-| `.nav-scrim` | `styles.css:3757` | fixed |
-| `.mobile-header` | `styles.css:3767` | sticky |
+| `.row-menu-popover` | `styles.css:1685` | fixed |
+| `.modal` | `styles.css:2267` | fixed |
+| `.modal-header` | `styles.css:2300` | sticky |
+| `.import-preview` | `styles.css:2444` | sticky |
+| `.merge-panel` | `styles.css:2733` | sticky |
+| `.nav-scrim` | `styles.css:3785` | fixed |
+| `.mobile-header` | `styles.css:3795` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1456,7 +1456,7 @@ code path renders them.
 
 **Settled, with two named exceptions.** Calendar dates go through `formatDate`,
 including the two "As of" lines that printed raw ISO directly above formatted
-tables (`DashboardPage.tsx:160` and `ReportsPage.tsx:257` were the offenders).
+tables (`DashboardPage.tsx:183` and `ReportsPage.tsx:257` were the offenders).
 Instants go through `formatTimestamp(instant, timezone)`
 (`src/client/money.ts:333-348`), whose zone comes from `useTimezone()`: the
 activity log (`src/client/pages/ActivityPage.tsx:60`) and the connected-apps
@@ -1950,9 +1950,9 @@ The rules, in the order they matter:
 - **Binding, SC 1.4.11.** The fill is `--green-fill` on `--track`, measured in
   2.2, and the bar keeps the `--line-strong` edge 2.2 requires of a control.
 - **Three bars now, and a fourth has to say which of them it is not.**
-  `.progress-track` (`styles.css:1312`, `DashboardPage.tsx:287`) is a decorative
+  `.progress-track` (`styles.css:1340`, `DashboardPage.tsx:287`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3658`, `BudgetsPage.tsx:1168`) is money, with an
+  `.budget-bar` (`styles.css:3686`, `BudgetsPage.tsx:1168`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -1998,7 +1998,7 @@ were live SC 2.4.7 failures. `summary` is the `RowMenu` trigger
 got only `accent-color`; and `.file-drop`'s `<input>` is visually hidden, so
 tabbing to the CSV file picker showed nothing at all.
 
-One rule now covers the set (`styles.css:845-855`):
+One rule now covers the set (`styles.css:922-932`):
 `:is(button, a, summary, input, select, textarea, [tabindex]):focus-visible`
 plus `.file-drop:focus-within`, which is where the wrapper takes the indicator
 its hidden input cannot show. `.input:focus` stays as it is — a field's ring is
@@ -2089,7 +2089,7 @@ bounding box does not intersect another target's circle, the target passes.
 This is already solved, deliberately. `.icon-button` is 31 by 31
 (`styles.css:2255-2266`) with an `::after` at `inset: -7px` giving a 45px hit
 area without growing the row, and a comment saying why
-(`styles.css:2003-2007`). **That is the house answer for a dense-row control.**
+(`styles.css:2043-2047`). **That is the house answer for a dense-row control.**
 
 The spacing exception never has to be reached here. It applies only to targets
 under 24 by 24 CSS pixels, and `.icon-button` is 31 by 31, so it passes on size

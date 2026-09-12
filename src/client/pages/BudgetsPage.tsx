@@ -489,7 +489,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                   setRuleValue("");
                 }}
               >
-                <option value="fixed">The amount you type, every period</option>
+                <option value="fixed">The amount, every period</option>
                 <option value="average">What the last few periods spent</option>
                 <option value="step">The last period, plus a percentage</option>
                 <option value="income">A share of the income before it</option>

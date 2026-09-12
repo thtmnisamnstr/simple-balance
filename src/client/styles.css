@@ -670,6 +670,34 @@ a {
   text-align: center;
 }
 
+/* In a wrapping toolbar the reason is a line of its own, not a caption under
+   one button.
+
+   The column above is right in a form, where the actions are the last thing on
+   a stack. In a selection bar it is wrong twice over: the wrapper is
+   `inline-flex`, so it takes the width of its widest child — "Some selected
+   rows look like duplicates. Tick the box to commit them anyway." is 470px —
+   and `align-items: stretch` then pulls the button out to match, while the
+   two-line box sitting in an `align-items: center` row lifts that button off
+   the line its siblings are on. On a narrower window the extra width also
+   pushed the duplicate checkbox onto a row of its own.
+
+   `display: contents` puts the button back in the row at its own size, and
+   `order` with a full basis drops the sentence to its own line beneath the
+   whole bar rather than splitting it after the button it belongs to. */
+:is(.bulk-actions, .transaction-selection-bar) .button-with-reason:has(> .button-reason) {
+  display: contents;
+}
+
+:is(.bulk-actions, .transaction-selection-bar) .button-reason {
+  order: 1;
+  flex-basis: 100%;
+  /* Right, like the bar it explains. These bars carry `justify-content:
+     flex-end`, so a left-aligned sentence under a right-aligned row of buttons
+     reads as a note about the panel rather than about the button. */
+  text-align: right;
+}
+
 .button-secondary {
   border-color: var(--line-strong);
   color: var(--ink-soft);

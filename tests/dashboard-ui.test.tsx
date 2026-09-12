@@ -145,6 +145,44 @@ const twoPeriods: BudgetReport = {
   ],
 };
 
+/**
+ * A budget nobody has spent against, and a group holding its own budget.
+ *
+ * The case the panel exists for and used to hide: `Rent` is budgeted at 500
+ * with nothing spent, so it ranks last by how much of its money is gone and a
+ * cap of six buried it. There is no cap now — the list is as long as the
+ * budgets somebody set.
+ */
+const unspent: BudgetReport = {
+  ...report,
+  periods: [
+    {
+      ...report.periods[0]!,
+      groups: [
+        {
+          groupId: "aaaaaaaa-1111-4111-8111-111111111111",
+          name: "Fixed costs",
+          policy: "standalone",
+          limit: "800",
+          actual: "500",
+          remaining: "300",
+          source: "plan",
+          carriedIn: null,
+          available: "800",
+          carriedOut: null,
+          priority: 0,
+          funded: null,
+        },
+      ],
+      rows: [
+        { ...report.periods[0]!.rows[0]! },
+        { ...report.periods[0]!.rows[1]!, actual: "0", remaining: "500" },
+        report.periods[0]!.rows[2]!,
+      ],
+    },
+  ],
+};
+
 /** The same range, with every limit gone: spending, and nothing budgeted. */
 const nothingBudgeted: BudgetReport = {
   ...report,
@@ -255,6 +293,34 @@ describe("the Overview's budget panel", () => {
     expect(within(panel).getByRole("link", { name: "Rent" })).toBeInTheDocument();
     // Spent against the limit, both formatted as money.
     expect(within(panel).getByText(/£245\.00 of £200\.00/)).toBeInTheDocument();
+  });
+
+  it("shows a budget with nothing spent against it", async () => {
+    // The panel is about budgets, not about spending: a category budgeted at
+    // 500 and spent nothing on is exactly the row somebody opens this to see.
+    stub(unspent);
+    renderOverview();
+    const panel = await budgetPanel();
+    await within(panel).findByRole("link", { name: "Rent" });
+    expect(within(panel).getByText(/£0\.00 of £500\.00/)).toBeInTheDocument();
+  });
+
+  it("shows a group that holds a budget, badged for how it is budgeted", async () => {
+    stub(unspent);
+    renderOverview();
+    const panel = await budgetPanel();
+    expect(await within(panel).findByText("Fixed costs")).toBeInTheDocument();
+    // The badge is what says a group and its categories are not to be added.
+    expect(within(panel).getByText("Own budget")).toBeInTheDocument();
+    expect(within(panel).getByText(/£500\.00 of £800\.00/)).toBeInTheDocument();
+  });
+
+  it("caps nothing: every budget somebody set is shown", async () => {
+    stub(unspent);
+    renderOverview();
+    const panel = await budgetPanel();
+    await within(panel).findByRole("link", { name: "Rent" });
+    expect(within(panel).queryByText(/more categor/i)).not.toBeInTheDocument();
   });
 
   it("leaves out a category nobody budgeted", async () => {
