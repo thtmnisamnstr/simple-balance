@@ -30,7 +30,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 # The release workflow passes the tag being published so the image reports the
 # version it actually contains.
-ARG APP_VERSION=0.1.5
+ARG APP_VERSION=0.1.6
 # `created` and `revision` are deliberately absent. A Dockerfile cannot emit a
 # label conditionally, so a defaulted ARG would give every hand-built image
 # `org.opencontainers.image.revision=""`, which reads to a consumer as known and

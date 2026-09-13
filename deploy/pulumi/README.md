@@ -30,9 +30,9 @@ putting the credentials in a Secret, and installing the chart.
   build them:
 
   ```
-  ghcr.io/thtmnisamnstr/simple-balance-server:0.1.5
-  ghcr.io/thtmnisamnstr/simple-balance-frontend:0.1.5
-  ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.1.5
+  ghcr.io/thtmnisamnstr/simple-balance-server:0.1.6
+  ghcr.io/thtmnisamnstr/simple-balance-frontend:0.1.6
+  ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.1.6
   ```
 
   Point `simple-balance:imageRepositoryPrefix` somewhere else only when you are

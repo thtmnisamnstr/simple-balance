@@ -3,6 +3,14 @@
 Everything persistent is in PostgreSQL. The container holds nothing you need to
 keep, so upgrading is swapping it for a newer one.
 
+## Before you upgrade to 0.1.7
+
+Nothing has landed for 0.1.7 yet, so there is nothing here to do. This heading
+exists because the suite asks for it: a note written as the work lands says what
+actually changed, and one written while a release is being cut says whatever the
+person cutting it can remember. An empty note and a missing one look identical
+from the outside, so the empty one is written down.
+
 ## Before you upgrade to 0.1.6
 
 Nothing refuses to start that 0.1.5 accepted, and nothing about an existing

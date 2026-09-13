@@ -205,9 +205,9 @@
   `0014_budget_rollover_and_targets.sql`, `0015_budget_amount_rules.sql`,
   `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
-  `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` are written
-  and unreleased, so they are the ones here that may still be regenerated; they
-  freeze when they ship. `0016` is the
+  `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
+  Nothing is unreleased: every migration on disk has shipped, so every one of
+  them is frozen and the next schema change starts at `0022`. `0016` is the
   one exception to the composite-key habit and says why in the schema: a
   category's group is a single-column reference, because `on delete set null`
   nulls every column of the constraint it is on and the tenant is not nullable.

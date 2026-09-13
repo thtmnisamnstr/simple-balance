@@ -22,7 +22,7 @@ COPY src ./src
 RUN npm run build:client
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6 AS runtime
-ARG APP_VERSION=0.1.5
+ARG APP_VERSION=0.1.6
 # `created` and `revision` are deliberately absent. A Dockerfile cannot emit a
 # label conditionally, so a defaulted ARG would give every hand-built image
 # `org.opencontainers.image.revision=""`, which reads to a consumer as known and

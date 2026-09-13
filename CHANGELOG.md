@@ -2,7 +2,7 @@
 
 Notable changes, newest first.
 
-## Unreleased
+## 0.1.6 - 2026-09-12
 
 **This release upgrades cleanly from 0.1.5.** A deployment starts on the
 configuration it already has, every path that answered still answers, and no
