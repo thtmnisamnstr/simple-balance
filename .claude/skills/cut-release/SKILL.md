@@ -192,8 +192,23 @@ Wait for CI green before step 8.
 ## 8. Publish — the irreversible step
 
 ```sh
-gh release create vX.Y.Z --title "X.Y.Z" --notes "<the changelog section>"
+# The title carries the v. Every release here is named exactly as it is tagged.
+gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <the changelog section>
 ```
+
+**The name and the tag are the same string, `v` included.** This line said
+`--title "X.Y.Z"` and produced the one release out of seven named differently
+from its tag — a thing nothing checks, because the gates read the tag and never
+look at the name. Check it before and after:
+
+```sh
+gh api repos/OWNER/REPO/releases --jq '.[] | "name=\(.name) tag=\(.tag_name)"'
+```
+
+The notes are the changelog section for this version, whole. Previous releases
+carry the entire section — v0.1.5 is 33,000 characters — so extract it between
+its own heading and the one below it and pass it with `--notes-file` rather than
+inline.
 
 Confirm with the user immediately before this. Everything up to here can be
 undone with a revert; a published image and a moved `latest` tag cannot.
