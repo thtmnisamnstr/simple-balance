@@ -16,6 +16,13 @@ from the outside, so the empty one is written down.
 Nothing refuses to start that 0.1.5 accepted, and nothing about an existing
 configuration has to change. Five things are worth knowing.
 
+**It closes twenty-seven dependency advisories**, eleven of them rated high, in
+`fast-uri`, `js-yaml`, `nodemailer`, `hono` and `qs`. Nothing about this needs
+an action from you — they ship inside the image — but it is the strongest reason
+to take this release rather than stay where you are. The Node base image moves
+to the current `24-alpine` build for the same reason; the major stays at 24, so
+nothing about the runtime changes under you.
+
 **Nine migrations run at startup, and none rewrites a row.** They create the
 budget tables, the category-group table and the types they use; they add
 columns to `budget_plan`, `budget_entry`, `category` and `ledger_account` —

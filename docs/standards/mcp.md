@@ -395,9 +395,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   "MUST NOT automatically dereference `$ref` values that resolve to a network
   URI" and SHOULD bound schema depth and subschema count as a denial-of-service
   defence, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
-  and a thing clients are told to refuse. Measured: 598 `anyOf` and 7 `oneOf`
-  across the surface. 513 of the 598 are two-member nullable pairs, 147 of them
-  on inputs; 153 of all the `anyOf` are on inputs and 445 on outputs. The 7
+  and a thing clients are told to refuse. Measured: 431 `anyOf` and 7 `oneOf`
+  across the surface. 346 of the 431 are two-member nullable pairs, 143 of them
+  on inputs; 149 of all the `anyOf` are on inputs and 282 on outputs. The 7
   `oneOf` are all on inputs and are the boolean-or-string-literal coercion. So the composition is
   shallow rather than deep, which is the property the bound is about, and it is
   overwhelmingly nullability rather than genuine union.
@@ -424,14 +424,14 @@ them still answer to their date.
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 37 | 168,380 | ~42,000 |
-| `ledger:stage` | 42 | 205,066 | ~51,000 |
-| `ledger:write` | 76 | 473,528 | ~118,000 |
+| `ledger:read` | 37 | 166,461 | ~42,000 |
+| `ledger:stage` | 42 | 203,109 | ~51,000 |
+| `ledger:write` | 76 | 470,355 | ~118,000 |
 
 Composition at the write tier: names 1,448, titles 1,851, descriptions 26,596,
-input schemas 207,153, output schemas 220,123. **Descriptions are 5.6% of what
-an agent loads; names, titles and descriptions together are 6.3%.** Output
-schemas are 46.5%.
+input schemas 207,077, output schemas 217,026. **Descriptions are 5.7% of what
+an agent loads; names, titles and descriptions together are 6.4%.** Output
+schemas are 46.1%.
 
 The rises were bought on purpose: describing the output fields whose names
 mislead, publishing the error-code enum at 150 characters a tool and 11,400 in

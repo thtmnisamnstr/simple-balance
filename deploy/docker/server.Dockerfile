@@ -16,7 +16,7 @@
 # whatever Alpine has published since. The digest is the multi-platform index's
 # rather than one architecture's manifest, so an arm64 build still resolves its
 # own image.
-FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS dependencies
+FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -26,12 +26,12 @@ COPY tsconfig.json tsconfig.server.json ./
 COPY src ./src
 RUN npm run build:server
 
-FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS runtime-dependencies
+FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS runtime-dependencies
 WORKDIR /runtime
 COPY runtime/package.json runtime/package-lock.json ./
 RUN npm ci --omit=dev
 
-FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS runtime
+FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS runtime
 RUN apk upgrade --no-cache
 WORKDIR /app
 ENV NODE_ENV=production
@@ -50,7 +50,7 @@ LABEL org.opencontainers.image.title="Simple Balance API" \
   org.opencontainers.image.url="https://github.com/thtmnisamnstr/simple-balance" \
   org.opencontainers.image.documentation="https://github.com/thtmnisamnstr/simple-balance#readme" \
   org.opencontainers.image.base.name="node:24-alpine" \
-  org.opencontainers.image.base.digest="sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43"
+  org.opencontainers.image.base.digest="sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81"
 COPY --from=runtime-dependencies --chown=node:node /runtime/package.json ./package.json
 COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist/server ./dist/server

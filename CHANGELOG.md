@@ -11,6 +11,14 @@ and were reverted to warnings, kept precedences and deprecated aliases;
 `AGENTS.md` now carries the rule so the next release does not have to
 rediscover it.
 
+**Twenty-seven security advisories are closed by this release** — eleven rated
+high, sixteen medium — across `fast-uri`, `js-yaml`, `nodemailer`, `hono` and
+`qs`. Every one of them is a dependency this project pulls in rather than code
+it wrote, and every one is now at or past the version that patches it. The
+container's Node base image also moves to the current 24-alpine build, which
+carries the Alpine and Node patches released since the digest this project had
+pinned.
+
 One change is a judgement call rather than a clean pass, and it is named here
 rather than left to be discovered. Every MCP tool now declares a closed argument
 object, where 57 of the 71 were open. An agent sending an argument nobody
