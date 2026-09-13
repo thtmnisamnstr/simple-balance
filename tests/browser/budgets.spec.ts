@@ -411,6 +411,13 @@ test.describe("the budgets page in a browser", () => {
 
   test("keyboard reaches the whole page", async () => {
     await page.goto("/budgets");
+    // Wait for the form to be there before tabbing into it. `goto` resolves on
+    // load, and the controls this walks are rendered after the queries answer —
+    // so on a slow runner the walk started against a shorter tab order and
+    // never reached the submit. It failed exactly once, on the release
+    // workflow, ten minutes after passing on the pull request with the same
+    // application code, which is what a race looks like from outside.
+    await expect(page.getByRole("button", { name: "Set budget" })).toBeVisible();
     const reached: string[] = [];
     for (let step = 0; step < 40; step += 1) {
       await page.keyboard.press("Tab");
