@@ -36,6 +36,74 @@ Require: a clean tree, every check green, and `release-prep` already run. If it
 has not been, run it first. Cutting on top of an unprepped branch is how a
 release ships with a stale count or an unwritten upgrade note.
 
+## 1a. Settle the open dependency pull requests
+
+A release is the wrong moment to discover that every open dependabot pull
+request is a security fix. Do this before choosing a number, because what you
+find can change what ships.
+
+```sh
+gh pr list --state open --json number,title,author -q '.[] | "#\(.number) [\(.author.login)] \(.title)"'
+gh api repos/OWNER/REPO/dependabot/alerts --paginate --jq '
+  [.[]|select(.state=="open")]
+  | map({p:.dependency.package.name, sev:.security_advisory.severity,
+         fix:.security_vulnerability.first_patched_version.identifier})
+  | group_by(.p+.fix) | map(.[0] + {n: length})
+  | .[] | "\(.sev) \(.p) -> fixed \(.fix) (\(.n) alerts)"' | sort -u
+```
+
+**Read the alerts, not the labels.** Dependabot labels a version bump
+`dependencies` whether or not it closes an advisory, so the labels say nothing
+about urgency. Cross the alert list against the open pull requests: on the
+release this step was written for, all twenty-seven open alerts — eleven high —
+were exactly the packages the pull requests bumped, and none carried a
+`security` label. Publishing without them would have shipped known
+vulnerabilities.
+
+**A red dependabot pull request is a finding, not a nuisance.** Open the failing
+log before dismissing it. Two causes recur here:
+
+- **The mirrored manifests.** `tests/dockerfile.test.ts` requires
+  `runtime/package.json` to hold exactly the root's non-browser dependencies and
+  both lockfiles to resolve every shared package to the same version. Dependabot
+  opens one pull request per directory, so each half is red until the other
+  lands. **Do not merge them one at a time** — every intermediate state leaves
+  the default branch red. Apply both halves as one change.
+- **A pinned digest and its label.** Dependabot rewrites a `FROM` line and
+  leaves the `org.opencontainers.image.base.name` label beside it naming the old
+  tag, which the same test catches.
+
+**A transitive package moves with `npm update`, not by editing a manifest.**
+`qs` and `fast-uri` sit under `express`/`body-parser` and `ajv`, so
+`npm update <pkg> --package-lock-only` in each directory is what moves them.
+
+**Judge a base-image bump on its own.** Dependabot offers the newest tag, which
+may be a major. Ask whether CI exercises it — the verify matrix pins its own Node
+versions — and whether an advisory is actually behind it. The security half is
+usually available without the major: query the registry for the current digest
+of the tag you are already on.
+
+```sh
+TOKEN=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/node:pull" | jq -r .token)
+curl -s -H "Authorization: Bearer ${TOKEN}" \
+  -H "Accept: application/vnd.oci.image.index.v1+json" \
+  -D- -o /dev/null "https://registry-1.docker.io/v2/library/node/manifests/24-alpine" |
+  grep -i '^docker-content-digest'
+```
+
+Then land the lot as **one** change through a pull request so CI judges the
+combination, close the superseded ones with the reason, and re-run all three
+tiers plus a `docker build` locally. Two things that bit here and will bite
+again: taking a manifest from a pull request branch cut before the release
+commit silently reverts the version, so run `set-version` again afterwards and
+let `tests/version.test.ts` confirm; and a dependency bump moves the numbers the
+guides quote — zod changed how it emits nullable schemas and a third of the MCP
+surface's `anyOf` composition disappeared, so recount before committing.
+
+If a red pull request turns out to be a genuine incompatibility rather than
+either of the above, that is a reason to delay the release, not to skip the
+update.
+
 ## 2. Choose the number
 
 Semantic Versioning 2.0.0, per `docs/standards/writing.md` §Versioning. This
