@@ -250,7 +250,7 @@ Then four parts, in this order:
 in a specification or in `AGENTS.md` asks for one; a past failure does. The best
 example in the repository: the 0.1.5 note promises the theme column is a
 constant default and therefore rewrites no table, and
-`tests/migrations.test.ts:264` is called "adds the theme without rewriting a
+`tests/migrations.test.ts:318` is called "adds the theme without rewriting a
 row". Six tests in that file make a claim of that kind, covering migrations
 0005 through 0011. A note that makes a promise about somebody's data
 and has no test behind it has been wrong before: the 0.1.5 contrast note quoted

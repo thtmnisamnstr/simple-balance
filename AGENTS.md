@@ -93,7 +93,12 @@
   `on delete cascade`, because deleting an account is one delete of that row and
   nothing enumerates tables. Add the cascade with the table; without it the
   deletion fails rather than silently leaving data, which is the right failure
-  but still a bug.
+  but still a bug. `billing_webhook_event` is the one table that carries no
+  `user_id` and cascades from nobody, and it is not an exception to this rule
+  but a case outside it: it records which deliveries Stripe has already been
+  answered for, which is the deployment's fact rather than any person's. Letting
+  it cascade would drop that record with the account and let Stripe's next retry
+  — it retries for up to 72 hours — be handled a second time as new.
 - The MCP surface has feature parity with the web app, and `tests/mcp-parity.test.ts`
   compares them route by route. A new `/api/v1` route needs a tool in the same
   change, or a named exception carrying its reason. It runs the other way too:
@@ -104,9 +109,16 @@
   defect one level down, and it is invisible to a comparison of route lists.
   `categoryKind` was exactly that for a while — documented for the MCP, absent
   from the form, so the browser silently filed refunds as income.
-- Two exceptions, both account management rather than bookkeeping: deleting an
-  account and setting a sign-in password are reachable from a session and never
-  from an MCP token.
+- Three exceptions, all account management rather than bookkeeping: deleting an
+  account, setting a sign-in password, and the billing routes are reachable from
+  a session and never from an MCP token. Billing is the one that has to be
+  argued rather than asserted, because a plan does bear on what an agent can do.
+  Starting, switching or stopping a paid subscription spends somebody's money,
+  and an MCP token is a credential handed to a program — a different class of
+  authority from writing a transaction, and one no amount of scope makes
+  equivalent. What an agent needs in order to explain a refusal it meets is the
+  plan, its ceiling and how much of it is used, and `whoami` carries all three.
+  That is parity on the thing the agent is affected by; the purchase is not.
 - A tool whose result does not satisfy its declared output schema fails the
   call with an `Output validation error` naming the offending path, so a wrong
   schema breaks the tool rather than trimming its reply. Exercise new tools over
@@ -206,8 +218,11 @@
   `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
-  Nothing is unreleased: every migration on disk has shipped, so every one of
-  them is frozen and the next schema change starts at `0022`. `0016` is the
+  `0022_plans_and_billing.sql` is on disk and **unreleased**, so it is the one
+  migration here that may still be regenerated: nobody has run it yet. It
+  freezes when 0.2.0 ships, and until then the rule to keep is that everything
+  through `0021` is somebody else's history and `0022` is still ours. The next
+  schema change after it starts at `0023`. `0016` is the
   one exception to the composite-key habit and says why in the schema: a
   category's group is a single-column reference, because `on delete set null`
   nulls every column of the constraint it is on and the tenant is not nullable.
@@ -255,7 +270,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 20.1% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 22.4% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelised.** Legs resolve one at a time so two

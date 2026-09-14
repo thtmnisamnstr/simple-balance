@@ -3219,3 +3219,341 @@ export const recurrenceUpdateSchema = z
     expectedVersion: expectedVersionSchema,
   })
   .strict();
+
+/**
+ * The two plans, when a deployment sells anything at all.
+ *
+ * Ours rather than Stripe's, which is why this is a closed tuple and the
+ * subscription status beside it in the schema is not: Stripe may add a status
+ * next year and this product may not add a plan without saying so here.
+ */
+export const plans = ["free", "plus"] as const;
+export type Plan = (typeof plans)[number];
+
+/**
+ * How many financial accounts a free plan keeps.
+ *
+ * Counter-accounts the ledger owns are never counted, because a person did not
+ * make them and a second currency should not cost somebody a slot. Archived
+ * accounts are counted, and that is the deliberate half: the alternative is a
+ * quota that resets by archiving and restoring, which is a limit that only
+ * binds people who have not noticed.
+ */
+export const MAX_FREE_ACCOUNTS = 3;
+
+/**
+ * What a person may do, worked out in one place.
+ *
+ * A discriminated union rather than a plan with a nullable limit beside it,
+ * because "this deployment sells nothing" and "this person is on the paid plan"
+ * are different facts that happen to permit the same things today. Collapsing
+ * them would make the browser render a plan tab for a deployment that has no
+ * plan, and would make every later question — which upgrade to offer, what to
+ * say when a limit is hit — start by re-deriving the distinction.
+ *
+ * This lives in `src/shared` because the browser previews the limit and the
+ * server enforces it, and `docs/standards/code/errors.md` 4 asks that both read
+ * the same function rather than two implementations that agree until they do
+ * not.
+ */
+export type Entitlement =
+  | { readonly billing: false }
+  | {
+      readonly billing: true;
+      readonly plan: Plan;
+      /** Null means unlimited, which is what the paid plan buys. */
+      readonly accountLimit: number | null;
+      readonly source: "override" | "subscription" | "free";
+    };
+
+/**
+ * Which Stripe subscription statuses entitle somebody to the paid plan.
+ *
+ * `trialing` is here deliberately. No trial is sold, so the only way one exists
+ * is that an operator made it in Stripe's dashboard — and refusing to honour a
+ * trial somebody deliberately granted would be this product overruling its own
+ * operator. Everything absent from this set, including a status Stripe adds
+ * after this was written, falls to the free plan: nobody loses an account they
+ * already have, and the worst case is that somebody cannot add a fourth until
+ * an operator looks.
+ */
+const entitlingStatuses = new Set(["active", "trialing"]);
+
+/**
+ * How long a failed renewal keeps the paid plan, counted from the failure.
+ *
+ * Stripe retries a declined card over several days, so cutting access off at
+ * the first failure would punish somebody whose card is about to succeed. Seven
+ * days outlasts the retry schedule.
+ */
+const BILLING_GRACE_DAYS = 7;
+
+/** What one person's plan and limits are, given what is known about them. */
+export function resolveEntitlement(input: {
+  /** False when the deployment sells nothing, which is the default. */
+  readonly billingEnabled: boolean;
+  readonly override?: { readonly plan: Plan; readonly expiresAt: Date | null } | undefined;
+  /**
+   * Every subscription row this person has, not the newest one.
+   *
+   * Somebody who cancelled and resubscribed has two, and Stripe guarantees no
+   * ordering between the deliveries that wrote them — so choosing by which was
+   * read most recently lets a late-arriving cancellation outrank the live
+   * subscription beside it. What decides the plan is whether *any* of them
+   * entitles, which does not depend on arrival order at all.
+   */
+  readonly subscriptions?: readonly {
+    readonly status: string;
+    readonly pastDueSince: Date | null;
+  }[];
+  readonly now: Date;
+}): Entitlement {
+  if (!input.billingEnabled) return { billing: false };
+
+  const paid = (source: "override" | "subscription") =>
+    ({ billing: true, plan: "plus", accountLimit: null, source }) as const;
+  const free = (source: "override" | "subscription" | "free") =>
+    ({ billing: true, plan: "free", accountLimit: MAX_FREE_ACCOUNTS, source }) as const;
+
+  // An operator's decision outranks Stripe's, and an expiry is what makes that
+  // safe to hand out: a support grant that never ends is a discount nobody
+  // remembers giving.
+  const { override } = input;
+  if (override && (override.expiresAt === null || override.expiresAt > input.now)) {
+    return override.plan === "plus" ? paid("override") : free("override");
+  }
+
+  const subscriptions = input.subscriptions ?? [];
+  if (subscriptions.length === 0) return free("free");
+  if (subscriptions.some((s) => entitlingStatuses.has(s.status))) return paid("subscription");
+  // Only `past_due` gets the grace, and only from the moment the renewal
+  // actually failed. A subscription Stripe has given up on — canceled, unpaid,
+  // or one that never completed its first payment — is not a renewal in
+  // progress, and treating it as one would hand a free week to anybody who lets
+  // a subscription lapse. A `past_due` row with no recorded failure time gets
+  // no grace rather than an unbounded one.
+  const inGrace = subscriptions.some((s) => {
+    if (s.status !== "past_due" || !s.pastDueSince) return false;
+    const graceEnds = new Date(s.pastDueSince);
+    graceEnds.setUTCDate(graceEnds.getUTCDate() + BILLING_GRACE_DAYS);
+    return graceEnds > input.now;
+  });
+  return inGrace ? paid("subscription") : free("subscription");
+}
+
+/**
+ * Whether this person may make another financial account.
+ *
+ * Returns the sentence rather than throwing it, so the browser can put the same
+ * words on a disabled button that the server would put on a refusal — the rule
+ * `docs/standards/code/errors.md` 4 states: if the browser can tell in advance
+ * it must, and the sentence must be the same one.
+ *
+ * The message names upgrading and nothing else on purpose. Archiving does not
+ * free a slot under this counting policy, and deleting is refused for any
+ * account that has ever been used, so offering either would be offering a move
+ * that does not work.
+ */
+export function accountAllowance(
+  entitlement: Entitlement,
+  current: number,
+):
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly message: string;
+      readonly limit: number;
+      readonly current: number;
+    } {
+  if (!entitlement.billing || entitlement.accountLimit === null) return { ok: true };
+  const limit = entitlement.accountLimit;
+  if (current < limit) return { ok: true };
+  return {
+    ok: false,
+    limit,
+    current,
+    message:
+      `A free plan keeps ${limit} accounts, and this one has ${current}. ` +
+      "Upgrade under Settings to add more.",
+  };
+}
+
+/**
+ * Where a billing operation got to, so an ambiguous answer is recoverable.
+ *
+ * `pending` is the state that earns the table: it is written *before* Stripe is
+ * called, so a request that times out mid-flight leaves a row saying which key
+ * was already spent. Without it a retry would mint a second key and a second
+ * charge.
+ */
+export const billingOperationStates = ["pending", "succeeded", "failed"] as const;
+
+/**
+ * The two billing periods this product sells.
+ *
+ * Named rather than carrying a price id, because a price id is a deployment's
+ * configuration and a request that named one would let a caller ask to be put
+ * on a price this deployment does not sell. The server maps the word to the id.
+ */
+const billingIntervals = ["monthly", "yearly"] as const;
+export type BillingInterval = (typeof billingIntervals)[number];
+
+const billingIntervalSchema = z
+  .enum(billingIntervals)
+  .describe("Billing period: monthly or yearly.");
+
+export const subscriptionPutSchema = z.object({
+  interval: billingIntervalSchema,
+  idempotencyKey: idempotencyKeySchema,
+});
+
+export const cancellationPutSchema = z.object({
+  cancelAtPeriodEnd: z
+    .boolean()
+    .describe(
+      "True to stop the subscription when the paid period ends, false to keep it running. Never cancels immediately: the period has been paid for.",
+    ),
+  idempotencyKey: idempotencyKeySchema,
+});
+
+export const paymentSetupCreateSchema = z.object({
+  idempotencyKey: idempotencyKeySchema,
+});
+
+/**
+ * Telling the server that a card was saved, so it can be the one billed.
+ *
+ * The id is all the browser may say. Confirming a SetupIntent attaches a card
+ * to the customer and nothing more, so the server reads the intent back from
+ * Stripe, checks it belongs to the person asking, and pins the card itself.
+ */
+export const paymentSetupConfirmSchema = z.object({
+  setupIntentId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(255)
+    .describe("The id of a SetupIntent this account confirmed in the browser."),
+  idempotencyKey: idempotencyKeySchema,
+});
+
+/**
+ * Which interval a price id is, as far as this deployment is concerned.
+ *
+ * Shared because the browser needs it to say "switches to monthly on the 14th"
+ * about a price it only knows by id, and the server needs it to decide whether
+ * a requested switch is an upgrade or a downgrade. One function, so the two
+ * cannot disagree about what somebody is on.
+ */
+export function intervalOfPrice(
+  priceId: string | null,
+  prices: { readonly monthlyPriceId: string; readonly yearlyPriceId: string },
+): BillingInterval | null {
+  if (priceId === prices.monthlyPriceId) return "monthly";
+  if (priceId === prices.yearlyPriceId) return "yearly";
+  return null;
+}
+
+/**
+ * Stripe statuses that mean there is an invoice waiting to be paid.
+ *
+ * `incomplete` is a first payment that was never finished — Stripe holds the
+ * subscription for 23 hours — `unpaid` is one whose retries have run out, and
+ * `past_due` is one still being retried. All three leave an open invoice, which
+ * is why all three have somewhere to go rather than being dead ends.
+ */
+export const owesPaymentStatuses = ["incomplete", "unpaid", "past_due"] as const;
+
+/**
+ * Stripe statuses that mean a subscription is somebody's current one.
+ *
+ * `canceled` and `incomplete_expired` are history: Stripe keeps the object
+ * forever, so anybody who resubscribes has both.
+ */
+export const liveSubscriptionStatuses = [
+  "active",
+  "trialing",
+  "past_due",
+  "incomplete",
+  "unpaid",
+  "paused",
+] as const;
+
+/** What a request to be on a given plan means, given what somebody is on now. */
+export type SubscriptionAction =
+  /** No subscription at all: make one. */
+  | { readonly kind: "create" }
+  /** Owes money on the interval they asked for: hand back the open invoice. */
+  | { readonly kind: "resume" }
+  /** Never paid for one interval and now wants the other: abandon and remake. */
+  | { readonly kind: "replace" }
+  /** Already true. Nothing is sent to Stripe. */
+  | { readonly kind: "none" }
+  /** Abandon a change that was scheduled, keeping what they are on. */
+  | { readonly kind: "release" }
+  /** Monthly to annual, now, charging the difference. */
+  | { readonly kind: "upgrade" }
+  /** Anything else, at the renewal. */
+  | { readonly kind: "schedule" };
+
+/**
+ * Which of the seven things a request to change plan actually means.
+ *
+ * Pure, shared, and separated from the service for the reason `AGENTS.md` gives
+ * about `resolveEntrySide`: the browser previews this — which button is
+ * disabled, whether the note about a scheduled switch applies, whether there is
+ * a payment to finish — and the server enforces it. Two copies would eventually
+ * disagree, and the way that shows up is a person pressing a button that says
+ * one price and being charged another.
+ *
+ * The order of the checks is the whole of it, and three of them are load-bearing:
+ *
+ *  - Owing money is asked *before* anything about intervals, but only for the
+ *    interval they are already on. The open invoice belongs to the stored
+ *    subscription, so handing it back for a different interval charges the price
+ *    nobody pressed.
+ *  - An unpaid subscription and a different interval is `replace`, never a
+ *    change: Stripe gives one person one subscription, and changing the price on
+ *    an unpaid one leaves the old invoice outstanding.
+ *  - A change that is already scheduled is `none`. Stripe gives a subscription
+ *    exactly one schedule, so asking again would be refused rather than being
+ *    the no-op a second press means it as.
+ */
+export function subscriptionAction(input: {
+  readonly current: {
+    readonly status: string;
+    readonly interval: BillingInterval | null;
+    readonly scheduled: BillingInterval | null;
+  } | null;
+  readonly requested: BillingInterval;
+}): SubscriptionAction {
+  const { current, requested } = input;
+  if (!current) return { kind: "create" };
+
+  const owes = (owesPaymentStatuses as readonly string[]).includes(current.status);
+  if (owes && current.interval === requested) return { kind: "resume" };
+  if (current.status === "incomplete") return { kind: "replace" };
+
+  if (current.interval === requested) {
+    return current.scheduled === null ? { kind: "none" } : { kind: "release" };
+  }
+  if (current.scheduled === requested) return { kind: "none" };
+
+  // Only from a known monthly that is paid up. Two conditions, and each is
+  // there for its own reason.
+  //
+  // A subscription on a price this deployment has stopped selling reads as
+  // neither interval, and charging that person now — moving the renewal date
+  // they have been billed against — is not a thing to do off a value that means
+  // "I do not recognise this".
+  //
+  // And one that owes money already has an unpaid invoice. The upgrade path
+  // bills the difference on the spot, so taking it here charges a card that is
+  // failing a second time, on top of the charge it is already failing. Waiting
+  // for the renewal costs the person nothing and lets them settle what is owed
+  // first.
+  if (current.interval === "monthly" && requested === "yearly" && !owes) {
+    return { kind: "upgrade" };
+  }
+  return { kind: "schedule" };
+}

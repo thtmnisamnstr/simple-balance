@@ -184,6 +184,12 @@ secret:
   smtpUsername: ""
   smtpPassword: ""
 
+  # The two Stripe values that are secrets. The publishable key and the two
+  # price ids are not — they are published to every visitor by design — so they
+  # belong in `config.extraEnv` beside SB_BILLING_ENABLED rather than here.
+  stripeSecretKey: ""
+  stripeWebhookSecret: ""
+
 server:
   image:
     # Falls back to global.imageRegistry when empty.
@@ -302,6 +308,32 @@ frontend:
   # at the 10 MiB default. Under that, nginx refuses a CSV the API behind it
   # would have taken. Raise it with config.csvMaxBytes.
   maxUploadSize: 61m
+
+  # Whether Stripe is configured for this deployment. nginx needs to know, and
+  # this is not a duplicate of the server's setting: in this shape nginx serves
+  # the application shell itself, so it decides the content security policy the
+  # plan tab arrives with — and Stripe's payment form loads a script and an
+  # iframe from Stripe that every other page forbids. Set on the server and not
+  # here, the tab opens and the card fields never appear.
+  #
+  # Configured, not selling. An operator winding down sets the server's
+  # SB_BILLING_ENABLED to false and keeps the Stripe settings, and their
+  # subscribers still have to be able to replace an expired card on that page.
+  billingConfigured: false
+
+  # Whether that page reports its content security policy instead of enforcing
+  # it. Only meaningful with billingConfigured, and only for that one page.
+  # nginx serves the document here, so this is the copy that decides which
+  # header it arrives with; the server's own SB_CSP_REPORT_ONLY registers the
+  # endpoint the reports land on. Set both, or the rehearsal looks live and
+  # collects nothing.
+  cspReportOnly: false
+
+  # Whether this deployment serves advertising. nginx serves every document
+  # here, so it decides the policy they arrive with, and AdSense needs a
+  # materially wider one — scripts, frames and connections to any HTTPS origin.
+  # Set it with the server's own ADSENSE_* settings or neither.
+  adsConfigured: false
 
   # How long to keep answering after Kubernetes decides this pod is going, so
   # the load balancer and kube-proxy have stopped handing it new connections

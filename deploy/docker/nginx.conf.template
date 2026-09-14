@@ -7,6 +7,109 @@ map $http_upgrade $connection_upgrade {
   ''      close;
 }
 
+# The content security policy for /settings/plan, which is the only page whose
+# policy depends on configuration. Stripe's payment form loads a script and an
+# iframe from Stripe, so that page — and only that page — allows them.
+#
+# Keyed on whether Stripe is *configured*, not on whether a plan is for sale,
+# and the difference is the whole point. An operator winding a deployment down
+# sets SB_BILLING_ENABLED=false and leaves the Stripe settings in place, exactly
+# as `docs/billing-operations.md` instructs — and their subscribers go on being
+# charged, so replacing an expired card has to keep working. The API makes the
+# same distinction in `auth-policy.ts` and `api.ts`; this was the one place that
+# read the selling flag, which took the payment form away from the people the
+# pause was meant not to trap.
+#
+# A map rather than a second template, because the decision is one value read at
+# container start, and a map keeps both spellings of the answer side by side
+# where they can be read against each other.
+# The policy every page but the plan tab carries.
+#
+# A map rather than a literal in the snippet, because it now depends on one
+# thing: whether the deployment serves advertising. AdSense publishes no list of
+# the hosts it loads from, so allowing it means allowing scripts, frames and
+# connections to any HTTPS origin, plus `unsafe-eval`. That is a real cost on
+# every page that renders somebody's balances, which is why ads are off unless
+# an operator asks and why `docs/monetization.md` states the cost in their own
+# words first.
+#
+# A deployment that configured no AdSense ids gets the default arm, which is the
+# policy this container has shipped since 0.1.0, byte for byte.
+map "${SB_ADS_CONFIGURED}" $sb_app_csp {
+  "true"  "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; script-src 'self' https: 'unsafe-eval'; connect-src 'self' https:; frame-src https:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+  default "default-src 'self'; img-src 'self' data: https:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+}
+
+# Whether the request as it was *written* is the plan tab.
+#
+# nginx decodes percent-escapes and merges slashes before it matches a location,
+# so `/settings/%70lan` reaches the block below — while the browser's own router
+# does not decode, matches no route for that spelling, and renders something
+# else entirely. The API side closed this by matching the raw path; without the
+# same check here the two deployment shapes disagree, and the encoded spelling
+# becomes strictly more capable than the real one: it gets the wider policy and
+# the router's document-load guard does not fire for it.
+#
+# `$request_uri` is the raw target, before decoding and before slash merging. It
+# carries the query string, hence the `($|\?)`.
+map $request_uri $sb_plan_raw {
+  "~^/+settings/+plan/*($|\?)" "true";
+  default                      "false";
+}
+
+# The default arm is `$sb_app_csp` rather than a copy of the strict policy, and
+# that is what keeps the two transports agreeing. Where Stripe is not
+# configured, `/settings/plan` is not a payment page — it is an ordinary page of
+# the application — so it must carry whatever every other page carries,
+# advertising widening included. A hardcoded strict string here served that path
+# tighter than the API served it, which is a divergence with no benefit.
+#
+# Quoted, and that is not decoration: an unset or empty value renders as nothing
+# at all, and a bare empty map source is `[emerg] invalid number of arguments in
+# "map" directive` — the container refuses to start. Quoted, an empty value is a
+# valid source that matches no arm and falls to `default`, which is the strict
+# policy. The safe direction for a value nobody set.
+map "${SB_BILLING_CONFIGURED}:$sb_plan_raw" $sb_plan_policy {
+  "true:true" "default-src 'self'; img-src 'self' data: https:; style-src 'self' https://*.hcaptcha.com; script-src 'self' https://js.stripe.com https://*.js.stripe.com https://*.hcaptcha.com; connect-src 'self' https://api.stripe.com https://m.stripe.com https://q.stripe.com https://errors.stripe.com https://*.hcaptcha.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://*.hcaptcha.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+  default $sb_app_csp;
+}
+
+# And whether that page enforces the policy or only reports on it. Two maps
+# rather than one, because the header's *name* differs and nginx cannot build a
+# name from a variable — so each is emitted with a value that is empty in the
+# other mode, and nginx omits an `add_header` whose value is empty.
+#
+# The source is both variables joined, because there is nothing to rehearse
+# where there is no Stripe policy: a deployment with no Stripe that set the flag
+# would otherwise have this page reporting on the strict policy and enforcing
+# nothing, which is strictly worse than the enforcement it replaced. The API
+# draws the same line by scoping `reportOnly` to the `stripe` surface.
+#
+# Only this page either way. Every other page enforces whatever
+# `security-headers.conf` says, always: rehearsing the policy that has not
+# changed would take a working defence off every page that renders balances.
+map "${SB_BILLING_CONFIGURED}:$sb_plan_raw:${SB_CSP_REPORT_ONLY}" $sb_plan_csp {
+  "true:true:true" "";
+  default     $sb_plan_policy;
+}
+
+map "${SB_BILLING_CONFIGURED}:$sb_plan_raw:${SB_CSP_REPORT_ONLY}" $sb_plan_csp_report_only {
+  # The same policy plus the two directives that say where to send the reports.
+  # A rehearsal that reports nowhere is a page with no policy and nothing to
+  # show for it. `report-uri` is deprecated and is the one browsers in the field
+  # implement; `report-to` is its replacement and pairs with the header below.
+  "true:true:true" "$sb_plan_policy; report-uri /api/csp-report; report-to csp";
+  default     "";
+}
+
+# Where the reports go, named for the `report-to` directive inside the policy.
+# The API process registers POST /api/csp-report under the same flag, and nginx
+# proxies /api, so the reports reach it without another rule here.
+map "${SB_BILLING_CONFIGURED}:$sb_plan_raw:${SB_CSP_REPORT_ONLY}" $sb_csp_reporting_endpoints {
+  "true:true:true" 'csp="/api/csp-report"';
+  default     "";
+}
+
 server {
   listen ${SB_FRONTEND_PORT};
   server_name _;
@@ -25,7 +128,7 @@ server {
   # slash and discovery advertises the bare form, so requiring the slash hands
   # every correctly configured MCP client the application shell instead. It also
   # keeps /mcpanel and anything else merely starting with these letters out.
-  location ~ ^/(api|mcp|health|\.well-known)(/|$) {
+  location ~ ^/(api|mcp|health|\.well-known|ads\.txt)(/|$) {
     proxy_pass ${SB_API_ORIGIN};
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -51,6 +154,41 @@ server {
     include /etc/nginx/snippets/security-headers.conf;
     add_header Cache-Control "public, max-age=31536000, immutable";
     try_files $uri =404;
+  }
+
+  # The plan and billing tab, served under the wider policy that lets Stripe's
+  # payment form load. Only this path, and only where Stripe is configured;
+  # everything else falls to `location /` below.
+  #
+  # Both spellings, and that is not tidiness. The browser's own router splits on
+  # `/` and drops empty segments, so it renders the plan tab for `/settings/plan`
+  # and `/settings/plan/` alike, and `isStripeSurfacePath` normalises the same
+  # way on the API side. A location catching only one of them would serve the
+  # other under the strict policy, and Stripe's payment form would silently
+  # never appear.
+  #
+  # `try_files /index.html =404`, and every part of that spelling is load-bearing.
+  #
+  # Not `try_files $uri $uri/ /index.html`: the *last* parameter of `try_files`
+  # is a URI, and a URI causes an internal redirect that re-runs location
+  # selection and lands back in `location /` — so the document would arrive with
+  # that block's strict headers. Here `/index.html` is not last and `=404` is,
+  # so it is looked up as a file under `root` and served from this block with
+  # these headers. A single argument is a configuration error, which is why the
+  # `=404` is not optional.
+  #
+  # And not `alias`, which was the first spelling and was wrong twice over.
+  # nginx takes a static response's `Content-Type` from the *request* path, and
+  # `/settings/plan` has no extension, so the page came back as
+  # `application/octet-stream` — a browser downloaded a file called `plan`
+  # instead of running the application. Meanwhile the server-level `index`
+  # directive turned `/settings/plan/` into a lookup for
+  # `…/index.htmlindex.html` and answered 500. Both were invisible to every test
+  # here, because they all read this file as text rather than running it.
+  location ~ ^/settings/plan/?$ {
+    include /etc/nginx/snippets/security-headers-plan.conf;
+    add_header Cache-Control "no-cache" always;
+    try_files /index.html =404;
   }
 
   # The shell is the opposite: its name never changes and its contents do, and

@@ -656,6 +656,23 @@ export const identityResultSchema = z.object({
     .describe(
       "What this token may do, sorted. ledger:stage and ledger:write both include ledger:read. A tool you cannot reach is not in your tool list at all, so this is how you tell a capability you were not granted from one that does not exist.",
     ),
+  plan: nullableStringSchema.describe(
+    "Which plan these books are on, or null when this deployment sells none and nothing is limited.",
+  ),
+  accountLimit: z
+    .number()
+    .int()
+    .nullable()
+    .describe(
+      "How many financial accounts this plan keeps. Null means no limit. create_account refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after.",
+    ),
+  accountsUsed: z
+    .number()
+    .int()
+    .nullable()
+    .describe(
+      "How many of accountLimit are gone, counted the way the limit counts: archived accounts included, the ledger's own counter-accounts excluded. Null wherever there is no limit. Do not compute this from list_accounts, which leaves archived accounts out by default and so reports fewer than the limit counts.",
+    ),
 });
 
 export const ownDataSummaryResultSchema = z.object({
@@ -667,6 +684,15 @@ export const ownDataSummaryResultSchema = z.object({
   importBatches: z.number().int().nonnegative(),
   payees: z.number().int().nonnegative(),
   connectedAgents: z.number().int().nonnegative(),
+  // Not a count, because somebody has one subscription or none — and it is the
+  // one item here that costs money and that deleting the account cancels
+  // outright. An agent reporting what a deletion destroys has to be able to say
+  // so, the same as the screen does.
+  activeSubscription: z
+    .boolean()
+    .describe(
+      "Whether a paid subscription is live. Deleting the account cancels it immediately, and a cancelled subscription cannot be restored.",
+    ),
 });
 
 export const deletedEntityResultSchema = z.object({

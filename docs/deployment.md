@@ -57,6 +57,7 @@ than warning about.
 | `IDEMPOTENCY_RETENTION_HOURS` | `0`, meaning forever | How long a used idempotency key keeps replaying. Every create, commit and bulk write stores a copy of its response so a retried request answers the same way twice; nothing prunes those copies unless you set this, and on a busy deployment the table outgrows the ledger. Zero, unset or empty all mean keep everything, which is what every release before this one did. A window is safe because the record makes a retry *quiet* rather than safe: a repeated create still meets the duplicate check, a repeated commit finds its rows already committed, and a repeated bulk write carries a count and fingerprint that no longer match. Ceiling 8760, one year. Needs `RECURRENCE_SCHEDULER` on somewhere, since the sweep rides its tick. |
 | `METRICS_ENABLED` | `false` | Whether this process answers `GET /metrics` in Prometheus' text format. Off unless you ask for it. |
 | `METRICS_TOKEN` | unset | A bearer token `GET /metrics` demands before it answers. Optional; unset means anybody who can reach the port can scrape it. It is a secret, so it also takes a `METRICS_TOKEN_FILE`; see below. |
+| `SB_CSP_REPORT_ONLY` | `false` | Rehearses the plan and billing tab's content security policy instead of enforcing it: that page reports what would have been blocked and blocks nothing, and `POST /api/csp-report` is registered for the reports. Every other page goes on enforcing. For the hour after turning billing on; the process warns at every start while it is set. In the split deployment set it on the frontend container too — nginx serves that document, so its copy is the one that decides. |
 
 `CSV_MAX_BYTES`, `CSV_MAX_ROWS`, `DATABASE_POOL_SIZE`,
 `RECURRENCE_TICK_SECONDS`, `RECURRENCE_CATCH_UP_LIMIT` and
@@ -116,12 +117,78 @@ a refusal is explainable rather than surprising.
 Google modes refuse to start without both, and without an `ALLOWED_EMAILS` that
 admits somebody, rather than silently letting everyone in.
 
+### Only for selling a plan
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SB_BILLING_ENABLED` | `false` | Whether this deployment sells a plan and holds a free account to three financial accounts. `true` or `false`; anything else refuses to start. Setting it without the five Stripe settings below refuses to start too, because a plan nobody can be charged for is an upgrade button that always fails. |
+| `STRIPE_SECRET_KEY` | unset | The key this process charges, refunds and cancels with. A live key while `NODE_ENV` is not `production` refuses to start. It is a secret, so it also takes a `STRIPE_SECRET_KEY_FILE`; see below. |
+| `STRIPE_PUBLISHABLE_KEY` | unset | The key the browser loads Stripe's payment form with. It is published to every visitor by design, so it is a setting rather than a secret. A live key here beside a test secret key, or the reverse, refuses to start. |
+| `STRIPE_WEBHOOK_SECRET` | unset | What a delivery from Stripe is verified against. Without it a forged request could tell this deployment an invoice was paid. It is a secret, so it also takes a `STRIPE_WEBHOOK_SECRET_FILE`; see below. |
+| `STRIPE_PRICE_MONTHLY_ID` | unset | The monthly price, `price_…`. A product id here is the usual mistake and is refused at startup rather than at the first checkout. |
+| `STRIPE_PRICE_YEARLY_ID` | unset | The annual price, `price_…`. Both prices belong to one product. |
+
+### The webhook, and which events it has to be sent
+
+Point a Stripe webhook endpoint at `https://your-host/api/billing/webhook` and
+**subscribe it to exactly these event types**. Stripe makes the selection a
+required step and nothing in this deployment can see what you chose, so an
+endpoint subscribed to the wrong set fails silently — the deliveries that matter
+never arrive, and the ones that do are acknowledged.
+
+| Event | Why this deployment needs it |
+| --- | --- |
+| `customer.subscription.created` | A subscription that began somewhere other than the plan tab. |
+| `customer.subscription.updated` | Every change of status, price, cancellation and renewal. This is the one that grants and revokes the plan. |
+| `customer.subscription.deleted` | The end of a subscription, however it ended. |
+| `invoice.paid` | The only thing treated as proof that a first payment succeeded. |
+| `invoice.payment_failed` | Starts the seven-day grace, by recording when the failure happened. |
+| `setup_intent.succeeded` | Makes a replacement card the one Stripe bills. Without it, a card replaced during a 3-D Secure redirect is attached and never used, and dunning goes on retrying the dead one. |
+| `customer.deleted` | Drops a customer mapping Stripe no longer has, so the next attempt to subscribe is not made against a customer that does not exist. |
+| `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`, `charge.dispute.funds_withdrawn` | Logged for an operator to act on. None of them changes an entitlement by itself. |
+
+Anything else is acknowledged and ignored, so subscribing to more than this
+costs only noise. Subscribing to less is the failure that is hard to see.
+
+**Testing it.** A test delivery from Stripe's dashboard answering `200` with
+`{"received": true}` proves the signature verified and nothing else — that body
+is also what an event this deployment has no opinion about returns. To prove a
+subscription path end to end, make a real test-mode subscription and watch the
+plan tab change, or read `simple_balance_billing_sweeps_total`.
+
+See [`monetization.md`](monetization.md) for what the two plans are, what the
+prices net, and the table of what is on in which combination.
+
+The five Stripe settings are set together or not at all, and they answer only
+whether Stripe can be reached. `SB_BILLING_ENABLED` answers the separate
+question of whether anything is for sale. That split is what lets a deployment
+stop selling while it goes on honouring — and listening to — the subscriptions
+people are already paying for. Set none of it and this process never opens a
+connection to Stripe.
+
+### Only for ads
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `ADSENSE_CLIENT_ID` | unset | The AdSense publisher id, `ca-pub-` followed by sixteen digits. The dashboard shows it as `pub-…`, and the missing `ca-` prefix is refused at startup because it otherwise fails by rendering nothing, which looks exactly like having no inventory. |
+| `ADSENSE_BANNER_SLOT_ID` | unset | The ad unit shown once in the application shell. Ten digits. Set with the client id or not at all. |
+| `ADSENSE_FOOTER_SLOT_ID` | unset | A second unit at the foot of the page. Off unless you set it, and an addition to the banner rather than a replacement, so setting it alone refuses to start. |
+| `ADSENSE_CONSENT_MANAGED` | `false` | Whether a certified consent platform is collecting consent. Off by default, and then every ad request forces non-personalised ads, which Google serves without a platform at all. Set it to `true` once you have published a European regulations message in AdSense's own **Privacy and messaging** — free, part of your account, and delivered by the ad tag this app already loads, so nothing is added here. It then stops forcing the flag and lets the platform's answer decide. Nothing in this software can check the platform exists. See `monetization.md`. |
+
+**Know what this costs before turning it on.** AdSense publishes no list of the
+hosts it loads from, so serving it means widening this app's content security
+policy on every page that renders your balances — including allowing scripts to
+be evaluated at runtime. A deployment that sets none of these keeps the
+`default-src 'self'` policy the container ships with. Ads are never shown to a
+paid account, and never on the plan and billing tab.
+
 ### Keeping a secret out of the environment
 
-Seven variables also answer to a `NAME_FILE` form: `AUTH_SECRET`,
+Nine variables also answer to a `NAME_FILE` form: `AUTH_SECRET`,
 `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`, `GOOGLE_CLIENT_SECRET`,
-`SETUP_TOKEN` and `METRICS_TOKEN`. Having the form is the definition of being a
-secret here, so nothing else in either table above has one.
+`SETUP_TOKEN`, `METRICS_TOKEN`, `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET`. Having the form is the definition of being a
+secret here, so nothing else in any table above has one.
 
 `NAME_FILE` names a file whose contents are the value. Set one of `NAME` and
 `NAME_FILE` and never both: both set warns and uses `NAME`, naming the file
@@ -179,7 +246,7 @@ consistent with the existing refusal when `SMTP_USERNAME` is set without
 you to expect while rotating a mail secret.
 
 And the shipped deployment paths do not use the form yet, so on both of them it
-takes work you do yourself. The Helm chart in `deploy/helm` writes all seven into
+takes work you do yourself. The Helm chart in `deploy/helm` writes all nine into
 a Secret that reaches both workloads through `envFrom`, and it has no volume or
 volume-mount values of its own, so `secret.create=false` is not enough on its
 own: an existing Secret is still consumed through `envFrom`. Something outside
@@ -544,22 +611,27 @@ authority on. It reads the same settings as the single container.
 The frontend image is nginx serving the bundle and proxying `/api`, `/mcp`,
 `/health` and `/.well-known` through to the server. It listens on **8080**, not
 80, because the base image runs as a non-root user that cannot bind a privileged
-port. Three settings, all with working defaults:
+port. Six settings, all with working defaults:
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `SB_API_ORIGIN` | `http://simple-balance-server:3000` | Where to proxy everything the API owns. Point it at your API Service. |
 | `SB_FRONTEND_PORT` | `8080` | The port nginx listens on. Change it and the readiness probe and Service have to follow. |
 | `SB_MAX_UPLOAD_SIZE` | `61m` | The largest request body nginx will pass. A CSV arrives as a JSON string rather than as a file upload, and the API sizes its own limit for those routes at `CSV_MAX_BYTES` x 6 plus 64 KiB to cover worst-case JSON escaping. Keep this above that number, or a CSV the API would accept is refused before it reaches it. At the default `CSV_MAX_BYTES` of 10 MB that means at least `61m`. |
+| `SB_BILLING_CONFIGURED` | `false` | Whether Stripe is configured. nginx serves the plan and billing tab's document in this shape, so it decides which content security policy that page arrives with, and Stripe's payment form needs the wider one. Configured, not selling: an operator who has stopped selling still has subscribers who must be able to replace an expired card. The compose recipe derives it from `STRIPE_PUBLISHABLE_KEY` so the two cannot disagree. |
+| `SB_CSP_REPORT_ONLY` | `false` | Whether that page reports its policy instead of enforcing it. Only meaningful with `SB_BILLING_CONFIGURED`, and only for that page. Set it on the server as well, which is what registers `POST /api/csp-report` for the reports to land on. |
+| `SB_ADS_CONFIGURED` | `false` | Whether this deployment serves advertising. nginx serves every document in this shape, so it decides the policy they arrive with, and AdSense needs a much wider one — scripts, frames and connections to any HTTPS origin, plus `unsafe-eval`. Set it with the server's own `ADSENSE_*` settings or neither; the compose recipe derives it from `ADSENSE_CLIENT_ID`. |
 
-These three are the only settings in this document that appear in no
+These six are the only settings in this document that appear in no
 `.env.example`, and that is the reason rather than an omission: they belong to
 the nginx container, and neither example file configures it. The root file
 serves the single container, which has no nginx in it. The compose file sets all
-three on the frontend service itself, where the value can carry the reason it is
+six on the frontend service itself, where the value can carry the reason it is
 what it is, and the defaults above are baked into
 `deploy/docker/frontend.Dockerfile`, so a deployment changing none of them has
-nothing to set. Everything the Node processes read appears in both places.
+nothing to set. Every `SB_` name the template reads has a default there, and
+`tests/dockerfile.test.ts` holds it to that: an absent one is not a fallback but
+a literal `${SB_…}` in the rendered config, which nginx refuses to start on. Everything the Node processes read appears in both places.
 
 nginx repeats every response header the API sets — the content security policy,
 `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, HSTS, the two
@@ -587,7 +659,7 @@ assembled by hand does. It runs one entrypoint of its own and always ticks: the
 `RECURRENCE_SCHEDULER` flag decides whether the API replicas tick too, and a pod
 whose only job is this one would be pointless with it off.
 
-Five things have to line up:
+Six things have to line up:
 
 - **`APP_BASE_URL` on the server names the frontend's public origin**, not the
   server's own address. Cookies are set by the API and read by the browser, so
@@ -614,6 +686,24 @@ Five things have to line up:
   `set_real_ip_from <your ingress CIDR>; real_ip_header X-Forwarded-For;
   real_ip_recursive on;` to the proxy location so `$remote_addr` resolves back
   to the visitor.
+- **`SB_BILLING_CONFIGURED` on the frontend**, if Stripe is configured at all —
+  not `SB_BILLING_ENABLED`, and not only when you are selling. nginx serves the
+  application shell itself in this shape, so it, and not the API, decides the
+  content security policy the plan tab arrives with, and Stripe's payment form
+  needs the wider one. An operator who has stopped selling still has subscribers
+  who must be able to replace an expired card on that page, which is why the
+  frontend asks "is Stripe configured" rather than "is a plan for sale". Set on
+  the server and not on the frontend, the tab loads and the card fields never
+  appear. The compose recipe derives it from `STRIPE_PUBLISHABLE_KEY`; under
+  Helm it is `frontend.billingConfigured`.
+- **`SB_ADS_CONFIGURED` on the frontend**, if you serve advertising, for the
+  same reason: nginx decides the policy every other page arrives with, and
+  AdSense needs a much wider one. `frontend.adsConfigured` under Helm.
+- **Clocks in step across the API replicas.** A subscription snapshot is ordered
+  by the wall clock of whichever replica read it from Stripe, so two replicas
+  more than a moment apart can keep the older read and leave somebody's plan
+  wrong until the twelve-hour reconciliation sweep repairs it. Keep the nodes on
+  NTP, which they almost certainly already are.
 
 Each of these processes opens `DATABASE_POOL_SIZE` connections and no more once
 it is running. Two others exist and neither is held: migrations take one at

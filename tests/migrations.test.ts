@@ -165,6 +165,68 @@ describe("migration baseline", () => {
   });
 
   /**
+   * 0022 is the same shape as 0007 and 0008 — five tables the rest of the
+   * product does not read yet — which is precisely when a migration slips
+   * through unasserted. It is also the only migration on disk that has not
+   * shipped, so it is the only one these assertions can still change rather
+   * than merely describe.
+   */
+  it("adds the billing tables as pure additions, and cascades all but one", async () => {
+    const sql = await readFile(path.join(migrationDirectory, "0022_plans_and_billing.sql"), "utf8");
+    for (const forbidden of [
+      /\bDROP\b/i,
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /^\s*INSERT\s/im,
+      /\bALTER COLUMN\b/i,
+    ]) {
+      expect(sql, forbidden.source).not.toMatch(forbidden);
+    }
+    // No column is added to a table that already exists, so nothing this
+    // migration does can rewrite a row of somebody's ledger.
+    expect(sql).not.toMatch(/ADD COLUMN/i);
+
+    for (const table of [
+      "billing_customer",
+      "billing_subscription",
+      "billing_override",
+      "billing_operation",
+      "billing_webhook_event",
+    ]) {
+      expect(sql, table).toContain(`CREATE TABLE "${table}"`);
+    }
+
+    // Four of the five carry somebody's data and cascade from auth_user, which
+    // is what makes deleting an account one delete of one row.
+    const cascades = [
+      ...sql.matchAll(/ALTER TABLE "(billing_\w+)" ADD CONSTRAINT[^;]*ON DELETE cascade/g),
+    ]
+      .map((match) => match[1])
+      .sort();
+    expect(cascades).toEqual([
+      "billing_customer",
+      "billing_operation",
+      "billing_override",
+      "billing_subscription",
+    ]);
+    // The fifth deliberately does not: it records which Stripe deliveries have
+    // been answered, which is the deployment's fact rather than any person's,
+    // and cascading it would let a retry be handled twice after an account goes.
+    expect(sql).not.toMatch(/ALTER TABLE "billing_webhook_event" ADD CONSTRAINT/);
+    // One index, and it is the one the reconciliation sweep reads by: staleness,
+    // ordered by staleness, fifty at a time. Without it that query scans the
+    // whole table and sorts it every tick, whether or not anything is due.
+    expect(sql).toContain(
+      'CREATE INDEX "billing_subscription_synced_at_idx" ON "billing_subscription"',
+    );
+    // And none on the delivery log, which is read by primary key alone. An
+    // earlier draft indexed its `created_at` for a retention sweep that was
+    // never written, so the index had no reader and cost a write on the webhook
+    // hot path for nothing.
+    expect(sql).not.toContain('ON "billing_webhook_event"');
+  });
+
+  /**
    * 0007 and 0008 add tables nothing else reads yet, which is exactly when a
    * migration slips through unasserted. Both are pure additions; neither may
    * grow a backfill later.

@@ -888,6 +888,54 @@ export function PageHeader({
 }
 
 /**
+ * The strip across the top of Settings, and the one place in this app that
+ * navigates by document load on purpose.
+ *
+ * Settings and the plan tab are two documents rather than two panels because
+ * they are served under different content security policies — the plan tab
+ * mounts Stripe's payment form, which loads a script and an iframe from Stripe
+ * that every other page forbids — and a policy belongs to the document it
+ * arrived with. A client-side push between them would carry one page's policy
+ * onto the other: into the plan tab that means the payment form never appears,
+ * and out of it that means the pages showing somebody's balances run with
+ * Stripe's origins allowed.
+ *
+ * So these are plain anchors, and the cost is a reload on a strip most people
+ * use twice. Written as one component rather than copied into both pages,
+ * because a strip that disagrees with itself about which tab is current is the
+ * obvious thing to get wrong with two copies.
+ */
+export function SettingsTabs({
+  current,
+  billingAvailable,
+}: {
+  current: "preferences" | "plan";
+  billingAvailable: boolean;
+}) {
+  // Nothing to choose between when the deployment sells nothing, and a strip
+  // with one tab in it is furniture rather than navigation.
+  if (!billingAvailable) return null;
+  const tabs = [
+    { id: "preferences", href: "/settings", label: "Preferences" },
+    { id: "plan", href: "/settings/plan", label: "Plan and billing" },
+  ] as const;
+  return (
+    <nav className="settings-tabs" aria-label="Settings sections">
+      {tabs.map((tab) => (
+        <a
+          key={tab.id}
+          href={tab.href}
+          className={tab.id === current ? "settings-tab is-current" : "settings-tab"}
+          aria-current={tab.id === current ? "page" : undefined}
+        >
+          {tab.label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+/**
  * One toggleable field in a mass edit: the checkbox that opts the field in, and
  * whatever control sets its value.
  *

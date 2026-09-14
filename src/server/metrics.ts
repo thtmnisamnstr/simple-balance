@@ -162,6 +162,57 @@ export const mailMessages = new Counter({
   registers: [registry],
 });
 
+/**
+ * Requests this process made to Stripe, by what it asked for and how it went.
+ *
+ * Labelled by operation and outcome and by nothing else. A Stripe request is
+ * always about one person's money, so a customer id, a subscription id or an
+ * amount here would put somebody's payment history in front of whoever can
+ * reach the scrape endpoint — `observability.md` 1.2 — and would be unbounded
+ * cardinality besides. The operation names are a closed set written in this
+ * repository, which is what keeps the series count fixed.
+ *
+ * Counted at the adapter seam rather than in each service, so a new call cannot
+ * be added without being counted.
+ */
+export const stripeRequests = new Counter({
+  name: `${prefix}stripe_requests_total`,
+  help: "Requests this process made to Stripe, by operation and outcome.",
+  labelNames: ["operation", "outcome"] as const,
+  registers: [registry],
+});
+
+/**
+ * How long a Stripe request took, by operation.
+ *
+ * Separate from `httpDuration`: that measures requests this server answers, and
+ * a plan tab that feels slow because Stripe is slow looks identical in it to one
+ * that is slow for any other reason. The buckets run out to the client's own
+ * ten-second timeout, so a request that gave up lands in the last one rather
+ * than off the end.
+ */
+export const stripeDuration = new Histogram({
+  name: `${prefix}stripe_request_duration_seconds`,
+  help: "How long a Stripe request took, by operation.",
+  labelNames: ["operation"] as const,
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+  registers: [registry],
+});
+
+/**
+ * What the billing reconciliation sweep found, by outcome.
+ *
+ * `off` for the same reason the idempotency sweep has one: a deployment that
+ * sells nothing is the default, and a sweep that examined nothing because there
+ * was nothing to examine looks identical in a bare count to one that never ran.
+ */
+export const billingSweeps = new Counter({
+  name: `${prefix}billing_sweeps_total`,
+  help: "Subscriptions the reconciliation sweep re-read, by outcome.",
+  labelNames: ["outcome"] as const,
+  registers: [registry],
+});
+
 export const ledgerWrites = new Counter({
   name: `${prefix}ledger_writes_total`,
   help: "Writes that changed the books, by operation.",

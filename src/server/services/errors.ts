@@ -63,8 +63,17 @@ export class AppError extends Error {
 export const notFound = (message: string, details?: unknown) =>
   new AppError("NOT_FOUND", message, 404, details);
 
-export const conflict = (message: string, details?: unknown) =>
-  new AppError("CONFLICT", message, 409, details);
+/**
+ * `agentMessage` is optional and widens this constructor rather than adding a
+ * sixth: the five-constructor rule in `docs/standards/code/services.md` is about
+ * how a service raises a refusal, not about how many arguments the refusal
+ * carries. The account limit is the first caller to need it, because the move
+ * that works — upgrading a plan — is one only a person signed into a browser
+ * can make, so the sentence an agent should hear is not the sentence a person
+ * should read.
+ */
+export const conflict = (message: string, details?: unknown, agentMessage?: string) =>
+  new AppError("CONFLICT", message, 409, details, agentMessage);
 
 /**
  * Whether this throw site carried the number the agent sentence would name.

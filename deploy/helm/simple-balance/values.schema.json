@@ -176,7 +176,9 @@
         "metricsToken": { "type": "string" },
         "googleClientSecret": { "type": "string" },
         "smtpUsername": { "type": "string" },
-        "smtpPassword": { "type": "string" }
+        "smtpPassword": { "type": "string" },
+        "stripeSecretKey": { "type": "string" },
+        "stripeWebhookSecret": { "type": "string" }
       }
     },
     "server": {
@@ -215,6 +217,9 @@
         "replicaCount": { "type": "integer", "minimum": 0 },
         "containerPort": { "type": "integer", "minimum": 1024, "maximum": 65535 },
         "maxUploadSize": { "type": "string", "pattern": "^[0-9]+[kKmMgG]?$" },
+        "billingConfigured": { "type": "boolean" },
+        "cspReportOnly": { "type": "boolean" },
+        "adsConfigured": { "type": "boolean" },
         "preStopSleepSeconds": { "type": "integer", "minimum": 0 },
         "resources": { "$ref": "#/definitions/resources" },
         "podSecurityContext": { "$ref": "#/definitions/securityContext" },

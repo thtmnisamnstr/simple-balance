@@ -62,6 +62,20 @@ spec:
               value: {{ .Values.frontend.containerPort | quote }}
             - name: SB_MAX_UPLOAD_SIZE
               value: {{ .Values.frontend.maxUploadSize | quote }}
+            # nginx serves the shell in this shape, so it — not the API — decides
+            # the policy the plan tab arrives with. Stripe's payment form needs
+            # the wider one.
+            #
+            # Both emitted unconditionally and both quoted. The template reads
+            # them in `map` directives, and envsubst leaves an absent name as a
+            # literal that nginx refuses to start on; an unquoted Helm boolean
+            # renders as `value: false`, which Kubernetes rejects outright.
+            - name: SB_BILLING_CONFIGURED
+              value: {{ .Values.frontend.billingConfigured | quote }}
+            - name: SB_CSP_REPORT_ONLY
+              value: {{ .Values.frontend.cspReportOnly | quote }}
+            - name: SB_ADS_CONFIGURED
+              value: {{ .Values.frontend.adsConfigured | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.frontend.containerPort }}

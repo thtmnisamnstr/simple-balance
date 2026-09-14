@@ -5,11 +5,96 @@ keep, so upgrading is swapping it for a newer one.
 
 ## Before you upgrade to 0.1.7
 
-Nothing has landed for 0.1.7 yet, so there is nothing here to do. This heading
-exists because the suite asks for it: a note written as the work lands says what
-actually changed, and one written while a release is being cut says whatever the
-person cutting it can remember. An empty note and a missing one look identical
-from the outside, so the empty one is written down.
+**This heading is the next release's slot and its number is provisional.** The
+release being built is 0.2.0, and this heading is spelled 0.1.7 only because
+`tests/version.test.ts` asks for the next _patch_ of whatever `package.json`
+currently says. It is renamed when the version is set, which is the first act of
+cutting. The content below is what matters and is written as the work lands,
+because a note written while a release is being cut says whatever the person
+cutting it can remember.
+
+**Nothing refuses to start that 0.1.6 accepted, and nothing about an existing
+configuration has to change.** Everything added is optional and off unless an
+operator sets it.
+
+### What runs automatically
+
+One migration, `0022_plans_and_billing.sql`. It is additive only: five new
+tables — `billing_customer`, `billing_subscription`, `billing_override`,
+`billing_operation` and `billing_webhook_event` — two new enum types, four
+foreign keys onto `auth_user` and one index. It alters no existing table, adds
+no column to one, and rewrites no rows, so it completes in the time it takes to
+create five empty tables however large your ledger is.
+
+### What you must do by hand
+
+Nothing. A deployment that sets none of the new variables sells nothing, limits
+nobody, shows no advertising, and opens no connection to Stripe — which is what
+an untouched `.env` keeps doing.
+
+### What changed under you
+
+Nothing, unless you opt in. Two new settings groups exist and both default to
+absent: the five `STRIPE_*` settings with `SB_BILLING_ENABLED`, and the
+`ADSENSE_*` settings. `docs/monetization.md` has the table of what each
+combination turns on. Two names join the seven that already take a `_FILE` form,
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, taking that list to nine.
+
+**The split deployment has two new frontend settings**, and they are the ones
+easiest to miss because they are not in either `.env.example`: nginx serves the
+application shell in that shape, so it — not the API — decides the content
+security policy each page arrives with. `SB_BILLING_CONFIGURED` and
+`SB_ADS_CONFIGURED` default to false, which is exactly today's behaviour. Set
+Stripe on the server without the first and the plan tab opens with no card
+fields; set AdSense without the second and no ad renders. The compose recipe
+derives both from settings you are already providing, so only a hand-assembled
+deployment or the Helm chart needs them set by hand. `docs/deployment.md` lists
+all six frontend settings.
+
+**If you do turn advertising on**, know what the policy costs before you do.
+AdSense publishes no list of the hosts it loads from, so every page but the plan
+tab then allows scripts, frames, styles, fonts and connections to any HTTPS
+origin, plus `unsafe-eval`. Ads are never shown to a paying account, never on
+the plan and billing tab, never on sign-in and never on paper, and the publisher
+id is the only identifier of yours that leaves — but the address of the page an
+ad sits on goes to Google too, and this app's addresses name records.
+`docs/monetization.md` says what is yours to do at Google.
+
+**If you do turn billing on**, `docs/billing-operations.md` is the page to read
+first: granting a plan by hand, what a refund does and does not change, what
+`SB_BILLING_ENABLED=false` stops and what it deliberately does not, and the
+order to shut billing down in.
+
+The one thing worth knowing in advance: an
+account that already holds more than three financial accounts keeps every one of
+them. Nothing is archived, hidden or deleted, and imports and edits go on
+working. Only creating another is refused, and the refusal says how many were
+counted.
+
+### What to check afterwards
+
+`/health/ready`, as with any upgrade. If you set the Stripe or AdSense
+variables, the process refuses to start on a half-configured pair and names the
+missing half, so a clean start is itself the check.
+
+If you turned billing on, three more. `SB_CSP_REPORT_ONLY=true` is worth one
+pass before you rely on the plan tab: it makes that page report what its content
+security policy would have blocked instead of blocking it, so a host Stripe
+reaches and does not document shows up in your log rather than as a payment form
+that will not load. Turn it off again — the process warns at every start while
+it is on.
+
+Then two more. Open `/settings/plan` and confirm the two
+prices show the figures you set in Stripe — they are read from Stripe rather than
+from your settings, so a blank there means this deployment could not reach it.
+And point a Stripe webhook endpoint at
+`https://your-host/api/billing/webhook`, subscribed to the event types
+`docs/deployment.md` lists — the selection is Stripe's and this deployment
+cannot see what you chose, so an endpoint subscribed to the wrong set fails
+silently. A test delivery answering `200` with `{"received": true}` means the
+signature verified; it does not mean the subscription is right, because that is
+also what an event with no opinion returns. A `404` there means the `STRIPE_*` settings did not reach
+the container, because the route is registered only when they did.
 
 ## Before you upgrade to 0.1.6
 
@@ -56,8 +141,7 @@ release that refuses it is a later one.
 `POST /accounts/{id}/archive` is now `/archived`, `POST /categories/{id}/archive`
 is now `/archived`, `POST /staged-transactions/delete` is now `/bulk-delete`, and
 `GET /staged/{id}/duplicate` is now `/staged-transactions/{id}/duplicate`. The old
-paths carry `Deprecation` and `Sunset` headers and stop answering after 1 March
-2027. Nothing you run needs changing today; a browser tab left open across the
+paths carry `Deprecation` and `Sunset` headers and stop answering after 1 March 2027. Nothing you run needs changing today; a browser tab left open across the
 upgrade keeps working.
 
 **An agent's arguments are checked more strictly.** Every MCP tool now declares a
@@ -81,7 +165,7 @@ defaults to zero, which means forever — exactly what every release before this
 one did. Nothing about your data changes on upgrade. Set it if the table has
 grown: every create, commit and bulk write stores a copy of its response there,
 and on a busy deployment it outgrows the ledger it protects. It is safe to set
-because the record makes a retry *quiet* rather than safe — a repeated create
+because the record makes a retry _quiet_ rather than safe — a repeated create
 still meets the duplicate check, a repeated commit finds its rows already
 committed, and a repeated bulk write still carries a count and fingerprint that
 no longer match. The sweep rides the recurrence scheduler's tick, so it needs
@@ -170,12 +254,12 @@ deliberate: all three were ways a deployment could look fine while running with
 protections silently off. Check these before you swap the image, because the
 container will not start and will not tell you until it has.
 
-| If your configuration has | 0.1.4 does | What to do |
-| --- | --- | --- |
-| `AUTH_SECRET` still set to the placeholder `.env.example` shipped | Refuses to start, naming the variable | Generate one: `openssl rand -base64 32` |
-| `NODE_ENV` set to anything but `production`, `development` or `test`, empty included | Refuses to start | Set `NODE_ENV=production`. The images already do. |
-| `NODE_ENV` unset | Reads as `development`, so the setup code, sign-in rate limiting and secure cookies are all off | Set `NODE_ENV=production`. Unset is the one value that does not announce itself, which is what the row below catches. |
-| `NODE_ENV` not `production` while `APP_BASE_URL` names anything but localhost | Refuses to start | Set `NODE_ENV=production`, and give `APP_BASE_URL` the HTTPS origin your proxy terminates |
+| If your configuration has                                                            | 0.1.4 does                                                                                      | What to do                                                                                                            |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_SECRET` still set to the placeholder `.env.example` shipped                    | Refuses to start, naming the variable                                                           | Generate one: `openssl rand -base64 32`                                                                               |
+| `NODE_ENV` set to anything but `production`, `development` or `test`, empty included | Refuses to start                                                                                | Set `NODE_ENV=production`. The images already do.                                                                     |
+| `NODE_ENV` unset                                                                     | Reads as `development`, so the setup code, sign-in rate limiting and secure cookies are all off | Set `NODE_ENV=production`. Unset is the one value that does not announce itself, which is what the row below catches. |
+| `NODE_ENV` not `production` while `APP_BASE_URL` names anything but localhost        | Refuses to start                                                                                | Set `NODE_ENV=production`, and give `APP_BASE_URL` the HTTPS origin your proxy terminates                             |
 
 **Replacing `AUTH_SECRET` signs everybody out** and disconnects every MCP
 client, because sessions are signed with it. Everyone signs in again with the
@@ -210,6 +294,7 @@ nothing at all.
 
    Let PostgreSQL handle the password through `~/.pgpass` or the environment
    rather than typing it into a shell that remembers it.
+
 3. Pull the image by its version tag, not `latest`, so you know what you are
    getting.
 4. Stop and remove the application container. Leave PostgreSQL running.
@@ -245,7 +330,7 @@ This is the reason step 2 is not optional.
    this file, which should already be written: what runs automatically, what an
    operator has to do by hand, what changed under them, and what to check
    afterwards. Write it as the work lands rather than here — the suite asks for
-   the *next* version's note as well as this one's, so a release whose note was
+   the _next_ version's note as well as this one's, so a release whose note was
    left to the last minute has already been failing. Write it even when the
    answer is that nothing changed, because a missing heading and an unwritten
    note look the same from the outside.

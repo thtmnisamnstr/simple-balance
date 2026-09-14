@@ -103,6 +103,11 @@ x-app-config: &app-config
   RECURRENCE_TICK_SECONDS: "300"
   RECURRENCE_CATCH_UP_LIMIT: "50"
   RECURRENCE_CLAIM_LIMIT: "500"
+  # Documented in this recipe's .env.example since 0.1.6 and never passed
+  # through until now, so an operator who set it there got the default in
+  # silence. Empty is the documented spelling of "keep every record", which is
+  # what `configuredIdempotencyRetentionHours` reads an unset value as.
+  IDEMPOTENCY_RETENTION_HOURS: ${IDEMPOTENCY_RETENTION_HOURS:-}
 
   # Prometheus metrics, off unless asked for. Both the server and the scheduler
   # answer GET /metrics when this is on, and both are worth scraping: the server
@@ -111,6 +116,21 @@ x-app-config: &app-config
   # frontend does not proxy /metrics, so a scraper has to be on this network —
   # which is why METRICS_TOKEN is optional here.
   METRICS_ENABLED: ${METRICS_ENABLED:-false}
+  # Monetization, off unless an operator sets it. The boolean carries a real
+  # default rather than `:-` because an empty string is not `true` or `false`
+  # and the parser refuses one, the same way SMTP_SSL and METRICS_ENABLED above
+  # carry theirs. The rest are absent-or-set: empty reads as absent.
+  SB_BILLING_ENABLED: ${SB_BILLING_ENABLED:-false}
+  SB_CSP_REPORT_ONLY: ${SB_CSP_REPORT_ONLY:-false}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  STRIPE_PRICE_MONTHLY_ID: ${STRIPE_PRICE_MONTHLY_ID:-}
+  STRIPE_PRICE_YEARLY_ID: ${STRIPE_PRICE_YEARLY_ID:-}
+  ADSENSE_CLIENT_ID: ${ADSENSE_CLIENT_ID:-}
+  ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
+  ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
+  ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
   METRICS_TOKEN: ${METRICS_TOKEN:-}
 
 services:
@@ -208,6 +228,25 @@ services:
       # Under CSV_MAX_BYTES x 6 plus 64 KiB, nginx refuses an import the API
       # behind it would have taken.
       SB_MAX_UPLOAD_SIZE: 61m
+      # nginx serves the application shell itself here, so it decides the
+      # content security policy the plan tab arrives with — Stripe's payment
+      # form loads a script and an iframe from Stripe, which every other page
+      # forbids. Set on the server and not here, the tab opens and the card
+      # fields never appear.
+      #
+      # Derived from the publishable key rather than set on its own, so it
+      # cannot disagree with the server about whether Stripe is configured. It
+      # is deliberately not SB_BILLING_ENABLED: an operator who has stopped
+      # selling still has subscribers who need to replace a card on that page.
+      SB_BILLING_CONFIGURED: ${STRIPE_PUBLISHABLE_KEY:+true}
+      # And whether that page rehearses its policy rather than enforcing it.
+      # nginx serves the document, so this is the copy that decides; the
+      # server's copy only registers the endpoint the reports land on.
+      SB_CSP_REPORT_ONLY: ${SB_CSP_REPORT_ONLY:-false}
+      # Derived from the AdSense client id for the same reason the Stripe one
+      # is: nginx and the server must not disagree about whether ads are served,
+      # and an operator setting it twice is an operator who can set it wrong.
+      SB_ADS_CONFIGURED: ${ADSENSE_CLIENT_ID:+true}
     <<: *hardening
     read_only: true
     tmpfs:

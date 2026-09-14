@@ -26,7 +26,9 @@ import {
   budgetPeriodUnits,
   systemAccountKinds,
   actorSources,
+  billingOperationStates,
   categoryKinds,
+  plans,
   MAX_RECURRENCE_INTERVAL,
   MAX_TRANSACTION_LEGS,
   recurrenceFrequencies,
@@ -208,6 +210,8 @@ export const userThemeEnum = pgEnum("user_theme", themes);
 export const budgetPeriodUnitEnum = pgEnum("budget_period_unit", budgetPeriodUnits);
 export const budgetAmountRuleEnum = pgEnum("budget_amount_rule", budgetAmountRules);
 export const budgetGroupPolicyEnum = pgEnum("budget_group_policy", budgetGroupPolicies);
+export const planEnum = pgEnum("billing_plan", plans);
+export const billingOperationStateEnum = pgEnum("billing_operation_state", billingOperationStates);
 
 export const userPreferences = pgTable(
   "user_preferences",
@@ -1390,3 +1394,221 @@ export type RecurrenceRow = typeof recurrences.$inferSelect;
 export type CategoryGroupRow = typeof categoryGroups.$inferSelect;
 export type BudgetPlanRow = typeof budgetPlans.$inferSelect;
 export type BudgetEntryRow = typeof budgetEntries.$inferSelect;
+
+/**
+ * Who this person is to Stripe.
+ *
+ * One row per person, so the primary key is the user and nothing else. The
+ * unique on the Stripe id is the load-bearing half: a webhook arrives naming a
+ * customer and has to find its way back to a user, and two rows claiming the
+ * same customer would make that lookup a coin toss about whose plan changed.
+ *
+ * That unique does not contain `user_id`, and so does this table's neighbour
+ * below. Both are therefore candidates to leave the distributed set when the
+ * Citus work lands, exactly as the OAuth tables are — recorded here so that
+ * migration does not have to rediscover it. The trade was made deliberately:
+ * these two tables are small and they map money to people, and integrity on
+ * that mapping is worth more than the convenience of distributing it.
+ */
+export const billingCustomers = pgTable(
+  "billing_customer",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    stripeCustomerId: text("stripe_customer_id").notNull(),
+    ...timestamps,
+  },
+  (table) => [unique("billing_customer_stripe_id_unique").on(table.stripeCustomerId)],
+);
+
+/**
+ * What Stripe last said about somebody's subscription.
+ *
+ * A cache of Stripe's answer, never the authority for it: every field here is
+ * re-read from Stripe rather than inferred from an event, because Stripe
+ * guarantees no ordering between deliveries and two events can describe one
+ * change.
+ *
+ * `status` is `text` rather than an enum, and that is the one column here worth
+ * arguing about. `docs/standards/code/database.md` 2.2 says an enum column is
+ * generated from a shared tuple, and this set is not ours to close: Stripe may
+ * add a status, and a `pgEnum` would then refuse to store what Stripe actually
+ * said. A reconciler that cannot record the truth is worse than one holding a
+ * word it does not recognise, and `resolveEntitlement` already treats anything
+ * it has not heard of as unentitled.
+ */
+export const billingSubscriptions = pgTable(
+  "billing_subscription",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    stripeSubscriptionId: text("stripe_subscription_id").notNull(),
+    status: text("status").notNull(),
+    priceId: text("price_id").notNull(),
+    /** The paid-through boundary, for display. The grace does not count from it. */
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+    /**
+     * When this subscription first went `past_due`, and null whenever it is not.
+     *
+     * Recorded here rather than derived from `current_period_end`, which is the
+     * obvious anchor and the wrong one: Stripe rolls the period forward when it
+     * raises the renewal invoice, so a card that declines leaves
+     * `current_period_end` a month in the *future*. Counting seven days from
+     * there would hand somebody whose payment failed the rest of an unpaid
+     * period and a week on top.
+     *
+     * The writer sets it on the transition into `past_due` and clears it on any
+     * transition out, so the grace is seven days from the failure rather than
+     * from anything Stripe's period arithmetic happens to say.
+     */
+    pastDueSince: timestamp("past_due_since", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false).notNull(),
+    /**
+     * A price this subscription has been agreed to move onto, and when.
+     *
+     * Both null in the ordinary case. They are filled when somebody asks to go
+     * from the annual price to the monthly one, which cannot take effect now
+     * without taking back a year they have already paid for, so Stripe holds it
+     * as a schedule and this records what that schedule says. Stored rather than
+     * fetched so the plan tab is a database read; kept honest by being derived
+     * from the schedule on every reconcile rather than written once and trusted,
+     * because a schedule can also be changed in Stripe's own dashboard.
+     */
+    scheduledPriceId: text("scheduled_price_id"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    /**
+     * When the snapshot above was read from Stripe.
+     *
+     * The monotonic guard, and the reason it is our clock rather than Stripe's:
+     * a Subscription carries no version, and its `created` is the subscription's
+     * birthday rather than the revision's. Two replicas fetching concurrently
+     * both hold a true answer, and the later fetch saw the later state, so a
+     * write whose fetch is older than the stored one is refused rather than
+     * allowed to put a cancelled subscriber back on the paid plan.
+     */
+    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.stripeSubscriptionId] }),
+    unique("billing_subscription_stripe_id_unique").on(table.stripeSubscriptionId),
+    // The reconciliation sweep reads by staleness and nothing else:
+    // `synced_at < cutoff` ordered by `synced_at`, fifty at a time. Neither key
+    // above helps with that, so without this the sweep scans the whole table
+    // and sorts it to take the oldest fifty — every tick, for the life of the
+    // deployment, on the one query that runs whether or not there is anything
+    // to do.
+    //
+    // On `synced_at` alone rather than on `(status, synced_at)`: the status
+    // filter admits six of the eight values, so it removes almost nothing,
+    // while the ordering is what the plan actually needs.
+    index("billing_subscription_synced_at_idx").on(table.syncedAt),
+  ],
+);
+
+/**
+ * A plan an operator granted by hand, outranking whatever Stripe says.
+ *
+ * One row per person. `expiresAt` is nullable because a permanent grant is a
+ * real thing an operator wants, and it is spelled out rather than defaulted so
+ * that giving somebody a month is not one keystroke away from giving them
+ * forever. `reason` and `operator` are not decoration: an override is the one
+ * place this product lets a human overrule its own records, and an unexplained
+ * one is indistinguishable from a mistake a year later.
+ */
+export const billingOverrides = pgTable("billing_override", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  plan: planEnum("plan").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  reason: text("reason").notNull(),
+  operator: text("operator").notNull(),
+  ...timestamps,
+});
+
+/**
+ * A mutation this process intended to make at Stripe, recorded before it tried.
+ *
+ * The row exists so an ambiguous answer is recoverable. A create that times out
+ * may or may not have charged a card, and the only safe retry is one carrying
+ * the same idempotency key Stripe already saw — which means the key has to
+ * outlive the request that generated it. Shaped like `idempotency_record` for
+ * the same reason that table is shaped that way, and keyed the same way.
+ */
+export const billingOperations = pgTable(
+  "billing_operation",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    operation: text("operation").notNull(),
+    /** The caller's key, exactly as `idempotency_record` uses one. */
+    key: text("key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    /**
+     * The key handed to *Stripe*, and a fresh UUID rather than the caller's.
+     *
+     * Stripe scopes an idempotency key to the whole account, not to a customer,
+     * so reusing the caller's would let two people who happened to choose the
+     * same key collide at Stripe — one of them receiving the other's answer.
+     * Minted here, stored before the call, and reused by every retry of the
+     * same caller key, which is what makes an ambiguous answer recoverable
+     * rather than a second charge.
+     */
+    stripeIdempotencyKey: text("stripe_idempotency_key").notNull(),
+    state: billingOperationStateEnum("state").notNull(),
+    result: jsonb("result"),
+    ...timestamps,
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.operation, table.key] }),
+    unique("billing_operation_stripe_key_unique").on(table.stripeIdempotencyKey),
+    check("billing_operation_request_hash_check", sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`),
+  ],
+);
+
+/**
+ * Which Stripe deliveries have already been handled.
+ *
+ * The one table here that carries no `user_id` and cascades from nobody, and
+ * that is deliberate rather than an oversight. An event names a Stripe
+ * customer, not a user, so it cannot be written tenant-first — the mapping is
+ * what the handler looks up, and it may be missing. More importantly, cascading
+ * this away with a deleted account would drop the record that a delivery had
+ * been processed, and Stripe retries for up to 72 hours: the next attempt would
+ * be handled a second time, as new.
+ *
+ * It is Stripe's record of what Stripe sent, and it belongs to the deployment
+ * rather than to any one person.
+ *
+ * There is no `processed_at`, deliberately. The row is written in the same
+ * transaction as the work it guards, so it exists if and only if the work
+ * committed: a column recording *when* it was processed could only ever repeat
+ * `created_at`, and a nullable one would advertise a half-handled state this
+ * design cannot produce.
+ */
+export const billingWebhookEvents = pgTable(
+  "billing_webhook_event",
+  {
+    eventId: text("event_id").primaryKey(),
+    type: text("type").notNull(),
+    ...timestamps,
+  },
+  // No index beyond the primary key, deliberately. An earlier draft carried one
+  // on `created_at` for a retention sweep that keeps 72 hours of history; that
+  // sweep was never written, so the index had no reader and cost a write on the
+  // webhook hot path for nothing.
+  //
+  // Keeping every event is affordable: a row is an id, a type and two
+  // timestamps, and it is only ever read by primary key, when a delivery asks
+  // whether it has been handled before. A deployment taking a thousand
+  // deliveries a day accumulates a few megabytes a year. If that ever stops
+  // being true, the sweep and the index arrive together.
+);
+
+export type BillingCustomerRow = typeof billingCustomers.$inferSelect;
+export type BillingSubscriptionRow = typeof billingSubscriptions.$inferSelect;
+export type BillingOverrideRow = typeof billingOverrides.$inferSelect;

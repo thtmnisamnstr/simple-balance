@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 3,986 lines of hand-written CSS in
+Query for server state, and 4,053 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -222,7 +222,7 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:867-876` for `.input` and at `styles.css:3358-3362` for
+`styles.css:872-880` for `.input` and at `styles.css:3406-3412` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
@@ -289,11 +289,11 @@ section is a proposal, and says so.
 
 **House, and a proposal rather than a rule until the tokens exist.**
 
-Today: 289 padding, margin and gap declarations across **35 distinct pixel
+Today: 291 padding, margin and gap declarations across **35 distinct pixel
 values**, running 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 19, 20, 21, 22, 24, 26, 28, 30, 32, 34, 35, 38, 42, 48, 55, 72, 248. `gap` alone
-takes 17 distinct single values, the commonest being 8px seventeen times, 10px
-and 12px twelve each, and 6px and 7px eight each. Nine, eleven, thirteen and
+takes 17 distinct single values, the commonest being 8px nineteen times, 10px
+thirteen, 12px twelve, 6px ten and 7px eight. Nine, eleven, thirteen and
 seventeen pixels are not decisions.
 
 Proposed ramp, nine steps, Carbon-shaped rather than GOV.UK-shaped because a
@@ -323,7 +323,7 @@ of it.**
 
 ### 3.2 Radius
 
-Today: 61 declarations across **19 distinct values**. No two cards match:
+Today: 62 declarations across **19 distinct values**. No two cards match:
 `.metric-card` and `.balance-snapshot` at 11px, `.table-card` at 12px, `.panel`
 and `.account-card` at 13px, `.modal` at 15px, `.auth-ledger-card` at 18px,
 `.auth-art` at 20px.
@@ -342,7 +342,7 @@ of what is here, and it is four steps plus a pill:
 
 ### 3.3 Type
 
-Today: 113 `font-size` declarations across nine pixel values (11, 12, 13, 14,
+Today: 114 `font-size` declarations across nine pixel values (11, 12, 13, 14,
 15, 16, 17, 20, 32) plus two `clamp()` expressions.
 
 Proposed: seven points, and GOV.UK's rule that a new style aligns to an existing
@@ -369,7 +369,7 @@ accounts.
 
 ### 3.4 Weight
 
-Today: **30 `font-weight` declarations carrying 14 distinct values**: 400, 500,
+Today: **31 `font-weight` declarations carrying 14 distinct values**: 400, 500,
 570, 600, 620, 630, 650, 660, 700, 720, 730, 750, 760, 780. That is very nearly
 a weight per component.
 
@@ -415,8 +415,8 @@ layer in the app are free to coincide, and that is the one exception it carries.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:3746`), 980px
-(`styles.css:3770`), 780px (`styles.css:3777`) and 560px (`styles.css:3856`).
+stylesheet in descending order: 1050px (`styles.css:3797`), 980px
+(`styles.css:3821`), 780px (`styles.css:3828`) and 560px (`styles.css:3907`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -440,10 +440,10 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
-`visibility`, `styles.css:3662-3664`), and there are two reduced-motion
+`visibility`, `styles.css:3360-3365`), and there are two reduced-motion
 blocks: `styles.css:681-685`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:3977-3986`, a blanket rule setting
+(section 7.3), and `styles.css:4012-4021`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything.
 
@@ -474,11 +474,19 @@ the two names the block contains.
 `Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
 sans-serif` at `styles.css:95-97`. **Inter is never loaded.** There is no
 `@font-face` in the stylesheet, no font file in `public/` (which holds
-`apple-touch-icon.png`, `favicon.svg` and `theme-boot.js`), no stylesheet link,
-and the Content-Security-Policy declares no `font-src`, so it falls back to
-`default-src 'self'` and a CDN font would be blocked
-(`src/server/http-security.ts:22-32`,
-`deploy/docker/nginx-security-headers.conf:10`).
+`apple-touch-icon.png`, `favicon.svg` and `theme-boot.js`), and no stylesheet
+link. On the policy every page carries by default the Content-Security-Policy
+declares no `font-src` at all, so it falls back to `default-src 'self'` and a
+CDN font is blocked.
+
+One deployment shape is the exception, and it does not change the conclusion. A
+deployment serving advertising carries `font-src 'self' https: data:`, because
+Google's consent message loads its own faces — so a CDN font *would* load there.
+That is a hole opened for a vendor rather than a decision about this product's
+typography: the stylesheet still links nothing, so the app still renders in the
+system font on that deployment exactly as on every other. Naming it here because
+the sentence above was written as though the policy were the reason Inter is not
+loaded, and it is not — the reason is that nothing asks for it.
 
 So the app renders in the system font on every machine that does not happen to
 have Inter installed. Two honest resolutions, and the guide does not pick
@@ -500,7 +508,7 @@ does not exist.
 
 ### 6.1 The inventory
 
-**House.** `src/client/components.tsx` is the component library: twenty-two
+**House.** `src/client/components.tsx` is the component library: twenty-four
 components, three helpers (`compareForSort`, `useConfirm`, `progressLabel`) and
 two exported types.
 There is no list of what it contains, which is how `.settings-note` became the
@@ -526,6 +534,8 @@ generic muted paragraph and `.section-title` grew two incompatible layouts.
 | `ProgressBar`, `progressLabel` | How far a long write has got, and the sentence beside it (12.6) |
 | `RequiredNote` | The one sentence a form says about required fields (8.4) |
 | `ErrorSummary` | The submit-time error list focus lands on (8.3) |
+| `SettingsTabs` | The Settings section strip, and the one navigation in the app that reloads the document on purpose (6.1) |
+| `AdSlot` | One ad unit, in `src/client/ads.tsx` rather than here, and it renders nothing unless the server said to (6.1) |
 
 Two members of the library live in `src/client/forms.tsx` rather than here:
 `PayeeInput` and `CategoryPicker`. Both are exported, both are used off their
@@ -537,6 +547,38 @@ form logic beside them owns. The point of listing them is 6.2's duplicate
 check: a control absent from the inventory is a control the check cannot fire
 for, which is how `TransactionForm` carried a byte-for-byte copy of
 `PayeeInput` for a release.
+
+**One component lives outside this file on purpose.** `AdSlot`
+(`src/client/ads.tsx`) is the only control this product renders that a person
+did not ask for, and it is the only one whose markup belongs to somebody else:
+what fills it is Google's, inside an iframe this app cannot reach into. Keeping
+it beside the loader that fetches that vendor's script — rather than in the
+library beside `Button` and `Field` — is what makes "who renders an ad, and
+when" one file to read instead of two.
+
+It renders `null` unless the server sent an `AdPlacement`, which it does not for
+anybody entitled to more than a free plan. The gate is not in the browser at
+all: the page is simply never given the ids. That is deliberate, and the reason
+is in 6.2's terms — the decision is a server one and putting a copy of it here
+would be a second place for it to be written differently.
+
+**One component here navigates by document load, and it is the only one.**
+`SettingsTabs` renders plain anchors rather than `Link`, because Settings and
+the plan tab are served under different content security policies — the plan tab
+mounts Stripe's payment form — and a policy belongs to the document it arrived
+with. A client-side push between them carries the wrong policy: into the plan
+tab the payment form never appears, and out of it every page showing balances
+runs with Stripe's origins allowed. `src/client/router.tsx` enforces the second
+half, so leaving that document is a load however it is reached.
+
+**One screen renders controls this library did not make.** The plan and billing
+tab mounts Stripe's `PaymentElement`, which draws its own card fields inside an
+iframe from `js.stripe.com`. They are not in the inventory and cannot be: the
+markup is Stripe's, the styling is Stripe's, and nothing on this side can reach
+into it. That is the point — no card number ever touches this app — and it is
+also why that tab is the one place in the product where a form control does not
+come from `components.tsx`. Everything around it, including the submit button
+and the error message, does.
 
 *Not checked mechanically.* A test could assert that every exported function in
 `components.tsx` has a row, which would catch an addition but not a duplicate.
@@ -991,7 +1033,7 @@ float. GOV.UK's reasons (accidental scroll increments, no feedback on a
 non-numeric entry) are secondary and point the same way.
 
 **Scope this exactly.** A blanket ban on `type="number"` in the client would
-fail on correct code: `src/client/forms.tsx:1294` and `:3014` both use it for
+fail on correct code: `src/client/forms.tsx:1299` and `:3019` both use it for
 the recurrence interval, with `min` and `max`, which is an integer count where a
 spinner is arguably right. The rule is: no `type="number"` on a field bound to a
 decimal-string money value.
@@ -1068,8 +1110,8 @@ generated by `useId()` inside a `role="radiogroup"` container with an
 `aria-label`. A constant name is forbidden, because two instances of one form can
 be on a page at once and a shared name silently merges them.
 
-`TransactionTypeChoice` (`src/client/forms.tsx:493`, the group markup at
-`:538`) is the reference
+`TransactionTypeChoice` (`src/client/forms.tsx:498`, the group markup at
+`:543`) is the reference
 implementation: a real radio group with roving tabindex and arrow, Home and End
 handling that wraps at both ends when a type is mandatory, `aria-pressed`
 toggles when "no type" is a real answer, and a discriminated union prop pair so
@@ -1082,7 +1124,7 @@ separate groups, and covers the roving tabindex and the wraparound.
 ### 8.9 Comboboxes
 
 **House, settled.** An input offering a `<datalist>` declares no widget ARIA of
-its own: `src/client/forms.tsx:339`, `:630` and `src/client/bulk-edit.tsx:96`
+its own: `src/client/forms.tsx:344`, `:635` and `src/client/bulk-edit.tsx:96`
 carry `list`, plus an `aria-label` where no visible `<label>` wraps them — a
 name, which every control owes, not a role. All three used to add
 `role="combobox"`, `aria-autocomplete="list"` and
@@ -1121,7 +1163,7 @@ inconsistency during review:
 
 1. **The editors are the modal's own components, never copies.** The cells
    render `PayeeInput` and `CategoryPicker` through the `onCommit`/`onCancel`
-   API added for exactly this (`src/client/forms.tsx:312-318`), and the write
+   API added for exactly this (`src/client/forms.tsx:317-323`), and the write
    is the same PUT the modal sends — the whole draft plus the expected
    version — so everything the server enforces about a draft is enforced here
    identically, and a concurrent edit is refused rather than overwritten.
@@ -1162,7 +1204,7 @@ and the editors a split does not get.
 
 **House.** Cloning a transaction prefills the staging form from the source, and
 three fields are scrubbed rather than carried
-(`src/client/forms.tsx:1507-1534`): leg ids, so the copy grows its own legs
+(`src/client/forms.tsx:1512-1539`): leg ids, so the copy grows its own legs
 rather than claiming the source's; `externalId`, because it is a bank file's
 identity for one real row, and a copy carrying it would be swallowed by the
 duplicate check as already-imported; and `templateId`, because provenance
@@ -1352,8 +1394,8 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | `.modal-header` | `styles.css:2313` | sticky |
 | `.import-preview` | `styles.css:2457` | sticky |
 | `.merge-panel` | `styles.css:2746` | sticky |
-| `.nav-scrim` | `styles.css:3798` | fixed |
-| `.mobile-header` | `styles.css:3808` | sticky |
+| `.nav-scrim` | `styles.css:3849` | fixed |
+| `.mobile-header` | `styles.css:3859` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1460,7 +1502,7 @@ tables (`DashboardPage.tsx:194` and `ReportsPage.tsx:257` were the offenders).
 Instants go through `formatTimestamp(instant, timezone)`
 (`src/client/money.ts:333-348`), whose zone comes from `useTimezone()`: the
 activity log (`src/client/pages/ActivityPage.tsx:60`) and the connected-apps
-panel (`src/client/pages/SettingsPage.tsx:535-536`) each rolled their own in the
+panel (`src/client/pages/SettingsPage.tsx:574`) each rolled their own in the
 *browser's* zone, so an audit trail read while travelling disagreed with the
 dates on the entries it audits. A date column is right-aligned or left-aligned
 by taste, but it gets tabular figures either way.
@@ -1521,7 +1563,7 @@ where all adjacent colours clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
-This product keeps ten, on measured grounds recorded at `styles.css:3320-3332`.
+This product keeps ten, on measured grounds recorded at `styles.css:3485-3497`.
 The previous six-colour set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
 the same colour; the current ten reach 5.6 in light and 4.7 in dark. Going from
@@ -1558,7 +1600,7 @@ light, which is three times better than the six it replaced and still not enough
 on its own.
 
 **The remedy the CSS comment named has landed.** Nine of the ten line series
-carry a `stroke-dasharray` (`styles.css:3366-3374`) and series 0 stays solid,
+carry a `stroke-dasharray` (`styles.css:3530-3534`) and series 0 stays solid,
 because that is what a single-series chart gets and what a plain line should look
 like. A dash pattern is orthogonal to hue, which is the whole point: two series
 that look alike to one reader are still two different lines. The patterns differ
@@ -1857,7 +1899,7 @@ confirmations and progress, and reaches for `role="alert"` only for something
 time-sensitive that interrupts.
 
 Announcement is already handled: `Alert` sets `role={kind === "error" ? "alert"
-: "status"}` (`src/client/components.tsx:986`), so a success alert is a polite
+: "status"}` (`src/client/components.tsx:1034`), so a success alert is a polite
 live region and an error alert interrupts. The two real defects are elsewhere.
 There are three separate `aria-live="polite"` regions in the client
 (`components.tsx:230`, `TransactionBrowser.tsx:756`, `TemplatesPage.tsx:424`),
@@ -1898,7 +1940,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:3977-3986` freezes it into a bar that reads as stuck.
+  block at `styles.css:4012-4021` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -1952,7 +1994,7 @@ The rules, in the order they matter:
 - **Three bars now, and a fourth has to say which of them it is not.**
   `.progress-track` (`styles.css:1345`, `DashboardPage.tsx:254`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3699`, `BudgetsPage.tsx:1168`) is money, with an
+  `.budget-bar` (`styles.css:3750`, `BudgetsPage.tsx:1168`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -2289,7 +2331,7 @@ is which.
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
    trick the colour test uses, with an allow-list for `1px` borders, `0` and
-   percentages. This is the largest unmanaged surface in the stylesheet: 289
+   percentages. This is the largest unmanaged surface in the stylesheet: 291
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
    numbers to the file, which is what stopped this item and section 3.1 quoting
@@ -2312,7 +2354,7 @@ is which.
    *a* scope; which one it should be is still uncounted, and a `scope="row"` in a
    `thead` would pass today.
 6. **No loading paragraph.** The `Skeleton` migration is done — 23 skeletons
-   against four deliberate paragraphs, at `App.tsx:205`,
+   against four deliberate paragraphs, at `App.tsx:215`,
    `AccountDetailPage.tsx:72`, `CategoryDetailPage.tsx:24` and
    `TemplateDetailPage.tsx:19`, each of which is a whole-page swap rather than a
    region — so this is a grep with a four-line allow-list rather than a grep

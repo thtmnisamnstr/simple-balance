@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 82 | `npm test` | nothing |
-| Unit (jsdom) | 41 | `npm test` | nothing |
-| Integration | 57 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Unit (node) | 91 | `npm test` | nothing |
+| Unit (jsdom) | 42 | `npm test` | nothing |
+| Integration | 61 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -18,14 +18,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 124 pass, 56 skip | **1,258 pass, 664 skip** |
-| `npm test`, database set | 180 pass | **1,922 pass** |
-| `npm run test:integration` | 57 pass | 665 pass |
+| `npm test`, no database | 134 pass, 60 skip | **1,392 pass, 698 skip** |
+| `npm test`, database set | 194 pass | **2,090 pass** |
+| `npm run test:integration` | 61 pass | 699 pass |
 
-The integration tier reports 665 tests on its own and 664 skips inside a
+The integration tier reports 699 tests on its own and 698 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-1,223 rather than among the skips, which is why the two rows add up to 1,887
+1,392 rather than among the skips, which is why the two rows add up to 2,090
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -347,8 +347,8 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:335` `` |
-| Bare filename | `` `forms.tsx:334` `` — resolved by basename |
+| Full path | `` `src/client/forms.tsx:340` `` |
+| Bare filename | `` `forms.tsx:335` `` — resolved by basename |
 | Continuation | `` `:620` `` — inherits the last file the prose named |
 
 The test knew only the first for a while, and that gap was expensive. Adopting

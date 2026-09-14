@@ -22,7 +22,15 @@ describe("Docker runtime", () => {
       dependencies: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
+    // Bundled by Vite into the client, so the server image never imports them
+    // and shipping them would be megabytes of node_modules nothing reads. The
+    // two Stripe entries are the pair that needs saying out loud: `stripe` is
+    // the server SDK and belongs in the runtime image, while `@stripe/*` are
+    // its browser halves and do not — three packages from one vendor, split
+    // across the boundary.
     const browserOnlyDependencies = new Set([
+      "@stripe/react-stripe-js",
+      "@stripe/stripe-js",
       "@tanstack/react-query",
       "lucide-react",
       "react",
@@ -206,7 +214,17 @@ describe("the decomposed images", () => {
 
   it("proxies every route prefix the API actually answers on", () => {
     const api = readFileSync(new URL("../src/server/api.ts", import.meta.url), "utf8");
-    const proxied = new Set(["api", "mcp", "health", ".well-known"]);
+    const template = readFileSync(
+      new URL("../deploy/docker/nginx.conf.template", import.meta.url),
+      "utf8",
+    );
+    // Read out of the template rather than listed here. A hardcoded copy is a
+    // mirror, not a check: it agrees with itself while the config it is meant
+    // to be holding to account says something else.
+    const alternation = /location ~ \^\/\(([^)]+)\)\(\/\|\$\)/.exec(template);
+    expect(alternation, "no proxy location in the template").not.toBeNull();
+    const proxied = new Set(alternation![1]!.split("|").map((name) => name.replaceAll("\\", "")));
+    expect(proxied.size, "parsed no prefixes out of the proxy location").toBeGreaterThan(3);
     // Anything the client bundle is expected to own rather than the API.
     const servedByNginx = new Set(["assets"]);
     // Answered by the API and deliberately unreachable through the browser's
@@ -219,10 +237,6 @@ describe("the decomposed images", () => {
       [...api.matchAll(/app\.(?:get|post|put|delete|use|all|on)\(\s*"\/([^/"*]+)/g)].map(
         (match) => match[1],
       ),
-    );
-    const template = readFileSync(
-      new URL("../deploy/docker/nginx.conf.template", import.meta.url),
-      "utf8",
     );
     for (const prefix of prefixes) {
       if (servedByNginx.has(prefix) || deliberatelyNotProxied.has(prefix)) continue;
@@ -339,5 +353,66 @@ describe("the labels on every image", () => {
       expect(dockerfile, path).not.toContain("org.opencontainers.image.created");
       expect(dockerfile, path).not.toContain("org.opencontainers.image.revision");
     }
+  });
+});
+
+/**
+ * Every `SB_` name the nginx template reads has somewhere to come from.
+ *
+ * The nginx image's entrypoint builds its envsubst list by walking the
+ * environment and keeping the names that match `NGINX_ENVSUBST_FILTER`. A name
+ * that is not *in* the environment is therefore never substituted: it survives
+ * into the rendered config as a literal `${SB_WHATEVER}`, nginx reads that as a
+ * variable reference, and the container exits with
+ * `[emerg] unknown "sb_whatever" variable` before it serves anything.
+ *
+ * That is not a degraded mode. The frontend container is the only one serving
+ * the bundle and the only one proxying `/api`, `/mcp`, `/health` and
+ * `/.well-known`, so the whole product is unreachable while the API and the
+ * scheduler stay healthy and log nothing about it. It shipped exactly once, in
+ * the change that added the rehearsal switch, and every test in this repository
+ * read the template as text rather than running it.
+ *
+ * An `ENV` default in the image is what makes the name present, and it is what
+ * makes `docker run`, Compose and Helm all work without each repeating it.
+ */
+describe("the nginx template and the image that renders it", () => {
+  const template = readFileSync(
+    new URL("../deploy/docker/nginx.conf.template", import.meta.url),
+    "utf8",
+  );
+  const dockerfile = readFileSync(
+    new URL("../deploy/docker/frontend.Dockerfile", import.meta.url),
+    "utf8",
+  );
+
+  it("gives every SB_ name the template reads a default in the image", () => {
+    // Both spellings. `envsubst` substitutes `$SB_NAME` exactly as it does
+    // `${SB_NAME}`, so a census that knew only the braced form would miss a
+    // reference written the other way — and reproduce the container-will-not-
+    // start defect this guard exists to prevent, while passing.
+    const referenced = [...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!);
+    const defined = new Set(
+      [...dockerfile.matchAll(/^ENV (SB_[A-Z0-9_]+)=/gm)].map((match) => match[1]!),
+    );
+    // The census finds something, so a broken regex reads as a pass rather than
+    // as a template with no variables in it.
+    expect(new Set(referenced).size).toBeGreaterThanOrEqual(4);
+    const orphaned = [...new Set(referenced)].filter((name) => !defined.has(name));
+    expect(orphaned, "referenced by the template with no ENV default to render from").toEqual([]);
+  });
+
+  /**
+   * And the other direction, because a default nothing reads is a setting an
+   * operator can set with no effect — which is the shape the compose recipe
+   * shipped for a release with `IDEMPOTENCY_RETENTION_HOURS`.
+   */
+  it("reads every SB_ default the image declares", () => {
+    const defined = [...dockerfile.matchAll(/^ENV (SB_[A-Z0-9_]+)=/gm)].map((match) => match[1]!);
+    const referenced = new Set(
+      [...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!),
+    );
+    const unread = defined.filter((name) => !referenced.has(name));
+    expect(unread, "defaulted in the image and read by nothing").toEqual([]);
   });
 });

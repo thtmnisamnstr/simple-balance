@@ -1,7 +1,7 @@
 import { and, eq, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { Decimal } from "decimal.js";
-import type { Actor } from "../../shared/domain.js";
+import { accountAllowance, type Actor } from "../../shared/domain.js";
 import {
   accountCreateSchema,
   accountUpdateSchema,
@@ -31,6 +31,7 @@ import {
   writeAudit,
 } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
+import { countOwnedAccounts, getEntitlement } from "./billing.js";
 import { calendarDayIn, todayIn } from "../../shared/recurrence-dates.js";
 import { log } from "../log.js";
 
@@ -640,6 +641,33 @@ async function assertAccountNameAvailable(
   }
 }
 
+/**
+ * Refuses somebody's fourth account on a free plan.
+ *
+ * Silent on a deployment that sells nothing, which is the default and every
+ * installation upgrading into this release: `getEntitlement` answers
+ * `{ billing: false }` without a query and this returns.
+ *
+ * An account already over the limit is not touched. Somebody who had five
+ * accounts before an operator turned billing on keeps all five, can edit them,
+ * import into them and transact on them; only the sixth is refused. Taking data
+ * away to sell it back is not a thing this product does.
+ */
+async function assertAccountAllowance(tx: DbTransaction, actor: Actor) {
+  const entitlement = await getEntitlement(actor, tx);
+  if (!entitlement.billing || entitlement.accountLimit === null) return;
+  const allowance = accountAllowance(entitlement, await countOwnedAccounts(tx, actor));
+  if (allowance.ok) return;
+  throw conflict(
+    allowance.message,
+    { limit: allowance.limit, current: allowance.current, plan: entitlement.plan },
+    // An agent cannot buy anything, so telling it to upgrade would be telling it
+    // to do something it has no way to do. It gets the number and who to ask.
+    `This ledger is on a plan that keeps ${allowance.limit} accounts and has ${allowance.current}. ` +
+      "Only the person who owns it can raise that, from Settings in the browser.",
+  );
+}
+
 export async function createAccount(actor: Actor, input: unknown, transaction?: DbTransaction) {
   const parsed = accountCreateSchema.parse(input);
   return withTransaction(transaction, async (tx) => {
@@ -648,6 +676,11 @@ export async function createAccount(actor: Actor, input: unknown, transaction?: 
     // every other namespace here has been protected from since its check was
     // written.
     await lockAccountNamespace(tx, actor);
+    // Inside the lock that is already here, and before the name check, because
+    // the cap is the refusal no different name gets around. The lock is what
+    // makes the count mean something: two requests for somebody's fourth
+    // account would otherwise both read three and both insert.
+    await assertAccountAllowance(tx, actor);
     await assertAccountNameAvailable(tx, actor, parsed.name);
     const [created] = await tx
       .insert(ledgerAccounts)

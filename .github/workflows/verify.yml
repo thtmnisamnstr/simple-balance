@@ -310,3 +310,43 @@ jobs:
               || { echo "::error::a hashed asset is missing $header"; exit 1; }
           done
           echo "the shell and a hashed asset both carry all twelve headers"
+
+          # And the one page whose policy differs. Rendering it is the part a
+          # test cannot do: nginx takes a static response's Content-Type from
+          # the request path, and `/settings/plan` has no extension, so the
+          # wrong directive serves the application as a file download that no
+          # browser executes. Both spellings, because the client router renders
+          # the tab for either and a location catching one would serve the other
+          # under the strict policy.
+          for path in /settings/plan /settings/plan/; do
+            plan=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$path")
+            printf '%s' "$plan" | grep -qi "^content-type: text/html" \
+              || { echo "::error::$path is not served as text/html"; exit 1; }
+            # Stripe is not configured on this container, so that page must come
+            # back under exactly the policy every other page gets.
+            printf '%s' "$plan" | grep -qi "js.stripe.com" \
+              && { echo "::error::$path carries the Stripe policy with no Stripe configured"; exit 1; }
+          done
+          echo "the plan page renders under the strict policy in both spellings"
+
+          docker rm -f frontend-probe
+          # Again with Stripe configured, which is the case the wider policy
+          # exists for and the only one in which the payment form can load.
+          docker run -d --name frontend-probe \
+            -e SB_API_ORIGIN=http://127.0.0.1:3000 \
+            -e SB_BILLING_CONFIGURED=true \
+            -p 127.0.0.1:8099:8080 simple-balance-frontend:test
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8099/; then break; fi
+            sleep 1
+          done
+          for path in /settings/plan /settings/plan/; do
+            plan=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$path")
+            printf '%s' "$plan" | grep -qi "^content-security-policy:.*js.stripe.com" \
+              || { echo "::error::$path does not carry the Stripe policy"; exit 1; }
+          done
+          # And every other page keeps the strict one, which is the promise the
+          # whole surface split rests on.
+          curl -fsS -D - -o /dev/null http://127.0.0.1:8099/accounts | grep -qi "js.stripe.com" \
+            && { echo "::error::the Stripe policy leaked onto an ordinary page"; exit 1; }
+          echo "the plan page carries the Stripe policy and no other page does"

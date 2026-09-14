@@ -91,13 +91,24 @@ const mentionedIn = (file: string) =>
   );
 
 /**
- * The nginx container's own three. Neither example file configures it: the root
- * file serves the single container, which contains no nginx, and the compose
- * file sets them on the frontend service beside the reason each is what it is.
+ * The nginx container's own. Neither example file configures it: the root file
+ * serves the single container, which contains no nginx, and the compose file
+ * sets them on the frontend service beside the reason each is what it is.
  * `docs/deployment.md` says so where they are documented, which is what makes
  * this an exception rather than the drift above.
+ *
+ * `SB_CSP_REPORT_ONLY` is deliberately *not* here: the server reads it too, and
+ * the example files are where a reader meets it. `SB_BILLING_CONFIGURED` is,
+ * because only nginx reads it — the server derives the same fact from the
+ * Stripe settings themselves.
  */
-const frontendImageOnly = ["SB_API_ORIGIN", "SB_FRONTEND_PORT", "SB_MAX_UPLOAD_SIZE"];
+const frontendImageOnly = [
+  "SB_API_ORIGIN",
+  "SB_FRONTEND_PORT",
+  "SB_MAX_UPLOAD_SIZE",
+  "SB_BILLING_CONFIGURED",
+  "SB_ADS_CONFIGURED",
+];
 /**
  * The bundled `postgres:16-alpine` container's own variable, documented at
  * `deploy/compose/README.md` beside the file that uses it. Putting another
@@ -156,6 +167,53 @@ describe("what the example files and the deployment tables say about each other"
     for (const name of bundledDatabaseOnly) {
       expect(examples, name).toContain(name);
       expect(documented(), name).not.toContain(name);
+    }
+  });
+});
+
+/**
+ * A variable the compose example documents and the compose file never passes.
+ *
+ * The two files look like one thing and are not: `.env.example` is copied to
+ * `.env`, which Compose reads for *interpolation*, and a variable only reaches
+ * a container if `compose.distributed.yml` names it in its environment block.
+ * So a variable can be documented, uncommented by an operator, and do nothing
+ * at all — which is worse than not documenting it, because the operator has
+ * every reason to believe it worked.
+ *
+ * This was a real gap: nine monetization variables were added to the example
+ * and to the deployment tables, and none of them were wired into the compose
+ * file. Nothing failed, because nothing looked.
+ */
+describe("what the compose example promises and the compose file delivers", () => {
+  const compose = read("deploy/compose/compose.distributed.yml");
+  /**
+   * The bundled database container's own variable, consumed by the `postgres`
+   * service's `environment:` rather than by this product — and by the
+   * connection string, where it is interpolated rather than passed through.
+   */
+  const databaseOnly = ["POSTGRES_PASSWORD"];
+
+  it("passes every variable its own example file names", () => {
+    const undelivered = [...mentionedIn("deploy/compose/.env.example")].filter(
+      (name) => !databaseOnly.includes(name) && !new RegExp(`\\b${name}:`).test(compose),
+    );
+
+    expect(undelivered).toEqual([]);
+  });
+
+  it("gives a boolean a real default rather than an empty string", () => {
+    // `${VAR:-}` resolves to "" when the variable is unset, and every boolean
+    // here is parsed against exactly `true` and `false`, so an empty one
+    // refuses to start. The defaulted form is what keeps an unset variable
+    // meaning "off" rather than meaning "stop".
+    const booleans = [...compose.matchAll(/^\s{2}(\w+): \$\{(\w+):-([^}]*)\}$/gm)].filter(
+      ([, name]) => /_(ENABLED|SSL)$/.test(name!),
+    );
+
+    expect(booleans.length).toBeGreaterThan(0);
+    for (const [, name, , fallback] of booleans) {
+      expect(fallback, `${name} falls back to an empty string`).toMatch(/^(true|false)$/);
     }
   });
 });

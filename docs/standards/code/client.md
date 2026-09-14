@@ -54,7 +54,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1716-1728` and `:1720`), and every one of them would be
+(`src/client/forms.tsx:1721-1733` and `:1725`), and every one of them would be
 a synchronisation bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been

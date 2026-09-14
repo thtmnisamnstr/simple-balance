@@ -22,7 +22,15 @@ import {
   X,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useSearchParams } from "./router.js";
+import {
+  isPlanSurfacePath,
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useSearchParams,
+} from "./router.js";
 import { api, ApiClientError, json, type AuthPublicOptions, type Session } from "./api.js";
 import { authClient } from "./auth-client.js";
 import { Alert, Button, Field, Input, Note } from "./components.js";
@@ -41,6 +49,8 @@ import ImportPage from "./pages/ImportPage.js";
 import TemplateDetailPage from "./pages/TemplateDetailPage.js";
 import RecurrencesPage from "./pages/RecurrencesPage.js";
 import TemplatesPage from "./pages/TemplatesPage.js";
+import { AdSlot } from "./ads.js";
+import { PlanPage } from "./pages/PlanPage.js";
 import SettingsPage from "./pages/SettingsPage.js";
 import StagingPage from "./pages/StagingPage.js";
 import TransactionsPage from "./pages/TransactionsPage.js";
@@ -654,6 +664,23 @@ function Shell({ session }: { session: Session }) {
   const [mobileNav, setMobileNav] = useState(false);
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
+
+  /**
+   * No ad on the plan and billing tab, which three documents promise and which
+   * the content security policy does not deliver.
+   *
+   * The policy is the obvious place to look and the wrong one: under
+   * `SB_CSP_REPORT_ONLY` nothing on that page is enforced at all, so a slot
+   * left mounted there would put live Google ads beside the payment form rather
+   * than an empty box. And that page is the one whose entire purpose is selling
+   * their removal.
+   *
+   * Read from the router's location rather than `window`, because this has to
+   * be right for a client-side arrival as well as a document load, and it uses
+   * the router's own predicate so the two cannot disagree about which spellings
+   * are that page.
+   */
+  const ads = isPlanSurfacePath(location.pathname) ? null : session.ads;
   const hamburger = useRef<HTMLButtonElement>(null);
   const drawerClose = useRef<HTMLButtonElement>(null);
   useAdoptBrowserRegion(session);
@@ -866,10 +893,35 @@ function Shell({ session }: { session: Session }) {
               <Route path="/import" element={<ImportPage />} />
               <Route path="/activity" element={<ActivityPage />} />
               <Route path="/settings" element={<SettingsPage session={session} />} />
+              {/* A separate document, not a tab rendered in place, and the
+                  reason is the content security policy: the payment form loads
+                  a script and an iframe from Stripe, which every other page in
+                  this app forbids. A policy belongs to the document it was
+                  served with, so reaching this by a client-side push would keep
+                  the strict one and Elements would fail to load with nothing to
+                  say why. The link into it is a plain anchor for that reason. */}
+              <Route path="/settings/plan" element={<PlanPage session={session} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </TimezoneProvider>
         </main>
+        {/* Outside `<main>`, and that is an accessibility decision rather than a
+            layout one. `<main>` is what the skip link targets and what focus
+            moves to on every route change, and a screen reader entering it
+            reads from the top — so a slot inside it put an advertisement in
+            front of the page on every navigation, for exactly the people least
+            able to skip past it. Below the content, they are reached by
+            continuing rather than by being interrupted.
+
+            Each names itself, so somebody navigating by landmark can pass them.
+            Neither is `aria-hidden`: an ad is content, and hiding it from a
+            screen reader while showing it to everybody else is concealment
+            dressed as accessibility. */}
+        <AdSlot placement={ads} slotId={ads?.bannerSlotId} label="Advertisement" />
+        {/* Off unless the operator asked for a second unit, which is what
+            `footerSlotId` being absent means. An addition to the first rather
+            than a replacement. */}
+        <AdSlot placement={ads} slotId={ads?.footerSlotId} label="Advertisement" />
       </div>
     </div>
   );

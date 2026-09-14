@@ -2,6 +2,229 @@
 
 Notable changes, newest first.
 
+## Unreleased
+
+**This release upgrades cleanly from 0.1.6.** Every new setting is additive and
+every one of them defaults to absent, so a deployment that changes nothing sells
+nothing, limits nobody, shows no advertising, and opens no connection it did not
+open before. No route, tool or CSV column is removed.
+
+### Added
+
+**A plan, sold through Stripe, off by default.** Setting the five `STRIPE_*`
+variables makes Stripe reachable; `SB_BILLING_ENABLED=true` puts a plan on sale
+and holds a free account to three financial accounts. The two are separate
+switches so that winding a deployment down stops new subscriptions without going
+deaf to the ones already running — the state in which somebody is charged for a
+plan the app no longer believes they have. `docs/monetization.md` has the table
+of what each combination turns on, and `docs/billing-operations.md` is the
+runbook: granting a plan by hand, what a refund does and does not change, and
+the order to shut billing down in.
+
+**No advertising on the plan and billing tab**, enforced in the shell rather
+than by the policy. The policy is the obvious place and the wrong one: under
+`SB_CSP_REPORT_ONLY` — the mode an operator is told to run on exactly that page
+— nothing there is enforced, so a slot left mounted would have put live ads
+beside the payment form on the page that sells their removal.
+
+**The ads policy carries what Google's consent message needs.** It does not
+render in an iframe: it appends into the document and styles itself from
+injected blocks and a Google font stylesheet, so under `style-src 'self'` it
+appeared unstyled far down the page, nobody answered it, and in the EEA and UK
+no ad request completed — which looks exactly like having no inventory.
+
+**Advertising, off unless an operator asks for it.** Setting `ADSENSE_CLIENT_ID`
+and `ADSENSE_BANNER_SLOT_ID` shows one unit in the application shell, and an
+optional second at the foot of the page. Never on the plan and billing tab,
+never on sign-in, and never to anybody on a paid plan.
+
+**The server decides who sees an ad, and the browser is never told the rule.**
+A session that should show no ads carries no ad configuration at all, so the
+page has nothing to build a slot from rather than a rule it has to apply
+correctly. That closes both ways this usually goes wrong: the gate cannot be
+written as the inverse of "is on Plus" — which would show ads to every paying
+subscriber on a deployment that had _stopped_ selling, since nobody is on a
+limited plan there — and there is no window between first paint and the
+entitlement arriving. Absent reads as "no ads", so every bug in this fails
+towards showing nothing. Google's script is fetched by the first slot that
+mounts rather than by the document, so a subscriber never loads it, is never
+counted as an impression, and is never tracked by it.
+
+**The publisher id reaches the browser at runtime**, on the session response,
+the same path `STRIPE_PUBLISHABLE_KEY` already takes. One published image serves
+every operator with their own account; nothing is compiled in, and there is no
+shared publisher id.
+
+**Ads are requested non-personalised unless a consent platform is collecting
+consent.** `ADSENSE_CONSENT_MANAGED` defaults to false, and then every request
+carries `requestNonPersonalizedAds` — which is what lets a deployment serve ads
+with no consent platform at all, since Google gates only _personalised_ ads on
+one. It is also the right default on its own merits: the page beside the ad is
+showing somebody their own balances.
+
+An operator who wants personalised ads uses **AdSense's own Privacy and
+messaging**, which is a certified platform, free, and part of the account they
+already have — no second vendor, no second contract, and nothing added to this
+application, because Google's ad tag delivers the consent message itself and
+that tag is already loaded by the first ad slot that renders. The setting then
+stops forcing the flag and lets the platform's answer decide, which is the whole
+point: forcing it on top of a platform would override somebody who consented as
+surely as it protects somebody who did not.
+
+**`/ads.txt` is served automatically**, derived from the publisher id. Without
+it AdSense treats the inventory as unauthorised and pays nothing, which is a
+failure with no symptom inside the product: the ads render, the impressions
+happen, the revenue is zero. An operator selling through other partners serves
+their own file at the edge.
+
+**What serving ads costs the policy is now real rather than promised.** AdSense
+publishes no list of the hosts it loads from, so allowing it means allowing
+scripts, frames and connections to any HTTPS origin, plus `unsafe-eval`, on
+every page but the plan tab. That was documented for a release before it was
+implemented — the settings were accepted, the cost was described, and the app's
+own policy blocked every unit. Both transports carry the axis now, and
+`tests/security-header-parity.test.ts` compares them. `'unsafe-inline'`,
+`base-uri`, `form-action`, `frame-ancestors` and `object-src` are unchanged.
+
+**A tab strip across Settings**, with Preferences and Plan and billing as two
+pages of one section. It navigates with plain anchors rather than the client
+router, which is the one place in the app that does: the two pages are served
+under different content security policies, and a policy belongs to the document
+it arrived with. Leaving the plan tab is a document load too, however it is
+reached — otherwise its wider policy would follow you onto every page that
+renders balances.
+
+**`SB_BILLING_CONFIGURED` on the frontend container.** In the split deployment
+nginx serves the plan tab's document, so nginx decides which content security
+policy it arrives with. It is keyed on whether Stripe is _configured_, not on
+whether a plan is for sale — an operator winding down keeps the Stripe settings
+while their subscribers go on being charged, and replacing an expired card has
+to keep working on that page. The compose recipe derives it from
+`STRIPE_PUBLISHABLE_KEY` so the two cannot disagree.
+
+**`SB_CSP_REPORT_ONLY`, a rehearsal for the plan tab's policy.** Stripe
+publishes only part of the host list Elements actually reaches, so setting this
+makes that page report what its policy would have blocked and block nothing, and
+registers `POST /api/csp-report` for the reports. It reaches that one page:
+every other page goes on enforcing, because learning about a page that renders
+no balances is not worth taking the defence off every page that does. Both
+deployment shapes honour it, and `tests/security-header-parity.test.ts` now
+compares the TypeScript and the nginx spelling across both surfaces and both
+modes — a comparison that ran only for the default surface before, which is how
+the split deployment shipped a plan tab whose payment form could not load.
+
+**A plan and billing tab, at `/settings/plan`.** It shows what the account
+includes, how much of it is used, what it costs — read from Stripe, not from
+this deployment's settings, so the figure on the screen is the figure that gets
+charged — and changes it. Monthly to annual takes effect immediately and charges
+the difference; annual to monthly waits for the renewal, because the period
+already paid for is not this software's to cut short. Cancelling always means
+"at the end of the period", in both directions.
+
+The tab is a separate document rather than a panel on Settings, and the link
+into it is a plain anchor. Stripe's payment form loads a script and an iframe
+from Stripe, which every other page in this app forbids, and a content security
+policy belongs to the document it was served with — so a client-side navigation
+would keep the strict policy and the form would never appear. Every other page
+keeps the `default-src 'self'` policy this container has shipped since 0.1.0,
+byte for byte.
+
+**Four billing routes**, all session-only. `AGENTS.md` now names three MCP
+exceptions rather than two: paying for the deployment is account management, and
+an MCP token is a credential handed to a program. What an agent needs in order to
+explain a refusal it meets — the plan, its ceiling and how much of it is used —
+is on `whoami`.
+
+**A reconciliation sweep**, on the scheduler's existing tick. Every live
+subscription is re-read from Stripe when nothing has been heard about it for
+twelve hours, fifty per tick, oldest first, so a webhook endpoint that was
+misconfigured for a weekend repairs itself within a day of being fixed. It
+returns without touching the database where no Stripe is configured, which is
+the default.
+
+**Two metrics for the Stripe seam** — `simple_balance_stripe_requests_total` and
+`simple_balance_stripe_request_duration_seconds`, labelled by operation and
+outcome and by nothing else — and `simple_balance_billing_sweeps_total`, which
+carries an `off` outcome so a deployment that sells nothing is distinguishable
+from one whose sweep has stopped.
+
+### Changed
+
+**Pressing a plan button means one of seven things, decided in one place.**
+The browser previews that decision and the server enforces it, from the same
+function, the way refunds already work. It arrived after an adversarial
+audit found four defects in the branch it replaces, all of them in corners no
+test covered: an unpaid subscription handed back the wrong interval's invoice,
+so pressing "Monthly — $2" could charge $20; a second downgrade press sent
+Stripe a request it refuses, leaving the plan tab with no working control at
+all; somebody on a price the deployment had stopped selling was read as
+"Monthly" and could be charged immediately for a switch that should have waited;
+and an upgrade on a card that was already failing added a proration charge on
+top of the invoice it was failing. `tests/subscription-action.test.ts` walks
+every Stripe status against both intervals.
+
+**Replacing a card now replaces the card.** Confirming a SetupIntent attaches a
+payment method to the Stripe customer and changes nothing about what is billed —
+a subscription's own default outranks the customer's — so the new card sat
+unused while Stripe went on retrying the dead one. The browser also confirmed it
+with `confirmPayment`, which Stripe.js refuses outright for a SetupIntent. Both
+halves are fixed, the server pins the card and pays the outstanding invoice, and
+there is a `/api/v1/billing/payment-setups/confirmations` route and a
+`setup_intent.succeeded` delivery so neither a closed tab nor an unsubscribed
+webhook endpoint leaves it half done.
+
+**The split deployment serves the plan tab's policy.** nginx serves the
+application shell itself in that shape rather than proxying it, so the content
+security policy the plan tab arrives with is nginx's to set — and it was serving
+the strict one, which blocks `js.stripe.com`. The payment form could not load at
+all. `SB_BILLING_CONFIGURED` now reaches the frontend container, and both spellings
+of the path get the wider policy, because the browser's router renders the tab
+for `/settings/plan` and `/settings/plan/` alike.
+
+**Stopping selling no longer hides the way out.** `/api/auth/methods` reports
+`billingAvailable` from whether Stripe is configured rather than from whether a
+plan is for sale, so turning `SB_BILLING_ENABLED` off stops new subscriptions
+without boarding up the only link to the page where somebody cancels or replaces
+an expired card — while Stripe carries on charging them.
+
+**Deleting an account fails closed on money.** The Stripe customer is deleted
+first, which cancels everything it owns, and the account deletion is refused
+with a `409` if that cannot be confirmed. The `billing_customer` row cascades
+away with the account, so a subscription that outlived the deletion would belong
+to nobody: still charging a card, invisible to the sweep, unreachable from
+anything left in the database.
+
+**`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` take a `_FILE` form**, joining
+the seven that already did and taking that list to nine.
+
+**`/api/billing/*` answers `404` rather than the single-page shell.** A webhook
+aimed at a misspelled path used to get a `200` and an HTML body, which Stripe
+records as delivered — a missed delivery nothing ever retries.
+
+### Fixed
+
+**A promise this project has made since 0.1.0 is now a test.** "This image
+makes no outbound connection nobody configured" carried "not checked
+mechanically" for four releases, because an allow-list of network calls did not
+exist. Stripe arriving as a library rather than a URL is what changed it: the
+way that was made safe — one module imports the vendor, and it turns the SDK's
+own telemetry off — is exactly what makes the promise answerable by reading one
+file. A test now holds all three. A new vendor library is still a reviewer's
+job, and the guide says so rather than implying otherwise.
+
+**`IDEMPOTENCY_RETENTION_HOURS` now reaches the containers.** The compose recipe
+has documented it since 0.1.6 and never passed it, so an operator who set it got
+no retention sweep and no indication why. Nothing tested that the recipe
+delivers what its own example file promises; that is now a test, which is the
+half that keeps it fixed.
+
+**Deleting an account no longer leaves your address behind.** The cleanup of
+pending verification rows matched only the shape a password reset writes, so an
+abandoned account-link or authorization flow left a row holding the user id —
+and, for a link, the email address — after the account was gone. It matches all
+three shapes now. Both are pre-existing defects rather than anything this
+release introduced.
+
 ## 0.1.6 - 2026-09-12
 
 **This release upgrades cleanly from 0.1.5.** A deployment starts on the
@@ -28,7 +251,6 @@ argument never had any effect — but a call that returned success will return a
 failure, and that is worth knowing before upgrading. It is the whole point of
 the change: an open object accepts a hallucinated argument, answers success, and
 teaches the model that the argument works.
-
 
 ### Added
 
@@ -160,7 +382,6 @@ message names what it was and never who it went to, and a failing query names
 the statement and never the values bound into it. That last one was already true
 of the HTTP path and was not true of the MCP path, which logged the error whole
 — including, on a database hiccup during token exchange, a live access token.
-
 
 Seven secrets can be read from a file instead of the environment:
 `AUTH_SECRET`, `DATABASE_URL`, `DIRECT_DATABASE_URL`, `SMTP_PASSWORD`,
@@ -455,7 +676,7 @@ enforces it. **It defaults to zero, which means forever**, so nothing about your
 data changes on upgrade and the number stays an operator's to pick rather than
 one this release imposes.
 
-Setting it is safe because the record makes a retry *quiet* rather than safe: a
+Setting it is safe because the record makes a retry _quiet_ rather than safe: a
 repeated create still meets the duplicate check, a repeated commit finds its
 rows already committed, and a repeated bulk write still carries a count and
 fingerprint that no longer match the set. The sweep removes a bounded batch per
@@ -469,7 +690,7 @@ typed wrongly, so there is no field error, and nothing has been submitted, so
 there is no summary — the button is grey and you guess which of the form's
 conditions is unmet. Each now carries a sentence under it, wired so a screen
 reader hears it as part of the button rather than as text somewhere nearby, and
-it names the *first* thing to fix rather than everything outstanding.
+it names the _first_ thing to fix rather than everything outstanding.
 
 **A line chart no longer relies on colour alone.** Ten account colours cannot
 all be told apart under colour-blind vision — the palette here is the best
@@ -520,7 +741,7 @@ none of them Settings; the stacked panel it sat in got the same treatment.
 
 **Every field's label, hint and error now reach the control they are about.**
 They were all on screen and none of them was connected: a label associated by
-wrapping rather than by name, a hint rendered *after* the control with nothing
+wrapping rather than by name, a hint rendered _after_ the control with nothing
 pointing at it, and no error slot at all — no `aria-invalid` anywhere in the
 app. So a screen reader read a box with a name and no explanation of what to
 type, and a field that was wrong said so in colour and in nothing else. A field
@@ -530,7 +751,7 @@ marked invalid, and the control pointing at the sentence.
 One visible consequence: **a hint sits above its control now, not below it.**
 That is GOV.UK's order, and it is also what fixes the deeper problem — a name
 computed from a label is that label's whole text content, so a hint inside the
-label was becoming part of the control's *name* ("Amount Up to eighteen decimal
+label was becoming part of the control's _name_ ("Amount Up to eighteen decimal
 places") instead of its description. The old markup got away with it only
 because the hint was not associated at all.
 
@@ -546,7 +767,7 @@ Four holes, each the same shape: something moved or vanished and focus was left
 behind, so the next Tab started at the top of the document — past eleven
 navigation links — to get back to a list somebody was in the middle of.
 
-There is a **skip link** now, first in the tab order, and it lands *in* the main
+There is a **skip link** now, first in the tab order, and it lands _in_ the main
 region rather than merely scrolling to it. **Following a link** moves focus to
 the page it opened and resets the scroll, where `pushState` used to do neither —
 only on a real navigation, so changing a filter or a sort leaves focus in the
@@ -569,7 +790,7 @@ nothing to hide, and a scheme a reader can check beats one they have to trust.
 
 **And it binds the filters it was issued under.** A cursor bound its ordering
 and nothing else, so paging through Transactions and changing the search or the
-account between pages resumed the walk inside a *different* collection — rows
+account between pages resumed the walk inside a _different_ collection — rows
 from a query nobody asked for, with the row count reporting the truth of the new
 collection, so nothing on screen said anything had gone wrong. Every cursor now
 carries a fingerprint of the filters, and one that no longer matches is refused
@@ -870,7 +1091,6 @@ under it. And the alert about budgets in other period units told you to switch
 "the period above", which on that panel is the forecast's own horizon control;
 it names "Budgeting by" now, as the identical alert on the same page already did.
 
-
 **The overview's budget panel could not say it was empty, so it disappeared
 instead.** The panel was drawn only when the report was loading, had failed, or
 had at least one budgeted period; the "Nothing budgeted in this range" message
@@ -881,7 +1101,6 @@ another currency, met an Overview with no budget section and nothing saying why,
 which is indistinguishable from the feature never having been built. The panel
 is always there now and says which kind of empty it is. It had no test of any
 kind, which is how a branch that could never run shipped; it has seven.
-
 
 **A design review, run across pages rather than down them.** Comparing each
 section of the app against the same section on every other page — rather than
@@ -935,7 +1154,6 @@ reason they did not have — including "Add transaction" on three pages, which
 goes grey before you have an account and used to leave a first-time reader with
 a dead button and an empty list telling them to add a transaction.
 
-
 **Five procedures that kept being rediscovered are written down.** Bringing the
 documents back to true after work lands, sweeping the product against the
 guides, reviewing the browser app, preparing a release, and cutting one — each
@@ -956,7 +1174,6 @@ is expanded when it loads, so one of the five quoted a defect report about a
 figure that "always showed $0" and the loaded skill said it showed the skill's
 own name. Command substitution survives; the bare form does not. Neither is
 visible in the file, which is why it is a test rather than a note.
-
 
 **Two pages scrolled sideways on a 320px screen**, which the standards make a
 binding failure and nothing had ever measured. `html` and `body` carry a
@@ -984,7 +1201,6 @@ range" to anybody budgeting at the group level, where the figure behind the
 sentence counts category limits only; it says "No category budgeted" now, which
 is what it knows.
 
-
 **Six lists told you they were empty when the truth was that they could not be
 read.** Transactions, the staged queue, Templates, Recurring, Payees and the
 duplicate review each showed "No transactions yet" — or its equivalent — over
@@ -1010,7 +1226,6 @@ with every row's header cell so a screen reader announced "Row: Rent" — the
 table's own structure read out as though it were the data. It says Account,
 Category, Line or Movement now, depending on what the report actually lists.
 
-
 **A disabled button no longer distorts the bar it sits in.** In a selection bar
 the reason was laid out as a caption under one button, which made that button as
 wide as the sentence — "Commit selected" stretched to 470px while "Edit
@@ -1018,7 +1233,6 @@ selected" beside it stayed normal, sat above the line its siblings were on, and
 on a narrower window pushed the duplicate checkbox onto a row of its own. The
 sentence takes a line of its own under the whole bar now. In a form the caption
 is still under the button, where the actions are the last thing on a stack.
-
 
 **A budget set on a group and on no category was invisible on the overview.**
 The panel kept a period only when its category budgets came to more than zero,
@@ -1030,7 +1244,6 @@ now, groups included. Where a period has only group budgets its summary line
 shows the period's name alone: the line totals the category budgets, so a figure
 there would read "£500.00 of £0.00" with a full red bar directly above a group
 row saying £500.00 of £800.00.
-
 
 ## 0.1.5 - 2026-08-22
 
@@ -1455,8 +1668,7 @@ whether a draft would balance and nothing else, so an agent holding only
 added a counter-account and a new zero row to the trial balance. It looks the
 account up now and stands one in when there is none.
 
-Smaller ones. A malformed request body answered 500 with a stack trace instead of
-400. A mistyped `/api/v1` path, and any with a trailing slash, came back as the
+Smaller ones. A malformed request body answered 500 with a stack trace instead of 400. A mistyped `/api/v1` path, and any with a trailing slash, came back as the
 application shell with a 200. Responses carrying a session token had no
 `Cache-Control`. A broken consent cookie 500ed. An `APP_BASE_URL` that was not a
 URL, and every strict scalar setting, refused to start without saying which
@@ -1663,7 +1875,7 @@ every figure reads the same the moment they finish.
 The licence is now the [GNU Affero General Public License v3.0 only](LICENSE)
 (`AGPL-3.0-only`), where it was the LGPL. What changes for somebody running this
 is nothing: self-hosting it for yourself, your household or your company was
-free before and is free now. What section 13 adds is that offering a *modified*
+free before and is free now. What section 13 adds is that offering a _modified_
 version to people over a network entitles those people to that version's source.
 
 Every release up to and including 0.1.3 was published under the LGPL and remains
