@@ -221,9 +221,9 @@ git push && gh run watch "$(gh run list --branch "$(git branch --show-current)" 
 gh pr checks "$(git branch --show-current)"
 ```
 
-Thirteen checks: ten in the verify workflow (four `verify` matrix entries across
-PostgreSQL 15/16 and Node 22/24, four image builds, browser, deployment
-material) and three CodeQL. Green means green — do not report success off the
+Fourteen checks: eleven in the verify workflow (four `verify` matrix entries
+across PostgreSQL 15/16 and Node 22/24, four image builds, browser, deployment
+material, single profile material) and three CodeQL. Green means green — do not report success off the
 workflow conclusion alone while a check is still pending.
 
 ## 9. Report readiness, and stop
@@ -234,7 +234,7 @@ Say plainly what is true:
 - `CHANGELOG.md` `## Unreleased` covers this branch's work.
 - `docs/upgrades.md` has the next version's `## Before you upgrade` section.
 - `AGENTS.md` names every unreleased migration.
-- All three tiers and all thirteen checks green.
+- All three tiers and all fourteen checks green.
 - What the audits found, what was fixed, and what was rejected and why.
 - Anything deliberately left, and why.
 
