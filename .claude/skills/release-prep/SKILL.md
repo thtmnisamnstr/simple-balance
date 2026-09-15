@@ -221,9 +221,11 @@ git push && gh run watch "$(gh run list --branch "$(git branch --show-current)" 
 gh pr checks "$(git branch --show-current)"
 ```
 
-Fourteen checks: eleven in the verify workflow (four `verify` matrix entries
-across PostgreSQL 15/16 and Node 22/24, four image builds, browser, deployment
-material, single profile material) and three CodeQL. Green means green — do not report success off the
+Fourteen checks: ten in the verify workflow (four `verify` matrix entries across
+PostgreSQL 15/16 and Node 22/24, four image builds, browser, deployment
+material), one in the deployment-profile workflow (single profile material,
+which lives in its own file so that a CodeQL cache-poisoning rule has no
+dispatchable trigger to complain about), and three CodeQL. Green means green — do not report success off the
 workflow conclusion alone while a check is still pending.
 
 ## 9. Report readiness, and stop
