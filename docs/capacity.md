@@ -41,7 +41,11 @@ bulk statement:
   reversal, and the reversal reversed: six postings that net to the original
   two, on a row that reads as present because it is.
 
-That comes to **66,000,000 postings**, or 2.2 per transaction.
+That comes to **66,000,000 postings**, or 2.2 per transaction — the entries
+alone. Opening a book posts too: an account is credited and equity is debited,
+so the fifty thousand accounts add another 100,000 on top, and a seeded database
+reports 66,100,000. The two figures in this page are both right and count
+different things.
 
 ## Proving the population is a ledger
 
@@ -141,6 +145,16 @@ rather than as an hour of writes. What is measured is the machine serving it.
 One run, 15 September 2026, against the machine above: 10,000 users,
 30,000,039 transactions, 66,100,078 postings, 35 GB. 112,500 requests measured
 across the hour, after a warm-up that was discarded.
+
+Three figures in the run fell short of the schedule and are given as they were
+rather than as they were meant to be. **471 of the 500 sessions** were
+established; the other 29 failed to sign in, for the same reason the imports
+later failed, and the paragraph on the connection pool below is about both.
+**464 of the 500 recurrences** were due, because on this run they were inserted
+by hand before every user existed — the generator now does it as its own last
+step, so a fresh run has all 500. And the 30,000,039 transactions are 39 more
+than the cohorts describe, left over from the probes that established what the
+application writes for a deposit and a withdrawal.
 
 | Arm | Requests | p50 | p95 | p99 | Errors |
 | --- | --- | --- | --- | --- | --- |

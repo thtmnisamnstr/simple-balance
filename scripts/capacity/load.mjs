@@ -27,11 +27,27 @@ import pg from "pg";
 
 import { TOTAL_USERS } from "./cohorts.mjs";
 import { CAPACITY_PASSWORD } from "./credentials.mjs";
+import { buildWheel, errorsIn, percentile } from "./measure.mjs";
 import { MIX, SCHEDULE, THRESHOLDS } from "./schedule.mjs";
 
+/**
+ * `--name value`, strictly.
+ *
+ * A missing or non-numeric value used to become `NaN`, and `NaN` propagates
+ * silently: `--minutes` with nothing after it made the loop's own condition
+ * false, so the run dispatched no requests at all and failed at the end for a
+ * reason that had nothing to do with the machine. Refusing here names the flag.
+ */
 const flag = (name, fallback) => {
   const at = argv.indexOf(`--${name}`);
-  return at === -1 ? fallback : Number(argv[at + 1]);
+  if (at === -1) return fallback;
+  const raw = argv[at + 1];
+  const value = Number(raw);
+  if (raw === undefined || raw.startsWith("--") || !Number.isFinite(value) || value < 0) {
+    console.error(`--${name} takes a number. Got ${raw === undefined ? "nothing" : `"${raw}"`}.`);
+    exit(1);
+  }
+  return value;
 };
 const base = env.CAPACITY_BASE_URL ?? "http://127.0.0.1:3000";
 const minutes = flag("minutes", SCHEDULE.measureMinutes);
@@ -302,7 +318,7 @@ async function fire(user, kind) {
 const pick = (list) => (list.length === 0 ? undefined : list[randomInt(list.length)]);
 
 /** The mix, expanded once into a lookup so choosing is one random number. */
-const WHEEL = MIX.flatMap((entry) => Array.from({ length: entry.percent }, () => entry.kind));
+const WHEEL = buildWheel(MIX);
 
 /* ------------------------------------------------------------- the clock --- */
 
@@ -459,13 +475,6 @@ async function runImports(pool, count, rows, record) {
 }
 
 /* ------------------------------------------------------- what was measured --- */
-
-/** Exact percentiles from the samples themselves, not from bucket boundaries. */
-function percentile(sorted, p) {
-  if (sorted.length === 0) return 0;
-  const at = Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1);
-  return sorted[at];
-}
 
 /**
  * How much of its *allowance* each container is using.
@@ -766,11 +775,6 @@ sampling = false;
 await sampler;
 
 /* ---------------------------------------------------------- the verdict --- */
-
-const errorsIn = (counts) =>
-  [...counts.entries()]
-    .filter(([status]) => status === 0 || status >= 500)
-    .reduce((sum, [, n]) => sum + n, 0);
 
 const steady = phaseOf("steady");
 if (steady.samples.length === 0) {

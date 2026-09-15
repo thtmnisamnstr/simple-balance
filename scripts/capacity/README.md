@@ -9,6 +9,8 @@ page first — it is the argument; this is the runbook.
 | `schedule.mjs` | The run: the rates, the burst, the imports, the mix, and what a pass means |
 | `seed.mjs` | Builds the population in SQL, then refuses to finish until it balances |
 | `verify.mjs` | The balance checks, runnable on their own against any seeded database |
+| `reset.sql` | Empties a seeded database so it can be seeded again |
+| `measure.mjs` | The percentile, the mix wheel and the error count the report is made of |
 | `credentials.mjs` | Gives the seeded users a password, minted by the application |
 | `load.mjs` | Applies the load and reports against the thresholds |
 | `compose.capacity.yml` | The image under test, its metrics, and a published database port |
@@ -78,7 +80,8 @@ unconstrained machine is not the claim — but every code path is the same one.
   fifth sign-in is refused and the pool is four people.
 - **Seeding twice into one database is refused**, because the ids are derived
   from a counter rather than generated and the second run would collide with the
-  first. Seed a fresh database.
+  first on its primary key. Seed a fresh database, or empty this one:
+  `psql "$CAPACITY_DATABASE_URL" -f scripts/capacity/reset.sql`.
 - **`docker stats` reports CPU against one core.** A container using six cores
   of an eleven-core machine reads as 620%, which means nothing against a
   threshold. `load.mjs` divides by the container's own limit and says which it

@@ -14,6 +14,23 @@
  * behaviour depends on.
  *
  * So: every check below is one the service would have enforced on the way in.
+ *
+ * Every one of them has been made to fail, which is the only evidence that a
+ * check can fail at all. Against a seeded database: one posting's amount moved
+ * by 1; two users wrong by equal and opposite amounts in the same currency, so
+ * the population still totals zero; an entry stripped of one posting; a voided
+ * entry left at four postings rather than six, which is a deletion never
+ * restored; an opening balance's pair deleted; an entry's postings tripled, so
+ * it still balances and moves three times what it says.
+ *
+ * Two of them needed `session_replication_role = replica` to provoke at all,
+ * because the schema's composite foreign keys refuse the defect outright — a
+ * posting cannot name another owner's account, or an account of a different
+ * currency, or a transaction that is not there. Those two checks are therefore
+ * defensive rather than load-bearing today, and they are kept for the case they
+ * were written for: a future generator that turns the triggers off to go
+ * faster. This one does not, and says so here so that a change to it is a
+ * change to this sentence.
  */
 import { env, exit } from "node:process";
 import pg from "pg";

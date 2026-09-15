@@ -25,8 +25,30 @@ import { COHORTS, scaled } from "./cohorts.mjs";
 import { SCHEDULE } from "./schedule.mjs";
 import { verify } from "./verify.mjs";
 
-const scale = Number(argv[argv.indexOf("--scale") + 1]) || 1;
-const cohorts = argv.includes("--scale") ? scaled(scale) : COHORTS;
+/**
+ * `--scale N`, strictly.
+ *
+ * `Number(x) || 1` was the first spelling and it is a trap: `--scale 0`,
+ * `--scale abc` and a bare `--scale` with nothing after it all become 1, which
+ * is a full thirty-million-row seed taking most of an hour. The one command
+ * here that costs real time should not be reachable by a typo.
+ */
+function readScale() {
+  const at = argv.indexOf("--scale");
+  if (at === -1) return 1;
+  const raw = argv[at + 1];
+  const value = Number(raw);
+  if (raw === undefined || raw.startsWith("--") || !Number.isInteger(value) || value < 1) {
+    console.error(
+      `--scale takes a whole number of times smaller, at least 1. Got ${raw === undefined ? "nothing" : `"${raw}"`}.`,
+    );
+    exit(1);
+  }
+  return value;
+}
+
+const scale = readScale();
+const cohorts = scale > 1 ? scaled(scale) : COHORTS;
 const url = env.CAPACITY_DATABASE_URL ?? env.DATABASE_URL;
 if (!url) {
   console.error("Set CAPACITY_DATABASE_URL (or DATABASE_URL) to a throwaway database.");
@@ -120,7 +142,7 @@ const existing = await sql(
 if (existing[0].n > 0) {
   console.error(
     `This database already holds ${existing[0].n.toLocaleString()} capacity users. ` +
-      "Seed a fresh one, or run scripts/capacity/reset.sql first.",
+      "Seed a fresh one, or run scripts/capacity/reset.sql against this one first.",
   );
   await client.end();
   exit(1);
