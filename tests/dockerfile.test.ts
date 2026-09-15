@@ -415,4 +415,34 @@ describe("the nginx template and the image that renders it", () => {
     const unread = defined.filter((name) => !referenced.has(name));
     expect(unread, "defaulted in the image and read by nothing").toEqual([]);
   });
+
+  /**
+   * And the third direction: every one of them can be set from both shapes that
+   * deploy this image.
+   *
+   * The two above are about a container that will not start, which is loud. This
+   * one is about a setting that exists and cannot be reached, which is silent —
+   * the operator reads the documentation, finds the name, and has nowhere to put
+   * it. `SB_TRUSTED_PROXY_CIDR` was exactly that for the length of one commit:
+   * the image defaulted it, the template read it, and neither the chart nor the
+   * compose recipe passed it, so every deployment kept the shared sign-in
+   * allowance it was written to fix while the census above stayed green.
+   *
+   * An image default is not the answer to this. A default is the *off*
+   * position by construction — that is what makes an upgrade change nothing —
+   * so a name nobody can set is a name permanently off.
+   */
+  it("lets both deployment shapes set every SB_ name", () => {
+    const referenced = [
+      ...new Set([...template.matchAll(/\$\{?(SB_[A-Z0-9_]+)\}?/g)].map((match) => match[1]!)),
+    ];
+    for (const [label, relative] of [
+      ["the chart", "../deploy/helm/simple-balance/templates/frontend-deployment.yaml"],
+      ["the compose recipe", "../deploy/compose/compose.distributed.yml"],
+    ] as const) {
+      const source = readFileSync(new URL(relative, import.meta.url), "utf8");
+      const missing = referenced.filter((name) => !source.includes(name));
+      expect(missing, `read by the template and unreachable from ${label}`).toEqual([]);
+    }
+  });
 });

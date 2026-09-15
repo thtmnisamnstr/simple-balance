@@ -76,6 +76,13 @@ spec:
               value: {{ .Values.frontend.cspReportOnly | quote }}
             - name: SB_ADS_CONFIGURED
               value: {{ .Values.frontend.adsConfigured | quote }}
+            # Which addresses may say where a request really came from. An
+            # ingress terminating TLS is the address every visitor arrives
+            # from, so without this the API counts every sign-in attempt in the
+            # cluster against one allowance. Name the ingress controller's pod
+            # CIDR here; loopback is the off position and changes nothing.
+            - name: SB_TRUSTED_PROXY_CIDR
+              value: {{ .Values.frontend.trustedProxyCidr | quote }}
           ports:
             - name: http
               containerPort: {{ .Values.frontend.containerPort }}

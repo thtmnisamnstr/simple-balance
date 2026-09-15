@@ -213,6 +213,76 @@ jobs:
             --set secret.authSecret=0123456789012345678901234567890123456789 \
             --set config.appBaseUrl=http://books.example.org
 
+      # The `single` profile's material, which no unit test can run: a compose
+      # file is only known to interpolate once Compose has interpolated it, a
+      # systemd unit is only known to parse once systemd has parsed it, and a
+      # shell script that is written into cloud-init is only known to be a shell
+      # script once a shell has read it. All three are cheap here and silent
+      # everywhere else — the frontend image's nginx template shipped a fatal
+      # error for exactly this reason, because every check read it as text.
+      - name: The single profile's material is what it claims to be
+        run: |
+          set -euo pipefail
+          cd deploy/compose/single
+          # The guards are the point of the exercise, so supply what they ask
+          # for rather than what a real deployment would use.
+          cat > .env <<'ENV'
+          POSTGRES_PASSWORD=ci
+          AUTH_SECRET=0123456789012345678901234567890123456789
+          APP_BASE_URL=https://books.example.org
+          SITE_ADDRESS=books.example.org
+          ENV
+          docker compose -f compose.yml config >/dev/null
+          echo "compose.yml interpolates"
+          docker compose -f compose.yml -f compose.caddy.yml config >/dev/null
+          echo "the Caddy overlay interpolates"
+          # The overlay's whole job: the application starts believing
+          # X-Forwarded-For because something is now in front of it.
+          docker compose -f compose.yml -f compose.caddy.yml config \
+            | grep -q 'TRUST_PROXY: "true"'
+          echo "the overlay turns TRUST_PROXY on"
+          # And that each required setting is genuinely required, since a `:?`
+          # that was softened to `:-` is invisible until somebody deploys
+          # without it.
+          for name in POSTGRES_PASSWORD AUTH_SECRET APP_BASE_URL; do
+            if grep -v "^$name=" .env > .env.missing && \
+               docker compose --env-file .env.missing -f compose.yml config >/dev/null 2>&1; then
+              echo "::error::compose.yml rendered without $name instead of refusing"
+              exit 1
+            fi
+            echo "refused without $name"
+          done
+          rm -f .env .env.missing
+          cd ../../..
+          # Fail loudly rather than skip. The first spelling of this check used
+          # `|| true` and printed "parsed" for every unit on an image where the
+          # binary was absent — a check that could not fail, which is the one
+          # kind this repository refuses to keep.
+          command -v systemd-analyze >/dev/null || {
+            echo "::error::systemd-analyze is not installed, so the units were not checked"
+            exit 1
+          }
+          for unit in deploy/systemd/*.service deploy/systemd/*.timer; do
+            # The exit code is no use in either direction, which was measured
+            # rather than assumed: it is 1 for these units on any machine
+            # without docker.service, and it is 0 for a unit carrying an unknown
+            # directive. What systemd prints is the signal, so the two
+            # environment complaints are filtered and anything left is a defect.
+            complaints=$(systemd-analyze verify "$unit" 2>&1 \
+              | grep -v 'Unit .* not found' \
+              | grep -v 'is not executable: No such file or directory' || true)
+            if [ -n "$complaints" ]; then
+              echo "::error::$unit did not parse cleanly"
+              echo "$complaints"
+              exit 1
+            fi
+            echo "parsed $unit"
+          done
+          for script in deploy/systemd/simple-balance-backup deploy/systemd/simple-balance-restore; do
+            sh -n "$script"
+            echo "parsed $script"
+          done
+
       # Same reasoning as the verify job above.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:

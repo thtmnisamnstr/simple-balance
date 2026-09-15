@@ -1,0 +1,105 @@
+# TLS for compose.yml, terminated by Caddy, with certificates it obtains and
+# renews on its own.
+#
+#   docker compose -f deploy/compose/single/compose.yml \
+#                  -f deploy/compose/single/compose.caddy.yml up -d
+#
+# An overlay rather than a second copy of the stack, so there is one description
+# of the application and this file says only what changes when something stands
+# in front of it. Two things do: the application starts believing
+# X-Forwarded-For, and a process appears that needs ports 80 and 443.
+#
+# Skip this file if you already run a terminator — nginx, HAProxy, a cloud load
+# balancer — and point it at the loopback port compose.yml publishes. What you
+# must do in that case is set TRUST_PROXY=true in .env yourself, which this
+# overlay would otherwise have done for you; docs/deployment-profiles.md has the
+# table of what each terminator has to send.
+services:
+  app:
+    environment:
+      # Caddy is now the only thing that connects to the application, so the
+      # connection's own address is Caddy's for every visitor alike and the
+      # header is the only place the visitor's address survives.
+      #
+      # Believable because of what Caddy does by default and not by assumption:
+      # with no trusted_proxies configured it *discards* an inbound
+      # X-Forwarded-For and writes the address it observed, so the header holds
+      # exactly one entry and a caller cannot put themselves in front of it.
+      # Verified against Caddy 2.11.4 rather than read off its documentation —
+      # a client sending `X-Forwarded-For: 203.0.113.7` reached the application
+      # as its real address.
+      TRUST_PROXY: "true"
+
+  caddy:
+    # Pinned to a major version, like PostgreSQL above and for the same reason.
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      # 80 as well as 443, for two things rather than one: the redirect that
+      # sends a typed http:// address to https://, and the ACME HTTP-01
+      # challenge Let's Encrypt uses to prove the name is yours. Closing 80
+      # leaves TLS-ALPN on 443 as the only challenge, which works until the day
+      # it does not.
+      - "80:80"
+      - "443:443"
+      # HTTP/3, which Caddy serves by default and which is UDP. Leaving this out
+      # is not an error: a browser that cannot reach it falls back to TCP, and
+      # the only symptom is a connection that is slightly slower to set up.
+      - "443:443/udp"
+    environment:
+      # The public name, and the whole of Caddy's TLS decision: give it a
+      # hostname and it obtains a certificate, give it :80 and it serves plain
+      # HTTP. It has to match the host in APP_BASE_URL or the browser is on one
+      # origin and the cookies belong to another.
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in deploy/compose/single/.env}
+      # Where Let's Encrypt writes about an expiring certificate it could not
+      # renew. Optional to them and worth setting: the failure mode it warns
+      # about is a site that stops loading.
+      #
+      # The whole directive travels, not the address, because the Caddyfile
+      # cannot leave a line out on its own: `email` with nothing after it is a
+      # parse error rather than a default. `:+` renders the line only when the
+      # address is set, the same way the split recipe derives
+      # SB_BILLING_CONFIGURED from a key being present.
+      ACME_EMAIL_OPTION: ${ACME_EMAIL:+email ${ACME_EMAIL}}
+      # Ten CSVs of CSV_MAX_BYTES plus the multipart wrapper, matching the limit
+      # the application enforces for itself. Refused here, the caller is told at
+      # once rather than after uploading sixty megabytes.
+      MAX_BODY_SIZE: ${MAX_BODY_SIZE:-61MB}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and the ACME account key. This is the volume that must not
+      # be thrown away: without it every restart asks Let's Encrypt for a new
+      # certificate, and their rate limit is five duplicates per name per week.
+      # Cross it and the site has no certificate until it resets.
+      - caddy-data:/data
+      - caddy-config:/config
+    cap_drop: [ALL]
+    # The one capability it genuinely needs: the process runs as root in this
+    # image but binding 80 and 443 is the only privileged thing it does, so
+    # everything else can go.
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      # Caddy's own admin API on loopback, which answers as soon as the
+      # configuration has loaded. Asking for the site instead would report the
+      # certificate's health rather than the container's, and would fail for the
+      # minute before the first one is issued.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+    stop_grace_period: 30s
+
+volumes:
+  caddy-data:
+  caddy-config:

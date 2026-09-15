@@ -11,6 +11,33 @@ open before. No route, tool or CSV column is removed.
 
 ### Added
 
+**A `single` deployment profile: one machine, and everything it needs.**
+`deploy/compose/single/` runs the application container and PostgreSQL together
+with the database tuned rather than defaulted, an overlay that adds Caddy and
+automatic TLS, and container logs capped so they cannot fill a boot disk.
+`deploy/systemd/` makes it a service that survives a reboot, with a daily
+`pg_dump` that is verified by being read back before it is kept, and a restore
+that refuses a dump it cannot parse before it touches the database.
+`deploy/pulumi/aws-single/` and `deploy/pulumi/oci-single/` stand the same thing
+up on one EC2 or Oracle Cloud instance, with the ledger on a data disk that
+outlives the machine — so resizing destroys the root volume and keeps the books.
+Neither carries a secret: `AUTH_SECRET` and `POSTGRES_PASSWORD` are generated on
+the machine at first boot and kept on that disk, so they are in no user data and
+no state file. Three new documents say which profile to pick, how big a machine
+has to be, and what it costs.
+
+**`SB_TRUSTED_PROXY_CIDR`, without which every visitor shares one sign-in
+allowance.** The frontend container tells the API which address a request came
+from, and behind anything terminating TLS that address was the terminator — the
+same value for everybody, so four wrong passwords from anywhere locked out the
+rest of the world. Set this to the range the terminator connects from and the
+visitor's own address survives the hop. It defaults to loopback, which is the
+off position: nothing reaches the container from there, so a deployment that
+sets nothing behaves exactly as it did before. Under Kubernetes the chart prints
+a warning while it is unset and `config.trustProxy` is on, replacing a note that
+told operators to edit the nginx template and rebuild the image — which nobody
+using a published image could do.
+
 **A plan, sold through Stripe, off by default.** Setting the five `STRIPE_*`
 variables makes Stripe reachable; `SB_BILLING_ENABLED=true` puts a plan on sale
 and holds a free account to three financial accounts. The two are separate
@@ -149,6 +176,14 @@ carries an `off` outcome so a deployment that sells nothing is distinguishable
 from one whose sweep has stopped.
 
 ### Changed
+
+**The release script is no longer told which files pin an image; it is asked.**
+Both halves of the check walked a hardcoded pair, so a third file pinning one of
+this project's images was checked by nothing — it would pass the suite while
+quietly deploying whatever release it was written during. `tests/version.test.ts`
+now sweeps the repository for pinned references and fails until `set-version`
+rewrites every file carrying one. Adding the `single` profile found the gap
+immediately, which is the point.
 
 **Pressing a plan button means one of seven things, decided in one place.**
 The browser previews that decision and the server enforces it, from the same

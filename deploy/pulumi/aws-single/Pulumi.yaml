@@ -1,0 +1,11 @@
+name: simple-balance-aws-single
+runtime:
+  name: nodejs
+  options:
+    typescript: true
+description: >-
+  Simple Balance's `single` profile on one EC2 instance: a VPC with one public
+  subnet, a security group that opens 80 and 443 and nothing else, an EBS data
+  volume the database lives on, an Elastic IP, and an instance role that grants
+  a shell through Session Manager instead of SSH. The application, PostgreSQL
+  and Caddy all run on the instance under systemd.

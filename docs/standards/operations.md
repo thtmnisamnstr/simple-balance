@@ -680,7 +680,7 @@ rather than an exemption.** `POSTGRES_PASSWORD` is the bundled
 there because a trial on one machine should take one command, and it goes away
 with that service when
 `DATABASE_URL` names a real server. It is documented at
-`deploy/compose/README.md:31-36`, beside the file that uses it. Putting another
+`deploy/compose/README.md:40-45`, beside the file that uses it. Putting another
 image's settings into this product's tables would make the tables less true, not
 more.
 
@@ -732,10 +732,10 @@ sentence is one an operator searching the tables concludes does not exist.
 
 **The other three are a named exception rather than an omission, and this is the
 reason.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT` and `SB_MAX_UPLOAD_SIZE`
-(`docs/deployment.md:535-537`) belong to the nginx container, and neither example
+(`docs/deployment.md:631-633`) belong to the nginx container, and neither example
 file configures it: the root file serves the single container, which has no
 nginx in it, and the compose recipe sets all three on the frontend service
-itself (`deploy/compose/compose.distributed.yml:226-230`), where a value can
+itself (`deploy/compose/compose.distributed.yml:232-236`), where a value can
 carry the reason it is what it is. Their defaults are in the image
 (`deploy/docker/frontend.Dockerfile:49-54`), so a deployment that changes none of
 them has nothing to write down. This is the same shape as `POSTGRES_PASSWORD`
@@ -858,7 +858,7 @@ deadline.
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:638-643` and `README.md:131-134` describe one statement
+`docs/deployment.md:762-767` and `README.md:131-134` describe one statement
 against the database and nothing else, and `src/server/api.ts:417-430` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a

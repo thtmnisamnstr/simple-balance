@@ -28,13 +28,33 @@ create five empty tables however large your ledger is.
 
 ### What you must do by hand
 
-Nothing. A deployment that sets none of the new variables sells nothing, limits
-nobody, shows no advertising, and opens no connection to Stripe — which is what
-an untouched `.env` keeps doing.
+Nothing is required. A deployment that sets none of the new variables sells
+nothing, limits nobody, shows no advertising, and opens no connection to Stripe
+— which is what an untouched `.env` keeps doing.
+
+**One thing is worth doing, if you run the split containers behind anything
+that terminates TLS**, which under Kubernetes is always. Set
+`SB_TRUSTED_PROXY_CIDR` on the frontend — `frontend.trustedProxyCidr` in the
+chart — to the range that terminator connects from.
+
+Without it the frontend tells the API that every request came from the
+terminator, so with `TRUST_PROXY` on, every sign-in attempt in the deployment
+counts against one allowance and four wrong passwords from anywhere lock out
+everybody else. That has been true since 0.1.0; what is new is that it can now
+be fixed with a setting instead of by editing the nginx template and rebuilding
+the image. The chart prints a warning while it is unset and `config.trustProxy`
+is on.
+
+Name the terminator's range and nothing wider. This decides whose word is taken
+for a visitor's address, so a range that includes callers lets a caller choose
+their own. `docs/deployment-profiles.md` has the reasoning and the measurement.
 
 ### What changed under you
 
-Nothing, unless you opt in. Two new settings groups exist and both default to
+Nothing, unless you opt in. `SB_TRUSTED_PROXY_CIDR` defaults to `127.0.0.1`,
+which is the off position rather than a trusted range — nothing reaches the
+container from loopback — so a deployment that sets nothing behaves exactly as
+it did before the setting existed. Two new settings groups exist and both default to
 absent: the five `STRIPE_*` settings with `SB_BILLING_ENABLED`, and the
 `ADSENSE_*` settings. `docs/monetization.md` has the table of what each
 combination turns on. Two names join the seven that already take a `_FILE` form,

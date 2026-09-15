@@ -71,6 +71,12 @@ x-app-config: &app-config
   # deploy/docker/nginx.conf.template sets X-Forwarded-For to $remote_addr
   # rather than appending to whatever the caller sent, and because nothing sits
   # in front of nginx in this file.
+  #
+  # Put a TLS terminator in front of it and that last clause stops holding:
+  # $remote_addr becomes the terminator for every visitor, and the shared
+  # allowance is back. SB_TRUSTED_PROXY_CIDR on the frontend service below is
+  # what resolves it, and it has to be set in the same breath as moving this
+  # deployment off loopback.
   TRUST_PROXY: "true"
 
   # Mail is optional and everything needing it degrades rather than breaks: with
@@ -247,6 +253,18 @@ services:
       # is: nginx and the server must not disagree about whether ads are served,
       # and an operator setting it twice is an operator who can set it wrong.
       SB_ADS_CONFIGURED: ${ADSENSE_CLIENT_ID:+true}
+      # Whose word this nginx takes for the address a request came from.
+      #
+      # Nothing sits in front of it in this file, so the default changes
+      # nothing: loopback is the off position and no request arrives from it.
+      # The moment a TLS terminator goes in front — which is what reaching this
+      # from another machine means — set this to the terminator's address or
+      # range, or the API counts every sign-in attempt in the deployment
+      # against that one address.
+      #
+      # The terminator's own range, never the visitors'. This is what decides
+      # whose claim about an address is believed.
+      SB_TRUSTED_PROXY_CIDR: ${SB_TRUSTED_PROXY_CIDR:-127.0.0.1}
     <<: *hardening
     read_only: true
     tmpfs:

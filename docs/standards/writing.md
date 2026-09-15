@@ -138,7 +138,7 @@ cites this section and adds the one consequence that belongs to an operator,
 which is that renaming a configuration variable is a breaking release.
 
 The shape of a version is written in three places and two of them used to
-disagree. `scripts/set-version.mjs:25` and `tests/version.test.ts:25` accept a
+disagree. `scripts/set-version.mjs:26` and `tests/version.test.ts:67` accept a
 prerelease suffix; `tasks/product.prd.schema.json:10` pinned three numeric parts
 and nothing else, so `npm run set-version 0.2.0-rc.1` succeeded, the suite
 stayed green, and the build loop then refused to start on an error two steps
@@ -311,7 +311,7 @@ out.
 - **Nothing is committed to here.** `tasks/product.prd.json` records the product
   as built; the roadmap records intent, and says so in its opening paragraph.
 
-*Not checked mechanically.* `tests/version.test.ts:119-121` checks that the
+*Not checked mechanically.* `tests/version.test.ts:185-187` checks that the
 backlog's version matches the manifest, which is the only mechanical link
 between intent and release.
 
@@ -605,8 +605,8 @@ What is checked:
 | Correspondence | Checked by |
 | --- | --- |
 | Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:300-305`, by name rather than by count, "so the failure says which" |
-| Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:110-117` |
-| The product backlog's version matches the manifest | `tests/version.test.ts:119-121` |
+| Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:152-182`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
+| The product backlog's version matches the manifest | `tests/version.test.ts:185-187` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |
 | The `docker run` command in `README.md` and `docs/deployment.md` carries its hardening flags | `tests/deployment-docs.test.ts`, which requires `--read-only`, the `noexec,nosuid` tmpfs, `--stop-timeout 30`, `--cap-drop=ALL` and `--security-opt=no-new-privileges` in both, and hardens every service in the compose recipe the same way |
 | The README tells somebody who found a hole where to report it, and does not answer the contributing question with the invariants file | `tests/docs-conventions.test.ts` |

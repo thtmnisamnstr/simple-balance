@@ -1,0 +1,84 @@
+#!/bin/sh
+# A dump of the ledger, taken from the running deployment and written to
+# SB_BACKUP_DIR. Run by simple-balance-backup.timer, and safe to run by hand.
+#
+#   sudo /usr/local/bin/simple-balance-backup
+#
+# What this is not: a substitute for the database's own files surviving. A dump
+# is a copy of the data, not of the machine, and the useful question about
+# SB_BACKUP_DIR is whether it is on something that outlives the host.
+set -eu
+
+# Not bash, so no pipefail. Every pipeline below is therefore written so the
+# command that can fail is the last one, or its result is checked on its own.
+# This matters most for pg_dump: in `pg_dump | gzip`, a failed dump and a
+# successful gzip produce exit 0 and an empty archive, which is a backup that
+# reports success and restores nothing.
+
+: "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+: "${SB_BACKUP_DIR:=/var/backups/simple-balance}"
+: "${SB_BACKUP_KEEP:=14}"
+
+# Dumps are every account's whole financial history in one file. 0077 makes the
+# directory and every file in it readable by root alone, and it is set before
+# anything is created rather than fixed afterwards.
+umask 077
+
+cd "$SB_COMPOSE_DIR"
+mkdir -p "$SB_BACKUP_DIR"
+
+# Sorts chronologically as text, which is what lets the pruning at the bottom
+# use `sort` instead of a GNU-only `find -printf`. UTC so it keeps sorting
+# across a daylight saving change.
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+final="$SB_BACKUP_DIR/simple-balance-$stamp.dump"
+partial="$final.partial"
+
+# -T, and it is not optional: without it Compose allocates a TTY, and the
+# terminal translation corrupts the binary stream on its way to the file. The
+# result looks like a dump, has a plausible size, and fails to restore.
+#
+# -Fc is PostgreSQL's own compressed format. It restores with pg_restore, it can
+# be restored selectively, and unlike plain SQL it can be checked without being
+# applied — which is what the verification below does.
+#
+# Redirected to .partial so an interrupted dump is never mistaken for a finished
+# one by the pruning below or by whoever reaches for the newest file at 3am.
+docker compose exec -T postgres \
+	pg_dump -U simple_balance -d simple_balance -Fc --no-owner --no-privileges \
+	>"$partial"
+
+# A dump nobody has read is a hope. pg_restore --list parses the archive's table
+# of contents without touching a database, so it catches a truncated file, a
+# corrupted stream and an empty one for the price of reading the header.
+if ! pg_restore_out=$(docker compose exec -T postgres pg_restore --list <"$partial" 2>&1); then
+	rm -f "$partial"
+	echo "simple-balance-backup: the dump did not verify and was discarded" >&2
+	echo "$pg_restore_out" >&2
+	exit 1
+fi
+
+# And that it contains something. An archive with a valid header and no tables
+# verifies happily, which is what a dump of the wrong database looks like.
+entries=$(printf '%s\n' "$pg_restore_out" | grep -c 'TABLE DATA' || true)
+if [ "$entries" -lt 1 ]; then
+	rm -f "$partial"
+	echo "simple-balance-backup: the dump verified but holds no table data" >&2
+	exit 1
+fi
+
+mv "$partial" "$final"
+echo "simple-balance-backup: wrote $final ($(wc -c <"$final" | tr -d " ") bytes, $entries tables)"
+
+# Keep the newest SB_BACKUP_KEEP and remove the rest. `ls` rather than `find`
+# because the timestamp is in the name: sorting the names is sorting by age, and
+# it needs no GNU extension. The .partial suffix keeps an interrupted dump out
+# of this list, so a failure cannot push a good backup off the end.
+ls "$SB_BACKUP_DIR" 2>/dev/null |
+	grep '^simple-balance-.*\.dump$' |
+	sort -r |
+	tail -n "+$((SB_BACKUP_KEEP + 1))" |
+	while IFS= read -r old; do
+		rm -f "$SB_BACKUP_DIR/$old"
+		echo "simple-balance-backup: pruned $old"
+	done

@@ -1,0 +1,79 @@
+# The `single` profile as a systemd unit, so the machine brings the deployment
+# up in the right order after a reboot and an operator has one place to start
+# and stop it.
+#
+#   sudo cp deploy/systemd/*.service deploy/systemd/*.timer /etc/systemd/system/
+#   sudo cp deploy/systemd/simple-balance.env /etc/default/simple-balance
+#   sudo install -d -m 0755 /opt/simple-balance
+#   sudo cp deploy/compose/single/{compose.yml,compose.caddy.yml,Caddyfile} /opt/simple-balance/
+#   sudo cp deploy/compose/single/.env.example /opt/simple-balance/.env  # then edit it
+#   sudo cp deploy/systemd/simple-balance-backup /usr/local/bin/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now simple-balance.service simple-balance-backup.timer
+#
+# deploy/compose/single/README.md is the long version.
+[Unit]
+Description=Simple Balance
+Documentation=https://github.com/thtmnisamnstr/simple-balance/blob/main/docs/deployment-profiles.md
+
+# Requires, not Wants: there is nothing to do without the container runtime, and
+# a unit that "succeeds" by running `docker` against a dead socket reports a
+# healthy deployment that is not running.
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+# Who restarts what, which is the question two process managers over the same
+# containers always raise.
+#
+# systemd owns *ordering and intent*: boot, `systemctl start`, `systemctl stop`.
+# Docker owns *crash recovery*, through `restart: unless-stopped` in the compose
+# file. They do not fight, and the reason is ExecStop: `docker compose down`
+# removes the containers, so there is nothing left for Docker's restart policy
+# to bring back after a deliberate stop.
+#
+# The spelling that does fight is `Type=simple` with a `Restart=` of its own,
+# which gives two managers an opinion about the same crash. There is deliberately
+# no Restart= line below.
+Type=oneshot
+RemainAfterExit=yes
+
+WorkingDirectory=/opt/simple-balance
+
+# COMPOSE_FILE lives here rather than in the ExecStart line so that dropping the
+# TLS overlay — for a deployment that terminates TLS elsewhere — is an edit to
+# one file that is not part of this repository. Docker Compose reads the name
+# natively and splits it on colons.
+EnvironmentFile=/etc/default/simple-balance
+
+# The database's directory has to exist before Compose can bind-mount it, and a
+# bind mount of a missing path is a confusing failure rather than a clear one.
+# 0700 because the postgres container chowns it to its own user on first start
+# and nothing else on the machine has any business reading it.
+#
+# POSTGRES_DATA_DIR comes from the environment file above and is inherited by
+# Compose, which is why it is set there and not in .env: two copies of a path
+# are two copies that can disagree, and the one that disagrees silently is the
+# one that puts a database on the boot disk.
+ExecStartPre=/usr/bin/install -d -m 0700 ${POSTGRES_DATA_DIR}
+
+# `--wait`, and it is the difference between a unit that means something and one
+# that does not. Without it `up -d` returns as soon as the containers are
+# created, so `systemctl start` succeeds while the application is still failing
+# its migrations, and `systemctl status` reports a deployment that is not
+# serving.
+ExecStart=/usr/bin/docker compose up -d --wait
+ExecStop=/usr/bin/docker compose down
+
+# Longer than the 300s the application's health check allows for a first start
+# against an empty database, which is the migration budget the Helm chart's
+# startupProbe and the compose file's start_period also carry. systemd's default
+# is 90s: with `--wait` above, that would kill a first migration two thirds of
+# the way through and leave the schema half-applied — the one failure this
+# project takes care to make impossible everywhere else.
+TimeoutStartSec=600
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

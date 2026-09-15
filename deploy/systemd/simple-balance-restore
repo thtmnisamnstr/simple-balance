@@ -1,0 +1,98 @@
+#!/bin/sh
+# Replace the ledger with the contents of a dump.
+#
+#   sudo /usr/local/bin/simple-balance-restore /var/backups/simple-balance/simple-balance-20260914T031500Z.dump
+#
+# This destroys the current database. It asks before it does, and --yes skips
+# the asking for a scripted rebuild. There is no undo beyond the backup you are
+# about to overwrite, so take one first — the script offers.
+#
+# No systemd unit, deliberately. A restore is a decision somebody makes at a
+# keyboard, and a unit is a thing that can be enabled.
+set -eu
+
+: "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+
+dump=""
+assume_yes=no
+for arg in "$@"; do
+	case "$arg" in
+	--yes) assume_yes=yes ;;
+	-*)
+		echo "simple-balance-restore: unknown option $arg" >&2
+		exit 2
+		;;
+	*) dump="$arg" ;;
+	esac
+done
+
+if [ -z "$dump" ]; then
+	echo "Usage: simple-balance-restore <dump> [--yes]" >&2
+	exit 2
+fi
+if [ ! -r "$dump" ]; then
+	echo "simple-balance-restore: cannot read $dump" >&2
+	exit 2
+fi
+
+cd "$SB_COMPOSE_DIR"
+
+# Read the archive before touching anything. A dump that cannot be listed cannot
+# be restored either, and finding that out *after* dropping the database is the
+# worst possible order to find it out in.
+if ! listing=$(docker compose exec -T postgres pg_restore --list <"$dump" 2>&1); then
+	echo "simple-balance-restore: $dump is not a readable PostgreSQL archive" >&2
+	echo "$listing" >&2
+	exit 1
+fi
+tables=$(printf '%s\n' "$listing" | grep -c 'TABLE DATA' || true)
+if [ "$tables" -lt 1 ]; then
+	echo "simple-balance-restore: $dump holds no table data" >&2
+	exit 1
+fi
+
+if [ "$assume_yes" != yes ]; then
+	printf 'Replace the ledger in this deployment with %s (%s tables)?\n' "$dump" "$tables"
+	printf 'Everything currently in the database is discarded. Type RESTORE to continue: '
+	read -r answer
+	[ "$answer" = "RESTORE" ] || { echo "Nothing was changed."; exit 1; }
+fi
+
+# The application first, and only the application. It holds a pool of
+# connections, and PostgreSQL refuses to drop a database anybody is connected
+# to — so without this the drop below fails and the deployment is left running
+# against a database somebody thinks has been replaced. Stopping it also means
+# nothing writes a transaction into the half-restored ledger.
+echo "simple-balance-restore: stopping the application"
+docker compose stop app
+
+# Dropped and recreated rather than restored over with --clean. A clean restore
+# leaves behind anything the dump does not mention, which is exactly what a
+# restore is usually trying to get rid of. `template0` so the new database
+# inherits nothing that was added to template1.
+echo "simple-balance-restore: recreating the database"
+docker compose exec -T postgres psql -U simple_balance -d postgres -v ON_ERROR_STOP=1 \
+	-c "drop database if exists simple_balance;" \
+	-c "create database simple_balance template template0;"
+
+# --no-owner and --no-privileges to match how the dump was taken: this
+# deployment has exactly one role, so ownership recorded in the archive is
+# noise, and a restore that tries to reinstate a role that does not exist fails
+# row by row.
+#
+# --exit-on-error, because pg_restore's default is to report errors and carry on
+# to the end, exit 0, and leave a partially restored ledger that nothing has
+# noticed. A restore either worked or it did not.
+echo "simple-balance-restore: restoring $tables tables"
+docker compose exec -T postgres \
+	pg_restore -U simple_balance -d simple_balance --no-owner --no-privileges --exit-on-error \
+	<"$dump"
+
+# Starting the application also runs any migration the dump predates, under the
+# same advisory lock a first start uses. That is the supported way to restore an
+# older backup onto a newer release: restore, then start, and the schema catches
+# up on the way.
+echo "simple-balance-restore: starting the application"
+docker compose up -d --wait app
+
+echo "simple-balance-restore: done"

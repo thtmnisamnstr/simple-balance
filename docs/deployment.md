@@ -6,6 +6,15 @@ no sidecar, no object store, and nothing it needs to write to disk.
 PostgreSQL 15 or newer. Every release is tested against 15 and 16, on Node 22
 and 24. Nothing else is assumed about the server.
 
+This page is the settings and the contract: what every variable does, what a
+reverse proxy has to send, and what the split containers have to agree about.
+For a deployment that runs somewhere and survives a reboot, read
+[`deployment-profiles.md`](deployment-profiles.md) beside it — it compares the
+two shapes, gives the firewall and DNS, and points at the material that stands
+each one up. [`deployment-sizing.md`](deployment-sizing.md) says how big the
+machine has to be and [`deployment-costs.md`](deployment-costs.md) what it
+costs.
+
 ## Settings
 
 Everything is an environment variable. `.env.example` has the lot; these are the
@@ -590,7 +599,11 @@ about the server is assumed or altered.
 ## Splitting it into separate containers
 
 One container is the supported way to run this, and the rest of this document
-assumes it. If you are running under Kubernetes and want to scale the web tier,
+assumes it. `deploy/compose/single/` is that container as a deployment — with
+PostgreSQL, TLS, backups and a systemd unit — and is what
+[`deployment-profiles.md`](deployment-profiles.md) calls the `single` profile.
+
+If you are running under Kubernetes and want to scale the web tier,
 `deploy/docker/` holds three Dockerfiles that split it up, and three things
 built on them: a Helm chart in `deploy/helm/simple-balance/`, a compose file in
 `deploy/compose/` that runs the same split on one machine, and Pulumi programs
@@ -621,6 +634,7 @@ port. Six settings, all with working defaults:
 | `SB_BILLING_CONFIGURED` | `false` | Whether Stripe is configured. nginx serves the plan and billing tab's document in this shape, so it decides which content security policy that page arrives with, and Stripe's payment form needs the wider one. Configured, not selling: an operator who has stopped selling still has subscribers who must be able to replace an expired card. The compose recipe derives it from `STRIPE_PUBLISHABLE_KEY` so the two cannot disagree. |
 | `SB_CSP_REPORT_ONLY` | `false` | Whether that page reports its policy instead of enforcing it. Only meaningful with `SB_BILLING_CONFIGURED`, and only for that page. Set it on the server as well, which is what registers `POST /api/csp-report` for the reports to land on. |
 | `SB_ADS_CONFIGURED` | `false` | Whether this deployment serves advertising. nginx serves every document in this shape, so it decides the policy they arrive with, and AdSense needs a much wider one — scripts, frames and connections to any HTTPS origin, plus `unsafe-eval`. Set it with the server's own `ADSENSE_*` settings or neither; the compose recipe derives it from `ADSENSE_CLIENT_ID`. |
+| `SB_TRUSTED_PROXY_CIDR` | `127.0.0.1` | Which addresses this nginx will believe about where a request came from. Everything it proxies carries `X-Forwarded-For` set to the address it saw, and behind anything terminating TLS that address is the terminator — the same value for every visitor. With `TRUST_PROXY` on, the API then counts every sign-in attempt against one allowance, and one stranger can spend it for everybody. Set it to the range the terminator connects from: an ingress controller's pod CIDR under Kubernetes, the load balancer's subnet on a VM. Name the proxy's range and nothing wider — this decides whose word is taken for an address, so a range that includes callers lets a caller choose their own. The default is the off position rather than a trusted range: nothing reaches the container from loopback, so a deployment that sets nothing behaves exactly as it did before this setting existed. It carries a value rather than an empty string because `set_real_ip_from ;` is a configuration error and nginx would refuse to start. |
 
 These six are the only settings in this document that appear in no
 `.env.example`, and that is the reason rather than an omission: they belong to
@@ -696,6 +710,10 @@ Six things have to line up:
   the server and not on the frontend, the tab loads and the card fields never
   appear. The compose recipe derives it from `STRIPE_PUBLISHABLE_KEY`; under
   Helm it is `frontend.billingConfigured`.
+- **`SB_TRUSTED_PROXY_CIDR` on the frontend**, whenever anything terminates
+  TLS in front of it, which in this shape is always. Without it every visitor
+  shares one sign-in allowance. `docs/deployment-profiles.md` has the reasoning
+  and the measurement.
 - **`SB_ADS_CONFIGURED` on the frontend**, if you serve advertising, for the
   same reason: nginx decides the policy every other page arrives with, and
   AdSense needs a much wider one. `frontend.adsConfigured` under Helm.

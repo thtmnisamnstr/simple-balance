@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
  * example value that is not a hazard. The compose file shipped nine optional
  * variables present and empty, which reads as nine settings already in force.
  */
+const root = new URL("../", import.meta.url).pathname;
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
 const assignedIn = (file: string) =>
@@ -188,19 +189,50 @@ describe("what the example files and the deployment tables say about each other"
 describe("what the compose example promises and the compose file delivers", () => {
   const compose = read("deploy/compose/compose.distributed.yml");
   /**
-   * The bundled database container's own variable, consumed by the `postgres`
-   * service's `environment:` rather than by this product — and by the
-   * connection string, where it is interpolated rather than passed through.
+   * Variables consumed by a bundled container's own `environment:` rather than
+   * by this product, or interpolated into a connection string rather than
+   * passed through. `POSTGRES_DATA_DIR` is a volume's bind path and never
+   * reaches a process at all.
    */
-  const databaseOnly = ["POSTGRES_PASSWORD"];
+  const databaseOnly = ["POSTGRES_PASSWORD", "POSTGRES_DATA_DIR"];
 
-  it("passes every variable its own example file names", () => {
-    const undelivered = [...mentionedIn("deploy/compose/.env.example")].filter(
-      (name) => !databaseOnly.includes(name) && !new RegExp(`\\b${name}:`).test(compose),
-    );
-
-    expect(undelivered).toEqual([]);
+  /**
+   * Every example file under `deploy/compose/`, paired with the compose files
+   * beside it.
+   *
+   * Discovered rather than listed, and for the reason the list itself
+   * demonstrates: this check was written for one pair, and adding the `single`
+   * profile created a second pair that nothing looked at — the same defect the
+   * docblock above describes, reintroduced by the fix's own shape. A recipe is
+   * a directory holding an example and the compose files it is an example for.
+   */
+  const recipes = globSync("deploy/compose/**/.env.example", { cwd: root }).map((example) => {
+    const directory = example.slice(0, example.lastIndexOf("/"));
+    const files = globSync(`${directory}/*.yml`, { cwd: root });
+    return { example, directory, delivered: files.map((file) => read(file)).join("\n") };
   });
+
+  it("covers every recipe under deploy/compose", () => {
+    // Two today. A third that nothing paired would otherwise read as a pass.
+    expect(recipes.map((recipe) => recipe.directory).sort()).toEqual([
+      "deploy/compose",
+      "deploy/compose/single",
+    ]);
+    for (const recipe of recipes)
+      expect(recipe.delivered.length, recipe.directory).toBeGreaterThan(0);
+  });
+
+  it.each(recipes.map((recipe) => [recipe.example, recipe] as const))(
+    "passes every variable %s names",
+    (_label, recipe) => {
+      const undelivered = [...mentionedIn(recipe.example)].filter(
+        (name) =>
+          !databaseOnly.includes(name) && !new RegExp(`\\b${name}[:}]`).test(recipe.delivered),
+      );
+
+      expect(undelivered).toEqual([]);
+    },
+  );
 
   it("gives a boolean a real default rather than an empty string", () => {
     // `${VAR:-}` resolves to "" when the variable is unset, and every boolean

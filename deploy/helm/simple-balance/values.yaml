@@ -335,6 +335,26 @@ frontend:
   # Set it with the server's own ADSENSE_* settings or neither.
   adsConfigured: false
 
+  # Which addresses this nginx will believe about where a request came from.
+  #
+  # Everything it proxies to the API carries X-Forwarded-For set to the address
+  # it saw, and behind an ingress that terminates TLS that address is the
+  # ingress — the same value for every visitor in the cluster. With
+  # config.trustProxy on, the API then counts every sign-in attempt against one
+  # allowance, and one stranger can spend it for everybody.
+  #
+  # Set this to the ingress controller's pod CIDR and $remote_addr resolves back
+  # to the visitor. Not the whole cluster CIDR and never 0.0.0.0/0: this decides
+  # whose word is taken for the address, so a range that includes callers lets a
+  # caller name themselves.
+  #
+  # 127.0.0.1 is the off position, not a trusted range. Nothing reaches the
+  # container from loopback, so the behaviour is exactly what it was before this
+  # setting existed. It carries a value rather than an empty string because
+  # `set_real_ip_from ;` is a configuration error and the container would not
+  # start.
+  trustedProxyCidr: 127.0.0.1
+
   # How long to keep answering after Kubernetes decides this pod is going, so
   # the load balancer and kube-proxy have stopped handing it new connections
   # before anything shuts down. 0 removes the hook.

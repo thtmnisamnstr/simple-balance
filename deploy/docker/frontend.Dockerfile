@@ -75,6 +75,13 @@ ENV SB_CSP_REPORT_ONLY=false
 # materially wider one. Default false: a deployment that configured no AdSense
 # ids gets exactly the policy this image has always served.
 ENV SB_ADS_CONFIGURED=false
+# Which addresses may tell this nginx where a request really came from, so that
+# `$remote_addr` is the visitor rather than whatever terminated TLS in front.
+# One CIDR, and it is the proxy's own range: name the visitors' range instead
+# and a caller writes their own X-Forwarded-For. Loopback is the off position —
+# nothing reaches this container from 127.0.0.1 — and it is a value rather than
+# an empty string because `set_real_ip_from ;` refuses to start.
+ENV SB_TRUSTED_PROXY_CIDR=127.0.0.1
 # Only SB_ names are substituted, so nginx's own $host and $remote_addr are not
 # blanked out by an envsubst pass that does not know the difference.
 ENV NGINX_ENVSUBST_FILTER=^SB_
