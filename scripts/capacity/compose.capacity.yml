@@ -1,0 +1,40 @@
+# The `single` profile, held to one size, with its metrics on.
+#
+#   # seed against an unconstrained database, which is not the measurement
+#   docker compose -f deploy/compose/single/compose.yml up -d --wait
+#   node scripts/capacity/seed.mjs
+#
+#   # then measure the machine the profile actually describes
+#   docker compose -f deploy/compose/single/compose.yml \
+#                  -f scripts/capacity/compose.capacity.yml \
+#                  -f scripts/capacity/compose.limits.yml up -d --wait
+#   node scripts/capacity/load.mjs
+#
+# Seeding unconstrained is deliberate and is not a thumb on the scale: building
+# the dataset is setup, and in reality it arrives as a restored backup rather
+# than as an hour of writes. What is measured is the machine serving it, and
+# that runs inside the limits below.
+services:
+  postgres:
+    ports:
+      # Published only for the seed and for reading pg_stat_* during a run.
+      # Nothing in the profile itself publishes it.
+      - "127.0.0.1:${CAPACITY_POSTGRES_PORT:-5442}:5432"
+
+  app:
+    # The image built from this checkout, not the released tag the profile
+    # pins. A capacity proof of the previous release would be a capacity proof
+    # of the previous release.
+    image: ${CAPACITY_IMAGE:-simple-balance:capacity}
+    environment:
+      # The driver reads percentiles from the application's own histogram as
+      # well as measuring its own, and the two answer different questions: the
+      # server's excludes the client and the loopback, so a gap between them is
+      # the harness rather than the product.
+      METRICS_ENABLED: "true"
+      # Every sign-in in a run arrives from one machine, and attempts are
+      # counted per client address. Off, the whole run shares one allowance and
+      # the fifth sign-in is refused; on, the driver gives each user its own
+      # address and the limiter counts what it is meant to.
+      TRUST_PROXY: "true"
+      ALLOWED_EMAILS: "*"

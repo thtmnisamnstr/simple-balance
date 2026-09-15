@@ -1,3 +1,14 @@
+# The development database, and nothing else.
+#
+# `name:` is set, and it is not decoration. Compose takes a project name from
+# the directory when a file does not give one, which for this file is
+# `simple-balance` — the same name `deploy/compose/single/compose.yml` declares
+# for itself. Two files claiming one project means two files claiming the same
+# containers, so bringing the single profile up on a development machine
+# silently replaced this database with that one, bind mount and all. It is the
+# kind of thing that is obvious once and baffling the first time.
+name: simple-balance-dev
+
 services:
   postgres:
     image: postgres:16-alpine

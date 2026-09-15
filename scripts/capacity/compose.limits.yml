@@ -1,0 +1,30 @@
+# The `small` row of docs/deployment-sizing.md, enforced rather than described.
+#
+# A third file rather than part of compose.capacity.yml, because seeding and
+# measuring want different answers. Building the dataset is setup — in a real
+# deployment it arrives as a restored backup, not as an hour of writes — so it
+# runs unconstrained. What the proof is about is the machine serving that data,
+# and that runs inside these limits.
+#
+# Without them the measurement is of an eleven-core laptop and says nothing
+# about a t4g.medium, which is what the sizing table sells.
+#
+# The two processes share one machine in this profile, so the two vCPUs and
+# 4 GiB are split rather than each given the whole. PostgreSQL takes the larger
+# share because it does the work a ledger query is made of, and the remainder
+# leaves room for the kernel's page cache, which `effective_cache_size` tells
+# the planner to expect.
+services:
+  postgres:
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 3g
+
+  app:
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 1g

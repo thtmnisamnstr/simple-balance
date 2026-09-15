@@ -93,6 +93,14 @@ counted.
 
 ### What to check afterwards
 
+`docs/capacity.md` is new and changes nothing about an upgrade, but it is the
+answer to the question an operator asks before a big import or a second
+household: one machine of the smallest size the `single` profile sells holds ten
+thousand ledgers and thirty million transactions inside the stated times.
+`scripts/capacity/README.md` reproduces it against your own hardware.
+
+
+
 `/health/ready`, as with any upgrade. If you set the Stripe or AdSense
 variables, the process refuses to start on a half-configured pair and names the
 missing half, so a clean start is itself the check.

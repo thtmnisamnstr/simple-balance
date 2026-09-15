@@ -96,6 +96,13 @@ The capacity column in the first table is that arithmetic: the disk, less the
 write-ahead log, less a gigabyte of slack, divided between a ledger and fourteen
 dumps of it at 0.15× each.
 
+**And it is the constraint that binds first.** `docs/capacity.md` put ten
+thousand users and thirty million transactions on a `small` machine and found
+its CPU and memory ample — a 130 ms 95th percentile across the whole mix — while
+the population itself came to 35 GB, which is more than `small`'s data disk
+holds. Size the disk from the table above and the processor keeps up; the
+reverse is not true.
+
 ## Memory, and why `small` is 4 GiB
 
 At rest the three processes want roughly: PostgreSQL `shared_buffers` plus a few
@@ -114,6 +121,19 @@ worth having.
 One application process, holding `DATABASE_POOL_SIZE` connections and one more
 while it starts: **11** of the 100 PostgreSQL allows by default. That number does
 not move with the size, because there is nothing in this profile to scale out.
+
+**It is also the first thing that runs out**, which `docs/capacity.md` measured
+rather than predicted. A CSV import holds a connection for its whole duration —
+161 seconds for a ten-thousand-row file on a `small` machine — so ten concurrent
+imports hold all ten connections and everything else waits for an eleventh it
+will not get. Half the imports failed and the interactive p95 went from 130 ms
+to 30 seconds, while PostgreSQL's own `max_connections` sat at 11 of 100 and
+raising it would have changed nothing.
+
+A deployment that expects several people importing at once should raise
+`DATABASE_POOL_SIZE` and `POSTGRES_MAX_CONNECTIONS` together, and give the
+application more than the half core `small` allots it. One or two concurrent
+imports leave the pool room; ten do not.
 
 The rest of the hundred is headroom for `psql`, for `pg_dump`, and for the
 connection somebody opens while wondering why something is slow. Every allowed

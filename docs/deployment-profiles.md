@@ -15,7 +15,10 @@ read the same settings.
 | Read | `deploy/compose/single/README.md` | `deploy/helm/simple-balance/README.md`, `deploy/pulumi/README.md` |
 
 **Start with `single`.** It is the supported shape, it is what `docs/deployment.md`
-assumes, and a ledger is not a workload that needs a cluster — one machine
+assumes, and it is measured: `docs/capacity.md` put ten thousand people's
+ledgers — thirty million transactions — on the smallest size `single` sells and
+answered the busiest hour at a 130 ms 95th percentile with no errors. A ledger
+is not a workload that needs a cluster — one machine
 serves a household or a small team with room to spare, and
 `docs/deployment-sizing.md` says how much room. Move to `ha` when losing one
 machine for ten minutes is not acceptable, not when the load gets interesting.

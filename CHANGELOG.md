@@ -11,6 +11,20 @@ open before. No route, tool or CSV column is removed.
 
 ### Added
 
+**A capacity proof, reproducible from this repository.** `docs/capacity.md` is
+the claim — ten thousand people's ledgers on the smallest machine the `single`
+profile sells, answered inside stated times — and `scripts/capacity/` is what
+produces it: a generator that builds thirty million transactions and sixty-six
+million postings in SQL, a driver that applies an hour of graded load, and the
+thresholds both are held to. The generator writes SQL because thirty million
+entries through the service is a load test rather than a setup step, so it ends
+by proving what the service would otherwise have enforced: every currency
+settles to zero, every individual's books settle to zero, every posting names an
+account of its own owner and currency, and every entry moved the amount it says
+it moved. It refuses to finish otherwise, because a number measured against a
+ledger that does not balance is measuring rows the application could never have
+written.
+
 **A `single` deployment profile: one machine, and everything it needs.**
 `deploy/compose/single/` runs the application container and PostgreSQL together
 with the database tuned rather than defaulted, an overlay that adds Caddy and
@@ -237,6 +251,14 @@ aimed at a misspelled path used to get a `200` and an HTML body, which Stripe
 records as delivered — a missed delivery nothing ever retries.
 
 ### Fixed
+
+**The development database and a `single` deployment no longer fight over the
+same containers.** Compose takes a project name from the directory when a file
+does not give one, which made `compose.dev.yml` claim `simple-balance` — the
+name `deploy/compose/single/compose.yml` declares for itself. Bringing the
+profile up on a development machine silently replaced the development database
+with it, bind mount and all. The development file now names itself
+`simple-balance-dev`, so the two coexist.
 
 **A promise this project has made since 0.1.0 is now a test.** "This image
 makes no outbound connection nobody configured" carried "not checked
