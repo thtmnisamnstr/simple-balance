@@ -220,6 +220,32 @@ jobs:
       # script once a shell has read it. All three are cheap here and silent
       # everywhere else — the frontend image's nginx template shipped a fatal
       # error for exactly this reason, because every check read it as text.
+      # Same reasoning as the verify job above.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: ${{ inputs.ref == '' && 'npm' || '' }}
+          cache-dependency-path: deploy/pulumi/package-lock.json
+
+      - name: Typecheck the Pulumi programs
+        working-directory: deploy/pulumi
+        run: |
+          npm ci
+          npm run typecheck
+
+      # Last in the job, and deliberately after the step above rather than
+      # before the one that sets up Node.
+      #
+      # CodeQL's actions/cache-poisoning/poisonable-step flags a step that
+      # runs content out of the checkout when it comes *before* an action that
+      # writes a cache — the worry being a dispatch carrying `inputs.ref`,
+      # where the checked-out tree is not this one and the cache it poisons is
+      # read later by the default branch. Nothing here executes what it reads:
+      # `sh -n` parses and does not run, `docker compose config` interpolates,
+      # and `systemd-analyze verify` parses. But the ordering is free to fix
+      # and the argument is not worth having on every future read, so this
+      # sits where `npm ci` already sits — which is genuinely poisonable, runs
+      # lifecycle scripts, and has always been on this side of the cache.
       - name: The single profile's material is what it claims to be
         run: |
           set -euo pipefail
@@ -282,19 +308,6 @@ jobs:
             sh -n "$script"
             echo "parsed $script"
           done
-
-      # Same reasoning as the verify job above.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          cache: ${{ inputs.ref == '' && 'npm' || '' }}
-          cache-dependency-path: deploy/pulumi/package-lock.json
-
-      - name: Typecheck the Pulumi programs
-        working-directory: deploy/pulumi
-        run: |
-          npm ci
-          npm run typecheck
 
   # A Dockerfile that has stopped building should fail the pull request that
   # broke it rather than the release that needed it. Its own job rather than
