@@ -146,7 +146,21 @@ across the hour, after a warm-up that was discarded.
 | --- | --- | --- | --- | --- | --- |
 | Steady, 25 rps | 67,500 | 17 ms | 130 ms | 835 ms | 0 |
 | Burst, 100 rps for 5 min | 30,000 | 10 ms | 696 ms | 1,820 ms | 0 |
-| During the imports | 15,000 | 25 ms | 30,372 ms | 43,663 ms | 0.93% (140) |
+| The import window | 15,000 | 25 ms | 30,372 ms | 43,663 ms | 0.93% (140) |
+
+**The import row understates itself, and by how much is known.** The run
+labelled requests as belonging to the import window by a fixed ten minutes from
+the moment the imports began, and the imports actually took 161 seconds — so
+about 4,000 of those 15,000 requests overlapped an import and roughly 11,000 did
+not. Diluted that way, the figure shown as the 95th percentile is nearer the
+81st of the window that mattered, and the true one is worse. The steady and
+burst rows are unaffected: the burst window is defined by the clock, and the
+requests wrongly taken out of the steady arm were the fast ones, so 130 ms is if
+anything generous.
+
+The driver no longer does this — it labels a request as belonging to the import
+window only while an import is genuinely in flight — so the next run measures it
+exactly. The numbers above are from the run that found the problem.
 
 And the steady arm by request, at p95: register 83 ms over 23,593 requests,
 accounts 94 ms, edit 131 ms, budget 141 ms, write 143 ms, summary 158 ms,
@@ -186,6 +200,12 @@ the pool with room; ten do not.
 
 **The peak CPU failure is that same window.** 108.6% of half a core, sampled
 during the imports. The steady and burst arms sat far below it.
+
+The evidence for the pool being the limit does not depend on the diluted
+percentile, which is worth saying because that percentile is the one number here
+that is imprecise. Five of ten imports failed, 27 `timeout exceeded when trying
+to connect` appear in the log, and `max_connections` never went above 11 of 100.
+Those are counts, and they are exact.
 
 ### Two things the run measured that the thresholds do not
 

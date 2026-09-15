@@ -17,6 +17,7 @@
  * finished, which is what somebody waiting actually experiences.
  */
 import { argv, env, exit } from "node:process";
+import { randomInt } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { execFile } from "node:child_process";
@@ -240,7 +241,7 @@ async function fire(user, kind) {
           draft: {
             type: "withdrawal",
             date: "2024-06-01",
-            payee: `Load ${Math.floor(Math.random() * 1000)}`,
+            payee: `Load ${randomInt(1000)}`,
             fromAccountId: account.id,
             amount: "12.34",
             categoryName: "Groceries",
@@ -268,7 +269,7 @@ async function fire(user, kind) {
           draft: {
             type: entry.type,
             date: entry.date,
-            payee: `Renamed ${Math.floor(Math.random() * 1000)}`,
+            payee: `Renamed ${randomInt(1000)}`,
             categoryId: entry.categoryId,
             ...(entry.type === "deposit"
               ? { toAccountId: entry.accountId }
@@ -288,7 +289,17 @@ async function fire(user, kind) {
   }
 }
 
-const pick = (list) => (list.length === 0 ? undefined : list[Math.floor(Math.random() * list.length)]);
+/**
+ * One of a list, uniformly.
+ *
+ * `randomInt` rather than `Math.random`, and the reason is a linter rather than
+ * a requirement: nothing this driver randomises is a secret — which request to
+ * fire, which account to touch, what to rename a payee to — so `Math.random`
+ * was correct and CodeQL's `js/insecure-randomness` flagged all four uses
+ * anyway. The rule cannot tell a load generator from a token mint. Swapping it
+ * costs nothing at three hundred draws a second and is cheaper than arguing.
+ */
+const pick = (list) => (list.length === 0 ? undefined : list[randomInt(list.length)]);
 
 /** The mix, expanded once into a lookup so choosing is one random number. */
 const WHEEL = MIX.flatMap((entry) => Array.from({ length: entry.percent }, () => entry.kind));
@@ -319,7 +330,7 @@ async function drive({ seconds, rateAt, phaseAt, pool, record, label }) {
     if (wait > 0) await sleep(wait);
 
     const user = pool[dispatched % pool.length];
-    const kind = WHEEL[Math.floor(Math.random() * WHEEL.length)];
+    const kind = WHEEL[randomInt(WHEEL.length)];
     const dueAt = due;
     // Which arm of the schedule this request belongs to, decided when it is
     // dispatched rather than when it returns — a request issued during the
@@ -416,6 +427,7 @@ async function runImports(pool, count, rows, record) {
     return;
   }
   const csv = buildCsv(template);
+  importsRunning = true;
   say(
     `${users.length} concurrent imports of ${csv.split("\n").length - 1} rows, ` +
       `${(csv.length / 1e6).toFixed(1)} MB each`,
@@ -443,6 +455,7 @@ async function runImports(pool, count, rows, record) {
       }
     }),
   );
+  importsRunning = false;
 }
 
 /* ------------------------------------------------------- what was measured --- */
@@ -601,8 +614,17 @@ async function databaseState() {
 
 /* ------------------------------------------------------------- the run --- */
 
-/** How long the import window is assumed to last, for labelling requests. */
-const importWindowSeconds = 600;
+/**
+ * Whether the imports are in flight right now.
+ *
+ * A flag rather than an assumed window, and the difference is not cosmetic. The
+ * first spelling guessed ten minutes; a rehearsal with `--imports-at 0` then
+ * labelled every request in a one-minute run as an import, which left the steady
+ * arm with no samples — and an arm with no samples reports a 0 ms p95 and a
+ * 100% error rate, which is a failing verdict on a phase that never ran.
+ * Imports take as long as they take, and only the driver knows when.
+ */
+let importsRunning = false;
 
 const phases = new Map();
 const phaseOf = (name) => {
@@ -731,9 +753,7 @@ const dispatched = await drive({
   // the steady arm, which is the one a deployment lives in.
   phaseAt: (second) => {
     if (second >= burstFrom && second < burstTo) return "burst";
-    if (imports && second >= importsAt * 60 && second < importsAt * 60 + importWindowSeconds) {
-      return "imports";
-    }
+    if (importsRunning) return "imports";
     return "steady";
   },
   pool,
@@ -753,9 +773,15 @@ const errorsIn = (counts) =>
     .reduce((sum, [, n]) => sum + n, 0);
 
 const steady = phaseOf("steady");
+if (steady.samples.length === 0) {
+  console.error(
+    "\nNo request fell in the steady arm, so there is nothing to hold to the thresholds.\n" +
+      "A run shorter than the burst and import windows put together has no steady phase.",
+  );
+  exit(1);
+}
 const sorted = [...steady.samples].sort((a, b) => a - b);
-const errorRate =
-  steady.samples.length === 0 ? 1 : errorsIn(steady.statuses) / steady.samples.length;
+const errorRate = errorsIn(steady.statuses) / steady.samples.length;
 const samplesAll = samples;
 const server = await serverPercentiles();
 const after = await databaseState();
