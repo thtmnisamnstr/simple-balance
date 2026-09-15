@@ -337,8 +337,10 @@ jobs:
             echo "::error::shellcheck is not installed, so the scripts were not checked"
             exit 1
           }
-          shellcheck deploy/systemd/simple-balance-backup deploy/systemd/simple-balance-restore
-          echo "shellcheck passed both scripts"
+          shellcheck deploy/systemd/simple-balance-backup \
+                     deploy/systemd/simple-balance-restore \
+                     deploy/systemd/simple-balance-firstboot
+          echo "shellcheck passed all three scripts"
 
 
 

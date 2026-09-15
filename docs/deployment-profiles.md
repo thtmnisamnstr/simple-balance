@@ -24,6 +24,32 @@ There is a third thing in `deploy/compose/compose.distributed.yml` that is
 neither profile: the split containers on one machine, which exists to exercise
 the shape the Helm chart deploys. It is a demonstration, not a deployment.
 
+## What this does not add
+
+`AGENTS.md` holds that PostgreSQL is the only persistent dependency, and that
+nothing may add a sidecar or a writable-volume requirement. Neither profile
+breaks it, and it is worth saying which of the two clauses each piece answers to
+rather than leaving a reader to wonder.
+
+The application container still writes nothing: it runs read-only with a 16 MiB
+`tmpfs` for `/tmp`, exactly as `docs/deployment.md` has always described. The
+ledger still lives in PostgreSQL alone.
+
+Two volumes exist in the `single` profile beyond the database's own. The
+container logs are bounded rather than stored — 10 MiB across five files per
+service, which is Docker's own rotation and not state. Caddy keeps its
+certificates and its ACME account key, which is genuine persistent state and is
+also entirely regenerable: losing that volume costs a re-issue, and the only
+reason to care is Let's Encrypt's rate limit of five duplicate certificates per
+name per week. Nothing in either volume is anybody's data, and a deployment that
+terminates TLS elsewhere has neither.
+
+Caddy itself is not a new dependency. `docs/deployment.md` has required a
+reverse proxy in front of this application since 0.1.0, because production
+refuses an `APP_BASE_URL` that is neither HTTPS nor loopback. What
+`compose.caddy.yml` adds is a default answer to a question that was already
+being asked.
+
 ## What terminates TLS
 
 The application refuses an `APP_BASE_URL` that is neither HTTPS nor loopback
@@ -120,9 +146,17 @@ when `networkPolicy.enabled` is set.
 
 ## DNS
 
-One A record, pointing at the address the cloud program outputs. Both programs
-reserve the address rather than taking an ephemeral one, so replacing the
-machine does not mean waiting for a DNS change to propagate.
+One A record, pointing at the address the cloud program outputs.
+
+The two clouds differ here, and the difference is a constraint rather than a
+choice. AWS gets an Elastic IP, which outlives the instance. Oracle Cloud gets
+the ephemeral address its VNIC is created with, because OCI maps at most one
+public IP to a private IP at a time: attaching a reserved address to a VNIC that
+already has an ephemeral one is refused, and creating the VNIC without one
+leaves the machine with no route to the internet while cloud-init is installing
+Docker. In practice it is stable — nothing in either program replaces the
+instance — and an operator who needs an address that outlives the machine can
+promote the ephemeral one to reserved in the OCI console.
 
 The name has to resolve **before** a certificate can be issued: Let's Encrypt
 proves the name by connecting to it. Caddy retries until it works, so the order
@@ -195,6 +229,17 @@ value, and a rebuilt instance that reattaches the same volume finds the same
 ones.
 
 Everything an operator genuinely supplies — an SMTP password, a Stripe key —
-goes in `/opt/simple-balance/env.local`, which survives a redeploy and is
-appended to `.env` on every boot. `docs/deployment.md` describes the `_FILE`
+goes in `/var/lib/simple-balance/env.local`, which is on the data volume rather
+than the boot disk and is folded into `.env` whenever the machine's setup runs.
+The disk is the point: `/opt` is destroyed when the instance is rebuilt, so a
+key kept there would survive until the machine was resized and then vanish with
+no error and no mention of itself. `docs/deployment.md` describes the `_FILE`
 variants for a deployment that keeps secrets somewhere else entirely.
+
+**A `pulumi up` does not re-run any of this.** Cloud-init's `runcmd` is
+per-instance, and neither program replaces the instance when the deployment
+material changes — deliberately, because that would be minutes of downtime on
+every edit and, on Oracle Cloud, a new address. These programs provision a
+machine; they do not keep managing it. Apply an application upgrade or a
+setting on the machine itself, which the generated user-data explains in its own
+header and `deploy/pulumi/README.md` repeats.

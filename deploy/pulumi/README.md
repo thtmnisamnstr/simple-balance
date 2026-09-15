@@ -259,7 +259,8 @@ database URL to supply — the machine runs its own PostgreSQL.
 | `size` | | `small` | `small`, `medium` or `large`. `docs/deployment-sizing.md` is the table, and it is the same table `single-common/index.ts` implements |
 | `acmeEmail` | | | Where Let's Encrypt writes about a renewal that failed. Optional to them and worth setting |
 | `allowedEmails` | | | Who may register. Empty admits nobody but the first account |
-| `sshCidr` | | | One IPv4 CIDR allowed to reach port 22. Unset means no SSH ingress at all, which is the default; both programs give a shell without it. `0.0.0.0/0` is refused |
+| `sshCidr` | | | One IPv4 CIDR allowed to reach port 22. Unset means no SSH ingress at all, which is the default; AWS gives a shell through Session Manager without it, and OCI through the Bastion service. `0.0.0.0/0` is refused, and so is a CIDR with no `sshPublicKey` — an open port nothing can answer is a rule in a firewall and a debugging session about the wrong thing |
+| `sshPublicKey` | | | The contents of a `.pub` file. Refused if it looks like anything else, because a private key here would be a private key in your stack configuration. Allowed without `sshCidr`, which is how the OCI Bastion service reaches a machine that publishes no SSH port |
 | `imageTag` | | the release | Which image tag to deploy |
 | `imageRepository` | | `ghcr.io/thtmnisamnstr/simple-balance` | For a private mirror |
 | `timezone` | | `Etc/UTC` | The machine's clock. Not the application's — that is each person's own setting |
@@ -274,8 +275,9 @@ the machine needs either value, and a rebuilt instance that reattaches the same
 volume finds the same ones.
 
 Settings that genuinely come from outside — an SMTP password, a Stripe key — go
-in `/opt/simple-balance/env.local` on the machine. It survives a redeploy and is
-appended to `.env` on every boot.
+in `/var/lib/simple-balance/env.local` on the machine, which is on the data
+volume rather than the boot disk and is folded into `.env` whenever the setup
+runs. `/opt` is destroyed when the instance is rebuilt; the data volume is not.
 
 ```sh
 cd deploy/pulumi
@@ -303,10 +305,30 @@ arrives on its own once the name resolves; Caddy keeps retrying until it does.
 **Replacing the machine keeps the ledger.** The data volume is a separate
 resource from the instance and is formatted only when it is not already a
 filesystem, so resizing — change `size`, deploy — destroys the root disk and
-leaves the database, the backups and the two generated secrets alone. Both
-programs pin the machine image with `ignoreChanges` for the opposite reason:
-without it a new Canonical build every few weeks would replace the instance on
-every `pulumi up`, which costs an outage nobody asked for.
+leaves the database, the backups, the two generated secrets and `env.local`
+alone. Both programs pin the machine image with `ignoreChanges` for the opposite
+reason: without it a new Canonical build every few weeks would replace the
+instance on every `pulumi up`, which costs an outage nobody asked for.
+
+**But a second `pulumi up` does not reconfigure the machine.** Cloud-init runs
+once per instance, and neither program replaces the instance when the compose
+files, the units or the image tag change — deliberately, because an instance
+replacement on every edit is minutes of downtime and, on Oracle Cloud, a new
+address. These programs provision a machine; they do not keep managing it. Do it
+on the machine:
+
+```sh
+# An application upgrade.
+sudo $EDITOR /opt/simple-balance/compose.yml       # the pinned image tag
+sudo docker compose -f /opt/simple-balance/compose.yml pull
+sudo systemctl restart simple-balance
+
+# A setting.
+sudo $EDITOR /var/lib/simple-balance/env.local
+sudo systemctl restart simple-balance
+```
+
+Take a backup first either way: `sudo /usr/local/bin/simple-balance-backup`.
 
 ## After the first `pulumi up`
 

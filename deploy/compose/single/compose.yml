@@ -153,7 +153,18 @@ services:
         max-file: "5"
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U simple_balance -d simple_balance"]
+      # -h 127.0.0.1, so this answers for the server the application will
+      # actually connect to.
+      #
+      # Without a host, pg_isready asks over the unix socket — and during
+      # initialisation the image's entrypoint runs a temporary server with
+      # `listen_addresses=''`, which answers on that socket and on no TCP port
+      # at all. So a socket check reports healthy while the first start is still
+      # creating the database, `depends_on: service_healthy` releases, and the
+      # application connects to nothing. Read out of the image's own
+      # docker-entrypoint.sh rather than guessed: the line is commented "does
+      # not listen on external TCP/IP".
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U simple_balance -d simple_balance"]
       interval: 5s
       timeout: 3s
       retries: 30

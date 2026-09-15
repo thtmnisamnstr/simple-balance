@@ -216,6 +216,11 @@ const instance = new oci.core.Instance(
       hostnameLabel: "app",
     },
     metadata: {
+      // Only where a key was given. `readSingleSettings` refuses an sshCidr
+      // without one, so the security list never opens a port that nothing can
+      // answer; a key without a CIDR is allowed and is how the OCI Bastion
+      // service reaches a machine that publishes no SSH at all.
+      ...(settings.sshPublicKey ? { ssh_authorized_keys: settings.sshPublicKey } : {}),
       user_data: pulumi
         .output(
           single.cloudInit({
@@ -257,40 +262,46 @@ new oci.core.VolumeAttachment(name, {
 });
 
 /**
- * A reserved address, so the DNS record survives the machine.
+ * The address, read off the VNIC the instance was given.
  *
- * The instance gets an ephemeral public IP at launch and this replaces it; the
- * two data sources in between are how OCI names the private IP a reserved
- * address attaches to, which is not something the instance resource exposes
- * directly.
+ * Ephemeral rather than reserved, and that is a constraint rather than a
+ * preference. OCI maps at most one public IP to a private IP at a time, so
+ * attaching a RESERVED address to a VNIC created with `assignPublicIp: true`
+ * is refused — and creating it with `false` instead leaves the machine with no
+ * route to the internet while cloud-init is running `apt-get`, because a public
+ * subnet reaches the internet gateway through the instance's own public IP.
+ * There is no ordering that gives both, and a machine that cannot install
+ * Docker is worse than an address that is stable only for the life of the
+ * instance.
+ *
+ * In practice it is stable: nothing here replaces the instance, so the address
+ * lasts until somebody destroys it deliberately. An operator who needs one that
+ * outlives the machine can promote this address to reserved in the console,
+ * which OCI supports for an existing ephemeral IP. `../aws-single/` has no such
+ * constraint and uses an Elastic IP.
  */
 const vnicId = oci.core
   .getVnicAttachmentsOutput({ compartmentId, instanceId: instance.id })
   .apply((result) => result.vnicAttachments[0]!.vnicId);
 
-const privateIpId = oci.core
-  .getPrivateIpsOutput({ vnicId })
-  .apply((result) => result.privateIps[0]!.id);
+const publicIpAddress = oci.core
+  .getVnicOutput({ vnicId })
+  .apply((vnic) => vnic.publicIpAddress);
 
-const address = new oci.core.PublicIp(name, {
-  compartmentId,
-  lifetime: "RESERVED",
-  privateIpId,
-  displayName: name,
-  freeformTags: tags,
-});
-
-export const publicIp = address.ipAddress;
+export const publicIp = publicIpAddress;
 export const instanceId = instance.id;
 export const url = `https://${settings.hostname}`;
 export const machine = `VM.Standard.A1.Flex — ${size.vcpu} OCPU, ${size.memoryGib} GB, ${size.dataGib} GB data`;
 
 export const nextSteps = pulumi.interpolate`
-1. Point ${settings.hostname} at ${address.ipAddress} with an A record.
+1. Point ${settings.hostname} at ${publicIpAddress} with an A record.
    Caddy cannot obtain a certificate until it resolves, and it retries until it does.
 2. Reach the machine. With simple-balance:sshCidr unset there is no open SSH port —
    use the OCI Bastion service, or set sshCidr to your own address and redeploy.
 3. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
-4. Optional settings — SMTP, Stripe, AdSense — go in /opt/simple-balance/env.local,
-   which survives a redeploy, and take effect on  sudo systemctl restart simple-balance.
+4. Optional settings — SMTP, Stripe, AdSense — go in /var/lib/simple-balance/env.local,
+   which is on the data volume and survives a rebuild. Restart with
+   sudo systemctl restart simple-balance.
+5. A later 'pulumi up' does not re-run the machine's setup. See the header of
+   /var/lib/cloud/instance/user-data.txt on the machine for how to apply a change.
 `;

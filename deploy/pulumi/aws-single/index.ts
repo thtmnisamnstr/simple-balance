@@ -175,6 +175,14 @@ new aws.iam.RolePolicyAttachment(`${name}-ssm`, {
 
 const instanceProfile = new aws.iam.InstanceProfile(name, { role: role.name, tags });
 
+// Only where a key was given. Without one, `simple-balance:sshCidr` is refused
+// by `readSingleSettings`, so there is never an open port with nothing behind
+// it — and with neither set, Session Manager above is the whole answer and this
+// resource does not exist.
+const keyPair = settings.sshPublicKey
+  ? new aws.ec2.KeyPair(name, { publicKey: settings.sshPublicKey, tags })
+  : undefined;
+
 // ------------------------------------------------------------- the machine ---
 
 // Canonical's own account. Pinned to 24.04 and arm64; the wildcard is the build
@@ -237,6 +245,7 @@ const instance = new aws.ec2.Instance(
     subnetId: subnet.id,
     vpcSecurityGroupIds: [securityGroup.id],
     iamInstanceProfile: instanceProfile.name,
+    keyName: keyPair?.keyName,
     availabilityZone,
     rootBlockDevice: {
       // The boot disk holds the operating system, the images, and the container
@@ -295,6 +304,9 @@ export const nextSteps = pulumi.interpolate`
    Caddy cannot obtain a certificate until it resolves, and it retries until it does.
 2. Watch the first boot:  ${shell}  then  journalctl -u simple-balance -f
 3. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
-4. Optional settings — SMTP, Stripe, AdSense — go in /opt/simple-balance/env.local,
-   which survives a redeploy, and take effect on  sudo systemctl restart simple-balance.
+4. Optional settings — SMTP, Stripe, AdSense — go in /var/lib/simple-balance/env.local,
+   which is on the data volume and survives a rebuild. Restart with
+   sudo systemctl restart simple-balance.
+5. A later 'pulumi up' does not re-run the machine's setup. See the header of
+   /var/lib/cloud/instance/user-data.txt on the machine for how to apply a change.
 `;

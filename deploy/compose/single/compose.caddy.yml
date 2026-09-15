@@ -65,10 +65,18 @@ services:
       # address is set, the same way the split recipe derives
       # SB_BILLING_CONFIGURED from a key being present.
       ACME_EMAIL_OPTION: ${ACME_EMAIL:+email ${ACME_EMAIL}}
-      # Ten CSVs of CSV_MAX_BYTES plus the multipart wrapper, matching the limit
-      # the application enforces for itself. Refused here, the caller is told at
-      # once rather than after uploading sixty megabytes.
-      MAX_BODY_SIZE: ${MAX_BODY_SIZE:-61MB}
+      # The same ceiling nginx carries as SB_MAX_UPLOAD_SIZE, to the byte, so a
+      # CSV the application would accept is not refused by whatever is in front
+      # of it.
+      #
+      # MiB and not MB, and the difference is not pedantry. Caddy reads MB as a
+      # million and MiB as 1,048,576, while nginx's `61m` is binary — so `61MB`
+      # here is 61,000,000 bytes against nginx's 63,963,136, and the application
+      # accepts CSV_MAX_BYTES x 6 + 64 KiB, which is 62,980,096. The decimal
+      # spelling sat just under that: a CSV between 61.0 and 62.9 MB was
+      # advertised, accepted by the API, and refused by the terminator in front
+      # of it with a 413 and nothing to explain it.
+      MAX_BODY_SIZE: ${MAX_BODY_SIZE:-61MiB}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       # Certificates and the ACME account key. This is the volume that must not
