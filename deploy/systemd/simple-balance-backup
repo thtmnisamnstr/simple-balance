@@ -70,15 +70,23 @@ fi
 mv "$partial" "$final"
 echo "simple-balance-backup: wrote $final ($(wc -c <"$final" | tr -d " ") bytes, $entries tables)"
 
-# Keep the newest SB_BACKUP_KEEP and remove the rest. `ls` rather than `find`
-# because the timestamp is in the name: sorting the names is sorting by age, and
-# it needs no GNU extension. The .partial suffix keeps an interrupted dump out
-# of this list, so a failure cannot push a good backup off the end.
-ls "$SB_BACKUP_DIR" 2>/dev/null |
-	grep '^simple-balance-.*\.dump$' |
-	sort -r |
-	tail -n "+$((SB_BACKUP_KEEP + 1))" |
-	while IFS= read -r old; do
-		rm -f "$SB_BACKUP_DIR/$old"
-		echo "simple-balance-backup: pruned $old"
-	done
+# Keep the newest SB_BACKUP_KEEP and remove the rest.
+#
+# A glob rather than `ls` piped into anything. The timestamp is in the name, so
+# the shell's own expansion is already oldest-first and the ones to remove are
+# the leading few — which needs no `sort`, no GNU-only `find -printf`, and no
+# parsing of `ls` output, whose one job is to be read by people. The `.partial`
+# suffix is outside this pattern, so an interrupted dump cannot push a good
+# backup off the end.
+set -- "$SB_BACKUP_DIR"/simple-balance-*.dump
+# An unmatched glob expands to itself in POSIX sh, so the first entry has to be
+# a real file before the count below means anything.
+[ -f "$1" ] || set --
+
+surplus=$(($# - SB_BACKUP_KEEP))
+while [ "$surplus" -gt 0 ]; do
+	rm -f "$1"
+	echo "simple-balance-backup: pruned ${1##*/}"
+	shift
+	surplus=$((surplus - 1))
+done

@@ -319,10 +319,26 @@ jobs:
             fi
             echo "parsed $unit"
           done
-          for script in deploy/systemd/simple-balance-backup deploy/systemd/simple-balance-restore; do
-            sh -n "$script"
-            echo "parsed $script"
-          done
+          # shellcheck rather than `sh -n`, for two reasons and in that order.
+          #
+          # It is a better check: `sh -n` finds a syntax error and nothing else,
+          # while shellcheck found a real fragility in the pruning here — an
+          # `ls` piped into `grep`, whose output is meant for people rather than
+          # for parsing. These two scripts are written into cloud-init and run
+          # unattended on somebody's machine at three in the morning, which is
+          # the worst place to discover a quoting bug.
+          #
+          # And `sh -n "$script"` is a shell interpreter pointed at a path out
+          # of the checkout, which is the shape CodeQL's
+          # actions/cache-poisoning/poisonable-step reports. It does not execute
+          # — that is what -n means — but the query matches the command line
+          # rather than its meaning, and a linter is not that shape.
+          command -v shellcheck >/dev/null || {
+            echo "::error::shellcheck is not installed, so the scripts were not checked"
+            exit 1
+          }
+          shellcheck deploy/systemd/simple-balance-backup deploy/systemd/simple-balance-restore
+          echo "shellcheck passed both scripts"
 
 
 
