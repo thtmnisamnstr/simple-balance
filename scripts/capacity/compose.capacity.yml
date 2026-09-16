@@ -102,6 +102,19 @@ services:
       # address and the limiter counts what it is meant to.
       TRUST_PROXY: "true"
       ALLOWED_EMAILS: "*"
+    # Hardened the same way every other Simple Balance service is. It changes
+    # nothing about what is measured — a Node server binding a port as a non-root
+    # user needs no capability — and the point is that a measurement taken
+    # against a container configured unlike the deployment is a measurement of
+    # something else.
+    #
+    # It was the one service in the repository running this image without these
+    # lines, which nothing noticed because the check that holds them read a
+    # single compose file by name.
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
 volumes:
   # Where the thirty-five gigabytes go. A bind mount wearing a named volume's

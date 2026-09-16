@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { repoFiles } from "./support/source.js";
 import { describe, expect, it } from "vitest";
 
 describe("Docker runtime", () => {
@@ -274,13 +275,36 @@ describe("the decomposed images", () => {
  * built, which is what makes them the ones worth guaranteeing.
  */
 describe("the labels on every image", () => {
-  const dockerfiles = [
-    "Dockerfile",
-    "deploy/docker/server.Dockerfile",
-    "deploy/docker/scheduler.Dockerfile",
-    "deploy/docker/frontend.Dockerfile",
-  ] as const;
+  /**
+   * Discovered, not listed, and the difference has already cost this repository
+   * something: this array held four names while the tree held five, so the Citus
+   * image was checked by nothing at all — for a release in which
+   * `docs/standards/operations.md` claimed every image pins its base by digest.
+   *
+   * `APPLICATION_IMAGES` below is the population this block is about: the images
+   * that *are* Simple Balance and carry its version. The database image is a
+   * different population with different obligations and has a block of its own at
+   * the foot of this file, so it is excluded here by what it is rather than by
+   * being left off a list — a new application image joins automatically, and a
+   * new image of some other kind fails this until somebody says which it is.
+   */
+  const DATABASE_IMAGES = new Set(["deploy/docker/citus.Dockerfile"]);
+  const dockerfiles = repoFiles(
+    (path) => path === "Dockerfile" || /(^|\/)[a-z-]*\.?Dockerfile$/.test(path),
+  )
+    .map((file) => file.path)
+    .filter((path) => !DATABASE_IMAGES.has(path));
   const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+  it("finds every application image in the tree", () => {
+    // The check that keeps the rest of this block honest. Without it, a regex
+    // that stopped matching would empty the population and every assertion below
+    // would pass over nothing — which is what a list does, slowly.
+    expect(dockerfiles.length).toBeGreaterThanOrEqual(4);
+    expect(dockerfiles).toContain("Dockerfile");
+    expect(dockerfiles).toContain("deploy/docker/server.Dockerfile");
+    expect(dockerfiles).not.toContain("deploy/docker/citus.Dockerfile");
+  });
 
   it("names the product, its licence and where it came from", () => {
     for (const path of dockerfiles) {

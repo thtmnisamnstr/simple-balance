@@ -340,7 +340,7 @@ integration("where uncategorised spending sits in the summary", () => {
           ...(category ? { categoryName: category } : {}),
         },
         // The payee whole, never padded to a width: padding and slicing is the
-        // collision shape testing.md 2.6 is about — two keys that agree for
+        // collision shape testing.md 2.7 is about — two keys that agree for
         // sixteen characters replay each other and the second write is a read.
         `spend-${payee}`,
       );
