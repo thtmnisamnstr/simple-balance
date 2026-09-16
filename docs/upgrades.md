@@ -41,7 +41,7 @@ deployment on one PostgreSQL records it as run and keeps exactly the schema it
 had. Verified in both directions, on PostgreSQL 15 and 18: twenty-four migrations
 recorded, the primary keys untouched, and every foreign key as it was.
 
-On a Citus cluster it is the substantial one. It rewrites fifteen primary keys to
+On a Citus cluster it is the substantial one. It rewrites fourteen primary keys to
 carry the owner, which rebuilds every index on them; drops five unique
 constraints the new key makes redundant; and moves the ledger's seventeen tables
 onto the workers while fourteen are replicated to every node. It runs as one
@@ -93,7 +93,12 @@ docker compose down -v
 
 # 4. Pull this release, which brings up an empty PostgreSQL 18.
 git pull && docker compose up -d postgres
-until docker compose exec -T postgres pg_isready -U simple_balance -d simple_balance
+#    `-h 127.0.0.1` matters here as much as `-T` did above: the entrypoint runs a
+#    temporary server while it initialises, and that one answers on the unix
+#    socket alone. Without it this loop finishes against a server about to be
+#    replaced, and the restore below meets `the database system is shutting down`.
+until docker compose exec -T postgres \
+  pg_isready -h 127.0.0.1 -U simple_balance -d simple_balance
 do sleep 1; done
 
 # 5. Restore.

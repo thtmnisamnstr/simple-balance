@@ -896,10 +896,16 @@ extension, which is why the Citus image is where this was finally noticed —
 after four other places had been written the wrong way, one of them the `vps`
 profile's own recipe.
 
-*Checked by:* `tests/deployment-docs.test.ts` ("every readiness check against
-PostgreSQL goes over TCP"), which reads every compose file, workflow and script
-in the repository rather than a list — a list is the thing that was already
-wrong.
+*Checked by:* `tests/deployment-docs.test.ts` ("goes over TCP everywhere, never
+over the unix socket"), which reads every file in the repository rather than a
+list — a list is the thing that was already wrong.
+
+**Documents count, inside a fence.** Prose explaining the command is not a
+command; a fenced block is one somebody copies. That distinction is not
+pedantry: `docs/upgrades.md`'s own PostgreSQL major-version procedure told an
+operator to wait on the socket and then restore, which is this exact failure
+written into the instructions for avoiding a different one. The first version of
+this test skipped documents entirely and did not see it.
 
 **House.** A healthcheck reads its port from the environment rather than
 hardcoding one. All four images do: the three Node images read `PORT`, the
@@ -1222,6 +1228,15 @@ previous major's data directory, so a floating tag on a database turns an image
 pull into an outage. Both tags it publishes name a version, and the shorter one
 moves only within a PostgreSQL major.
 
+**The obvious alternative was to adopt the image Citus publishes, and it does
+not work — from either direction.** Of its hundreds of tags exactly one carries
+arm64, and that one is Alpine; every `-pgNN` tag is amd64 only, by construction,
+because upstream's publisher hardcodes the platform for every image type except
+alpine. So the architecture this project builds for and the libc it needs do not
+meet in any artefact upstream ships. Adopting the amd64 one and dropping arm64
+would be choosing the platform over the ledger, and adopting the alpine one would
+be choosing musl — which is the one base this application must not have.
+
 **Building somebody else's software brings three obligations the other four
 images do not have.** The base is pinned by digest and the source by checksum,
 because a tarball fetched over the network and compiled into a database holding
@@ -1241,7 +1256,14 @@ for its own OAuth support, so Citus's `#ifdef` found it and compiled statistics
 collection that was never linked. A configure flag is a request; the binary is
 the answer.
 
-*Checked by:* `.github/workflows/citus-image.yml`, which builds each architecture
+*Checked by:* `tests/dockerfile.test.ts` ("the database image"), which holds the
+three obligations above — a base pinned by digest through the `ARG` that names
+it, a pinned and verified source checksum, and labels that do not claim this
+product's version. It is deliberately a separate population from the four app
+images rather than a fifth entry in their loop: two of that loop's assertions are
+wrong for this image, and adding it would have meant weakening them.
+
+And by `.github/workflows/citus-image.yml`, which builds each architecture
 natively and then *starts* the image and asks it what it is — that the extension
 loads, that telemetry is off, and that the collation orders accented text the way
 glibc does rather than the way musl does. A build that succeeds says nothing

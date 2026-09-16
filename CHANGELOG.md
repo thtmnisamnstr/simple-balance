@@ -238,7 +238,7 @@ than the middle.
 nothing.** It distributes the ledger across a Citus cluster and is gated on the
 extension being installed, so the `single` and `vps` profiles record it as run
 and keep the schema they had — verified both ways, on PostgreSQL 15 and 18. On a
-cluster it rewrites fifteen primary keys to carry the owner, rebuilds the indexes
+cluster it rewrites fourteen primary keys to carry the owner, rebuilds the indexes
 on them, and drops five unique constraints the new key makes redundant. It is one
 transaction: it either distributes everything or changes nothing.
 

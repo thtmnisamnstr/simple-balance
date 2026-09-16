@@ -181,7 +181,7 @@ The file is gated on the extension being present, so running it against a
 database without Citus is a no-op rather than a mistake. It is one transaction:
 it either distributes everything or changes nothing.
 
-**Take a dump first.** It rewrites fifteen primary keys and rebuilds every index
+**Take a dump first.** It rewrites fourteen primary keys and rebuilds every index
 on them, and while it is atomic, an `ALTER TABLE` that takes a lock on
 `posting` for the duration is not something to meet unprepared.
 

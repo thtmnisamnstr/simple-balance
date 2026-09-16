@@ -446,3 +446,69 @@ describe("the nginx template and the image that renders it", () => {
     }
   });
 });
+
+/**
+ * The database image, which is not one of the four and must not be treated as
+ * one.
+ *
+ * `docs/standards/operations.md` §An image we build for a dependency carries the
+ * dependency's version is the rule. The obligations it shares with the other
+ * four — a pinned base, a licence, a source — are checked here rather than in the
+ * loop above, because two of that loop's assertions are actively wrong for this
+ * image: its `FROM` comes from an `ARG` so the digest is one level down, and its
+ * version label is Citus's rather than `APP_VERSION`.
+ *
+ * Adding it to the list would therefore have meant weakening the list. The four
+ * app images are one population and this is another, and saying so is what keeps
+ * both checks strict.
+ */
+describe("the database image", () => {
+  const path = "deploy/docker/citus.Dockerfile";
+  const dockerfile = readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+  it("pins its base by digest, through the ARG that names it", () => {
+    const base = /^ARG POSTGRES_IMAGE=(\S+)$/m.exec(dockerfile)?.[1];
+    expect(base, "citus.Dockerfile must name its base in ARG POSTGRES_IMAGE").toBeDefined();
+    expect(base, "the base must be pinned by digest, not by a tag that can move").toContain(
+      "@sha256:",
+    );
+    // And nothing else may introduce an unpinned base behind its back.
+    const floating = [...dockerfile.matchAll(/^FROM (?:--\S+ )*(\S+)/gm)]
+      .map((match) => match[1]!)
+      .filter((image) => image.includes(":") && !image.includes("@sha256:"));
+    expect(floating, "builds on a tag that can move").toEqual([]);
+  });
+
+  it("pins the source it compiles, and its checksum", () => {
+    expect(dockerfile).toMatch(/^ARG CITUS_VERSION=\d+\.\d+\.\d+$/m);
+    expect(dockerfile).toMatch(/^ARG CITUS_SHA256=[a-f0-9]{64}$/m);
+    // A tarball fetched over the network and compiled into a database holding
+    // people's money is where a substitution would be worth making, so the
+    // checksum has to be verified rather than merely recorded.
+    expect(dockerfile).toContain("sha256sum -c -");
+  });
+
+  it("carries the licence and source, and does not claim this product's version", () => {
+    for (const label of [
+      "org.opencontainers.image.title=",
+      'org.opencontainers.image.licenses="AGPL-3.0-only"',
+      'org.opencontainers.image.source="https://github.com/thtmnisamnstr/simple-balance"',
+    ]) {
+      expect(dockerfile, `${path} must set ${label}`).toContain(label);
+    }
+    // The rule, stated as a check: this image's version belongs to Citus and
+    // PostgreSQL. Labelling it with APP_VERSION would print 0.2.0 on contents
+    // decided by somebody else's release cycle.
+    //
+    // Instructions only, the same way the four-image loop above reads them: the
+    // comment at the top of this file explains at length why APP_VERSION is not
+    // used, and a check that read comments would fail on the sentence saying so.
+    const instructions = dockerfile
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .join("\n");
+    expect(instructions, "the database image must not claim APP_VERSION").not.toContain(
+      "APP_VERSION",
+    );
+  });
+});

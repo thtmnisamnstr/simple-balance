@@ -143,10 +143,19 @@ describe("waiting for PostgreSQL", () => {
         continue;
       }
       if (!text.includes("pg_isready")) continue;
+      if (file.endsWith("deployment-docs.test.ts")) continue;
+      const markdown = file.endsWith(".md");
+      let fenced = false;
       for (const [index, line] of text.split("\n").entries()) {
+        // In a document, prose *about* the command is not a command. What is, is
+        // anything inside a fence — an operator copies those, and the upgrade
+        // note's own procedure told them to wait on the socket for a release.
+        if (markdown && line.trimStart().startsWith("```")) {
+          fenced = !fenced;
+          continue;
+        }
         if (!line.includes("pg_isready")) continue;
-        // The rule itself, and the prose explaining it, both name the command.
-        if (file.endsWith(".md") || file.endsWith("deployment-docs.test.ts")) continue;
+        if (markdown && !fenced) continue;
         if (/pg_isready[^\n]*-h\s/.test(line)) continue;
         offenders.push(`${path.relative(root, file)}:${index + 1}`);
       }

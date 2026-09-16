@@ -98,7 +98,7 @@ nothing here is Binding. The one principle worth quoting is its first:
 "Changelogs are for humans, not machines." This file takes that further than the
 convention expects.
 
-- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 1,746 lines,
+- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 2,664 lines,
   and the paragraphs are why it can be read. An entry runs at the length and in
   the voice of a commit body: what changed, what it fixes, and what it costs.
 - **Newest first, under `## Unreleased`, then `## X.Y.Z - YYYY-MM-DD`.** The
@@ -108,10 +108,10 @@ convention expects.
 - **Section headings borrow Keep a Changelog's vocabulary**: Added, Changed,
   Deprecated, Removed, Fixed, Security. This file also uses `Internal`, for a
   change with no user-visible effect that an operator or a contributor would
-  still want to find. Across the dated sections: four Added, four Changed, five
-  Fixed, one Security, one Internal. Counting `## Unreleased` as well gives
-  five, five and six. The 0.1.0 entry predates the
-  convention and uses its own headings; leave it.
+  still want to find. Across the dated sections: five Added, five Changed, six
+  Fixed, one Security, one Internal. Counting `## Unreleased` as well gives six,
+  six and seven. The 0.1.0 entry predates the convention and uses its own
+  headings; leave it.
 - **A change a person would notice gets an entry.** "Notice" means one of four
   things: behaviour on a screen, a value on the wire in any of the three
   contracts, something an operator configures, or something that changes at

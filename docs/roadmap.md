@@ -915,5 +915,26 @@ categorisation among the things a manual-entry user genuinely misses. If the
 staging queue plus a stage-scoped agent turns out not to cover it in practice,
 this is the entry to revisit first.
 
-**Advertising, lead generation, and anything that monetises the data.** Not a
-product decision.
+**Lead generation, and anything that monetises the data.** Not a product
+decision.
+
+**Advertising was in that sentence until 0.2.0, and half of it still is.** This
+entry used to read "Advertising, lead generation, and anything that monetises the
+data", and it is edited rather than deleted because the reasoning is what
+changed, not the mind.
+
+What shipped is an operator's choice, off unless they set `ADSENSE_CLIENT_ID`,
+and it monetises no data: the server decides placement and the browser is never
+told the rule, so a subscriber's page never fetches Google's script at all;
+requests are non-personalised unless a consent platform is collecting consent;
+and nothing about anybody's ledger leaves the deployment. `docs/monetization.md`
+states the cost to the operator in their own words before they turn it on, and
+`docs/standards/operations.md` §One process, one database counts what the browser
+reaches separately from what the server does, precisely because they are
+different promises to different people.
+
+The part of the original position that stands is the part that was really load
+bearing: this product does not sell what it knows about anybody. An operator
+choosing to show advertisements on their own deployment is a different thing from
+this project turning a ledger into an audience, and the design is what keeps the
+two apart rather than the intention.
