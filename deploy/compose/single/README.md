@@ -1,8 +1,12 @@
 # The `single` profile
 
-One machine runs everything: the application container, PostgreSQL beside it,
-and whatever terminates TLS. It grows by being given more CPU and memory, and
-there is nothing in it to scale out. That is the trade, and for one person, a
+One machine runs the application and whatever terminates TLS. The database is
+somebody else's — a managed PostgreSQL, or a server you already keep awake — and
+that is the profile rather than a gap in it: losing this machine loses no data.
+
+It grows by being given more CPU and memory, and there is nothing in it to scale
+out. If you want the database inside the deployment, that is the `vps` shape and
+`../compose.distributed.yml` is its starting point. That is the trade, and for one person, a
 household, or a team small enough to know each other's names it is the right
 one — `docs/deployment-profiles.md` is where the other profile is argued.
 
@@ -10,7 +14,7 @@ Two files and a Caddyfile:
 
 | File | What it is |
 | --- | --- |
-| `compose.yml` | The application and the database. Complete on its own. |
+| `compose.yml` | The application. Complete on its own, given a `DATABASE_URL`. |
 | `compose.caddy.yml` | An overlay that adds TLS, obtained and renewed by Caddy. |
 | `Caddyfile` | What Caddy serves. Read by the overlay, not by `compose.yml`. |
 
@@ -23,7 +27,7 @@ without it every visitor shares one sign-in allowance.
 
 ```sh
 cp deploy/compose/single/.env.example deploy/compose/single/.env
-$EDITOR deploy/compose/single/.env          # POSTGRES_PASSWORD, AUTH_SECRET, APP_BASE_URL
+$EDITOR deploy/compose/single/.env          # DATABASE_URL, AUTH_SECRET, APP_BASE_URL
 cd deploy/compose/single
 docker compose up -d --wait
 ```
@@ -132,13 +136,14 @@ the directory stays and its contents go.
   lets a caller write their own address and take as many sign-in attempts as
   they like. False behind a terminator puts every visitor in one bucket. The
   server says at startup which of the two it is doing.
-- **`POSTGRES_DATA_DIR` and the disk it is on.** It should be the data disk.
-  `docs/deployment-sizing.md` sizes the two separately, and a PostgreSQL that
-  fills a boot disk takes the machine with it.
-- **The PostgreSQL image and glibc.** Stay on a Debian-based one. The Alpine
-  images are musl, which compares text byte by byte whatever collation is
+- **The database's PostgreSQL version.** 17, the same as every other profile,
+  so a dump from one restores into another. `docs/deployment-profiles.md` says
+  why 17 and why the floor is still 15.
+- **The database's collation.** Whoever runs it should create it on a glibc
+  build. Alpine's musl compares text byte by byte whatever collation is
   declared, so every category, payee and account list comes back with capitals
-  first and accents at the end. `compose.yml` carries the measurement.
+  first and accents at the end. `docs/deployment-sizing.md` has the
+  measurement.
 
 ## How this differs from the rest of `deploy/`
 

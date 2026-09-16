@@ -1,40 +1,49 @@
 # Deployment profiles
 
-Three shapes, and the difference between them is machines rather than features.
-All three run the same application, serve the same API and the same MCP surface,
-and read the same settings.
+Three shapes. What separates them is how many machines there are and where the
+database lives; all three run the same application, serve the same API and the
+same MCP surface, and read the same settings.
 
-| Profile | Machines | Database | Status |
+| Profile | Machines | The database | Material |
 | --- | --- | --- | --- |
-| `single` | One | Bring your own, or bundled | Built — `deploy/compose/single/` |
-| `vps` | One small VPS per service | Bring your own | Not built. `deploy/compose/compose.distributed.yml` and the three split images are its raw material; what is missing is the per-machine firewall, DNS and TLS story |
-| `ha` | A Kubernetes cluster | Citus | In progress — `docs/citus.md` has what is proven and what is not |
+| `single` | One | **Somebody else's.** A managed PostgreSQL, or a server you already keep awake | `deploy/compose/single/`, `deploy/systemd/`, `deploy/pulumi/aws-single/`, `deploy/pulumi/oci-single/` |
+| `vps` | One small VPS per service | **One of the services**, part of the deployment | `deploy/compose/compose.distributed.yml` and the three split images are its starting point; the per-machine firewall, DNS and TLS story is not written yet |
+| `ha` | A Kubernetes cluster | **Multi-node PostgreSQL + Citus** | `deploy/helm/`, `deploy/pulumi/aws/`, `deploy/pulumi/gcp/`, `deploy/citus/` — `docs/citus.md` has what is proven and what is not |
 
-The single-node shape does not have to run its own PostgreSQL. It may point at
-a managed one and often should: `docs/deployment.md` has always described the
-application as something you point at a database, and
-`deploy/compose/single/compose.yml` bundles one for convenience rather than by
-requirement. Delete the `postgres` service and set `DATABASE_URL` at a server
-somebody else keeps awake, and nothing else about the profile changes.
+The database is the distinction worth reading twice. `single` runs the
+application and nothing else, so losing that machine loses no data — which is
+what makes one machine a reasonable thing to run a ledger on. `vps` puts the
+database on a machine of its own inside the deployment, which is the smallest
+shape that owns its whole stack. `ha` shards it.
 
-| | `single` | `ha` |
-| --- | --- | --- |
-| Machines | One | A Kubernetes cluster |
-| Containers | One, plus PostgreSQL and a TLS terminator | Four tiers, scaled independently |
-| Database | PostgreSQL on the same host | Bring your own, or the Citus shape |
-| Survives losing a machine | No | Yes |
-| Upgrade | Seconds of downtime while the container restarts | Rolling, no downtime |
-| Material | `deploy/compose/single/`, `deploy/systemd/`, `deploy/pulumi/aws-single/`, `deploy/pulumi/oci-single/` | `deploy/helm/`, `deploy/pulumi/aws/`, `deploy/pulumi/gcp/` |
-| Read | `deploy/compose/single/README.md` | `deploy/helm/simple-balance/README.md`, `deploy/pulumi/README.md` |
+**Start with `single`.** It is the supported shape, it is what
+`docs/deployment.md` assumes, and it is measured: `docs/capacity.md` put ten
+thousand people's ledgers — thirty million transactions — on the smallest size
+it sells and answered the busiest hour at a 130 ms 95th percentile with no
+errors. A ledger is not a workload that needs a cluster. Move to `ha` when
+losing one machine for ten minutes is unacceptable, not when the load gets
+interesting.
 
-**Start with `single`.** It is the supported shape, it is what `docs/deployment.md`
-assumes, and it is measured: `docs/capacity.md` put ten thousand people's
-ledgers — thirty million transactions — on the smallest size `single` sells and
-answered the busiest hour at a 130 ms 95th percentile with no errors. A ledger
-is not a workload that needs a cluster — one machine
-serves a household or a small team with room to spare, and
-`docs/deployment-sizing.md` says how much room. Move to `ha` when losing one
-machine for ten minutes is not acceptable, not when the load gets interesting.
+## One PostgreSQL version
+
+**All three profiles run PostgreSQL 17.** One version, because a dump taken from
+one shape has to restore into another, and because collation and planner
+behaviour both change between releases — `docs/deployment-sizing.md` has the
+measurement showing what a collation difference alone does to every name-sorted
+list in the product.
+
+17 rather than anything else is decided by the cluster. Citus 14.2 supports
+PostgreSQL 16 and 17 and nothing older, and Citus 15 drops 16 — so 17 is the
+only version that serves `ha` today and survives the next Citus release. It is
+also the version whose current patch, 17.11, closes CVE-2026-15741; Citus's own
+`14.2.0-pg17` image carries 17.10 and therefore does not, which is one of the
+reasons `docs/citus.md` builds its own.
+
+**The floor is unchanged.** The application still supports PostgreSQL 15 and up,
+and CI tests both ends: 15, because that is the promise, and 17, because that is
+what every profile ships. A deployment already on 15 or 16 keeps working and is
+not asked to move.
+
 
 There is a third thing in `deploy/compose/compose.distributed.yml` that is
 neither profile: the split containers on one machine, which exists to exercise

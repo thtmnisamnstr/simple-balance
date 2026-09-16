@@ -1,8 +1,11 @@
 # Citus, and what distributing this ledger costs
 
 The `ha` profile's database. This page is what was established by running it
-rather than by reading about it: Citus 14.2 on PostgreSQL 16, the real schema,
-the real application.
+rather than by reading about it: Citus 14.2 on PostgreSQL 17, the real schema,
+the real application. The procedure was proven on 16 first and then on 17, which
+is what every profile now standardises on — `docs/deployment-profiles.md` has
+the reasoning, and the short version is that 17 is the newest release Citus 14.2
+supports and the oldest that survives Citus 15 dropping 16.
 
 **Status: proven, not shipped.** The procedure below applies cleanly and the
 application runs on the result. What does not exist yet is the migration that
@@ -72,16 +75,25 @@ PostgreSQL 15's `ON DELETE SET NULL (group_id)` spelling, which nulls only the
 column named, is refused for the same reason. No spelling helps. The key becomes
 `NO ACTION` and the nulling moves into the delete, in the service.
 
-**One query shape.** `/api/v1/forecast` fails with `complex joins are only
-supported when all distributed tables are joined on their distribution
-columns`. The join in `budgets.ts` does carry `user_id` on both sides — the
-problem is the star: two outer joins from one table to two different distributed
-tables, which Citus's planner will not push down. It needs restructuring, and
-that is application work rather than a schema change.
+**Nothing, now.** `/api/v1/forecast` was the one endpoint that failed, and it
+was not a Citus limitation: `forecast.ts` joined a budget plan to its category
+on the category id alone, with no owner, while every equivalent query in
+`budgets.ts` carried `user_id` on both sides. On a cluster the owner *is* the
+distribution column, so a join that omits it is a join across every tenant's
+shard and Citus refused it. Scoping the join fixed both problems at once.
 
-Everything else works. Sixteen of eighteen endpoints answered on a distributed
-schema, including every report, the trial balance, the CSV export and the
-budget report, and the books balanced across shards.
+**Twenty-five of twenty-five endpoints** now answer on a distributed schema,
+including every report, the trial balance, the CSV export, the budget report and
+the forecast, and the books balance across shards.
+
+That defect is worth keeping in view because of what it says about the exercise.
+It was a tenant-scoping hole that a single-node database could not expose — two
+people cannot hold the same category id while the key is `(id)` alone, so the
+bare join had nothing wrong to match. Widening the key for the cluster is
+exactly what makes it reachable. `tests/integration/forecast-tenancy.test.ts`
+widens the key on its own scratch database and gives two people a category with
+the same id, which is the only arrangement in which the defect can be seen at
+all.
 
 ## The one that is not about Citus at all
 
@@ -110,8 +122,10 @@ there is no multi-platform manifest — and the one arm64 image Citus publishes,
 `citusdata/citus:alpine`, carries PostgreSQL 18.4.
 
 Two further reasons to build rather than adopt. The published PG16 image carries
-**PostgreSQL 16.14**, and CVE-2026-15741 is a PostgreSQL core defect fixed in
-16.15 — so the base has to be pinned forward. And it must be a glibc base rather
+**PostgreSQL 16.14** and the PG17 one carries **17.10**, while CVE-2026-15741 is
+a PostgreSQL core defect fixed in 16.15 and 17.11 — so neither published image
+is patched and the base has to be pinned forward. `postgres:17` carries 17.11
+today, which is what the other two profiles run. And it must be a glibc base rather
 than musl: this application compares normalized names with the database's
 collation, and `docs/deployment-sizing.md` has the measurement showing Alpine
 sorts every category and payee list byte-wise whatever collation it claims.
@@ -127,5 +141,4 @@ sorts every category and payee list byte-wise whatever collation it claims.
   availability of its own — `shard_replication_factor > 1` is deprecated and
   documented as not an HA mechanism, so redundancy is a streaming standby per
   node.
-- The forecast query.
 - A runbook: adding a worker, rebalancing shards, and what a failover does.

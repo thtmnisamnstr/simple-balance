@@ -56,7 +56,7 @@ jobs:
           # The guards are the point of the exercise, so supply what they ask
           # for rather than what a real deployment would use.
           cat > .env <<'ENV'
-          POSTGRES_PASSWORD=ci
+          DATABASE_URL=postgresql://user:pass@db.example.org:5432/simple_balance
           AUTH_SECRET=0123456789012345678901234567890123456789
           APP_BASE_URL=https://books.example.org
           SITE_ADDRESS=books.example.org
@@ -73,7 +73,7 @@ jobs:
           # And that each required setting is genuinely required, since a `:?`
           # that was softened to `:-` is invisible until somebody deploys
           # without it.
-          for name in POSTGRES_PASSWORD AUTH_SECRET APP_BASE_URL; do
+          for name in DATABASE_URL AUTH_SECRET APP_BASE_URL; do
             if grep -v "^$name=" .env > .env.missing && \
                docker compose --env-file .env.missing -f compose.yml config >/dev/null 2>&1; then
               echo "::error::compose.yml rendered without $name instead of refusing"

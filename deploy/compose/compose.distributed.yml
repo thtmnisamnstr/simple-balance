@@ -141,7 +141,18 @@ x-app-config: &app-config
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # PostgreSQL 17, and Debian rather than Alpine.
+    #
+    # 17 because it is what every profile standardises on: it is the newest
+    # release Citus 14.2 supports, so the `ha` profile can use it, and it
+    # survives Citus 15 dropping 16. One version across all three shapes means a
+    # dump taken from one restores into another.
+    #
+    # Debian because Alpine is musl, which compares text byte by byte whatever
+    # collation is declared — `deploy/compose/single/compose.yml` carries the
+    # measurement showing every category and payee list comes back with capitals
+    # first and accents at the end.
+    image: postgres:17
     restart: unless-stopped
     environment:
       POSTGRES_DB: simple_balance

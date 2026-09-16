@@ -1,13 +1,17 @@
-# Simple Balance on one machine: the application container docs/deployment.md
-# calls the supported way to run this, and a PostgreSQL beside it.
+# Simple Balance on one machine, against a database somebody else keeps.
+#
+# The application container docs/deployment.md calls the supported way to run
+# this, and nothing else. No PostgreSQL here: point DATABASE_URL at a managed
+# service or a server you already run. That is what distinguishes this profile
+# from the `vps` one, where the database is one of the services.
 #
 #   cp deploy/compose/single/.env.example deploy/compose/single/.env
 #   $EDITOR deploy/compose/single/.env
 #   docker compose -f deploy/compose/single/compose.yml up -d
 #
 # This is the `single` profile, and the name is about machines rather than
-# containers: one host holds the application, the database and whatever
-# terminates TLS, and it grows by being given more CPU and memory. The other
+# containers: one host holds the application and whatever terminates TLS, and it
+# grows by being given more CPU and memory. The other
 # profile is `ha`, which is Kubernetes. docs/deployment-profiles.md is the
 # comparison, docs/deployment-sizing.md says how big this machine has to be, and
 # docs/deployment-costs.md prices it.
@@ -18,160 +22,6 @@
 name: simple-balance
 
 services:
-  postgres:
-    # Debian, not Alpine, and it is the one image choice in this repository that
-    # changes what a person sees on screen.
-    #
-    # Alpine is musl, which has no real locale support, so PostgreSQL there
-    # compares text byte by byte whatever collation the database claims. Debian
-    # is glibc, which collates. Measured on these two images with an identical
-    # `datcollate` of en_US.UTF-8 and the same five rows:
-    #
-    #   postgres:16-alpine   Banana apple cherry zebra Éclair
-    #   postgres:16          apple Banana cherry Éclair zebra
-    #
-    # Every category, payee and account list in this product is ordered by name,
-    # so on Alpine they come back capitals-first with accents at the end. That
-    # is not a preference: it is the same list, sorted wrongly, and it is what
-    # ../compose.distributed.yml still does because that file is a demonstration
-    # of the split rather than a deployment.
-    #
-    # It also keeps this profile agreeing with every other way to run the
-    # product. A managed PostgreSQL is glibc, so a deployment that moves to one —
-    # or to the `ha` profile — would otherwise have every list silently
-    # re-order underneath it.
-    #
-    # The test suite is not affected either way, which was checked rather than
-    # assumed: all 61 integration files and 699 tests pass against both.
-    #
-    # Pinned to a major version and no further, which is the honest default for
-    # a file nobody rebuilds: `16` picks up each patch release on a
-    # `docker compose pull`, and a PostgreSQL patch release is security fixes
-    # and no schema change. Pin harder for a deployment you upgrade on purpose —
-    # POSTGRES_IMAGE is here so that is an edit to .env rather than to this file.
-    image: ${POSTGRES_IMAGE:-postgres:16}
-    restart: unless-stopped
-
-    # The whole of the tuning, in one place, because the alternative is a
-    # postgresql.conf this file would have to mount and an operator would have to
-    # keep. Every value here is the default unless a reason is written down, and
-    # docs/deployment-sizing.md carries the table these defaults come from — they
-    # are sized for the 2 vCPU / 4 GiB baseline, where the application, the
-    # database and a TLS terminator share the machine.
-    command:
-      - postgres
-      # A quarter of the machine, which is the standing advice, minus the room
-      # the application needs. The default of 128MB is sized for a database
-      # sharing a laptop.
-      - -c
-      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
-      # Not an allocation — what the planner assumes the kernel is caching. Too
-      # low and it costs index scans it should have chosen. Roughly what is left
-      # after shared_buffers and the application.
-      - -c
-      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-1536MB}
-      # Per sort or hash, and a report can hold several at once. Kept modest on
-      # purpose: this is multiplied by concurrent operations, not by the pool.
-      - -c
-      - work_mem=${POSTGRES_WORK_MEM:-8MB}
-      # Index builds and VACUUM. This is the one that decides how long a
-      # migration that rewrites an index takes, so it is deliberately generous
-      # against a default of 64MB: it is claimed only while such work runs.
-      - -c
-      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-256MB}
-      # This deployment opens eleven (see DATABASE_POOL_SIZE below). The rest of
-      # the default hundred is headroom for psql, for pg_dump, and for the
-      # connection an operator opens while wondering why something is slow.
-      # Every allowed connection costs memory whether or not it is used.
-      - -c
-      - max_connections=${POSTGRES_MAX_CONNECTIONS:-100}
-      # Both of these say "the storage is an SSD", which on every machine this
-      # profile targets it is. The defaults describe a spinning disk: 4.0 tells
-      # the planner a random read costs four sequential ones, which on NVMe is
-      # roughly 1.1, and it is why an unturned PostgreSQL prefers a sequential
-      # scan over the index that would have answered.
-      - -c
-      - random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
-      - -c
-      - effective_io_concurrency=${POSTGRES_EFFECTIVE_IO_CONCURRENCY:-200}
-      # A CSV import of ten thousand rows writes enough WAL to force repeated
-      # checkpoints at the 1GB default, and a checkpoint under write load is the
-      # stall people report as "the import froze". Spreading the write out and
-      # giving it more room to accumulate costs disk, which is why it is sized
-      # against the volume in docs/deployment-sizing.md.
-      - -c
-      - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-4GB}
-      - -c
-      - checkpoint_completion_target=0.9
-      # Trades a little CPU for less WAL, which on a small machine with one disk
-      # is the right way round: this workload is nowhere near CPU-bound and the
-      # disk is shared with everything else on the host.
-      - -c
-      - wal_compression=on
-      # Off by default, and this turns it on: without it there is no record of
-      # which statement was slow, and the first thing anybody asks is which
-      # statement was slow. One second is high enough that an ordinary page load
-      # logs nothing.
-      - -c
-      - log_min_duration_statement=${POSTGRES_LOG_MIN_DURATION_MS:-1000}
-
-    environment:
-      POSTGRES_DB: simple_balance
-      POSTGRES_USER: simple_balance
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/single/.env}
-      # The same locale the image would have chosen, said out loud.
-      #
-      # It decides the order every name-sorted list comes back in, and
-      # src/server/services/sorting.ts records that `lower()` follows it too. A
-      # value here rather than a default means an operator who changes
-      # POSTGRES_IMAGE does not silently change how their books are sorted.
-      #
-      # It is read only by initdb, on the very first start against an empty data
-      # directory. Changing it afterwards does nothing; changing it for real
-      # means dump, recreate, restore.
-      POSTGRES_INITDB_ARGS: --locale=en_US.UTF-8 --encoding=UTF8
-
-    # No cap_drop, and it is the same exception ../compose.distributed.yml
-    # documents: this entrypoint starts as root to chown the data directory and
-    # drop to the postgres user, which needs CAP_CHOWN, CAP_FOWNER,
-    # CAP_DAC_OVERRIDE and CAP_SETUID/SETGID. no-new-privileges still applies.
-    security_opt: ["no-new-privileges:true"]
-
-    # Not published. The application reaches it over this network by name, and a
-    # port on the host is a second way in that the firewall table in
-    # docs/deployment-profiles.md would then have to account for.
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-
-    # Docker's default json-file driver keeps every line forever, and on a
-    # machine whose boot disk is 20 GiB that is how the disk fills. Both numbers
-    # are per container.
-    logging: &logging
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "5"
-
-    healthcheck:
-      # -h 127.0.0.1, so this answers for the server the application will
-      # actually connect to.
-      #
-      # Without a host, pg_isready asks over the unix socket — and during
-      # initialisation the image's entrypoint runs a temporary server with
-      # `listen_addresses=''`, which answers on that socket and on no TCP port
-      # at all. So a socket check reports healthy while the first start is still
-      # creating the database, `depends_on: service_healthy` releases, and the
-      # application connects to nothing. Read out of the image's own
-      # docker-entrypoint.sh rather than guessed: the line is commented "does
-      # not listen on external TCP/IP".
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U simple_balance -d simple_balance"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
-      start_period: 30s
-
-    stop_grace_period: 1m
-
   app:
     # The one container: the API, the MCP server, the browser bundle and the
     # recurrence scheduler, which RECURRENCE_SCHEDULER leaves on by default.
@@ -179,10 +29,6 @@ services:
     # be a decision rather than whatever a restart happened to pull.
     image: ghcr.io/thtmnisamnstr/simple-balance:0.1.6
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-
     ports:
       # Loopback, always. Whatever terminates TLS is what the world reaches, and
       # compose.caddy.yml removes this mapping entirely because Caddy reaches the
@@ -197,7 +43,16 @@ services:
       # sign-in rate limiting, no secure cookies, and nothing said about it.
       NODE_ENV: production
 
-      DATABASE_URL: postgresql://simple_balance:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/single/.env}@postgres:5432/simple_balance
+      # Somebody else's PostgreSQL, and that is the profile rather than a
+      # limitation. A single node runs the application; the database is a
+      # managed service, a server you already keep awake, or the machine next to
+      # this one. `docs/deployment.md` has always described this product as
+      # something you point at a database, and this is that sentence as a
+      # compose file.
+      #
+      # Where the database should live is the one thing this profile does not
+      # decide. What it does decide is that losing this machine loses no data.
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in deploy/compose/single/.env}
 
       # The origin a browser opens, which behind a terminator is its https:// URL
       # and not this container's port. The API sets the cookies the browser reads
@@ -279,7 +134,14 @@ services:
     # (DEFAULT_SHUTDOWN_DEADLINE_MS), so a restart is not killed mid-drain.
     stop_grace_period: 30s
 
-    logging: *logging
+    # Docker's default json-file driver keeps every line forever, and on a
+    # machine whose boot disk is 20 GiB that is how the disk fills. Both numbers
+    # are per container, and compose.caddy.yml repeats them for Caddy.
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
     healthcheck:
       test:
@@ -296,20 +158,3 @@ services:
       # deployment restarts in the middle of one.
       start_period: 300s
       retries: 5
-
-volumes:
-  postgres-data:
-    # A bind mount wearing a named volume's clothes, and the reason is the disk
-    # rather than the syntax. A plain named volume lands under
-    # /var/lib/docker/volumes on the boot disk, which on every machine
-    # docs/deployment-sizing.md describes is the small one — and moving a
-    # database off a full boot disk is a worse afternoon than naming the path
-    # once. POSTGRES_DATA_DIR is where the data disk is mounted.
-    #
-    # The directory has to exist. deploy/systemd/simple-balance.service creates
-    # it before compose runs, which is the other reason this profile has a unit.
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${POSTGRES_DATA_DIR:-/var/lib/simple-balance/postgres}

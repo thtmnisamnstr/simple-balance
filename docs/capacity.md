@@ -132,7 +132,15 @@ and the tail the proof exists to find never appears.
 
 The `single` profile at `small`: 2 vCPU and 4 GiB, which
 `docs/deployment-sizing.md` prices and `scripts/capacity/compose.limits.yml`
-enforces. The two processes share it — PostgreSQL gets 1.5 cores and 3 GiB, the
+enforces.
+
+**With the database on the same machine**, which that profile does not do — it
+points at one somebody else keeps. The harness supplies its own
+(`scripts/capacity/compose.capacity.yml`) and co-locates it deliberately: it is
+the harder case for the application, since the two then compete for one pair of
+cores, and the easier one to reproduce, since it needs nothing but this
+repository. A deployment whose database is elsewhere has strictly more of the
+machine for the application than these numbers assume. The two processes share it — PostgreSQL gets 1.5 cores and 3 GiB, the
 application 0.5 and 1 GiB — and the remainder is the page cache
 `effective_cache_size` tells the planner to expect.
 

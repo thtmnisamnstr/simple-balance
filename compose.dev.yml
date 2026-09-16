@@ -11,7 +11,11 @@ name: simple-balance-dev
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # The same 17 the deployment profiles ship, so development and production
+    # agree about collation, planner behaviour and anything else a version
+    # changes. Alpine is fine here and nowhere else: this database holds test
+    # data, and nobody reads a sorted list out of it.
+    image: postgres:17-alpine
     environment:
       POSTGRES_DB: simple_balance
       POSTGRES_USER: postgres

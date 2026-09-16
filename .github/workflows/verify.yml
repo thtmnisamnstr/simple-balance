@@ -26,12 +26,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # The README promises PostgreSQL 15 and up and Node 22.22.2 and up, so
-      # the oldest of each is tested rather than assumed. The image ships Node
-      # 24; 22 is here because `npm start` on a host is a supported way to run
-      # this and the manifest says it works.
+      # The two ends rather than the middle. The README promises PostgreSQL 15
+      # and up, so the floor is tested rather than assumed; 17 is what every
+      # deployment profile now ships, so it is tested for the same reason.
+      # 16 sat between them and told us nothing neither end would.
+      #
+      # Node 22.22.2 and up is the other promise. The image ships Node 24; 22 is
+      # here because `npm start` on a host is a supported way to run this and
+      # the manifest says it works.
       matrix:
-        postgres: ["15-alpine", "16-alpine"]
+        postgres: ["15-alpine", "17-alpine"]
         node: ["22", "24"]
     services:
       postgres:
