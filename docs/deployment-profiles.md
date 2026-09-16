@@ -1,8 +1,21 @@
 # Deployment profiles
 
-Two shapes, and the difference between them is machines rather than features.
-Both run the same application, serve the same API and the same MCP surface, and
-read the same settings.
+Three shapes, and the difference between them is machines rather than features.
+All three run the same application, serve the same API and the same MCP surface,
+and read the same settings.
+
+| Profile | Machines | Database | Status |
+| --- | --- | --- | --- |
+| `single` | One | Bring your own, or bundled | Built — `deploy/compose/single/` |
+| `vps` | One small VPS per service | Bring your own | Not built. `deploy/compose/compose.distributed.yml` and the three split images are its raw material; what is missing is the per-machine firewall, DNS and TLS story |
+| `ha` | A Kubernetes cluster | Citus | In progress — `docs/citus.md` has what is proven and what is not |
+
+The single-node shape does not have to run its own PostgreSQL. It may point at
+a managed one and often should: `docs/deployment.md` has always described the
+application as something you point at a database, and
+`deploy/compose/single/compose.yml` bundles one for convenience rather than by
+requirement. Delete the `postgres` service and set `DATABASE_URL` at a server
+somebody else keeps awake, and nothing else about the profile changes.
 
 | | `single` | `ha` |
 | --- | --- | --- |

@@ -191,7 +191,8 @@ export async function listActiveImportBatches(
       ),
     )
     .where(and(...conditions))
-    .groupBy(importBatches.id)
+    // Both key columns, for the reason given in accounts.ts.
+    .groupBy(importBatches.userId, importBatches.id)
     .orderBy(desc(importBatches.createdAt), desc(importBatches.id))
     .limit(query.limit + 1);
   const hasMore = rows.length > query.limit;

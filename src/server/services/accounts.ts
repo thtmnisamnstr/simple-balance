@@ -501,7 +501,17 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
     where a.user_id = ${actor.userId}
       and a.system_kind is null
       and (${includeArchived} or a.archived_at is null)
-    group by a.id
+    -- The whole primary key, not just the id.
+    --
+    -- PostgreSQL lets a select list name any column functionally determined by
+    -- the GROUP BY, which is why a.name and a.type are allowed here without
+    -- being grouped -- but only when the grouping covers the whole primary key.
+    -- That key is (id) today and becomes (user_id, id) the moment the ledger is
+    -- distributed across a cluster, at which point grouping by the id alone
+    -- determines nothing and this query fails with: column "a.name" must appear
+    -- in the GROUP BY clause. Naming both is correct under either key and costs
+    -- nothing, since user_id is already fixed by the WHERE above.
+    group by a.user_id, a.id
     order by a.archived_at nulls first, lower(a.name)
   `);
 
@@ -589,7 +599,8 @@ export async function getAccountBalances(
       -- register is the trial balance's business, which reads system rows on
       -- purpose; here the id answers not-found like every other account path.
       and a.system_kind is null
-    group by a.id
+    -- Both key columns, for the reason given on the balances query above.
+    group by a.user_id, a.id
   `);
   const row = result.rows[0];
   if (!row) throw notFound("Account not found");

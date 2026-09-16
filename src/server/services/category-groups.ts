@@ -69,7 +69,9 @@ export async function listCategoryGroups(actor: Actor): Promise<CategoryGroupVie
       and(eq(categories.userId, categoryGroups.userId), eq(categories.groupId, categoryGroups.id)),
     )
     .where(eq(categoryGroups.userId, actor.userId))
-    .groupBy(categoryGroups.id)
+    // Both key columns, for the reason given in accounts.ts: the primary key
+    // gains the owner when the ledger is distributed.
+    .groupBy(categoryGroups.userId, categoryGroups.id)
     .orderBy(asc(categoryGroups.name));
   return rows.map((row) => groupView(row.group, row.categoryCount));
 }
