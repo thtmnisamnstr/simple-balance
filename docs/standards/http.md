@@ -42,7 +42,7 @@ Three facts, all currently true, combine into that:
    bearer path.
 2. Every state-changing `/api/v1` request must present an `Origin` (or failing
    that a `Referer`) equal to the configured base URL
-   (`src/server/http-security.ts:813-905`, mounted at `src/server/api.ts:1107-1110`).
+   (`src/server/http-security.ts:831-923`, mounted at `src/server/api.ts:1107-1110`).
 3. Every state-changing `/api/v1` request must declare
    `Content-Type: application/json`, including the ones with no body at all
    (`requireContentType: true`, `src/server/api.ts:1098`).
@@ -397,7 +397,7 @@ add it.
 - **House.** JSON in, JSON out. `Content-Type: application/json` is required
   on every state-changing request, with no body-present exception, and a request
   that omits it is refused with 415 before anything reads the body
-  (`src/server/http-security.ts:437-446`). The consequence is real and the
+  (`src/server/http-security.ts:455-464`). The consequence is real and the
   browser client lives with it: revoking an agent is a `DELETE` that sends `{}`
   purely so it can declare a content type
   (`src/client/pages/SettingsPage.tsx:589-595`).
@@ -414,7 +414,7 @@ add it.
   ordinary `/api/v1`, a CSV-derived limit for `/csv/preview`, `/csv/stage` and
   `/mcp`, and a selection-derived limit for any route whose last segment is
   `bulk-edit`, `bulk-delete`, `bulk-selection`, `commit` or `delete`
-  (`src/server/http-security.ts:813-905`, `:907-939`). A limit is derived, not
+  (`src/server/http-security.ts:831-923`, `:925-957`). A limit is derived, not
   guessed: the template mass edit and mass delete were once sized as ordinary
   requests, so a selection their own schemas accepted came back 413. Recognising
   a bulk route by shape rather than by a hand-kept list is what stops that
@@ -644,7 +644,7 @@ code.
   and reject the rest with 405.
 - **House.** A 429 carries `Retry-After`. Neither of the two the process emits
   did. The setup-code limiter now sends the window it counts by, taken from the
-  limiter rather than written beside it (`src/server/http-security.ts:614-623`)
+  limiter rather than written beside it (`src/server/http-security.ts:632-641`)
   — the whole window rather than what is left of it, because the remaining time
   is known only to whichever replica counted the first attempt and a local
   reading can be shorter than the truth. Over-reporting only makes the caller
@@ -729,9 +729,9 @@ derives by reading the `(code, status)` pair off every `AppError` and
   `apiErrorCodes` (`src/shared/domain.ts:2591`) is the sum of two lists
   held apart on purpose: `serviceErrorCodes`, the nine an `AppError` can carry,
   and `transportErrorCodes`, the five the middleware refuses with before a route
-  runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:418`, `:487`),
-  `UNSUPPORTED_MEDIA_TYPE` (`:432`, `:471`), `PAYLOAD_TOO_LARGE` (`:841`,
-  `:886`), `INVALID_CONTENT_LENGTH` (`:830`) and `REQUEST_BODY_NOT_ALLOWED`
+  runs — `CROSS_ORIGIN_REQUEST` (`src/server/http-security.ts:436`, `:505`),
+  `UNSUPPORTED_MEDIA_TYPE` (`:450`, `:489`), `PAYLOAD_TOO_LARGE` (`:859`,
+  `:904`), `INVALID_CONTENT_LENGTH` (`:848`) and `REQUEST_BODY_NOT_ALLOWED`
   (`:856`). All fourteen reach a caller from `/api/v1` in this guide's own
   envelope, so all fourteen are published; the split is what stops a service
   raising a transport code, because `AppError`
@@ -1425,7 +1425,7 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
   under `no-referrer` a browser sends `Origin: null` on a native form
   submission, including the sign-in form posting to this very server, and the
   origin check rightly refuses an origin it cannot recognise
-  (`src/server/http-security.ts:238-244`).
+  (`src/server/http-security.ts:256-262`).
 - **House, and the two halves are one rule.** Same-origin and JSON content type
   are presented together and neither is relaxed on the grounds that the other
   exists. OWASP files origin checking under defence in depth rather than as a

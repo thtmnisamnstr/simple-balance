@@ -48,7 +48,7 @@ declares its fields and assigns them somewhere unreadable erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1316`, `src/server/http-security.ts:419` and `:818`),
+(`src/server/api.ts:1316`, `src/server/http-security.ts:437` and `:836`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -223,7 +223,7 @@ It is the only use in `src`, and the second one is worth recording as it went.
 shape — a report-only policy has a different key from an enforcing one — and a
 `satisfies` on a value that is one of two shapes narrows to whichever branch was
 written, so reading the other one stopped compiling for callers. It carries an
-explicit return type now (`src/server/http-security.ts:169`). That is the line
+explicit return type now (`src/server/http-security.ts:187`). That is the line
 where `satisfies` stops being the better tool: it is for checking a literal
 without widening it, not for describing a value that has more than one shape.
 

@@ -71,15 +71,33 @@ export type SecurityHeaderContext = {
 export const CSP_REPORT_PATH = "/api/csp-report";
 
 /**
- * The hosts Stripe Elements reaches, and how much of this list is guesswork.
+ * The hosts Stripe Elements reaches, and where this list departs from Stripe's.
  *
- * The first three lines are Stripe's published requirements. The rest are not
- * published and were established by watching what a working Elements mount
- * actually requests: `m.stripe.com` and `q.stripe.com` carry its fraud signals
- * and its own metrics, `errors.stripe.com` carries its error reports, and the
- * hCaptcha hosts appear when Radar decides a payment needs a challenge. Leaving
- * any of them out does not break the form loudly; it breaks the payment for the
- * subset of people who hit that path, which is worse.
+ * Stripe does publish one, and calls it the full set — `docs.stripe.com`
+ * §Integration security guide, Content Security Policy. For Stripe.js it is
+ * exactly: `api.stripe.com` on connect-src; `js.stripe.com`, `*.js.stripe.com`
+ * and `hooks.stripe.com` on frame-src; `js.stripe.com` and `*.js.stripe.com` on
+ * script-src. Everything below that matches, and `maps.googleapis.com` is left
+ * out deliberately — it is for the Address Element with your own Maps key, which
+ * this product does not use.
+ *
+ * Four entries are ours rather than Stripe's, and each is here for a different
+ * reason and carries a different risk if it is wrong:
+ *
+ * - `*.hcaptcha.com`, on all three. Radar can decide a payment needs a
+ *   challenge, and a blocked challenge is a payment that cannot complete. This
+ *   is the one whose absence would break something a person is trying to do.
+ * - `m.stripe.com` and `q.stripe.com` on connect-src, which carry fraud signals
+ *   and Stripe's own metrics. Blocked, the form still works and Radar sees less.
+ * - `errors.stripe.com`, which carries Stripe's error reports. Blocked, nothing
+ *   a user can see changes.
+ *
+ * So this is a deliberate superset of a published list rather than a guess at an
+ * unpublished one, which is what it used to be described as. What has *not*
+ * happened is watching a real Elements mount on a live account to see which of
+ * the four are contacted — that needs an account nobody here has, and
+ * `SB_CSP_REPORT_ONLY` exists so an operator with one can find out without
+ * enforcing anything. `docs/acceptance.md` carries it as outstanding.
  *
  * `m.stripe.network` is deliberately absent. Stripe retired it in favour of
  * `m.stripe.com`, which is listed above; most third-party guides still carry

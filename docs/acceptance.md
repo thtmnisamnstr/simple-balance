@@ -8,7 +8,7 @@ list of activities rather than a list of claims, where "we tested the billing
 flow" reads as closed and means somebody clicked through it once. A row here is
 closed only by something a person can re-run.
 
-**Read the last section first if you are deciding whether to cut.** Six things
+**Read the last section first if you are deciding whether to cut.** Four things
 are outstanding and three of them are gates.
 
 ## Closed
@@ -31,21 +31,21 @@ are outstanding and three of them are gates.
 | Ads | A paying subscriber never fetches Google's script at all | The server decides placement and the browser is never told the rule; `tests/ad-placement.test.ts` and two integration files, one of which is the wound-down deployment |
 | Deployment | Each profile stands up and serves | `single` and `vps` both exercised end to end — `vps` across four machines, with a deposit written through the frontend to the API to the database and the postings netting to zero |
 | Runtime | The image makes no outbound connection nobody configured | `tests/outbound-connections.test.ts`, which holds that `src/server` makes no bare `fetch`, that one module imports `stripe`, and that it turns the SDK's telemetry off |
+| Migrating onto a cluster | A dump from a single PostgreSQL restores into Citus and distributes on the way, with the ledger still netting to zero | Run at five dataset sizes from 207,000 to 6,610,000 postings, on one node and on a coordinator with two workers. Every run restored, distributed 17 tables and replicated 14, and summed to zero afterwards |
+| The cluster migration, at scale | `0023` costs about 49,000 postings a second on one node and 64,000 on three, so the capacity target projects to 17–23 minutes | The table in `docs/citus-runbook.md` §Before the first start against a cluster. A straight line fits the measured range to 4.5%; the last step to 66 million is extrapolation and says so |
 | Upgrade safety | A 0.1.6 deployment starts on this release with the configuration it already has | Checked surface by surface: every 0.1.6 route still answers, no setting stopped being read, no CSV column or tool was lost, and a 0.1.6 configuration was started against PostgreSQL 15 with no warnings |
 
 ## Outstanding
 
-Three are gates you set. Three are limits of what has been measured. None is
+Three are gates you set. One is a limit of what has been measured. None is
 closed by writing more code here, and none should be reported as closed.
 
 | Area | What is not proven | Why it is still open |
 | --- | --- | --- |
-| **Stripe, against a real account** | The subscription schedule path, 3-D Secure, proration arithmetic, which invoice reactivates an `unpaid` subscription, and whether the card-pinning fix recovers a `past_due` subscription | No live Stripe account exists. The host list in the plan tab's policy is informed guesswork for the same reason: Stripe publishes no complete list and nothing has observed the real traffic |
+| **Stripe, against a real account** | The subscription schedule path, 3-D Secure, proration arithmetic, which invoice reactivates an `unpaid` subscription, and whether the card-pinning fix recovers a `past_due` subscription | No live Stripe account exists. The host list is no longer part of this row: Stripe does publish a full set of CSP directives and the policy now matches it, with four deliberate additions each named in `src/server/http-security.ts`. Which of those four a live account actually contacts is still unobserved, and `SB_CSP_REPORT_ONLY` is how an operator finds out without enforcing anything |
 | **Ads, against a real account** | No AdSense unit has ever rendered. Account approval, site verification and a consent platform are the operator's and have not been done for a test deployment either | No AdSense account exists |
 | **The cloud programs** | Neither `deploy/pulumi/aws-single/` nor `oci-single/` has been applied, and neither `aws/` nor `gcp/` has deployed the chart | No cloud accounts with quota |
 | The `ha` cluster, on a cloud | It has run on kind, where storage is local and a node is deleted politely rather than disappearing | Follows from the row above |
-| The cluster migration, at scale | `0023` has not been timed on a capacity-sized ledger, so the startup budget the runbook tells you to raise is headroom rather than a measurement | Needs a restored capacity dataset and a cluster to run it on |
-| A dump restored into a cluster | A dump from a single PostgreSQL should restore into a cluster and distribute on the way. That path is argued and not exercised | Follows from the row above |
 
 ## What this page is not
 

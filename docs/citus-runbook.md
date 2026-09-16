@@ -217,12 +217,36 @@ server:
 Put it back afterwards. A startup budget of an hour on a steady deployment means
 a pod that is genuinely wedged takes an hour to be replaced.
 
-How long it actually takes is a function of the rows in `posting`,
-`ledger_transaction` and `transaction_leg` — `docs/capacity.md` has the sizes
-this product is measured at. What this has *not* done is time the migration on a
-capacity-sized ledger, so the number above is headroom rather than a
-measurement, and an operator with a large ledger should take a dump, restore it
-somewhere disposable, and time it before doing this for real.
+**How long it takes, measured.** The cost is essentially the row count in
+`posting`, and it is close enough to linear to plan with:
+
+| Postings | One node, no workers | Coordinator and two workers |
+| --- | --- | --- |
+| 207,000 | 11s | |
+| 661,000 | 20s | 13s |
+| 2,150,000 | 53s | |
+| 6,610,000 | 142s | 106s |
+
+Taken on a laptop, against datasets built by `scripts/capacity/seed.mjs` at
+1/1000 down to 1/10 scale, each dumped from a single PostgreSQL and restored into
+Citus before being distributed. A straight line through the single-node points
+above 660,000 fits them to within 4.5% and gives **49,000 postings a second**;
+the three-node cluster manages **64,000**, because the shard creation
+parallelises across nodes and the work is not network-bound on one machine.
+
+Extrapolating to the capacity target `docs/capacity.md` measures — 66,100,000
+postings, ten thousand people — that is **about 23 minutes on one node and 17 on
+three**. The hour suggested above is therefore two to four times the projection,
+which is the right side to be on: a cloud cluster has slower links between nodes
+than a Docker bridge and usually faster disks, and neither effect is measured
+here.
+
+Two honest limits. The largest dataset timed is a tenth of the capacity target,
+so the last step to 66 million is arithmetic rather than observation — the
+linearity over the measured tenfold range is what makes it worth quoting. And
+the machine is a laptop: treat the shape as transferable and the absolute
+numbers as this hardware's. An operator with a ledger materially larger than the
+capacity target should still dump, restore somewhere disposable, and time it.
 
 ## Backups
 
