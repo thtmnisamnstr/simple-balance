@@ -25,12 +25,31 @@ this one needs a hand before you pull. The procedure is below.
 
 ### What runs automatically
 
-One migration, `0022_plans_and_billing.sql`. It is additive only: five new
-tables — `billing_customer`, `billing_subscription`, `billing_override`,
+**Two migrations, and on almost every deployment only one of them does anything.**
+
+`0022_plans_and_billing.sql` is additive only: five new tables —
+`billing_customer`, `billing_subscription`, `billing_override`,
 `billing_operation` and `billing_webhook_event` — two new enum types, four
-foreign keys onto `auth_user` and one index. It alters no existing table, adds
-no column to one, and rewrites no rows, so it completes in the time it takes to
+foreign keys onto `auth_user` and one index. It alters no existing table, adds no
+column to one, and rewrites no rows, so it completes in the time it takes to
 create five empty tables however large your ledger is.
+
+`0023_citus_distribution.sql` **does nothing at all unless your database has the
+Citus extension installed**, which is the `ha` profile and nothing else. It is
+gated on that extension at the top and returns immediately without it, so a
+deployment on one PostgreSQL records it as run and keeps exactly the schema it
+had. Verified in both directions, on PostgreSQL 15 and 18: twenty-four migrations
+recorded, the primary keys untouched, and every foreign key as it was.
+
+On a Citus cluster it is the substantial one. It rewrites fifteen primary keys to
+carry the owner, which rebuilds every index on them; drops five unique
+constraints the new key makes redundant; and moves the ledger's seventeen tables
+onto the workers while fourteen are replicated to every node. It runs as one
+transaction — it either distributes everything or changes nothing — and it takes
+a lock on `posting` for the duration. **Take a dump first**, and read
+`docs/citus-runbook.md` §Moving an existing database onto a cluster before you
+start, because a database that was already on this release when Citus arrived has
+this migration recorded and will not run it again.
 
 ### What you must do by hand
 
@@ -117,6 +136,15 @@ is on.
 Name the terminator's range and nothing wider. This decides whose word is taken
 for a visitor's address, so a range that includes callers lets a caller choose
 their own. `docs/deployment-profiles.md` has the reasoning and the measurement.
+
+**Two new deployment profiles exist, and neither is anything you have to do.**
+`vps` is a machine per service with the database among them
+(`deploy/compose/vps/`); `ha` is a Kubernetes cluster whose database is sharded
+with Citus (`deploy/helm/`, with `database.enabled`). Both are new shapes rather
+than changes to yours: the chart still expects a `DATABASE_URL` you supply unless
+you ask it for a database, and it refuses to render if you set both.
+`docs/deployment-profiles.md` compares the three and says plainly that `single`
+is still the one to pick unless you have a reason.
 
 ### What changed under you
 

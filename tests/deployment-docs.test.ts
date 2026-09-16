@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -100,5 +101,56 @@ describe("the compose recipe", () => {
       dropsCapabilities: false,
       cannotGainPrivileges: true,
     });
+  });
+});
+
+/**
+ * Every readiness check against PostgreSQL, wherever it is written.
+ *
+ * `docs/standards/operations.md` §Health checks has the reasoning: the official
+ * image runs a temporary server while it executes its initdb scripts, and that
+ * one listens on the unix socket alone. A `pg_isready` with no `-h` answers
+ * against that server, reports healthy, and is replaced moments later — so
+ * whatever was waiting connects to `FATAL: the database system is shutting
+ * down`.
+ *
+ * This walks the repository rather than checking a list of files, because a list
+ * is exactly what was wrong: one recipe had carried `-h 127.0.0.1` with the
+ * reason beside it for a release while four other places — the dev database, the
+ * `vps` profile's own compose file, ralph's sandbox and both CI service
+ * containers — were still checking the socket. Nobody had copied the reasoning
+ * across, and nothing could have noticed.
+ */
+describe("waiting for PostgreSQL", () => {
+  const root = new URL("..", import.meta.url).pathname;
+  const skip = new Set(["node_modules", ".git", "dist", "coverage", "playwright-report"]);
+
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((entry) => {
+      if (skip.has(entry)) return [];
+      const full = path.join(dir, entry);
+      if (statSync(full).isDirectory()) return walk(full);
+      return [full];
+    });
+
+  it("goes over TCP everywhere, never over the unix socket", () => {
+    const offenders: string[] = [];
+    for (const file of walk(root)) {
+      let text: string;
+      try {
+        text = readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+      if (!text.includes("pg_isready")) continue;
+      for (const [index, line] of text.split("\n").entries()) {
+        if (!line.includes("pg_isready")) continue;
+        // The rule itself, and the prose explaining it, both name the command.
+        if (file.endsWith(".md") || file.endsWith("deployment-docs.test.ts")) continue;
+        if (/pg_isready[^\n]*-h\s/.test(line)) continue;
+        offenders.push(`${path.relative(root, file)}:${index + 1}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

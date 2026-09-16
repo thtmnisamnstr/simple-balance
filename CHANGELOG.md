@@ -11,6 +11,38 @@ open before. No route, tool or CSV column is removed.
 
 ### Added
 
+**An `ha` deployment profile: PostgreSQL sharded with Citus, run by Patroni.**
+`deploy/helm/` now provisions the database as well as the application — a
+StatefulSet per Citus group, the coordinator and its workers, each a primary with
+streaming standbys. Synchronous replication is on by default, because a
+promotion that loses an acknowledged transaction is not something a ledger can
+offer; it falls back to asynchronous rather than refusing writes when no standby
+is available. Citus supplies no high availability of its own, so Patroni is what
+promotes, and it registers each node with the cluster unaided. Off unless
+`database.enabled` is set: every deployment that does not ask for it keeps the
+`DATABASE_URL` it already had. `docs/citus.md` is what distributing the ledger
+costs and `docs/citus-runbook.md` is how to run it — adding a worker,
+rebalancing, what a failover does, and how to move an existing database onto a
+cluster.
+
+**A `vps` deployment profile: one machine per service, database included.**
+`deploy/compose/vps/` is a compose file per machine, with the firewall written as
+a table of rules between them, what DNS has to resolve before a certificate can
+be issued, and the order to start them in. The smallest shape that owns its whole
+stack: nothing in it is somebody else's managed anything. The API and the
+scheduler share one file selected by a Compose profile, because they are the same
+application differing only in which half they run.
+
+**A PostgreSQL image this project builds, for the profile that needs one.**
+`deploy/docker/citus.Dockerfile` is PostgreSQL 18 pinned by digest with Citus
+14.2.0 compiled from a checksummed source tarball, published for both
+architectures. It exists because the one arm64 image Citus publishes is musl, and
+musl compares text byte by byte whatever collation is declared — which is what
+category and payee uniqueness in this application rests on. Its tag names Citus
+and PostgreSQL rather than this release, and there is deliberately no `latest`: a
+major version cannot read the previous major's data directory, so a floating tag
+on a database turns an image pull into an outage.
+
 **A capacity proof, reproducible from this repository.** `docs/capacity.md` is
 the claim — ten thousand people's ledgers on the smallest machine the `single`
 profile sells, answered inside stated times — and `scripts/capacity/` is what
@@ -193,6 +225,30 @@ from one whose sweep has stopped.
 
 ### Changed
 
+**Every profile that deploys a database now deploys PostgreSQL 18.** Two
+questions were being answered as one. What this application will *connect* to is
+a floor and it has not moved: PostgreSQL 15 and up, so a deployment already on 15
+or 16 keeps working and is not asked to move. What we *deploy* where the
+deployment owns the database is a choice, and it is now the newest version all
+three shapes can share. The cluster decides it: Citus 14.2 is the newest Citus
+and accepts 16, 17 and 18. Every release is now tested against both ends rather
+than the middle.
+
+**One migration, `0023_citus_distribution.sql`, and on most deployments it does
+nothing.** It distributes the ledger across a Citus cluster and is gated on the
+extension being installed, so the `single` and `vps` profiles record it as run
+and keep the schema they had — verified both ways, on PostgreSQL 15 and 18. On a
+cluster it rewrites fifteen primary keys to carry the owner, rebuilds the indexes
+on them, and drops five unique constraints the new key makes redundant. It is one
+transaction: it either distributes everything or changes nothing.
+
+**Deleting a category group no longer depends on which foreign key is
+installed.** The service cleared the categories' group by leaving it to
+`on delete set null`, which a Citus cluster cannot use when the distribution
+column is part of the constraint. It now clears the column itself, which is
+identical behaviour on a single database and the difference between working and
+failing outright on a cluster.
+
 **The release script is no longer told which files pin an image; it is asked.**
 Both halves of the check walked a hardcoded pair, so a third file pinning one of
 this project's images was checked by nothing — it would pass the suite while
@@ -253,6 +309,31 @@ aimed at a misspelled path used to get a `200` and an HTML body, which Stripe
 records as delivered — a missed delivery nothing ever retries.
 
 ### Fixed
+
+**The forecast read every tenant's budget plans, not just yours.**
+`/api/v1/forecast` joined a budget plan to its category on the category id alone,
+with no owner, while every equivalent query carried one on both sides. It was
+unreachable on a single database — two people cannot hold the same category id
+while the key is the id alone — and became reachable the moment the ledger was
+distributed, which is how it was found. Scoping the join fixed a tenancy hole and
+a cluster failure in the same edit.
+
+**Waiting for PostgreSQL waited for the wrong server.** The official image runs a
+temporary server while it executes its initdb scripts, and that one answers on
+the unix socket alone. Five readiness checks in this repository asked over the
+socket, so each could report a database ready moments before it was stopped and
+replaced — and whatever was waiting connected to `FATAL: the database system is
+shutting down`. All of them now ask over TCP, and a test walks the repository for
+any that does not.
+
+**The `single` profile's backups ran against a database it no longer has.** When
+that profile stopped bundling PostgreSQL, the scripts around it went on assuming
+one: every nightly dump would have failed, and so would the restore somebody
+reached for at three in the morning. Both now work out how to reach the database
+by reading the deployment's own service list — inside it where there is one, over
+the network where there is not — so the `vps` and `single` profiles share one
+script and no setting can disagree with the compose file about which database is
+being backed up.
 
 **The development database and a `single` deployment no longer fight over the
 same containers.** Compose takes a project name from the directory when a file

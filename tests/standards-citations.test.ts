@@ -13,13 +13,19 @@ import { describe, expect, it } from "vitest";
  * Three citations had already drifted by the time this was written, so this is
  * a check that was needed rather than one that might be.
  *
+ * `deploy/` and `.github/` were outside this for four releases, which mattered
+ * more than it sounds: the guides cite twenty of those files by line, and the
+ * release that added two deployment profiles and a database image rewrote most
+ * of them. A citation into a compose file or a workflow rots exactly as fast as
+ * one into `src/`, and nothing was reading them.
+ *
  * What it can prove is that the file exists and the lines are inside it, which
  * catches deletion, renaming and truncation. What it cannot prove is that the
  * line still holds the thing the sentence claims. That half stays a person's
  * job, and saying so is better than implying the machine has it covered.
  */
 const CITATION =
-  /`?((?:src|tests|drizzle|docs|scripts|public)\/[A-Za-z0-9_./-]+\.(?:ts|tsx|css|sql|md|json|js|mjs)):(\d+)(?:[-–](\d+))?`?/g;
+  /`?((?:src|tests|drizzle|docs|scripts|public|deploy|\.github)\/[A-Za-z0-9_./-]+\.(?:ts|tsx|css|sql|md|json|js|mjs|yml|yaml|conf|template|Dockerfile)):(\d+)(?:[-–](\d+))?`?/g;
 
 type Citation = {
   guide: string;

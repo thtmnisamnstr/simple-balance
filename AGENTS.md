@@ -158,6 +158,18 @@
   the sum of its categories may not hold a budget of its own. No method is ever
   chosen: the parameter is the choice, and `amount_rule` is derived from the row
   rather than asked for.
+- Deleting a category group clears its categories' `group_id` in the service,
+  not in the foreign key. On one PostgreSQL the key is `on delete set null` and
+  would do it; on a Citus cluster it cannot be, because Citus refuses `SET NULL`
+  whenever the distribution column is part of the constraint — in every spelling,
+  including PostgreSQL 15's column list — so `0023` installs it as `NO ACTION`,
+  under which the delete fails outright rather than orphaning anything. Doing it
+  in the service is what makes the two schemas behave the same way, and it
+  deliberately does not bump the category's `version`, because the foreign key
+  never did and a cluster that refused an edit a single node accepted would be
+  the same divergence one step along. This is the shape every such difference
+  must take: where a profile cannot enforce something in the schema, the service
+  enforces it everywhere rather than the behaviour depending on where it runs.
 - A forecast is a projection and never a balance. Money dated in the future has
   not moved, so no figure `src/server/services/forecast.ts` produces may reach a
   balance, a report total, or the trial balance, nothing but the two transports

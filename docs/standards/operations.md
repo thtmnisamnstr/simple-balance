@@ -873,6 +873,34 @@ that never came up rather than one answering `503`. Querying for that on every
 probe, every three seconds in the compose file, would buy nothing and would take
 a working server out of rotation whenever the query was slow.
 
+**House, and it is about somebody else's container rather than ours.** A
+readiness check against PostgreSQL connects over TCP, not over the unix socket.
+
+The official image runs a *temporary* server while it executes the initdb
+scripts, and that one sets `listen_addresses=''` — so it answers on the socket
+and nowhere else. `pg_isready` with no `-h` therefore reports healthy against a
+server that is about to be stopped and replaced, and whatever was waiting on that
+answer connects into the gap and gets `FATAL: the database system is shutting
+down`. `-h 127.0.0.1` forces TCP, which is only listening once the real server
+is.
+
+The obvious alternative — waiting longer, or retrying — treats a race as
+flakiness. It is not: the check is answering truthfully about the wrong server,
+and no timeout distinguishes the two.
+
+The width of the window is what makes this worth a rule rather than a note. A
+container with no initdb scripts closes it in milliseconds and the socket check
+looks fine for years; one that ships an initdb script holds it open for as long
+as that script takes. `deploy/docker/citus.Dockerfile` ships one to create the
+extension, which is why the Citus image is where this was finally noticed —
+after four other places had been written the wrong way, one of them the `vps`
+profile's own recipe.
+
+*Checked by:* `tests/deployment-docs.test.ts` ("every readiness check against
+PostgreSQL goes over TCP"), which reads every compose file, workflow and script
+in the repository rather than a list — a list is the thing that was already
+wrong.
+
 **House.** A healthcheck reads its port from the environment rather than
 hardcoding one. All four images do: the three Node images read `PORT`, the
 frontend reads `SB_FRONTEND_PORT`. The frontend also probes `/` rather than
@@ -1140,6 +1168,85 @@ behaviour. The four alerts CodeQL raised for this on the default branch, and the
 two the browser job added, are dismissed against this paragraph rather than left
 open to be rediscovered.
 
+### A deployment profile is a shape, not a setting
+
+**House.** Three profiles exist and the application does not know which one it is
+running in. `docs/deployment-profiles.md` is the comparison; what belongs here is
+the property that makes three shapes maintainable at all.
+
+The differences are entirely about machines and where the database lives:
+`single` is one machine against a database somebody else keeps, `vps` is a
+machine per service with the database among them, and `ha` is a Kubernetes
+cluster whose database is sharded with Citus. Across all three the application
+reads the same settings, serves the same routes, and answers the same MCP
+surface. Nothing in `src/` names a profile, and nothing branches on one.
+
+That is what makes a dump portable between them — which is the property an
+operator actually cashes, moving from `single` to `vps` by restoring a file — and
+it is why `docs/deployment-profiles.md` can be a comparison rather than three
+manuals.
+
+The obvious alternative is a `SB_PROFILE` setting selecting behaviour. It is
+wrong for the reason most mode flags are: every branch on it doubles the surface
+that has to be tested, and the branches that matter are already expressed by the
+settings themselves. A deployment with no `SMTP_HOST` degrades identically on all
+three, because the rule is about the setting and not about the shape.
+
+The one place the shapes genuinely differ is where the database is, and that is
+answered without a flag too: `deploy/systemd/simple-balance-backup` works out
+whether to dump from inside the deployment or over the network by reading the
+Compose project's own service list. A setting there would be a second statement
+of something the compose file already makes true, and the failure when the two
+disagreed would be a backup that reported success against the wrong database.
+
+*Checked by:* nothing mechanical, and honestly so — "no source file names a
+profile" is greppable but would pass trivially and forever, which is a test that
+looks like a guard and is not. What holds it is that the three profiles share
+`src/`, and a branch on shape would have to be written on purpose.
+
+### An image we build for a dependency carries the dependency's version
+
+**House.** This project builds five images. Four are Simple Balance and are
+tagged with its version; the fifth is PostgreSQL with Citus, and is tagged
+`14.2.0-pg18` — Citus's version and PostgreSQL's, not ours.
+
+Coupling it to `APP_VERSION` would rebuild a database on every application
+release that never touched it, and would print `0.2.0` on an image whose contents
+are decided by somebody else's release cycle. So `scripts/set-version.mjs` does
+not know `deploy/docker/citus.Dockerfile` exists, and
+`.github/workflows/citus-image.yml` publishes it on its own trigger rather than
+from `release.yml`.
+
+**There is deliberately no `latest`.** A PostgreSQL major version cannot read the
+previous major's data directory, so a floating tag on a database turns an image
+pull into an outage. Both tags it publishes name a version, and the shorter one
+moves only within a PostgreSQL major.
+
+**Building somebody else's software brings three obligations the other four
+images do not have.** The base is pinned by digest and the source by checksum,
+because a tarball fetched over the network and compiled into a database holding
+people's money is exactly where a substitution would be worth making. The libc
+is a correctness decision rather than a size one: this application compares
+normalized category and payee names with the database's collation, and musl
+compares byte-wise whatever collation is declared, so the image is Debian and
+`docs/deployment-sizing.md` carries the measurement. And its telemetry is off —
+Citus reports usage home by default wherever libcurl is compiled in, which on
+PostgreSQL 18 cannot be avoided, so it is turned off where it is really decided
+rather than compiled out.
+
+**The build reads the artefact it is about to ship.** The first version of that
+Dockerfile passed `--without-libcurl`, reported success at every step, and
+produced a database that could not start: PostgreSQL 18 defines `HAVE_LIBCURL`
+for its own OAuth support, so Citus's `#ifdef` found it and compiled statistics
+collection that was never linked. A configure flag is a request; the binary is
+the answer.
+
+*Checked by:* `.github/workflows/citus-image.yml`, which builds each architecture
+natively and then *starts* the image and asks it what it is — that the extension
+loads, that telemetry is off, and that the collation orders accented text the way
+glibc does rather than the way musl does. A build that succeeds says nothing
+about a database that starts, which is the failure this exists to catch.
+
 ### One process, one database
 
 **Binding.** `AGENTS.md`: "PostgreSQL is the only persistent dependency. Do not
@@ -1302,5 +1409,5 @@ guide argues for and the code does not do:
 
 | What | Where | Why it is a row |
 | --- | --- | --- |
-| The `_FILE` secret form is unreachable through the two orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:62-66`, `deploy/compose/compose.distributed.yml:46`, `:61` | The chart consumes an existing Secret through `envFrom` and declares no volume on either workload; the compose file writes `DATABASE_URL` inline and makes `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose file rather than the resolver. A `secretFiles` values block mounting a Secret as a volume, and a commented `secrets:` stanza, are what would close it |
+| The `_FILE` secret form is unreachable through the orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:62-66`, `deploy/compose/compose.distributed.yml:46`, `:61`, `deploy/compose/vps/compose.app.yml` | The chart consumes an existing Secret through `envFrom` and declares no volume on either workload; both compose files write `DATABASE_URL` inline and make `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose files rather than the resolver. A `secretFiles` values block mounting a Secret as a volume, and a commented `secrets:` stanza, are what would close it. The `vps` profile widened this rather than changing it: a third orchestrated path arrived in 0.2.0 and took the same shortcut |
 | `METRICS_TOKEN_FILE` has no consumer-side proof | `src/server/config-files.ts:28-38` | Six of the seven `_FILE` names are read back through the consumer that has to end up holding the value. The seventh rests on the resolver's registry alone, so a name added there and never wired to the scrape endpoint would look identical |
