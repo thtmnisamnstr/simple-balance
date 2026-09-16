@@ -13,6 +13,14 @@
 # published one; this matters more here than for the other four images, because
 # this one compiles a PostgreSQL extension from source and the first version of
 # it produced an image that built cleanly and could not start.
+#
+# Built once per architecture on a runner of that architecture, rather than once
+# for both under QEMU. The other four images are Node and copy files, so
+# emulation costs them nothing — twenty-five seconds each. This one runs a C
+# compiler over the whole of Citus, where emulation is the difference between
+# minutes and most of an hour. Native arm64 runners are free for public
+# repositories, so the only cost is the manifest having to be assembled
+# afterwards.
 name: citus image
 
 on:
@@ -39,18 +47,34 @@ concurrency:
   group: citus-image-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  DOCKERFILE: deploy/docker/citus.Dockerfile
+
 jobs:
-  image:
-    name: build the Citus image
-    runs-on: ubuntu-latest
+  build:
+    name: build ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
-    env:
-      PLATFORMS: linux/amd64,linux/arm64
-      # Read out of the Dockerfile rather than repeated here, so the tag and the
-      # thing it names cannot drift apart.
-      DOCKERFILE: deploy/docker/citus.Dockerfile
+    strategy:
+      # One architecture failing must not cancel the other: two architectures
+      # that both failed is a state somebody can describe, one cancelled halfway
+      # through is not.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    outputs:
+      image: ${{ steps.versions.outputs.image }}
+      tag: ${{ steps.versions.outputs.tag }}
+      pg: ${{ steps.versions.outputs.pg }}
+      publish: ${{ steps.mode.outputs.push }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -70,10 +94,7 @@ jobs:
             echo "tag=$citus-pg$pg"
             echo "image=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')-citus"
           } >> "$GITHUB_OUTPUT"
-          echo "Citus $citus on PostgreSQL $pg" >> "$GITHUB_STEP_SUMMARY"
-
-      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
-      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+          echo "Citus $citus on PostgreSQL $pg (${{ matrix.arch }})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Decide whether this run publishes
         id: mode
@@ -87,52 +108,39 @@ jobs:
             echo "push=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
-        if: steps.mode.outputs.push == 'true'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
-      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      # Built into the local daemon first, whether or not this run publishes,
+      # because the image has to be started before it is trusted. The build
+      # succeeding says nothing about the database starting: the first version of
+      # this file built cleanly and then failed initdb with an unresolvable
+      # symbol, because a configure flag had been silently overridden.
+      - name: Build for this architecture
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ env.DOCKERFILE }}
-          push: ${{ steps.mode.outputs.push == 'true' }}
-          platforms: ${{ env.PLATFORMS }}
-          # No `latest`. A database image that moves under a deployment is the
-          # thing this whole profile is trying not to do: a PostgreSQL major
-          # version cannot read the previous major's data directory, so a
-          # floating tag turns an image pull into an outage. Both tags name a
-          # version, and the shorter one moves only within a PostgreSQL major.
-          tags: |
-            ${{ steps.versions.outputs.image }}:${{ steps.versions.outputs.tag }}
-            ${{ steps.versions.outputs.image }}:pg${{ steps.versions.outputs.pg }}
-          labels: |
-            org.opencontainers.image.version=${{ steps.versions.outputs.tag }}
-            org.opencontainers.image.licenses=AGPL-3.0-only
-          cache-from: type=gha,scope=citus
-          cache-to: type=gha,mode=max,scope=citus
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: citus-check:local
+          cache-from: type=gha,scope=citus-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=citus-${{ matrix.arch }}
 
-      # The build succeeding says nothing about the database starting: the first
-      # version of this file produced an image that built cleanly and then failed
-      # initdb with an unresolvable symbol, because a configure flag had been
-      # silently overridden. So the image is started and asked what it is.
       - name: Start it and check what came out
-        if: steps.mode.outputs.push != 'true'
         run: |
           set -euo pipefail
-          docker build -f "$DOCKERFILE" -t citus-check:local --load .
           docker run -d --name citus-check \
             -e POSTGRES_PASSWORD=checking -e POSTGRES_DB=check \
             -e POSTGRES_HOST_AUTH_METHOD=trust citus-check:local
+          ready=no
           for _ in $(seq 1 90); do
             if docker exec citus-check pg_isready -U postgres -d check >/dev/null 2>&1; then
-              ready=yes; break
+              ready=yes
+              break
             fi
             sleep 1
           done
-          if [ "${ready:-no}" != "yes" ]; then
+          if [ "$ready" != "yes" ]; then
             echo "The database never became ready:" >&2
             docker logs citus-check >&2
             exit 1
@@ -140,7 +148,7 @@ jobs:
           check() {
             got="$(docker exec citus-check psql -U postgres -d check -tAc "$2" | tr -d '[:space:]')"
             if [ "$got" != "$3" ]; then
-              echo "$1: expected '$3', got '$got'" >&2
+              echo "::error::$1: expected '$3', got '$got'"
               exit 1
             fi
             echo "$1: $got"
@@ -149,24 +157,126 @@ jobs:
             "select setting from pg_settings where name='shared_preload_libraries'" "citus"
           check "extension present" \
             "select count(*) from pg_extension where extname='citus'" "1"
-          # Off because this is somebody's ledger. The GUC defaults to on wherever
-          # libcurl is compiled in, which on PostgreSQL 18 cannot be avoided.
+          # Off because this is somebody's ledger rather than a telemetry sample.
+          # The GUC defaults to on wherever libcurl is compiled in, which on
+          # PostgreSQL 18 cannot be avoided — see the Dockerfile.
           check "statistics collection" \
             "select setting from pg_settings where name='citus.enable_statistics_collection'" "off"
           # The whole reason this image is built rather than adopted. musl orders
-          # this as Zebra, apple, banana, Ábaco, Éclair; glibc does not.
+          # this as Zebra, apple, banana, Ábaco, Éclair; glibc does not, and this
+          # application's category and payee uniqueness rests on the difference.
           check "glibc collation" \
             "select string_agg(n,'|' order by n) from (values ('Ábaco'),('apple'),('Zebra'),('Éclair'),('banana')) t(n)" \
             "Ábaco|apple|banana|Éclair|Zebra"
           docker rm -f citus-check >/dev/null
 
-      - name: Say what was published
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        if: steps.mode.outputs.push == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pushed without a tag, by digest. The tags go on the manifest list below,
+      # which is what a `docker pull` of either architecture actually resolves.
+      - name: Push this architecture by digest
+        id: push
+        if: steps.mode.outputs.push == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.versions.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=citus-${{ matrix.arch }}
+
+      - name: Keep the digest for the manifest
         if: steps.mode.outputs.push == 'true'
         run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          digest="${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.mode.outputs.push == 'true'
+        with:
+          name: citus-digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  # Two architecture-specific images are not a multi-architecture image. This is
+  # the step that makes `docker pull` on either resolve to the right one, and its
+  # absence is invisible until somebody on the other architecture tries.
+  manifest:
+    name: publish the manifest
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: /tmp/digests
+          pattern: citus-digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble and push the manifest list
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          TAG: ${{ needs.build.outputs.tag }}
+          PG: ${{ needs.build.outputs.pg }}
+        run: |
+          set -euo pipefail
+          cd /tmp/digests
+          # No `latest`. A database image that moves under a deployment is the
+          # thing this whole profile is trying not to do: a PostgreSQL major
+          # version cannot read the previous major's data directory, so a
+          # floating tag turns an image pull into an outage. Both tags name a
+          # version, and the shorter one moves only within a PostgreSQL major.
+          # shellcheck disable=SC2046
+          docker buildx imagetools create \
+            --tag "$IMAGE:$TAG" \
+            --tag "$IMAGE:pg$PG" \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      # A single-architecture publish looks like a success: the push works, the
+      # tag resolves, and it only fails later on somebody else's machine.
+      - name: Check both architectures reached the registry
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          TAG: ${{ needs.build.outputs.tag }}
+        run: |
+          set -euo pipefail
+          published="$(docker buildx imagetools inspect "$IMAGE:$TAG" \
+            --format '{{range .Manifest.Manifests}}{{if ne .Platform.Architecture "unknown"}}{{.Platform.OS}}/{{.Platform.Architecture}} {{end}}{{end}}')"
+          echo "Published: $published"
+          missing=""
+          for want in linux/amd64 linux/arm64; do
+            case " $published " in
+              *" $want "*) ;;
+              *) missing="$missing $want" ;;
+            esac
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing from the published manifest:$missing"
+            exit 1
+          fi
           {
             echo "### Published"
             echo '```'
-            echo "${{ steps.versions.outputs.image }}:${{ steps.versions.outputs.tag }}"
-            echo "${{ steps.versions.outputs.image }}:pg${{ steps.versions.outputs.pg }}"
+            echo "$IMAGE:$TAG"
             echo '```'
+            echo "for:$published"
           } >> "$GITHUB_STEP_SUMMARY"
