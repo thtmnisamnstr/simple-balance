@@ -147,7 +147,7 @@ if [ "$HAS_INTEGRATION" = true ]; then
   ready=false
   attempt=0
   while [ "$attempt" -lt 30 ]; do
-    if docker exec "$PG_CONTAINER" pg_isready -U postgres -d ralph_test >/dev/null 2>&1; then
+    if docker exec "$PG_CONTAINER" pg_isready -h 127.0.0.1 -U postgres -d ralph_test >/dev/null 2>&1; then
       ready=true
       break
     fi

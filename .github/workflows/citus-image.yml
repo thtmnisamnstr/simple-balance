@@ -132,9 +132,17 @@ jobs:
           docker run -d --name citus-check \
             -e POSTGRES_PASSWORD=checking -e POSTGRES_DB=check \
             -e POSTGRES_HOST_AUTH_METHOD=trust citus-check:local
+          # `-h 127.0.0.1` is load-bearing and this repository has met it before.
+          # The postgres entrypoint runs a *temporary* server while it executes
+          # the initdb scripts, and that server sets `listen_addresses=''` — so it
+          # answers on the unix socket and nowhere else. A socket-based readiness
+          # check therefore passes against a server that is about to be shut down
+          # and replaced, and every command after it races the restart with
+          # `FATAL: the database system is shutting down`. Forcing TCP means
+          # readiness is only true once the real server is listening.
           ready=no
           for _ in $(seq 1 90); do
-            if docker exec citus-check pg_isready -U postgres -d check >/dev/null 2>&1; then
+            if docker exec citus-check pg_isready -h 127.0.0.1 -U postgres -d check >/dev/null 2>&1; then
               ready=yes
               break
             fi
@@ -146,7 +154,7 @@ jobs:
             exit 1
           fi
           check() {
-            got="$(docker exec citus-check psql -U postgres -d check -tAc "$2" | tr -d '[:space:]')"
+            got="$(docker exec citus-check psql -h 127.0.0.1 -U postgres -d check -tAc "$2" | tr -d '[:space:]')"
             if [ "$got" != "$3" ]; then
               echo "::error::$1: expected '$3', got '$got'"
               exit 1

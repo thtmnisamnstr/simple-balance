@@ -47,7 +47,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d simple_balance_test"
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d simple_balance_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -102,7 +102,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d simple_balance_browser"
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d simple_balance_browser"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20

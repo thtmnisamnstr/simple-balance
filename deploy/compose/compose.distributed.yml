@@ -175,7 +175,12 @@ services:
       # without crossing a mount boundary.
       - postgres-data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U simple_balance -d simple_balance"]
+      # `-h 127.0.0.1` rather than the socket: the entrypoint runs a temporary
+      # server while it executes initdb scripts, and that one sets
+      # `listen_addresses=''`. A socket check therefore reports healthy against
+      # a server about to be replaced, and whatever was waiting on it connects
+      # to `FATAL: the database system is shutting down`.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U simple_balance -d simple_balance"]
       interval: 2s
       timeout: 3s
       retries: 30
