@@ -78,7 +78,13 @@ data:
             # sample. The GUC defaults to on wherever libcurl is compiled in,
             # which on PostgreSQL 18 cannot be avoided — see citus.Dockerfile.
             citus.enable_statistics_collection: "off"
-            wal_level: replica
+            # `logical`, not `replica`, and it is not about logical replication
+            # of this database to anywhere. Citus moves a shard between workers
+            # by logically replicating it, which is what makes `rebalance` a
+            # background operation rather than a write outage — and Citus raises
+            # this to `logical` at startup whether it is asked to or not. Naming
+            # it here means the file says what the server will actually run.
+            wal_level: logical
             hot_standby: "on"
             max_wal_senders: 10
             max_replication_slots: 10

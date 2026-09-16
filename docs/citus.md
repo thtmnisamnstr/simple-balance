@@ -8,10 +8,12 @@ Citus 14.2 is the newest Citus and gates on 16, 17 and 18, so 18 is the newest
 database the cluster can run and therefore the one every profile that owns its
 database deploys.
 
-**Status: proven, not shipped.** The procedure below applies cleanly and the
-application runs on the result. What does not exist yet is the migration that
-carries it, the image that ships it, or the Helm chart that runs a cluster.
-`docs/deployment-profiles.md` says which profile is which.
+**Status: built and exercised, not yet run in anger.** The migration, the image
+and the chart all exist, and a cluster stood up from them has taken a coordinator
+failover and a shard rebalance. What it has not had is a cloud, a real dataset,
+or anybody else's storage class — see §What is left.
+`docs/deployment-profiles.md` says which profile is which, and
+`docs/citus-runbook.md` is how to operate this one.
 
 ## What was run
 
@@ -140,13 +142,32 @@ tag that carries the PG18 support — so the build is what gets us both.
 
 ## What is left
 
-- The migration. `deploy/citus/distribute.sql` is the proven content; it needs
-  to become `0023`, gated on the Citus extension being present so it never runs
-  on the `single` profile or a plain PostgreSQL.
-- The image, built from a pinned glibc base with the Citus source checksummed.
-- The chart. Nothing in `deploy/helm/` provisions a database at all today, so
-  `ha` needs coordinator and worker StatefulSets, and Citus supplies no high
-  availability of its own — `shard_replication_factor > 1` is deprecated and
-  documented as not an HA mechanism, so redundancy is a streaming standby per
-  node.
-- A runbook: adding a worker, rebalancing shards, and what a failover does.
+Nothing structural. The four things this page listed as missing all exist:
+
+- **The migration** is `drizzle/0023_citus_distribution.sql`, gated on the Citus
+  extension so it does nothing on the two profiles that run a single PostgreSQL.
+  Verified both ways — 24 migrations recorded and the schema untouched on a plain
+  PostgreSQL 18, and the full distribution on a cluster.
+- **The image** is `deploy/docker/citus.Dockerfile`: PostgreSQL 18 pinned by
+  digest, Citus 14.2.0 built from a checksummed source tarball, Patroni beside
+  it, built for amd64 and arm64 by `.github/workflows/citus-image.yml`.
+- **The chart** provisions the cluster: one StatefulSet per Citus group with
+  Patroni running them, synchronous replication on by default, and a
+  post-install Job for the one thing Citus needs that Patroni does not do.
+- **The runbook** is `docs/citus-runbook.md`, and every procedure in it was run
+  rather than written from documentation.
+
+What remains is not construction but exposure:
+
+- **It has run on kind and on no cloud.** Three nodes, six then eight pods, real
+  failovers and a real rebalance — but not on EKS or GKE, where the storage class
+  is somebody else's and a node can disappear rather than be deleted politely.
+  `deploy/pulumi/aws/` and `deploy/pulumi/gcp/` stand up the clusters; neither has
+  been pointed at this.
+- **The measurements here are a laptop's.** The rebalance figure — 10 moves in
+  under two minutes — is a cluster with a schema and almost no rows. What that
+  becomes at the capacity target in `docs/capacity.md` is not known, and a
+  rebalance on a real ledger is the number an operator would actually want.
+- **Nothing has been restored into it.** A dump from a single PostgreSQL should
+  restore into a cluster and distribute on the way, and that path is argued here
+  rather than exercised.
