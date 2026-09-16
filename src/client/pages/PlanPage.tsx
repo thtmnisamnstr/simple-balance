@@ -33,6 +33,15 @@ function formatPrice(price: { unitAmount: number | null; currency: string } | nu
   // Stripe counts in the currency's smallest unit, and how many of those make a
   // major unit is the currency's business rather than a fixed hundred — which
   // is what `Intl` already knows and this would otherwise have to encode.
+  //
+  // And yes, this divides a number, which everywhere else in this product would
+  // be wrong: `AGENTS.md` bans representing money as a float and the client
+  // renders ledger amounts through `formatMoney`, which never converts. A price
+  // is the one money-shaped value here that is not a ledger amount. It arrives
+  // from Stripe as an integer count of minor units, it is displayed and never
+  // stored, summed or posted, and the division is undone immediately by
+  // `Intl.format` rounding to the same number of digits it was scaled by. Do
+  // not copy this into anything that touches a posting.
   const formatter = new Intl.NumberFormat(undefined, {
     style: "currency",
     currency: price.currency.toUpperCase(),

@@ -112,8 +112,8 @@ export default function SettingsPage({ session }: { session: Session }) {
   return (
     <>
       <PageHeader
-        eyebrow="Preferences"
-        title="Settings"
+        eyebrow="Settings"
+        title="Preferences"
         description="Choose how the app looks, how dates and amounts are shown, and how you sign in."
       />
       <SettingsTabs
