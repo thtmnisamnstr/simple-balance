@@ -12,6 +12,7 @@
 set -eu
 
 : "${SB_COMPOSE_DIR:=/opt/simple-balance}"
+: "${SB_PG_CLIENT_IMAGE:=postgres:18}"
 
 dump=""
 assume_yes=no
@@ -37,10 +38,47 @@ fi
 
 cd "$SB_COMPOSE_DIR"
 
+# Where the database is, decided the same way `simple-balance-backup` decides
+# it: by reading this project's own service list. `vps` has it as a service here,
+# `single` points at one somebody else keeps. See that script for the reasoning.
+if docker compose config --services 2>/dev/null | grep -qx postgres; then
+	database_in_project=yes
+else
+	database_in_project=no
+fi
+
+if [ "$database_in_project" = no ]; then
+	if [ -z "${DATABASE_URL:-}" ] && [ -r "$SB_COMPOSE_DIR/.env" ]; then
+		DATABASE_URL=$(sed -n 's/^DATABASE_URL=//p' "$SB_COMPOSE_DIR/.env" | tail -1 | sed 's/^"\(.*\)"$/\1/; s/^'"'"'\(.*\)'"'"'$/\1/')
+	fi
+	if [ -z "${DATABASE_URL:-}" ]; then
+		echo "simple-balance-restore: no postgres service in this deployment and no DATABASE_URL to restore into." >&2
+		echo "  Put DATABASE_URL in $SB_COMPOSE_DIR/.env, which is where the application reads it from too." >&2
+		exit 2
+	fi
+	# The database this restores into, and the one to connect to while it does
+	# not exist. Dropping a database means not being connected to it.
+	restore_db=$(printf '%s' "$DATABASE_URL" | sed 's/[?].*$//; s#.*/##')
+	maintenance_url=$(printf '%s' "$DATABASE_URL" | sed 's#\(.*\)/[^/?]*\(?.*\)\{0,1\}$#\1/postgres\2#')
+	if [ -z "$restore_db" ]; then
+		echo "simple-balance-restore: DATABASE_URL names no database." >&2
+		exit 2
+	fi
+fi
+
+pg() {
+	if [ "$database_in_project" = yes ]; then
+		docker compose exec -T postgres "$@"
+	else
+		docker run --rm -i --network host -e PGCONNECT_TIMEOUT=15 \
+			"$SB_PG_CLIENT_IMAGE" "$@"
+	fi
+}
+
 # Read the archive before touching anything. A dump that cannot be listed cannot
 # be restored either, and finding that out *after* dropping the database is the
 # worst possible order to find it out in.
-if ! listing=$(docker compose exec -T postgres pg_restore --list <"$dump" 2>&1); then
+if ! listing=$(pg pg_restore --list <"$dump" 2>&1); then
 	echo "simple-balance-restore: $dump is not a readable PostgreSQL archive" >&2
 	echo "$listing" >&2
 	exit 1
@@ -71,9 +109,20 @@ docker compose stop app
 # restore is usually trying to get rid of. `template0` so the new database
 # inherits nothing that was added to template1.
 echo "simple-balance-restore: recreating the database"
-docker compose exec -T postgres psql -U simple_balance -d postgres -v ON_ERROR_STOP=1 \
-	-c "drop database if exists simple_balance;" \
-	-c "create database simple_balance template template0;"
+if [ "$database_in_project" = yes ]; then
+	pg psql -U simple_balance -d postgres -v ON_ERROR_STOP=1 \
+		-c "drop database if exists simple_balance;" \
+		-c "create database simple_balance template template0;"
+else
+	# The same two statements against a database this deployment does not run,
+	# which needs the role to be able to create one. That is already true of any
+	# `single` deployment the application bootstrapped itself — it creates the
+	# database on first start when the server has not got one — and where it is
+	# not, the restore says so here rather than half way through.
+	pg psql -d "$maintenance_url" -v ON_ERROR_STOP=1 \
+		-c "drop database if exists \"$restore_db\";" \
+		-c "create database \"$restore_db\" template template0;"
+fi
 
 # --no-owner and --no-privileges to match how the dump was taken: this
 # deployment has exactly one role, so ownership recorded in the archive is
@@ -84,9 +133,11 @@ docker compose exec -T postgres psql -U simple_balance -d postgres -v ON_ERROR_S
 # to the end, exit 0, and leave a partially restored ledger that nothing has
 # noticed. A restore either worked or it did not.
 echo "simple-balance-restore: restoring $tables tables"
-docker compose exec -T postgres \
-	pg_restore -U simple_balance -d simple_balance --no-owner --no-privileges --exit-on-error \
-	<"$dump"
+if [ "$database_in_project" = yes ]; then
+	pg pg_restore -U simple_balance -d simple_balance --no-owner --no-privileges --exit-on-error <"$dump"
+else
+	pg pg_restore -d "$DATABASE_URL" --no-owner --no-privileges --exit-on-error <"$dump"
+fi
 
 # Starting the application also runs any migration the dump predates, under the
 # same advisory lock a first start uses. That is the supported way to restore an

@@ -18,13 +18,68 @@ set -eu
 : "${SB_COMPOSE_DIR:=/opt/simple-balance}"
 : "${SB_BACKUP_DIR:=/var/backups/simple-balance}"
 : "${SB_BACKUP_KEEP:=14}"
+# Only used where the database is not part of the deployment. Pinned rather than
+# floating: a pg_dump older than the server refuses outright, so the version this
+# reaches for should be a decision. 18 is what the profiles that own a database
+# deploy, and pg_dump 18 dumps every server this application supports.
+: "${SB_PG_CLIENT_IMAGE:=postgres:18}"
+
+# Two profiles reach their database two different ways, and this is the one
+# script both use.
+#
+# `vps` has the database as a service in this same Compose project, so the dump
+# is taken inside it and needs no client on the host and no password anywhere.
+# `single` points at a database somebody else keeps, so there is nothing to exec
+# into — the dump goes over the network, from a client container, using the same
+# DATABASE_URL the application uses.
+#
+# Decided by reading the project's own service list rather than by a setting. A
+# setting here would be a second place to state something the compose file
+# already says, and the failure when the two disagree is a backup that reports
+# success and dumps the wrong database.
+cd "$SB_COMPOSE_DIR"
+if docker compose config --services 2>/dev/null | grep -qx postgres; then
+	database_in_project=yes
+else
+	database_in_project=no
+fi
+
+# `single` needs the connection string, and it lives in the file Compose reads.
+# Sourced rather than parsed, so an operator who quoted it gets the same value
+# Compose would see.
+if [ "$database_in_project" = no ]; then
+	if [ -z "${DATABASE_URL:-}" ] && [ -r "$SB_COMPOSE_DIR/.env" ]; then
+		DATABASE_URL=$(sed -n 's/^DATABASE_URL=//p' "$SB_COMPOSE_DIR/.env" | tail -1 | sed 's/^"\(.*\)"$/\1/; s/^'"'"'\(.*\)'"'"'$/\1/')
+	fi
+	if [ -z "${DATABASE_URL:-}" ]; then
+		echo "simple-balance-backup: no postgres service in this deployment and no DATABASE_URL to dump from." >&2
+		echo "  This is the \`single\` profile, whose database is somebody else's. Put DATABASE_URL in" >&2
+		echo "  $SB_COMPOSE_DIR/.env, which is where the application reads it from too." >&2
+		exit 2
+	fi
+fi
+
+# One place that decides how a postgres client is run, so the dump and the
+# verification below cannot end up reaching two different databases.
+#
+# --network host because DATABASE_URL is written from the host's point of view:
+# a managed database is reachable either way, but one on this machine's own
+# loopback is only reachable this way, and that is a deployment somebody will
+# have.
+pg() {
+	if [ "$database_in_project" = yes ]; then
+		docker compose exec -T postgres "$@"
+	else
+		docker run --rm -i --network host -e PGCONNECT_TIMEOUT=15 \
+			"$SB_PG_CLIENT_IMAGE" "$@"
+	fi
+}
 
 # Dumps are every account's whole financial history in one file. 0077 makes the
 # directory and every file in it readable by root alone, and it is set before
 # anything is created rather than fixed afterwards.
 umask 077
 
-cd "$SB_COMPOSE_DIR"
 mkdir -p "$SB_BACKUP_DIR"
 
 # Sorts chronologically as text, which is what lets the pruning at the bottom
@@ -44,14 +99,16 @@ partial="$final.partial"
 #
 # Redirected to .partial so an interrupted dump is never mistaken for a finished
 # one by the pruning below or by whoever reaches for the newest file at 3am.
-docker compose exec -T postgres \
-	pg_dump -U simple_balance -d simple_balance -Fc --no-owner --no-privileges \
-	>"$partial"
+if [ "$database_in_project" = yes ]; then
+	pg pg_dump -U simple_balance -d simple_balance -Fc --no-owner --no-privileges >"$partial"
+else
+	pg pg_dump -d "$DATABASE_URL" -Fc --no-owner --no-privileges >"$partial"
+fi
 
 # A dump nobody has read is a hope. pg_restore --list parses the archive's table
 # of contents without touching a database, so it catches a truncated file, a
 # corrupted stream and an empty one for the price of reading the header.
-if ! pg_restore_out=$(docker compose exec -T postgres pg_restore --list <"$partial" 2>&1); then
+if ! pg_restore_out=$(pg pg_restore --list <"$partial" 2>&1); then
 	rm -f "$partial"
 	echo "simple-balance-backup: the dump did not verify and was discarded" >&2
 	echo "$pg_restore_out" >&2

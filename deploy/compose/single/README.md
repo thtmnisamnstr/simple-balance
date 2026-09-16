@@ -118,12 +118,15 @@ new release.
 ## Tear it down
 
 ```sh
-docker compose down                 # stop everything, keep the database
-docker compose down -v              # and delete the database. This deletes the ledger.
+docker compose down
 ```
 
-`-v` removes the named volume. Where `POSTGRES_DATA_DIR` points at a bind mount,
-the directory stays and its contents go.
+That is the whole of it, and it deletes nothing: this profile runs the
+application and whatever terminates TLS, and the ledger is in a database
+somewhere else. There is no `-v` to be careful about here, because there is no
+volume holding anybody's money — removing this deployment removes a web server.
+Deleting the ledger means deleting the database you pointed `DATABASE_URL` at,
+wherever that is, which is a decision taken over there.
 
 ## The things that have to line up
 
@@ -136,9 +139,10 @@ the directory stays and its contents go.
   lets a caller write their own address and take as many sign-in attempts as
   they like. False behind a terminator puts every visitor in one bucket. The
   server says at startup which of the two it is doing.
-- **The database's PostgreSQL version.** 17, the same as every other profile,
-  so a dump from one restores into another. `docs/deployment-profiles.md` says
-  why 17 and why the floor is still 15.
+- **The database's PostgreSQL version.** 15 or newer is what this application
+  accepts; 18 is what the two profiles that own a database deploy, so a dump
+  from one of those restores into this one without a version in the way.
+  `docs/deployment-profiles.md` separates the floor from the recommendation.
 - **The database's collation.** Whoever runs it should create it on a glibc
   build. Alpine's musl compares text byte by byte whatever collation is
   declared, so every category, payee and account list comes back with capitals
@@ -147,10 +151,12 @@ the directory stays and its contents go.
 
 ## How this differs from the rest of `deploy/`
 
-`../compose.distributed.yml` runs the *split* containers on one machine. It
-exists to exercise the shape the Helm chart deploys, with a bundled PostgreSQL
-for convenience. This directory is a deployment somebody's books live in: one
-container rather than three, a database tuned rather than defaulted, TLS,
+`../vps/` is the `vps` profile: the split containers with one machine each and
+the database among them. `../compose.distributed.yml` is the same containers on
+a single machine, which is a way to exercise that shape on one host rather than
+a way to deploy it.
+
+This directory is the `single` profile: one container, no database, TLS,
 backups, log rotation, and a systemd unit.
 
 `../../helm/` and `../../pulumi/aws/` and `../../pulumi/gcp/` are the `ha`

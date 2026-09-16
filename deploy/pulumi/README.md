@@ -267,12 +267,21 @@ database URL to supply — the machine runs its own PostgreSQL.
 | `backupKeep` | | `14` | How many daily dumps to retain on the data disk |
 | `compartmentOcid` | OCI only | | Which compartment to build in. OCI has no default and the root compartment is a poor choice, since policies cannot be scoped to it |
 
-There are deliberately **no secret keys here.** `AUTH_SECRET` and
-`POSTGRES_PASSWORD` are generated on the machine at first boot and kept on the
-data volume at `0600`, so neither enters user data — which is readable by
-anyone who can describe the instance — nor Pulumi's state file. Nothing outside
-the machine needs either value, and a rebuilt instance that reattaches the same
-volume finds the same ones.
+There are deliberately **no secret keys here.** `AUTH_SECRET` is generated on the
+machine at first boot and kept on the data volume at `0600`, so it enters neither
+user data — which is readable by anyone who can describe the instance — nor
+Pulumi's state file. Nothing outside the machine needs it, and a rebuilt instance
+that reattaches the same volume finds the same one.
+
+**`DATABASE_URL` is not a setting here either, and that is the one worth
+expecting.** These programs build the `single` profile, whose database is
+somebody else's, so the connection string carries a password — and anything
+these programs put on the machine arrives as user data. The first boot therefore
+leaves the deployment enabled and stopped, with the instructions in `/etc/motd`:
+put `DATABASE_URL` in `/var/lib/simple-balance/env.local` and run
+`/usr/local/sbin/simple-balance-firstboot` again, which rebuilds the
+configuration and starts it. That script is written to be safe to re-run, which
+is what makes it a real instruction rather than a suggestion.
 
 Settings that genuinely come from outside — an SMTP password, a Stripe key — go
 in `/var/lib/simple-balance/env.local` on the machine, which is on the data

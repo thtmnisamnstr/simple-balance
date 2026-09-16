@@ -244,17 +244,16 @@ export interface CloudInitArgs {
  * remembering to copy it.
  *
  * No secret appears in this text, and that is a deliberate design rather than
- * an omission. AUTH_SECRET and POSTGRES_PASSWORD are generated on the machine
- * at first boot and kept on the data volume, so they never enter user data —
- * which is readable by anyone who can describe the instance — and never enter
- * Pulumi's state file either. Nothing outside the machine needs to know either
- * value. The settings that genuinely come from outside, such as an SMTP
- * password or a Stripe key, are added to /opt/simple-balance/.env afterwards;
+ * an omission. AUTH_SECRET is generated on the machine at first boot and kept on
+ * the data volume, so it never enters user data — which is readable by anyone
+ * who can describe the instance — and never enters Pulumi's state file either.
+ * Nothing outside the machine needs to know it. The settings that genuinely come
+ * from outside — DATABASE_URL, an SMTP password, a Stripe key — are added to
+ * /var/lib/simple-balance/env.local afterwards;
  * the README says so, because putting them here would undo the whole point.
  */
 export function cloudInit(args: CloudInitArgs): string {
   const { settings, dataDevice } = args;
-  const size = settings.size;
   const image = `${settings.imageRepository}:${settings.imageTag || DEFAULT_TAG}`;
 
   // The compose file pins the released tag. Where the stack asks for a
@@ -339,10 +338,10 @@ ${block(repoFile("deploy/systemd/simple-balance-restore"), 6)}
     permissions: "0644"
     content: |
       COMPOSE_FILE=compose.yml:compose.caddy.yml
-      POSTGRES_DATA_DIR=/var/lib/simple-balance/postgres
       SB_BACKUP_DIR=/var/lib/simple-balance/backups
       SB_BACKUP_KEEP=${settings.backupKeep}
       SB_DATA_DEVICE=${dataDevice}
+      SB_PG_CLIENT_IMAGE=postgres:18
 
   # Everything the deployment needs that is not a secret. The secrets are
   # appended to this file on first boot by the script below, from values
@@ -356,11 +355,21 @@ ${block(repoFile("deploy/systemd/simple-balance-restore"), 6)}
       AUTH_MODE=local
       ALLOWED_EMAILS=${settings.allowedEmails}
       LOG_LEVEL=info
-      POSTGRES_SHARED_BUFFERS=${size.sharedBuffers}
-      POSTGRES_EFFECTIVE_CACHE_SIZE=${size.effectiveCacheSize}
-      POSTGRES_WORK_MEM=${size.workMem}
-      POSTGRES_MAINTENANCE_WORK_MEM=${size.maintenanceWorkMem}
-      POSTGRES_MAX_WAL_SIZE=${size.maxWalSize}
+
+      # No DATABASE_URL here, and its absence is the design rather than an
+      # omission. This profile's database is somebody else's, so the connection
+      # string carries a password — and everything in this file arrives on the
+      # machine as cloud-init user data, which anyone who can describe the
+      # instance can read. It goes in /var/lib/simple-balance/env.local instead,
+      # by hand, the way an SMTP password or a Stripe key does; the firstboot
+      # script leaves the deployment enabled-but-stopped and says so until it is
+      # there.
+      #
+      # Nor are there any POSTGRES_* tuning settings. They were written here
+      # while this profile bundled a database, and nothing on the machine has
+      # read them since it stopped. The numbers still matter — they are what to
+      # set on whichever PostgreSQL you point this at — and
+      # docs/deployment-sizing.md is where they are, per machine size.
 
   - path: /usr/local/sbin/simple-balance-firstboot
     permissions: "0700"

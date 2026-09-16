@@ -18,7 +18,6 @@ set -a
 set +a
 
 : "${SB_DATA_DEVICE:?/etc/default/simple-balance did not set SB_DATA_DEVICE}"
-: "${POSTGRES_DATA_DIR:=/var/lib/simple-balance/postgres}"
 : "${SB_BACKUP_DIR:=/var/lib/simple-balance/backups}"
 
 # Wait for the volume to be attached. On both clouds the instance can boot
@@ -50,8 +49,8 @@ grep -q " /var/lib/simple-balance " /etc/fstab ||
 	echo "LABEL=simple-balance /var/lib/simple-balance ext4 defaults,noatime,nofail 0 2" >>/etc/fstab
 mountpoint -q /var/lib/simple-balance || mount /var/lib/simple-balance
 
-mkdir -p "$POSTGRES_DATA_DIR" "$SB_BACKUP_DIR"
-chmod 0700 "$POSTGRES_DATA_DIR" "$SB_BACKUP_DIR"
+mkdir -p "$SB_BACKUP_DIR"
+chmod 0700 "$SB_BACKUP_DIR"
 
 # Generated here, kept on the data volume, and sent nowhere. Neither value is
 # of any use off this machine, so neither belongs in user data — readable by
@@ -65,8 +64,12 @@ if [ ! -f "$secrets" ]; then
 	{
 		# tr deletes the newlines openssl wraps at, and the three base64
 		# characters that would need escaping in a URL or a compose file.
+		#
+		# One value, not two. There was a POSTGRES_PASSWORD here while this
+		# profile bundled a database; it does not, so generating one produced a
+		# password for a server that does not exist and a plausible-looking
+		# secret nobody could use.
 		echo "AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n/+=' | cut -c1-48)"
-		echo "POSTGRES_PASSWORD=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | cut -c1-32)"
 	} >"$secrets"
 	chmod 0600 "$secrets"
 fi
@@ -95,5 +98,51 @@ chmod 0600 /opt/simple-balance/.env
 
 systemctl daemon-reload
 systemctl enable --now docker
+
+# The one setting this profile cannot generate, because it is the address of
+# something somebody else runs.
+#
+# It is deliberately not a Pulumi setting. A connection string carries a
+# password, and anything a Pulumi program puts on the machine arrives as
+# cloud-init user data — readable by anyone who can describe the instance, and
+# on both clouds that is a wider set of people than it sounds. So it goes in
+# env.local, on the data volume, by hand, exactly as an SMTP password or a
+# Stripe key does.
+#
+# Without it the deployment cannot start, and the interesting question is what
+# should happen at that point. Starting anyway gives a failed unit and a
+# cloud-init error, which reads as a broken image rather than a step nobody has
+# taken yet. So the unit is enabled and not started, the reason is written where
+# somebody will find it, and this script says so and exits successfully — it is
+# safe to run again, which is what makes that a real instruction.
+if ! grep -q '^DATABASE_URL=..*' /opt/simple-balance/.env; then
+	systemctl enable simple-balance.service
+	systemctl enable simple-balance-backup.timer
+	cat >/etc/motd <<'MOTD'
+
+Simple Balance is installed and not yet running: it has no database to talk to.
+
+This is the `single` profile, whose database is somebody else's — a managed
+PostgreSQL, or a server you already keep. Point it at one:
+
+  sudo nano /var/lib/simple-balance/env.local
+      DATABASE_URL=postgresql://user:password@host:5432/simple_balance
+
+  sudo /usr/local/sbin/simple-balance-firstboot
+
+That second command rebuilds the configuration and starts the deployment. It is
+the same script that ran at boot and is safe to run again.
+
+env.local is on the data volume, so what you put there survives the machine
+being rebuilt or resized.
+
+MOTD
+	echo "simple-balance: no DATABASE_URL yet; enabled but not started. See /etc/motd." >&2
+	exit 0
+fi
+
+# Started only once there is something to start. A machine that got its
+# DATABASE_URL on the second run reaches here on the second run.
+: >/etc/motd
 systemctl enable --now simple-balance.service
 systemctl enable --now simple-balance-backup.timer
