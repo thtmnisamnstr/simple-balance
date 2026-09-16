@@ -13,6 +13,14 @@ is how to run them. The numbers in the tables come from
 `scripts/capacity/schedule.mjs` and `scripts/capacity/cohorts.mjs`, and
 `tests/capacity-schedule.test.ts` fails when this page and those files disagree.
 
+What that test does not hold is that the harness still *starts*. Nothing in CI
+runs it — it wants a machine and the better part of an hour — so the claim above
+rests on the last person to have run it. It was false for three sessions once
+already: the `single` profile stopped bundling PostgreSQL, its compose began
+demanding `DATABASE_URL` before any overlay could supply one, and the documented
+invocation failed on the render rather than anywhere a suite would look. Run it
+before trusting this page, not after.
+
 ## The population
 
 Thirty million transactions across ten thousand users, in three cohorts,

@@ -1799,8 +1799,7 @@ icon and is why making it required was worth more than a test — the three site
 that omitted it were three compile errors. `tests/ui-copy.test.ts` holds two
 more: that every page rendering an empty state gives it a conditional rather
 than one sentence for two situations, and that an empty state sits *behind* its
-query's error rather
-than beside it.
+query's error rather than beside it.
 
 That last one had been three screens and a banner on six lists. React Query's
 `isPending` is `status === "pending"`, so a query that errored is not pending
@@ -2336,7 +2335,7 @@ is which.
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of twenty-one registered components; every full-height rule measures `dvh`; a right-aligned cell gets tabular figures whether it is a header or not (6.3, 9.3, 15) |
 | `tests/field-contract.test.tsx` | Every `<Button>` with a computed `disabled` carries a `disabledReason`, which is shown and pointed at while disabled, absent while enabled or working, and does not remount the button (12.3); a field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labelled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
 | `tests/shell-focus.test.tsx`, `tests/browser/budgets.spec.ts` | The skip link is first and lands in `<main>`; a route change moves focus and resets scroll; the drawer makes the page behind it inert, moves focus in and out, and closes on Escape; a finished bulk action puts focus on the sentence saying so (13.3) |
-| `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; and every worked sentence in `common.md`'s table appears verbatim in `src` (6.2, 16) |
+| `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; every worked sentence in `common.md`'s table appears verbatim in `src`; every page rendering a list's empty state gives it a conditional rather than one sentence for two situations, with six named exceptions; and an empty state sits behind its query's error rather than beside it, with two named exceptions (6.2, 12.1, 16) |
 
 ### 17.2 Worth building, ranked by bugs caught per hour
 
@@ -2387,8 +2386,10 @@ work under "worth building" is how a backlog stops being one.
 
 These cannot be tested and the guide says so rather than pretending.
 
-- Whether an empty state's copy distinguishes "nothing yet" from "nothing
-  matching" in a way a person understands.
+- Whether an empty state's two sentences are the *right* two. That a filtered
+  list has two rather than one is checked as of 0.2.0 (12.1); whether either
+  names the action that gets somebody out is not, and a page can satisfy the
+  check with two sentences that are both useless.
 - Whether a chart with more than a few series wants direct labels or a different
   chart.
 - Whether a new component duplicates one in the inventory.

@@ -368,6 +368,17 @@ and, for a link, the email address — after the account was gone. It matches al
 three shapes now. Both are pre-existing defects rather than anything this
 release introduced.
 
+**Two lists told you the wrong thing about your own data.** Payees showed one
+message whether the ledger was empty or a search had simply matched nothing, and
+its two halves disagreed with each other: the heading said "in this view" while
+the text underneath told you payees appear once you commit a transaction — the
+wrong next step for somebody who has committed hundreds and mistyped a name.
+Accounts told anyone whose accounts were all archived that they had none yet,
+and offered to create one, rather than pointing at the archived ones already
+there. Each list now separates "nothing yet" from "nothing matches this view",
+because the way out of the two is the opposite. Both are pre-existing defects
+rather than anything this release introduced.
+
 ## 0.1.6 - 2026-09-12
 
 **This release upgrades cleanly from 0.1.5.** A deployment starts on the
