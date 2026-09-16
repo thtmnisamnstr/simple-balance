@@ -126,8 +126,8 @@ if [ "$HAS_CONTAINER_BUILD" = true ]; then
 fi
 
 if [ "$HAS_INTEGRATION" = true ]; then
-  if ! docker image inspect postgres:16-alpine >/dev/null 2>&1; then
-    echo "The local postgres:16-alpine image is required for isolated integration verification." >&2
+  if ! docker image inspect postgres:18-alpine >/dev/null 2>&1; then
+    echo "The local postgres:18-alpine image is required for isolated integration verification." >&2
     exit 1
   fi
   VERIFY_SUFFIX=${VERIFY_ROOT##*.}
@@ -143,7 +143,7 @@ if [ "$HAS_INTEGRATION" = true ]; then
     -e POSTGRES_DB=ralph_test \
     -e POSTGRES_USER=postgres \
     -e POSTGRES_PASSWORD=ralph-verification-only \
-    postgres:16-alpine >/dev/null
+    postgres:18-alpine >/dev/null
   ready=false
   attempt=0
   while [ "$attempt" -lt 30 ]; do
@@ -174,7 +174,7 @@ if [ "$HAS_INTEGRATION" = true ]; then
       --pids-limit 64 \
       --user postgres \
       --entrypoint sh \
-      postgres:16-alpine \
+      postgres:18-alpine \
       -c 'exec nc -lk -p 5432 -e nc ralph-postgres 5432' >/dev/null
     docker network connect "$PG_NETWORK" "$PG_PROXY_CONTAINER"
     docker start "$PG_PROXY_CONTAINER" >/dev/null

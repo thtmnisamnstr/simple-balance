@@ -111,7 +111,7 @@ const frontendImageOnly = [
   "SB_ADS_CONFIGURED",
 ];
 /**
- * The bundled `postgres:16-alpine` container's own variable, documented at
+ * The bundled `postgres:18` container's own variable, documented at
  * `deploy/compose/README.md` beside the file that uses it. Putting another
  * image's settings in this product's tables would make the tables less true.
  */

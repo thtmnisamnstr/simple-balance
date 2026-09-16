@@ -13,9 +13,15 @@ cutting. The content below is what matters and is written as the work lands,
 because a note written while a release is being cut says whatever the person
 cutting it can remember.
 
-**Nothing refuses to start that 0.1.6 accepted, and nothing about an existing
-configuration has to change.** Everything added is optional and off unless an
+**Nothing about an existing configuration has to change, and the application
+refuses nothing 0.1.6 accepted.** Everything added is optional and off unless an
 operator sets it.
+
+**One exception, and it is not the application.** If you run
+`deploy/compose/compose.distributed.yml`, that recipe bundles its own PostgreSQL
+and this release moves it from 16 to 18. A PostgreSQL container cannot read the
+previous major version's data directory — it refuses to start and says so — so
+this one needs a hand before you pull. The procedure is below.
 
 ### What runs automatically
 
@@ -31,6 +37,69 @@ create five empty tables however large your ledger is.
 Nothing is required. A deployment that sets none of the new variables sells
 nothing, limits nobody, shows no advertising, and opens no connection to Stripe
 — which is what an untouched `.env` keeps doing.
+
+**If you run `deploy/compose/compose.distributed.yml`, move its database to
+PostgreSQL 18 before you pull.** This does not apply to the single container, to
+the `single` profile, or to anyone pointing `DATABASE_URL` at a database they run
+themselves — those connect to whatever you already have, and the floor is still
+PostgreSQL 15. It applies to the one recipe that ships a `postgres` service.
+
+Two things changed in it: the image is `postgres:18`, and the data volume is
+mounted at `/var/lib/postgresql` rather than `/var/lib/postgresql/data`, because
+PostgreSQL 18's image moved `PGDATA` into a versioned subdirectory. Starting 18
+against the old mount point fails immediately with a message naming both facts,
+which is the good failure — nothing starts empty and nothing is overwritten.
+
+Dump, recreate, restore:
+
+```sh
+cd deploy/compose
+# 1. With the OLD compose file still checked out, take a dump. `-T` matters:
+#    without it compose allocates a TTY and the dump arrives corrupted.
+docker compose exec -T postgres \
+  pg_dump -U simple_balance -Fc simple_balance > simple-balance-16.dump
+
+# 2. Check the dump BEFORE destroying anything. A failed pg_dump still leaves a
+#    file behind, and the next step is irreversible. This lists the objects in
+#    the archive and exits non-zero if it cannot read it.
+pg_restore --list simple-balance-16.dump > /dev/null && \
+  echo "dump OK: $(wc -c < simple-balance-16.dump) bytes"
+#    No pg_restore on the host? Ask the new image instead:
+#    docker run --rm -i postgres:18 pg_restore --list < simple-balance-16.dump >/dev/null
+
+# 3. Stop everything and discard the old data directory. `postgres-data` is the
+#    only volume this file declares, so -v takes that and nothing else. Do not
+#    run this until step 2 printed OK.
+docker compose down -v
+
+# 4. Pull this release, which brings up an empty PostgreSQL 18.
+git pull && docker compose up -d postgres
+until docker compose exec -T postgres pg_isready -U simple_balance -d simple_balance
+do sleep 1; done
+
+# 5. Restore.
+docker compose exec -T postgres \
+  pg_restore -U simple_balance -d simple_balance --clean --if-exists \
+  < simple-balance-16.dump
+
+# 6. Bring the rest up. Migrations run at startup as they always do.
+docker compose up -d
+```
+
+Keep the dump until you have signed in and seen your balances. `docs/upgrades.md`
+§Rolling back applies unchanged: going back means restoring that dump into a
+PostgreSQL 16 container, because 16 cannot read an 18 data directory either.
+
+**`pg_dump` rather than `pg_upgrade --link`**, and the reason is collation. The
+old image was `postgres:16-alpine`, which is musl, and the new one is Debian,
+which is glibc; the two do not sort text the same way, and this product compares
+normalized category and payee names with the database's collation.
+`pg_upgrade` carries indexes across as bytes, so a `--link` upgrade would leave
+every text index sorted under the old library and a uniqueness check quietly
+reading the wrong page. A dump and restore rebuilds them under the collation the
+new server actually has. If you would rather stay where you are, pin
+`image: postgres:16-alpine` and the old mount path in your own copy of the file;
+nothing in this release requires 18.
 
 **One thing is worth doing, if you run the split containers behind anything
 that terminates TLS**, which under Kubernetes is always. Set
@@ -51,7 +120,13 @@ their own. `docs/deployment-profiles.md` has the reasoning and the measurement.
 
 ### What changed under you
 
-Nothing, unless you opt in. `SB_TRUSTED_PROXY_CIDR` defaults to `127.0.0.1`,
+The bundled PostgreSQL in `deploy/compose/compose.distributed.yml` moved from 16
+to 18, which is the one change in this release that an operator cannot ignore;
+everything else here is opt-in. `docs/deployment-profiles.md` has the reasoning,
+and the short version is that where a deployment owns its database it runs the
+newest version the `ha` cluster can also run.
+
+Otherwise nothing, unless you opt in. `SB_TRUSTED_PROXY_CIDR` defaults to `127.0.0.1`,
 which is the off position rather than a trusted range — nothing reaches the
 container from loopback — so a deployment that sets nothing behaves exactly as
 it did before the setting existed. Two new settings groups exist and both default to

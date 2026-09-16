@@ -25,10 +25,12 @@ it moved. It refuses to finish otherwise, because a number measured against a
 ledger that does not balance is measuring rows the application could never have
 written.
 
-**A `single` deployment profile: one machine, and everything it needs.**
-`deploy/compose/single/` runs the application container and PostgreSQL together
-with the database tuned rather than defaulted, an overlay that adds Caddy and
-automatic TLS, and container logs capped so they cannot fill a boot disk.
+**A `single` deployment profile: one machine, and a database it does not run.**
+`deploy/compose/single/` runs the application container against a `DATABASE_URL`
+you supply — a managed PostgreSQL, or one of your own — with an overlay that adds
+Caddy and automatic TLS, and container logs capped so they cannot fill a boot
+disk. The two profiles that do own their database run PostgreSQL 18; this one
+states a floor of 15 instead, because it connects to whatever you already have.
 `deploy/systemd/` makes it a service that survives a reboot, with a daily
 `pg_dump` that is verified by being read back before it is kept, and a restore
 that refuses a dump it cannot parse before it touches the database.

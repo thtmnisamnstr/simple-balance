@@ -27,15 +27,15 @@ jobs:
     strategy:
       fail-fast: false
       # The two ends rather than the middle. The README promises PostgreSQL 15
-      # and up, so the floor is tested rather than assumed; 17 is what every
-      # deployment profile now ships, so it is tested for the same reason.
-      # 16 sat between them and told us nothing neither end would.
+      # and up, so the floor is tested rather than assumed; 18 is what every
+      # profile that owns its database now deploys, so it is tested for the same
+      # reason. 16 and 17 sit between them and tell us nothing neither end would.
       #
       # Node 22.22.2 and up is the other promise. The image ships Node 24; 22 is
       # here because `npm start` on a host is a supported way to run this and
       # the manifest says it works.
       matrix:
-        postgres: ["15-alpine", "17-alpine"]
+        postgres: ["15-alpine", "18-alpine"]
         node: ["22", "24"]
     services:
       postgres:
@@ -90,7 +90,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # The version the deployment profiles ship. This had been left on 16
+        # after the matrix moved, so the one tier that drives the whole stack
+        # was proving it against a version nothing deploys and nothing else
+        # tests.
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

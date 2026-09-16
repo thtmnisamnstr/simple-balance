@@ -141,18 +141,20 @@ x-app-config: &app-config
 
 services:
   postgres:
-    # PostgreSQL 17, and Debian rather than Alpine.
+    # PostgreSQL 18, and Debian rather than Alpine.
     #
-    # 17 because it is what every profile standardises on: it is the newest
-    # release Citus 14.2 supports, so the `ha` profile can use it, and it
-    # survives Citus 15 dropping 16. One version across all three shapes means a
-    # dump taken from one restores into another.
+    # 18 because this is a database the deployment owns, so it runs the newest
+    # version every profile can share. Citus 14.2 — the newest Citus, there is no
+    # 15 — gates on 16, 17 and 18, so `ha` runs 18 too and a dump taken from one
+    # profile restores into another. The `single` profile points at a database
+    # somebody else runs and still accepts 15 and up: that floor is about what we
+    # will connect to, not about what we choose to deploy.
     #
     # Debian because Alpine is musl, which compares text byte by byte whatever
     # collation is declared — `deploy/compose/single/compose.yml` carries the
     # measurement showing every category and payee list comes back with capitals
     # first and accents at the end.
-    image: postgres:17
+    image: postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_DB: simple_balance
@@ -165,7 +167,13 @@ services:
     # exists for, and a real deployment points DATABASE_URL somewhere else.
     security_opt: ["no-new-privileges:true"]
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # The mount is the parent directory, not `.../data`, and 18 is why: the
+      # image moved PGDATA to /var/lib/postgresql/18/docker, and its entrypoint
+      # refuses to start against a volume mounted at the old path rather than
+      # quietly writing where the container would take it. Mounting the parent is
+      # what upstream asks for, and it is what lets `pg_upgrade --link` work later
+      # without crossing a mount boundary.
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U simple_balance -d simple_balance"]
       interval: 2s

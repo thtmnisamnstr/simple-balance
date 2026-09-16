@@ -26,23 +26,35 @@ interesting.
 
 ## One PostgreSQL version
 
-**All three profiles run PostgreSQL 17.** One version, because a dump taken from
-one shape has to restore into another, and because collation and planner
-behaviour both change between releases — `docs/deployment-sizing.md` has the
-measurement showing what a collation difference alone does to every name-sorted
-list in the product.
+Two different questions hide here, and answering them as one is how this page
+was wrong for a while. **What will we connect to** is a floor, and it is
+unchanged: PostgreSQL 15 and up. **What do we deploy** is a choice, and where
+the deployment owns the database the answer is the newest version all three
+shapes can share.
 
-17 rather than anything else is decided by the cluster. Citus 14.2 supports
-PostgreSQL 16 and 17 and nothing older, and Citus 15 drops 16 — so 17 is the
-only version that serves `ha` today and survives the next Citus release. It is
-also the version whose current patch, 17.11, closes CVE-2026-15741; Citus's own
-`14.2.0-pg17` image carries 17.10 and therefore does not, which is one of the
-reasons `docs/citus.md` builds its own.
+**Where we deploy a database, it is PostgreSQL 18.** That is `vps`, whose
+`postgres` service is part of the deployment, and `ha`, whose cluster is Citus
+on top of it. One version across both, because a dump taken from one shape has
+to restore into another, and because collation and planner behaviour both change
+between releases — `docs/deployment-sizing.md` has the measurement showing what
+a collation difference alone does to every name-sorted list in the product.
 
-**The floor is unchanged.** The application still supports PostgreSQL 15 and up,
-and CI tests both ends: 15, because that is the promise, and 17, because that is
-what every profile ships. A deployment already on 15 or 16 keeps working and is
-not asked to move.
+18 is decided by the cluster, because the cluster is the constrained end.
+**Citus 14.2 is the newest Citus — there is no 15** — and it gates on PostgreSQL
+16, 17 and 18, refusing anything else at configure time. 18 is the newest of
+those, so it is what `ha` runs and therefore what `vps` runs beside it. Citus 15
+is unreleased; when it arrives it drops 16, which costs us nothing from 18.
+
+**`single` connects to a database somebody else runs**, so it states a floor
+rather than a version. PostgreSQL 15 and up, and 18 recommended for the same
+dump-portability reason. CI tests both ends — 15 because that is the promise, 18
+because that is what we deploy — and skips the middle, which tells us nothing
+neither end would.
+
+**Nobody on an existing deployment is moved silently.** A PostgreSQL major
+version cannot read the previous major's data directory; the container refuses
+to start and says so. `docs/upgrades.md` carries the one-time procedure, and an
+operator who would rather stay on the version they have can pin it.
 
 
 There is a third thing in `deploy/compose/compose.distributed.yml` that is

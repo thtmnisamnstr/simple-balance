@@ -3,8 +3,9 @@
 Simple Balance is one container and one PostgreSQL database. There is no Redis,
 no sidecar, no object store, and nothing it needs to write to disk.
 
-PostgreSQL 15 or newer. Every release is tested against 15 and 16, on Node 22
-and 24. Nothing else is assumed about the server.
+PostgreSQL 15 or newer. Every release is tested against 15 and 18 — the floor
+and the version the deployment profiles ship — on Node 22 and 24. Nothing else
+is assumed about the server.
 
 This page is the settings and the contract: what every variable does, what a
 reverse proxy has to send, and what the split containers have to agree about.

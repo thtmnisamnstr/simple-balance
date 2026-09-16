@@ -645,7 +645,7 @@ There is no specification for this. `docs/deployment.md` delivers the first five
 for every variable. The sixth is given wherever there is a ceiling
 (`docs/deployment.md:51-57`, of which `CSV_MAX_ROWS` at `:52` is the fullest: the
 cap matches the bulk-action cap so an import always fits one review-queue
-action). The seventh appears for `TRUST_PROXY` (`:48`, "getting it wrong costs
+action). The seventh appears for `TRUST_PROXY` (`:49`, "getting it wrong costs
 per-visitor rate limiting"), `RECURRENCE_SCHEDULER` (`:53`, "A value other than
 `true` or `false` refuses to start, because the wrong setting is otherwise
 silent") and the six bounded integers (`:58-72`), and nowhere else.
@@ -676,7 +676,7 @@ in shape and not in what the containers end up with.
 
 **One variable is deliberately outside the correspondence, and this is the reason
 rather than an exemption.** `POSTGRES_PASSWORD` is the bundled
-`postgres:16-alpine` container's own variable, not one of this product's; it is
+`postgres:18` container's own variable, not one of this product's; it is
 there because a trial on one machine should take one command, and it goes away
 with that service when
 `DATABASE_URL` names a real server. It is documented at
@@ -704,7 +704,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:507`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:508`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -858,7 +858,7 @@ deadline.
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:762-767` and `README.md:131-134` describe one statement
+`docs/deployment.md:763-768` and `README.md:131-134` describe one statement
 against the database and nothing else, and `src/server/api.ts:417-430` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a

@@ -1,11 +1,12 @@
 # Citus, and what distributing this ledger costs
 
 The `ha` profile's database. This page is what was established by running it
-rather than by reading about it: Citus 14.2 on PostgreSQL 17, the real schema,
-the real application. The procedure was proven on 16 first and then on 17, which
-is what every profile now standardises on — `docs/deployment-profiles.md` has
-the reasoning, and the short version is that 17 is the newest release Citus 14.2
-supports and the oldest that survives Citus 15 dropping 16.
+rather than by reading about it: Citus 14.2 on PostgreSQL 18, the real schema,
+the real application. The procedure was proven on 16 first, then 17, then 18 —
+`docs/deployment-profiles.md` has the reasoning, and the short version is that
+Citus 14.2 is the newest Citus and gates on 16, 17 and 18, so 18 is the newest
+database the cluster can run and therefore the one every profile that owns its
+database deploys.
 
 **Status: proven, not shipped.** The procedure below applies cleanly and the
 application runs on the result. What does not exist yet is the migration that
@@ -121,14 +122,21 @@ No published artifact fits. `citusdata/citus:14.2.0-pg16` is amd64 only —
 there is no multi-platform manifest — and the one arm64 image Citus publishes,
 `citusdata/citus:alpine`, carries PostgreSQL 18.4.
 
+Citus 14.2 publishes `-pg16` and `-pg17` variants and no `-pg18` at all; the
+only place its PG18 support is published is that floating `alpine` tag, which is
+musl. So the version we want and the platform we want do not meet in any
+published artifact, from either direction.
+
 Two further reasons to build rather than adopt. The published PG16 image carries
 **PostgreSQL 16.14** and the PG17 one carries **17.10**, while CVE-2026-15741 is
-a PostgreSQL core defect fixed in 16.15 and 17.11 — so neither published image
-is patched and the base has to be pinned forward. `postgres:17` carries 17.11
-today, which is what the other two profiles run. And it must be a glibc base rather
-than musl: this application compares normalized names with the database's
-collation, and `docs/deployment-sizing.md` has the measurement showing Alpine
-sorts every category and payee list byte-wise whatever collation it claims.
+a PostgreSQL core defect fixed in 16.15, 17.11 and 18.0 — so neither published
+image is patched and the base has to be pinned forward regardless. `postgres:18`
+carries 18.6 today, which is what the other profile runs. And it must be a glibc
+base rather than musl: this application compares normalized names with the
+database's collation, and `docs/deployment-sizing.md` has the measurement showing
+Alpine sorts every category and payee list byte-wise whatever collation it
+claims. That rules out the one arm64 image Citus publishes, which is the same
+tag that carries the PG18 support — so the build is what gets us both.
 
 ## What is left
 

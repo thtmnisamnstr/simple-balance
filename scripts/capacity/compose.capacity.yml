@@ -24,7 +24,7 @@ services:
   # what was measured is a co-located database, which is the harder case for the
   # application and the easier one to reproduce.
   postgres:
-    image: ${CAPACITY_POSTGRES_IMAGE:-postgres:17}
+    image: ${CAPACITY_POSTGRES_IMAGE:-postgres:18}
     restart: unless-stopped
     command:
       - postgres
@@ -61,7 +61,9 @@ services:
       POSTGRES_INITDB_ARGS: --locale=en_US.UTF-8 --encoding=UTF8
     security_opt: ["no-new-privileges:true"]
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # The parent, not `.../data`: PostgreSQL 18 moved PGDATA and refuses to
+      # start against a volume mounted at the old path.
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       # -h 127.0.0.1 so this answers for the server the application connects to.
       # Over the unix socket it would answer for the temporary server initdb

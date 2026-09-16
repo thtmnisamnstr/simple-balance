@@ -11,11 +11,11 @@ name: simple-balance-dev
 
 services:
   postgres:
-    # The same 17 the deployment profiles ship, so development and production
+    # The same 18 the deployment profiles ship, so development and production
     # agree about collation, planner behaviour and anything else a version
     # changes. Alpine is fine here and nowhere else: this database holds test
     # data, and nobody reads a sorted list out of it.
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: simple_balance
       POSTGRES_USER: postgres
@@ -28,7 +28,9 @@ services:
       timeout: 3s
       retries: 20
     volumes:
-      - dev-postgres:/var/lib/postgresql/data
+      # The parent, not `.../data`: PostgreSQL 18 moved PGDATA and refuses to
+      # start against a volume mounted at the old path.
+      - dev-postgres:/var/lib/postgresql
       - ./scripts/dev-databases.sql:/docker-entrypoint-initdb.d/10-databases.sql:ro
 
 volumes:
