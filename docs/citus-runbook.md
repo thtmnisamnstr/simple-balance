@@ -77,10 +77,15 @@ kubectl -n <ns> exec <coordinator pod> -- psql -U postgres -d simple_balance -tA
   "select state, details from citus_rebalance_status()"
 ```
 
-Measured on a cluster holding the whole application schema, going from two
-workers to three: **10 shard moves, finished in under two minutes**, taking each
-worker from 286 shard placements to 201, 201 and 184. The unevenness is normal —
-the rebalancer moves whole shards and stops when it is close enough.
+Measured on a cluster holding the whole application schema and almost no rows,
+going from two workers to three: **10 shard moves, finished in 31 seconds**,
+taking each worker from 286 shard placements to 201, 201 and 184. The unevenness
+is normal — the rebalancer moves whole shards and stops when it is close enough.
+
+That figure is the schema moving, not a ledger. What a rebalance costs on a real
+dataset is the number an operator would actually want and this has not measured
+it; `docs/capacity.md` is the size to assume, and the moves are the same count
+either way.
 
 **It does not take writes offline.** Citus moves a shard by logically
 replicating it and cutting over at the end, which is why `wal_level` is
@@ -102,8 +107,13 @@ kubectl -n <ns> delete pod <coordinator primary>
 Patroni notices within the TTL (30 seconds by default), promotes the sync
 standby, and updates the leader Endpoints. The application's connection string
 does not change — it names the Service, and the Service now resolves to the new
-primary. Measured end to end: promotion and the Service following it inside 40
-seconds, with the ledger intact.
+primary.
+
+Measured on a pod deleted outright: **the Service pointed at the new primary two
+seconds later**, with the ledger intact and every shard still accounted for. Two
+seconds is the fast path rather than the guarantee — a pod deleted through the
+API tells Patroni on its way out, while a machine that simply stops is noticed
+when the leader lock expires, which is what the 30-second TTL bounds.
 
 Two consequences worth knowing:
 
