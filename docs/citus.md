@@ -20,8 +20,8 @@ the application's own startup path, recording themselves normally. Nothing about
 the existing schema had to change to *install* on a Citus cluster. What has to
 change is everything below, and only to *distribute* it.
 
-`deploy/citus/distribute.sql` is the procedure, and it applies as one atomic
-transaction. After it: **17 distributed tables, 14 reference tables, all 46
+`drizzle/0023_citus_distribution.sql` is the procedure, and it applies as one
+atomic transaction. After it: **17 distributed tables, 14 reference tables, all 46
 foreign keys restored.**
 
 ## The shape

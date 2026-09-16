@@ -218,11 +218,18 @@
   `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
-  `0022_plans_and_billing.sql` is on disk and **unreleased**, so it is the one
-  migration here that may still be regenerated: nobody has run it yet. It
-  freezes when 0.2.0 ships, and until then the rule to keep is that everything
-  through `0021` is somebody else's history and `0022` is still ours. The next
-  schema change after it starts at `0023`. `0016` is the
+  `0022_plans_and_billing.sql` and `0023_citus_distribution.sql` are on disk and
+  **unreleased**, so they are the two migrations here that may still be
+  regenerated: nobody has run either. They freeze when 0.2.0 ships, and until
+  then the rule to keep is that everything through `0021` is somebody else's
+  history and `0022` and `0023` are still ours. The next schema change after
+  them starts at `0024`. `0023` is the one migration that does nothing on most
+  deployments and says so at the top: it distributes the ledger and is gated on
+  the Citus extension being installed, so the `single` and `vps` profiles record
+  it as run and keep the schema they had. It is also the only place the cluster's
+  schema is written down, which is why `deploy/citus/` no longer holds a second
+  copy — `docs/citus-runbook.md` points an operator at the migration itself for
+  the by-hand path. `0016` is the
   one exception to the composite-key habit and says why in the schema: a
   category's group is a single-column reference, because `on delete set null`
   nulls every column of the constraint it is on and the tenant is not nullable.

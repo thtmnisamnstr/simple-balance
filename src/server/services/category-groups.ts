@@ -261,9 +261,25 @@ export async function deleteCategoryGroup(
     if (before.version !== expectedVersion) {
       throw staleVersion({ currentVersion: before.version });
     }
-    // The categories stay and lose their group; a budget about the group goes
-    // with it. Both fall out of the foreign keys rather than being done here,
-    // which is what keeps them true of a delete that arrives any other way.
+    // The categories stay and lose their group, and this clears it rather than
+    // leaving it to the foreign key. On a plain PostgreSQL the key is
+    // `on delete set null` and would do exactly this, so the statement changes
+    // nothing there. On a Citus cluster the key cannot be: Citus refuses
+    // `SET NULL` whenever the distribution column is part of the constraint, in
+    // every spelling including PostgreSQL 15's column list, so `0023` installs
+    // it as `NO ACTION` — under which deleting a group that still had categories
+    // would fail outright rather than orphan them. Doing it here is what makes
+    // the two schemas behave the same way.
+    //
+    // Deliberately not bumping the category's `version`: the foreign key never
+    // did, so bumping it would make a cluster refuse an edit a single node
+    // accepts, which is the divergence this statement exists to prevent.
+    await tx
+      .update(categories)
+      .set({ groupId: null })
+      .where(and(eq(categories.userId, actor.userId), eq(categories.groupId, id)));
+    // A budget about the group still goes with it, and that stays a foreign key:
+    // `on delete cascade` survives distribution unchanged.
     await tx
       .delete(categoryGroups)
       .where(

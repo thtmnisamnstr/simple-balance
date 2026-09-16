@@ -107,7 +107,9 @@ jobs:
             fi
             echo "parsed $unit"
           done
-          # shellcheck rather than `sh -n`, for two reasons and in that order.
+          # Using shellcheck rather than `sh -n`, for two reasons and in that
+          # order. (Worded this way round deliberately: a comment starting with
+          # the word `shellcheck` is parsed as a directive and fails the lint.)
           #
           # It is a better check: `sh -n` finds a syntax error and nothing else,
           # while shellcheck found a real fragility in the pruning here — an

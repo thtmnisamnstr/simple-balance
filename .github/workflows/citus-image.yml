@@ -1,0 +1,172 @@
+# The `ha` profile's database image, published on its own.
+#
+# Deliberately not part of `release.yml`. That workflow tags everything it builds
+# with the application's version, and this image's version belongs to Citus and
+# PostgreSQL: coupling them would rebuild a database on every application release
+# that never touched it, and would leave an operator reading `0.2.0` on an image
+# whose contents are decided by somebody else's release cycle. So the tag names
+# what is inside it — `14.2.0-pg18` — and `scripts/set-version.mjs` does not know
+# this file exists.
+#
+# It runs when the Dockerfile changes and when somebody asks. A pull request
+# builds without pushing, which is what catches a broken build before it is a
+# published one; this matters more here than for the other four images, because
+# this one compiles a PostgreSQL extension from source and the first version of
+# it produced an image that built cleanly and could not start.
+name: citus image
+
+on:
+  pull_request:
+    paths:
+      - deploy/docker/citus.Dockerfile
+      - .github/workflows/citus-image.yml
+  push:
+    branches: [main]
+    paths:
+      - deploy/docker/citus.Dockerfile
+      - .github/workflows/citus-image.yml
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Push to the registry rather than only building
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: citus-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    name: build the Citus image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      PLATFORMS: linux/amd64,linux/arm64
+      # Read out of the Dockerfile rather than repeated here, so the tag and the
+      # thing it names cannot drift apart.
+      DOCKERFILE: deploy/docker/citus.Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the versions out of the Dockerfile
+        id: versions
+        run: |
+          set -euo pipefail
+          citus="$(sed -n 's/^ARG CITUS_VERSION=\(.*\)$/\1/p' "$DOCKERFILE" | head -1)"
+          pg="$(sed -n 's/^ARG POSTGRES_IMAGE=postgres:\([0-9]*\).*$/\1/p' "$DOCKERFILE" | head -1)"
+          if [ -z "$citus" ] || [ -z "$pg" ]; then
+            echo "Could not read CITUS_VERSION or POSTGRES_IMAGE from $DOCKERFILE" >&2
+            exit 1
+          fi
+          {
+            echo "citus=$citus"
+            echo "pg=$pg"
+            echo "tag=$citus-pg$pg"
+            echo "image=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')-citus"
+          } >> "$GITHUB_OUTPUT"
+          echo "Citus $citus on PostgreSQL $pg" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Decide whether this run publishes
+        id: mode
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "push=${{ inputs.publish }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        if: steps.mode.outputs.push == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          push: ${{ steps.mode.outputs.push == 'true' }}
+          platforms: ${{ env.PLATFORMS }}
+          # No `latest`. A database image that moves under a deployment is the
+          # thing this whole profile is trying not to do: a PostgreSQL major
+          # version cannot read the previous major's data directory, so a
+          # floating tag turns an image pull into an outage. Both tags name a
+          # version, and the shorter one moves only within a PostgreSQL major.
+          tags: |
+            ${{ steps.versions.outputs.image }}:${{ steps.versions.outputs.tag }}
+            ${{ steps.versions.outputs.image }}:pg${{ steps.versions.outputs.pg }}
+          labels: |
+            org.opencontainers.image.version=${{ steps.versions.outputs.tag }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          cache-from: type=gha,scope=citus
+          cache-to: type=gha,mode=max,scope=citus
+
+      # The build succeeding says nothing about the database starting: the first
+      # version of this file produced an image that built cleanly and then failed
+      # initdb with an unresolvable symbol, because a configure flag had been
+      # silently overridden. So the image is started and asked what it is.
+      - name: Start it and check what came out
+        if: steps.mode.outputs.push != 'true'
+        run: |
+          set -euo pipefail
+          docker build -f "$DOCKERFILE" -t citus-check:local --load .
+          docker run -d --name citus-check \
+            -e POSTGRES_PASSWORD=checking -e POSTGRES_DB=check \
+            -e POSTGRES_HOST_AUTH_METHOD=trust citus-check:local
+          for _ in $(seq 1 90); do
+            if docker exec citus-check pg_isready -U postgres -d check >/dev/null 2>&1; then
+              ready=yes; break
+            fi
+            sleep 1
+          done
+          if [ "${ready:-no}" != "yes" ]; then
+            echo "The database never became ready:" >&2
+            docker logs citus-check >&2
+            exit 1
+          fi
+          check() {
+            got="$(docker exec citus-check psql -U postgres -d check -tAc "$2" | tr -d '[:space:]')"
+            if [ "$got" != "$3" ]; then
+              echo "$1: expected '$3', got '$got'" >&2
+              exit 1
+            fi
+            echo "$1: $got"
+          }
+          check "citus loaded" \
+            "select setting from pg_settings where name='shared_preload_libraries'" "citus"
+          check "extension present" \
+            "select count(*) from pg_extension where extname='citus'" "1"
+          # Off because this is somebody's ledger. The GUC defaults to on wherever
+          # libcurl is compiled in, which on PostgreSQL 18 cannot be avoided.
+          check "statistics collection" \
+            "select setting from pg_settings where name='citus.enable_statistics_collection'" "off"
+          # The whole reason this image is built rather than adopted. musl orders
+          # this as Zebra, apple, banana, Ábaco, Éclair; glibc does not.
+          check "glibc collation" \
+            "select string_agg(n,'|' order by n) from (values ('Ábaco'),('apple'),('Zebra'),('Éclair'),('banana')) t(n)" \
+            "Ábaco|apple|banana|Éclair|Zebra"
+          docker rm -f citus-check >/dev/null
+
+      - name: Say what was published
+        if: steps.mode.outputs.push == 'true'
+        run: |
+          {
+            echo "### Published"
+            echo '```'
+            echo "${{ steps.versions.outputs.image }}:${{ steps.versions.outputs.tag }}"
+            echo "${{ steps.versions.outputs.image }}:pg${{ steps.versions.outputs.pg }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

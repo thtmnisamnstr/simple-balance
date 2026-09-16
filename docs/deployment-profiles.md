@@ -8,7 +8,7 @@ same MCP surface, and read the same settings.
 | --- | --- | --- | --- |
 | `single` | One | **Somebody else's.** A managed PostgreSQL, or a server you already keep awake | `deploy/compose/single/`, `deploy/systemd/`, `deploy/pulumi/aws-single/`, `deploy/pulumi/oci-single/` |
 | `vps` | One small VPS per service | **One of the services**, part of the deployment | `deploy/compose/compose.distributed.yml` and the three split images are its starting point; the per-machine firewall, DNS and TLS story is not written yet |
-| `ha` | A Kubernetes cluster | **Multi-node PostgreSQL + Citus** | `deploy/helm/`, `deploy/pulumi/aws/`, `deploy/pulumi/gcp/`, `deploy/citus/` — `docs/citus.md` has what is proven and what is not |
+| `ha` | A Kubernetes cluster | **Multi-node PostgreSQL + Citus** | `deploy/helm/`, `deploy/pulumi/aws/`, `deploy/pulumi/gcp/`, `deploy/docker/citus.Dockerfile` — `docs/citus.md` and `docs/citus-runbook.md` |
 
 The database is the distinction worth reading twice. `single` runs the
 application and nothing else, so losing that machine loses no data — which is
