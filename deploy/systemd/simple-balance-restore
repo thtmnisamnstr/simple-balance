@@ -96,13 +96,35 @@ if [ "$assume_yes" != yes ]; then
 	[ "$answer" = "RESTORE" ] || { echo "Nothing was changed."; exit 1; }
 fi
 
-# The application first, and only the application. It holds a pool of
-# connections, and PostgreSQL refuses to drop a database anybody is connected
-# to — so without this the drop below fails and the deployment is left running
-# against a database somebody thinks has been replaced. Stopping it also means
-# nothing writes a transaction into the half-restored ledger.
-echo "simple-balance-restore: stopping the application"
-docker compose stop app
+# The application first. It holds a pool of connections, and PostgreSQL refuses
+# to drop a database anybody is connected to — so without this the drop below
+# fails and the deployment is left running against a database somebody thinks has
+# been replaced. Stopping it also means nothing writes a transaction into the
+# half-restored ledger.
+#
+# Where the application is depends on the profile, and on `vps` it is not here:
+# that machine runs the database alone, and `docker compose stop app` against it
+# exits 1 with `no such service: app` — which under `set -e` would abort the
+# restore before it started. So it is stopped if it is in this project, and
+# named as the operator's job if it is not. Refusing to continue would be wrong
+# in the other direction: the application machines may already be stopped, and
+# this script cannot see them to find out.
+if docker compose config --services 2>/dev/null | grep -qx app; then
+	echo "simple-balance-restore: stopping the application"
+	docker compose stop app
+	restart_app=yes
+else
+	restart_app=no
+	echo "simple-balance-restore: no application in this Compose project."
+	echo "  On the vps profile the API and the scheduler are on machines of their own."
+	echo "  Stop them before continuing, or this restore will fail on connections it"
+	echo "  cannot see: sudo systemctl stop simple-balance"
+	if [ "$assume_yes" != yes ]; then
+		printf '  Are they stopped? Type YES to continue: '
+		read -r stopped
+		[ "$stopped" = "YES" ] || { echo "Nothing was changed."; exit 1; }
+	fi
+fi
 
 # Dropped and recreated rather than restored over with --clean. A clean restore
 # leaves behind anything the dump does not mention, which is exactly what a
@@ -143,7 +165,13 @@ fi
 # same advisory lock a first start uses. That is the supported way to restore an
 # older backup onto a newer release: restore, then start, and the schema catches
 # up on the way.
-echo "simple-balance-restore: starting the application"
-docker compose up -d --wait app
+if [ "$restart_app" = yes ]; then
+	echo "simple-balance-restore: starting the application"
+	docker compose up -d --wait app
+else
+	echo "simple-balance-restore: start the application machines again:"
+	echo "  sudo systemctl start simple-balance"
+	echo "  Their first start applies any migration this dump predates."
+fi
 
 echo "simple-balance-restore: done"

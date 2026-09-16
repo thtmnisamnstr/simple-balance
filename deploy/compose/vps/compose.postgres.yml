@@ -1,0 +1,89 @@
+# The database machine of the `vps` profile.
+#
+#   sudo docker compose -f compose.postgres.yml up -d
+#
+# One machine, one service, and the only one in this profile holding anything
+# anybody would miss. It publishes PostgreSQL on this machine's private address
+# and nowhere else; the application machines reach it across the provider's
+# private network, and nothing on the internet can.
+#
+# deploy/compose/vps/README.md has the four machines, the firewall table and the
+# order to bring them up in.
+name: simple-balance-db
+
+services:
+  postgres:
+    # PostgreSQL 18, and Debian rather than Alpine, for the reasons
+    # docs/deployment-profiles.md sets out: 18 is the newest version every
+    # profile that owns its database can share, and musl compares text byte by
+    # byte whatever collation is declared — which this application's category and
+    # payee uniqueness rests on.
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: simple_balance
+      POSTGRES_USER: simple_balance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in this machine's .env}
+      # Tuned rather than defaulted. docs/deployment-sizing.md has the five
+      # numbers per machine size; the defaults here are its smallest row, which
+      # is what a 2 vCPU / 4 GiB database machine wants.
+      POSTGRES_SHARED_BUFFERS: ${POSTGRES_SHARED_BUFFERS:-512MB}
+      POSTGRES_EFFECTIVE_CACHE_SIZE: ${POSTGRES_EFFECTIVE_CACHE_SIZE:-3GB}
+      POSTGRES_WORK_MEM: ${POSTGRES_WORK_MEM:-8MB}
+      POSTGRES_MAINTENANCE_WORK_MEM: ${POSTGRES_MAINTENANCE_WORK_MEM:-256MB}
+      POSTGRES_MAX_WAL_SIZE: ${POSTGRES_MAX_WAL_SIZE:-2GB}
+    command:
+      - postgres
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-512MB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-3GB}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-8MB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-256MB}
+      - -c
+      - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-2GB}
+      # Two application processes at DATABASE_POOL_SIZE 10, plus one each while
+      # they start, plus room for a person with psql and for the backup. The
+      # default of 100 is more than this profile needs and each connection costs
+      # memory that shared_buffers would rather have.
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-50}
+    ports:
+      # Bound to this machine's private address and nothing else. `0.0.0.0` here
+      # would publish the ledger to whatever the provider's firewall has not
+      # closed, and a Docker published port bypasses the host firewall on Linux
+      # because Docker writes its rules ahead of them. The address is the
+      # boundary; the firewall is the second line.
+      - "${SB_BIND_ADDRESS:?set SB_BIND_ADDRESS to this machine's private IP}:5432:5432"
+    volumes:
+      # The parent directory, not `.../data`: PostgreSQL 18 moved PGDATA into a
+      # versioned subdirectory and its entrypoint refuses to start against a
+      # volume mounted at the old path. Mounting the parent is also what lets
+      # `pg_upgrade --link` work later without crossing a mount boundary.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      # `-h 127.0.0.1` rather than the socket: the entrypoint runs a temporary
+      # server while it executes initdb scripts, and that one sets
+      # `listen_addresses=''`. A socket check therefore reports healthy against a
+      # server about to be replaced.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U simple_balance -d simple_balance"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    # No cap_drop, and this is the exception rather than an oversight: the
+    # entrypoint starts as root, chowns the data directory and drops to the
+    # postgres user, which needs CAP_CHOWN, CAP_FOWNER, CAP_DAC_OVERRIDE and
+    # CAP_SETUID/SETGID.
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  postgres-data:

@@ -7,7 +7,7 @@ same MCP surface, and read the same settings.
 | Profile | Machines | The database | Material |
 | --- | --- | --- | --- |
 | `single` | One | **Somebody else's.** A managed PostgreSQL, or a server you already keep awake | `deploy/compose/single/`, `deploy/systemd/`, `deploy/pulumi/aws-single/`, `deploy/pulumi/oci-single/` |
-| `vps` | One small VPS per service | **One of the services**, part of the deployment | `deploy/compose/compose.distributed.yml` and the three split images are its starting point; the per-machine firewall, DNS and TLS story is not written yet |
+| `vps` | One small VPS per service | **One of the services**, part of the deployment | `deploy/compose/vps/` — a compose file per machine, the firewall table, DNS, and the order to start them in |
 | `ha` | A Kubernetes cluster | **Multi-node PostgreSQL + Citus** | `deploy/helm/`, `deploy/pulumi/aws/`, `deploy/pulumi/gcp/`, `deploy/docker/citus.Dockerfile` — `docs/citus.md` and `docs/citus-runbook.md` |
 
 The database is the distinction worth reading twice. `single` runs the
@@ -57,9 +57,10 @@ to start and says so. `docs/upgrades.md` carries the one-time procedure, and an
 operator who would rather stay on the version they have can pin it.
 
 
-There is a third thing in `deploy/compose/compose.distributed.yml` that is
-neither profile: the split containers on one machine, which exists to exercise
-the shape the Helm chart deploys. It is a demonstration, not a deployment.
+`deploy/compose/compose.distributed.yml` is neither profile: it runs the split
+containers on **one** machine, which exists to exercise the shape the Helm chart
+deploys without standing up a cluster. It is a demonstration. `deploy/compose/vps/`
+is the same containers with a machine each, which is a deployment.
 
 ## What this does not add
 
@@ -213,13 +214,16 @@ more while it starts. PostgreSQL's default `max_connections` is 100.
 | Profile | Processes | Connections at peak |
 | --- | --- | --- |
 | `single` | 1 | `1 × (10 + 1)` = **11** |
+| `vps` | 1 server + 1 scheduler | `2 × (10 + 1)` = **22** |
 | `compose.distributed.yml` | 1 server + 2 schedulers | `3 × (10 + 1)` = **33** |
 | `ha`, at the chart's default ceilings | 4 server + 2 scheduler | `6 × (10 + 1)` = **66** |
 
 The `single` number does not move, because there is nothing to scale out — which
 is the profile's whole shape, and why the rest of the hundred is left for
 `psql`, `pg_dump`, and the connection somebody opens while wondering why
-something is slow. Under `ha` the number moves with every replica ceiling, so
+something is slow. `vps` sets `max_connections` to 50 rather than taking the
+default, because it owns its database and 22 of 50 leaves the same slack in a
+smaller machine's memory. Under `ha` the number moves with every replica ceiling, so
 the chart refuses to install a combination that would exceed
 `config.maxConnections` and prints the arithmetic either way.
 
