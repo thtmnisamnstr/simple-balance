@@ -281,8 +281,23 @@ export default function AccountsPage({ session }: { session: Session }) {
       ) : accounts.error ? null : (
         <EmptyState
           icon={<Landmark size={24} />}
-          title="No accounts yet"
-          body="Start with a checking account, savings account, card, or cash wallet."
+          // Two screens, `web.md` 12.1, and this list needs the distinction more
+          // than most: archived accounts are hidden by default, so somebody who
+          // has put all of theirs away lands here and is told they have none —
+          // which is false, and the way out is the toggle above rather than the
+          // button below.
+          //
+          // It cannot say whether archived accounts exist, because the filter is
+          // the server's: `includeArchived` is a query parameter and the response
+          // holds only what it let through. So the message names what is hidden
+          // rather than asserting what is there, which is true either way and
+          // points at the control that would settle it.
+          title={includeArchived ? "No accounts yet" : "No accounts in this view"}
+          body={
+            includeArchived
+              ? "Start with a checking account, savings account, card, or cash wallet."
+              : "Archived accounts are hidden. Turn on Show archived to look at those, or start with a checking account, savings account, card, or cash wallet."
+          }
           action={
             // Gated for the same reason the header button is, and it is not a
             // duplicate of that gate: the list hides archived accounts by

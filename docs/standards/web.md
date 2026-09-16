@@ -1771,6 +1771,16 @@ filter, and error. "No transactions yet" and "No transactions match this view"
 are different sentences with different next actions, and collapsing them is the
 most common way a list lies to somebody.
 
+**The check asked this of four pages until 0.2.0, and the four were the ones
+already right.** It named them in an array, on the reasoning that whether a list
+can be filtered is a fact about its controls rather than something to derive —
+which is true, and is why four attempts at deriving it produced four false
+positives. The answer was not a better pattern but the opposite shape: ask every
+page that renders an empty state, and name the exceptions with the argument.
+Payees and Accounts had been collapsing two situations into one message the
+whole time, and Payees was telling somebody who had mistyped a search to go and
+commit a transaction they had already committed.
+
 The title states the situation in the plural, the body carries the explanation,
 and the button carries the imperative. `EmptyState` is used at 16 sites — the
 sixteenth is the categories list, which says "no categories yet" and "no
@@ -1787,8 +1797,9 @@ duplicate review's "nothing left to review" *is* the page's content and takes
 *Checked by:* `npm run typecheck`, which is the whole check for the required
 icon and is why making it required was worth more than a test — the three sites
 that omitted it were three compile errors. `tests/ui-copy.test.ts` holds two
-more: that a filtered list's title is a conditional rather than one sentence for
-two situations, and that an empty state sits *behind* its query's error rather
+more: that every page rendering an empty state gives it a conditional rather
+than one sentence for two situations, and that an empty state sits *behind* its
+query's error rather
 than beside it.
 
 That last one had been three screens and a banner on six lists. React Query's
