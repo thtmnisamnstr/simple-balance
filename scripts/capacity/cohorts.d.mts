@@ -19,6 +19,8 @@ export interface Cohort {
 export const COHORTS: Cohort[];
 export const NON_MONETARY_EDIT_RATE: number;
 export const VOID_RESTORE_RATE: number;
+export const EDIT_EVERY: number;
+export const VOID_RESTORE_EVERY: number;
 export const POSTINGS_PER_TRANSACTION: number;
 export const TOTAL_USERS: number;
 export const TOTAL_ACCOUNTS: number;

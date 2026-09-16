@@ -177,13 +177,52 @@ So the distribution is applied by hand, once:
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f drizzle/0023_citus_distribution.sql
 ```
 
-The file is gated on the extension being present, so running it against a
-database without Citus is a no-op rather than a mistake. It is one transaction:
-it either distributes everything or changes nothing.
+It is safe to run whatever state the database is in. Without the Citus
+extension it does nothing, which is what keeps it harmless on the other two
+profiles. On a database that is already distributed it says so and stops — that
+gate exists because this page invites you to run the file by hand, and a second
+run without it dies on the first statement whose work is already done, with an
+error describing the symptom rather than the situation. And it is one
+transaction: it either distributes everything or changes nothing.
 
 **Take a dump first.** It rewrites fourteen primary keys and rebuilds every index
 on them, and while it is atomic, an `ALTER TABLE` that takes a lock on
 `posting` for the duration is not something to meet unprepared.
+
+## Before the first start against a cluster
+
+**Raise the startup budget, or the migration cannot finish.**
+
+`0023_citus_distribution.sql` runs at startup like every other migration, under
+the advisory lock, inside one transaction. On a cluster it rewrites fourteen
+primary keys and rebuilds every index on them, and on a large ledger that is
+minutes rather than seconds.
+
+The chart's startup probe allows `periodSeconds: 5 × failureThreshold: 60` — five
+minutes. Exceed it and Kubernetes kills the pod; the transaction rolls back, the
+pod restarts, the migration begins again, and it is killed again. **That loop
+never completes and never explains itself**: each individual event looks like a
+slow start rather than a budget that is too small.
+
+There is no maximum on `failureThreshold` in `values.schema.json`, so this is a
+values change and nothing else:
+
+```yaml
+server:
+  startupProbe:
+    periodSeconds: 5
+    failureThreshold: 720 # an hour, for the first start only
+```
+
+Put it back afterwards. A startup budget of an hour on a steady deployment means
+a pod that is genuinely wedged takes an hour to be replaced.
+
+How long it actually takes is a function of the rows in `posting`,
+`ledger_transaction` and `transaction_leg` — `docs/capacity.md` has the sizes
+this product is measured at. What this has *not* done is time the migration on a
+capacity-sized ledger, so the number above is headroom rather than a
+measurement, and an operator with a large ledger should take a dump, restore it
+somewhere disposable, and time it before doing this for real.
 
 ## Backups
 

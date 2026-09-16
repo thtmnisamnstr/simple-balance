@@ -21,7 +21,7 @@
 import { argv, env, exit } from "node:process";
 import pg from "pg";
 
-import { COHORTS, scaled } from "./cohorts.mjs";
+import { COHORTS, EDIT_EVERY, VOID_RESTORE_EVERY, scaled } from "./cohorts.mjs";
 import { SCHEDULE } from "./schedule.mjs";
 import { verify } from "./verify.mjs";
 
@@ -351,8 +351,8 @@ async function seedTransactions(db, cohort, u0, u1) {
       (case when i % 10 < 7 then 'withdrawal' else 'deposit' end) as kind,
       (date '2022-01-01' + ((i * 1093) % 1095)) as on_date,
       round(((i * 7919 % 38000) + 137) / 100.0, 2) as amount,
-      (i % 5 = 0) as edited,
-      (i % 20 = 0) as void_restored
+      (i % ${EDIT_EVERY} = 0) as edited,
+      (i % ${VOID_RESTORE_EVERY} = 0) as void_restored
     from generate_series(${u0}, ${u1}) u
     cross join generate_series(0, ${perUser - 1}) i`;
 

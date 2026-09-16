@@ -141,6 +141,20 @@ x-app-config: &app-config
 
 services:
   postgres:
+    # UPGRADING FROM 0.1.6? This service ran `postgres:16-alpine` there, and a
+    # PostgreSQL container cannot read the previous major version's data
+    # directory — so on an existing `postgres-data` volume this will refuse to
+    # start and say so. That is the intended failure rather than a surprise, and
+    # `docs/upgrades.md` has the dump-and-restore that gets past it. The note is
+    # here as well as there because here is where you will be looking when it
+    # happens.
+    #
+    # Nothing in this file holds a ledger anybody depends on: 0.1.6 called this
+    # database "a trial on one machine" and said to point DATABASE_URL at a real
+    # server when it stopped being one, and 0.2.0 calls this whole file a
+    # demonstration of the shape the Helm chart deploys. The profile that runs
+    # these containers as a deployment is `deploy/compose/vps/`.
+    #
     # PostgreSQL 18, and Debian rather than Alpine.
     #
     # 18 because this is a database the deployment owns, so it runs the newest

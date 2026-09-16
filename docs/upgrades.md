@@ -38,7 +38,8 @@ create five empty tables however large your ledger is.
 Citus extension installed**, which is the `ha` profile and nothing else. It is
 gated on that extension at the top and returns immediately without it, so a
 deployment on one PostgreSQL records it as run and keeps exactly the schema it
-had. Verified in both directions, on PostgreSQL 15 and 18: twenty-four migrations
+had. A second gate stops it on a ledger that is already distributed and says so,
+which matters because the runbook invites you to run this file by hand. Verified in both directions, on PostgreSQL 15 and 18: twenty-four migrations
 recorded, the primary keys untouched, and every foreign key as it was.
 
 On a Citus cluster it is the substantial one. It rewrites fourteen primary keys to
@@ -50,6 +51,13 @@ a lock on `posting` for the duration. **Take a dump first**, and read
 `docs/citus-runbook.md` §Moving an existing database onto a cluster before you
 start, because a database that was already on this release when Citus arrived has
 this migration recorded and will not run it again.
+
+**And raise the startup budget before the first start**, which is the part that
+bites without explaining itself. The chart's startup probe allows five minutes; a
+migration that takes longer is killed mid-flight, rolls back, restarts and is
+killed again, forever, with each event looking like a slow start rather than a
+budget that is too small. `docs/citus-runbook.md` §Before the first start against
+a cluster has the one values change that prevents it.
 
 ### What you must do by hand
 

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -405,5 +406,48 @@ describe("migration baseline", () => {
     // The new enum value must not be used in the same migration that adds it.
     const afterEnum = sql.slice(sql.indexOf("ADD VALUE 'schedule'"));
     expect(afterEnum).not.toMatch(/'schedule'::/);
+  });
+});
+
+/**
+ * `0023` is the one migration that decides for itself whether to do anything.
+ *
+ * Its two gates are load-bearing in different directions. The first keeps it
+ * harmless on the `single` and `vps` profiles, which have no Citus and for which
+ * every statement in the file is meaningless or destructive. The second keeps it
+ * harmless on a second run — `docs/citus-runbook.md` tells an operator to feed
+ * this file to psql by hand, which is the supported way to move an existing
+ * database onto a cluster, and without that gate a second run fails on the first
+ * statement whose work is already done.
+ *
+ * Neither can be exercised here: CI has no Citus. So this holds the structure
+ * rather than the behaviour, which is worth saying out loud — a gate deleted
+ * from the file is caught, a gate that stops working is not.
+ */
+describe("the Citus migration decides whether to run", () => {
+  const sql = readFileSync(
+    new URL("../drizzle/0023_citus_distribution.sql", import.meta.url),
+    "utf8",
+  );
+
+  it("does nothing without the extension", () => {
+    expect(sql).toMatch(
+      /IF NOT EXISTS \(SELECT 1 FROM pg_extension WHERE extname = 'citus'\) THEN\s+RETURN;/,
+    );
+  });
+
+  it("does nothing on a ledger that is already distributed", () => {
+    expect(sql).toMatch(/IF EXISTS \(SELECT 1 FROM pg_dist_partition\) THEN/);
+    // And says so, rather than returning in silence: an operator who ran it by
+    // hand needs to know the difference between "done already" and "did nothing
+    // because the gate above stopped it".
+    expect(sql).toContain("RAISE NOTICE");
+  });
+
+  it("runs both gates before any statement that changes anything", () => {
+    const firstChange = sql.search(/^\s*execute '/m);
+    expect(firstChange).toBeGreaterThan(-1);
+    expect(sql.indexOf("pg_extension")).toBeLessThan(firstChange);
+    expect(sql.indexOf("pg_dist_partition")).toBeLessThan(firstChange);
   });
 });

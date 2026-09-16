@@ -30,6 +30,22 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Already distributed, nothing to do either. This one exists because the
+  -- runbook tells an operator to run this file by hand — that is the supported
+  -- way to move a database that was already on this release onto a cluster — and
+  -- a file somebody is invited to run should say what happened when it has
+  -- nothing to do rather than failing on the first statement whose work is
+  -- already done. Without it a second run dies with `constraint
+  -- "category_group_id_category_group_id_fk" of relation "category" does not
+  -- exist`, which describes the symptom and not the situation.
+  --
+  -- `pg_dist_partition` is Citus's own catalogue and only exists once the
+  -- extension does, which is why this check cannot come first.
+  IF EXISTS (SELECT 1 FROM pg_dist_partition) THEN
+    RAISE NOTICE 'simple-balance: this ledger is already distributed; 0023 has nothing to do.';
+    RETURN;
+  END IF;
+
   -- One connection per node, for the whole transaction.
   --
   -- Citus parallelises a multi-shard change across several connections per node

@@ -35,7 +35,20 @@ export const COHORTS = [
  * carries six postings rather than two while reading as present.
  */
 export const NON_MONETARY_EDIT_RATE = 0.2;
+/**
+ * The two rates above as the `i % n` divisors the seed writes them with.
+ *
+ * Derived rather than written twice. The seed used to carry `% 5` and `% 20` as
+ * literals while these constants carried 0.2 and 0.05, which is one fact stated
+ * in two places — and the copy that drifts takes `POSTINGS_PER_TRANSACTION` with
+ * it, which is the number `verify.mjs` checks the seeded database against. A
+ * seed that wrote one in four while the verifier expected one in five would
+ * report a ledger that does not add up, and the arithmetic would be the thing
+ * that was wrong.
+ */
+export const EDIT_EVERY = Math.round(1 / NON_MONETARY_EDIT_RATE);
 export const VOID_RESTORE_RATE = 0.05;
+export const VOID_RESTORE_EVERY = Math.round(1 / VOID_RESTORE_RATE);
 
 /** Postings per transaction, on average, which is what sizes the disk. */
 export const POSTINGS_PER_TRANSACTION = 2 * (1 - VOID_RESTORE_RATE) + 6 * VOID_RESTORE_RATE;
