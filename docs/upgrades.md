@@ -461,7 +461,47 @@ release you moved to says otherwise.
 
 This is the reason step 2 is not optional.
 
+### Rolling back from 0.2.0
+
+Three of this release's changes decide how far back you can go, and they are
+different for each profile. The short version: **on `single` and `vps` a
+rollback is the ordinary restore above; on `ha` it is not a rollback at all.**
+
+**`single` and `vps`.** `0022` is additive — five tables the older image does not
+read — so 0.1.6 runs against a 0.2.0 schema unchanged. `0023` did nothing on
+these profiles. You can put the older image back without restoring anything, and
+the five billing tables sit unread until you upgrade again. The one thing to
+undo separately is the compose recipe's PostgreSQL version if you moved it: a
+16-series container cannot read an 18-series data directory either, so going back
+there is a dump and a restore in the other direction.
+
+**`ha` cannot be rolled back to 0.1.6 by putting the old image back**, and this
+is the one worth knowing before you distribute anything. `0023` widens fourteen
+primary keys to carry the owner, and PostgreSQL then refuses a `GROUP BY` that
+names only part of a key while the select list reads other columns — which is
+what 0.1.6's balances, register, dashboard, category-group and import-batch
+queries all do. They were corrected in this release precisely so the widened key
+would be safe, and the older image does not have those corrections. It will
+start, pass its health check, and fail those five reads.
+
+So rolling back an `ha` deployment means restoring a dump taken before the
+cluster into a single PostgreSQL and running 0.1.6 against that. **Take that dump
+before you distribute**, not after: once the keys are widened, every dump you
+take carries the widened schema.
+
+**Stripe is outside all of this.** A subscription that exists at Stripe goes on
+existing after a rollback, and 0.1.6 has no code that knows about it — nobody is
+charged differently, and nothing is lost, but the deployment stops reflecting
+what Stripe thinks. If the rollback is permanent, cancel the subscriptions at
+Stripe rather than leaving them to renew against a product that no longer reads
+them.
+
 ## Cutting a release
+
+`docs/acceptance.md` is the list of what this release claims and what closes
+each claim, with a second table of what is outstanding. Read that before the
+steps below: three of its open rows are gates that no amount of work in this
+repository closes.
 
 1. `npm run set-version 0.2.0`, which sets the version everywhere it has to
    agree: the three manifests and their three lockfiles, all four Dockerfiles'

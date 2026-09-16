@@ -244,4 +244,9 @@ Say plainly what is true:
 - What the audits found, what was fixed, and what was rejected and why.
 - Anything deliberately left, and why.
 
+`docs/acceptance.md` is where the standing version of that last pair lives: one
+row per claim, each naming the evidence that closes it, and a second table of
+what is outstanding with the reason. Update it rather than restating it here — a
+report is read once and a table is read before every cut.
+
 Then stop. Do not merge the PR. Do not cut the version.
