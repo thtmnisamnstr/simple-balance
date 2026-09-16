@@ -34,7 +34,7 @@ export const COHORTS = [
  * a reversal and then appends it back, so the entry nets to zero twice and
  * carries six postings rather than two while reading as present.
  */
-export const NON_MONETARY_EDIT_RATE = 0.2;
+const NON_MONETARY_EDIT_RATE = 0.2;
 /**
  * The two rates above as the `i % n` divisors the seed writes them with.
  *
@@ -47,7 +47,7 @@ export const NON_MONETARY_EDIT_RATE = 0.2;
  * that was wrong.
  */
 export const EDIT_EVERY = Math.round(1 / NON_MONETARY_EDIT_RATE);
-export const VOID_RESTORE_RATE = 0.05;
+const VOID_RESTORE_RATE = 0.05;
 export const VOID_RESTORE_EVERY = Math.round(1 / VOID_RESTORE_RATE);
 
 /** Postings per transaction, on average, which is what sizes the disk. */

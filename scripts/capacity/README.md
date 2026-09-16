@@ -31,7 +31,23 @@ docker build -t simple-balance:capacity .
 cd deploy/compose/single
 cp .env.example .env && $EDITOR .env      # POSTGRES_PASSWORD, AUTH_SECRET,
                                           # APP_BASE_URL=http://localhost:3100,
-                                          # APP_PORT=3100, POSTGRES_DATA_DIR
+                                          # APP_PORT=3100, and DATABASE_URL
+                                          # pointing at the database this
+                                          # overlay adds:
+                                          # postgresql://simple_balance:$POSTGRES_PASSWORD@postgres:5432/simple_balance
+
+# The dataset is thirty-five gigabytes at full scale, so it goes on a disk you
+# chose rather than wherever Docker keeps its volumes. POSTGRES_DATA_DIR is that
+# path and defaults to /var/lib/simple-balance/capacity; either way the directory
+# has to exist first, because the volume is a bind mount and Docker will not
+# create it.
+sudo install -d -o "$(id -u)" "${POSTGRES_DATA_DIR:-/var/lib/simple-balance/capacity}"
+# DATABASE_URL is not optional even though the overlay sets it too: the `single`
+# profile's compose declares it `${DATABASE_URL:?}`, and Compose interpolates
+# every file before it merges them, so an unset one fails the render before the
+# overlay is read. The profile stopped bundling a database in 0.2.0 and this is
+# the seam that left — the harness brings its own `postgres` service, and the
+# value above is that service.
 docker compose -f compose.yml -f ../../../scripts/capacity/compose.capacity.yml up -d --wait
 
 # 3. The population. Takes about an hour and a half at full scale; --scale 100

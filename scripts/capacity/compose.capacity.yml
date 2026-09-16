@@ -112,7 +112,12 @@ services:
     # lines, which nothing noticed because the check that holds them read a
     # single compose file by name.
     read_only: true
-    tmpfs: ["/tmp"]
+    # The same spelling the deployment recipes use, options included: an unsized
+    # tmpfs defaults to half of RAM and carries neither `noexec` nor `nosuid`, so
+    # "hardened like the deployment" would have been weaker than the deployment
+    # in the two ways that matter.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
 
