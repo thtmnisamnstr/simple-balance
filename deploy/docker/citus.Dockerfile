@@ -169,6 +169,51 @@ RUN set -eux; \
     printf "CREATE EXTENSION IF NOT EXISTS citus;\n" \
         > /docker-entrypoint-initdb.d/001-citus.sql
 
+# Patroni, because Citus supplies no high availability of its own. Its
+# `shard_replication_factor > 1` is deprecated, documented as not an HA
+# mechanism, and would break `SELECT ... FOR UPDATE` outright, so redundancy in
+# the `ha` profile is a streaming standby per node and something has to run the
+# failover. Patroni has had first-class Citus support since 3.0: it knows about
+# `citus.group`, calls `citus_add_node` for a worker joining, and pauses
+# coordinator traffic across a worker switchover with `citus_update_node`.
+#
+# In a virtualenv rather than over the system Python. Debian marks its Python
+# externally managed, and the alternative everybody reaches for —
+# `pip --break-system-packages` — does what it says: it lets pip overwrite files
+# apt owns, in an image whose PostgreSQL comes from apt.
+#
+# The `psycopg3` extra is not optional despite looking it: `patroni[kubernetes]`
+# alone installs and then refuses to start with `Patroni requires psycopg2>=2.5.4,
+# psycopg2-binary, or psycopg>=3.0.0`. The `patroni --version` below is what
+# turned that into a failed build rather than a failed pod.
+#
+# The entrypoint is deliberately left alone. This image still starts as an
+# ordinary PostgreSQL, which is what makes it testable on its own and what the
+# migration suite runs against; the chart overrides the command to start Patroni
+# instead. One image, two ways to run it, and the simpler one is the default.
+ARG PATRONI_VERSION=4.1.5
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends python3 python3-venv; \
+    python3 -m venv /opt/patroni; \
+    /opt/patroni/bin/pip install --no-cache-dir --upgrade pip; \
+    /opt/patroni/bin/pip install --no-cache-dir "patroni[kubernetes,psycopg3]==${PATRONI_VERSION}"; \
+    ln -s /opt/patroni/bin/patroni /usr/local/bin/patroni; \
+    ln -s /opt/patroni/bin/patronictl /usr/local/bin/patronictl; \
+    apt-get purge -y python3-venv; \
+    apt-get autoremove -y; \
+    rm -rf /var/lib/apt/lists/*; \
+    patroni --version
+
+# Patroni writes a pgpass and its own state as the postgres user, and the base
+# image gives that user no writable home. A pod runs with a read-only root
+# filesystem everywhere else in this chart, so this is the one directory it
+# needs and it is created rather than discovered at three in the morning.
+RUN set -eux; \
+    mkdir -p /home/postgres; \
+    chown postgres:postgres /home/postgres; \
+    chmod 0750 /home/postgres
+
 LABEL org.opencontainers.image.title="simple-balance-citus" \
       org.opencontainers.image.description="PostgreSQL 18 with Citus for the Simple Balance ha profile" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \

@@ -171,6 +171,38 @@ jobs:
             --set networkPolicy.enabled=true > /tmp/rendered-netpol.yaml
           grep -q 'kind: NetworkPolicy' /tmp/rendered-netpol.yaml
           echo "rendered the NetworkPolicy"
+          # The `ha` database, off at default values for the same reason and
+          # checked the same way. What is asserted here is the set of things that
+          # were each wrong once and each produced a cluster that looked healthy:
+          # one StatefulSet per Citus group, the `cluster-name` label Patroni
+          # selects on, a derived DATABASE_URL, and no Endpoints object — Patroni
+          # owns those, and shipping one makes every later `helm upgrade` fail a
+          # server-side-apply conflict over `.subsets`.
+          helm template release /charts/simple-balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true \
+            --set database.workers=2 > /tmp/rendered-ha.yaml
+          test "$(grep -c 'kind: StatefulSet' /tmp/rendered-ha.yaml)" = 3
+          grep -q 'cluster-name: release-simple-balance-db' /tmp/rendered-ha.yaml
+          grep -q 'DATABASE_URL: "postgresql://simple_balance:' /tmp/rendered-ha.yaml
+          if grep -q 'kind: Endpoints' /tmp/rendered-ha.yaml; then
+            echo "::error::the chart ships an Endpoints object; Patroni owns those"
+            exit 1
+          fi
+          # The leader Service is the one with no selector, and its port must
+          # carry no name: Kubernetes matches a Service port to an Endpoints port
+          # by name, and Patroni writes its port without one. Name it and the
+          # Service has the right address in it and refuses every connection.
+          if grep -B 4 'port: 5432' /tmp/rendered-ha.yaml | grep -q 'name: postgresql'; then
+            named=$(awk '/^kind: Service/,/^---/' /tmp/rendered-ha.yaml | grep -c 'name: postgresql' || true)
+            headless=$(grep -c 'clusterIP: None' /tmp/rendered-ha.yaml || true)
+            if [ "$named" -gt "$headless" ]; then
+              echo "::error::a leader Service names its port; Patroni's endpoint port has no name"
+              exit 1
+            fi
+          fi
+          echo "rendered $(grep -c '^kind:' /tmp/rendered-ha.yaml) objects for the ha database"
 
       # The guards are the reason a misconfigured install fails at render rather
       # than as a crashlooping pod, so a release must not be able to lose them
@@ -209,6 +241,16 @@ jobs:
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=short \
             --set config.appBaseUrl=https://books.example.org
+          refuses "a database it runs and a database it is given" "pick the one you meant" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true
+          refuses "an ha database with an existingSecret" "database.enabled needs secret.create" \
+            --set secret.create=false \
+            --set secret.existingSecret=mine \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true
           refuses "the placeholder secret it ships" "published placeholders" \
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=replace-with-at-least-32-random-characters \
