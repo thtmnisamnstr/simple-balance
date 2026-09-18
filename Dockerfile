@@ -7,7 +7,7 @@
 # whatever Alpine has published since. The digest is the multi-platform index's
 # rather than one architecture's manifest, so an arm64 build still resolves its
 # own image.
-FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS dependencies
+FROM node:26-alpine@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -18,12 +18,12 @@ COPY public ./public
 COPY src ./src
 RUN npm run build
 
-FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS runtime-dependencies
+FROM node:26-alpine@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS runtime-dependencies
 WORKDIR /runtime
 COPY runtime/package.json runtime/package-lock.json ./
 RUN npm ci --omit=dev
 
-FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS runtime
+FROM node:26-alpine@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS runtime
 RUN apk upgrade --no-cache
 WORKDIR /app
 ENV NODE_ENV=production
