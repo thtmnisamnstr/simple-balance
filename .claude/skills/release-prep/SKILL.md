@@ -139,6 +139,31 @@ finding how it is composed before deleting anything.
 Report "nothing was dead" when nothing was. That is a real result, and inventing
 removals to look productive is worse than a clean sweep.
 
+## 4a. Rebuild the product kit
+
+Run the **`product-kit`** skill, which owns this.
+
+`docs/product/` is what the marketing site at smpl.money reads: the tiered
+feature list, and a screenshot of every screen in both themes. That site is a
+separate repository and **cannot run this application**, so if the kit is not
+rebuilt here it is not rebuilt anywhere, and it goes on describing a version
+of the product that no longer exists.
+
+Two things decide whether this phase has work in it:
+
+- **Did any screen change?** Then the screenshots are stale, and stale
+  screenshots are the most convincing way to be wrong — they look current.
+- **Did a capability land, change or go?** Then `features.json` is stale, and
+  the marketing site will keep advertising something that is gone or miss
+  something new.
+
+It sits here rather than at the end because the kit's output is a document,
+and phase 5 is where documents are brought back to true.
+
+**The marketing site pulls from `main`.** Rebuilding on a branch does not
+reach it until the branch merges, and that is worth saying out loud in the
+readiness report rather than assuming the next person infers it.
+
 ## 5. Bring the documents back to true
 
 Do not do this inline — run the **`guides-update`** skill, which owns it. It
@@ -240,6 +265,8 @@ Say plainly what is true:
 - `CHANGELOG.md` `## Unreleased` covers this branch's work.
 - `docs/upgrades.md` has the next version's `## Before you upgrade` section.
 - `AGENTS.md` names every unreleased migration.
+- Whether `docs/product/` was rebuilt, and that the marketing site does not
+  see it until this merges.
 - All three tiers and all fourteen checks green.
 - What the audits found, what was fixed, and what was rejected and why.
 - Anything deliberately left, and why.

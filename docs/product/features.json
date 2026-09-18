@@ -1,0 +1,180 @@
+{
+  "$comment": "What this product does, ranked by how much a person with no accounting background would care. Written here rather than on the marketing site because this repository is the one that knows when a feature stops being true. The site rewrites the wording for its own audience; it does not decide the list or the order.",
+  "tiers": {
+    "A": "The reason somebody would use this at all. If a stranger reads three things, these are the three.",
+    "B": "Matters once they are using it. Not why they arrive; why they stay.",
+    "C": "Depth. Only some people need these, and those people need them a lot."
+  },
+  "features": [
+    {
+      "id": "all-accounts-one-page",
+      "tier": "A",
+      "rank": 1,
+      "name": "Every account in one place",
+      "plain": "See what you have across every bank account, card, and wallet on a single page, in whatever currency each one is in.",
+      "why": "Most people's money is spread across five or six logins and nobody adds it up.",
+      "screen": "/",
+      "screenshot": "dashboard"
+    },
+    {
+      "id": "import-statements",
+      "tier": "A",
+      "rank": 2,
+      "name": "Bank statements that file themselves",
+      "plain": "Upload the file your bank gives you. It works out the layout, sorts the payees and categories, and flags anything that looks like a duplicate before it counts.",
+      "why": "Typing in transactions by hand is the reason most people quit after two weeks.",
+      "screen": "/import",
+      "screenshot": "import"
+    },
+    {
+      "id": "numbers-that-tie-out",
+      "tier": "A",
+      "rank": 3,
+      "name": "Numbers you can actually check",
+      "plain": "Every figure can be traced back to the entries behind it. When something looks wrong, you can open it up and find the row that caused it.",
+      "why": "The common complaint about budgeting apps is that the totals do not agree and there is no way to find out why.",
+      "screen": "/reports",
+      "screenshot": "reports"
+    },
+    {
+      "id": "own-your-data",
+      "tier": "A",
+      "rank": 4,
+      "name": "Your data stays yours",
+      "plain": "Run it on your own machine and nobody else has a copy. Export everything to a spreadsheet whenever you want.",
+      "why": "It is a record of everything somebody spends money on.",
+      "screen": "/settings",
+      "screenshot": "settings"
+    },
+    {
+      "id": "budgets",
+      "tier": "B",
+      "rank": 1,
+      "name": "Budgets that roll over",
+      "plain": "Set a limit per category. What you do not spend can carry into next month, and money you get refunded goes back into the budget it came out of.",
+      "why": "A budget that resets to zero every month is one people abandon in March.",
+      "screen": "/budgets",
+      "screenshot": "budgets"
+    },
+    {
+      "id": "recurring",
+      "tier": "B",
+      "rank": 2,
+      "name": "Nothing to remember",
+      "plain": "Rent, pay day, a subscription: set it up once and it turns up on the day, waiting for you to approve it.",
+      "why": "The annual renewal nobody remembers is the classic way a budget gets blown.",
+      "screen": "/recurrences",
+      "screenshot": "recurrences"
+    },
+    {
+      "id": "find-anything",
+      "tier": "B",
+      "rank": 3,
+      "name": "Find any transaction",
+      "plain": "Search and filter everything you have ever entered, by payee, category, account, amount or date.",
+      "why": "\"When did I last pay for that?\" is the most common question anybody asks their own records.",
+      "screen": "/transactions",
+      "screenshot": "transactions"
+    },
+    {
+      "id": "duplicates",
+      "tier": "B",
+      "rank": 4,
+      "name": "No duplicates",
+      "plain": "Import the same statement twice and it shows you the rows you already have instead of adding them again.",
+      "why": "Importing twice is easy to do and tedious to undo.",
+      "screen": "/staged",
+      "screenshot": "staged"
+    },
+    {
+      "id": "multi-currency",
+      "tier": "B",
+      "rank": 5,
+      "name": "More than one currency",
+      "plain": "Hold accounts in different currencies. Totals are kept separate rather than converted at a rate that would be out of date tomorrow.",
+      "why": "Anybody who has moved country, works abroad, or travels has this problem and most tools guess at it.",
+      "screen": "/accounts",
+      "screenshot": "accounts"
+    },
+    {
+      "id": "categories",
+      "tier": "B",
+      "rank": 6,
+      "name": "Spending by category",
+      "plain": "Group your spending the way you think about it, and see where the money actually went.",
+      "why": "It is the first question people ask and the last one most tools answer clearly.",
+      "screen": "/categories",
+      "screenshot": "categories"
+    },
+    {
+      "id": "splits",
+      "tier": "C",
+      "rank": 1,
+      "name": "One receipt, several categories",
+      "plain": "Split a shop between groceries and household, each counted on its own.",
+      "why": "A supermarket trip is rarely one category.",
+      "screen": "/transactions",
+      "screenshot": "transactions"
+    },
+    {
+      "id": "bulk-edits",
+      "tier": "C",
+      "rank": 2,
+      "name": "Fix thousands of rows at once",
+      "plain": "Change or delete up to ten thousand transactions in one go, after seeing exactly what it will touch.",
+      "why": "One mis-mapped import can put a year of entries in the wrong category.",
+      "screen": "/transactions",
+      "screenshot": "transactions"
+    },
+    {
+      "id": "templates",
+      "tier": "C",
+      "rank": 3,
+      "name": "Templates for repeat entries",
+      "plain": "Save the transactions you type over and over and reuse them in a click.",
+      "why": "Cash spending is the part nobody imports, and typing it is the part nobody keeps up.",
+      "screen": "/templates",
+      "screenshot": "templates"
+    },
+    {
+      "id": "register",
+      "tier": "C",
+      "rank": 4,
+      "name": "A running balance for every account",
+      "plain": "Every entry with the balance before and after it, so you can find the exact point a figure went wrong.",
+      "why": "This is how you reconcile against a real bank statement.",
+      "screen": "/accounts",
+      "screenshot": "accounts"
+    },
+    {
+      "id": "history",
+      "tier": "C",
+      "rank": 5,
+      "name": "Nothing is ever quietly overwritten",
+      "plain": "Corrections are added on top rather than replacing what was there, so the history of a mistake survives the fix.",
+      "why": "It is the difference between a record and a guess.",
+      "screen": "/activity",
+      "screenshot": "activity"
+    },
+    {
+      "id": "agents",
+      "tier": "C",
+      "rank": 6,
+      "name": "Let an AI assistant do the filing",
+      "plain": "Connect an assistant and let it import statements and tidy categories. It can suggest, but it cannot commit anything without you.",
+      "why": "It is genuinely useful and genuinely alarming, so the limits matter more than the capability.",
+      "screen": "/settings",
+      "screenshot": "settings"
+    },
+    {
+      "id": "payees",
+      "tier": "C",
+      "rank": 7,
+      "name": "Everywhere you spend",
+      "plain": "A list of everyone you have paid, and everything you have paid them.",
+      "why": "It is how you notice the subscription you forgot about.",
+      "screen": "/payees",
+      "screenshot": "payees"
+    }
+  ]
+}

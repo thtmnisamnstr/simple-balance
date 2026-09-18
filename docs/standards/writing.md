@@ -37,10 +37,11 @@ cannot name both, it is a section of a document that already exists. The corpus
 is small enough to list on one screen, and the reason a reader can find the
 right document in it is that none of them overlap.
 
-**House, and the reason the skills are not a tenth guide.** Five procedures
+**House, and the reason the skills are not a tenth guide.** Six procedures
 repeat — bringing the documents back to true after work lands, sweeping the
-product against the guides, reviewing the browser app, preparing a release, and
-cutting one — and each was being rediscovered, in the wrong order, every time.
+product against the guides, reviewing the browser app, rebuilding the product
+kit the marketing site reads, preparing a release, and cutting one — and each
+was being rediscovered, in the wrong order, every time.
 They are `.claude/skills/`, and the rule that keeps them from becoming a second
 copy of this set is that **a skill cites a guide and never restates it.** A rule
 written down twice drifts, which is the defect the whole set exists to prevent;

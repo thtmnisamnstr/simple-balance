@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * The five procedures in `.claude/skills/`, held to what says they exist.
+ * The six procedures in `.claude/skills/`, held to what says they exist.
  *
  * They are documents like any other here, so `writing.md`'s table names their
  * reader and their mode, and `AGENTS.md` points at them from the file an agent
@@ -34,10 +34,10 @@ const frontmatter = (source: string) => {
 };
 
 describe("the repository's skills", () => {
-  it("are the five the invariants file points at", () => {
+  it("are the six the invariants file points at", () => {
     const agents = readFileSync("AGENTS.md", "utf8");
     const onDisk = SKILLS.map((file) => path.basename(path.dirname(file))).sort();
-    expect(onDisk.length, "five procedures, per writing.md").toBe(5);
+    expect(onDisk.length, "six procedures, per writing.md").toBe(6);
     for (const name of onDisk) {
       expect(agents, `AGENTS.md names ${name}`).toContain(`\`${name}\``);
     }

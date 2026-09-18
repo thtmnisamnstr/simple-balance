@@ -1,5 +1,5 @@
 /**
- * Write `docs/product-facts.json`, the machine-readable description of what
+ * Write `docs/product/facts.json`, the machine-readable description of what
  * this product offers a person.
  *
  * **Why this file exists.** The marketing site at smpl.money is a separate
@@ -104,7 +104,7 @@ export function buildProductFacts() {
 
 // `node scripts/build-product-facts.mjs` writes; importing it does not.
 if (process.argv[1]?.endsWith("build-product-facts.mjs")) {
-  const path = "docs/product-facts.json";
+  const path = "docs/product/facts.json";
   writeFileSync(path, `${JSON.stringify(facts, null, 2)}\n`);
   console.log(`wrote ${path}`);
 }

@@ -5,7 +5,7 @@ import { MAX_FREE_ACCOUNTS, PLAN_LABELS, plans } from "../src/shared/domain.js";
 import { APP_NAME, APP_VERSION } from "../src/shared/version.js";
 
 /**
- * `docs/product-facts.json`, the contract the marketing site consumes.
+ * `docs/product/facts.json`, the contract the marketing site consumes.
  *
  * That site is a separate repository making claims about this one, and it
  * cannot read TypeScript. Before this file the only mechanism was somebody
@@ -16,7 +16,7 @@ import { APP_NAME, APP_VERSION } from "../src/shared/version.js";
  * because a check that rewrites the thing it is checking is not a check —
  * a stale file has to fail, not be quietly fixed by the suite.
  */
-const facts = JSON.parse(readFileSync(join(process.cwd(), "docs/product-facts.json"), "utf8")) as {
+const facts = JSON.parse(readFileSync(join(process.cwd(), "docs/product/facts.json"), "utf8")) as {
   derived: {
     appName: string;
     appVersion: string;

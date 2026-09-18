@@ -1,0 +1,59 @@
+{
+  "$comment": "The ledger every product screenshot is taken against. Committed rather than generated so the pictures are reproducible: a screenshot of randomly generated data is a screenshot nobody can regenerate to compare against. Dates are relative (monthsAgo + day) because every page in the app defaults to a this-month range, so a fixed calendar would render an empty dashboard the moment the month turned.",
+  "person": {
+    "name": "Alex Rivera",
+    "email": "alex@example.com",
+    "password": "correct-horse-battery-staple-9"
+  },
+  "openingMonthsAgo": 4,
+  "accounts": [
+    { "name": "Everyday Checking", "type": "checking", "currency": "USD", "openingBalance": "3250.00", "institution": "Pacific Mutual" },
+    { "name": "Savings", "type": "savings", "currency": "USD", "openingBalance": "18400.00", "institution": "Pacific Mutual" },
+    { "name": "Travel Card", "type": "credit_card", "currency": "USD", "openingBalance": "-480.25", "institution": "Northbank" },
+    { "name": "Euro Account", "type": "checking", "currency": "EUR", "openingBalance": "2150.00", "institution": "Banca Sella" }
+  ],
+  "categories": [
+    { "name": "Salary", "kind": "income" },
+    { "name": "Freelance", "kind": "income" },
+    { "name": "Rent", "kind": "expense" },
+    { "name": "Groceries", "kind": "expense" },
+    { "name": "Dining out", "kind": "expense" },
+    { "name": "Transport", "kind": "expense" },
+    { "name": "Utilities", "kind": "expense" },
+    { "name": "Subscriptions", "kind": "expense" },
+    { "name": "Health", "kind": "expense" }
+  ],
+  "budgets": [
+    { "category": "Groceries", "currency": "USD", "amount": "700.00" },
+    { "category": "Rent", "currency": "USD", "amount": "1850.00" },
+    { "category": "Dining out", "currency": "USD", "amount": "200.00" },
+    { "category": "Transport", "currency": "USD", "amount": "120.00" },
+    { "category": "Utilities", "currency": "USD", "amount": "150.00" },
+    { "category": "Subscriptions", "currency": "USD", "amount": "40.00" },
+    { "category": "Health", "currency": "USD", "amount": "100.00" },
+    { "category": "Groceries", "currency": "EUR", "amount": "250.00" },
+    { "category": "Transport", "currency": "EUR", "amount": "150.00" }
+  ],
+  "monthsOfHistory": 3,
+  "entries": [
+    { "day": 1,  "type": "deposit",    "to": "Everyday Checking", "amount": "4200.00", "payee": "Northwind Systems", "description": "Monthly salary", "category": "Salary" },
+    { "day": 2,  "type": "withdrawal", "from": "Everyday Checking", "amount": "1850.00", "payee": "Bayview Properties", "description": "Rent", "category": "Rent" },
+    { "day": 3,  "type": "withdrawal", "from": "Everyday Checking", "amount": "121.60", "payee": "Meridian Power", "description": "Electricity", "category": "Utilities" },
+    { "day": 4,  "type": "withdrawal", "from": "Everyday Checking", "amount": "142.80", "payee": "Greenline Market", "description": "Weekly shop", "category": "Groceries" },
+    { "day": 5,  "type": "withdrawal", "from": "Travel Card", "amount": "17.99", "payee": "Everstream", "description": "Subscription", "category": "Subscriptions" },
+    { "day": 6,  "type": "withdrawal", "from": "Everyday Checking", "amount": "88.00", "payee": "City Transit", "description": "Monthly pass", "category": "Transport" },
+    { "day": 7,  "type": "withdrawal", "from": "Travel Card", "amount": "63.40", "payee": "Rosetta Trattoria", "description": "Dinner", "category": "Dining out" },
+    { "day": 9,  "type": "withdrawal", "from": "Everyday Checking", "amount": "156.25", "payee": "Greenline Market", "description": "Weekly shop", "category": "Groceries" },
+    { "day": 9,  "type": "withdrawal", "from": "Euro Account", "amount": "64.30", "payee": "Mercato Centrale", "description": "Groceries", "category": "Groceries" },
+    { "day": 10, "type": "withdrawal", "from": "Everyday Checking", "amount": "72.00", "payee": "Clearview Dental", "description": "Check-up", "category": "Health" },
+    { "day": 11, "type": "deposit",    "to": "Everyday Checking", "amount": "750.00", "payee": "Halberd Design", "description": "Invoice 041", "category": "Freelance" },
+    { "day": 12, "type": "withdrawal", "from": "Euro Account", "amount": "112.00", "payee": "Trenitalia", "description": "Rail fare", "category": "Transport" },
+    { "day": 13, "type": "withdrawal", "from": "Everyday Checking", "amount": "134.15", "payee": "Greenline Market", "description": "Weekly shop", "category": "Groceries" },
+    { "day": 15, "type": "withdrawal", "from": "Travel Card", "amount": "48.20", "payee": "Rosetta Trattoria", "description": "Lunch", "category": "Dining out" },
+    { "day": 16, "type": "withdrawal", "from": "Everyday Checking", "amount": "39.90", "payee": "Alder & Co", "description": "Household", "category": "Groceries" },
+    { "day": 17, "type": "transfer",   "from": "Everyday Checking", "to": "Savings", "amount": "600.00", "payee": "Pacific Mutual", "description": "Monthly saving" },
+    { "day": 20, "type": "withdrawal", "from": "Everyday Checking", "amount": "128.45", "payee": "Greenline Market", "description": "Weekly shop", "category": "Groceries" },
+    { "day": 22, "type": "withdrawal", "from": "Travel Card", "amount": "26.00", "payee": "Northside Cinema", "description": "Tickets", "category": "Dining out" },
+    { "day": 25, "type": "withdrawal", "from": "Everyday Checking", "amount": "145.70", "payee": "Greenline Market", "description": "Weekly shop", "category": "Groceries" }
+  ]
+}

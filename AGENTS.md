@@ -215,8 +215,16 @@
   sixteen hours for anyone whose stored timezone is an offset. Ask
   `calendarDayIn`, `clockTimeIn` or `todayIn` from `src/shared/recurrence-dates.ts`;
   never ask the database.
+- **`docs/product/` is this repository's public description of itself**, and
+  the marketing site at smpl.money is its only consumer. `facts.json` is the
+  machine contract, `features.json` is what the product does tiered by how
+  much a general reader would care, and `screenshots/` is every screen in
+  both themes. That site is a separate repository that **cannot run this
+  application**, so a kit not rebuilt here is not rebuilt anywhere. The
+  `product-kit` skill owns it and `release-prep` phase 4a runs it. It reaches
+  the site only when a branch merges, because the site pulls from `main`.
 - The product's user-facing contract is published, not remembered.
-  `docs/product-facts.json` names the plans, their labels, the free account
+  `docs/product/facts.json` names the plans, their labels, the free account
   limit, which plan sees advertising, the prices and the capability list, and
   the marketing site at smpl.money consumes it. Its `derived` half is read out
   of `src/shared/domain.ts` and `src/shared/version.ts`, and
@@ -347,7 +355,7 @@ run in CI.
 
 ## Recurring tasks
 
-Five skills in `.claude/skills/` hold the procedures for work that repeats, so
+Six skills in `.claude/skills/` hold the procedures for work that repeats, so
 the order and the traps do not have to be rediscovered:
 
 - `guides-update` — bring the guides, `AGENTS.md`, `CHANGELOG.md` and
@@ -360,6 +368,8 @@ the order and the traps do not have to be rediscovered:
   three test tiers, commit and push. Cuts nothing.
 - `cut-release` — the procedure in `docs/upgrades.md`, and only on an explicit
   go-ahead.
+- `product-kit` — rebuild `docs/product/`: the tiered feature list, and a
+  screenshot of every screen against a committed seed.
 
 Each points at the guides rather than restating them, because a copied rule
 drifts.
