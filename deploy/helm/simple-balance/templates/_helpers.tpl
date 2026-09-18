@@ -212,9 +212,15 @@ never sees.
 {{- if lt (int64 $uploadBytes) $csvBodyBytes }}
 {{- fail (printf "frontend.maxUploadSize (%s) is below what config.csvMaxBytes needs: a CSV travels as a JSON string, so the API accepts up to %d bytes on the import routes and nginx must too. Raise frontend.maxUploadSize to at least that." $upload (int64 $csvBodyBytes)) }}
 {{- end }}
+{{- if and .Values.database.enabled .Values.secret.databaseUrl }}
+{{- fail "database.enabled and secret.databaseUrl are both set. One runs a Citus cluster in this release and the other points at a database somebody else runs; pick the one you meant rather than letting the chart choose." }}
+{{- end }}
+{{- if and .Values.database.enabled (not .Values.secret.create) }}
+{{- fail "database.enabled needs secret.create: the connection string for the cluster this chart runs is derived here, and an existingSecret would have to carry a password this chart generates." }}
+{{- end }}
 {{- if .Values.secret.create }}
-{{- if not .Values.secret.databaseUrl }}
-{{- fail "secret.databaseUrl is required when secret.create is true. The database is bring your own; nothing in this chart provisions one." }}
+{{- if and (not .Values.secret.databaseUrl) (not .Values.database.enabled) }}
+{{- fail "secret.databaseUrl is required when secret.create is true. The database is bring your own unless database.enabled is set, which runs the ha profile's Citus cluster in this release." }}
 {{- end }}
 {{- if not .Values.secret.authSecret }}
 {{- fail "secret.authSecret is required when secret.create is true. Generate one with `openssl rand -base64 32`." }}
@@ -320,4 +326,122 @@ spec:
     matchLabels:
       {{- include "simple-balance.componentSelectorLabels" (dict "root" .root "component" .component) | nindent 6 }}
 {{- end }}
+{{- end }}
+
+{{/*
+The database image, which the shared helper cannot build for two reasons.
+
+Its tag is Citus's version rather than this chart's appVersion, so falling back
+to appVersion — which is what the shared helper does with an empty tag — would
+name an image that does not exist and say `0.2.0` while doing it. And a database
+is the one image here worth pinning by digest, because a tag that moves under a
+running cluster is how a PostgreSQL major version arrives unannounced, and a
+major version cannot read the previous major's data directory.
+*/}}
+{{- define "simple-balance.databaseImage" -}}
+{{- $image := .Values.database.image -}}
+{{- $registry := $image.registry | default .Values.global.imageRegistry -}}
+{{- $repository := $image.repository -}}
+{{- if $registry -}}
+{{- $repository = printf "%s/%s" $registry $repository -}}
+{{- end -}}
+{{- if $image.digest -}}
+{{- printf "%s@%s" $repository $image.digest -}}
+{{- else if $image.tag -}}
+{{- printf "%s:%s" $repository $image.tag -}}
+{{- else -}}
+{{- fail "database.image needs a tag or a digest: it is versioned by Citus and PostgreSQL, not by this chart" -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Names for the database objects. The Citus group is part of the name because
+Patroni keys its Kubernetes state on it: one scope per group, each with its own
+leader endpoint, and the coordinator is always group 0.
+*/}}
+{{- define "simple-balance.databaseName" -}}
+{{- printf "%s-db" (include "simple-balance.fullname" .) | trunc 58 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "simple-balance.databaseGroupName" -}}
+{{- printf "%s-%d" (include "simple-balance.databaseName" .root) (int .group) }}
+{{- end }}
+
+{{- define "simple-balance.databaseSecretName" -}}
+{{- printf "%s-credentials" (include "simple-balance.databaseName" .) }}
+{{- end }}
+
+{{/*
+Where the application connects. The coordinator's leader Service, which Patroni
+keeps pointing at whichever group-0 pod is currently primary — that is the whole
+point of running it. A worker is never connected to directly: Citus routes.
+*/}}
+{{- define "simple-balance.databaseUrl" -}}
+{{- $db := .Values.database -}}
+{{- $host := include "simple-balance.databaseGroupName" (dict "root" . "group" 0) -}}
+{{- printf "postgresql://%s:%s@%s:5432/%s" $db.application.username (include "simple-balance.databaseApplicationPassword" .) $host $db.databaseName -}}
+{{- end }}
+
+{{/*
+The three database passwords, decided once per render and kept across upgrades.
+
+Three things have to be true at once and none of them is the default behaviour.
+A password the operator set wins. A password already in the cluster is kept,
+because rolling the superuser password out from under a running Patroni cluster
+on every `helm upgrade` would break replication and the failover with it. And a
+generated one is generated exactly once per render: `randAlphaNum` called from
+three templates gives three different answers, which is the classic way a chart
+writes a Secret the StatefulSet disagrees with.
+
+So they are resolved together, cached on .Values, and every caller goes through
+here. The schema has already been validated by the time templates render, so
+adding the key does not fail validation.
+*/}}
+{{- define "simple-balance.databaseCredentials" -}}
+{{- if not (hasKey .Values.database "resolvedPasswords") -}}
+  {{- $existing := (lookup "v1" "Secret" .Release.Namespace (include "simple-balance.databaseSecretName" .)) -}}
+  {{- $data := dict -}}
+  {{- if $existing -}}
+    {{- $data = (default dict $existing.data) -}}
+  {{- end -}}
+  {{- $resolved := dict -}}
+  {{- range $role := (list "superuser" "replication" "application") -}}
+    {{- $configured := (index $.Values.database $role).password -}}
+    {{- $key := printf "%s-password" $role -}}
+    {{- if $configured -}}
+      {{- $_ := set $resolved $role $configured -}}
+    {{- else if hasKey $data $key -}}
+      {{- $_ := set $resolved $role (index $data $key | b64dec) -}}
+    {{- else -}}
+      {{- $_ := set $resolved $role (randAlphaNum 32) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $_ := set .Values.database "resolvedPasswords" $resolved -}}
+{{- end -}}
+{{- end }}
+
+{{- define "simple-balance.databaseSuperuserPassword" -}}
+{{- include "simple-balance.databaseCredentials" . -}}
+{{- .Values.database.resolvedPasswords.superuser -}}
+{{- end }}
+
+{{- define "simple-balance.databaseReplicationPassword" -}}
+{{- include "simple-balance.databaseCredentials" . -}}
+{{- .Values.database.resolvedPasswords.replication -}}
+{{- end }}
+
+{{- define "simple-balance.databaseApplicationPassword" -}}
+{{- include "simple-balance.databaseCredentials" . -}}
+{{- .Values.database.resolvedPasswords.application -}}
+{{- end }}
+
+{{/*
+Every Citus group this release runs: 0 is the coordinator, the rest are workers.
+*/}}
+{{- define "simple-balance.databaseGroups" -}}
+{{- $groups := list 0 -}}
+{{- range $i := until (int .Values.database.workers) -}}
+{{- $groups = append $groups (add1 $i) -}}
+{{- end -}}
+{{- toJson $groups -}}
 {{- end }}

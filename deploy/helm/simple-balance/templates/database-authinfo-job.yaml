@@ -1,0 +1,114 @@
+{{- if .Values.database.enabled }}
+{{/*
+Tell Citus how to authenticate as the application role when it talks between
+nodes.
+
+This is not optional and it is not obvious. A distributed DDL statement — every
+`CREATE TABLE` the application's migrations run — is executed on the coordinator
+and propagated to the workers *as the role that issued it*. Citus opens those
+connections itself, and for a role that is not the superuser it has no password
+to offer, so the first migration fails with `connection to the remote node
+simple_balance@10.244.x.y:5432 failed ... fe_sendauth: no password supplied` and
+the deployment stops with a schema half applied.
+
+`pg_dist_authinfo` is Citus's answer, and Patroni already writes the superuser's
+row into it during bootstrap — this adds the same thing for the application role.
+`nodeid` 0 means every node, including ones added later.
+
+It cannot be done in Patroni's `post_init`: that hook runs before Patroni
+installs the Citus extension, so the table does not exist yet. Hence a Job.
+
+The application may briefly crash-loop if it reaches its first migration before
+this has run. That is the right failure — loud, self-healing on the next restart,
+and impossible to mistake for success.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "simple-balance.databaseName" . }}-authinfo
+  labels:
+    {{- include "simple-balance.componentLabels" (dict "root" . "component" "database") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # Re-run on upgrade, because the row has to be rewritten if the application
+    # password ever changes, and deleted first so a previous Job's completed pod
+    # does not block the new one.
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+    "helm.sh/hook-weight": "5"
+    {{- with .Values.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "simple-balance.componentLabels" (dict "root" . "component" "database") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: authinfo
+          image: {{ include "simple-balance.databaseImage" . | quote }}
+          imagePullPolicy: {{ .Values.database.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: PGHOST
+              value: {{ include "simple-balance.databaseGroupName" (dict "root" . "group" 0) | quote }}
+            - name: PGUSER
+              value: {{ .Values.database.superuser.username | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.database.databaseName | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "simple-balance.databaseSecretName" . }}
+                  key: superuser-password
+            - name: SB_APP_USER
+              value: {{ .Values.database.application.username | quote }}
+            - name: SB_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "simple-balance.databaseSecretName" . }}
+                  key: application-password
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              # The coordinator may still be electing a leader when this starts.
+              # Wait rather than fail, because a Job that fails here looks like a
+              # broken deployment when it is a slow one.
+              i=0
+              until psql -tAc 'select 1' >/dev/null 2>&1; do
+                i=$((i + 1))
+                if [ "$i" -ge 120 ]; then
+                  echo "The coordinator did not accept a connection within 10 minutes." >&2
+                  exit 1
+                fi
+                sleep 5
+              done
+              # Quoted by PostgreSQL rather than by the shell, so a password
+              # containing a quote is a password rather than a syntax error.
+              psql -v ON_ERROR_STOP=1 \
+                --set=app_user="$SB_APP_USER" \
+                --set=app_password="$SB_APP_PASSWORD" <<'SQL'
+              insert into pg_dist_authinfo (nodeid, rolename, authinfo)
+              values (0, :'app_user', 'password=' || :'app_password')
+              on conflict (nodeid, rolename) do update set authinfo = excluded.authinfo;
+              SQL
+              echo "pg_dist_authinfo carries a row for $SB_APP_USER on every node."
+{{- end }}

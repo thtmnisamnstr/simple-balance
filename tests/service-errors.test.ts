@@ -62,6 +62,30 @@ const IMPOSSIBLE = [
     message: "Category group insert returned no row",
     because: "The same impossibility again.",
   },
+  {
+    where: "src/server/services/billing.ts",
+    message: "Stripe is not configured on this deployment",
+    because:
+      "Every caller is reached from a route registered only when Stripe is configured. Getting here means the code asked the wrong question, not that the deployment is wrong — and there is nothing an operator could do about a refusal on a route that would not exist.",
+  },
+  {
+    where: "src/server/services/billing.ts",
+    message: "No such user",
+    because:
+      "The actor came from an authenticated session or token, so the row it names was read moments earlier to build it.",
+  },
+  {
+    where: "src/server/services/billing.ts",
+    message: "Billing customer disappeared between insert and read",
+    because:
+      "The insert lost its conflict, which means a row exists; only a delete between the two statements could empty it, and nothing deletes one but account deletion, which cannot run for somebody mid-request.",
+  },
+  {
+    where: "src/server/services/billing.ts",
+    message: "Stripe returned a subscription with no items",
+    because:
+      "Every subscription this product creates carries exactly one price, and Stripe has no way to produce one with none.",
+  },
 ];
 
 type Throw = { where: string; text: string };

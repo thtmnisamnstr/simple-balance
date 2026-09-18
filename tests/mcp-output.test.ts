@@ -394,6 +394,9 @@ describe("the owner id no agent can use", () => {
       source: "mcp",
       notificationsAvailable: false,
       scopes: ["ledger:read"],
+      plan: null,
+      accountLimit: null,
+      accountsUsed: null,
     };
     const stripped = withoutUserId(identity);
     // Both halves, because the parse alone proves only one direction: the

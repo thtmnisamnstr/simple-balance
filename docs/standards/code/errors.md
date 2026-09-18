@@ -62,7 +62,7 @@ section used to be about. The already-configured-password site was byte-for-byte
 what `conflict()` produces and now calls it (`:1128`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1080`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1324`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -95,7 +95,7 @@ and it carries `currentVersion` in its details so the client can say what
 happened rather than "something went wrong".
 
 Its message is fixed at the constructor
-(`src/server/services/errors.ts:72-85`)
+(`src/server/services/errors.ts:81-94`)
 because there is nothing per-site to add. Two messages are fixed there now, one
 per audience: `message` tells a browser to reload, and `agentMessage` — read by
 the MCP transport and by nothing else — tells an agent to read the row again and
@@ -164,7 +164,7 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:102-109`) and shows those
+(`src/client/api.ts:104-111`) and shows those
 in preference to the envelope. Which means schema messages are user-facing:
 write them that way.
 

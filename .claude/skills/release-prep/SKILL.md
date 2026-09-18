@@ -139,6 +139,31 @@ finding how it is composed before deleting anything.
 Report "nothing was dead" when nothing was. That is a real result, and inventing
 removals to look productive is worse than a clean sweep.
 
+## 4a. Rebuild the product kit
+
+Run the **`product-kit`** skill, which owns this.
+
+`docs/product/` is what the marketing site at smpl.money reads: the tiered
+feature list, and a screenshot of every screen in both themes. That site is a
+separate repository and **cannot run this application**, so if the kit is not
+rebuilt here it is not rebuilt anywhere, and it goes on describing a version
+of the product that no longer exists.
+
+Two things decide whether this phase has work in it:
+
+- **Did any screen change?** Then the screenshots are stale, and stale
+  screenshots are the most convincing way to be wrong — they look current.
+- **Did a capability land, change or go?** Then `features.json` is stale, and
+  the marketing site will keep advertising something that is gone or miss
+  something new.
+
+It sits here rather than at the end because the kit's output is a document,
+and phase 5 is where documents are brought back to true.
+
+**The marketing site pulls from `main`.** Rebuilding on a branch does not
+reach it until the branch merges, and that is worth saying out loud in the
+readiness report rather than assuming the next person infers it.
+
 ## 5. Bring the documents back to true
 
 Do not do this inline — run the **`guides-update`** skill, which owns it. It
@@ -221,10 +246,16 @@ git push && gh run watch "$(gh run list --branch "$(git branch --show-current)" 
 gh pr checks "$(git branch --show-current)"
 ```
 
-Thirteen checks: ten in the verify workflow (four `verify` matrix entries across
-PostgreSQL 15/16 and Node 22/24, four image builds, browser, deployment
-material) and three CodeQL. Green means green — do not report success off the
-workflow conclusion alone while a check is still pending.
+Seventeen checks: ten in the verify workflow (four `verify` matrix entries across
+PostgreSQL 15/18 and Node 22/24, four image builds, browser, deployment
+material), one in the deployment-profile workflow (single profile material,
+which lives in its own file so that a CodeQL cache-poisoning rule has no
+dispatchable trigger to complain about), three in the citus-image workflow (an
+amd64 and an arm64 build on runners of that architecture, and a manifest job
+that skips unless the run publishes), and three CodeQL. Green means green — do
+not report success off the workflow conclusion alone while a check is still
+pending, and "skipping" on the manifest job is the expected state on a pull
+request rather than something to chase.
 
 ## 9. Report readiness, and stop
 
@@ -234,8 +265,15 @@ Say plainly what is true:
 - `CHANGELOG.md` `## Unreleased` covers this branch's work.
 - `docs/upgrades.md` has the next version's `## Before you upgrade` section.
 - `AGENTS.md` names every unreleased migration.
-- All three tiers and all thirteen checks green.
+- Whether `docs/product/` was rebuilt, and that the marketing site does not
+  see it until this merges.
+- All three tiers and all fourteen checks green.
 - What the audits found, what was fixed, and what was rejected and why.
 - Anything deliberately left, and why.
+
+`docs/acceptance.md` is where the standing version of that last pair lives: one
+row per claim, each naming the evidence that closes it, and a second table of
+what is outstanding with the reason. Update it rather than restating it here — a
+report is read once and a table is read before every cut.
 
 Then stop. Do not merge the PR. Do not cut the version.

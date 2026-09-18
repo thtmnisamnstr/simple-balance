@@ -22,7 +22,17 @@ const BROWSER_ONLY: Record<string, string> = {
   "POST /api/v1/auth/local-password":
     "Setting a sign-in credential is account management rather than bookkeeping, and an agent cannot undo it from its side.",
   "GET /api/v1/session":
-    "Split rather than missing: whoami reports the identity and get_preferences the regional settings. The rest of it is which sign-in methods the deployment offers, which is no business of an agent's.",
+    "Split rather than missing: whoami reports the identity, the plan's ceiling and how much of it is used, and get_preferences the regional settings. What is left is which sign-in methods the deployment offers, which is no business of an agent's.",
+  "GET /api/v1/billing":
+    "Paying for the deployment is account management rather than bookkeeping. Reported to an agent as far as it needs it: whoami carries the plan, its ceiling and how much of it is used, which is what an agent has to know to explain a refusal.",
+  "PUT /api/v1/billing/subscription":
+    "Starting or changing a paid subscription spends somebody's money, and an MCP token is a credential handed to a program. It stays something a person does while signed in, alongside deleting the account and setting a password.",
+  "PUT /api/v1/billing/subscription/cancellation":
+    "The other half of the same decision. An agent that could not subscribe but could cancel would be a worse split, not a safer one.",
+  "POST /api/v1/billing/payment-setups":
+    "Returns a secret that only Stripe's browser SDK can use. There is nothing an agent could do with it.",
+  "POST /api/v1/billing/payment-setups/confirmations":
+    "The other half of that one: it names a SetupIntent only Stripe's browser SDK can have confirmed. An agent has no way to reach the state this reports.",
   "GET /api/v1/csv/export":
     "Reachable as export_transactions_csv. The route differs only in returning a file download with a dated filename.",
 };

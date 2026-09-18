@@ -93,7 +93,12 @@
   `on delete cascade`, because deleting an account is one delete of that row and
   nothing enumerates tables. Add the cascade with the table; without it the
   deletion fails rather than silently leaving data, which is the right failure
-  but still a bug.
+  but still a bug. `billing_webhook_event` is the one table that carries no
+  `user_id` and cascades from nobody, and it is not an exception to this rule
+  but a case outside it: it records which deliveries Stripe has already been
+  answered for, which is the deployment's fact rather than any person's. Letting
+  it cascade would drop that record with the account and let Stripe's next retry
+  — it retries for up to 72 hours — be handled a second time as new.
 - The MCP surface has feature parity with the web app, and `tests/mcp-parity.test.ts`
   compares them route by route. A new `/api/v1` route needs a tool in the same
   change, or a named exception carrying its reason. It runs the other way too:
@@ -104,9 +109,16 @@
   defect one level down, and it is invisible to a comparison of route lists.
   `categoryKind` was exactly that for a while — documented for the MCP, absent
   from the form, so the browser silently filed refunds as income.
-- Two exceptions, both account management rather than bookkeeping: deleting an
-  account and setting a sign-in password are reachable from a session and never
-  from an MCP token.
+- Three exceptions, all account management rather than bookkeeping: deleting an
+  account, setting a sign-in password, and the billing routes are reachable from
+  a session and never from an MCP token. Billing is the one that has to be
+  argued rather than asserted, because a plan does bear on what an agent can do.
+  Starting, switching or stopping a paid subscription spends somebody's money,
+  and an MCP token is a credential handed to a program — a different class of
+  authority from writing a transaction, and one no amount of scope makes
+  equivalent. What an agent needs in order to explain a refusal it meets is the
+  plan, its ceiling and how much of it is used, and `whoami` carries all three.
+  That is parity on the thing the agent is affected by; the purchase is not.
 - A tool whose result does not satisfy its declared output schema fails the
   call with an `Output validation error` naming the offending path, so a wrong
   schema breaks the tool rather than trimming its reply. Exercise new tools over
@@ -146,6 +158,18 @@
   the sum of its categories may not hold a budget of its own. No method is ever
   chosen: the parameter is the choice, and `amount_rule` is derived from the row
   rather than asked for.
+- Deleting a category group clears its categories' `group_id` in the service,
+  not in the foreign key. On one PostgreSQL the key is `on delete set null` and
+  would do it; on a Citus cluster it cannot be, because Citus refuses `SET NULL`
+  whenever the distribution column is part of the constraint — in every spelling,
+  including PostgreSQL 15's column list — so `0023` installs it as `NO ACTION`,
+  under which the delete fails outright rather than orphaning anything. Doing it
+  in the service is what makes the two schemas behave the same way, and it
+  deliberately does not bump the category's `version`, because the foreign key
+  never did and a cluster that refused an edit a single node accepted would be
+  the same divergence one step along. This is the shape every such difference
+  must take: where a profile cannot enforce something in the schema, the service
+  enforces it everywhere rather than the behaviour depending on where it runs.
 - A forecast is a projection and never a balance. Money dated in the future has
   not moved, so no figure `src/server/services/forecast.ts` produces may reach a
   balance, a report total, or the trial balance, nothing but the two transports
@@ -191,6 +215,32 @@
   sixteen hours for anyone whose stored timezone is an offset. Ask
   `calendarDayIn`, `clockTimeIn` or `todayIn` from `src/shared/recurrence-dates.ts`;
   never ask the database.
+- **`docs/product/` is this repository's public description of itself**, and
+  the marketing site at smpl.money is its only consumer. `facts.json` is the
+  machine contract, `features.json` is what the product does tiered by how
+  much a general reader would care, and `screenshots/` is every screen in
+  both themes. That site is a separate repository that **cannot run this
+  application**, so a kit not rebuilt here is not rebuilt anywhere. The
+  `product-kit` skill owns it and `release-prep` phase 4a runs it. It reaches
+  the site only when a branch merges, because the site pulls from `main`.
+- The product's user-facing contract is published, not remembered.
+  `docs/product/facts.json` names the plans, their labels, the free account
+  limit, which plan sees advertising, the prices and the capability list, and
+  the marketing site at smpl.money consumes it. Its `derived` half is read out
+  of `src/shared/domain.ts` and `src/shared/version.ts`, and
+  `tests/product-facts.test.ts` fails when the committed file disagrees with
+  them — it compares rather than regenerating, because a check that rewrites
+  what it is checking is not a check. Its `declared` half is what the source
+  cannot know: the prices are at Stripe and only the ids are here, and the
+  capability list is a description of the product rather than a property of a
+  module. **A change to a plan, a limit, a label or a price is a change to
+  that file in the same commit**, and the site is a separate repository that
+  will otherwise go on saying the old thing.
+- `PLAN_LABELS` is the one place a plan's name is written. `plus` is the wire
+  value and **Premium** is the word a person reads; renaming the wire value
+  would break every client that has seen it and renaming the label would not.
+  The two surfaces using different words at a customer was one string away
+  from shipping.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
 - Every migration that has shipped is frozen: `0000_initial.sql`,
@@ -206,8 +256,18 @@
   `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
-  Nothing is unreleased: every migration on disk has shipped, so every one of
-  them is frozen and the next schema change starts at `0022`. `0016` is the
+  `0022_plans_and_billing.sql` and `0023_citus_distribution.sql` are on disk and
+  **unreleased**, so they are the two migrations here that may still be
+  regenerated: nobody has run either. They freeze when 0.2.0 ships, and until
+  then the rule to keep is that everything through `0021` is somebody else's
+  history and `0022` and `0023` are still ours. The next schema change after
+  them starts at `0024`. `0023` is the one migration that does nothing on most
+  deployments and says so at the top: it distributes the ledger and is gated on
+  the Citus extension being installed, so the `single` and `vps` profiles record
+  it as run and keep the schema they had. It is also the only place the cluster's
+  schema is written down, which is why `deploy/citus/` no longer holds a second
+  copy — `docs/citus-runbook.md` points an operator at the migration itself for
+  the by-hand path. `0016` is the
   one exception to the composite-key habit and says why in the schema: a
   category's group is a single-column reference, because `on delete set null`
   nulls every column of the constraint it is on and the tenant is not nullable.
@@ -255,7 +315,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 20.1% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 22.6% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelised.** Legs resolve one at a time so two
@@ -295,7 +355,7 @@ run in CI.
 
 ## Recurring tasks
 
-Five skills in `.claude/skills/` hold the procedures for work that repeats, so
+Six skills in `.claude/skills/` hold the procedures for work that repeats, so
 the order and the traps do not have to be rediscovered:
 
 - `guides-update` — bring the guides, `AGENTS.md`, `CHANGELOG.md` and
@@ -308,6 +368,8 @@ the order and the traps do not have to be rediscovered:
   three test tiers, commit and push. Cuts nothing.
 - `cut-release` — the procedure in `docs/upgrades.md`, and only on an explicit
   go-ahead.
+- `product-kit` — rebuild `docs/product/`: the tiered feature list, and a
+  screenshot of every screen against a committed seed.
 
 Each points at the guides rather than restating them, because a copied rule
 drifts.

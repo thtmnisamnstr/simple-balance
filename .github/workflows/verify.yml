@@ -26,12 +26,16 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # The README promises PostgreSQL 15 and up and Node 22.22.2 and up, so
-      # the oldest of each is tested rather than assumed. The image ships Node
-      # 24; 22 is here because `npm start` on a host is a supported way to run
-      # this and the manifest says it works.
+      # The two ends rather than the middle. The README promises PostgreSQL 15
+      # and up, so the floor is tested rather than assumed; 18 is what every
+      # profile that owns its database now deploys, so it is tested for the same
+      # reason. 16 and 17 sit between them and tell us nothing neither end would.
+      #
+      # Node 22.22.2 and up is the other promise. The image ships Node 24; 22 is
+      # here because `npm start` on a host is a supported way to run this and
+      # the manifest says it works.
       matrix:
-        postgres: ["15-alpine", "16-alpine"]
+        postgres: ["15-alpine", "18-alpine"]
         node: ["22", "24"]
     services:
       postgres:
@@ -43,7 +47,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d simple_balance_test"
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d simple_balance_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -86,7 +90,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # The version the deployment profiles ship. This had been left on 16
+        # after the matrix moved, so the one tier that drives the whole stack
+        # was proving it against a version nothing deploys and nothing else
+        # tests.
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -94,7 +102,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d simple_balance_browser"
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d simple_balance_browser"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
@@ -163,6 +171,38 @@ jobs:
             --set networkPolicy.enabled=true > /tmp/rendered-netpol.yaml
           grep -q 'kind: NetworkPolicy' /tmp/rendered-netpol.yaml
           echo "rendered the NetworkPolicy"
+          # The `ha` database, off at default values for the same reason and
+          # checked the same way. What is asserted here is the set of things that
+          # were each wrong once and each produced a cluster that looked healthy:
+          # one StatefulSet per Citus group, the `cluster-name` label Patroni
+          # selects on, a derived DATABASE_URL, and no Endpoints object — Patroni
+          # owns those, and shipping one makes every later `helm upgrade` fail a
+          # server-side-apply conflict over `.subsets`.
+          helm template release /charts/simple-balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true \
+            --set database.workers=2 > /tmp/rendered-ha.yaml
+          test "$(grep -c 'kind: StatefulSet' /tmp/rendered-ha.yaml)" = 3
+          grep -q 'cluster-name: release-simple-balance-db' /tmp/rendered-ha.yaml
+          grep -q 'DATABASE_URL: "postgresql://simple_balance:' /tmp/rendered-ha.yaml
+          if grep -q 'kind: Endpoints' /tmp/rendered-ha.yaml; then
+            echo "::error::the chart ships an Endpoints object; Patroni owns those"
+            exit 1
+          fi
+          # The leader Service is the one with no selector, and its port must
+          # carry no name: Kubernetes matches a Service port to an Endpoints port
+          # by name, and Patroni writes its port without one. Name it and the
+          # Service has the right address in it and refuses every connection.
+          if grep -B 4 'port: 5432' /tmp/rendered-ha.yaml | grep -q 'name: postgresql'; then
+            named=$(awk '/^kind: Service/,/^---/' /tmp/rendered-ha.yaml | grep -c 'name: postgresql' || true)
+            headless=$(grep -c 'clusterIP: None' /tmp/rendered-ha.yaml || true)
+            if [ "$named" -gt "$headless" ]; then
+              echo "::error::a leader Service names its port; Patroni's endpoint port has no name"
+              exit 1
+            fi
+          fi
+          echo "rendered $(grep -c '^kind:' /tmp/rendered-ha.yaml) objects for the ha database"
 
       # The guards are the reason a misconfigured install fails at render rather
       # than as a crashlooping pod, so a release must not be able to lose them
@@ -201,6 +241,16 @@ jobs:
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=short \
             --set config.appBaseUrl=https://books.example.org
+          refuses "a database it runs and a database it is given" "pick the one you meant" \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true
+          refuses "an ha database with an existingSecret" "database.enabled needs secret.create" \
+            --set secret.create=false \
+            --set secret.existingSecret=mine \
+            --set config.appBaseUrl=https://books.example.org \
+            --set database.enabled=true
           refuses "the placeholder secret it ships" "published placeholders" \
             --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
             --set secret.authSecret=replace-with-at-least-32-random-characters \
@@ -213,6 +263,13 @@ jobs:
             --set secret.authSecret=0123456789012345678901234567890123456789 \
             --set config.appBaseUrl=http://books.example.org
 
+      # The `single` profile's material, which no unit test can run: a compose
+      # file is only known to interpolate once Compose has interpolated it, a
+      # systemd unit is only known to parse once systemd has parsed it, and a
+      # shell script that is written into cloud-init is only known to be a shell
+      # script once a shell has read it. All three are cheap here and silent
+      # everywhere else — the frontend image's nginx template shipped a fatal
+      # error for exactly this reason, because every check read it as text.
       # Same reasoning as the verify job above.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -225,6 +282,9 @@ jobs:
         run: |
           npm ci
           npm run typecheck
+
+
+
 
   # A Dockerfile that has stopped building should fail the pull request that
   # broke it rather than the release that needed it. Its own job rather than
@@ -310,3 +370,43 @@ jobs:
               || { echo "::error::a hashed asset is missing $header"; exit 1; }
           done
           echo "the shell and a hashed asset both carry all twelve headers"
+
+          # And the one page whose policy differs. Rendering it is the part a
+          # test cannot do: nginx takes a static response's Content-Type from
+          # the request path, and `/settings/plan` has no extension, so the
+          # wrong directive serves the application as a file download that no
+          # browser executes. Both spellings, because the client router renders
+          # the tab for either and a location catching one would serve the other
+          # under the strict policy.
+          for path in /settings/plan /settings/plan/; do
+            plan=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$path")
+            printf '%s' "$plan" | grep -qi "^content-type: text/html" \
+              || { echo "::error::$path is not served as text/html"; exit 1; }
+            # Stripe is not configured on this container, so that page must come
+            # back under exactly the policy every other page gets.
+            printf '%s' "$plan" | grep -qi "js.stripe.com" \
+              && { echo "::error::$path carries the Stripe policy with no Stripe configured"; exit 1; }
+          done
+          echo "the plan page renders under the strict policy in both spellings"
+
+          docker rm -f frontend-probe
+          # Again with Stripe configured, which is the case the wider policy
+          # exists for and the only one in which the payment form can load.
+          docker run -d --name frontend-probe \
+            -e SB_API_ORIGIN=http://127.0.0.1:3000 \
+            -e SB_BILLING_CONFIGURED=true \
+            -p 127.0.0.1:8099:8080 simple-balance-frontend:test
+          for _ in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8099/; then break; fi
+            sleep 1
+          done
+          for path in /settings/plan /settings/plan/; do
+            plan=$(curl -fsS -D - -o /dev/null "http://127.0.0.1:8099$path")
+            printf '%s' "$plan" | grep -qi "^content-security-policy:.*js.stripe.com" \
+              || { echo "::error::$path does not carry the Stripe policy"; exit 1; }
+          done
+          # And every other page keeps the strict one, which is the promise the
+          # whole surface split rests on.
+          curl -fsS -D - -o /dev/null http://127.0.0.1:8099/accounts | grep -qi "js.stripe.com" \
+            && { echo "::error::the Stripe policy leaked onto an ordinary page"; exit 1; }
+          echo "the plan page carries the Stripe policy and no other page does"

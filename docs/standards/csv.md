@@ -12,7 +12,7 @@ importer all have opinions about.
 
 Everything is grounded in three places: `src/shared/csv.ts`, which both the
 browser preview and the server use, `src/server/services/import-export.ts`,
-which reads and writes files, and `src/server/api.ts:1531-1561`, which is the
+which reads and writes files, and `src/server/api.ts:1834-1864`, which is the
 transport.
 
 ## 1. Why CSV, and why no apology
@@ -144,7 +144,7 @@ product has no export whose first record is not a header.
 
 **Settled.** The download filename is dated in the person's own timezone,
 through `todayIn(timezone)` like every other "today" in this product
-(`src/server/api.ts:1543-1554`). It used to read the server clock, so somebody
+(`src/server/api.ts:1846-1857`). It used to read the server clock, so somebody
 at UTC+13 downloading at 09:00 got yesterday's date on the file — the one thing
 a dated filename exists to get right.
 
@@ -455,7 +455,7 @@ install, then commit the queue. **Preserved:**
 - The category, by name, matched or created in the receiving ledger. Including
   on a transfer, which stages as a partial rather than a draft and had its
   category silently dropped until the resolver learned to look there
-  (`src/server/services/import-export.ts:452-461`).
+  (`src/server/services/import-export.ts:454-463`).
 - The split, leg by leg, by category name, with each leg's note.
 
 *Checked by:* `tests/integration/csv-roundtrip-fidelity.integration.test.ts` end
@@ -663,7 +663,7 @@ Blank lines are skipped before anything is counted, so an interior blank leaves
 the number one low; a trailing blank, which is the common case, comes after
 everything it could shift. Nothing else numbers a row at all: the queue shows no
 position (`src/client/pages/StagingPage.tsx:905-954`) and a staged row stores no
-source row number (`src/server/db/schema.ts:751-863`), so a queue entry is
+source row number (`src/server/db/schema.ts:755-867`), so a queue entry is
 traceable to a line only through its `raw_data`.
 
 *Checked by:* `tests/domain.test.ts` ("reports the file's own line for a row with
@@ -736,7 +736,7 @@ the same number.
   somebody maps its columns (`src/server/services/import-export.ts:116-124`).
 - **The request envelope.** A CSV route and `/mcp` are sized at six times
   `CSV_MAX_BYTES` plus 64 KiB, the six being the worst case for JSON string
-  escaping (`src/server/http-security.ts:62-63`, `:662-665`).
+  escaping (`src/server/http-security.ts:327-328`, `:937`).
 - **Rows.** Counted after blank lines are skipped, so a trailing newline is not
   a row.
 

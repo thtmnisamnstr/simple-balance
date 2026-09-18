@@ -1,4 +1,5 @@
 import { globSync, readFileSync } from "node:fs";
+import { sourceFiles } from "./support/source.js";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -275,31 +276,94 @@ describe("the worked sentences", () => {
  */
 describe("a filtered list with nothing in it", () => {
   /**
-   * The lists that carry a filter and so need two empty screens.
+   * Every page that renders an empty state, and the ones where one message is
+   * right listed with the argument.
    *
-   * Named rather than derived: whether a list is filtered is a fact about the
-   * controls above it, and a derivation that guessed would either miss one or
-   * demand two screens from a list that cannot be narrowed.
+   * **This was a list of four and it missed two real defects.** It named
+   * TransactionBrowser, Staging, Templates and Recurring — the four that were
+   * already correct — so Payees told a mistyped search to go and commit a
+   * transaction, and Accounts told somebody with every account archived that
+   * they had none. A check that enumerates the compliant cases is not a check;
+   * it is a record of what somebody had already looked at.
+   *
+   * The comment that stood here argued that deriving "is this list filtered"
+   * would guess wrong, and it was right: `query` matches the `useQuery` import,
+   * `search` matches the `location.search` every link carries, `filter` matches
+   * `Array.filter`, and `search:` matches an object key. Four attempts, four
+   * false positives, three of them pages with no controls at all.
+   *
+   * So the question is asked of every page and the exceptions are named — the
+   * shape `NOT_A_FIELD` and `NOT_A_TOOL` already use here. An entry is a claim
+   * that the list cannot be filtered into emptiness, and somebody has to
+   * defend it.
    */
-  const FILTERED = [
-    "src/client/TransactionBrowser.tsx",
-    "src/client/pages/StagingPage.tsx",
-    "src/client/pages/TemplatesPage.tsx",
-    "src/client/pages/RecurrencesPage.tsx",
-  ];
+  const ONE_SITUATION: Record<string, string> = {
+    // A log. Nothing on the page narrows it, so empty means empty.
+    "src/client/pages/ActivityPage.tsx": "nothing on the page narrows the log",
+    // The queue is the whole population: a reviewed pair leaves it.
+    "src/client/pages/DuplicateReviewPage.tsx": "no control narrows the queue",
+    // Not one `useState` on it. Empty means the ledger has no currencies.
+    "src/client/pages/DashboardPage.tsx": "the page has no controls",
+    // A register for one account over the date range every view carries. 12.1
+    // excludes that range deliberately: counting it would report every empty
+    // account as a filtered one.
+    "src/client/pages/AccountDetailPage.tsx": "the only narrowing is the shared date range",
+    // Same, and its one message already offers both ways out — "Set a budget
+    // above, or widen the dates" — rather than pretending to be two.
+    "src/client/pages/BudgetsPage.tsx": "the only narrowing is the shared date range",
+    // Also the range. It does hold one narrowing control, excluding accounts
+    // from a report, but that cannot produce this state: the check is on
+    // `query.data`, the server's answer, and exclusions apply further down.
+    "src/client/pages/ReportsPage.tsx": "the only narrowing is the shared date range",
+  };
+
+  /**
+   * The text of one JSX element, from its opening tag to the `/>` that closes
+   * it. Depth-aware, because `icon={<Landmark size={24} />}` is a prop whose
+   * value contains a self-closing tag: slicing to the first `/>` stops inside
+   * the props and reports every conditional after it as absent.
+   */
+  const elementAt = (source: string, open: string) => {
+    const start = source.indexOf(open);
+    if (start < 0) return "";
+    let depth = 0;
+    for (let at = start; at < source.length; at++) {
+      const here = source[at];
+      if (here === "{") depth += 1;
+      else if (here === "}") depth -= 1;
+      else if (here === "/" && source[at + 1] === ">" && depth === 0)
+        return source.slice(start, at);
+    }
+    return source.slice(start);
+  };
+
+  const withEmptyState = sourceFiles("src/client").filter(
+    (file) => file.path.endsWith(".tsx") && file.code.includes("<EmptyState"),
+  );
+
+  it("is asked of every page that renders one", () => {
+    // An empty population passes every claim made over it.
+    expect(withEmptyState.length).toBeGreaterThanOrEqual(10);
+    expect(withEmptyState.map((file) => file.path)).toContain("src/client/pages/PayeesPage.tsx");
+  });
 
   it("distinguishes nothing-yet from nothing-matching", () => {
-    for (const path of FILTERED) {
-      const source = readFileSync(path, "utf8");
-      const at = source.indexOf("<EmptyState");
-      expect(at, `${path} renders no EmptyState`).toBeGreaterThan(-1);
-      const element = source.slice(at, at + 900);
-      // A conditional title is the shape: one element, two sentences. A literal
-      // title is one sentence for two situations, which is the defect.
-      expect(element, `${path}'s empty state says one thing for two states`).toMatch(
-        /title=\{[^}]*\?/s,
-      );
+    const collapsed: string[] = [];
+    for (const file of withEmptyState) {
+      if (file.path in ONE_SITUATION) continue;
+      // Two elements satisfies it as readily as one conditional message:
+      // `CategoriesPage` writes it that way and that is just as correct.
+      if ([...file.code.matchAll(/<EmptyState\b/g)].length > 1) continue;
+      if (/title=\{|body=\{/.test(elementAt(file.code, "<EmptyState"))) continue;
+      collapsed.push(file.path);
     }
+    expect(collapsed).toEqual([]);
+  });
+
+  it("excuses nothing that no longer renders an empty state", () => {
+    // A register outlives the code it excuses unless something says so.
+    const paths = new Set(withEmptyState.map((file) => file.path));
+    expect(Object.keys(ONE_SITUATION).filter((path) => !paths.has(path))).toEqual([]);
   });
 
   it("decides it from the filters and not from the row count", () => {

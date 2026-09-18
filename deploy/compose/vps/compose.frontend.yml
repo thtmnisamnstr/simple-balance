@@ -1,0 +1,86 @@
+# The public machine of the `vps` profile: nginx, serving the browser bundle and
+# proxying everything else to the API machine.
+#
+#   sudo docker compose -f compose.frontend.yml up -d                            # plain HTTP
+#   sudo docker compose -f compose.frontend.yml -f compose.caddy.yml up -d        # with TLS
+#
+# This is the only machine in the profile with anything open to the internet.
+# The other three publish on the provider's private network and nothing else.
+name: simple-balance-frontend
+
+services:
+  frontend:
+    image: ghcr.io/thtmnisamnstr/simple-balance-frontend:${SB_VERSION:-0.1.6}
+    restart: unless-stopped
+    environment:
+      # The API machine's private address. This is the one setting that makes
+      # this a four-machine deployment rather than a one-machine one, and it is
+      # a plain http:// origin because the hop is inside the private network.
+      SB_API_ORIGIN: ${SB_API_ORIGIN:?set SB_API_ORIGIN to http://<the API machine's private IP>:3000}
+
+      # Whose word is taken for a visitor's address, and the half of a decision
+      # whose other half is TRUST_PROXY on the application machines.
+      #
+      # With the Caddy overlay, Caddy is the only thing that connects to nginx
+      # and it does so across this machine's Compose network — so the range to
+      # trust is that network's subnet, which compose.caddy.yml pins so that this
+      # value can be written down rather than discovered. Without the overlay,
+      # whatever terminates TLS in front of this machine is what belongs here.
+      #
+      # The default is the off position rather than a trusted range: nothing
+      # reaches a container from its own loopback, so an unset value means nginx
+      # takes the connection's address and no header. That is wrong behind a
+      # terminator and safe everywhere, which is the right way round for a
+      # default.
+      SB_TRUSTED_PROXY_CIDR: ${SB_TRUSTED_PROXY_CIDR:-127.0.0.1}
+
+      SB_FRONTEND_PORT: "8080"
+      # Move together with CSV_MAX_BYTES on the application machines. nginx
+      # refuses a body over this before the API sees it.
+      SB_MAX_UPLOAD_SIZE: ${SB_MAX_UPLOAD_SIZE:-61m}
+      # Derived from a key being present rather than set twice, so the policy
+      # this machine serves and what the API is actually configured for cannot
+      # disagree.
+      SB_BILLING_CONFIGURED: ${STRIPE_PUBLISHABLE_KEY:+true}
+      SB_ADS_CONFIGURED: ${ADSENSE_CLIENT_ID:+true}
+      SB_CSP_REPORT_ONLY: ${SB_CSP_REPORT_ONLY:-false}
+    ports:
+      # Published on loopback when Caddy is in front, because Caddy reaches it
+      # over the Compose network and nothing else should reach it at all. Without
+      # the overlay this is the port your own terminator proxies to.
+      - "${SB_FRONTEND_BIND:-127.0.0.1}:8080:8080"
+    read_only: true
+    tmpfs:
+      # The entrypoint renders nginx.conf.template into /etc/nginx/conf.d at
+      # startup, once envsubst has put SB_API_ORIGIN and the rest into it, so a
+      # read-only root without this leaves nginx serving nothing. /tmp is where a
+      # request body too large for the buffer is spooled, which every CSV import
+      # passes through — the unprivileged image points all five of nginx's temp
+      # paths and its pid file there so it can write them as a non-root user.
+      #
+      # uid and gid are the nginx user in the image, and they are not optional:
+      # Docker gives a tmpfs the mode of the directory it covers and leaves it
+      # owned by root, so without them the entrypoint finds conf.d unwritable,
+      # skips rendering the template, and the container comes up unhealthy with
+      # `can't create /etc/nginx/conf.d/default.conf: Read-only file system` —
+      # which is exactly what the first version of this file did.
+      - /etc/nginx/conf.d:uid=101,gid=101
+      - /var/cache/nginx:uid=101,gid=101
+      - /tmp:uid=101,gid=101
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      # nginx's own answer, not the API's. A frontend that is up while the API is
+      # down should report itself up and serve a 502, which is a deployment
+      # somebody can diagnose; reporting itself down as well hides which of the
+      # two machines is the problem.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health/live"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

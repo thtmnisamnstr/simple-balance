@@ -17,6 +17,7 @@ import {
   Note,
   PageHeader,
   Select,
+  SettingsTabs,
   Skeleton,
   useConfirm,
 } from "../components.js";
@@ -111,9 +112,13 @@ export default function SettingsPage({ session }: { session: Session }) {
   return (
     <>
       <PageHeader
-        eyebrow="Preferences"
-        title="Settings"
+        eyebrow="Settings"
+        title="Preferences"
         description="Choose how the app looks, how dates and amounts are shown, and how you sign in."
+      />
+      <SettingsTabs
+        current="preferences"
+        billingAvailable={authOptions.data?.billingAvailable ?? false}
       />
       <div className="settings-grid">
         {/* Two columns of independent cards rather than a grid of rows. Sharing
@@ -386,6 +391,7 @@ type OwnDataSummary = {
   importBatches: number;
   payees: number;
   connectedAgents: number;
+  activeSubscription: boolean;
 };
 
 const plural = (count: number, one: string, many = `${one}s`) =>
@@ -469,6 +475,18 @@ function DeleteAccount({ session }: { session: Session }) {
                   : null,
               ])}
               .
+              {/* Last, and a sentence of its own rather than an item in the
+                  list above. Everything in that list is a number saying how
+                  much is lost; this is the one that costs money, cannot be
+                  undone by re-entering it, and is the thing somebody would most
+                  want to have been told before they typed their address. */}
+              {summary.data.activeSubscription ? (
+                <>
+                  {" "}
+                  Your paid plan is cancelled at the same time, immediately and for good — a
+                  cancelled subscription cannot be restored.
+                </>
+              ) : null}
             </Note>
           ) : null}
           <Field label="Type your email address to confirm" hint={session.user.email}>

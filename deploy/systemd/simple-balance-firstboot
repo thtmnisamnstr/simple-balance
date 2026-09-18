@@ -1,0 +1,148 @@
+#!/bin/sh
+# Turns a bare Ubuntu into a `single` deployment. Run once per instance by
+# cloud-init, and written to be safe to run again: a rebuilt machine is a new
+# instance and runs all of this a second time against a data volume that
+# already has a database on it.
+#
+# Not a systemd unit, deliberately. It is provisioning rather than lifecycle,
+# and a unit is a thing that can be enabled and then run at a moment nobody
+# chose — which for a script that formats a disk is the wrong shape entirely.
+set -eu
+
+# Every path and number this needs, in the one file the units also read. Safe
+# to source: every value is a path, a device name or a whole number, and none
+# contains a space, a quote or a shell metacharacter.
+set -a
+# shellcheck disable=SC1091  # written by cloud-init, absent at lint time
+. /etc/default/simple-balance
+set +a
+
+: "${SB_DATA_DEVICE:?/etc/default/simple-balance did not set SB_DATA_DEVICE}"
+: "${SB_BACKUP_DIR:=/var/lib/simple-balance/backups}"
+
+# Wait for the volume to be attached. On both clouds the instance can boot
+# before the block device appears, and a mount that races it puts the database
+# on the boot disk — which works, and fills the boot disk, and is discovered
+# weeks later.
+i=0
+while [ ! -b "$SB_DATA_DEVICE" ] && [ "$i" -lt 60 ]; do
+	i=$((i + 1))
+	sleep 2
+done
+if [ ! -b "$SB_DATA_DEVICE" ]; then
+	echo "simple-balance: the data volume $SB_DATA_DEVICE never appeared" >&2
+	exit 1
+fi
+
+# Format only if it is not already a filesystem. This one line decides whether
+# rebuilding the machine keeps the ledger or erases it.
+if ! blkid "$SB_DATA_DEVICE" >/dev/null 2>&1; then
+	mkfs.ext4 -L simple-balance "$SB_DATA_DEVICE"
+fi
+
+mkdir -p /var/lib/simple-balance
+# By label rather than by device name, because the name is the one thing that
+# is not stable: it depends on attachment order on one cloud and on a udev rule
+# on the other. `nofail` so a machine whose volume is missing still boots far
+# enough to be logged into and asked why.
+grep -q " /var/lib/simple-balance " /etc/fstab ||
+	echo "LABEL=simple-balance /var/lib/simple-balance ext4 defaults,noatime,nofail 0 2" >>/etc/fstab
+mountpoint -q /var/lib/simple-balance || mount /var/lib/simple-balance
+
+mkdir -p "$SB_BACKUP_DIR"
+chmod 0700 "$SB_BACKUP_DIR"
+
+# Generated here, kept on the data volume, and sent nowhere. Neither value is
+# of any use off this machine, so neither belongs in user data — readable by
+# anyone who can describe the instance — or in a Pulumi state file. A rebuilt
+# instance reattaching the same volume finds the same two, which is what stops
+# a rebuild signing everybody out or leaving the application unable to
+# authenticate against its own database.
+secrets=/var/lib/simple-balance/secrets.env
+if [ ! -f "$secrets" ]; then
+	umask 077
+	{
+		# tr deletes the newlines openssl wraps at, and the three base64
+		# characters that would need escaping in a URL or a compose file.
+		#
+		# One value, not two. There was a POSTGRES_PASSWORD here while this
+		# profile bundled a database; it does not, so generating one produced a
+		# password for a server that does not exist and a plausible-looking
+		# secret nobody could use.
+		echo "AUTH_SECRET=$(openssl rand -base64 48 | tr -d '\n/+=' | cut -c1-48)"
+	} >"$secrets"
+	chmod 0600 "$secrets"
+fi
+
+# On the data volume, not beside the compose files. /opt is the boot disk, which
+# a rebuild destroys — so an SMTP password or a Stripe key put there would
+# survive exactly until the machine was resized, and then vanish with no error
+# and no mention of itself.
+local_env=/var/lib/simple-balance/env.local
+[ -f "$local_env" ] || : >"$local_env"
+chmod 0600 "$local_env"
+
+# Rebuilt from the three parts every time this runs, so a change to env.base
+# reaches the deployment without disturbing the secrets or anything added by
+# hand.
+umask 077
+{
+	cat /opt/simple-balance/env.base
+	cat "$secrets"
+	if [ -s "$local_env" ]; then
+		echo "# --- added by hand, on the volume that survives a rebuild ---"
+		cat "$local_env"
+	fi
+} >/opt/simple-balance/.env
+chmod 0600 /opt/simple-balance/.env
+
+systemctl daemon-reload
+systemctl enable --now docker
+
+# The one setting this profile cannot generate, because it is the address of
+# something somebody else runs.
+#
+# It is deliberately not a Pulumi setting. A connection string carries a
+# password, and anything a Pulumi program puts on the machine arrives as
+# cloud-init user data — readable by anyone who can describe the instance, and
+# on both clouds that is a wider set of people than it sounds. So it goes in
+# env.local, on the data volume, by hand, exactly as an SMTP password or a
+# Stripe key does.
+#
+# Without it the deployment cannot start, and the interesting question is what
+# should happen at that point. Starting anyway gives a failed unit and a
+# cloud-init error, which reads as a broken image rather than a step nobody has
+# taken yet. So the unit is enabled and not started, the reason is written where
+# somebody will find it, and this script says so and exits successfully — it is
+# safe to run again, which is what makes that a real instruction.
+if ! grep -q '^DATABASE_URL=..*' /opt/simple-balance/.env; then
+	systemctl enable simple-balance.service
+	systemctl enable simple-balance-backup.timer
+	cat >/etc/motd <<'MOTD'
+
+Simple Balance is installed and not yet running: it has no database to talk to.
+
+This is the `single` profile, whose database is somebody else's — a managed
+PostgreSQL, or a server you already keep. Point it at one:
+
+  sudo nano /var/lib/simple-balance/env.local
+      DATABASE_URL=postgresql://user:password@host:5432/simple_balance
+
+  sudo /usr/local/sbin/simple-balance-firstboot
+
+That second command rebuilds the configuration and starts the deployment. It is
+the same script that ran at boot and is safe to run again.
+
+env.local is on the data volume, so what you put there survives the machine
+being rebuilt or resized.
+
+MOTD
+	echo "simple-balance: no DATABASE_URL yet; enabled but not started. See /etc/motd." >&2
+	exit 0
+fi
+
+# Started only once there is something to start. A machine that got its
+# DATABASE_URL on the second run reaches here on the second run.
+: >/etc/motd
+systemctl enable --now simple-balance.service
+systemctl enable --now simple-balance-backup.timer

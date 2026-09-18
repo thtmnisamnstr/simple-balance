@@ -4,8 +4,9 @@
  *
  * The version appears in three manifests and their three lockfiles, the four
  * Dockerfiles' default build argument, the chart's appVersion, the constant the
- * MCP server announces to its clients, the product backlog, and the example
- * image tags in the split-deployment compose file and the Pulumi README.
+ * MCP server announces to its clients, the product backlog, and every pinned
+ * image tag in the deployment material — both compose recipes and the two
+ * places the Pulumi programs name a release.
  * `tests/version.test.ts` checks every one of them against `package.json`, and
  * the release workflow refuses to publish when the tag and the manifest
  * disagree, so changing one by hand and missing another fails late and
@@ -137,9 +138,16 @@ function rewriteEvery(relative, pattern, replacement, describe) {
 // The example image tags. Pinned rather than :latest on purpose — an upgrade
 // moves the schema and should be a decision — which is exactly why they have to
 // name the release somebody is reading about.
+//
+// Discovered rather than remembered: `tests/version.test.ts` sweeps the tree for
+// this same reference and fails when a file carrying one is not named here. The
+// list went stale exactly once — the `single` profile added two more and nothing
+// noticed, because both checks walked a hardcoded pair.
 for (const relative of [
   "deploy/compose/compose.distributed.yml",
+  "deploy/compose/single/compose.yml",
   "deploy/pulumi/README.md",
+  "deploy/pulumi/single-common/index.ts",
 ]) {
   rewriteEvery(
     relative,

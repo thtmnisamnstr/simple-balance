@@ -5,11 +5,240 @@ keep, so upgrading is swapping it for a newer one.
 
 ## Before you upgrade to 0.1.7
 
-Nothing has landed for 0.1.7 yet, so there is nothing here to do. This heading
-exists because the suite asks for it: a note written as the work lands says what
-actually changed, and one written while a release is being cut says whatever the
-person cutting it can remember. An empty note and a missing one look identical
-from the outside, so the empty one is written down.
+**This heading is the next release's slot and its number is provisional.** The
+release being built is 0.2.0, and this heading is spelled 0.1.7 only because
+`tests/version.test.ts` asks for the next _patch_ of whatever `package.json`
+currently says. It is renamed when the version is set, which is the first act of
+cutting. The content below is what matters and is written as the work lands,
+because a note written while a release is being cut says whatever the person
+cutting it can remember.
+
+**Nothing about an existing configuration has to change, and the application
+refuses nothing 0.1.6 accepted.** Everything added is optional and off unless an
+operator sets it.
+
+**One exception, and it is not the application.** If you run
+`deploy/compose/compose.distributed.yml`, that recipe bundles its own PostgreSQL
+and this release moves it from 16 to 18. A PostgreSQL container cannot read the
+previous major version's data directory — it refuses to start and says so — so
+this one needs a hand before you pull. The procedure is below.
+
+### What runs automatically
+
+**Two migrations, and on almost every deployment only one of them does anything.**
+
+`0022_plans_and_billing.sql` is additive only: five new tables —
+`billing_customer`, `billing_subscription`, `billing_override`,
+`billing_operation` and `billing_webhook_event` — two new enum types, four
+foreign keys onto `auth_user` and one index. It alters no existing table, adds no
+column to one, and rewrites no rows, so it completes in the time it takes to
+create five empty tables however large your ledger is.
+
+`0023_citus_distribution.sql` **does nothing at all unless your database has the
+Citus extension installed**, which is the `ha` profile and nothing else. It is
+gated on that extension at the top and returns immediately without it, so a
+deployment on one PostgreSQL records it as run and keeps exactly the schema it
+had. A second gate stops it on a ledger that is already distributed and says so,
+which matters because the runbook invites you to run this file by hand. Verified in both directions, on PostgreSQL 15 and 18: twenty-four migrations
+recorded, the primary keys untouched, and every foreign key as it was.
+
+On a Citus cluster it is the substantial one. It rewrites fourteen primary keys to
+carry the owner, which rebuilds every index on them; drops five unique
+constraints the new key makes redundant; and moves the ledger's seventeen tables
+onto the workers while fourteen are replicated to every node. It runs as one
+transaction — it either distributes everything or changes nothing — and it takes
+a lock on `posting` for the duration. **Take a dump first**, and read
+`docs/citus-runbook.md` §Moving an existing database onto a cluster before you
+start, because a database that was already on this release when Citus arrived has
+this migration recorded and will not run it again.
+
+**And raise the startup budget before the first start**, which is the part that
+bites without explaining itself. The chart's startup probe allows five minutes; a
+migration that takes longer is killed mid-flight, rolls back, restarts and is
+killed again, forever, with each event looking like a slow start rather than a
+budget that is too small. `docs/citus-runbook.md` §Before the first start against
+a cluster has the one values change that prevents it.
+
+### What you must do by hand
+
+Nothing is required. A deployment that sets none of the new variables sells
+nothing, limits nobody, shows no advertising, and opens no connection to Stripe
+— which is what an untouched `.env` keeps doing.
+
+**If you run `deploy/compose/compose.distributed.yml`, move its database to
+PostgreSQL 18 before you pull.** This does not apply to the single container, to
+the `single` profile, or to anyone pointing `DATABASE_URL` at a database they run
+themselves — those connect to whatever you already have, and the floor is still
+PostgreSQL 15. It applies to the one recipe that ships a `postgres` service.
+
+Two things changed in it: the image is `postgres:18`, and the data volume is
+mounted at `/var/lib/postgresql` rather than `/var/lib/postgresql/data`, because
+PostgreSQL 18's image moved `PGDATA` into a versioned subdirectory. Starting 18
+against the old mount point fails immediately with a message naming both facts,
+which is the good failure — nothing starts empty and nothing is overwritten.
+
+Dump, recreate, restore:
+
+```sh
+cd deploy/compose
+# 1. With the OLD compose file still checked out, take a dump. `-T` matters:
+#    without it compose allocates a TTY and the dump arrives corrupted.
+docker compose exec -T postgres \
+  pg_dump -U simple_balance -Fc simple_balance > simple-balance-16.dump
+
+# 2. Check the dump BEFORE destroying anything. A failed pg_dump still leaves a
+#    file behind, and the next step is irreversible. This lists the objects in
+#    the archive and exits non-zero if it cannot read it.
+pg_restore --list simple-balance-16.dump > /dev/null && \
+  echo "dump OK: $(wc -c < simple-balance-16.dump) bytes"
+#    No pg_restore on the host? Ask the new image instead:
+#    docker run --rm -i postgres:18 pg_restore --list < simple-balance-16.dump >/dev/null
+
+# 3. Stop everything and discard the old data directory. `postgres-data` is the
+#    only volume this file declares, so -v takes that and nothing else. Do not
+#    run this until step 2 printed OK.
+docker compose down -v
+
+# 4. Pull this release, which brings up an empty PostgreSQL 18.
+git pull && docker compose up -d postgres
+#    `-h 127.0.0.1` matters here as much as `-T` did above: the entrypoint runs a
+#    temporary server while it initialises, and that one answers on the unix
+#    socket alone. Without it this loop finishes against a server about to be
+#    replaced, and the restore below meets `the database system is shutting down`.
+until docker compose exec -T postgres \
+  pg_isready -h 127.0.0.1 -U simple_balance -d simple_balance
+do sleep 1; done
+
+# 5. Restore.
+docker compose exec -T postgres \
+  pg_restore -U simple_balance -d simple_balance --clean --if-exists \
+  < simple-balance-16.dump
+
+# 6. Bring the rest up. Migrations run at startup as they always do.
+docker compose up -d
+```
+
+Keep the dump until you have signed in and seen your balances. `docs/upgrades.md`
+§Rolling back applies unchanged: going back means restoring that dump into a
+PostgreSQL 16 container, because 16 cannot read an 18 data directory either.
+
+**`pg_dump` rather than `pg_upgrade --link`**, and the reason is collation. The
+old image was `postgres:16-alpine`, which is musl, and the new one is Debian,
+which is glibc; the two do not sort text the same way, and this product compares
+normalized category and payee names with the database's collation.
+`pg_upgrade` carries indexes across as bytes, so a `--link` upgrade would leave
+every text index sorted under the old library and a uniqueness check quietly
+reading the wrong page. A dump and restore rebuilds them under the collation the
+new server actually has. If you would rather stay where you are, pin
+`image: postgres:16-alpine` and the old mount path in your own copy of the file;
+nothing in this release requires 18.
+
+**One thing is worth doing, if you run the split containers behind anything
+that terminates TLS**, which under Kubernetes is always. Set
+`SB_TRUSTED_PROXY_CIDR` on the frontend — `frontend.trustedProxyCidr` in the
+chart — to the range that terminator connects from.
+
+Without it the frontend tells the API that every request came from the
+terminator, so with `TRUST_PROXY` on, every sign-in attempt in the deployment
+counts against one allowance and four wrong passwords from anywhere lock out
+everybody else. That has been true since 0.1.0; what is new is that it can now
+be fixed with a setting instead of by editing the nginx template and rebuilding
+the image. The chart prints a warning while it is unset and `config.trustProxy`
+is on.
+
+Name the terminator's range and nothing wider. This decides whose word is taken
+for a visitor's address, so a range that includes callers lets a caller choose
+their own. `docs/deployment-profiles.md` has the reasoning and the measurement.
+
+**Two new deployment profiles exist, and neither is anything you have to do.**
+`vps` is a machine per service with the database among them
+(`deploy/compose/vps/`); `ha` is a Kubernetes cluster whose database is sharded
+with Citus (`deploy/helm/`, with `database.enabled`). Both are new shapes rather
+than changes to yours: the chart still expects a `DATABASE_URL` you supply unless
+you ask it for a database, and it refuses to render if you set both.
+`docs/deployment-profiles.md` compares the three and says plainly that `single`
+is still the one to pick unless you have a reason.
+
+### What changed under you
+
+The bundled PostgreSQL in `deploy/compose/compose.distributed.yml` moved from 16
+to 18, which is the one change in this release that an operator cannot ignore;
+everything else here is opt-in. `docs/deployment-profiles.md` has the reasoning,
+and the short version is that where a deployment owns its database it runs the
+newest version the `ha` cluster can also run.
+
+Otherwise nothing, unless you opt in. `SB_TRUSTED_PROXY_CIDR` defaults to `127.0.0.1`,
+which is the off position rather than a trusted range — nothing reaches the
+container from loopback — so a deployment that sets nothing behaves exactly as
+it did before the setting existed. Two new settings groups exist and both default to
+absent: the five `STRIPE_*` settings with `SB_BILLING_ENABLED`, and the
+`ADSENSE_*` settings. `docs/monetization.md` has the table of what each
+combination turns on. Two names join the seven that already take a `_FILE` form,
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, taking that list to nine.
+
+**The split deployment has two new frontend settings**, and they are the ones
+easiest to miss because they are not in either `.env.example`: nginx serves the
+application shell in that shape, so it — not the API — decides the content
+security policy each page arrives with. `SB_BILLING_CONFIGURED` and
+`SB_ADS_CONFIGURED` default to false, which is exactly today's behaviour. Set
+Stripe on the server without the first and the plan tab opens with no card
+fields; set AdSense without the second and no ad renders. The compose recipe
+derives both from settings you are already providing, so only a hand-assembled
+deployment or the Helm chart needs them set by hand. `docs/deployment.md` lists
+all six frontend settings.
+
+**If you do turn advertising on**, know what the policy costs before you do.
+AdSense publishes no list of the hosts it loads from, so every page but the plan
+tab then allows scripts, frames, styles, fonts and connections to any HTTPS
+origin, plus `unsafe-eval`. Ads are never shown to a paying account, never on
+the plan and billing tab, never on sign-in and never on paper, and the publisher
+id is the only identifier of yours that leaves — but the address of the page an
+ad sits on goes to Google too, and this app's addresses name records.
+`docs/monetization.md` says what is yours to do at Google.
+
+**If you do turn billing on**, `docs/billing-operations.md` is the page to read
+first: granting a plan by hand, what a refund does and does not change, what
+`SB_BILLING_ENABLED=false` stops and what it deliberately does not, and the
+order to shut billing down in.
+
+The one thing worth knowing in advance: an
+account that already holds more than three financial accounts keeps every one of
+them. Nothing is archived, hidden or deleted, and imports and edits go on
+working. Only creating another is refused, and the refusal says how many were
+counted.
+
+### What to check afterwards
+
+`docs/capacity.md` is new and changes nothing about an upgrade, but it is the
+answer to the question an operator asks before a big import or a second
+household: one machine of the smallest size the `single` profile sells holds ten
+thousand ledgers and thirty million transactions inside the stated times.
+`scripts/capacity/README.md` reproduces it against your own hardware.
+
+
+
+`/health/ready`, as with any upgrade. If you set the Stripe or AdSense
+variables, the process refuses to start on a half-configured pair and names the
+missing half, so a clean start is itself the check.
+
+If you turned billing on, three more. `SB_CSP_REPORT_ONLY=true` is worth one
+pass before you rely on the plan tab: it makes that page report what its content
+security policy would have blocked instead of blocking it, so a host Stripe
+reaches and does not document shows up in your log rather than as a payment form
+that will not load. Turn it off again — the process warns at every start while
+it is on.
+
+Then two more. Open `/settings/plan` and confirm the two
+prices show the figures you set in Stripe — they are read from Stripe rather than
+from your settings, so a blank there means this deployment could not reach it.
+And point a Stripe webhook endpoint at
+`https://your-host/api/billing/webhook`, subscribed to the event types
+`docs/deployment.md` lists — the selection is Stripe's and this deployment
+cannot see what you chose, so an endpoint subscribed to the wrong set fails
+silently. A test delivery answering `200` with `{"received": true}` means the
+signature verified; it does not mean the subscription is right, because that is
+also what an event with no opinion returns. A `404` there means the `STRIPE_*` settings did not reach
+the container, because the route is registered only when they did.
 
 ## Before you upgrade to 0.1.6
 
@@ -56,8 +285,7 @@ release that refuses it is a later one.
 `POST /accounts/{id}/archive` is now `/archived`, `POST /categories/{id}/archive`
 is now `/archived`, `POST /staged-transactions/delete` is now `/bulk-delete`, and
 `GET /staged/{id}/duplicate` is now `/staged-transactions/{id}/duplicate`. The old
-paths carry `Deprecation` and `Sunset` headers and stop answering after 1 March
-2027. Nothing you run needs changing today; a browser tab left open across the
+paths carry `Deprecation` and `Sunset` headers and stop answering after 1 March 2027. Nothing you run needs changing today; a browser tab left open across the
 upgrade keeps working.
 
 **An agent's arguments are checked more strictly.** Every MCP tool now declares a
@@ -81,7 +309,7 @@ defaults to zero, which means forever — exactly what every release before this
 one did. Nothing about your data changes on upgrade. Set it if the table has
 grown: every create, commit and bulk write stores a copy of its response there,
 and on a busy deployment it outgrows the ledger it protects. It is safe to set
-because the record makes a retry *quiet* rather than safe — a repeated create
+because the record makes a retry _quiet_ rather than safe — a repeated create
 still meets the duplicate check, a repeated commit finds its rows already
 committed, and a repeated bulk write still carries a count and fingerprint that
 no longer match. The sweep rides the recurrence scheduler's tick, so it needs
@@ -170,12 +398,12 @@ deliberate: all three were ways a deployment could look fine while running with
 protections silently off. Check these before you swap the image, because the
 container will not start and will not tell you until it has.
 
-| If your configuration has | 0.1.4 does | What to do |
-| --- | --- | --- |
-| `AUTH_SECRET` still set to the placeholder `.env.example` shipped | Refuses to start, naming the variable | Generate one: `openssl rand -base64 32` |
-| `NODE_ENV` set to anything but `production`, `development` or `test`, empty included | Refuses to start | Set `NODE_ENV=production`. The images already do. |
-| `NODE_ENV` unset | Reads as `development`, so the setup code, sign-in rate limiting and secure cookies are all off | Set `NODE_ENV=production`. Unset is the one value that does not announce itself, which is what the row below catches. |
-| `NODE_ENV` not `production` while `APP_BASE_URL` names anything but localhost | Refuses to start | Set `NODE_ENV=production`, and give `APP_BASE_URL` the HTTPS origin your proxy terminates |
+| If your configuration has                                                            | 0.1.4 does                                                                                      | What to do                                                                                                            |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_SECRET` still set to the placeholder `.env.example` shipped                    | Refuses to start, naming the variable                                                           | Generate one: `openssl rand -base64 32`                                                                               |
+| `NODE_ENV` set to anything but `production`, `development` or `test`, empty included | Refuses to start                                                                                | Set `NODE_ENV=production`. The images already do.                                                                     |
+| `NODE_ENV` unset                                                                     | Reads as `development`, so the setup code, sign-in rate limiting and secure cookies are all off | Set `NODE_ENV=production`. Unset is the one value that does not announce itself, which is what the row below catches. |
+| `NODE_ENV` not `production` while `APP_BASE_URL` names anything but localhost        | Refuses to start                                                                                | Set `NODE_ENV=production`, and give `APP_BASE_URL` the HTTPS origin your proxy terminates                             |
 
 **Replacing `AUTH_SECRET` signs everybody out** and disconnects every MCP
 client, because sessions are signed with it. Everyone signs in again with the
@@ -210,6 +438,7 @@ nothing at all.
 
    Let PostgreSQL handle the password through `~/.pgpass` or the environment
    rather than typing it into a shell that remembers it.
+
 3. Pull the image by its version tag, not `latest`, so you know what you are
    getting.
 4. Stop and remove the application container. Leave PostgreSQL running.
@@ -232,7 +461,47 @@ release you moved to says otherwise.
 
 This is the reason step 2 is not optional.
 
+### Rolling back from 0.2.0
+
+Three of this release's changes decide how far back you can go, and they are
+different for each profile. The short version: **on `single` and `vps` a
+rollback is the ordinary restore above; on `ha` it is not a rollback at all.**
+
+**`single` and `vps`.** `0022` is additive — five tables the older image does not
+read — so 0.1.6 runs against a 0.2.0 schema unchanged. `0023` did nothing on
+these profiles. You can put the older image back without restoring anything, and
+the five billing tables sit unread until you upgrade again. The one thing to
+undo separately is the compose recipe's PostgreSQL version if you moved it: a
+16-series container cannot read an 18-series data directory either, so going back
+there is a dump and a restore in the other direction.
+
+**`ha` cannot be rolled back to 0.1.6 by putting the old image back**, and this
+is the one worth knowing before you distribute anything. `0023` widens fourteen
+primary keys to carry the owner, and PostgreSQL then refuses a `GROUP BY` that
+names only part of a key while the select list reads other columns — which is
+what 0.1.6's balances, register, dashboard, category-group and import-batch
+queries all do. They were corrected in this release precisely so the widened key
+would be safe, and the older image does not have those corrections. It will
+start, pass its health check, and fail those five reads.
+
+So rolling back an `ha` deployment means restoring a dump taken before the
+cluster into a single PostgreSQL and running 0.1.6 against that. **Take that dump
+before you distribute**, not after: once the keys are widened, every dump you
+take carries the widened schema.
+
+**Stripe is outside all of this.** A subscription that exists at Stripe goes on
+existing after a rollback, and 0.1.6 has no code that knows about it — nobody is
+charged differently, and nothing is lost, but the deployment stops reflecting
+what Stripe thinks. If the rollback is permanent, cancel the subscriptions at
+Stripe rather than leaving them to renew against a product that no longer reads
+them.
+
 ## Cutting a release
+
+`docs/acceptance.md` is the list of what this release claims and what closes
+each claim, with a second table of what is outstanding. Read that before the
+steps below: three of its open rows are gates that no amount of work in this
+repository closes.
 
 1. `npm run set-version 0.2.0`, which sets the version everywhere it has to
    agree: the three manifests and their three lockfiles, all four Dockerfiles'
@@ -245,7 +514,7 @@ This is the reason step 2 is not optional.
    this file, which should already be written: what runs automatically, what an
    operator has to do by hand, what changed under them, and what to check
    afterwards. Write it as the work lands rather than here — the suite asks for
-   the *next* version's note as well as this one's, so a release whose note was
+   the _next_ version's note as well as this one's, so a release whose note was
    left to the last minute has already been failing. Write it even when the
    answer is that nothing changed, because a missing heading and an unwritten
    note look the same from the outside.

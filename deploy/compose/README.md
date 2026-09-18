@@ -19,6 +19,14 @@ This is the shape `deploy/helm/simple-balance/` deploys, without Kubernetes. One
 container is still the supported way to run this in production; see
 [docs/deployment.md](../../docs/deployment.md).
 
+**This is not the `single` profile.** It runs the split containers on one
+machine to exercise the shape the Helm chart deploys, with a bundled
+PostgreSQL for convenience. For a deployment somebody's books live on — one
+container, a tuned database, TLS, backups and a systemd unit — read
+[`single/README.md`](single/README.md), and
+[`docs/deployment-profiles.md`](../../docs/deployment-profiles.md) for which
+of the two to pick.
+
 ## Bring it up
 
 ```sh

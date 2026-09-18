@@ -510,6 +510,22 @@ a {
   cursor: pointer;
 }
 
+/* The privacy link in the sidebar foot. Quiet by default: it is a thing
+   somebody looks for rather than a thing that should compete with the
+   navigation, and it sits beside the two icon buttons rather than in the
+   nav list because it leaves the application. */
+.privacy-link {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.privacy-link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 .sign-out:hover,
 .theme-toggle:hover,
 .mobile-close:hover,
@@ -3274,6 +3290,57 @@ input[type="radio"] {
   background: var(--green-soft);
   color: var(--green-dark);
 }
+/* The Settings section strip. Same visual language as the reports picker, and
+   deliberately not the same class: these are plain anchors that reload the
+   document, because the two pages are served under different content security
+   policies, and a shared class would invite somebody to swap one for the other.
+
+   `page-stack.test.ts` has both names registered as shared, since Settings and
+   the plan tab are two pages of one section rather than two unrelated screens. */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-tab {
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 99px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 620;
+  text-decoration: none;
+}
+
+.settings-tab:hover {
+  color: var(--ink);
+}
+
+.settings-tab.is-current {
+  border-color: transparent;
+  background: var(--green-soft);
+  color: var(--green-dark);
+}
+
+/* An ad, and the box it is allowed to occupy.
+
+   No fixed height and no reserved space. The usual argument for reserving is
+   layout shift, and it does not apply the same way here: these slots sit below
+   the page content rather than above it, so an ad arriving late pushes nothing
+   somebody is reading. Reserving would instead leave a permanent empty band on
+   every page for every subscriber — the people who paid for it not to be there
+   — because the component renders `null` for them and a reserved box cannot
+   tell the difference.
+
+   No vertical margin, because 7.4: the distance between two blocks in the page
+   stack is the container's to decide, and `.main-column` already sets it. */
+.ad-slot {
+  overflow: hidden;
+  max-width: 100%;
+}
+
 
 .chart-figure {
   margin: 0 0 12px;
@@ -3982,5 +4049,21 @@ polyline.chart-line {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Nothing advertising survives onto paper.
+
+   `docs/monetization.md` promises no ads in a print view, and until this rule
+   existed that promise was kept by nothing at all — there was no print
+   stylesheet in the file. A statement of accounts that a person prints or saves
+   as a PDF is a record they may keep for years and hand to somebody else, and
+   an advertisement embedded in one is not a thing this product does.
+
+   Last in the file, after the responsive blocks, because `tests/styles-order.test.ts`
+   requires media queries at the end and this is one. */
+@media print {
+  .ad-slot {
+    display: none;
   }
 }

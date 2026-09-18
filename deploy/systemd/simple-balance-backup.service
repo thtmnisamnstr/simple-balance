@@ -1,0 +1,19 @@
+# One dump. Started by simple-balance-backup.timer, and by hand with
+# `sudo systemctl start simple-balance-backup.service`.
+[Unit]
+Description=Back up the Simple Balance ledger
+Documentation=https://github.com/thtmnisamnstr/simple-balance/blob/main/docs/deployment-profiles.md
+
+# The dump is taken through the running containers, so there is nothing to do
+# while they are not running. Not Requires=: a backup that fails because the
+# deployment is deliberately stopped should be a failed backup, not a reason to
+# start the deployment.
+After=simple-balance.service
+BindsTo=simple-balance.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/simple-balance
+ExecStart=/usr/local/bin/simple-balance-backup
+# pg_dump of a large ledger, on a small machine, over a compressed stream.
+TimeoutStartSec=3600

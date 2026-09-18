@@ -6,6 +6,8 @@ import {
 } from "../shared/progress.js";
 import type {
   ActorSource,
+  BillingInterval,
+  Entitlement,
   UserAccountType,
   CategoryKind,
   PaginatedPage,
@@ -234,6 +236,83 @@ export type Session = {
   user: { id: string; name: string; email: string; image?: string | null };
   preferences: Preferences;
   auth: UserAuthState;
+  /**
+   * Optional because the frontend and the server are separate containers in the
+   * split deployment, and a rolling update briefly serves this bundle against a
+   * server from the release before it. Absent reads as "this deployment sells
+   * nothing", which is what every 0.1.x server means by not sending it.
+   */
+  plan?: PlanSummary;
+  /**
+   * What to render an ad from, and absent whenever nothing should be rendered.
+   *
+   * The server decides. A subscriber's session carries no `ads`, so this page
+   * has nothing to build a slot from rather than a rule it has to apply
+   * correctly — which means the failure mode of every bug in this area is "no
+   * ad shown", not "an ad shown to somebody who paid not to see one".
+   *
+   * Optional for the same reason `plan` is: a rolling update briefly serves
+   * this bundle against a server from the release before it, and absent has to
+   * read as "no ads" there too.
+   */
+  ads?: AdPlacement | null;
+};
+
+/** The publisher and slot ids, as the deployment configured them. */
+export type AdPlacement = {
+  clientId: string;
+  bannerSlotId: string;
+  footerSlotId?: string;
+  consentManaged: boolean;
+};
+
+/**
+ * What this person's plan allows, and how much of it they have used.
+ *
+ * `accountsUsed` is null wherever there is no limit to measure against — a
+ * deployment selling nothing, or somebody on the paid plan — so a screen that
+ * has a number always has a limit to compare it with.
+ */
+export type PlanSummary = {
+  entitlement: Entitlement;
+  accountsUsed: number | null;
+};
+
+/**
+ * What the plan tab reads, in one request.
+ *
+ * The amounts come from Stripe rather than from this deployment's settings,
+ * which hold ids and no figures: an amount copied into configuration is a second
+ * place for the price to live and the one that does not get charged. Both may be
+ * null when Stripe could not be reached, and the tab still renders — somebody
+ * whose card expired has to reach the payment form whether or not Stripe can
+ * say what a year costs today.
+ */
+export type BillingStatus = {
+  selling: boolean;
+  publishableKey: string;
+  prices: {
+    monthly: { id: string; unitAmount: number | null; currency: string } | null;
+    yearly: { id: string; unitAmount: number | null; currency: string } | null;
+  };
+  entitlement: Entitlement;
+  accountsUsed: number | null;
+  subscription: {
+    status: string;
+    interval: BillingInterval | null;
+    currentPeriodEnd: string | null;
+    cancelAtPeriodEnd: boolean;
+    pastDueSince: string | null;
+    scheduledInterval: BillingInterval | null;
+    scheduledAt: string | null;
+  } | null;
+  override: { plan: string; expiresAt: string | null } | null;
+};
+
+export type SubscriptionResult = {
+  subscriptionId: string;
+  clientSecret: string | null;
+  status: string;
 };
 
 export type { AuthMode };
@@ -250,6 +329,11 @@ export type AuthPublicOptions = {
   passwordResetAvailable: boolean;
   /** Whether this deployment can send mail at all, so reminders can arrive. */
   notificationsAvailable: boolean;
+  /** Whether this deployment sells a plan, and whether it serves ads. */
+  billingAvailable: boolean;
+  adsAvailable: boolean;
+  /** Absent where the deployment has no privacy policy configured. */
+  privacyPolicyUrl?: string;
   emailVerificationRequired: boolean;
   minimumPasswordLength: number;
 };

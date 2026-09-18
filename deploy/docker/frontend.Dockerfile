@@ -52,6 +52,36 @@ ENV SB_API_ORIGIN=http://simple-balance-server:3000
 # routes at CSV_MAX_BYTES x 6 plus 64 KiB for worst-case escaping. 12m was under
 # that, so nginx refused bodies the server behind it would have taken.
 ENV SB_MAX_UPLOAD_SIZE=61m
+# Whether this deployment has Stripe configured at all. nginx needs to know
+# because the plan tab is the one page it serves under a wider content security
+# policy — Stripe's payment form loads a script and an iframe from Stripe — and
+# a deployment with no Stripe must go on serving that path under the strict
+# policy like every other page.
+#
+# Configured, not selling. An operator winding down sets SB_BILLING_ENABLED=false
+# and keeps the Stripe settings, and their subscribers still need to replace an
+# expired card on that page. Default false, so an operator who never set it gets
+# today's behaviour exactly.
+ENV SB_BILLING_CONFIGURED=false
+# Whether the plan tab reports its content security policy instead of enforcing
+# it. A default here is not optional decoration: the template references
+# ${SB_CSP_REPORT_ONLY} in a `map`, and envsubst leaves an unset name as the
+# literal text — which nginx then reads as an unknown variable and refuses to
+# start at all. Every SB_ name the template mentions needs a default in this
+# file for that reason.
+ENV SB_CSP_REPORT_ONLY=false
+# Whether this deployment serves advertising. nginx serves every document in
+# this shape, so it decides the policy they arrive with, and AdSense needs a
+# materially wider one. Default false: a deployment that configured no AdSense
+# ids gets exactly the policy this image has always served.
+ENV SB_ADS_CONFIGURED=false
+# Which addresses may tell this nginx where a request really came from, so that
+# `$remote_addr` is the visitor rather than whatever terminated TLS in front.
+# One CIDR, and it is the proxy's own range: name the visitors' range instead
+# and a caller writes their own X-Forwarded-For. Loopback is the off position —
+# nothing reaches this container from 127.0.0.1 — and it is a value rather than
+# an empty string because `set_real_ip_from ;` refuses to start.
+ENV SB_TRUSTED_PROXY_CIDR=127.0.0.1
 # Only SB_ names are substituted, so nginx's own $host and $remote_addr are not
 # blanked out by an envsubst pass that does not know the difference.
 ENV NGINX_ENVSUBST_FILTER=^SB_
@@ -63,6 +93,7 @@ COPY deploy/docker/nginx.conf.template /etc/nginx/templates/default.conf.templat
 # everything in there, and outside /etc/nginx/conf.d, which the main config
 # includes into http{} where a location-scoped directive is a syntax error.
 COPY deploy/docker/nginx-security-headers.conf /etc/nginx/snippets/security-headers.conf
+COPY deploy/docker/nginx-security-headers-plan.conf /etc/nginx/snippets/security-headers-plan.conf
 COPY --from=build /app/dist/client /usr/share/nginx/html
 COPY LICENSE /usr/share/licenses/simple-balance/
 EXPOSE 8080

@@ -1,6 +1,9 @@
-# Simple Balance on Kubernetes, with Pulumi
+# Simple Balance on a cloud, with Pulumi
 
-Two programs, one for AWS and one for GCP. Each builds a cluster, installs
+Four programs in two pairs, and the pairs stand up different things.
+
+**The `ha` profile**, on Kubernetes: `aws/` and `gcp/`. Two programs, one for
+AWS and one for GCP. Each builds a cluster, installs
 cert-manager and an ingress controller, and installs the chart in
 `deploy/helm/simple-balance`, which runs Simple Balance as the three workloads
 `deploy/docker/` builds: the API (which also serves MCP), the nginx frontend
@@ -12,19 +15,48 @@ configuration, refusing a plan that would open more database connections than
 the database allows, installing cert-manager with a Let's Encrypt ClusterIssuer,
 putting the credentials in a Secret, and installing the chart.
 
+**The `single` profile**, on one virtual machine: `aws-single/` and
+`oci-single/`. One EC2 instance or one Oracle Cloud compute instance running the
+application container, PostgreSQL and Caddy under systemd, with a separate data
+disk the ledger lives on. They share `single-common/`, which holds the sizing
+table both read and builds the cloud-init that turns a bare Ubuntu into the
+deployment — from the compose files and units in this repository rather than
+from a copy.
+
+`docs/deployment-profiles.md` compares the two profiles and is where the choice
+is argued. The short version: start with `single`.
+
+Four separate Pulumi projects, and that is deliberate rather than incidental.
+Putting the single-machine deployment inside the EKS program would put both in
+one stack, where a mistake in either is a `pulumi up` that can destroy the
+other — and where `pulumi destroy` on the thing you were finished with takes the
+thing you were not.
+
 ## What these do not do
 
-- **No database.** The database is bring your own. Nothing here provisions
-  PostgreSQL, and there is no in-cluster StatefulSet. You supply a
-  `DATABASE_URL` that the cluster can reach. RDS, Cloud SQL, or a server you
-  already run are all fine. If the database that URL names does not exist yet,
-  the connecting role needs `CREATEDB`.
-- **No backups.** Of anything, database included. Everything is in PostgreSQL,
-  so `pg_dump` backs up the product: see [docs/deployment.md](../../docs/deployment.md)
-  and [docs/upgrades.md](../../docs/upgrades.md). Take one before every upgrade.
-  Neither program will remind you.
-- **No DNS record.** Each program exports the address its load balancer answers
-  on, and you create the record. Nothing here owns a zone.
+Except where a line says otherwise, this applies to all four.
+
+- **No database, in the `ha` programs.** For `aws/` and `gcp/` the database is
+  bring your own: nothing there provisions PostgreSQL, there is no in-cluster
+  StatefulSet, and you supply a `DATABASE_URL` the cluster can reach. RDS, Cloud
+  SQL, or a server you already run are all fine. If the database that URL names
+  does not exist yet, the connecting role needs `CREATEDB`.
+
+  The two `single` programs are the exception and do run one, on the machine,
+  because a profile whose whole claim is one machine cannot send you elsewhere
+  for the only stateful thing in it.
+- **No backups, in the `ha` programs.** Everything is in PostgreSQL, so
+  `pg_dump` backs up the product: see
+  [docs/deployment.md](../../docs/deployment.md) and
+  [docs/upgrades.md](../../docs/upgrades.md). Take one before every upgrade;
+  neither program will remind you.
+
+  The `single` programs are again the exception: they install a systemd timer
+  that takes a daily dump onto the data disk and verifies it by reading it back.
+  That protects against a mistake and not against losing the disk, so copy them
+  somewhere else — see `deploy/compose/single/README.md`.
+- **No DNS record.** Every program exports the address to point a record at, and
+  you create the record. Nothing here owns a zone.
 - **No image builds.** The release workflow publishes all three beside the
   single container, on the same tags, so the programs pull them rather than
   build them:
@@ -79,13 +111,25 @@ deploy/pulumi/
   gcp/Pulumi.yaml       the simple-balance-gcp project
   gcp/index.ts          VPC, GKE, node pool, node auto-provisioning,
                         the GKE ingress, reserved addresses
+  single-common/index.ts  the sizing table, and the cloud-init both
+                        single-machine programs build from it
+  aws-single/Pulumi.yaml  the simple-balance-aws-single project
+  aws-single/index.ts   VPC, one subnet, security group, EBS data volume,
+                        Elastic IP, an instance role granting a shell
+                        through Session Manager rather than SSH
+  oci-single/Pulumi.yaml  the simple-balance-oci-single project
+  oci-single/index.ts   VCN, one subnet, security list, block volume,
+                        reserved public IP, an Ampere A1 shape
 ```
 
-They are two Pulumi projects with one `node_modules`, which is why `npm install`
-runs here rather than in `aws/` or `gcp/`.
+They are four Pulumi projects with one `node_modules`, which is why `npm install`
+runs here rather than in any of them.
 
-The chart is installed from a local path, so run these from a checkout of this
-repository. A copy of `deploy/pulumi/` on its own has no chart to install.
+The chart and the compose files are read from a local path, so run these from a
+checkout of this repository. A copy of `deploy/pulumi/` on its own has no chart
+to install and no deployment material to send to a machine — `single-common`
+says so by name rather than failing on a path three levels from anything
+recognisable.
 
 ```sh
 cd deploy/pulumi
@@ -94,8 +138,9 @@ npm install
 
 ## Configuration
 
-Both stacks read the same `simple-balance:` namespace, so a value means the
-same thing in either one.
+Every stack reads the same `simple-balance:` namespace, so a value means the
+same thing in any of them — though the two profiles read different keys, and the
+tables below say which.
 
 | Key | Required | Default | What it is |
 | --- | --- | --- | --- |
@@ -202,6 +247,97 @@ database that allows by source), `clusterName`, `namespace`, `kubeconfig`,
 pulumi stack output ingressIpAddress
 gcloud container clusters get-credentials "$(pulumi stack output clusterName)" --region "$(pulumi config get gcp:region)"
 ```
+
+## The single-machine stacks
+
+Different keys from the two above, because there is no cluster, no chart and no
+database URL to supply — the machine runs its own PostgreSQL.
+
+| Key | Required | Default | What it is |
+| --- | --- | --- | --- |
+| `hostname` | yes | | The public DNS name. A name and nothing else: no scheme, no port, no path. Caddy obtains a certificate for it, so it has to resolve to the machine before HTTPS works |
+| `size` | | `small` | `small`, `medium` or `large`. `docs/deployment-sizing.md` is the table, and it is the same table `single-common/index.ts` implements |
+| `acmeEmail` | | | Where Let's Encrypt writes about a renewal that failed. Optional to them and worth setting |
+| `allowedEmails` | | | Who may register. Empty admits nobody but the first account |
+| `sshCidr` | | | One IPv4 CIDR allowed to reach port 22. Unset means no SSH ingress at all, which is the default; AWS gives a shell through Session Manager without it, and OCI through the Bastion service. `0.0.0.0/0` is refused, and so is a CIDR with no `sshPublicKey` — an open port nothing can answer is a rule in a firewall and a debugging session about the wrong thing |
+| `sshPublicKey` | | | The contents of a `.pub` file. Refused if it looks like anything else, because a private key here would be a private key in your stack configuration. Allowed without `sshCidr`, which is how the OCI Bastion service reaches a machine that publishes no SSH port |
+| `imageTag` | | the release | Which image tag to deploy |
+| `imageRepository` | | `ghcr.io/thtmnisamnstr/simple-balance` | For a private mirror |
+| `timezone` | | `Etc/UTC` | The machine's clock. Not the application's — that is each person's own setting |
+| `backupKeep` | | `14` | How many daily dumps to retain on the data disk |
+| `compartmentOcid` | OCI only | | Which compartment to build in. OCI has no default and the root compartment is a poor choice, since policies cannot be scoped to it |
+
+There are deliberately **no secret keys here.** `AUTH_SECRET` is generated on the
+machine at first boot and kept on the data volume at `0600`, so it enters neither
+user data — which is readable by anyone who can describe the instance — nor
+Pulumi's state file. Nothing outside the machine needs it, and a rebuilt instance
+that reattaches the same volume finds the same one.
+
+**`DATABASE_URL` is not a setting here either, and that is the one worth
+expecting.** These programs build the `single` profile, whose database is
+somebody else's, so the connection string carries a password — and anything
+these programs put on the machine arrives as user data. The first boot therefore
+leaves the deployment enabled and stopped, with the instructions in `/etc/motd`:
+put `DATABASE_URL` in `/var/lib/simple-balance/env.local` and run
+`/usr/local/sbin/simple-balance-firstboot` again, which rebuilds the
+configuration and starts it. That script is written to be safe to re-run, which
+is what makes it a real instruction rather than a suggestion.
+
+Settings that genuinely come from outside — an SMTP password, a Stripe key — go
+in `/var/lib/simple-balance/env.local` on the machine, which is on the data
+volume rather than the boot disk and is folded into `.env` whenever the setup
+runs. `/opt` is destroyed when the instance is rebuilt; the data volume is not.
+
+```sh
+cd deploy/pulumi
+npm install
+
+# AWS
+pulumi -C aws-single stack init books
+pulumi -C aws-single config set aws:region us-west-2
+pulumi -C aws-single config set simple-balance:hostname books.example.com
+pulumi -C aws-single up
+
+# Oracle Cloud. The provider reads ~/.oci/config unless the oci: namespace
+# carries the credentials instead.
+pulumi -C oci-single stack init books
+pulumi -C oci-single config set oci:region us-ashburn-1
+pulumi -C oci-single config set simple-balance:compartmentOcid ocid1.compartment.oc1..xxxx
+pulumi -C oci-single config set simple-balance:hostname books.example.com
+pulumi -C oci-single up
+```
+
+Both print a `nextSteps` output saying what is left, which is the A record and
+finding the one-time setup code in the application's log. The certificate
+arrives on its own once the name resolves; Caddy keeps retrying until it does.
+
+**Replacing the machine keeps the ledger.** The data volume is a separate
+resource from the instance and is formatted only when it is not already a
+filesystem, so resizing — change `size`, deploy — destroys the root disk and
+leaves the database, the backups, the two generated secrets and `env.local`
+alone. Both programs pin the machine image with `ignoreChanges` for the opposite
+reason: without it a new Canonical build every few weeks would replace the
+instance on every `pulumi up`, which costs an outage nobody asked for.
+
+**But a second `pulumi up` does not reconfigure the machine.** Cloud-init runs
+once per instance, and neither program replaces the instance when the compose
+files, the units or the image tag change — deliberately, because an instance
+replacement on every edit is minutes of downtime and, on Oracle Cloud, a new
+address. These programs provision a machine; they do not keep managing it. Do it
+on the machine:
+
+```sh
+# An application upgrade.
+sudo $EDITOR /opt/simple-balance/compose.yml       # the pinned image tag
+sudo docker compose -f /opt/simple-balance/compose.yml pull
+sudo systemctl restart simple-balance
+
+# A setting.
+sudo $EDITOR /var/lib/simple-balance/env.local
+sudo systemctl restart simple-balance
+```
+
+Take a backup first either way: `sudo /usr/local/bin/simple-balance-backup`.
 
 ## After the first `pulumi up`
 

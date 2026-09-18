@@ -34,12 +34,22 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
   // real database, the loop's own guard would swallow the failure, and these
   // tests would pass while proving nothing about the third thing on the tick.
   const runIdempotencySweep = vi.fn(async () => ({ swept: 0, capped: false }));
+  // Stubbed for a fourth reason on top of the other two: the real sweep talks
+  // to Stripe. A test that reached it would be a test that needs an account.
+  const runBillingSweep = vi.fn(async () => ({
+    examined: 0,
+    written: 0,
+    failed: 0,
+    capped: false,
+    skipped: true,
+  }));
   const scheduler = createRecurrenceScheduler({
     enabled: true,
     tickSeconds: 60,
     runTick,
     runReminders,
     runIdempotencySweep,
+    runBillingSweep,
     schedule,
     jitter: () => 0,
     logger,
@@ -56,6 +66,7 @@ function schedulerHarness(options: Partial<RecurrenceSchedulerOptions> = {}) {
     runTick,
     runReminders,
     runIdempotencySweep,
+    runBillingSweep,
     schedule,
     scheduler,
   };
@@ -227,15 +238,20 @@ describe("the recurrence scheduler loop", () => {
         order.push("prune");
         return { swept: 0, capped: false };
       }),
+      runBillingSweep: vi.fn(async () => {
+        order.push("reconcile");
+        return { examined: 0, written: 0, failed: 0, capped: false, skipped: true };
+      }),
     });
 
     await harness.fireLast();
 
-    // Proposals, then reminders, then the prune. The order is the order
-    // somebody is waiting on: a recurrence that proposes and a template that
-    // reminds on one day arrive in that order, and nobody is waiting on the
-    // retention sweep at all — which is also why it goes last.
-    expect(order).toEqual(["propose", "remind", "prune"]);
+    // Proposals, then reminders, then the prune, then the billing sweep. The
+    // order is the order somebody is waiting on: a recurrence that proposes and
+    // a template that reminds on one day arrive in that order, nobody is
+    // waiting on the retention sweep, and the billing sweep goes last because
+    // it is the only one that depends on somebody else's server being up.
+    expect(order).toEqual(["propose", "remind", "prune", "reconcile"]);
   });
 
   /**
@@ -279,6 +295,51 @@ describe("the recurrence scheduler loop", () => {
     // an operator who turned retention on should see it working without
     // enabling metrics.
     expect(String(busy.logger.info.mock.calls.at(-1))).toContain("pruned 12 idempotency records");
+  });
+
+  /**
+   * And the fourth cannot stop the other three.
+   *
+   * This one is the likeliest of the four to fail, because it is the only one
+   * that depends on a server nobody here operates. A Stripe outage must cost
+   * the proposals, the reminders and the prune nothing at all.
+   */
+  it("keeps ticking when the billing sweep throws", async () => {
+    const harness = schedulerHarness({
+      runTick: vi.fn(async () => ({ ...nothing, capped: true })),
+      runBillingSweep: vi.fn(async () => {
+        throw new Error("Stripe is unreachable");
+      }),
+    });
+
+    await harness.fireLast();
+
+    expect(harness.logger.failure).toHaveBeenCalledWith(
+      "Billing reconciliation sweep failed",
+      expect.any(Error),
+    );
+    expect(harness.armed.at(-1)!.delay).toBe(0);
+  });
+
+  it("says how many subscriptions it re-read, and says nothing when it re-read none", async () => {
+    const quiet = schedulerHarness();
+    await quiet.fireLast();
+    expect(String(quiet.logger.debug.mock.calls.at(-1))).not.toContain("subscriptions");
+
+    const busy = schedulerHarness({
+      runBillingSweep: vi.fn(async () => ({
+        examined: 4,
+        written: 3,
+        failed: 1,
+        capped: false,
+        skipped: false,
+      })),
+    });
+    await busy.fireLast();
+    // Written plus failed, not examined: a sweep that read four rows and found
+    // all four already correct did nothing worth an operator's log line, and
+    // counting examined would make every tick on a selling deployment `info`.
+    expect(String(busy.logger.info.mock.calls.at(-1))).toContain("re-read 4 subscriptions");
   });
 
   /**

@@ -56,11 +56,11 @@ than exempting the labels we add ourselves.
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (`src/server/api.ts:256-263`) reads Hono's matched
+one per account. `routeLabel` (`src/server/api.ts:315-322`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labelled by its prefix from a fixed list
-(`:254`), and a path that matched nothing at all is one literal, because a
+(`:313`), and a path that matched nothing at all is one literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
 *Checked by:* `tests/metrics.test.ts`, which asks for `/api/v1/accounts/<uuid>`
@@ -71,7 +71,7 @@ paths and insists both land under one name.
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(`src/server/api.ts:266`) — registered rather than refusing, so a deployment
+(`src/server/api.ts:325`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labelled increment costs about 130ns and does
@@ -131,8 +131,8 @@ produce refusals, is where the label itself is checked.
 ### 1.7 Instrument the seam, not the call sites
 
 **House.** Seventy-six tools are timed and counted by wrapping `registerTool`
-once (`src/server/mcp.ts:610`), and every HTTP request by one middleware
-mounted above everything, including the guards (`src/server/api.ts:204`). Both
+once (`src/server/mcp.ts:611`), and every HTTP request by one middleware
+mounted above everything, including the guards (`src/server/api.ts:263`). Both
 are chosen so a tool or a route added tomorrow is instrumented by existing
 rather than by somebody remembering.
 
@@ -189,7 +189,7 @@ because an exception nobody needs any more proves nothing.
 | `error` | Something failed. | A tick that threw, a relay that refused, a query that failed. |
 
 The split that matters is `debug` against `info`, and the scheduler is the case
-that defines it (`src/server/recurrence-scheduler.ts:186-195`): a tick that
+that defines it (`src/server/recurrence-scheduler.ts:219-235`): a tick that
 proposed a row, sent a reminder or failed at either is `info`, and a tick that
 found nothing due is `debug`. Most ticks find nothing, and an `info` line every
 five minutes saying so is how a log stops being read.
@@ -228,10 +228,10 @@ The four sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (`src/server/api.ts:229`) and never the query string, because a filter carries
+  (`src/server/api.ts:288`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
-  (`src/server/mcp.ts:636`) and never the arguments, which are somebody's ledger
+  (`src/server/mcp.ts:637`) and never the arguments, which are somebody's ledger
   by definition.
 - **A message** logs `message.about` — "the password reset", "the reminder" —
   and never the recipient or the subject (`src/server/mail.ts:174`, `:180`), and
@@ -282,7 +282,7 @@ adds tomorrow carries something it should not is still review.
 `configuredRecurrenceTickSeconds` runs on every scheduler tick, so a
 misconfigured `RECURRENCE_TICK_SECONDS` would otherwise fill a log with one
 mistake (`src/server/config-limits.ts:75`, and `warnOnce` at
-`src/server/config-files.ts:64`).
+`src/server/config-files.ts:79`).
 
 ### 2.6 A recovered failure is logged, never swallowed
 
@@ -295,7 +295,7 @@ was designed to avoid in the first place.
 
 An empty `catch` is for a case where nothing went wrong, and it says which in a
 comment. There are two in `src/server`, both cancelling a request body the peer
-may have closed already (`src/server/http-security.ts:147` and `:631`), and both
+may have closed already (`src/server/http-security.ts:424` and `:908`), and both
 carry that sentence.
 
 *Checked by:* `tests/log-level.test.ts`, which finds every `catch` whose body is
@@ -313,7 +313,7 @@ oversight, which is the difference that matters when a failure disappears.
   counted in the service, because both transports call the same service and a
   count in one of them is a count of half the product.
 - A process fact — pool depth, heap, event loop lag — is a gauge with a
-  `collect()` that reads what already exists (`src/server/metrics.ts:223-237`),
+  `collect()` that reads what already exists (`src/server/metrics.ts:274-288`),
   never a poller of its own.
 
 The pool gauge shows what "reads what already exists" is protecting: it holds

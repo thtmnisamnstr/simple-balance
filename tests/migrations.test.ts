@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -162,6 +163,68 @@ describe("migration baseline", () => {
     }
     // A NOT NULL column with no default would rewrite the whole table.
     expect(sql).not.toMatch(/ADD COLUMN(?!.*DEFAULT).*NOT NULL/i);
+  });
+
+  /**
+   * 0022 is the same shape as 0007 and 0008 — five tables the rest of the
+   * product does not read yet — which is precisely when a migration slips
+   * through unasserted. It is also the only migration on disk that has not
+   * shipped, so it is the only one these assertions can still change rather
+   * than merely describe.
+   */
+  it("adds the billing tables as pure additions, and cascades all but one", async () => {
+    const sql = await readFile(path.join(migrationDirectory, "0022_plans_and_billing.sql"), "utf8");
+    for (const forbidden of [
+      /\bDROP\b/i,
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /^\s*INSERT\s/im,
+      /\bALTER COLUMN\b/i,
+    ]) {
+      expect(sql, forbidden.source).not.toMatch(forbidden);
+    }
+    // No column is added to a table that already exists, so nothing this
+    // migration does can rewrite a row of somebody's ledger.
+    expect(sql).not.toMatch(/ADD COLUMN/i);
+
+    for (const table of [
+      "billing_customer",
+      "billing_subscription",
+      "billing_override",
+      "billing_operation",
+      "billing_webhook_event",
+    ]) {
+      expect(sql, table).toContain(`CREATE TABLE "${table}"`);
+    }
+
+    // Four of the five carry somebody's data and cascade from auth_user, which
+    // is what makes deleting an account one delete of one row.
+    const cascades = [
+      ...sql.matchAll(/ALTER TABLE "(billing_\w+)" ADD CONSTRAINT[^;]*ON DELETE cascade/g),
+    ]
+      .map((match) => match[1])
+      .sort();
+    expect(cascades).toEqual([
+      "billing_customer",
+      "billing_operation",
+      "billing_override",
+      "billing_subscription",
+    ]);
+    // The fifth deliberately does not: it records which Stripe deliveries have
+    // been answered, which is the deployment's fact rather than any person's,
+    // and cascading it would let a retry be handled twice after an account goes.
+    expect(sql).not.toMatch(/ALTER TABLE "billing_webhook_event" ADD CONSTRAINT/);
+    // One index, and it is the one the reconciliation sweep reads by: staleness,
+    // ordered by staleness, fifty at a time. Without it that query scans the
+    // whole table and sorts it every tick, whether or not anything is due.
+    expect(sql).toContain(
+      'CREATE INDEX "billing_subscription_synced_at_idx" ON "billing_subscription"',
+    );
+    // And none on the delivery log, which is read by primary key alone. An
+    // earlier draft indexed its `created_at` for a retention sweep that was
+    // never written, so the index had no reader and cost a write on the webhook
+    // hot path for nothing.
+    expect(sql).not.toContain('ON "billing_webhook_event"');
   });
 
   /**
@@ -343,5 +406,48 @@ describe("migration baseline", () => {
     // The new enum value must not be used in the same migration that adds it.
     const afterEnum = sql.slice(sql.indexOf("ADD VALUE 'schedule'"));
     expect(afterEnum).not.toMatch(/'schedule'::/);
+  });
+});
+
+/**
+ * `0023` is the one migration that decides for itself whether to do anything.
+ *
+ * Its two gates are load-bearing in different directions. The first keeps it
+ * harmless on the `single` and `vps` profiles, which have no Citus and for which
+ * every statement in the file is meaningless or destructive. The second keeps it
+ * harmless on a second run — `docs/citus-runbook.md` tells an operator to feed
+ * this file to psql by hand, which is the supported way to move an existing
+ * database onto a cluster, and without that gate a second run fails on the first
+ * statement whose work is already done.
+ *
+ * Neither can be exercised here: CI has no Citus. So this holds the structure
+ * rather than the behaviour, which is worth saying out loud — a gate deleted
+ * from the file is caught, a gate that stops working is not.
+ */
+describe("the Citus migration decides whether to run", () => {
+  const sql = readFileSync(
+    new URL("../drizzle/0023_citus_distribution.sql", import.meta.url),
+    "utf8",
+  );
+
+  it("does nothing without the extension", () => {
+    expect(sql).toMatch(
+      /IF NOT EXISTS \(SELECT 1 FROM pg_extension WHERE extname = 'citus'\) THEN\s+RETURN;/,
+    );
+  });
+
+  it("does nothing on a ledger that is already distributed", () => {
+    expect(sql).toMatch(/IF EXISTS \(SELECT 1 FROM pg_dist_partition\) THEN/);
+    // And says so, rather than returning in silence: an operator who ran it by
+    // hand needs to know the difference between "done already" and "did nothing
+    // because the gate above stopped it".
+    expect(sql).toContain("RAISE NOTICE");
+  });
+
+  it("runs both gates before any statement that changes anything", () => {
+    const firstChange = sql.search(/^\s*execute '/m);
+    expect(firstChange).toBeGreaterThan(-1);
+    expect(sql.indexOf("pg_extension")).toBeLessThan(firstChange);
+    expect(sql.indexOf("pg_dist_partition")).toBeLessThan(firstChange);
   });
 });

@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 82 | `npm test` | nothing |
-| Unit (jsdom) | 41 | `npm test` | nothing |
-| Integration | 57 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Unit (node) | 97 | `npm test` | nothing |
+| Unit (jsdom) | 43 | `npm test` | nothing |
+| Integration | 64 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -18,14 +18,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 124 pass, 56 skip | **1,258 pass, 664 skip** |
-| `npm test`, database set | 180 pass | **1,922 pass** |
-| `npm run test:integration` | 57 pass | 665 pass |
+| `npm test`, no database | 141 pass, 63 skip | **1,469 pass, 705 skip** |
+| `npm test`, database set | 204 pass | **2,174 pass** |
+| `npm run test:integration` | 64 pass | 706 pass |
 
-The integration tier reports 665 tests on its own and 664 skips inside a
+The integration tier reports 706 tests on its own and 705 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-1,223 rather than among the skips, which is why the two rows add up to 1,887
+1,469 rather than among the skips, which is why the two rows add up to 2,174
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -33,7 +33,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,140 is the number that
+The first row is what CI and `npm run verify` see, and 1,469 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -197,7 +197,57 @@ re-read can satisfy both.
 whether the positive beside it is about the same state, which is the whole
 rule.
 
-### 2.6 An idempotency key generator cannot collide
+### 2.6 A check about a kind of file discovers its population
+
+**Binding.** A test that makes a claim about *every* file of some kind finds them
+by walking the tree. It does not carry a list of their paths.
+
+The distinction that matters is between a population and an exception. The
+population is what the claim is about, and it is discovered — `sourceFiles` for
+modules under `src/`, `repoFiles` for anything else
+(`tests/support/source.ts`). An exception is a member of that population the rule
+deliberately excuses, and it *is* written down, named, and argued: the
+`CONFIGURATION_LAYER` array in `tests/log-level.test.ts` and `ALLOWED` in
+`tests/transport-database-access.test.ts` are correct precisely because they are
+exceptions rather than populations.
+
+**A list is a claim about what exists, made once, by somebody who could not see
+what would be added.** This is not a hypothetical, and 0.2.0 is where it was paid
+for three times over:
+
+- `tests/deployment-docs.test.ts` checked that a readiness probe waits for the
+  real PostgreSQL rather than the temporary one initdb runs. It listed the files
+  to read, and missed four of the five places that wait — including the `vps`
+  profile's own recipe and the upgrade note's own procedure.
+- `tests/dockerfile.test.ts` held "every image pins its base by digest and labels
+  itself", over four hardcoded paths, while the tree held five. The database
+  image added that release was checked by nothing at all, in a release where
+  `docs/standards/operations.md` claimed every image was.
+- The compose hardening check read one file by name. Five more arrived in the
+  same release, and the capacity harness turned out to be running the application
+  image with no `cap_drop` and no `no-new-privileges` — which makes a measurement
+  taken against a container configured unlike the deployment.
+
+Each of those tests passed throughout. That is the property worth fearing: a list
+does not fail when the world grows past it, it just quietly stops being about
+everything.
+
+**Discovery needs one assertion of its own**, because an empty population passes
+every claim made over it. A sweep whose matcher stops matching is indistinguishable
+from a tree that complies, so each of these now asserts that it found what it
+expected to find before asserting anything about it.
+
+The obvious alternative — listing the files, and adding to the list when you add
+a file — is what was already being done. It asks the person adding a file to
+remember a test they have never read, which is the kind of discipline that works
+until the day it matters.
+
+*Checked by:* nothing mechanical, and the honest reason is that "this array is a
+population rather than an exception" is a judgement a test cannot make. What can
+be said is that the three sweeps above now discover, each proved by adding a
+non-compliant file of its kind and watching the check name it.
+
+### 2.7 An idempotency key generator cannot collide
 
 **Binding.** See `services.md` 2.3. Pad the counter, not the string.
 
@@ -347,8 +397,8 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:335` `` |
-| Bare filename | `` `forms.tsx:334` `` — resolved by basename |
+| Full path | `` `src/client/forms.tsx:340` `` |
+| Bare filename | `` `forms.tsx:335` `` — resolved by basename |
 | Continuation | `` `:620` `` — inherits the last file the prose named |
 
 The test knew only the first for a while, and that gap was expensive. Adopting
@@ -399,7 +449,7 @@ cannot do that should leave the number alone and fail loudly instead.
 | 2.3 A test only your understanding could have written | Judgement, and the reason for reviewing tests as carefully as code. |
 | 2.4 Order independence, outside budgets | The wider suite does not hold it and is not going to soon. |
 | 2.5 An absence beside a presence | Judgement about state, not syntax. A rule could find a bare `toHaveCount(0)`; only a person can say whether the assertion beside it is about the same moment. |
-| 2.6 The keys a test builds | Nothing reads the key builders under `tests/`, and the suite cannot: the collision is what makes the test green. |
+| 2.7 The keys a test builds | Nothing reads the key builders under `tests/`, and the suite cannot: the collision is what makes the test green. |
 | 5.2 One database per file | Convention. |
 | 4 The vitest plugin is off | The four counts in that section move with the suite and this page says to re-measure rather than quote them; what decides the section is the proportion, and no test can hold a proportion it has to recompute by running a linter. |
 | 5.3 Stubbed globals, if the setting goes | Nothing reads the runner configuration back, and the file that would fail is not the file that changed. |
@@ -411,6 +461,6 @@ uncomfortable, and the rest is one row that read 2.1–2.3 and counted once. The
 tenth is 2.5, added after CI found the test that rule is about. The eleventh is
 section 4, which had been counted as nothing at all: it is a `##`-level rule, and
 the check that reads this page only ever looked at `###` headings. Two of the
-eleven are worth an attempt: 2.6 is a scan of `tests/` for the `padEnd` shape it
+eleven are worth an attempt: 2.7 is a scan of `tests/` for the `padEnd` shape it
 was, and 5.3 is a test that reads one line of `vitest.config.ts`, which is what
 `tests/theme-tokens.test.ts` already does to a stylesheet.

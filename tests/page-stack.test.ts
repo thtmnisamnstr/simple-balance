@@ -287,6 +287,16 @@ describe("a page-scoped class", () => {
     ["transaction-selection-actions", "Same bar"],
     ["transaction-type", "The deposit/withdrawal/transfer choice, in every form that asks"],
     ["transaction-type-grid", "Same choice"],
+    [
+      "settings-grid",
+      "Settings' two-column card layout, which the plan tab is a second page of rather than a different shape",
+    ],
+    ["settings-column", "One of those two columns"],
+    [
+      "settings-tabs",
+      "The strip across the Settings section, in components.tsx because Settings and the plan tab are two pages of it",
+    ],
+    ["settings-tab", "One tab in that strip"],
   ]);
 
   it("is used on the page it is named for and nowhere else", () => {

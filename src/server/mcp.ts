@@ -101,6 +101,7 @@ import {
   listActiveImportBatches,
   stageCsv,
 } from "./services/import-export.js";
+import { getPlanSummary } from "./services/billing.js";
 import { getPreferences, preferencePatchSchema, setPreferences } from "./services/preferences.js";
 import { summarizeOwnData } from "./services/account-deletion.js";
 import { getIdentity } from "./services/identity.js";
@@ -798,7 +799,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Who this ledger belongs to",
         description:
-          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in list_connected_agents. It reports nothing about how they sign in. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive. scopes is what this token may do; a call needing more comes back as a 403 naming the scope, so you can say which one you are short of rather than guess.",
+          "The name and email of the person whose books these are, and the client id this call is authorized under, which is how you tell yourself apart in list_connected_agents. It reports nothing about how they sign in. plan, accountLimit and accountsUsed say what these books are allowed and how much of it is gone; all three are null where nothing is sold. notificationsAvailable says whether this deployment can send mail at all, which decides whether a recurrence set to email on proposal, or a template reminder, will ever arrive. scopes is what this token may do; a call needing more comes back as a 403 naming the scope, so you can say which one you are short of rather than guess.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(identityResultSchema),
         annotations: readAnnotations,
@@ -807,7 +808,22 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       // about this request and only the transport adapter holds them. `Actor`
       // carries none, and widening `getIdentity` would change what the browser's
       // own session route reports as well.
-      () => runTool(async () => ({ ...(await getIdentity(actor)), scopes: [...scopes].sort() })),
+      () =>
+        runTool(async () => {
+          const { entitlement, accountsUsed } = await getPlanSummary(actor);
+          return {
+            ...(await getIdentity(actor)),
+            scopes: [...scopes].sort(),
+            // All three null on a deployment that sells nothing, which is the
+            // default: an agent should be able to tell "no limit here" from
+            // "limited, and you are near it" without a second call. The count
+            // comes from the same place the refusal counts, because
+            // list_accounts leaves archived accounts out and the limit does not.
+            plan: entitlement.billing ? entitlement.plan : null,
+            accountLimit: entitlement.billing ? entitlement.accountLimit : null,
+            accountsUsed,
+          };
+        }),
     );
     server.registerTool(
       "get_preferences",

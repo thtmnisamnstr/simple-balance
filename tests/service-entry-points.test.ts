@@ -36,6 +36,27 @@ const NO_ACTOR_TO_TAKE = new Map([
   ["runDueNotifications", "The reminder sweep, on the scheduler's tick"],
   ["runDueRecurrences", "The proposal sweep, on the scheduler's tick"],
   [
+    "applyStripeDelivery",
+    "Stripe's delivery names a customer, not a person, so there is no request naming an actor — the exception services.md 1.1 names",
+  ],
+  [
+    "userForStripeCustomer",
+    "A lookup from a Stripe customer id to the person it belongs to, which is how the webhook finds an actor in the first place",
+  ],
+  [
+    "reconcileSubscription",
+    "Stripe's delivery names a customer, not a person, so there is no request naming an actor — the exception services.md 1.1 names",
+  ],
+  [
+    "claimWebhookEvent",
+    "The deployment's record of which deliveries Stripe has been answered for, which belongs to nobody",
+  ],
+  ["applyCustomerDeletion", "The same delivery, claimed and applied in one transaction"],
+  [
+    "runBillingReconciliation",
+    "The subscription re-read sweep, on the scheduler's tick — its subject is every stale row in the deployment, so there is no one person it is about",
+  ],
+  [
     "revokeAllConnectedApps",
     "Takes a userId, and is reached from a session or a password reset rather than from a request naming one — the exception services.md 1.1 names",
   ],

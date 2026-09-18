@@ -33,7 +33,7 @@ The last of those cost five lines. `AppError` and `ApiClientError` both declared
 their fields in the constructor signature, which is TypeScript-only syntax that
 emits assignments. They now declare fields and assign them
 (`src/server/services/errors.ts:31-52`,
-`src/client/api.ts:31-44`).
+`src/client/api.ts:33-46`).
 
 The gain is not stylistic. It means `node --experimental-strip-types` and every
 other type-stripping runtime can run this source directly, and it means reading
@@ -48,7 +48,7 @@ declares its fields and assigns them somewhere unreadable erases just as well.
 
 **Contested.** The flag is good advice in general and wrong here. All three
 sites it flags are Hono middleware
-(`src/server/api.ts:1072`, `src/server/http-security.ts:160` and `:559`),
+(`src/server/api.ts:1316`, `src/server/http-security.ts:437` and `:836`),
 where a `MiddlewareHandler` returns a `Response` to answer the request or
 nothing at all to let the next handler run. "Returns on some paths and not
 others" is the contract, not a mistake.
@@ -157,7 +157,7 @@ export type CategoryKind = (typeof categoryKinds)[number];
 (`src/shared/domain.ts:120-121`.)
 
 The array is the single source: Zod validates from it, the database enum is
-generated from it (`src/server/db/schema.ts:196`),
+generated from it (`src/server/db/schema.ts:198`),
 and the UI iterates it (`src/client/pages/CategoriesPage.tsx:133`).
 Adding a member is one edit, and every one of those follows.
 
@@ -216,10 +216,16 @@ export const budgetPeriodUnits = [
 `as const` keeps the four literals; `satisfies` checks that every one of them is
 a bucket the report engine can group by. Annotating the constant
 `readonly ReportBucket[]` instead would have done the check and thrown the
-literals away, and the budget code needs them. The other use is the security
-header options (`src/server/http-security.ts:58`),
-which checks a literal against a library's parameter type without freezing it
-into that type.
+literals away, and the budget code needs them.
+
+It is the only use in `src`, and the second one is worth recording as it went.
+`securityHeaderOptions` used `satisfies` on a literal until it grew a second
+shape — a report-only policy has a different key from an enforcing one — and a
+`satisfies` on a value that is one of two shapes narrows to whichever branch was
+written, so reading the other one stopped compiling for callers. It carries an
+explicit return type now (`src/server/http-security.ts:187`). That is the line
+where `satisfies` stops being the better tool: it is for checking a literal
+without widening it, not for describing a value that has more than one shape.
 
 *Checked by:* `tsc`.
 

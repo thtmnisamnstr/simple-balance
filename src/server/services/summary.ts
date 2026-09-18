@@ -53,7 +53,10 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
     where a.user_id = ${actor.userId}
       and a.system_kind is null
       and (${includeArchived} or a.archived_at is null)
-    group by a.id
+    -- Both key columns. The primary key becomes (user_id, id) when the ledger
+    -- is distributed, and grouping by the id alone then determines none of the
+    -- other columns this selects. Correct under either key.
+    group by a.user_id, a.id
     order by a.currency, lower(a.name)
   `);
   // The income and expense accounts are the income statement. Reading the flow

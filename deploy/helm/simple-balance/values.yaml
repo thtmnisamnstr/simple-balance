@@ -184,6 +184,12 @@ secret:
   smtpUsername: ""
   smtpPassword: ""
 
+  # The two Stripe values that are secrets. The publishable key and the two
+  # price ids are not — they are published to every visitor by design — so they
+  # belong in `config.extraEnv` beside SB_BILLING_ENABLED rather than here.
+  stripeSecretKey: ""
+  stripeWebhookSecret: ""
+
 server:
   image:
     # Falls back to global.imageRegistry when empty.
@@ -302,6 +308,52 @@ frontend:
   # at the 10 MiB default. Under that, nginx refuses a CSV the API behind it
   # would have taken. Raise it with config.csvMaxBytes.
   maxUploadSize: 61m
+
+  # Whether Stripe is configured for this deployment. nginx needs to know, and
+  # this is not a duplicate of the server's setting: in this shape nginx serves
+  # the application shell itself, so it decides the content security policy the
+  # plan tab arrives with — and Stripe's payment form loads a script and an
+  # iframe from Stripe that every other page forbids. Set on the server and not
+  # here, the tab opens and the card fields never appear.
+  #
+  # Configured, not selling. An operator winding down sets the server's
+  # SB_BILLING_ENABLED to false and keeps the Stripe settings, and their
+  # subscribers still have to be able to replace an expired card on that page.
+  billingConfigured: false
+
+  # Whether that page reports its content security policy instead of enforcing
+  # it. Only meaningful with billingConfigured, and only for that one page.
+  # nginx serves the document here, so this is the copy that decides which
+  # header it arrives with; the server's own SB_CSP_REPORT_ONLY registers the
+  # endpoint the reports land on. Set both, or the rehearsal looks live and
+  # collects nothing.
+  cspReportOnly: false
+
+  # Whether this deployment serves advertising. nginx serves every document
+  # here, so it decides the policy they arrive with, and AdSense needs a
+  # materially wider one — scripts, frames and connections to any HTTPS origin.
+  # Set it with the server's own ADSENSE_* settings or neither.
+  adsConfigured: false
+
+  # Which addresses this nginx will believe about where a request came from.
+  #
+  # Everything it proxies to the API carries X-Forwarded-For set to the address
+  # it saw, and behind an ingress that terminates TLS that address is the
+  # ingress — the same value for every visitor in the cluster. With
+  # config.trustProxy on, the API then counts every sign-in attempt against one
+  # allowance, and one stranger can spend it for everybody.
+  #
+  # Set this to the ingress controller's pod CIDR and $remote_addr resolves back
+  # to the visitor. Not the whole cluster CIDR and never 0.0.0.0/0: this decides
+  # whose word is taken for the address, so a range that includes callers lets a
+  # caller name themselves.
+  #
+  # 127.0.0.1 is the off position, not a trusted range. Nothing reaches the
+  # container from loopback, so the behaviour is exactly what it was before this
+  # setting existed. It carries a value rather than an empty string because
+  # `set_real_ip_from ;` is a configuration error and the container would not
+  # start.
+  trustedProxyCidr: 127.0.0.1
 
   # How long to keep answering after Kubernetes decides this pod is going, so
   # the load balancer and kube-proxy have stopped handing it new connections
@@ -529,3 +581,107 @@ networkPolicy:
   # DNS and the frontend's hop to the API are added for you; everything else,
   # the database included, has to be listed here.
   egressRules: []
+
+# The `ha` profile's database: PostgreSQL 18 with Citus, run by Patroni.
+#
+# Off by default, and that is not a hedge. Every release before this one expected
+# a DATABASE_URL you supply, and the two other profiles still do — `single`
+# points at a database somebody else runs, `vps` at one beside it in Compose.
+# Turning this on is choosing to let the chart run your database, which is a
+# different undertaking from running the application, and `docs/citus-runbook.md`
+# is the operational half of it.
+#
+# Citus supplies no high availability of its own: `shard_replication_factor > 1`
+# is deprecated, documented as not an HA mechanism, and breaks
+# `SELECT ... FOR UPDATE`. Redundancy here is therefore a streaming standby per
+# node, and Patroni is what promotes one. Patroni has understood Citus since 3.0
+# — it registers a worker with `citus_add_node` and pauses coordinator traffic
+# across a worker switchover with `citus_update_node` — which is why this is
+# Patroni rather than something written here.
+database:
+  enabled: false
+
+  image:
+    # Falls back to global.imageRegistry when empty.
+    registry: ""
+    repository: thtmnisamnstr/simple-balance-citus
+    # Names Citus and PostgreSQL rather than the application version, because
+    # that is whose version it is. There is deliberately no `latest`: a
+    # PostgreSQL major version cannot read the previous major's data directory,
+    # so a floating tag turns an image pull into an outage.
+    tag: "14.2.0-pg18"
+    # Pin this as well for a production cluster. A tag is a name; a digest is the
+    # thing.
+    digest: ""
+    pullPolicy: IfNotPresent
+
+  # The database Citus distributes and the application connects to. Patroni
+  # creates it; `0023_citus_distribution.sql` distributes it on first start.
+  databaseName: simple_balance
+
+  # Citus groups. The coordinator is group 0 and always exists; this is how many
+  # worker groups sit beside it. Two is the smallest number that shows the
+  # ledger actually spread across nodes rather than merely being able to.
+  workers: 2
+
+  # Replicas in every group: one primary, the rest streaming standbys. One means
+  # no redundancy at all — a node lost is that group's shards gone until it comes
+  # back — so anything calling itself `ha` wants at least two.
+  replicasPerGroup: 2
+
+  # Left empty, each is generated once and kept in the release's Secret, so a
+  # `helm upgrade` does not roll the passwords out from under a running cluster.
+  superuser:
+    username: postgres
+    password: ""
+  replication:
+    username: standby
+    password: ""
+  # The role the application connects as. Not the superuser: a ledger's
+  # application role should not be able to rewrite the cluster's own metadata.
+  # Created on first bootstrap and made owner of the database.
+  application:
+    username: simple_balance
+    password: ""
+
+  persistence:
+    enabled: true
+    size: 20Gi
+    # Empty uses the cluster's default. Name one that is not delete-on-release
+    # for anything real.
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+  # Extra postgresql.conf settings, merged over the ones this chart sets.
+  # `docs/deployment-sizing.md` has what to put here for a given machine.
+  parameters: {}
+
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  # Left as an object so it can be replaced wholesale. The default spreads the
+  # replicas of one Citus group across nodes, which is the arrangement that makes
+  # a standby worth having: two replicas of group 1 on one node is a group with
+  # no redundancy and a chart that claims otherwise.
+  affinity: {}
+
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
+  # Every commit waits for a standby to hold the WAL before it is acknowledged,
+  # so promoting a standby cannot lose a transaction the application was told had
+  # committed. This is the trade this profile makes for money: a write pays one
+  # network round trip inside the cluster. Turn it off and a failover can lose
+  # the last few transactions, which for a ledger means the books disagree with
+  # what somebody was shown.
+  #
+  # It falls back to asynchronous when no standby is available rather than
+  # refusing writes, so one lost pod degrades the guarantee instead of stopping
+  # the deployment. `docs/citus-runbook.md` says how to see which state you are
+  # in, and how to make it strict if you would rather stop.
+  synchronousReplication: true
+
+  # Patroni's REST API, which is also how the pods find each other.
+  restApiPort: 8008

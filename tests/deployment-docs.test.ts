@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { repoFiles } from "./support/source.js";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -100,5 +101,124 @@ describe("the compose recipe", () => {
       dropsCapabilities: false,
       cannotGainPrivileges: true,
     });
+  });
+});
+
+/**
+ * Every readiness check against PostgreSQL, wherever it is written.
+ *
+ * `docs/standards/operations.md` §Health checks has the reasoning: the official
+ * image runs a temporary server while it executes its initdb scripts, and that
+ * one listens on the unix socket alone. A `pg_isready` with no `-h` answers
+ * against that server, reports healthy, and is replaced moments later — so
+ * whatever was waiting connects to `FATAL: the database system is shutting
+ * down`.
+ *
+ * This walks the repository rather than checking a list of files, because a list
+ * is exactly what was wrong: one recipe had carried `-h 127.0.0.1` with the
+ * reason beside it for a release while four other places — the dev database, the
+ * `vps` profile's own compose file, ralph's sandbox and both CI service
+ * containers — were still checking the socket. Nobody had copied the reasoning
+ * across, and nothing could have noticed.
+ */
+describe("waiting for PostgreSQL", () => {
+  it("goes over TCP everywhere, never over the unix socket", () => {
+    const offenders: string[] = [];
+    // Discovered, not listed. `tests/support/source.ts` has the argument; the
+    // short version is that the first version of this check carried a list and
+    // missed four of the five places that wait for PostgreSQL.
+    for (const { path: file, text } of repoFiles(() => true)) {
+      if (!text.includes("pg_isready")) continue;
+      if (file.endsWith("deployment-docs.test.ts")) continue;
+      const markdown = file.endsWith(".md");
+      let fenced = false;
+      for (const [index, line] of text.split("\n").entries()) {
+        // In a document, prose *about* the command is not a command. What is, is
+        // anything inside a fence — an operator copies those, and the upgrade
+        // note's own procedure told them to wait on the socket for a release.
+        if (markdown && line.trimStart().startsWith("```")) {
+          fenced = !fenced;
+          continue;
+        }
+        if (!line.includes("pg_isready")) continue;
+        if (markdown && !fenced) continue;
+        if (/pg_isready[^\n]*-h\s/.test(line)) continue;
+        offenders.push(`${file}:${index + 1}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * Every Simple Balance container in every compose file, hardened the same way.
+ *
+ * The block above this one checks `compose.distributed.yml` by name, which was
+ * the whole population when it was written and is now one file of ten. This
+ * release added five — the `vps` profile's four and the capacity harness — and
+ * nothing looked at any of them; the harness turned out to be running the
+ * application image with no `cap_drop` and no `no-new-privileges` at all, which
+ * makes a measurement taken against a container configured unlike the
+ * deployment.
+ *
+ * The population is every service whose image is a Simple Balance one. That is
+ * the right boundary rather than "every service": `postgres` and `caddy` are
+ * somebody else's images with their own needs, and the one exception among them
+ * is argued where it lives — PostgreSQL's entrypoint starts as root, chowns its
+ * data directory and drops privileges, so it keeps the capabilities it needs and
+ * takes the half that costs nothing.
+ */
+describe("hardening, across every compose file", () => {
+  /** Services are the keys under `services:` and above `volumes:`/`networks:`. */
+  const servicesOf = (text: string) => {
+    const start = text.indexOf("\nservices:\n");
+    if (start < 0) return [];
+    let body = text.slice(start);
+    for (const end of ["\nvolumes:\n", "\nnetworks:\n", "\nsecrets:\n"]) {
+      const at = body.indexOf(end);
+      if (at > 0) body = body.slice(0, at);
+    }
+    const names = [...body.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gm)].map((match) => match[1]!);
+    return names.map((name) => {
+      const at = body.indexOf(`\n  ${name}:\n`);
+      const nexts = names.map((other) => body.indexOf(`\n  ${other}:\n`)).filter((x) => x > at);
+      let block = body.slice(at, nexts.length ? Math.min(...nexts) : undefined);
+      // A service either states it or merges an anchor that does.
+      if (block.includes("<<: *hardening")) block += text.slice(0, start);
+      // Comments explain hardening as often as they apply it — one compose file
+      // says "No cap_drop here, and this is the exception rather than an
+      // oversight" — so a check that read them would pass on the explanation.
+      const code = block
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("#"))
+        .join("\n");
+      return { name, code };
+    });
+  };
+
+  const composeFiles = repoFiles((file) => /(^|\/)compose[a-z.]*\.ya?ml$/.test(file));
+
+  it("finds every compose file in the tree", () => {
+    // Without this the regex could stop matching and every assertion below would
+    // pass over an empty population, which is the failure a list makes slowly.
+    expect(composeFiles.length).toBeGreaterThanOrEqual(8);
+    expect(composeFiles.map((file) => file.path)).toContain("deploy/compose/vps/compose.app.yml");
+  });
+
+  it("drops every capability from every Simple Balance service", () => {
+    const unhardened: string[] = [];
+    for (const file of composeFiles) {
+      for (const service of servicesOf(file.text)) {
+        if (!/image:\s*\S*simple-balance/.test(service.code)) continue;
+        const dropped = service.code.includes("cap_drop: [ALL]");
+        const noPrivileges = service.code.includes("no-new-privileges");
+        if (!dropped || !noPrivileges) {
+          unhardened.push(
+            `${file.path} ${service.name}${dropped ? "" : " (cap_drop)"}${noPrivileges ? "" : " (no-new-privileges)"}`,
+          );
+        }
+      }
+    }
+    expect(unhardened).toEqual([]);
   });
 });

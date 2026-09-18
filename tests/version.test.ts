@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { APP_VERSION } from "../src/shared/version.js";
@@ -7,6 +7,49 @@ const root = path.resolve(import.meta.dirname, "..");
 const read = (relative: string) => readFileSync(path.join(root, relative), "utf8");
 const manifestVersion = (relative: string) =>
   (JSON.parse(read(relative)) as { version: string }).version;
+
+/**
+ * Every file in the tree that pins one of this project's own images, and the
+ * tags it pins.
+ *
+ * Examples a reader copies, and defaults a deployment actually uses. Pinned
+ * rather than `:latest` on purpose — an upgrade moves the schema and should be
+ * a decision — which is exactly why a release that leaves one behind hands
+ * somebody the previous release's images while the page around them describes
+ * this one.
+ *
+ * Discovered rather than listed, because the list is what went wrong: see the
+ * second test below.
+ */
+function pinnedImageTags(): Map<string, string[]> {
+  const pattern = /ghcr\.io\/thtmnisamnstr\/simple-balance(?:-[a-z]+)?:([\w.-]+)/g;
+  // Everything tracked that a person writes. Lockfiles and generated output are
+  // excluded because neither is edited by hand, and `CHANGELOG.md` and
+  // `docs/upgrades.md` are excluded because a release note *should* name the
+  // release it is about rather than the one being cut.
+  const candidates = globSync(
+    ["**/*.{ts,tsx,js,mjs,yml,yaml,json,md,conf,template,Dockerfile}", "**/Dockerfile"],
+    {
+      cwd: root,
+      exclude: (name) =>
+        /^(node_modules|dist|coverage|\.git)$/.test(name) ||
+        name.endsWith("package-lock.json") ||
+        name === "CHANGELOG.md" ||
+        name === "docs/upgrades.md",
+    },
+  );
+
+  const found = new Map<string, string[]>();
+  for (const relative of candidates) {
+    const tags = [...read(relative).matchAll(pattern)]
+      .map((match) => match[1]!)
+      // A repository name that happens to end in a version-shaped word is not
+      // a tag; only a tag that looks like one this project cuts is in scope.
+      .filter((tag) => /^\d+\.\d+\.\d+/.test(tag));
+    if (tags.length > 0) found.set(relative, [...new Set(tags)]);
+  }
+  return found;
+}
 
 /**
  * The version is written in several places and `npm run set-version` is what
@@ -107,13 +150,36 @@ describe("the release version", () => {
    * release that leaves them behind hands somebody the previous release's
    * images while the page around them describes this one.
    */
-  it("is the tag on every example image", () => {
-    const pinned = /ghcr\.io\/thtmnisamnstr\/simple-balance(?:-[a-z]+)?:(\S+)/g;
-    for (const relative of ["deploy/compose/compose.distributed.yml", "deploy/pulumi/README.md"]) {
-      const tags = [...read(relative).matchAll(pinned)].map((match) => match[1]);
-      expect(tags.length, relative).toBeGreaterThan(0);
+  it("is the tag on every example image, wherever one is written", () => {
+    const pinning = pinnedImageTags();
+    // The sweep found something, so a broken glob or a broken pattern reads as
+    // a pass rather than as a repository with no pinned images in it.
+    expect(pinning.size, "files carrying a pinned image tag").toBeGreaterThanOrEqual(3);
+    for (const [relative, tags] of pinning) {
       for (const tag of tags) expect(tag, relative).toBe(version);
     }
+  });
+
+  /**
+   * And every file that carries one is a file `set-version` knows about.
+   *
+   * This is the half the old spelling could not do. Both checks used to walk a
+   * hardcoded list of two files, so a *third* file pinning an image — which is
+   * what adding a deployment profile does — was checked by nothing: it would
+   * pass the suite while quietly deploying whatever release it was written
+   * during, and the failure would be an operator running last year's images
+   * against this year's documentation.
+   *
+   * Finding the files instead of being told about them is what closes it. A new
+   * pinned reference anywhere in the tree fails here until the release script
+   * rewrites it too.
+   */
+  it("is rewritten by set-version in every file that pins one", () => {
+    const script = read("scripts/set-version.mjs");
+    const unrewritten = [...pinnedImageTags().keys()].filter(
+      (relative) => !script.includes(relative),
+    );
+    expect(unrewritten, "pins an image tag that set-version never rewrites").toEqual([]);
   });
 
   it("is the version the product backlog says it describes", () => {

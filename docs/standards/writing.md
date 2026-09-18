@@ -37,10 +37,11 @@ cannot name both, it is a section of a document that already exists. The corpus
 is small enough to list on one screen, and the reason a reader can find the
 right document in it is that none of them overlap.
 
-**House, and the reason the skills are not a tenth guide.** Five procedures
+**House, and the reason the skills are not a tenth guide.** Six procedures
 repeat — bringing the documents back to true after work lands, sweeping the
-product against the guides, reviewing the browser app, preparing a release, and
-cutting one — and each was being rediscovered, in the wrong order, every time.
+product against the guides, reviewing the browser app, rebuilding the product
+kit the marketing site reads, preparing a release, and cutting one — and each
+was being rediscovered, in the wrong order, every time.
 They are `.claude/skills/`, and the rule that keeps them from becoming a second
 copy of this set is that **a skill cites a guide and never restates it.** A rule
 written down twice drifts, which is the defect the whole set exists to prevent;
@@ -98,7 +99,7 @@ nothing here is Binding. The one principle worth quoting is its first:
 "Changelogs are for humans, not machines." This file takes that further than the
 convention expects.
 
-- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 1,746 lines,
+- **Prose, not bullets.** `CHANGELOG.md` holds zero list items in 2,664 lines,
   and the paragraphs are why it can be read. An entry runs at the length and in
   the voice of a commit body: what changed, what it fixes, and what it costs.
 - **Newest first, under `## Unreleased`, then `## X.Y.Z - YYYY-MM-DD`.** The
@@ -108,10 +109,10 @@ convention expects.
 - **Section headings borrow Keep a Changelog's vocabulary**: Added, Changed,
   Deprecated, Removed, Fixed, Security. This file also uses `Internal`, for a
   change with no user-visible effect that an operator or a contributor would
-  still want to find. Across the dated sections: four Added, four Changed, five
-  Fixed, one Security, one Internal. Counting `## Unreleased` as well gives
-  five, five and six. The 0.1.0 entry predates the
-  convention and uses its own headings; leave it.
+  still want to find. Across the dated sections: five Added, five Changed, six
+  Fixed, one Security, one Internal. Counting `## Unreleased` as well gives six,
+  six and seven. The 0.1.0 entry predates the convention and uses its own
+  headings; leave it.
 - **A change a person would notice gets an entry.** "Notice" means one of four
   things: behaviour on a screen, a value on the wire in any of the three
   contracts, something an operator configures, or something that changes at
@@ -138,7 +139,7 @@ cites this section and adds the one consequence that belongs to an operator,
 which is that renaming a configuration variable is a breaking release.
 
 The shape of a version is written in three places and two of them used to
-disagree. `scripts/set-version.mjs:25` and `tests/version.test.ts:25` accept a
+disagree. `scripts/set-version.mjs:26` and `tests/version.test.ts:67` accept a
 prerelease suffix; `tasks/product.prd.schema.json:10` pinned three numeric parts
 and nothing else, so `npm run set-version 0.2.0-rc.1` succeeded, the suite
 stayed green, and the build loop then refused to start on an error two steps
@@ -250,7 +251,7 @@ Then four parts, in this order:
 in a specification or in `AGENTS.md` asks for one; a past failure does. The best
 example in the repository: the 0.1.5 note promises the theme column is a
 constant default and therefore rewrites no table, and
-`tests/migrations.test.ts:264` is called "adds the theme without rewriting a
+`tests/migrations.test.ts:327` is called "adds the theme without rewriting a
 row". Six tests in that file make a claim of that kind, covering migrations
 0005 through 0011. A note that makes a promise about somebody's data
 and has no test behind it has been wrong before: the 0.1.5 contrast note quoted
@@ -311,7 +312,7 @@ out.
 - **Nothing is committed to here.** `tasks/product.prd.json` records the product
   as built; the roadmap records intent, and says so in its opening paragraph.
 
-*Not checked mechanically.* `tests/version.test.ts:119-121` checks that the
+*Not checked mechanically.* `tests/version.test.ts:185-187` checks that the
 backlog's version matches the manifest, which is the only mechanical link
 between intent and release.
 
@@ -543,7 +544,7 @@ them cover the whole range:
   Note the last line, which states the bound: "Unbounded on purpose: the keys
   are locale-and-currency pairs and a ledger holds a handful of currencies, so
   there is nothing here to grow."
-- **The trade named, not only the choice.** `src/client/components.tsx:603-617`:
+- **The trade named, not only the choice.** `src/client/components.tsx:604-618`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behaviour they imply are worse than none."
@@ -605,8 +606,8 @@ What is checked:
 | Correspondence | Checked by |
 | --- | --- |
 | Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:300-305`, by name rather than by count, "so the failure says which" |
-| Example image tags in `deploy/pulumi/README.md` and the split compose file match the release | `tests/version.test.ts:110-117` |
-| The product backlog's version matches the manifest | `tests/version.test.ts:119-121` |
+| Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:152-182`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
+| The product backlog's version matches the manifest | `tests/version.test.ts:185-187` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |
 | The `docker run` command in `README.md` and `docs/deployment.md` carries its hardening flags | `tests/deployment-docs.test.ts`, which requires `--read-only`, the `noexec,nosuid` tmpfs, `--stop-timeout 30`, `--cap-drop=ALL` and `--security-opt=no-new-privileges` in both, and hardens every service in the compose recipe the same way |
 | The README tells somebody who found a hole where to report it, and does not answer the contributing question with the invariants file | `tests/docs-conventions.test.ts` |

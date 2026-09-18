@@ -17,6 +17,7 @@ import {
   groupAccountsByType,
   liabilityAccountTypes,
   type AccountType,
+  accountAllowance,
 } from "../../shared/domain.js";
 import { api, json, type Account, type Session } from "../api.js";
 import {
@@ -68,6 +69,12 @@ export default function AccountsPage({ session }: { session: Session }) {
     direction: "asc",
   });
   const queryClient = useQueryClient();
+  // The same function the server calls before it inserts, so the sentence on
+  // the disabled button and the sentence on the refusal cannot drift apart.
+  const allowance = accountAllowance(
+    session.plan?.entitlement ?? { billing: false },
+    session.plan?.accountsUsed ?? 0,
+  );
   const today = calendarDateInTimezone(new Date(), session.preferences.timezone);
   const accounts = useQuery({
     queryKey: ["accounts", "all", includeArchived, today],
@@ -127,6 +134,10 @@ export default function AccountsPage({ session }: { session: Session }) {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["accounts"] });
       await queryClient.invalidateQueries({ queryKey: ["summary"] });
+      // The session carries how many accounts the plan has left, so without
+      // this the button stays disabled after deleting one — or stays offered
+      // after adding the last one the plan allows.
+      await queryClient.invalidateQueries({ queryKey: ["session"] });
       // Budgets and the forecast read the same postings; without these two
       // the Budgets page showed pre-mutation figures for its staleTime.
       await queryClient.invalidateQueries({ queryKey: ["budgets"] });
@@ -140,7 +151,11 @@ export default function AccountsPage({ session }: { session: Session }) {
         title="Accounts"
         description="Everything you track, from checking and cards to cash and crypto wallets."
         actions={
-          <Button onClick={() => setEditing("new")}>
+          <Button
+            onClick={() => setEditing("new")}
+            disabled={!allowance.ok}
+            disabledReason={allowance.ok ? undefined : allowance.message}
+          >
             <Plus size={16} /> New account
           </Button>
         }
@@ -266,9 +281,36 @@ export default function AccountsPage({ session }: { session: Session }) {
       ) : accounts.error ? null : (
         <EmptyState
           icon={<Landmark size={24} />}
-          title="No accounts yet"
-          body="Start with a checking account, savings account, card, or cash wallet."
-          action={<Button onClick={() => setEditing("new")}>Create an account</Button>}
+          // Two screens, `web.md` 12.1, and this list needs the distinction more
+          // than most: archived accounts are hidden by default, so somebody who
+          // has put all of theirs away lands here and is told they have none —
+          // which is false, and the way out is the toggle above rather than the
+          // button below.
+          //
+          // It cannot say whether archived accounts exist, because the filter is
+          // the server's: `includeArchived` is a query parameter and the response
+          // holds only what it let through. So the message names what is hidden
+          // rather than asserting what is there, which is true either way and
+          // points at the control that would settle it.
+          title={includeArchived ? "No accounts yet" : "No accounts in this view"}
+          body={
+            includeArchived
+              ? "Start with a checking account, savings account, card, or cash wallet."
+              : "Archived accounts are hidden. Turn on Show archived to look at those, or start with a checking account, savings account, card, or cash wallet."
+          }
+          action={
+            // Gated for the same reason the header button is, and it is not a
+            // duplicate of that gate: the list hides archived accounts by
+            // default and the limit counts them, so somebody at the limit with
+            // everything archived sees this empty state rather than the list.
+            <Button
+              onClick={() => setEditing("new")}
+              disabled={!allowance.ok}
+              disabledReason={allowance.ok ? undefined : allowance.message}
+            >
+              Create an account
+            </Button>
+          }
         />
       )}
       <Modal

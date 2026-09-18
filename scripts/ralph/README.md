@@ -56,7 +56,7 @@ the story commit but are finalized in trusted state only after that commit
 succeeds; a commit failure restores the prior PRD and progress while leaving
 implementation work intact.
 
-Stories that require PostgreSQL receive a disposable `postgres:16-alpine`
+Stories that require PostgreSQL receive a disposable `postgres:18-alpine`
 database on an isolated internal network; integration tests fail closed if that
 local image is unavailable instead of silently passing as skipped. On macOS, a
 fixed read-only `nc` proxy exposes only that PostgreSQL endpoint to the Seatbelt

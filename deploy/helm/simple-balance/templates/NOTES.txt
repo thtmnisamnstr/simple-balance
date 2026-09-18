@@ -74,19 +74,21 @@ compares every write against this origin, so the two have to be the same host.
 Fix config.appBaseUrl unless something else in front is doing the translating.
 {{- end }}
 
-{{- if and .Values.config.trustProxy .Values.ingress.enabled }}
+{{- if and .Values.config.trustProxy .Values.ingress.enabled (eq .Values.frontend.trustedProxyCidr "127.0.0.1") }}
 
-Per-visitor rate limiting: the frontend's nginx sets X-Forwarded-For to
-$remote_addr, and behind an ingress that terminates TLS $remote_addr is the
-ingress rather than the visitor. With TRUST_PROXY on, every sign-in attempt in
-the cluster then counts against one allowance. Add
+WARNING: every sign-in attempt in this cluster counts against one allowance.
+The frontend's nginx tells the API which address a request came from, and behind
+an ingress that terminates TLS that address is the ingress — the same value for
+every visitor. With config.trustProxy on and frontend.trustedProxyCidr left at
+its off position, four wrong passwords from anywhere lock everyone else out.
 
-  set_real_ip_from <your ingress CIDR>;
-  real_ip_header X-Forwarded-For;
-  real_ip_recursive on;
+Set frontend.trustedProxyCidr to the pod CIDR your ingress controller runs in:
 
-to the proxy location in deploy/docker/nginx.conf.template and rebuild the
-frontend image, so $remote_addr resolves back to the visitor.
+  --set frontend.trustedProxyCidr=<ingress controller pod CIDR>
+
+Name the controller's range and nothing wider. This decides whose word is taken
+for a visitor's address, so a range that includes callers lets a caller choose
+their own.
 {{- end }}
 
 Database connections. This release peaks at {{ $serverPeak }} API and {{ $schedulerPeak }} scheduler

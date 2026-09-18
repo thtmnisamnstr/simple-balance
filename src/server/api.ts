@@ -34,7 +34,7 @@ import {
   hasLocalPassword,
   isLocalBootstrapOpen,
 } from "./auth-policy.js";
-import { getConfig, isEmailAllowed, isRegistrationClosed } from "./config.js";
+import { adsEnabled, getConfig, isEmailAllowed, isRegistrationClosed } from "./config.js";
 import { LOCAL_BOOTSTRAP_LOCK } from "./db/advisory-locks.js";
 import { getAuthBootstrapLockPool, getDb } from "./db/client.js";
 import { oauthApplication, verification } from "./db/schema.js";
@@ -47,6 +47,9 @@ import {
   protectBrowserMutation,
   rejectRequestBody,
   requestBodyLimit,
+  CSP_REPORT_PATH,
+  isStripeSurfacePath,
+  rawPathOf,
   securityHeaderOptions,
   withCountableClientAddress,
 } from "./http-security.js";
@@ -137,6 +140,23 @@ import { CSV_MEDIA_TYPE } from "../shared/csv.js";
 import { todayIn } from "../shared/recurrence-dates.js";
 import { getPreferences, setPreferences } from "./services/preferences.js";
 import {
+  applyCustomerDeletion,
+  applySetupIntentSucceeded,
+  applyStripeDelivery,
+  confirmPaymentSetup,
+  createPaymentSetup,
+  isNoteworthyEvent,
+  getAdPlacement,
+  getBillingStatus,
+  setSubscription,
+  setSubscriptionCancellation,
+  getPlanSummary,
+  stripeCustomerIdForEvent,
+  subscriptionIdForEvent,
+  userForStripeCustomer,
+} from "./services/billing.js";
+import { fetchSubscriptionSnapshot, stripeEventFrom } from "./stripe.js";
+import {
   listDuplicatePayees,
   listPayees,
   listPayeeSuggestions,
@@ -185,7 +205,46 @@ type Variables = {
 type AppEnv = { Variables: Variables };
 const app = new Hono<AppEnv>();
 
-app.use("*", secureHeaders(securityHeaderOptions(getConfig().isProduction)));
+/**
+ * The headers, chosen per request rather than once at startup.
+ *
+ * One page needs a weaker policy — the plan tab, which mounts Stripe's payment
+ * form. This is the authority for every document this process serves, which in
+ * the single container is all of them.
+ *
+ * It is *not* the only place the decision is made. The split deployment puts
+ * nginx in front, and nginx serves the shell itself rather than proxying it —
+ * `/api`, `/mcp`, `/health` and `/.well-known` are the only prefixes that reach
+ * this process — so the same choice is written again in
+ * `deploy/docker/nginx.conf.template`. Believing otherwise is how the split
+ * deployment shipped a plan tab whose payment form could not load;
+ * `tests/security-header-parity.test.ts` now compares both surfaces.
+ *
+ * `secureHeaders` is built per surface rather than per request: there are two of
+ * them and the objects are constants, so building one on every request would be
+ * work for nothing.
+ */
+const appHeaders = secureHeaders(
+  securityHeaderOptions(getConfig().isProduction, {
+    surface: "app",
+    reportOnly: getConfig().cspReportOnly,
+    ads: adsEnabled(),
+  }),
+);
+const stripeHeaders = secureHeaders(
+  securityHeaderOptions(getConfig().isProduction, {
+    surface: "stripe",
+    reportOnly: getConfig().cspReportOnly,
+  }),
+);
+app.use("*", (c, next) =>
+  // Only where Stripe is configured. A deployment that sells nothing cannot be
+  // talked into the weaker policy by asking for a path whose page it does not
+  // have.
+  getConfig().billing && isStripeSurfacePath(rawPathOf(c.req.url))
+    ? stripeHeaders(c, next)
+    : appHeaders(c, next),
+);
 
 setMetricsComponent("api");
 startDefaultMetrics();
@@ -1057,6 +1116,191 @@ async function mcpTransport(c: Context<{ Variables: Variables }>) {
   });
 }
 
+/**
+ * Where Stripe tells this deployment what happened.
+ *
+ * Registered only when Stripe is configured, the way `/metrics` is registered
+ * only when metrics are on: a deployment that sells nothing has no such route
+ * rather than a route that refuses, and nothing about its surface changes by
+ * upgrading into this release.
+ *
+ * Mounted outside `/api/v1` deliberately. Everything under that prefix is
+ * guarded by `protectBrowserMutation`, which refuses a mutation whose `Origin`
+ * is not this app — and a webhook has no `Origin` at all, so it would be
+ * refused 403 before it was ever read. It sits beside `/api/auth/mcp/token` for
+ * the same reason: both are real callers that are not browsers.
+ *
+ * The shape of the handler is the design. The Stripe read happens before any
+ * transaction opens, so no lock is held across a network call; the claim and
+ * the write then commit together, so a failure between them rolls both back and
+ * Stripe's retry does the work rather than being swallowed by the dedupe.
+ *
+ * Every deliberate no-op answers 2xx. A non-2xx tells Stripe to retry, and
+ * Stripe delays finalization of *every* auto-collection invoice on the account
+ * for up to 72 hours while it does — so "this event is not mine" must never be
+ * spelled as a failure. Only a genuine inability to find out answers 5xx.
+ */
+if (getConfig().billing) {
+  app.post("/api/billing/webhook", async (c) => {
+    const raw = await c.req.text();
+    let event;
+    try {
+      event = stripeEventFrom(raw, c.req.header("stripe-signature"));
+    } catch {
+      // Counted, not explained. The body is attacker-reachable until this
+      // succeeds, so neither the log line nor the response says what was wrong
+      // with the signature — an oracle that tells you how close you were is
+      // worth more to somebody guessing than to an operator.
+      log.warn("Refused a Stripe delivery whose signature did not verify");
+      return c.json(transportError("UNAUTHORIZED", "Signature verification failed"), 400);
+    }
+
+    const customerId = stripeCustomerIdForEvent(event);
+
+    // A customer Stripe no longer has. The subscriptions it owned were
+    // cancelled by the same action and arrive as their own deliveries, so all
+    // that is left here is the mapping — which, kept, would make the next
+    // attempt to subscribe fail against a customer that does not exist.
+    if (event.type === "customer.deleted" && customerId) {
+      const outcome = await applyCustomerDeletion(customerId, event);
+      return c.json({ received: true, acted: outcome === "written" });
+    }
+
+    // A card saved in a browser that then went away — a 3-D Secure redirect
+    // that came back somewhere else, or a tab closed on the confirmation. The
+    // request path normally does this; without the delivery as a second route
+    // the card would stay attached and unused.
+    if (event.type === "setup_intent.succeeded" && customerId) {
+      const owner = await userForStripeCustomer(customerId);
+      if (!owner) return c.json({ received: true, acted: false });
+      const outcome = await applySetupIntentSucceeded(owner, event);
+      return c.json({ received: true, acted: outcome === "written" });
+    }
+
+    // Money moved and no entitlement did. Said out loud because the decision
+    // these need is a person's — `docs/billing-operations.md` — and not claimed,
+    // because nothing was done that a retry would repeat harmfully.
+    if (isNoteworthyEvent(event.type)) {
+      log.info(`A Stripe ${event.type} delivery arrived and changed no entitlement`);
+      return c.json({ received: true, acted: false });
+    }
+
+    const subscriptionId = subscriptionIdForEvent(event);
+    if (!subscriptionId) return c.json({ received: true, acted: false });
+
+    const userId = customerId ? await userForStripeCustomer(customerId) : null;
+    if (!userId) {
+      // A customer this deployment has never heard of — created in Stripe's
+      // dashboard, or belonging to a different deployment sharing the account.
+      // Acknowledged and not claimed, so an operator who later maps it can
+      // replay the event rather than find it marked handled.
+      log.info("Ignored a Stripe delivery for a customer this deployment does not know");
+      return c.json({ received: true, acted: false });
+    }
+
+    const snapshot = await fetchSubscriptionSnapshot(subscriptionId);
+    const outcome = await applyStripeDelivery(userId, event, snapshot);
+    return c.json({ received: true, acted: outcome === "written" });
+  });
+}
+
+/**
+ * Where a browser posts what the policy would have blocked.
+ *
+ * Registered only while `SB_CSP_REPORT_ONLY` is on, the way `/metrics` and the
+ * Stripe webhook are: a deployment that is not rehearsing has no such route
+ * rather than one that accepts anything posted to it.
+ *
+ * Outside `/api/v1` and above its guards, and that is forced rather than
+ * chosen. A violation report is sent by the browser with no `Origin` this app
+ * would recognise and a content type of its own — `application/csp-report` or
+ * `application/reports+json`, never `application/json` — so under
+ * `protectBrowserMutation` every report would be refused before it was read,
+ * and the rehearsal would produce silence indistinguishable from a clean run.
+ *
+ * Always 204, for the same reason the Stripe webhook always answers 2xx: this
+ * is a one-way message and there is nobody to tell about a failure.
+ */
+/**
+ * One field of a violation report, made safe to put in a line of a log.
+ *
+ * The body is attacker-controlled: anybody who can reach this path can post
+ * whatever they like, and the browser's own reports carry URLs from pages this
+ * app does not control. Newlines would let one report write several log lines —
+ * a forged "error" among them — and an unbounded string would let one request
+ * fill a disk. Neither is exotic; both are what an unsanitised log line is for.
+ */
+const field = (value: unknown) => {
+  if (typeof value !== "string" || value === "") return "something";
+  // Control characters out, length capped. A blocked URI long enough to be
+  // truncated has already said which host it was.
+  return value.replaceAll(/[\u0000-\u001f\u007f]/g, " ").slice(0, 200);
+};
+
+if (getConfig().cspReportOnly) {
+  app.post(CSP_REPORT_PATH, async (c) => {
+    const report = await c.req.json().catch(() => null);
+    // Both shapes. The deprecated `report-uri` sends `{"csp-report": {...}}` and
+    // the `report-to` replacement sends an array of `{type, body}`, and this
+    // asks for both because which one arrives depends on the browser.
+    const bodies: unknown[] = Array.isArray(report)
+      ? report.map((entry) => (entry as { body?: unknown })?.body)
+      : [(report as { "csp-report"?: unknown })?.["csp-report"] ?? report];
+    for (const body of bodies) {
+      const violation = body as Record<string, unknown> | null;
+      if (!violation) continue;
+      // Three fields and no more. A report also carries the full URL of the
+      // document, which on this app is a path that can name an account or a
+      // transaction id, and the source file and line of whatever triggered it.
+      // The two that matter for deciding a policy are what was blocked and
+      // which rule blocked it.
+      log.info(
+        `Content security policy would have blocked ${field(
+          violation["blocked-uri"] ?? violation["blockedURL"],
+        )} under ${field(violation["violated-directive"] ?? violation["effectiveDirective"])}`,
+      );
+    }
+    return c.body(null, 204);
+  });
+}
+
+/**
+ * The authorised-sellers file, derived rather than configured.
+ *
+ * An ad is only paid for if the domain serving it declares who may sell its
+ * inventory, at `/ads.txt`, in plain text, at the root. Without it AdSense
+ * treats the inventory as unauthorised and the operator earns nothing — which
+ * is the whole point of the feature failing silently.
+ *
+ * Derived from the publisher id rather than asked for, because there is exactly
+ * one correct answer for a deployment whose only ad partner is AdSense, and
+ * asking an operator to write a file they have never heard of is asking them to
+ * get it wrong. It cannot ship *in* the image for the same reason the publisher
+ * id cannot: one image serves every operator.
+ *
+ * Note the id loses its `ca-` prefix here. `ca-pub-…` is the ad code's spelling
+ * and `pub-…` is this file's; using the wrong one is a file that parses and
+ * authorises nobody. The trailing constant is Google's own certification
+ * authority id, the same for every publisher.
+ *
+ * An operator selling through other partners as well needs more lines than
+ * this, and `docs/monetization.md` says to serve their own file at the edge
+ * rather than pretending this setting could carry them.
+ */
+if (adsEnabled()) {
+  app.get("/ads.txt", (c) => {
+    const ads = getConfig().ads;
+    const publisher = ads ? ads.clientId.replace(/^ca-/, "") : "";
+    return c.text(`google.com, ${publisher}, DIRECT, f08c47fec0942fa0\n`, 200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      // Crawled rather than browsed, and a stale answer costs revenue while a
+      // fresh one costs nothing. An hour is what Google's own guidance asks of
+      // a publisher changing partners.
+      "Cache-Control": "public, max-age=3600",
+    });
+  });
+}
+
 app.use(
   "/api/v1/*",
   protectBrowserMutation({
@@ -1155,8 +1399,67 @@ app.get("/api/v1/session", async (c) =>
     user: c.get("authUser"),
     preferences: await getPreferences(c.get("actor")),
     auth: await getUserAuthState(c.get("authUser").id),
+    // The plan, its ceiling, and how much of it is used. The count is here
+    // rather than derived in the browser because the accounts list a page holds
+    // depends on whether archived ones are being shown, and the limit counts
+    // them either way. The browser invalidates this query when it creates or
+    // deletes an account, so the only window in which the number is stale is a
+    // second tab — and the server refuses there regardless, which is what makes
+    // the disabled button a courtesy rather than the enforcement.
+    plan: await getPlanSummary(c.get("actor")),
+    // The ad slots this person should see, or null. Decided here rather than in
+    // the browser so that a paying subscriber's session carries no ad
+    // configuration at all — the page cannot show them an ad by mistake because
+    // it was never told how. Absent is the safe reading, which is the direction
+    // a bug in this should fail.
+    ads: await getAdPlacement(c.get("actor")),
   }),
 );
+/**
+ * The plan tab's four routes, registered only where Stripe is configured.
+ *
+ * Absent rather than refusing, the way `/metrics` is: a deployment that sells
+ * nothing has no billing surface at all, which is both one less thing to
+ * misconfigure and an honest answer to anybody probing for one. The browser
+ * already knows not to ask — `/api/auth/methods` reports `billingAvailable`.
+ *
+ * State sub-resources rather than verbs, as `docs/standards/http.md` requires:
+ * the subscription and its cancellation are each a thing with a value, and a
+ * `PUT` that sets it to what it already is succeeds without doing anything.
+ * That is what makes the buttons safe to press twice, on top of the idempotency
+ * key each one carries.
+ *
+ * None of them is on the MCP surface. Starting or stopping a paid subscription
+ * is spending somebody's money, and an MCP token is a credential handed to a
+ * program — a different class of authority from writing a transaction, and one
+ * `AGENTS.md` keeps to a signed-in session alongside account deletion and
+ * setting a password.
+ */
+if (getConfig().billing) {
+  app.get("/api/v1/billing", async (c) => c.json(await getBillingStatus(c.get("actor"))));
+  app.put("/api/v1/billing/subscription", async (c) =>
+    c.json(await setSubscription(c.get("actor"), await body(c))),
+  );
+  app.put("/api/v1/billing/subscription/cancellation", async (c) =>
+    c.json(await setSubscriptionCancellation(c.get("actor"), await body(c))),
+  );
+  // 200 rather than 201 with a `Location`, unlike every other create here:
+  // what this makes lives at Stripe and has no address in this deployment, so a
+  // header pointing at one would be pointing at nothing.
+  app.post("/api/v1/billing/payment-setups", async (c) =>
+    c.json(await createPaymentSetup(c.get("actor"), await body(c))),
+  );
+  // The second half, and the half without which the first is decoration:
+  // confirming a card in the browser attaches it to the customer and changes
+  // nothing about what Stripe bills. A route rather than only the
+  // `setup_intent.succeeded` delivery, because whether a deployment's dashboard
+  // endpoint subscribes to that event is configuration outside this repository
+  // — and a card replacement that silently does nothing is exactly the defect
+  // this pair exists to close.
+  app.post("/api/v1/billing/payment-setups/confirmations", async (c) =>
+    c.json(await confirmPaymentSetup(c.get("actor"), await body(c))),
+  );
+}
 app.post("/api/v1/auth/local-password", async (c) => {
   if (!getConfig().localAuthEnabled) {
     throw new AppError("FORBIDDEN", "Local authentication is disabled", 403);
@@ -1641,6 +1944,15 @@ app.get("/api/v1/audit-events", async (c) =>
 // working page. The same path with a non-GET method already answered 404, so the
 // prefix disagreed with itself.
 app.all("/api/v1/*", (c) =>
+  c.json({ error: { code: "NOT_FOUND", message: "No such endpoint" } }, 404),
+);
+
+// The same reasoning for the one prefix that lives outside `/api/v1`. Without
+// it a webhook aimed at a misspelled path — or at a deployment that has no
+// Stripe configured, where the endpoint genuinely does not exist — gets the
+// single-page shell and a 200, which Stripe records as delivered. A missed
+// delivery that Stripe believes arrived is the shape nothing ever retries.
+app.all("/api/billing/*", (c) =>
   c.json({ error: { code: "NOT_FOUND", message: "No such endpoint" } }, 404),
 );
 

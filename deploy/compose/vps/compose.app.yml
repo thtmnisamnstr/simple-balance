@@ -1,0 +1,144 @@
+# The two application machines of the `vps` profile: the API and the scheduler.
+#
+#   on the server machine:     COMPOSE_PROFILES=server    docker compose -f compose.app.yml up -d
+#   on the scheduler machine:  COMPOSE_PROFILES=scheduler docker compose -f compose.app.yml up -d
+#
+# One file for both, selected by a Compose profile, because they are the same
+# application reading the same settings and differ only in which half of it they
+# run. Two files would be two copies of the environment block below, and the
+# copy that drifts is the one nobody is looking at.
+#
+# The database machine's compose file is separate, and that is not the same
+# decision: it shares none of this and its own `${...:?}` guards would have to be
+# satisfied on machines that never run it.
+name: simple-balance-app
+
+x-app-env: &app-env
+  # Where the browser reaches this deployment, which is the frontend machine's
+  # public name — not this machine's address. Cookies are set by the API and read
+  # by the browser, so both have to be on one origin, and the API compares the
+  # Origin header against this value on every state-changing request. Naming this
+  # machine here turns every write into a rejected cross-origin request.
+  APP_BASE_URL: ${APP_BASE_URL:?set APP_BASE_URL to the public https:// origin}
+  # This machine's own address is not in it. The connection string points at the
+  # database machine's private address, across the provider's private network.
+  DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to the database machine's private address}
+  AUTH_SECRET: "${AUTH_SECRET:?generate one with openssl rand -base64 32}"
+
+  # Pinned rather than left to the image, which does set it. Unset reads as
+  # development, and that is the one misconfiguration with no symptom: no setup
+  # code, no sign-in rate limiting, no secure cookies, and nothing said.
+  NODE_ENV: production
+  AUTH_MODE: ${AUTH_MODE:-local}
+  ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+
+  # True, and it has to be: nothing reaches the API except the frontend machine,
+  # so the connection's own address is the frontend's for every visitor alike and
+  # X-Forwarded-For is the only place the visitor's address survives. Left false,
+  # every visitor in the deployment shares one sign-in rate-limit allowance and
+  # four wrong passwords from anywhere lock out everybody.
+  #
+  # Believable because of what the frontend image does: its nginx template *sets*
+  # X-Forwarded-For from the address it trusts rather than appending to whatever
+  # arrived, and SB_TRUSTED_PROXY_CIDR on that machine decides whose word is
+  # taken. The two settings are one decision made in two places, and
+  # deploy/compose/vps/README.md keeps them together.
+  TRUST_PROXY: "true"
+
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+
+  # Move these together with SB_MAX_UPLOAD_SIZE on the frontend machine: nginx
+  # refuses a body over its limit before the API sees it, and the API sizes its
+  # own limit for the import routes at CSV_MAX_BYTES x 6 plus 64 KiB, because a
+  # CSV arrives as a JSON string.
+  CSV_MAX_BYTES: ${CSV_MAX_BYTES:-10485760}
+  CSV_MAX_ROWS: ${CSV_MAX_ROWS:-10000}
+
+  # Each process holds this many connections, plus one more while it starts. Two
+  # machines at 10 is 22 of the database machine's max_connections, which that
+  # compose file sets to 50. Raise both together or neither.
+  DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+
+  RECURRENCE_TICK_SECONDS: ${RECURRENCE_TICK_SECONDS:-300}
+  RECURRENCE_CATCH_UP_LIMIT: ${RECURRENCE_CATCH_UP_LIMIT:-50}
+  RECURRENCE_CLAIM_LIMIT: ${RECURRENCE_CLAIM_LIMIT:-500}
+  IDEMPOTENCY_RETENTION_HOURS: ${IDEMPOTENCY_RETENTION_HOURS:-}
+
+  METRICS_ENABLED: ${METRICS_ENABLED:-false}
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
+
+  SB_BILLING_ENABLED: ${SB_BILLING_ENABLED:-false}
+  SB_CSP_REPORT_ONLY: ${SB_CSP_REPORT_ONLY:-false}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  STRIPE_PRICE_MONTHLY_ID: ${STRIPE_PRICE_MONTHLY_ID:-}
+  STRIPE_PRICE_YEARLY_ID: ${STRIPE_PRICE_YEARLY_ID:-}
+  ADSENSE_CLIENT_ID: ${ADSENSE_CLIENT_ID:-}
+  ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
+  ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
+  ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  server:
+    profiles: [server]
+    image: ghcr.io/thtmnisamnstr/simple-balance-server:${SB_VERSION:-0.1.6}
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      # The API runs no scheduler: the scheduler machine does. Two processes both
+      # proposing recurrences would still be correct — the claim is transactional
+      # — but it is work done twice for no reason, and this profile exists to put
+      # each job on its own machine.
+      RECURRENCE_SCHEDULER: "false"
+    ports:
+      # This machine's private address only. The API is not a public surface in
+      # this profile; everything arrives through the frontend machine.
+      - "${SB_BIND_ADDRESS:?set SB_BIND_ADDRESS to this machine's private IP}:3000:3000"
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # The migration budget. A first start against an empty database applies the
+      # whole schema, and a health check that gives up in the middle of it kills
+      # the container half way through — the one failure this project takes care
+      # to make impossible everywhere else.
+      start_period: 300s
+    logging: *logging
+
+  scheduler:
+    profiles: [scheduler]
+    image: ghcr.io/thtmnisamnstr/simple-balance-scheduler:${SB_VERSION:-0.1.6}
+    restart: unless-stopped
+    environment: *app-env
+    # No published port. The scheduler serves health probes and, with metrics on,
+    # /metrics — and both are reachable from inside this machine. Nothing else
+    # has any reason to connect to it.
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
+    logging: *logging

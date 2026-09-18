@@ -176,6 +176,11 @@ export function AccountForm({
       // the Budgets page showed pre-mutation figures for its staleTime.
       await queryClient.invalidateQueries({ queryKey: ["budgets"] });
       await queryClient.invalidateQueries({ queryKey: ["forecast"] });
+      // The session carries how much of the plan's account allowance is used,
+      // and this is the only place an account is created. Without it the
+      // New account button stays offered after the last one the plan allows,
+      // and the person finds out by being refused.
+      await queryClient.invalidateQueries({ queryKey: ["session"] });
       onDone();
     },
   });

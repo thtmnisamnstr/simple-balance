@@ -17,30 +17,242 @@ import { log } from "./log.js";
  * Two lists in two languages drift silently otherwise, and the response that
  * drifted is the only one that runs the app.
  */
-export const securityHeaderOptions = (isProduction: boolean) =>
-  ({
-    contentSecurityPolicy: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      // No 'unsafe-inline'. The few inline styles here are React `style` props,
-      // which are applied through the CSSOM rather than written as a style
-      // attribute, and CSP does not govern those. Vite emits the stylesheet as
-      // a file. Checked in a browser across the sign-in, overview, and
-      // transaction pages with no violation reported.
-      styleSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      connectSrc: ["'self'"],
-      // None of these four fall back to default-src, so leaving them out left
-      // real gaps. base-uri stops an injected <base> quietly repointing every
-      // relative URL on the page, including the one the sign-in form posts to.
-      // form-action stops a form being aimed somewhere else. frame-ancestors
-      // is the modern half of the clickjacking defence that X-Frame-Options
-      // covers for older browsers. object-src closes plugin embedding.
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
-      frameAncestors: ["'none'"],
-      objectSrc: ["'none'"],
-    },
+/**
+ * Which page is being served, because one of them needs a weaker policy.
+ *
+ * `app` is every page in the product and is the policy this container has
+ * shipped since 0.1.0, unchanged. `stripe` is the plan and billing tab alone,
+ * which mounts Stripe Elements — an iframe from a third party, loaded by a
+ * script from a third party, talking to a fourth set of hosts. There is no way
+ * to run a payment form that never reaches its payment processor.
+ *
+ * The distinction is by document, not by person: a page that has not resolved
+ * an entitlement yet has already been served under one policy or the other, so
+ * "only widen it for subscribers" is not a thing a header can express.
+ */
+export type SecuritySurface = "app" | "stripe";
+
+/**
+ * What the headers depend on besides the surface.
+ *
+ * An object rather than more positional parameters, because this grows: ads add
+ * a second axis in the same release and a third caller would otherwise be
+ * passing `securityHeaderOptions(true, "app", false, true)` and counting.
+ *
+ * `reportOnly` sends the policy as `Content-Security-Policy-Report-Only`, which
+ * browsers evaluate and report on and never enforce. It exists because this
+ * release widens the policy for one page against a vendor whose host list is
+ * partly guesswork: an operator can turn it on, open the plan tab, and find out
+ * what their deployment would have blocked before anything is blocked for real.
+ *
+ * It applies to the `stripe` surface and to nothing else, and that restriction
+ * is the point rather than a limitation. The policy every other page carries is
+ * the one this container has shipped since 0.1.0 and has nothing to rehearse;
+ * turning enforcement off there would take a working defence off every page
+ * that renders somebody's balances in order to learn about a page that does
+ * not render any.
+ */
+export type SecurityHeaderContext = {
+  readonly surface?: SecuritySurface;
+  readonly reportOnly?: boolean;
+  /**
+   * Whether this deployment serves advertising.
+   *
+   * A second axis rather than a third surface, because it is not a property of
+   * one page: an ad appears in the application shell, so every page but the
+   * plan tab carries the cost. A deployment that configured no AdSense ids is
+   * unaffected — which is the default, and every deployment upgrading into this
+   * release.
+   */
+  readonly ads?: boolean;
+};
+
+/** Where a browser posts what the policy would have blocked. */
+export const CSP_REPORT_PATH = "/api/csp-report";
+
+/**
+ * The hosts Stripe Elements reaches, and where this list departs from Stripe's.
+ *
+ * Stripe does publish one, and calls it the full set — `docs.stripe.com`
+ * §Integration security guide, Content Security Policy. For Stripe.js it is
+ * exactly: `api.stripe.com` on connect-src; `js.stripe.com`, `*.js.stripe.com`
+ * and `hooks.stripe.com` on frame-src; `js.stripe.com` and `*.js.stripe.com` on
+ * script-src. Everything below that matches, and `maps.googleapis.com` is left
+ * out deliberately — it is for the Address Element with your own Maps key, which
+ * this product does not use.
+ *
+ * Four entries are ours rather than Stripe's, and each is here for a different
+ * reason and carries a different risk if it is wrong:
+ *
+ * - `*.hcaptcha.com`, on all three. Radar can decide a payment needs a
+ *   challenge, and a blocked challenge is a payment that cannot complete. This
+ *   is the one whose absence would break something a person is trying to do.
+ * - `m.stripe.com` and `q.stripe.com` on connect-src, which carry fraud signals
+ *   and Stripe's own metrics. Blocked, the form still works and Radar sees less.
+ * - `errors.stripe.com`, which carries Stripe's error reports. Blocked, nothing
+ *   a user can see changes.
+ *
+ * So this is a deliberate superset of a published list rather than a guess at an
+ * unpublished one, which is what it used to be described as. What has *not*
+ * happened is watching a real Elements mount on a live account to see which of
+ * the four are contacted — that needs an account nobody here has, and
+ * `SB_CSP_REPORT_ONLY` exists so an operator with one can find out without
+ * enforcing anything. `docs/acceptance.md` carries it as outstanding.
+ *
+ * `m.stripe.network` is deliberately absent. Stripe retired it in favour of
+ * `m.stripe.com`, which is listed above; most third-party guides still carry
+ * the old name, and copying it would have widened the policy for a host nothing
+ * contacts.
+ */
+const STRIPE_SCRIPT_HOSTS = [
+  "https://js.stripe.com",
+  // The wildcard as well as the bare host, because Stripe publishes both.
+  // Nothing needs it today — the v3 bundle builds every frame from the bare
+  // origin — but Stripe assigns alternate frame origins per account, server
+  // side, with nothing here to announce it. Listing it costs a few bytes and is
+  // the difference between that happening and a payment form that stops
+  // loading for one deployment with no change on this side to explain it.
+  "https://*.js.stripe.com",
+  "https://*.hcaptcha.com",
+];
+const STRIPE_FRAME_HOSTS = [
+  "https://js.stripe.com",
+  "https://*.js.stripe.com",
+  "https://hooks.stripe.com",
+  "https://*.hcaptcha.com",
+];
+/**
+ * What serving AdSense costs the policy, and why it is this much.
+ *
+ * Google publishes no list of the hosts AdSense loads from — as a matter of
+ * policy rather than oversight — so there is no allowlist to write. The script
+ * fetches further scripts, opens frames for the ad and for its fenced-frame
+ * successor, and posts measurement beacons, all to hosts chosen per impression.
+ *
+ * So this is honest about being broad rather than pretending to be narrow:
+ * scripts, frames and connections to any HTTPS origin, plus `'unsafe-eval'`,
+ * which the ad stack requires. It is a real cost on every page that renders
+ * somebody's balances, it is why ads are off unless an operator asks for them,
+ * and it is why `docs/monetization.md` states it in the operator's own words
+ * before they turn it on.
+ *
+ * Styles and fonts are on the list, and that is not padding. Google's consent
+ * message — the one an operator publishes in AdSense's own Privacy and
+ * messaging — does *not* render in an iframe: it appends its own element into
+ * this document and styles it with injected `<style>` blocks and a stylesheet
+ * from `fonts.googleapis.com`, whose faces then come from `fonts.gstatic.com`.
+ * Under `style-src 'self'` the dialog still renders, unstyled and in the normal
+ * flow far down the page, where nobody answers it — and an unanswered consent
+ * message in the EEA and UK means no ad request completes at all. The failure
+ * looks like having no inventory rather than like a policy being wrong.
+ *
+ * What is *not* given up: `'unsafe-inline'` for *scripts*, and `base-uri`,
+ * `form-action`, `frame-ancestors` and `object-src` all stand. An injected
+ * script still cannot be written inline into the document, the page still
+ * cannot be reaimed or framed, and plugin embedding is still closed.
+ */
+const ADS_SCRIPT_SOURCES = ["https:", "'unsafe-eval'"];
+const ADS_FRAME_SOURCES = ["https:"];
+const ADS_CONNECT_SOURCES = ["https:"];
+const ADS_STYLE_SOURCES = ["'unsafe-inline'", "https:"];
+const ADS_FONT_SOURCES = ["'self'", "https:", "data:"];
+
+const STRIPE_CONNECT_HOSTS = [
+  "https://api.stripe.com",
+  "https://m.stripe.com",
+  "https://q.stripe.com",
+  "https://errors.stripe.com",
+  "https://*.hcaptcha.com",
+];
+
+/**
+ * What every response from this process carries, and the one place it is
+ * written down.
+ *
+ * A function rather than a constant, because HSTS depends on configuration and
+ * a constant would read it at import time, before the process has parsed any.
+ * Exported rather than declared inline at the call site, because the split
+ * deployment's nginx has to repeat these on the files it serves itself — the
+ * application shell never reaches this process — and a test compares the two.
+ * Two lists in two languages drift silently otherwise, and the response that
+ * drifted is the only one that runs the app.
+ *
+ * The surface defaults to `app`, so every existing caller and every page but
+ * one gets the policy this container shipped before billing existed, byte for
+ * byte. A deployment that sells nothing never produces the other one.
+ */
+export const securityHeaderOptions = (
+  isProduction: boolean,
+  context: SecurityHeaderContext = {},
+): NonNullable<Parameters<typeof secureHeaders>[0]> => {
+  const surface = context.surface ?? "app";
+  // Only the surface whose policy is new. See `SecurityHeaderContext`.
+  const reportOnly = context.reportOnly === true && surface === "stripe";
+  const policy = {
+    defaultSrc: ["'self'"],
+    imgSrc: ["'self'", "data:", "https:"],
+    // No 'unsafe-inline'. The few inline styles here are React `style` props,
+    // which are applied through the CSSOM rather than written as a style
+    // attribute, and CSP does not govern those. Vite emits the stylesheet as
+    // a file. Checked in a browser across the sign-in, overview, and
+    // transaction pages with no violation reported.
+    //
+    // hCaptcha, which Stripe Radar can put in front of a payment, styles
+    // itself from its own origin, so the host joins the list on that one page
+    // rather than 'unsafe-inline' joining it everywhere.
+    styleSrc:
+      surface === "stripe"
+        ? ["'self'", "https://*.hcaptcha.com"]
+        : ["'self'", ...(context.ads === true ? ADS_STYLE_SOURCES : [])],
+    // Only where ads are served. Absent otherwise, so `default-src 'self'`
+    // governs and no third-party face loads — which is the behaviour this
+    // container has always had.
+    ...(surface !== "stripe" && context.ads === true ? { fontSrc: ADS_FONT_SOURCES } : {}),
+    scriptSrc:
+      surface === "stripe"
+        ? ["'self'", ...STRIPE_SCRIPT_HOSTS]
+        : ["'self'", ...(context.ads === true ? ADS_SCRIPT_SOURCES : [])],
+    connectSrc:
+      surface === "stripe"
+        ? ["'self'", ...STRIPE_CONNECT_HOSTS]
+        : ["'self'", ...(context.ads === true ? ADS_CONNECT_SOURCES : [])],
+    // Absent entirely where neither vendor needs it, which is stronger than
+    // listing nothing: with no frame-src and no default-src fallback to widen,
+    // the `default-src 'self'` above governs and no third-party frame loads.
+    //
+    // The two never combine. Ads live in the application shell and the plan tab
+    // is the one page this product promises not to put them on, so that page
+    // carries Stripe's hosts and this one carries the ad sources.
+    ...(surface === "stripe"
+      ? { frameSrc: STRIPE_FRAME_HOSTS }
+      : context.ads === true
+        ? { frameSrc: ADS_FRAME_SOURCES }
+        : {}),
+    // None of these four fall back to default-src, so leaving them out left
+    // real gaps. base-uri stops an injected <base> quietly repointing every
+    // relative URL on the page, including the one the sign-in form posts to.
+    // form-action stops a form being aimed somewhere else. frame-ancestors
+    // is the modern half of the clickjacking defence that X-Frame-Options
+    // covers for older browsers. object-src closes plugin embedding.
+    baseUri: ["'self'"],
+    formAction: ["'self'"],
+    frameAncestors: ["'none'"],
+    objectSrc: ["'none'"],
+    // Only while reporting. `report-uri` is deprecated and is the one every
+    // browser in the field still implements; `report-to` is the replacement
+    // and needs the `Reporting-Endpoints` header below to mean anything. Both,
+    // because a report that is not collected is a rollout that proves nothing.
+    ...(reportOnly ? { reportUri: CSP_REPORT_PATH, reportTo: "csp" } : {}),
+  };
+
+  return {
+    // One or the other, never both. Sending an enforcing policy beside a
+    // report-only copy of itself is a rollout that is not a rollout: the page
+    // breaks exactly as it would have, and the reports say so afterwards.
+    ...(reportOnly
+      ? { contentSecurityPolicy: undefined, contentSecurityPolicyReportOnly: policy }
+      : { contentSecurityPolicy: policy }),
+    ...(reportOnly ? { reportingEndpoints: [{ name: "csp", url: CSP_REPORT_PATH }] } : {}),
     // Not the `no-referrer` this defaults to. Under that policy a browser sends
     // `Origin: null` on a form submission, including the sign-in form posting to
     // this very server, and protectAuthMutation rightly refuses an origin it
@@ -55,7 +267,60 @@ export const securityHeaderOptions = (isProduction: boolean) =>
     // answer differently about the same application.
     xFrameOptions: "DENY",
     strictTransportSecurity: isProduction ? "max-age=31536000; includeSubDomains" : false,
-  }) satisfies Parameters<typeof secureHeaders>[0];
+  };
+};
+
+/**
+ * Whether a request is for the one page served under the Stripe policy.
+ *
+ * Normalised the way the browser's own router matches, so the two agree by
+ * construction rather than by both happening to be spelled the same. A bare
+ * string comparison served `/settings/plan/` and `//settings/plan` under the
+ * strict policy while the router rendered the plan tab for both — a payment
+ * form that cannot load, with nothing on screen to say why. `requestBodyLimit`
+ * in this file spells out `/mcp` and `/mcp/` for exactly this reason.
+ */
+export const isStripeSurfacePath = (path: string) => STRIPE_SURFACE_PATTERN.test(path);
+
+/**
+ * The one path served under the Stripe policy, and the same normalisation the
+ * browser's router does, as one pass.
+ *
+ * The router splits on `/` and drops empty segments, so it renders the plan tab
+ * for `/settings/plan`, `/settings/plan/`, `//settings/plan` and
+ * `/settings//plan` alike. This matches exactly that set — checked against the
+ * router's own expression over both spellings and a dozen near misses.
+ *
+ * A pattern rather than a split-filter-join because this runs on *every*
+ * request that reaches a Stripe-configured deployment, asset requests included,
+ * and the obvious version allocates three times per call to compare against one
+ * constant. Measured at two million calls on a typical path: 180ms against 22ms.
+ *
+ * This is the authority for documents *this process* serves, which is the
+ * single container and nothing else. In the split deployment nginx serves the
+ * shell itself and proxies only a few prefixes, so the same decision is spelled
+ * a second time in `deploy/docker/nginx.conf.template`. Two copies in two
+ * languages is exactly the drift `tests/security-header-parity.test.ts` exists
+ * to catch, and it compares both surfaces rather than only this one.
+ */
+const STRIPE_SURFACE_PATTERN = /^\/+settings\/+plan\/*$/;
+
+/**
+ * The path as it was written, not as Hono decoded it.
+ *
+ * `c.req.path` runs `decodeURI` on anything containing a `%`, so
+ * `/settings/%70lan` arrives here as `/settings/plan` and would be handed the
+ * wider policy — while the browser's own router does not decode and renders
+ * something else entirely. A policy widened for a page that is not the plan tab
+ * is a small hole with no benefit, and matching the raw spelling closes it by
+ * making both sides answer the same question.
+ */
+export const rawPathOf = (url: string) => {
+  const start = url.indexOf("/", url.indexOf("://") + 3);
+  if (start === -1) return "/";
+  const end = url.search(/[?#]/);
+  return end === -1 || end < start ? url.slice(start) : url.slice(start, end);
+};
 
 export const AUTH_REQUEST_BODY_LIMIT_BYTES = 64 * 1024;
 export const API_REQUEST_BODY_LIMIT_BYTES = 256 * 1024;
@@ -675,9 +940,26 @@ export function apiRequestBodyLimit(path: string) {
   return API_REQUEST_BODY_LIMIT_BYTES;
 }
 
+/**
+ * Sized for a *batch* of reports, not for one.
+ *
+ * The obvious number is wrong and was measured to be wrong: Chromium does not
+ * post one report per violation, it batches whatever is pending into a single
+ * delivery — about 17 KiB for seventeen violations and 100 KiB for a hundred.
+ * A limit sized for one report answers that batch 413 and logs nothing, so a
+ * rehearsal records the first violation and silently drops the one carrying the
+ * undocumented vendor hosts it exists to find. Exactly the wrong failure for a
+ * feature whose whole purpose is to tell an operator what they do not know.
+ *
+ * Still far under the generic 256 KiB, because this is the one route nothing
+ * authenticates and it exists only while an operator is rehearsing.
+ */
+const CSP_REPORT_BODY_LIMIT_BYTES = 128 * 1024;
+
 export function requestBodyLimit(path: string) {
   if (path === "/api/auth" || path.startsWith("/api/auth/")) {
     return AUTH_REQUEST_BODY_LIMIT_BYTES;
   }
+  if (path === CSP_REPORT_PATH) return CSP_REPORT_BODY_LIMIT_BYTES;
   return apiRequestBodyLimit(path);
 }

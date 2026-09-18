@@ -1,0 +1,286 @@
+# Deployment profiles
+
+Three shapes. What separates them is how many machines there are and where the
+database lives; all three run the same application, serve the same API and the
+same MCP surface, and read the same settings.
+
+| Profile | Machines | The database | Material |
+| --- | --- | --- | --- |
+| `single` | One | **Somebody else's.** A managed PostgreSQL, or a server you already keep awake | `deploy/compose/single/`, `deploy/systemd/`, `deploy/pulumi/aws-single/`, `deploy/pulumi/oci-single/` |
+| `vps` | One small VPS per service | **One of the services**, part of the deployment | `deploy/compose/vps/` — a compose file per machine, the firewall table, DNS, and the order to start them in |
+| `ha` | A Kubernetes cluster | **Multi-node PostgreSQL + Citus** | `deploy/helm/`, `deploy/pulumi/aws/`, `deploy/pulumi/gcp/`, `deploy/docker/citus.Dockerfile` — `docs/citus.md` and `docs/citus-runbook.md` |
+
+The database is the distinction worth reading twice. `single` runs the
+application and nothing else, so losing that machine loses no data — which is
+what makes one machine a reasonable thing to run a ledger on. `vps` puts the
+database on a machine of its own inside the deployment, which is the smallest
+shape that owns its whole stack. `ha` shards it.
+
+**Start with `single`.** It is the supported shape, it is what
+`docs/deployment.md` assumes, and it is measured: `docs/capacity.md` put ten
+thousand people's ledgers — thirty million transactions — on the smallest size
+it sells and answered the busiest hour at a 130 ms 95th percentile with no
+errors. A ledger is not a workload that needs a cluster. Move to `ha` when
+losing one machine for ten minutes is unacceptable, not when the load gets
+interesting.
+
+## One PostgreSQL version
+
+Two different questions hide here, and answering them as one is how this page
+was wrong for a while. **What will we connect to** is a floor, and it is
+unchanged: PostgreSQL 15 and up. **What do we deploy** is a choice, and where
+the deployment owns the database the answer is the newest version all three
+shapes can share.
+
+**Where we deploy a database, it is PostgreSQL 18.** That is `vps`, whose
+`postgres` service is part of the deployment, and `ha`, whose cluster is Citus
+on top of it. One version across both, because a dump taken from one shape has
+to restore into another, and because collation and planner behaviour both change
+between releases — `docs/deployment-sizing.md` has the measurement showing what
+a collation difference alone does to every name-sorted list in the product.
+
+18 is decided by the cluster, because the cluster is the constrained end.
+**Citus 14.2 is the newest Citus — there is no 15** — and it gates on PostgreSQL
+16, 17 and 18, refusing anything else at configure time. 18 is the newest of
+those, so it is what `ha` runs and therefore what `vps` runs beside it. Citus 15
+is unreleased; when it arrives it drops 16, which costs us nothing from 18.
+
+**`single` connects to a database somebody else runs**, so it states a floor
+rather than a version. PostgreSQL 15 and up, and 18 recommended for the same
+dump-portability reason. CI tests both ends — 15 because that is the promise, 18
+because that is what we deploy — and skips the middle, which tells us nothing
+neither end would.
+
+**Nobody on an existing deployment is moved silently.** A PostgreSQL major
+version cannot read the previous major's data directory; the container refuses
+to start and says so. `docs/upgrades.md` carries the one-time procedure, and an
+operator who would rather stay on the version they have can pin it.
+
+
+`deploy/compose/compose.distributed.yml` is neither profile: it runs the split
+containers on **one** machine, which exists to exercise the shape the Helm chart
+deploys without standing up a cluster. It is a demonstration. `deploy/compose/vps/`
+is the same containers with a machine each, which is a deployment.
+
+## What this does not add
+
+`AGENTS.md` holds that PostgreSQL is the only persistent dependency, and that
+nothing may add a sidecar or a writable-volume requirement. Neither profile
+breaks it, and it is worth saying which of the two clauses each piece answers to
+rather than leaving a reader to wonder.
+
+The application container still writes nothing: it runs read-only with a 16 MiB
+`tmpfs` for `/tmp`, exactly as `docs/deployment.md` has always described. The
+ledger still lives in PostgreSQL alone.
+
+Two volumes exist in the `single` profile beyond the database's own. The
+container logs are bounded rather than stored — 10 MiB across five files per
+service, which is Docker's own rotation and not state. Caddy keeps its
+certificates and its ACME account key, which is genuine persistent state and is
+also entirely regenerable: losing that volume costs a re-issue, and the only
+reason to care is Let's Encrypt's rate limit of five duplicate certificates per
+name per week. Nothing in either volume is anybody's data, and a deployment that
+terminates TLS elsewhere has neither.
+
+Caddy itself is not a new dependency. `docs/deployment.md` has required a
+reverse proxy in front of this application since 0.1.0, because production
+refuses an `APP_BASE_URL` that is neither HTTPS nor loopback. What
+`compose.caddy.yml` adds is a default answer to a question that was already
+being asked.
+
+## What terminates TLS
+
+The application refuses an `APP_BASE_URL` that is neither HTTPS nor loopback
+when `NODE_ENV=production`, which every image sets. So reaching a deployment
+from another machine means something terminates TLS, and that thing has two
+jobs beyond the certificate.
+
+| It must | Because |
+| --- | --- |
+| Send `X-Forwarded-Proto` | The application builds absolute URLs and sets cookie flags from the scheme it believes it is serving |
+| Put the visitor's address in `X-Forwarded-For`, as the first entry | Sign-in attempts are counted per address. Get this wrong and every visitor shares one allowance |
+| Not buffer responses | A commit or an import of several thousand rows reports its progress as it goes |
+| Not time a slow response out | The same request can take a minute |
+| Allow a body of `CSV_MAX_BYTES × 6 + 64 KiB` | A CSV arrives inside a JSON string, and the default limits of most proxies are far below it |
+
+Caddy needs to be told none of it: it streams by default, does not time a slow
+response out, has no body limit of its own, and writes the two headers
+correctly. `compose.caddy.yml` is three services' worth of configuration because
+of that. nginx needs `proxy_read_timeout`, `proxy_buffering off`,
+`client_max_body_size` and both headers said explicitly — `docs/deployment.md`
+has the block to copy.
+
+### The `X-Forwarded-For` rule, stated once
+
+The application reads the **first** entry of `X-Forwarded-For` when
+`TRUST_PROXY` is on, and the address of the connection when it is off. Both
+answers are wrong in the other's situation, which is why the setting exists and
+why the server says at startup which of the two it is doing.
+
+That makes exactly one thing the terminator's responsibility: **the first entry
+must be the visitor.** Two ways to get it, and both are fine:
+
+- **Replace the header**, which is what nginx's
+  `proxy_set_header X-Forwarded-For $remote_addr` does and what Caddy does by
+  default. One entry, and it is the visitor.
+- **Append, from an honest chain**, which is what a CDN in front of a
+  terminator produces. The CDN discards what the caller sent and writes the
+  visitor first; each hop after it appends its own.
+
+The way to get it wrong is to append while trusting the caller. Caddy does that
+only if its global `servers { trusted_proxies … }` option is set, and only for
+addresses that option covers — so set it to the ranges of whatever really is in
+front of Caddy, and never to `0.0.0.0/0`. Measured: with `0.0.0.0/0` a request
+carrying `X-Forwarded-For: 203.0.113.7` reached the application as
+`203.0.113.7, <real client>`, and the limiter would have counted it against the
+address the caller chose.
+
+### And the split shape, which has a second hop
+
+In the `ha` profile and in `compose.distributed.yml`, the frontend container's
+nginx sits between the terminator and the API, and it sends `$remote_addr` —
+which without help is the terminator, for every visitor alike.
+
+`SB_TRUSTED_PROXY_CIDR` is what fixes it. Set it to the range the terminator
+connects from — the ingress controller's pod CIDR under Kubernetes — and nginx
+resolves `$remote_addr` back to the visitor before passing it on. Its default,
+`127.0.0.1`, is the off position: nothing reaches the container from loopback,
+so a deployment that sets nothing behaves exactly as it did before the setting
+existed.
+
+Name the proxy's range and nothing wider. This decides whose word is taken for
+an address, so a range that includes callers lets a caller choose their own.
+
+## The firewall
+
+The `single` profile, with the TLS terminator on the same machine:
+
+| From | To | Port | Why |
+| --- | --- | --- | --- |
+| Anywhere | The host | 80/tcp | The redirect to HTTPS, and the ACME challenge |
+| Anywhere | The host | 443/tcp | The application |
+| Anywhere | The host | 443/udp | HTTP/3, which Caddy serves by default. Closing it costs a little connection setup time and nothing else |
+| One named address | The host | 22/tcp | Optional, and off by default. Both cloud programs give a shell without it |
+| The host | Anywhere | 443/tcp | Container images, Let's Encrypt, and any Stripe endpoint configured |
+| The host | The SMTP relay | 587 or 465 | Only where mail is configured |
+
+Nothing opens 5432 or 3000. The application and PostgreSQL reach each other over
+the container network inside the machine, and a rule that exposed either would
+be a second way in that the application's own origin checks do not cover.
+
+The `ha` profile, where the tiers are separate:
+
+| From | To | Port | Why |
+| --- | --- | --- | --- |
+| The load balancer | frontend | 8080 | Every request, including `/api` and `/mcp` — the frontend proxies them, which is what puts the browser and the API on one origin |
+| frontend | server | 3000 | The proxied half |
+| server, scheduler | postgres | 5432 | |
+| server, scheduler | Anywhere | 443, 587/465 | Stripe and mail, where configured |
+
+The server is not publicly reachable in either shape, and a second ingress rule
+sending `/api` straight to it would bypass the `X-Forwarded-For` handling
+`TRUST_PROXY` depends on. The chart's `NetworkPolicy` enforces the table above
+when `networkPolicy.enabled` is set.
+
+## DNS
+
+One A record, pointing at the address the cloud program outputs.
+
+The two clouds differ here, and the difference is a constraint rather than a
+choice. AWS gets an Elastic IP, which outlives the instance. Oracle Cloud gets
+the ephemeral address its VNIC is created with, because OCI maps at most one
+public IP to a private IP at a time: attaching a reserved address to a VNIC that
+already has an ephemeral one is refused, and creating the VNIC without one
+leaves the machine with no route to the internet while cloud-init is installing
+Docker. In practice it is stable — nothing in either program replaces the
+instance — and an operator who needs an address that outlives the machine can
+promote the ephemeral one to reserved in the OCI console.
+
+The name has to resolve **before** a certificate can be issued: Let's Encrypt
+proves the name by connecting to it. Caddy retries until it works, so the order
+does not matter much — the machine simply serves nothing over HTTPS until the
+record exists.
+
+There is no private DNS in the `single` profile and nothing to configure. The
+application reaches PostgreSQL as `postgres` and Caddy reaches the application
+as `app`, which are Compose service names resolved by the container runtime's
+own resolver on a network that exists inside one host.
+
+## Connection budgets
+
+Each API and scheduler process holds `DATABASE_POOL_SIZE` connections and one
+more while it starts. PostgreSQL's default `max_connections` is 100.
+
+| Profile | Processes | Connections at peak |
+| --- | --- | --- |
+| `single` | 1 | `1 × (10 + 1)` = **11** |
+| `vps` | 1 server + 1 scheduler | `2 × (10 + 1)` = **22** |
+| `compose.distributed.yml` | 1 server + 2 schedulers | `3 × (10 + 1)` = **33** |
+| `ha`, at the chart's default ceilings | 4 server + 2 scheduler | `6 × (10 + 1)` = **66** |
+
+The `single` number does not move, because there is nothing to scale out — which
+is the profile's whole shape, and why the rest of the hundred is left for
+`psql`, `pg_dump`, and the connection somebody opens while wondering why
+something is slow. `vps` sets `max_connections` to 50 rather than taking the
+default, because it owns its database and 22 of 50 leaves the same slack in a
+smaller machine's memory. Under `ha` the number moves with every replica ceiling, so
+the chart refuses to install a combination that would exceed
+`config.maxConnections` and prints the arithmetic either way.
+
+## Host lifecycle, in the `single` profile
+
+**Boot order.** systemd starts `simple-balance.service` after `docker.service`
+and after the network is up. The unit is `Type=oneshot` with
+`RemainAfterExit=yes`, so systemd treats the whole deployment as one thing that
+is either up or down.
+
+**Who restarts what.** systemd owns ordering and intent — boot, `systemctl
+start`, `systemctl stop`. Docker owns crash recovery, through
+`restart: unless-stopped`. They do not fight because the unit's `ExecStop` runs
+`docker compose down`, which removes the containers, so a deliberate stop leaves
+nothing for Docker's restart policy to bring back.
+
+**The first start is slow and that is fine.** Against an empty database it runs
+every migration under an advisory lock before readiness opens. The unit allows
+600 seconds for it, which is twice the 300 the health check allows, because
+systemd's default of 90 would kill a first migration two thirds of the way
+through.
+
+**Logs.** Docker's `json-file` driver keeps every line forever by default, which
+on a 20 GiB boot disk is how the disk fills. Every service in
+`compose.yml` caps itself at 10 MiB across 5 files. PostgreSQL's own slow-query
+log goes to the same place and is bounded by the same cap.
+
+**Disks.** The boot disk holds the operating system, the images and the logs,
+and does not grow. The data disk holds the database, the backups and the two
+generated secrets, and is a separate volume on both clouds — so replacing the
+machine keeps the ledger. `docs/deployment-sizing.md` sizes both.
+
+**Backups.** A daily `pg_dump` in PostgreSQL's own compressed format, verified
+by reading it back before it is kept. `deploy/compose/single/README.md` has the
+commands, including the restore.
+
+## Secrets
+
+The two the deployment cannot run without — `AUTH_SECRET` and
+`POSTGRES_PASSWORD` — are generated on the machine at first boot and kept on the
+data volume at `0600`. They are in no user data, no Pulumi state file and no
+cloud API response, because nothing outside the machine has any use for either
+value, and a rebuilt instance that reattaches the same volume finds the same
+ones.
+
+Everything an operator genuinely supplies — an SMTP password, a Stripe key —
+goes in `/var/lib/simple-balance/env.local`, which is on the data volume rather
+than the boot disk and is folded into `.env` whenever the machine's setup runs.
+The disk is the point: `/opt` is destroyed when the instance is rebuilt, so a
+key kept there would survive until the machine was resized and then vanish with
+no error and no mention of itself. `docs/deployment.md` describes the `_FILE`
+variants for a deployment that keeps secrets somewhere else entirely.
+
+**A `pulumi up` does not re-run any of this.** Cloud-init's `runcmd` is
+per-instance, and neither program replaces the instance when the deployment
+material changes — deliberately, because that would be minutes of downtime on
+every edit and, on Oracle Cloud, a new address. These programs provision a
+machine; they do not keep managing it. Apply an application upgrade or a
+setting on the machine itself, which the generated user-data explains in its own
+header and `deploy/pulumi/README.md` repeats.
