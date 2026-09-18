@@ -25,7 +25,7 @@ environment, not on the command:
 The integration tier reports 706 tests on its own and 705 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-1,438 rather than among the skips, which is why the two rows add up to 2,143
+1,444 rather than among the skips, which is why the two rows add up to 2,149
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
