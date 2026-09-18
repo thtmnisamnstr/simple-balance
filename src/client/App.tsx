@@ -662,6 +662,16 @@ function useAdoptBrowserRegion(session: Session) {
 }
 
 function Shell({ session }: { session: Session }) {
+  /*
+   * The deployment's capabilities, for the privacy link below. This is the
+   * same `["auth-methods"]` query the sign-in screen ran, so it is served
+   * from the cache rather than fetched again.
+   */
+  const deployment = useQuery({
+    queryKey: ["auth-methods"],
+    queryFn: () => api<AuthPublicOptions>("/api/auth/methods"),
+    retry: false,
+  });
   const [mobileNav, setMobileNav] = useState(false);
   const location = useLocation();
   const main = useRef<HTMLElement>(null);
@@ -827,6 +837,19 @@ function Shell({ session }: { session: Session }) {
           >
             {theme.resolved === "dark" ? <Sun size={17} /> : <Moon size={17} />}
           </button>
+          {/* Reachable from every page, which is what Google's policy asks
+              of a deployment serving ads — and what anybody looking for it
+              expects anyway. Absent when the operator has configured none. */}
+          {deployment.data?.privacyPolicyUrl ? (
+            <a
+              className="privacy-link"
+              href={deployment.data.privacyPolicyUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Privacy
+            </a>
+          ) : null}
           <button
             className="sign-out"
             aria-label="Sign out"

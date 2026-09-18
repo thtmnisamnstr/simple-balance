@@ -180,6 +180,7 @@ connection to Stripe.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
+| `PRIVACY_POLICY_URL` | unset | Where this deployment's privacy policy lives. **Required whenever AdSense is configured** — Google's programme policies require one on any site serving their ads, and the server refuses to start without it rather than letting an operator breach them from the first impression. Must be absolute and https. Linked from the sidebar on every page. |
 | `ADSENSE_CLIENT_ID` | unset | The AdSense publisher id, `ca-pub-` followed by sixteen digits. The dashboard shows it as `pub-…`, and the missing `ca-` prefix is refused at startup because it otherwise fails by rendering nothing, which looks exactly like having no inventory. |
 | `ADSENSE_BANNER_SLOT_ID` | unset | The ad unit shown once in the application shell. Ten digits. Set with the client id or not at all. |
 | `ADSENSE_FOOTER_SLOT_ID` | unset | A second unit at the foot of the page. Off unless you set it, and an addition to the banner rather than a replacement, so setting it alone refuses to start. |

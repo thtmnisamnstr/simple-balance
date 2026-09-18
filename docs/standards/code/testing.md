@@ -18,8 +18,8 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 139 pass, 63 skip | **1,438 pass, 705 skip** |
-| `npm test`, database set | 202 pass | **2,143 pass** |
+| `npm test`, no database | 139 pass, 63 skip | **1,444 pass, 705 skip** |
+| `npm test`, database set | 202 pass | **2,149 pass** |
 | `npm run test:integration` | 64 pass | 706 pass |
 
 The integration tier reports 706 tests on its own and 705 skips inside a
@@ -33,7 +33,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,438 is the number that
+The first row is what CI and `npm run verify` see, and 1,444 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming

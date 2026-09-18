@@ -332,6 +332,8 @@ export type AuthPublicOptions = {
   /** Whether this deployment sells a plan, and whether it serves ads. */
   billingAvailable: boolean;
   adsAvailable: boolean;
+  /** Absent where the deployment has no privacy policy configured. */
+  privacyPolicyUrl?: string;
   emailVerificationRequired: boolean;
   minimumPasswordLength: number;
 };

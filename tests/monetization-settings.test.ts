@@ -127,6 +127,9 @@ describe("reading the ad settings", () => {
   const ads = {
     ADSENSE_CLIENT_ID: "ca-pub-1234567890123456",
     ADSENSE_BANNER_SLOT_ID: "9876543210",
+    // Required once ads are configured: Google's programme policies demand a
+    // privacy policy on any site serving their ads.
+    PRIVACY_POLICY_URL: "https://smpl.money/privacy/",
   };
 
   it("is off when nothing is set", () => {
@@ -134,9 +137,12 @@ describe("reading the ad settings", () => {
   });
 
   it("refuses half a configuration, in either direction", () => {
-    expect(() => parseAdSettings({ ADSENSE_CLIENT_ID: ads.ADSENSE_CLIENT_ID })).toThrow(
-      /must be set together/,
-    );
+    expect(() =>
+      parseAdSettings({
+        ADSENSE_CLIENT_ID: ads.ADSENSE_CLIENT_ID,
+        PRIVACY_POLICY_URL: ads.PRIVACY_POLICY_URL,
+      }),
+    ).toThrow(/must be set together/);
     expect(() => parseAdSettings({ ADSENSE_BANNER_SLOT_ID: "1" })).toThrow(/must be set together/);
   });
 
@@ -182,5 +188,44 @@ describe("reading the ad settings", () => {
     for (const bad of ["1", "987654321", "98765432101"]) {
       expect(() => parseAdSettings({ ...ads, ADSENSE_BANNER_SLOT_ID: bad }), bad).toThrow(/ten/);
     }
+  });
+});
+
+describe("the privacy policy an ad deployment owes", () => {
+  const ads = {
+    ADSENSE_CLIENT_ID: "ca-pub-1234567890123456",
+    ADSENSE_BANNER_SLOT_ID: "9876543210",
+  } as const;
+
+  it("refuses ads with no privacy policy", () => {
+    // Not a nicety: an operator who turns ads on without one is in breach
+    // from the first impression, and the penalty is account suspension rather
+    // than the ads simply not rendering.
+    expect(() => parseAdSettings(ads)).toThrow(/PRIVACY_POLICY_URL must be set/);
+  });
+
+  it("refuses a policy that is not a URL", () => {
+    expect(() => parseAdSettings({ ...ads, PRIVACY_POLICY_URL: "/privacy" })).toThrow(
+      /absolute URL/,
+    );
+  });
+
+  it("refuses a policy served over plain http", () => {
+    // A document about what happens to somebody's data, delivered over a
+    // channel that cannot prove it arrived unmodified.
+    expect(() =>
+      parseAdSettings({ ...ads, PRIVACY_POLICY_URL: "http://smpl.money/privacy/" }),
+    ).toThrow(/must be https/);
+  });
+
+  it("keeps the policy on the ad settings, so the two cannot disagree", () => {
+    const settings = parseAdSettings({ ...ads, PRIVACY_POLICY_URL: "https://smpl.money/privacy/" });
+    expect(settings?.privacyPolicyUrl).toBe("https://smpl.money/privacy/");
+  });
+
+  it("asks for nothing when ads are off", () => {
+    // A deployment with no ads owes Google nothing, and demanding a URL from
+    // it would be this product inventing a requirement.
+    expect(parseAdSettings({})).toBeUndefined();
   });
 });

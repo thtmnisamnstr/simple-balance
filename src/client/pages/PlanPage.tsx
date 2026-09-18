@@ -316,7 +316,7 @@ export function PlanPage({ session }: { session: Session }) {
                 <h2>Your plan</h2>
                 <p>
                   {plan === "plus"
-                    ? "Plus: as many accounts as you need."
+                    ? "Premium: as many accounts as you need."
                     : limit === null
                       ? "Everything is included on this deployment."
                       : `Free: up to ${limit} accounts.`}

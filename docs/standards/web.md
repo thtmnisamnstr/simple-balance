@@ -1,7 +1,7 @@
 # Web
 
 The browser app. A React 19 single-page app with a hand-rolled router, TanStack
-Query for server state, and 4,053 lines of hand-written CSS in
+Query for server state, and 4,069 lines of hand-written CSS in
 `src/client/styles.css`. No component library, no CSS framework, no token build
 step, and none is coming, so every rule here has to be reachable with plain CSS
 custom properties and components written by hand.
@@ -222,12 +222,12 @@ The rule for this stylesheet: **`--line-strong` for a control edge,
 | `--green-fill` on `--track` | 5.42 | 3.73 |
 
 **Settled.** The reasoning is written out twice in the file, at
-`styles.css:872-880` for `.input` and at `styles.css:3406-3412` for
+`styles.css:888-896` for `.input` and at `styles.css:3422-3428` for
 `.chart-zero`, and it had been applied to two of the eighteen
 `border: 1px solid var(--line…)` rules. Six control edges have now joined them —
 `.pagination-step`, `.sort-direction`, `.bulk-edit-field`, `.transaction-type`,
 `.commit-choice label` and `.report-tab` — along with `.button-secondary`
-(`styles.css:643`) and `.file-drop` (`styles.css:2418`), both of which rested on
+(`styles.css:659`) and `.file-drop` (`styles.css:2434`), both of which rested on
 the failing token and reached the compliant one only on hover. Both now hold it
 at rest, as `.input` already did; their hover states also shift `background`, so
 the hover affordance survives the change.
@@ -342,7 +342,7 @@ of what is here, and it is four steps plus a pill:
 
 ### 3.3 Type
 
-Today: 114 `font-size` declarations across nine pixel values (11, 12, 13, 14,
+Today: 115 `font-size` declarations across nine pixel values (11, 12, 13, 14,
 15, 16, 17, 20, 32) plus two `clamp()` expressions.
 
 Proposed: seven points, and GOV.UK's rule that a new style aligns to an existing
@@ -360,9 +360,9 @@ point rather than inventing one.
 
 Name the productive set and the expressive set separately. The expressive set
 has two members and both are the `clamp()` expressions counted above:
-`clamp(28px, 3.2vw, 40px)` on `.page-header h1` (`styles.css:575`), which is the
+`clamp(28px, 3.2vw, 40px)` on `.page-header h1` (`styles.css:591`), which is the
 `<h1>` of every page, and `clamp(35px, 4vw, 52px)` on the sign-in shell
-(`styles.css:2811`). The page title is deliberately outside the productive ramp
+(`styles.css:2827`). The page title is deliberately outside the productive ramp
 because it is the one size that answers to the viewport rather than to the
 scale. Naming both is what stops a display size leaking into a page of
 accounts.
@@ -415,8 +415,8 @@ layer in the app are free to coincide, and that is the one exception it carries.
 ### 3.6 Breakpoints
 
 Four hardcoded max-widths, all four now contiguous at the foot of the
-stylesheet in descending order: 1050px (`styles.css:3797`), 980px
-(`styles.css:3821`), 780px (`styles.css:3828`) and 560px (`styles.css:3907`).
+stylesheet in descending order: 1050px (`styles.css:3813`), 980px
+(`styles.css:3837`), 780px (`styles.css:3844`) and 560px (`styles.css:3923`).
 Putting them in one place was section 7.3's doing; how many of them there should
 be is still this section's question.
 
@@ -440,10 +440,10 @@ prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
 declarations), 140ms (one) and 180ms (the mobile drawer's paired `transform` and
-`visibility`, `styles.css:3360-3365`), and there are two reduced-motion
-blocks: `styles.css:681-685`, which turns off the skeleton shimmer specifically
+`visibility`, `styles.css:3376-3381`), and there are two reduced-motion
+blocks: `styles.css:697-701`, which turns off the skeleton shimmer specifically
 and stays beside `.skeleton` on purpose rather than joining the responsive body
-(section 7.3), and `styles.css:4012-4021`, a blanket rule setting
+(section 7.3), and `styles.css:4028-4037`, a blanket rule setting
 `animation-duration`, `transition-duration` and `scroll-behavior` on
 everything.
 
@@ -456,7 +456,7 @@ was the oversight. A slow rotation is acceptable under `reduce`, which asks for
 minimised non-essential motion; no indicator is not.
 
 The spinner now swaps its rotation for an opacity pulse rather than stopping
-(`styles.css:775-782`), which carries the same meaning with no motion across the
+(`styles.css:791-798`), which carries the same meaning with no motion across the
 screen — the thing the preference is actually about.
 
 *Checked by:* `tests/styles-skeleton.test.ts`, twice. The shimmer animation
@@ -688,7 +688,7 @@ there silently outranked the responsive overrides above it —
 would have lost to `.chart-grid` written later, with nothing on screen to say
 why. `.report-tabs` and the chart grid appear in no breakpoint block, and
 neither is a gap. `.report-tabs` carries `flex-wrap: wrap`
-(`styles.css:3198-3202`), which reflows at every width rather than at three
+(`styles.css:3214-3218`), which reflows at every width rather than at three
 chosen ones and is the better answer; and `.chart-grid` is an SVG stroke with no
 layout to change. This sentence used to call both a gap "somebody can fill",
 which is how a list of work comes to include work nobody should do — the
@@ -731,7 +731,7 @@ moved to a new page brought a spacing opinion with it that nobody could see in
 the markup.
 
 **Flex rather than grid, and it is load-bearing rather than taste.**
-`.merge-panel` (`styles.css:2746`) is `position: sticky` and sits at page level
+`.merge-panel` (`styles.css:2762`) is `position: sticky` and sits at page level
 on Categories and Payees. A sticky *grid item* is bounded by its own grid area,
 which in a single-column grid is its own height, so it would stop following the
 list with nothing on screen to say why. A sticky *flex item* is bounded by the
@@ -1288,7 +1288,7 @@ both the header and the cell but applies tabular figures to the cell only; the
 stronger rule is this product's.
 
 Implemented: `className="align-right"` on a money cell is what turns on tabular
-figures, through `.data-table :is(th, td).align-right` at `styles.css:792-803`.
+figures, through `.data-table :is(th, td).align-right` at `styles.css:808-819`.
 
 **The sentence above was not true of the CSS, and now is.** The selector was
 `.data-table td.align-right`, so a `<th className="align-right">` — Reports and
@@ -1389,13 +1389,13 @@ There were **no `scroll-padding` or `scroll-margin` declarations anywhere in
 | Selector | Line | Position |
 | --- | --- | --- |
 | `.sidebar` | `styles.css:359` | fixed |
-| `.row-menu-popover` | `styles.css:1690` | fixed |
-| `.modal` | `styles.css:2280` | fixed |
-| `.modal-header` | `styles.css:2313` | sticky |
-| `.import-preview` | `styles.css:2457` | sticky |
-| `.merge-panel` | `styles.css:2746` | sticky |
-| `.nav-scrim` | `styles.css:3849` | fixed |
-| `.mobile-header` | `styles.css:3859` | sticky |
+| `.row-menu-popover` | `styles.css:1706` | fixed |
+| `.modal` | `styles.css:2296` | fixed |
+| `.modal-header` | `styles.css:2329` | sticky |
+| `.import-preview` | `styles.css:2473` | sticky |
+| `.merge-panel` | `styles.css:2762` | sticky |
+| `.nav-scrim` | `styles.css:3865` | fixed |
+| `.mobile-header` | `styles.css:3875` | sticky |
 
 `.merge-panel` was the live case. It exists because the list is long enough to
 scroll, which is the same condition that puts a focused row underneath it. Every
@@ -1405,7 +1405,7 @@ scroll container holding a sticky element sets `scroll-padding-top` (or
 There are two scroll containers, so there are two declarations: `html` carries
 `scroll-padding-top: 80px` (`styles.css:321`), which clears the mobile header
 and the merge panel alike, and `.modal-card` carries 64px
-(`styles.css:2310`) for the sticky `.modal-header` inside it. The other six
+(`styles.css:2326`) for the sticky `.modal-header` inside it. The other six
 regions are inside one of those two or are the container itself.
 
 *Checked by:* `tests/page-stack.test.ts`, which pairs each sticky or fixed
@@ -1545,7 +1545,7 @@ Series 3 at 3.64 light is the tightest and is the one to watch.
 Gridlines do not have to contrast with the data. The Understanding document for
 1.4.11 says data lines "should have 3:1 contrast against their background, but
 as there is little overlap with other lines they do not need to contrast with
-each other or the graduated lines". `.chart-grid` at `styles.css:3361-3368` is
+each other or the graduated lines". `.chart-grid` at `styles.css:3377-3384` is
 correctly faint and says why; `.chart-zero` is correctly held to 3:1 because it
 is where money in becomes money out, and says why.
 
@@ -1563,7 +1563,7 @@ where all adjacent colours clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
-This product keeps ten, on measured grounds recorded at `styles.css:3485-3497`.
+This product keeps ten, on measured grounds recorded at `styles.css:3501-3513`.
 The previous six-colour set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
 the same colour; the current ten reach 5.6 in light and 4.7 in dark. Going from
@@ -1580,7 +1580,7 @@ it was not.** `BarChart` lays each series' bar at `index * barWidth` with no gap
 set `stroke: none`. Two touching bars at 1.05:1 had no visible boundary.
 
 The fix was geometry rather than a repainted palette: `.chart-bar` now carries a
-one-pixel `--surface` stroke (`styles.css:3321-3324`), which separates every
+one-pixel `--surface` stroke (`styles.css:3337-3340`), which separates every
 adjacent pair against the page they are drawn on and disturbs none of the
 measured dichromatic separation the ten-colour set was chosen for.
 
@@ -1600,7 +1600,7 @@ light, which is three times better than the six it replaced and still not enough
 on its own.
 
 **The remedy the CSS comment named has landed.** Nine of the ten line series
-carry a `stroke-dasharray` (`styles.css:3530-3534`) and series 0 stays solid,
+carry a `stroke-dasharray` (`styles.css:3546-3550`) and series 0 stays solid,
 because that is what a single-series chart gets and what a plain line should look
 like. A dash pattern is orthogonal to hue, which is the whole point: two series
 that look alike to one reader are still two different lines. The patterns differ
@@ -1950,7 +1950,7 @@ The rules, in the order they matter:
 
 - **A bar is determinate or it is not shown.** `<progress>` with no `value` is
   indeterminate and animates in every engine, and the blanket reduced-motion
-  block at `styles.css:4012-4021` freezes it into a bar that reads as stuck.
+  block at `styles.css:4028-4037` freezes it into a bar that reads as stuck.
   That is section 4's spinner defect a second time, and a determinate bar is the
   fix for that class of failure rather than a new instance of it.
 - **A bar never appears before its total is a real count.** A commit does fixed
@@ -2002,9 +2002,9 @@ The rules, in the order they matter:
 - **Binding, SC 1.4.11.** The fill is `--green-fill` on `--track`, measured in
   2.2, and the bar keeps the `--line-strong` edge 2.2 requires of a control.
 - **Three bars now, and a fourth has to say which of them it is not.**
-  `.progress-track` (`styles.css:1345`, `DashboardPage.tsx:254`) is a decorative
+  `.progress-track` (`styles.css:1361`, `DashboardPage.tsx:254`) is a decorative
   share-of-total meter under a row that already states its figure.
-  `.budget-bar` (`styles.css:3750`, `BudgetsPage.tsx:1168`) is money, with an
+  `.budget-bar` (`styles.css:3766`, `BudgetsPage.tsx:1168`) is money, with an
   over state. `.progress-meter` is work in flight. Neither of the first two
   appeared in this guide before this section, which by 17.3's closing test was a
   defect in the guide.
@@ -2050,7 +2050,7 @@ were live SC 2.4.7 failures. `summary` is the `RowMenu` trigger
 got only `accent-color`; and `.file-drop`'s `<input>` is visually hidden, so
 tabbing to the CSV file picker showed nothing at all.
 
-One rule now covers the set (`styles.css:922-932`):
+One rule now covers the set (`styles.css:938-948`):
 `:is(button, a, summary, input, select, textarea, [tabindex]):focus-visible`
 plus `.file-drop:focus-within`, which is where the wrapper takes the indicator
 its hidden input cannot show. `.input:focus` stays as it is — a field's ring is
@@ -2139,9 +2139,9 @@ subject to the spacing exception: if a 24px circle centred on each target's
 bounding box does not intersect another target's circle, the target passes.
 
 This is already solved, deliberately. `.icon-button` is 31 by 31
-(`styles.css:2296-2307`) with an `::after` at `inset: -7px` giving a 45px hit
+(`styles.css:2312-2323`) with an `::after` at `inset: -7px` giving a 45px hit
 area without growing the row, and a comment saying why
-(`styles.css:2061-2065`). **That is the house answer for a dense-row control.**
+(`styles.css:2077-2081`). **That is the house answer for a dense-row control.**
 
 The spacing exception never has to be reached here. It applies only to targets
 under 24 by 24 CSS pixels, and `.icon-button` is 31 by 31, so it passes on size

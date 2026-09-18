@@ -53,6 +53,9 @@ const keys = [
   "ADSENSE_CLIENT_ID",
   "ADSENSE_BANNER_SLOT_ID",
   "ADSENSE_FOOTER_SLOT_ID",
+  "ADSENSE_CONSENT_MANAGED",
+  // Required whenever AdSense is configured, so every ad case has to name it.
+  "PRIVACY_POLICY_URL",
   "STRIPE_SECRET_KEY_FILE",
   "STRIPE_WEBHOOK_SECRET_FILE",
 ] as const;
@@ -648,6 +651,7 @@ describe("what a deployment sells and shows", () => {
   const adsense = {
     ADSENSE_CLIENT_ID: "ca-pub-1234567890123456",
     ADSENSE_BANNER_SLOT_ID: "9876543210",
+    PRIVACY_POLICY_URL: "https://smpl.money/privacy/",
   } as const;
 
   const cases = [
@@ -744,7 +748,16 @@ describe("what a deployment sells and shows", () => {
   const refusals = [
     ["selling with no way to charge", { SB_BILLING_ENABLED: "true" }, /no Stripe settings/],
     ["half the Stripe settings", { STRIPE_SECRET_KEY: "sk_test_x" }, /half configured/],
-    ["half the AdSense settings", { ADSENSE_CLIENT_ID: "ca-pub-1" }, /must be set together/],
+    [
+      "half the AdSense settings",
+      { ADSENSE_CLIENT_ID: "ca-pub-1", PRIVACY_POLICY_URL: "https://smpl.money/privacy/" },
+      /must be set together/,
+    ],
+    [
+      "AdSense with no privacy policy",
+      { ADSENSE_CLIENT_ID: "ca-pub-1234567890123456", ADSENSE_BANNER_SLOT_ID: "9876543210" },
+      /PRIVACY_POLICY_URL must be set/,
+    ],
   ] as const;
 
   it.each(refusals)("refuses to start on %s", async (_name, environment, message) => {

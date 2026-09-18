@@ -510,6 +510,22 @@ a {
   cursor: pointer;
 }
 
+/* The privacy link in the sidebar foot. Quiet by default: it is a thing
+   somebody looks for rather than a thing that should compete with the
+   navigation, and it sits beside the two icon buttons rather than in the
+   nav list because it leaves the application. */
+.privacy-link {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.privacy-link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 .sign-out:hover,
 .theme-toggle:hover,
 .mobile-close:hover,

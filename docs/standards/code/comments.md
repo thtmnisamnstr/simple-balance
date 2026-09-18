@@ -3,7 +3,7 @@
 The one convention in this repository that is genuinely unusual, and the reason
 it pays.
 
-**22.5% of the non-blank lines in `src` are comments** — 11,915 of 52,960. That
+**22.5% of the non-blank lines in `src` are comments** — 11,955 of 53,041. That
 is far above what most codebases carry and far above what most style guides
 recommend. It is deliberate, and this guide exists so that nobody "tidies" it
 away and so that the density is spent on the right things.

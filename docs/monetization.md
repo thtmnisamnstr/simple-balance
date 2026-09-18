@@ -66,7 +66,10 @@ deployment honours and reconciles what exists while offering nothing new.
 ## What the two plans are
 
 **Free** keeps three financial accounts and sees ads where a deployment serves
-them. **Plus** is unlimited and never sees an ad. Everything else — every report,
+them. **Premium** is unlimited and never sees an ad. (`plus` is the wire value
+in `plans`, on the session and in `whoami`; `Premium` is the word a person
+reads. Renaming the wire value would break every client that has seen it, and
+renaming the label would not.) Everything else — every report,
 every import, the whole CSV round trip and the entire MCP surface — is the same
 on both. There are no transaction quotas.
 
@@ -133,23 +136,40 @@ this one, and the way to do that is to serve your own `/ads.txt` from whatever
 terminates TLS in front of this deployment; it will take precedence.
 
 **If this deployment is on a subdomain** — `balance.example.com` rather than
-`example.com` — crawlers do not read the file above. They go to the root
-domain's `/ads.txt` and read a subdomain's only when the root file points at it.
-So add one line to `https://example.com/ads.txt`:
+`example.com` — crawlers read the **root** domain's `/ads.txt`, not this one.
+What that means depends on whether the publisher id is the same in both places:
 
-```
-subdomain=balance.example.com
-```
+- **Same publisher id, which is the ordinary case** — the root file's own
+  `DIRECT` record already authorises this subdomain and there is nothing more
+  to do. Google is explicit: *"You only need to do this if the authorized
+  seller or your publisher ID are different for the subdomain when compared to
+  the root domain."*
+- **A different id or a different seller on the subdomain** — and only then —
+  the root file needs a referral line:
 
-Without it the inventory is unauthorised and earns nothing, while everything
-here looks correct: the file is served, the tests pass, the ads render. The
-split deployment recipe in `docs/deployment.md` uses a subdomain, so this is the
-ordinary case rather than the exotic one.
+  ```
+  subdomain=balance.example.com
+  ```
+
+An earlier version of this page stated the referral as mandatory. It is not,
+and adding one where it is not needed is actively worse: a referral makes
+crawlers consume the subdomain's file *instead of* the root's, and this
+application only registers the `/ads.txt` route while ads are configured — so
+the referral hands the whole authorisation chain to a file that disappears the
+moment `ADSENSE_CLIENT_ID` is unset or this deployment is down.
+
+Either way the root file must carry a `DIRECT` record naming the publisher id.
+A root `ads.txt` that exists and does **not** name it is the documented state
+that stops the domain being monetised at all.
 
 **Yours to do.**
 
 - **Get the account approved and verify the domain.** Ads do not serve before
   that, and nothing here can tell you whether it has happened.
+- **Publish a privacy policy and point `PRIVACY_POLICY_URL` at it.** This is
+  now enforced: the server refuses to start with AdSense configured and no
+  policy, because an operator who serves ads without one is in breach of
+  Google's terms from the first impression.
 - **Turn Auto ads off.** They are an account setting, not a property of the tag
   this app writes, and they inject formats this code never asks for — including
   the interstitials and vignettes this product promises not to show. There is no

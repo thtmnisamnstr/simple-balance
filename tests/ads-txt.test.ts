@@ -22,9 +22,14 @@ describe("the authorised-sellers file", () => {
     if (ads) {
       process.env.ADSENSE_CLIENT_ID = "ca-pub-1234567890123456";
       process.env.ADSENSE_BANNER_SLOT_ID = "9876543210";
+      // Required once AdSense is configured: the server refuses to start
+      // without it, because Google's terms require a policy on any site
+      // serving their ads.
+      process.env.PRIVACY_POLICY_URL = "https://smpl.money/privacy/";
     } else {
       delete process.env.ADSENSE_CLIENT_ID;
       delete process.env.ADSENSE_BANNER_SLOT_ID;
+      delete process.env.PRIVACY_POLICY_URL;
     }
     const module = (await import("../src/server/api.js")) as { default: typeof app };
     return module.default;

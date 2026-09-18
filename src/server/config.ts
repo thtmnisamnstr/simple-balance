@@ -323,6 +323,7 @@ export function getConfig(): AppConfig {
     ADSENSE_BANNER_SLOT_ID: process.env.ADSENSE_BANNER_SLOT_ID,
     ADSENSE_FOOTER_SLOT_ID: process.env.ADSENSE_FOOTER_SLOT_ID,
     ADSENSE_CONSENT_MANAGED: process.env.ADSENSE_CONSENT_MANAGED,
+    PRIVACY_POLICY_URL: process.env.PRIVACY_POLICY_URL,
   };
   if (isProduction) {
     productionSchema.parse(values);
@@ -685,6 +686,15 @@ export function parseBillingSettings(
 export type AdSettings = {
   readonly clientId: string;
   readonly bannerSlotId: string;
+  /**
+   * Where this deployment's privacy policy lives. Required whenever ads are
+   * configured, because Google's programme policies require one on any site
+   * serving their ads — see `parseAdSettings`.
+   *
+   * It sits on the ad settings rather than beside them, so that "ads are on"
+   * and "there is a policy to link to" cannot become two facts that disagree.
+   */
+  readonly privacyPolicyUrl: string;
   /** Off unless asked for: one banner is the whole placement by default. */
   readonly footerSlotId?: string;
   /**
@@ -730,6 +740,7 @@ export function parseAdSettings(env: {
   ADSENSE_BANNER_SLOT_ID?: string;
   ADSENSE_FOOTER_SLOT_ID?: string;
   ADSENSE_CONSENT_MANAGED?: string;
+  PRIVACY_POLICY_URL?: string;
 }): AdSettings | undefined {
   const clientId = env.ADSENSE_CLIENT_ID?.trim();
   const bannerSlotId = env.ADSENSE_BANNER_SLOT_ID?.trim();
@@ -765,6 +776,41 @@ export function parseAdSettings(env: {
       throw new Error(`${name} must be an ad unit's slot id, which is ten digits.`);
     }
   }
+  /*
+   * A privacy policy is not optional once ads are served.
+   *
+   * Google's programme policies require one on any site showing their ads,
+   * naming third-party cookies and the vendors that set them. An operator who
+   * turns ads on without it is in breach from the first impression, and the
+   * failure is the expensive kind: the account is suspended rather than the
+   * ads simply not rendering.
+   *
+   * So it is refused at startup, in the same place and the same shape as the
+   * half-configured refusals above. This is the one setting in this product
+   * that exists because somebody else's terms demand it, which is why the
+   * message says whose terms they are.
+   */
+  const privacyPolicyUrl = env.PRIVACY_POLICY_URL?.trim();
+  if (!privacyPolicyUrl) {
+    throw new Error(
+      "PRIVACY_POLICY_URL must be set when AdSense is configured. Google's " +
+        "programme policies require a privacy policy on any site serving their " +
+        "ads, naming third-party cookies and the vendors that set them. Point " +
+        "this at yours.",
+    );
+  }
+  let parsedPrivacyUrl: URL;
+  try {
+    parsedPrivacyUrl = new URL(privacyPolicyUrl);
+  } catch {
+    throw new Error(`PRIVACY_POLICY_URL must be an absolute URL, not "${privacyPolicyUrl}".`);
+  }
+  if (parsedPrivacyUrl.protocol !== "https:") {
+    // A policy served over plain http is one a reader cannot trust arrived
+    // unmodified, on a page that is about what happens to their data.
+    throw new Error("PRIVACY_POLICY_URL must be https.");
+  }
+
   const consentManaged = z
     .enum(["true", "false"], { error: () => "ADSENSE_CONSENT_MANAGED must be true or false" })
     .transform((value) => value === "true")
@@ -773,6 +819,7 @@ export function parseAdSettings(env: {
   return {
     clientId,
     bannerSlotId,
+    privacyPolicyUrl,
     ...(footerSlotId ? { footerSlotId } : {}),
     consentManaged,
   };

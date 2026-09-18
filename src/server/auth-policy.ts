@@ -248,6 +248,16 @@ export async function getPublicAuthOptions() {
     // `selling` on the plan tab's own payload.
     billingAvailable: stripeConfigured(),
     adsAvailable: adsEnabled(),
+    /*
+     * Published whenever there is one, not only to the people who see ads.
+     *
+     * Google's policy requires the link on pages serving ads, which would
+     * argue for putting it on the ad placement — and the ad placement is null
+     * for anybody on a paid plan, so a subscriber would lose the link to the
+     * policy that still describes what happens to their data. It travels with
+     * the deployment's capabilities instead.
+     */
+    ...(getConfig().ads ? { privacyPolicyUrl: getConfig().ads!.privacyPolicyUrl } : {}),
     minimumPasswordLength: 12,
   };
 }
