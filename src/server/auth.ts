@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { mcp } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import type { Actor } from "../shared/domain.js";
+import { APP_NAME } from "../shared/version.js";
 import {
   isLedgerUserAuthorized,
   mayCreateProviderAccount,
@@ -33,7 +34,7 @@ function createAuthInstance() {
     "ledger:write",
   ];
   return betterAuth({
-    appName: "Simple Balance",
+    appName: APP_NAME,
     baseURL: config.baseUrl,
     basePath: "/api/auth",
     secret: config.authSecret,

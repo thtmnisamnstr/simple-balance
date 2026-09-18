@@ -74,7 +74,7 @@ be the same in two places.** A colour qualifies because a theme must answer for
 it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the nine inline `style` props in the client
-(`charts.tsx:273`, `charts.tsx:322`, `components.tsx:501`, `components.tsx:938`,
+(`charts.tsx:273`, `charts.tsx:322`, `components.tsx:502`, `components.tsx:939`,
 `BudgetsPage.tsx:1177`, `DashboardPage.tsx:278`, `DashboardPage.tsx:409`,
 `DashboardPage.tsx:469`, `DashboardPage.tsx:515`) are all runtime geometry — a bar's width, a chart's offset — and are correct as they
 are. The count matters beyond tidiness: it is what
@@ -449,7 +449,7 @@ everything.
 
 **The blanket rule had a defect, and it was user-visible.** It also sets
 `animation-iteration-count: 1 !important`, which froze the button's
-`.animate-spin` loader (`src/client/components.tsx:324`) into a static icon:
+`.animate-spin` loader (`src/client/components.tsx:325`) into a static icon:
 somebody who asked for reduced motion got no busy indicator at all. `.skeleton`
 was exempted by hand and the spinner was not, and nothing said which of the two
 was the oversight. A slow rotation is acceptable under `reduce`, which asks for
@@ -1234,7 +1234,7 @@ This product stays a table. A grid means writing arrow-key focus management
 across thousands of rows to shorten a tab sequence nobody has complained about,
 and there is no roving tabindex anywhere else in the client, which is the same
 reason `RowMenu` deliberately refuses `role="menu"`
-(`src/client/components.tsx:613-616`). A transactions row carries a checkbox
+(`src/client/components.tsx:614-617`). A transactions row carries a checkbox
 and a row menu; a review-queue row now carries up to ten stops — the checkbox,
 four click-to-edit triggers (8.10), sometimes a duplicate link, three icon
 buttons and the menu — so the tab-sequence cost the APG worries about is real
@@ -1262,7 +1262,7 @@ a name is harder to place, and the caption is the cheapest way to give it one.
 `<caption>`, and every header cell carries a `scope`. Four of the tables people
 live in had neither — the register, the review queue, templates and recurrences
 — while reports and budgets did. `SortableHeader`
-(`src/client/components.tsx:52-99`) now emits `scope="col"` alongside its
+(`src/client/components.tsx:53-100`) now emits `scope="col"` alongside its
 `aria-sort`, which was the fix worth making because that one change covers every
 sortable column in the product.
 
@@ -1333,7 +1333,7 @@ selected" come from two different code paths and the second must never be
 produced by the first.
 
 The mixed state is already handled. `SelectionCheckbox`
-(`src/client/components.tsx:182-197`) takes an `indeterminate` prop and writes it
+(`src/client/components.tsx:183-198`) takes an `indeterminate` prop and writes it
 onto the DOM node in an effect, because React does not expose it, and all three
 select-all checkboxes pass it: `TransactionBrowser.tsx:795`,
 `TemplatesPage.tsx:474`, `StagingPage.tsx:899`.
@@ -1857,7 +1857,7 @@ not where the skeleton is used. A grep test for a loading paragraph would.
 
 **House, settled.** `Button` couples `loading` to `disabled` and now says so:
 `aria-busy` while it works and an `.sr-only` "Working…" beside the spinner
-(`components.tsx:280-306`). A spinner is a picture of waiting, which is nothing
+(`components.tsx:281-307`). A spinner is a picture of waiting, which is nothing
 at all to somebody who cannot see it, and a disabled button otherwise goes
 silent at exactly the moment a person most wants to know their click landed. See
 section 4 for the reduced-motion half of the same defect.
@@ -1909,10 +1909,10 @@ confirmations and progress, and reaches for `role="alert"` only for something
 time-sensitive that interrupts.
 
 Announcement is already handled: `Alert` sets `role={kind === "error" ? "alert"
-: "status"}` (`src/client/components.tsx:1034`), so a success alert is a polite
+: "status"}` (`src/client/components.tsx:1035`), so a success alert is a polite
 live region and an error alert interrupts. The two real defects are elsewhere.
 There are three separate `aria-live="polite"` regions in the client
-(`components.tsx:230`, `TransactionBrowser.tsx:756`, `TemplatesPage.tsx:424`),
+(`components.tsx:231`, `TransactionBrowser.tsx:756`, `TemplatesPage.tsx:424`),
 so a page can carry four polite regions at once and nothing decides which speaks
 first. And a success alert persists until the next render, with no rule for how
 long it stays.
@@ -2046,7 +2046,7 @@ focus indicator.
 
 **The code covered two element types out of the set**, and three of the gaps
 were live SC 2.4.7 failures. `summary` is the `RowMenu` trigger
-(`components.tsx:491`) and fell to the user agent default; checkboxes and radios
+(`components.tsx:492`) and fell to the user agent default; checkboxes and radios
 got only `accent-color`; and `.file-drop`'s `<input>` is visually hidden, so
 tabbing to the CSV file picker showed nothing at all.
 
@@ -2120,7 +2120,7 @@ and starting again.
 
 Modals were already correct: a native `<dialog>` driven by `showModal()` and
 `close()`, labelled by `aria-labelledby` from a `useId()`, with `onCancel`
-intercepted (`components.tsx:480-530`), and with the form body mounted only while
+intercepted (`components.tsx:481-531`), and with the form body mounted only while
 the dialog is open so closing discards what was half-typed.
 
 *Checked by:* `tests/shell-focus.test.tsx` for all four, and `tests/browser/budgets.spec.ts`

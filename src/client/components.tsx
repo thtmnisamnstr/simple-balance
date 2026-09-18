@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import type { SortDirection } from "../shared/domain.js";
+import { APP_NAME } from "../shared/version.js";
 import { PROGRESS_VERB, type ProgressEvent } from "../shared/progress.js";
 import { errorMessages } from "./api.js";
 import type { DatePreset } from "./date-range.js";
@@ -869,6 +870,23 @@ export function PageHeader({
   description?: string;
   actions?: ReactNode;
 }) {
+  /*
+   * The tab says which page you are on.
+   *
+   * It said "Simple Balance" on all thirteen for five releases, which is the
+   * state where two windows of this app are indistinguishable in a task
+   * switcher and a bookmark records nothing about what was bookmarked.
+   *
+   * Setting it here rather than from a table in the router is deliberate:
+   * `title` is already the page's `h1`, so the tab cannot drift from the
+   * heading, and a page added later gets a correct tab without anybody
+   * remembering a second list. The router is where the obvious alternative
+   * lives and it is the one that goes stale.
+   */
+  useEffect(() => {
+    document.title = `${title} — ${APP_NAME}`;
+  }, [title]);
+
   return (
     <header className="page-header">
       {/* The actions sit in the title row rather than beside the whole block,

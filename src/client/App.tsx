@@ -57,6 +57,7 @@ import TransactionsPage from "./pages/TransactionsPage.js";
 import { detectedCurrency, detectedTimezone } from "./locale.js";
 import { clearCachedTheme, useThemeSetting } from "./theme.js";
 import { TimezoneProvider } from "./timezone.js";
+import { APP_NAME } from "../shared/version.js";
 
 /**
  * Reading order rather than alphabetical: where the money is and what moved it,
@@ -778,7 +779,7 @@ function Shell({ session }: { session: Session }) {
             <CircleDollarSign size={23} />
           </span>
           <div>
-            <strong>Simple Balance</strong>
+            <strong>{APP_NAME}</strong>
             <small>Personal accounting</small>
           </div>
           <button
@@ -865,7 +866,7 @@ function Shell({ session }: { session: Session }) {
             <span className="brand-mark">
               <CircleDollarSign size={21} />
             </span>
-            <strong>Simple Balance</strong>
+            <strong>{APP_NAME}</strong>
           </div>
         </header>
         <main className="content" id="main" tabIndex={-1} ref={main}>
@@ -961,7 +962,7 @@ function ResetPassword() {
         <div className="brand-mark large">
           <CircleDollarSign size={31} />
         </div>
-        <span className="eyebrow">Simple Balance</span>
+        <span className="eyebrow">{APP_NAME}</span>
         {unusable ? (
           <>
             <h1>That link has expired.</h1>

@@ -159,7 +159,7 @@ split the server refused with a 422 nobody could predict from the screen.
 ### 3.1 `Field` wraps every labelled control in a form
 
 **House.** Layout, label, hint and error in one place
-(`src/client/components.tsx:470`). Three consequences worth knowing, and the
+(`src/client/components.tsx:471`). Three consequences worth knowing, and the
 first of them used to be the opposite:
 
 - **The accessible name of a control no longer includes its hint.** It used to,
