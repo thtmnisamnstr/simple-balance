@@ -16,7 +16,14 @@ import { describe, expect, it } from "vitest";
  * shape, its internal agreement, and that it points at pictures that exist.
  */
 const dir = join(process.cwd(), "docs/product");
+const appVersion = (
+  JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8")) as {
+    version: string;
+  }
+).version;
+
 const features = JSON.parse(readFileSync(join(dir, "features.json"), "utf8")) as {
+  appVersion: string;
   tiers: Record<string, string>;
   features: {
     id: string;
@@ -33,6 +40,12 @@ const features = JSON.parse(readFileSync(join(dir, "features.json"), "utf8")) as
 describe("the feature list", () => {
   it("has features to check", () => {
     expect(features.features.length).toBeGreaterThan(10);
+  });
+
+  it("says which release it describes", () => {
+    // The marketing site records this, so "which version is the site
+    // advertising" has an answer rather than being inferred from a date.
+    expect(features.appVersion).toBe(appVersion);
   });
 
   it("uses only the three tiers it defines", () => {
@@ -105,9 +118,16 @@ describe("the screenshots", () => {
   });
 
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    appVersion: string;
     screens: string[];
     shots: { file: string; route: string; theme: string }[];
   };
+
+  it("records the release it photographed", () => {
+    // A screenshot set older than the application it advertises is the
+    // failure that looks most like success.
+    expect(manifest.appVersion).toBe(appVersion);
+  });
 
   it("captured every screen in both themes", () => {
     expect(manifest.screens.length).toBeGreaterThan(10);

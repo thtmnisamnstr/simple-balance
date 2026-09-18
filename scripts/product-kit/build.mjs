@@ -30,6 +30,10 @@ const BASE = process.env.APP_URL ?? "http://localhost:5173";
 const OUT = process.env.OUT_DIR ?? "docs/product/screenshots";
 const seed = JSON.parse(readFileSync("scripts/product-kit/seed.json", "utf8"));
 const features = JSON.parse(readFileSync("docs/product/features.json", "utf8"));
+/* The release these pictures are of. The marketing site records it so that
+   "which version is the site describing" has an answer, and so that a
+   screenshot set can be recognised as older than the app it advertises. */
+const { version: appVersion } = JSON.parse(readFileSync("package.json", "utf8"));
 
 const today = new Date();
 const iso = (d) => d.toISOString().slice(0, 10);
@@ -232,6 +236,7 @@ async function main() {
         $comment:
           "Written by scripts/product-kit/build.mjs. Every screen in the application, in both themes, at 1600px.",
         capturedAt: iso(today),
+        appVersion,
         appUrl: BASE,
         viewport: "1440x900 at 2x, shipped at 1600px",
         screens: [...captured].sort(),

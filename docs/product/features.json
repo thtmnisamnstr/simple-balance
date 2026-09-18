@@ -1,5 +1,6 @@
 {
   "$comment": "What this product does, ranked by how much a person with no accounting background would care. Written here rather than on the marketing site because this repository is the one that knows when a feature stops being true. The site rewrites the wording for its own audience; it does not decide the list or the order.",
+  "appVersion": "0.1.6",
   "tiers": {
     "A": "The reason somebody would use this at all. If a stranger reads three things, these are the three.",
     "B": "Matters once they are using it. Not why they arrive; why they stay.",
