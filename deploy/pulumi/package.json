@@ -11,11 +11,11 @@
     "typecheck": "tsc --noEmit -p aws/tsconfig.json && tsc --noEmit -p gcp/tsconfig.json"
   },
   "dependencies": {
-    "@pulumi/aws": "7.45.0",
+    "@pulumi/aws": "7.46.0",
     "@pulumi/eks": "4.3.0",
-    "@pulumi/gcp": "9.36.1",
+    "@pulumi/gcp": "9.37.0",
     "@pulumi/kubernetes": "4.34.1",
-    "@pulumi/pulumi": "3.261.0"
+    "@pulumi/pulumi": "3.262.0"
   },
   "devDependencies": {
     "@types/node": "22.20.2",
