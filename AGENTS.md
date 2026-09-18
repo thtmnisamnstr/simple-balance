@@ -215,6 +215,24 @@
   sixteen hours for anyone whose stored timezone is an offset. Ask
   `calendarDayIn`, `clockTimeIn` or `todayIn` from `src/shared/recurrence-dates.ts`;
   never ask the database.
+- The product's user-facing contract is published, not remembered.
+  `docs/product-facts.json` names the plans, their labels, the free account
+  limit, which plan sees advertising, the prices and the capability list, and
+  the marketing site at smpl.money consumes it. Its `derived` half is read out
+  of `src/shared/domain.ts` and `src/shared/version.ts`, and
+  `tests/product-facts.test.ts` fails when the committed file disagrees with
+  them — it compares rather than regenerating, because a check that rewrites
+  what it is checking is not a check. Its `declared` half is what the source
+  cannot know: the prices are at Stripe and only the ids are here, and the
+  capability list is a description of the product rather than a property of a
+  module. **A change to a plan, a limit, a label or a price is a change to
+  that file in the same commit**, and the site is a separate repository that
+  will otherwise go on saying the old thing.
+- `PLAN_LABELS` is the one place a plan's name is written. `plus` is the wire
+  value and **Premium** is the word a person reads; renaming the wire value
+  would break every client that has seen it and renaming the label would not.
+  The two surfaces using different words at a customer was one string away
+  from shipping.
 - Preserve audit history, transaction provenance, and cross-currency CSV round
   trips.
 - Every migration that has shipped is frozen: `0000_initial.sql`,
@@ -289,7 +307,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 22.5% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 22.6% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelised.** Legs resolve one at a time so two

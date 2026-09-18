@@ -1,4 +1,5 @@
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { PLAN_LABELS } from "../../shared/domain.js";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CreditCard, ShieldCheck } from "lucide-react";
@@ -316,10 +317,10 @@ export function PlanPage({ session }: { session: Session }) {
                 <h2>Your plan</h2>
                 <p>
                   {plan === "plus"
-                    ? "Premium: as many accounts as you need."
+                    ? `${PLAN_LABELS.plus}: as many accounts as you need.`
                     : limit === null
                       ? "Everything is included on this deployment."
-                      : `Free: up to ${limit} accounts.`}
+                      : `${PLAN_LABELS.free}: up to ${limit} accounts.`}
                 </p>
               </div>
             </header>

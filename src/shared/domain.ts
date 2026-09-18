@@ -3242,6 +3242,25 @@ export type Plan = (typeof plans)[number];
 export const MAX_FREE_ACCOUNTS = 3;
 
 /**
+ * What each plan is called where a person reads it.
+ *
+ * The keys are the wire values and the values are the words. They differ for
+ * the paid plan — `plus` on the wire, **Premium** on screen — because
+ * renaming the wire value would break every client that has seen it and
+ * renaming the label would not.
+ *
+ * Written once because it is read in two places that cannot see each other:
+ * this application, and the marketing site at smpl.money, which consumes it
+ * through `docs/product-facts.json`. Two surfaces using different words at a
+ * customer is the failure this prevents, and it was one string away from
+ * shipping.
+ */
+export const PLAN_LABELS = {
+  free: "Free",
+  plus: "Premium",
+} as const satisfies Record<Plan, string>;
+
+/**
  * What a person may do, worked out in one place.
  *
  * A discriminated union rather than a plan with a nullable limit beside it,
