@@ -250,19 +250,35 @@ that switch exists for exactly this.
 
 ## Consent, and why the default needs no extra vendor
 
-Google requires a **certified** consent platform to serve _personalised_ ads to
-people in the EEA and the UK. Non-personalised and limited ads are not gated on
-that. So on the defaults here — `ADSENSE_CONSENT_MANAGED` unset — every ad
-request carries `requestNonPersonalizedAds` and needs no platform at all.
+Two different rules, and conflating them is the mistake to avoid.
+
+**Google's rule** is that a _certified_ consent platform is required to serve
+_personalised_ ads in the EEA, the UK and Switzerland. Non-personalised and
+limited ads are not gated on it. So on the defaults here —
+`ADSENSE_CONSENT_MANAGED` unset — every ad request carries
+`requestNonPersonalizedAds`, and Google asks for no certified platform.
+
+**The ePrivacy rule is separate and still applies.** Consent is required for
+storing anything non-essential on somebody's device, and a non-personalised ad
+still sets cookies for frequency capping and fraud prevention. Google's own
+guidance says so. So a deployment serving ads to people in the EEA, the UK or
+Switzerland needs a consent notice whatever this setting says — the default
+avoids Google's *certification* requirement, not the *consent* requirement.
+
+The practical answer to both is the same and is below: Google's own platform is
+free, certified, and part of the AdSense account, so it satisfies the strict
+rule and the loose one at once. The only configuration that needs no consent
+notice at all is one that serves no ads to those regions.
 
 That is also the right default for this product on its own merits: the page
 beside the ad is showing somebody their own balances, and profiling the person
 reading it is not something to switch on by accident.
 
-### If you want personalised ads
+### The consent notice, and personalised ads
 
-Use **Google's own**, which is free and part of the AdSense account you already
-have. It is a certified platform — it appears on Google's list as "Google LLC
+Use **Google's own platform**, which is free and part of the AdSense account
+you already have. Turn it on for the consent notice whether or not you want
+personalised ads; set `ADSENSE_CONSENT_MANAGED=true` only when you do. It is a certified platform — it appears on Google's list as "Google LLC
 CMP" — so this is not a second vendor, a second contract or a second script.
 
 1. In AdSense, open **Privacy and messaging** and create a **European
@@ -283,13 +299,12 @@ somebody who consented as surely as it protects somebody who did not, which
 would leave the platform ornamental. Nothing here can check the platform exists,
 so leaving the setting off is always the safe answer.
 
-Two things this does not do. It is not legal advice, and cookie consent under
-the ePrivacy directive is a separate question from Google's personalisation
-rule — Google's own guidance is that consent is required for cookies even with
-non-personalised ads where that directive applies. And a hand-built banner is
-not an alternative: the requirement is for a _certified_ platform, and
-certification is a process with Google and the IAB rather than a property of the
-code.
+Two things this does not do. It is not legal advice. And a hand-built banner is
+not an alternative for personalised ads: that requirement is for a _certified_
+platform, and certification is a process with Google and the IAB rather than a
+property of the code. A hand-built banner could satisfy the ePrivacy consent
+requirement for non-personalised ads on its own, but there is little reason to
+build one when the certified platform is free and already in the account.
 
 ## Turning it off
 
