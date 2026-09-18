@@ -16,6 +16,9 @@ const adEnvironment = {
   STRIPE_PRICE_YEARLY_ID: "price_yearly",
   ADSENSE_CLIENT_ID: "ca-pub-1234567890123456",
   ADSENSE_BANNER_SLOT_ID: "9876543210",
+  // Required once AdSense is configured: the server refuses to start without
+  // it, because Google's terms require a policy on any site serving ads.
+  PRIVACY_POLICY_URL: "https://smpl.money/privacy/",
 } as const;
 const originalEnvironment = Object.fromEntries(
   Object.keys(adEnvironment).map((key) => [key, process.env[key]]),
