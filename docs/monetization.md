@@ -86,13 +86,22 @@ plan is upgraded.
 
 ## The prices, and what they actually net
 
-$20 a year or $2 a month, in USD, both on one Stripe product. The annual plan is
-the default offer, and that is an economic decision rather than a presentational
-one: at Stripe's standard rate a $2.00 charge loses about 19% to fees, of which
-$0.30 is flat and does not care what you charge, while $20.00 once a year loses
-about 5.6%. Twelve monthly charges net slightly *more* than one annual charge —
-$19.42 against $18.88 — so the annual plan is very nearly free to offer and
-removes eleven opportunities a year for a card to decline.
+$30 a year or $3 a month, in USD, both on one Stripe product. The annual plan is
+the default offer, and what offering it costs is worth stating rather than
+assuming. Reckoned at Stripe's published US rates — 2.9% and a flat $0.30 on the
+card, 0.7% for Billing and 0.5% for Tax where it applies, so 4.1% and $0.30 on
+a subscription charge — a $3.00 charge loses about 14% to fees and $30.00 once
+a year loses about 5.1%. Twelve monthly charges net $30.92 against one annual
+charge's $28.47, so the year is not free to offer: it costs about $2.45 a
+subscriber, in exchange for removing eleven opportunities a year for a card to
+decline.
+
+The flat $0.30 is what decides that, and it does not move with the price. Giving
+away two months costs twice the monthly price whatever that price is, while the
+fee saved by charging once instead of twelve times is eleven times $0.30 plus
+4.1% of the discount. At $2 a month that saving covered 86% of what the year
+gave away and the annual plan was very nearly free to offer; at $3 it covers
+59%. Raising the monthly price makes the year cost more to offer, not less.
 
 ## What turning ads on costs
 

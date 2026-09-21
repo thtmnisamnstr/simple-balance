@@ -976,7 +976,7 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
         // unpaid subscription is abandoned and a new one made at the price they
         // actually asked for. Cancelling voids its open invoice, so the change
         // of mind costs nothing — and doing anything else here is how somebody
-        // presses a $2 button and is charged $20.
+        // presses a $3 button and is charged $30.
         //
         // Suffixed keys because Stripe scopes a key to one request, and the
         // original create already spent the unsuffixed one.

@@ -427,7 +427,7 @@ export function PlanPage({ session }: { session: Session }) {
                 <CreditCard size={19} />
               </span>
               <div>
-                <h2>{subscription ? "Change your plan" : "Upgrade to Plus"}</h2>
+                <h2>{subscription ? "Change your plan" : `Upgrade to ${PLAN_LABELS.plus}`}</h2>
                 <p>
                   {billing.selling
                     ? "Cancel whenever you like. A cancelled plan runs to the end of the period you paid for."

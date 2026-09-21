@@ -24,8 +24,8 @@
   "declared": {
     "prices": {
       "currency": "USD",
-      "monthly": "2.00",
-      "yearly": "20.00",
+      "monthly": "3.00",
+      "yearly": "30.00",
       "note": "The annual plan is two months cheaper than paying monthly."
     },
     "capabilities": [

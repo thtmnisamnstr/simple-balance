@@ -21,7 +21,7 @@
  * can tell at a glance which fields are guaranteed and which are somebody's
  * sentence.
  *
- *   node scripts/build-product-facts.mjs
+ *   npx tsx scripts/build-product-facts.mjs
  *
  * `npm run verify` does not run it. The test compares instead, so a stale
  * file fails rather than being silently rewritten by the thing checking it.
@@ -41,8 +41,8 @@ import { APP_NAME, APP_VERSION } from "../src/shared/version.js";
 const declared = {
   prices: {
     currency: "USD",
-    monthly: "2.00",
-    yearly: "20.00",
+    monthly: "3.00",
+    yearly: "30.00",
     note: "The annual plan is two months cheaper than paying monthly.",
   },
   /**
@@ -102,7 +102,7 @@ export function buildProductFacts() {
   return facts;
 }
 
-// `node scripts/build-product-facts.mjs` writes; importing it does not.
+// Running this file writes; importing it does not.
 if (process.argv[1]?.endsWith("build-product-facts.mjs")) {
   const path = "docs/product/facts.json";
   writeFileSync(path, `${JSON.stringify(facts, null, 2)}\n`);

@@ -93,6 +93,40 @@ Anything the person can reach themselves also forces a re-read: opening the plan
 tab re-reads a subscription that is waiting for payment, and replacing a card
 re-reads it afterwards.
 
+## Changing a price
+
+A Stripe Price cannot be edited: the amount is fixed when it is created.
+Raising one means creating a second Price on the same Product, pointing
+`STRIPE_PRICE_MONTHLY_ID` or `STRIPE_PRICE_YEARLY_ID` at the new id, and
+restarting. Archive the old Price in Stripe afterwards so nothing new is sold
+at it; archiving changes nothing about what anybody is already charged.
+
+**Nobody's bill moves because you did that.** Every subscription that exists
+goes on billing at the price it was created with, for as long as it lives.
+What changed is what somebody arriving now is offered.
+
+Somebody on the old price sees **"On a price this deployment no longer sells"**
+on their plan tab, with their real status and renewal date beside it.
+`intervalOfPrice` recognises neither interval for an id that is not one of the
+two configured, and the page says so rather than guessing: telling an annual
+subscriber "Monthly" would put a figure and a renewal date on the screen that
+are both wrong.
+
+They move when they choose to, and the move lands at their renewal rather than
+today. `subscriptionAction` returns `schedule` for anybody whose current
+interval is unrecognised, whichever button they press — deliberately, because
+the immediate path bills the difference on the spot, and charging somebody now
+and moving a renewal date they have already been billed against is not a thing
+to do off a value that means "I do not recognise this". Nothing here ever moves
+somebody to a new price on their behalf; doing that is a Stripe-side decision
+with whatever notice your terms promise attached to it.
+
+**And the repository half, in the same commit.** `docs/product/facts.json`
+declares the price to the marketing site, which is a separate repository that
+will otherwise go on advertising the old figure. It is generated: edit
+`declared.prices` in `scripts/build-product-facts.mjs` and re-run it. The
+`product-kit` skill has the procedure.
+
 ## Stopping selling
 
 Set `SB_BILLING_ENABLED=false` and restart. Do not remove the Stripe settings.

@@ -265,7 +265,7 @@ The browser previews that decision and the server enforces it, from the same
 function, the way refunds already work. It arrived after an adversarial
 audit found four defects in the branch it replaces, all of them in corners no
 test covered: an unpaid subscription handed back the wrong interval's invoice,
-so pressing "Monthly — $2" could charge $20; a second downgrade press sent
+so pressing "Monthly — $3" could charge $30; a second downgrade press sent
 Stripe a request it refuses, leaving the plan tab with no working control at
 all; somebody on a price the deployment had stopped selling was read as
 "Monthly" and could be charged immediately for a switch that should have waited;

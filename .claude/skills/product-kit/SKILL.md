@@ -9,10 +9,26 @@ description: Rebuild docs/product — the tiered feature list and a screenshot o
 
 | File | What it is |
 | --- | --- |
-| `facts.json` | Plans, labels, the free account limit, prices. Generated from the source and held to it by `tests/product-facts.test.ts`. |
+| `facts.json` | The plans, their labels, the free account limit and the prices. Half of it is read out of the source and half of it is declared — see below. |
 | `features.json` | What the product does, tiered by how much a general reader would care. **Declared** — a judgement, not a property of a module. |
 | `screenshots/` | Every screen, both themes, 1600px WebP. |
 | `screenshots.json` | The manifest tying the two together. |
+
+**`facts.json` is generated, and only half of it is checked.** `derived` — the
+plans, their labels and the free account limit — is read out of `src/shared/`,
+and `tests/product-facts.test.ts` fails when the committed file disagrees with
+those constants. `declared` — the prices and the capability list — is written
+by hand in `scripts/build-product-facts.mjs`, because the prices live at Stripe
+and only the ids are here; the test checks that a price is a decimal string and
+nothing more. So **a price, plan, label or limit change is an edit to that
+script and a re-run of it, in the same commit as the change itself**:
+
+```sh
+npx tsx scripts/build-product-facts.mjs   # `node` cannot: it imports TypeScript
+```
+
+Nothing in CI runs it. The test compares rather than regenerating, so a stale
+file fails instead of being quietly rewritten by the thing checking it.
 
 The marketing site is a separate repository at
 `https://github.com/thtmnisamnstr/simple-balance-web`. It **cannot run this

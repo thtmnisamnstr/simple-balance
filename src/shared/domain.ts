@@ -3251,7 +3251,7 @@ export const MAX_FREE_ACCOUNTS = 3;
  *
  * Written once because it is read in two places that cannot see each other:
  * this application, and the marketing site at smpl.money, which consumes it
- * through `docs/product-facts.json`. Two surfaces using different words at a
+ * through `docs/product/facts.json`. Two surfaces using different words at a
  * customer is the failure this prevents, and it was one string away from
  * shipping.
  */

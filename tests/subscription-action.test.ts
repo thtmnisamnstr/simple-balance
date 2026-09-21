@@ -48,8 +48,8 @@ describe("what a request to change plan means", () => {
    * The one that charged the wrong price.
    *
    * The invoice belongs to the subscription that exists, so handing its secret
-   * back for a different interval means pressing "Monthly — $2" and being
-   * charged $20. It has to be a replacement, never a resume.
+   * back for a different interval means pressing "Monthly — $3" and being
+   * charged $30. It has to be a replacement, never a resume.
    */
   it("never resumes somebody else's interval", () => {
     expect(
