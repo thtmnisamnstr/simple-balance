@@ -156,7 +156,7 @@ conformance.
 
 **Binding, and already met by accident of the schema.** A subject cannot contain
 CR or LF. Recurrence and template names go through `oneLine`
-(`src/shared/domain.ts:275-281`), which refuses every character
+(`src/shared/domain.ts:300-306`), which refuses every character
 from U+0000 to U+001F and U+007F, so header injection through a subject is
 closed at the schema rather than at the mailer. Worth writing down precisely because the
 defence is nowhere near the code it defends.
@@ -1048,7 +1048,7 @@ whether the endpoint answers, which is the part with a security consequence.
 "prom-client has been replaced by @prometheus-io/client" on every install, and
 the successor is the same project under the Prometheus organisation. It is not
 adopted here yet, and the reason is dates rather than doubt:
-`@prometheus-io/client` first appeared on 21 August 2026 and has four releases,
+`@prometheus-io/client` first appeared on August 21, 2026 and has four releases,
 the newest a day before this was written, while `prom-client@15.1.3` is what the
 ecosystem runs. Taking a week-old package on the branch a release is being cut
 from trades a deprecation notice for an unknown, which is the wrong way round.

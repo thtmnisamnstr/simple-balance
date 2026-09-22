@@ -225,6 +225,16 @@ from one whose sweep has stopped.
 
 ### Changed
 
+**The Overview and the Reports page lead with your own currency.** Both group
+money by currency and both sorted the groups by code, so somebody holding
+dollars and a euro account kept for one trip met the euros first — at the top of
+the Overview, where the first heading is the largest figure on the page. The
+currency set in Settings now leads and the rest follow alphabetically behind it.
+Only the order changes: every figure is what it was, and no total, balance or
+report value moves. The rule is `compareCurrencies` in `src/shared/domain.ts`,
+asked by both pages, because two screens ordering the same ledger differently is
+a defect even when both are right.
+
 **Every profile that deploys a database now deploys PostgreSQL 18.** Two
 questions were being answered as one. What this application will *connect* to is
 a floor and it has not moved: PostgreSQL 15 and up, so a deployment already on 15
@@ -434,7 +444,7 @@ of: every group and every category you have budgeted, each with what it spent
 against what it may actually spend, a bar, and a word for the state it is in. A
 budget with nothing spent against it yet is shown like any other, because a
 budget is what you set rather than what you spent. A category with no budget is
-left out; the panel above already reports that spending, and "£100.00 of —" is
+left out; the panel above already reports that spending, and "$100.00 of —" is
 not a budget. Groups are badged the way the budgets page badges them, so a group
 budgeted as the sum of its categories is not read as a figure to add to them.
 Only the period the range ends in is broken down, which is what keeps a
@@ -958,7 +968,7 @@ held rather than stored — a browser tab keeps one in component state, an agent
 may send one back minutes later — so a rolling deploy has a window where a
 working client legitimately holds an old one, and refusing it would narrow that
 client's pagination. The unsigned form is read and never issued, and stops being
-read on **1 March 2027**, the same date the four renamed paths stop answering.
+read on **March 1, 2027**, the same date the four renamed paths stop answering.
 Two consequences: replacing `AUTH_SECRET` invalidates outstanding cursors along
 with every session, which is the same thing a sign-out already does to whoever
 is mid-list; and every replica needs the same `AUTH_SECRET`, which was already
@@ -1263,7 +1273,7 @@ any single screen.
 
 A panel header never stacked. It is a flex row with the title at one end and
 what is said about it at the other, and no breakpoint changed that, so on a
-phone "September 2026, GBP (so far)" ran down three lines beside a sentence
+phone "September 2026, USD (so far)" ran down three lines beside a sentence
 running down three more. It stacks at 560px now, and §15's table of what that
 step does says so.
 
@@ -1347,8 +1357,8 @@ the accounts are still loading, when nobody knows yet whether there are any.
 
 **The overview's budget line disagreed with its own bar.** It printed what the
 period was allowed while the bar and the badge beside it measured what the
-period may actually spend, so a budget carrying money forward read "£450.00 of
-£100.00" next to a bar at 90% and a "Nearly there" badge. That is the same
+period may actually spend, so a budget carrying money forward read "$450.00 of
+$100.00" next to a bar at 90% and a "Nearly there" badge. That is the same
 disagreement the category rows below it were written to end, and it had been
 left in the line directly above them. It also said "Nothing budgeted in this
 range" to anybody budgeting at the group level, where the figure behind the
@@ -1392,12 +1402,12 @@ is still under the button, where the actions are the last thing on a stack.
 The panel kept a period only when its category budgets came to more than zero,
 and a group's own budget is not counted there — so somebody budgeting the way
 the 50/30/20 recipe describes saw "nothing budgeted in this range" while the
-budgets page showed the group, and one unrelated £1 category budget was enough
+budgets page showed the group, and one unrelated $1 category budget was enough
 to make the whole section appear. The gate asks whether anything is budgeted
 now, groups included. Where a period has only group budgets its summary line
 shows the period's name alone: the line totals the category budgets, so a figure
-there would read "£500.00 of £0.00" with a full red bar directly above a group
-row saying £500.00 of £800.00.
+there would read "$500.00 of $0.00" with a full red bar directly above a group
+row saying $500.00 of $800.00.
 
 ## 0.1.5 - 2026-08-22
 

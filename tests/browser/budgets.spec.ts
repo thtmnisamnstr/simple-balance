@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Locator, test, type Page } from "@playwright/test";
 import { todayIn } from "../../src/shared/recurrence-dates.js";
 
 /**
@@ -70,6 +70,24 @@ const person = {
   name: "Browser Tier",
 };
 
+/**
+ * Submit an open dialog and wait for it to close.
+ *
+ * Every one of these forms closes from its mutation's `onSuccess`, after each
+ * query it invalidates has settled, so a dialog that has gone is proof the
+ * entry reached the ledger and that the next page will not be reading the
+ * cache from before it. Clicking and navigating straight on is what this
+ * replaces: `page.goto` abandons the request the click has just fired, and the
+ * run then asserts against a ledger the entry never reached. It failed once in
+ * sixteen CI runs and never locally, which is the rate that costs the most to
+ * find — the screen said the spending was unchanged, which is exactly what a
+ * real defect in refunds would have said too.
+ */
+async function submitDialog(dialog: Locator, name: RegExp | string) {
+  await dialog.getByRole("button", { name }).click();
+  await expect(dialog).toBeHidden();
+}
+
 async function signUp(page: Page) {
   await page.goto("/");
   // The first account on an empty deployment lands on the sign-up form already:
@@ -106,7 +124,7 @@ async function seedLedger(page: Page) {
   await page.getByRole("button", { name: "New account" }).click();
   await page.getByLabel(/^Account name/).fill(account);
   await page.getByLabel(/^Account type/).selectOption("checking");
-  await page.getByLabel(/^Currency or crypto asset/).selectOption("GBP");
+  await page.getByLabel(/^Currency or crypto asset/).selectOption("USD");
   await page.getByLabel(/^Opening date/).fill("2026-01-01");
   await page.getByLabel(/^Opening balance/).fill("4000.00");
   // The same accessible name as the sign-up button, on a different page. Worth
@@ -168,11 +186,11 @@ test.describe("the budgets page in a browser", () => {
       .getByLabel(/^Amount/)
       .first()
       .fill("200.00");
-    await page.getByLabel(/^Currency/).selectOption("GBP");
+    await page.getByLabel(/^Currency/).selectOption("USD");
     await page.getByLabel(/^Starting/).fill(lastMonthMid);
     await page.getByRole("button", { name: /^set budget$/i }).click();
 
-    await expect(page.getByText(/budgeting £200\.00/i)).toBeVisible();
+    await expect(page.getByText(/budgeting \$200\.00/i)).toBeVisible();
     // The standing budgets table names the month, not the raw stored date.
     const standing = page.getByRole("table", { name: /standing budgets/i });
     await expect(standing.getByText(new RegExp(`${lastMonthName} onward`))).toBeVisible();
@@ -189,7 +207,7 @@ test.describe("the budgets page in a browser", () => {
     await form.getByRole("radio", { name: /withdrawal/i }).check();
     await form
       .getByRole("combobox", { name: "Account", exact: true })
-      .selectOption({ label: `${account} · GBP` });
+      .selectOption({ label: `${account} · USD` });
     await form
       .getByRole("textbox", { name: /^Amount/ })
       .first()
@@ -197,7 +215,7 @@ test.describe("the budgets page in a browser", () => {
     await form.getByRole("textbox", { name: /^Date/ }).fill(today);
     await form.getByRole("combobox", { name: "Payee" }).fill("Corner shop");
     await form.getByPlaceholder(/type to search or add/i).fill(groceries);
-    await form.getByRole("button", { name: /^Commit transaction$/ }).click();
+    await submitDialog(form, /^Commit transaction$/);
 
     await page.goto("/budgets");
     // Scoped to the report: the category also appears in the standing budgets
@@ -205,8 +223,8 @@ test.describe("the budgets page in a browser", () => {
     const row = page
       .getByRole("table", { name: /Budget against spending/ })
       .getByRole("row", { name: new RegExp(groceries) });
-    await expect(row).toContainText("£200.00");
-    await expect(row).toContainText("£45.00");
+    await expect(row).toContainText("$200.00");
+    await expect(row).toContainText("$45.00");
     // A month that has not finished is not a month somebody stayed within —
     // and on its last day it counts as finished, so the badge is rightly gone.
     if (monthStillRunning) {
@@ -230,7 +248,7 @@ test.describe("the budgets page in a browser", () => {
     await form.getByRole("radio", { name: /deposit/i }).check();
     await form
       .getByRole("combobox", { name: "Account", exact: true })
-      .selectOption({ label: `${account} · GBP` });
+      .selectOption({ label: `${account} · USD` });
     await form
       .getByRole("textbox", { name: /^Amount/ })
       .first()
@@ -240,7 +258,7 @@ test.describe("the budgets page in a browser", () => {
     // The picker must offer a spending category on a deposit at all. It used to
     // hide it, which is how a refund was impossible to enter.
     await form.getByPlaceholder(/type to search or add/i).fill(groceries);
-    await form.getByRole("button", { name: /^Commit transaction$/ }).click();
+    await submitDialog(form, /^Commit transaction$/);
 
     await page.goto("/budgets");
     // Scoped to the report: the category also appears in the standing budgets
@@ -248,7 +266,7 @@ test.describe("the budgets page in a browser", () => {
     const row = page
       .getByRole("table", { name: /Budget against spending/ })
       .getByRole("row", { name: new RegExp(groceries) });
-    await expect(row).toContainText("£33.00");
+    await expect(row).toContainText("$33.00");
 
     // And the category is not corrupted, so a second refund works too. This is
     // the half that used to fail silently: widening the category to cover both
@@ -259,7 +277,7 @@ test.describe("the budgets page in a browser", () => {
     await second.getByRole("radio", { name: /deposit/i }).check();
     await second
       .getByRole("combobox", { name: "Account", exact: true })
-      .selectOption({ label: `${account} · GBP` });
+      .selectOption({ label: `${account} · USD` });
     await second
       .getByRole("textbox", { name: /^Amount/ })
       .first()
@@ -267,14 +285,14 @@ test.describe("the budgets page in a browser", () => {
     await second.getByRole("textbox", { name: /^Date/ }).fill(today);
     await second.getByRole("combobox", { name: "Payee" }).fill("Second refund");
     await second.getByPlaceholder(/type to search or add/i).fill(groceries);
-    await second.getByRole("button", { name: /^Commit transaction$/ }).click();
+    await submitDialog(second, /^Commit transaction$/);
 
     await page.goto("/budgets");
     await expect(
       page
         .getByRole("table", { name: /Budget against spending/ })
         .getByRole("row", { name: new RegExp(groceries) }),
-    ).toContainText("£30.00");
+    ).toContainText("$30.00");
   });
 
   /**
@@ -290,7 +308,7 @@ test.describe("the budgets page in a browser", () => {
     await page.getByRole("button", { name: "New account" }).click();
     await page.getByLabel(/^Account name/).fill(card);
     await page.getByLabel(/^Account type/).selectOption("credit_card");
-    await page.getByLabel(/^Currency or crypto asset/).selectOption("GBP");
+    await page.getByLabel(/^Currency or crypto asset/).selectOption("USD");
     await page.getByLabel(/^Opening date/).fill("2026-01-01");
     await page.getByLabel(/^Starting amount|^Opening balance/).fill("0");
     await page.getByRole("button", { name: "Create account" }).click();
@@ -302,7 +320,7 @@ test.describe("the budgets page in a browser", () => {
     await form.getByRole("radio", { name: /withdrawal/i }).check();
     await form
       .getByRole("combobox", { name: "Account", exact: true })
-      .selectOption({ label: `${card} · GBP` });
+      .selectOption({ label: `${card} · USD` });
     await form
       .getByRole("textbox", { name: /^Amount/ })
       .first()
@@ -310,7 +328,7 @@ test.describe("the budgets page in a browser", () => {
     await form.getByRole("textbox", { name: /^Date/ }).fill(today);
     await form.getByRole("combobox", { name: "Payee" }).fill("Card shop");
     await form.getByPlaceholder(/type to search or add/i).fill(groceries);
-    await form.getByRole("button", { name: /^Commit transaction$/ }).click();
+    await submitDialog(form, /^Commit transaction$/);
 
     // Archived through the API rather than the page: this test is about the
     // checkbox, and the archive control has its own coverage. `page.request`
@@ -336,13 +354,13 @@ test.describe("the budgets page in a browser", () => {
 
     // Counted by default: the card's 80 is money the budget covered.
     await expect(box).toBeChecked();
-    await expect(row).toContainText("£110.00");
+    await expect(row).toContainText("$110.00");
 
     await box.uncheck();
-    await expect(row).toContainText("£30.00");
+    await expect(row).toContainText("$30.00");
 
     await box.check();
-    await expect(row).toContainText("£110.00");
+    await expect(row).toContainText("$110.00");
   });
 
   /**
@@ -360,7 +378,7 @@ test.describe("the budgets page in a browser", () => {
     await form.getByRole("radio", { name: /withdrawal/i }).check();
     await form
       .getByRole("combobox", { name: "Account", exact: true })
-      .selectOption({ label: `${account} · GBP` });
+      .selectOption({ label: `${account} · USD` });
     await form
       .getByRole("textbox", { name: /^Amount/ })
       .first()
@@ -394,7 +412,7 @@ test.describe("the budgets page in a browser", () => {
     await dialog.getByLabel(/^Amount/).fill("300.00");
     await dialog.getByRole("button", { name: /^save override$/i }).click();
 
-    await expect(row).toContainText("£300.00");
+    await expect(row).toContainText("$300.00");
     await expect(row.getByText(/this month only/i)).toBeVisible();
     // Listed where it can be found again, rather than only on the month it changed.
     await expect(page.getByRole("table", { name: /amounts set for one period/i })).toContainText(
@@ -406,7 +424,7 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("dialog", { name: new RegExp(`${groceries}, ${currentMonthName}`) })
       .getByRole("button", { name: /use the standing budget/i })
       .click();
-    await expect(row).toContainText("£200.00");
+    await expect(row).toContainText("$200.00");
   });
 
   test("keyboard reaches the whole page", async () => {
@@ -543,7 +561,7 @@ test.describe("the budgets page in a browser", () => {
       data: {
         name,
         type: "checking",
-        currency: "GBP",
+        currency: "USD",
         openingDate: "2026-01-01",
         openingBalance: "0",
       },
@@ -612,11 +630,11 @@ test.describe("the budgets page in a browser", () => {
     const setBudget = page.locator("form.budget-form");
     await setBudget.getByLabel(/^Category/).selectOption({ label: carried });
     await setBudget.getByLabel(/^Amount$/).fill("100.00");
-    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
     await setBudget.getByLabel(/^Carry what is left over/).check();
     await page.getByRole("button", { name: /^set budget$/i }).click();
-    await expect(page.getByText(/budgeting £100\.00/i)).toBeVisible();
+    await expect(page.getByText(/budgeting \$100\.00/i)).toBeVisible();
 
     const standing = page.getByRole("table", { name: /standing budgets/i });
     await expect(standing.getByRole("row", { name: new RegExp(carried) })).toContainText(
@@ -630,7 +648,7 @@ test.describe("the budgets page in a browser", () => {
     const august = page
       .getByRole("table", { name: /Budget against spending/ })
       .getByRole("row", { name: new RegExp(carried) });
-    await expect(august).toContainText("£100.00");
+    await expect(august).toContainText("$100.00");
     await expect(page.getByText(/Carried-in figures were worked out from/i)).toBeVisible();
   });
 
@@ -652,13 +670,13 @@ test.describe("the budgets page in a browser", () => {
     await expect(setBudget.getByLabel(/^Amount$/)).toHaveCount(0);
     await expect(setBudget.getByLabel(/^Carry what is left over/)).toBeChecked();
     await setBudget.getByLabel(/^Needed by/).fill("2026-12-20");
-    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
     await page.getByRole("button", { name: /^set budget$/i }).click();
 
     const standing = page.getByRole("table", { name: /standing budgets/i });
     const row = standing.getByRole("row", { name: new RegExp(fund) });
-    await expect(row).toContainText("Saving £600.00 by December 2026");
+    await expect(row).toContainText("Saving $600.00 by December 2026");
     // The amount column says what it is rather than showing a zero somebody
     // would read as "budget nothing".
     await expect(row).toContainText("Worked out");
@@ -684,7 +702,7 @@ test.describe("the budgets page in a browser", () => {
     // The amount box goes away, because the amount is not somebody's to type.
     await expect(setBudget.getByLabel(/^Amount$/)).toHaveCount(0);
     await setBudget.getByLabel(/Share of income/).fill("15");
-    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-07-01");
     await setBudget.getByRole("button", { name: /^set budget$/i }).click();
 
@@ -720,7 +738,7 @@ test.describe("the budgets page in a browser", () => {
     await page.getByRole("button", { name: `Edit ${rent}` }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Group").selectOption({ label: groupName });
-    await dialog.getByRole("button", { name: "Save category" }).click();
+    await submitDialog(dialog, "Save category");
 
     await page.goto("/budgets");
     const setBudget = page.locator("form.budget-form");
@@ -728,7 +746,7 @@ test.describe("the budgets page in a browser", () => {
       .getByLabel(/^Category or group/)
       .selectOption({ label: `${groupName} (group)` });
     await setBudget.getByLabel(/^Amount$/).fill("1200.00");
-    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-08-01");
     await setBudget.getByRole("button", { name: /^set budget$/i }).click();
 
@@ -743,7 +761,7 @@ test.describe("the budgets page in a browser", () => {
       .getByRole("table", { name: /^Groups for/ })
       .getByRole("row", { name: new RegExp(groupName) });
     await expect(groupRow).toContainText("Own budget");
-    await expect(groupRow).toContainText("£1,200.00");
+    await expect(groupRow).toContainText("$1,200.00");
   });
 
   /**
@@ -766,7 +784,7 @@ test.describe("the budgets page in a browser", () => {
     const setBudget = page.locator("form.budget-form");
     await setBudget.getByLabel(/^Category or group/).selectOption({ label: envelope });
     await setBudget.getByLabel(/^Amount$/).fill("100.00");
-    await setBudget.getByLabel(/^Currency/).selectOption("GBP");
+    await setBudget.getByLabel(/^Currency/).selectOption("USD");
     await setBudget.getByLabel(/^Starting/).fill("2026-08-01");
     await setBudget.getByLabel(/^Carry what is left over/).check();
     await setBudget.getByRole("button", { name: /^set budget$/i }).click();
@@ -778,7 +796,7 @@ test.describe("the budgets page in a browser", () => {
     await page.getByRole("button", { name: "New account" }).click();
     await page.getByLabel(/^Account name/).fill(pension);
     await page.getByLabel(/^Account type/).selectOption("investment");
-    await page.getByLabel(/^Currency or crypto asset/).selectOption("GBP");
+    await page.getByLabel(/^Currency or crypto asset/).selectOption("USD");
     await page.getByLabel(/^Opening date/).fill("2026-01-01");
     await page.getByLabel(/^Opening balance/).fill("50000.00");
     await page.getByLabel(/budget is about the money/i).uncheck();
@@ -789,10 +807,10 @@ test.describe("the budgets page in a browser", () => {
     // Fifty thousand more in the ledger and not a penny of it assignable. The
     // positive first, per testing.md 2.5 — and it is the positive that can
     // fail under the defect: the page renders the perimeter only as a sum, so
-    // "£50,000 appears nowhere" was true whichever way the checkbox worked.
+    // "$50,000 appears nowhere" was true whichever way the checkbox worked.
     await expect(page.getByText(/left to assign/i)).toBeVisible();
-    await expect(page.getByText(/out of £\d/).first()).toBeVisible();
-    await expect(page.getByText(/out of £5[01],\d{3}/)).toHaveCount(0);
+    await expect(page.getByText(/out of \$\d/).first()).toBeVisible();
+    await expect(page.getByText(/out of \$5[01],\d{3}/)).toHaveCount(0);
   });
 
   /**
@@ -933,7 +951,7 @@ test.describe("the budgets page in a browser", () => {
     await spend.getByRole("radio", { name: /withdrawal/i }).check();
     await spend
       .getByRole("combobox", { name: "Account", exact: true })
-      .selectOption({ label: `${account} · GBP` });
+      .selectOption({ label: `${account} · USD` });
     await spend
       .getByRole("textbox", { name: /^Amount/ })
       .first()
@@ -941,7 +959,7 @@ test.describe("the budgets page in a browser", () => {
     await spend.getByRole("textbox", { name: /^Date/ }).fill(today);
     await spend.getByRole("combobox", { name: "Payee" }).fill("Nowhere in particular");
     await spend.getByPlaceholder(/type to search or add/i).fill(unnamed);
-    await spend.getByRole("button", { name: /^Commit transaction$/ }).click();
+    await submitDialog(spend, /^Commit transaction$/);
 
     await page.goto("/budgets");
     const report = page.getByRole("table", { name: /Budget against spending/ }).first();

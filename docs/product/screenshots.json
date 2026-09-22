@@ -1,6 +1,6 @@
 {
   "$comment": "Written by scripts/product-kit/build.mjs. Every screen in the application, in both themes, at 1600px.",
-  "capturedAt": "2026-09-18",
+  "capturedAt": "2026-09-21",
   "appVersion": "0.1.6",
   "appUrl": "http://localhost:5173",
   "viewport": "1440x900 at 2x, shipped at 1600px",
@@ -72,13 +72,13 @@
       "file": "dashboard-dark.webp",
       "route": "/",
       "theme": "dark",
-      "kb": 42
+      "kb": 44
     },
     {
       "file": "dashboard-light.webp",
       "route": "/",
       "theme": "light",
-      "kb": 42
+      "kb": 44
     },
     {
       "file": "import-dark.webp",
@@ -174,7 +174,7 @@
       "file": "transactions-light.webp",
       "route": "/transactions",
       "theme": "light",
-      "kb": 64
+      "kb": 63
     }
   ]
 }

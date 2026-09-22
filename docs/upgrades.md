@@ -285,7 +285,7 @@ release that refuses it is a later one.
 `POST /accounts/{id}/archive` is now `/archived`, `POST /categories/{id}/archive`
 is now `/archived`, `POST /staged-transactions/delete` is now `/bulk-delete`, and
 `GET /staged/{id}/duplicate` is now `/staged-transactions/{id}/duplicate`. The old
-paths carry `Deprecation` and `Sunset` headers and stop answering after 1 March 2027. Nothing you run needs changing today; a browser tab left open across the
+paths carry `Deprecation` and `Sunset` headers and stop answering after March 1, 2027. Nothing you run needs changing today; a browser tab left open across the
 upgrade keeps working.
 
 **An agent's arguments are checked more strictly.** Every MCP tool now declares a
@@ -322,7 +322,7 @@ a first sweep after a year drains rather than locking the table.
 depend on what is inside one. Nothing you do changes: a cursor a 0.1.5 client is
 still holding when you swap the container keeps working, which is what makes
 this safe to deploy while somebody is halfway down a list. **The unsigned form
-stops being accepted on 1 March 2027**, which is the same date the four renamed
+stops being accepted on March 1, 2027**, which is the same date the four renamed
 paths above stop answering — one date for everything this release deprecates —
 and by then no build in the field will be issuing one. Two consequences worth knowing: replacing `AUTH_SECRET`
 invalidates every outstanding cursor along with every session, so whoever is

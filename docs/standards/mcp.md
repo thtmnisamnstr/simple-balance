@@ -171,7 +171,7 @@ parts, in order:
 4. **The refusals, named.** A transfer cannot be split. A daily schedule of one
    or two days cannot use a business-day policy. An entry-level category, by id
    or by name, cannot be sent alongside `legs`: `checkLegs`
-   (`src/shared/domain.ts:389-396`) refuses it with "Send either a category or
+   (`src/shared/domain.ts:414-421`) refuses it with "Send either a category or
    legs, not both".
 5. **What a person must be asked first, and what cannot be undone.** A
    description tells an agent what it cannot perceive. The model sentence on the
@@ -303,8 +303,8 @@ unrepresentable, so the model's own sampling cannot produce it.
 - **Ids are `format: "uuid"`.** See the budget section for why the pattern
   beside the format is a defect rather than belt and braces.
 - **A name beside an id, where the server can resolve it.** `categoryName`
-  (`src/shared/domain.ts:472-485` for the entry-level field,
-  `:276-281` for the leg-level one, which defers to it) lets an agent send the
+  (`src/shared/domain.ts:497-510` for the entry-level field,
+  `:301-306` for the leg-level one, which defers to it) lets an agent send the
   human word: it is "matched case-insensitively against your existing categories
   and created only if it is genuinely new", and `categoryId` wins if both are
   sent. It is on 7 tools. The creation half is why `stage_csv` reports the
@@ -380,9 +380,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   `preview_bulk_transaction_selection`, `bulk_edit_transactions` and
   `bulk_delete_transactions`. **Done**, and in one edit rather than five:
   `listQuerySchema.currency` now carries a filter sentence of its own
-  (`src/shared/domain.ts:1924-1928`), and the other four derive from it —
-  `bulkTransactionFilterSchema` by `.omit()` at `:1958` and
-  `stageListQuerySchema` at `:2283-2284`, which is a sixth position nobody had
+  (`src/shared/domain.ts:1949-1953`), and the other four derive from it —
+  `bulkTransactionFilterSchema` by `.omit()` at `:1983` and
+  `stageListQuerySchema` at `:2308-2309`, which is a sixth position nobody had
   counted. The shared sentence is untouched, because it is right where an
   account is being opened. `set_preferences`'s `defaultCurrency` was the same
   sentence in a third context and now says what a default is
@@ -632,7 +632,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (`src/shared/domain.ts:2549-2559`) is a `const` array rather than a bare
+  (`src/shared/domain.ts:2574-2584`) is a `const` array rather than a bare
   TypeScript union precisely so `toolErrorSchema` can publish it as an enum
   (`src/server/mcp-output-schemas.ts:93-99`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
@@ -984,7 +984,7 @@ are pinned by name at `:357-367`.
   tool on this surface takes an `idempotencyKey`, not only the ones that write
   postings. The count lives once, in the annotations section's pinned sentence
   (39 of 39), rather than as a second copy here. One schema and one description
-  (`src/shared/domain.ts:257-264`), so the convention reads identically on every
+  (`src/shared/domain.ts:282-289`), so the convention reads identically on every
   tool. An agent retrying a timed-out call is the normal case here, not the
   exceptional one.
 - **Binding.** Every id an agent holds is a state handle, and the specification's

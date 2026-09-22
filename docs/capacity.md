@@ -158,7 +158,7 @@ rather than as an hour of writes. What is measured is the machine serving it.
 
 ## Results
 
-One run, 15 September 2026, against the machine above: 10,000 users,
+One run, September 15, 2026, against the machine above: 10,000 users,
 30,000,039 transactions, 66,100,078 postings, 35 GB. 112,500 requests measured
 across the hour, after a warm-up that was discarded.
 

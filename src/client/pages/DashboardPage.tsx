@@ -83,7 +83,7 @@ export default function DashboardPage() {
   // group's own budget is pushed to `groups` and skipped — so a ledger
   // budgeted entirely at the group level had a period of zero and was filtered
   // out, taking its group rows with it. It said nothing was budgeted while the
-  // budgets page showed the group, and one unrelated £1 category budget was
+  // budgets page showed the group, and one unrelated $1 category budget was
   // enough to make the whole thing appear.
   const budgetPeriodsFor = (currency: string) =>
     (budgets.data?.periods ?? []).filter(
@@ -339,7 +339,7 @@ export default function DashboardPage() {
                   // at two hundred and spent nothing on is the row this panel
                   // exists to show, and an unbudgeted category is spending
                   // "Spending by category" above already reports — a row
-                  // reading "£100.00 of —" is a budget nobody set.
+                  // reading "$100.00 of —" is a budget nobody set.
                   //
                   // Uncapped, because a cap on a list somebody chose the length
                   // of is a cap on their own budget: the budgets page shows all
@@ -361,9 +361,9 @@ export default function DashboardPage() {
                           period budgeted only at the group level has nothing
                           for it to measure: `available` is zero, which
                           `periodState` reads as over and `fillPercent` draws as
-                          a full bar. It would say "£500.00 of £0.00, Over"
-                          directly above a group row reading "£500.00 of
-                          £800.00, So far". The name alone is honest; the group
+                          a full bar. It would say "$500.00 of $0.00, Over"
+                          directly above a group row reading "$500.00 of
+                          $800.00, So far". The name alone is honest; the group
                           rows beneath carry the figures. Folding group limits
                           into the total is the other tempting answer and is
                           refused in the service for the same reason
@@ -379,8 +379,8 @@ export default function DashboardPage() {
                             </span>
                             {/* `available`, like the bar at the end of this row
                               and the badge beside it. It printed `budgeted`, so
-                              a period carrying money forward read "£450.00 of
-                              £100.00" next to a bar at 90% and a "Nearly there"
+                              a period carrying money forward read "$450.00 of
+                              $100.00" next to a bar at 90% and a "Nearly there"
                               badge — the disagreement the category rows below
                               were written to end, left in the line above them. */}
                             <strong>
@@ -482,8 +482,8 @@ export default function DashboardPage() {
                         // badge. `remaining` is `available` minus what was
                         // spent (`budgets.ts:1665`), so printing the bare
                         // limit beside a bar drawn against `available` made a
-                        // category that carried money forward read "£245.00 of
-                        // £200.00" next to a bar under half full.
+                        // category that carried money forward read "$245.00 of
+                        // $200.00" next to a bar under half full.
                         const room = row.available ?? row.limit!;
                         const spent = formatMoney(row.actual, currency.currency);
                         const limit = formatMoney(room, currency.currency);

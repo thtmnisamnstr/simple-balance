@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Actor } from "../../shared/domain.js";
-import { dateRangeSchema } from "../../shared/domain.js";
+import { compareCurrencies, dateRangeSchema } from "../../shared/domain.js";
 import { getDb } from "../db/client.js";
 import { canonicalDecimal, decimal } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
@@ -27,7 +27,7 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
   const range = dateRangeSchema.parse(input);
   const start = range.start ?? "0001-01-01";
   const db = getDb();
-  const { timezone } = await getPreferences(actor);
+  const { timezone, defaultCurrency } = await getPreferences(actor);
   const today = todayIn(timezone);
   // An open-ended range meant 9999-12-31, so a transaction dated next month
   // counted toward a balance the page called "as of today" and toward the cash
@@ -186,6 +186,11 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
     // that end is in the future.
     asOf: end,
     includesArchived: includeArchived,
-    currencies: [...currencies.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
+    // `compareCurrencies` in `src/shared/domain.ts`, which the Reports page
+    // asks too. Two pages ordering the same ledger differently is a defect
+    // even when every figure on both is right.
+    currencies: [...currencies.values()].sort((a, b) =>
+      compareCurrencies(defaultCurrency)(a.currency, b.currency),
+    ),
   };
 }

@@ -421,7 +421,7 @@ describe("what the standards guides cite", () => {
       `${words[tokens] ?? String(tokens)} tokens are declared`,
     );
     expect(guide, `styles.css is ${lines} lines`).toContain(
-      `${lines.toLocaleString("en-GB")} lines of hand-written CSS`,
+      `${lines.toLocaleString("en-US")} lines of hand-written CSS`,
     );
   });
 

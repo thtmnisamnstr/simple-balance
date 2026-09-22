@@ -4,6 +4,7 @@ import {
   MAX_REGISTER_ENTRIES,
   MAX_REPORT_BUCKETS,
   cashAccountTypes,
+  compareCurrencies,
   dateRangeSchema,
   reportQuerySchema,
 } from "../../shared/domain.js";
@@ -169,7 +170,7 @@ export async function getReport(actor: Actor, input: unknown, includeArchived = 
 
   const preset = PRESETS[query.report];
   const bucket = query.bucket ?? preset.defaultBucket;
-  const { timezone } = await getPreferences(actor);
+  const { timezone, defaultCurrency } = await getPreferences(actor);
   const today = todayIn(timezone);
   const requestedEnd = query.end ?? "9999-12-31";
   const asOf = requestedEnd < today ? requestedEnd : today;
@@ -236,7 +237,12 @@ export async function getReport(actor: Actor, input: unknown, includeArchived = 
     accumulation: preset.accumulation,
     includesArchived: includeArchived,
     buckets: buckets.map(({ start: from, end }) => ({ start: from, end })),
-    currencies: query.report === "categories" ? currencies.map(rankCategories) : currencies,
+    // `assemble` sorts by code so its output does not depend on who asked.
+    // The person's own currency leading is presentation, decided here and by
+    // the same rule the Overview uses.
+    currencies: (query.report === "categories" ? currencies.map(rankCategories) : currencies)
+      .slice()
+      .sort((left, right) => compareCurrencies(defaultCurrency)(left.currency, right.currency)),
   };
 }
 

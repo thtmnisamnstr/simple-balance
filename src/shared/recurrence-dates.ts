@@ -145,16 +145,23 @@ export function calendarDayIn(instant: Date, timezone: string) {
   // The stored timezone is free text, checked only when it was written, so an
   // ICU update or a hand-edited row can leave one unrecognisable years later.
   // Inside a loop that serves everybody, one such row must not be able to throw.
+  //
+  // The locale decides nothing here and is only ever a label: every part is
+  // read back by name rather than by position, so the order a locale would
+  // print them in never reaches the string this builds. `en-US` because the
+  // rest of the repository speaks American English; any Gregorian,
+  // Latin-digit locale gives the same answer, which was checked against
+  // en-GB and en-CA over 430,000 parts across fourteen timezones.
   let formatter: Intl.DateTimeFormat;
   try {
-    formatter = new Intl.DateTimeFormat("en-CA", {
+    formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: timezone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
     });
   } catch {
-    formatter = new Intl.DateTimeFormat("en-CA", {
+    formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: "UTC",
       year: "numeric",
       month: "2-digit",
@@ -188,9 +195,9 @@ export function clockTimeIn(instant: Date, timezone: string) {
     hourCycle: "h23",
   };
   try {
-    formatter = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, ...options });
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone: timezone, ...options });
   } catch {
-    formatter = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...options });
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...options });
   }
   const value = Object.fromEntries(
     formatter.formatToParts(instant).map((part) => [part.type, part.value]),

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { staleVersion } from "../src/server/services/errors.js";
 import {
+  compareCurrencies,
   decimalStringSchema,
   accountCreateSchema,
   bulkDeleteStageSchema,
@@ -790,6 +791,36 @@ describe("the budget report's query flags", () => {
  * and read the row again — on a refusal that is not about a row and has no
  * version to retry with.
  */
+describe("the order a ledger's currencies are shown in", () => {
+  /**
+   * The Overview and the Reports page both ask this, which is the point of it
+   * being one function: two pages ordering the same ledger differently is a
+   * defect even when every figure on both is right.
+   */
+  it("leads with the currency this person chose", () => {
+    expect(["EUR", "JPY", "USD"].sort(compareCurrencies("USD"))).toEqual(["USD", "EUR", "JPY"]);
+    expect(["EUR", "JPY", "USD"].sort(compareCurrencies("JPY"))).toEqual(["JPY", "EUR", "USD"]);
+  });
+
+  it("orders the rest alphabetically behind it", () => {
+    // Chosen so alphabetical and preference-first disagree on the first entry
+    // and agree on nothing else, which is what makes the assertion able to
+    // fail for the right reason.
+    expect(["ZAR", "AUD", "USD", "EUR"].sort(compareCurrencies("USD"))).toEqual([
+      "USD",
+      "AUD",
+      "EUR",
+      "ZAR",
+    ]);
+  });
+
+  it("changes nothing when the chosen currency is not in the ledger", () => {
+    // Somebody whose default is a currency they hold no account in. The list
+    // still has to come back in a defined order rather than an arbitrary one.
+    expect(["USD", "EUR", "AUD"].sort(compareCurrencies("NOK"))).toEqual(["AUD", "EUR", "USD"]);
+  });
+});
+
 describe("the refusal a stale bulk selection sends", () => {
   it("offers the move that works, which is previewing again", () => {
     const refusal = staleVersion({

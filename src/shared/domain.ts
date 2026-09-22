@@ -243,6 +243,31 @@ export const currencyCodeSchema = z
     "Uppercase currency code, for example USD or EUR, or a crypto asset symbol such as BTC. An account's currency is fixed once it is in use.",
   );
 
+/**
+ * The order a ledger's currencies are shown in, written once.
+ *
+ * Every page that reports money groups it by currency, and two pages ordering
+ * the same ledger differently is the same defect as two pages spelling a plan
+ * differently: the reader has to work out which one to believe. So the Overview
+ * and the Reports page ask this, and nothing else decides it.
+ *
+ * The rule is the person's own currency first, the rest alphabetically behind
+ * it. Alphabetical throughout is what this replaces, and it put a euro account
+ * kept for one trip above the dollars somebody actually lives in — at the top
+ * of the Overview, where the first heading is the largest figure on the page.
+ *
+ * Ordering is presentation and decides nothing about what any figure is, which
+ * is why this is a comparator rather than anything the services compute with.
+ */
+export function compareCurrencies(defaultCurrency: string) {
+  return (left: string, right: string) => {
+    if (left === right) return 0;
+    if (left === defaultCurrency) return -1;
+    if (right === defaultCurrency) return 1;
+    return left.localeCompare(right);
+  };
+}
+
 export const decimalStringSchema = z
   .string()
   .regex(

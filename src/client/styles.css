@@ -3922,7 +3922,7 @@ polyline.chart-line {
 /* --break-mobile: 560px */
 @media (max-width: 560px) {
   /* A panel header is a title and something said about it, side by side. At
-     this width that is two narrow columns: "September 2026, GBP (so far)" over
+     this width that is two narrow columns: "September 2026, USD (so far)" over
      three lines beside a sentence over three more. Stacked, both read. */
   .panel-header {
     flex-direction: column;

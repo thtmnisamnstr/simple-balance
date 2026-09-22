@@ -1042,7 +1042,7 @@ decimal-string money value.
 "labels or instructions are provided when content requires user input". A
 currency symbol rendered as an input prefix is not part of the control's label
 and is not announced, so the instruction is missing for anybody who does not see
-it. Put the currency in the label: "Amount (GBP)".
+it. Put the currency in the label: "Amount (USD)".
 
 *Not checked mechanically.* A grep test scoped to money-bound fields is listed
 in section 17.
@@ -1483,7 +1483,7 @@ no site strips them afterwards is not checked mechanically.
 ### 10.3 A standalone figure carries its whole sentence
 
 **House.** A figure in a card gets the whole sentence as its accessible name:
-"Net worth, £1,234.56", not "£1,234.56". A screen reader reading the number
+"Net worth, $1,234.56", not "$1,234.56". A screen reader reading the number
 alone gives no way back to what it counts. `SortableHeader` already uses this
 technique with its `.sr-only` sentence.
 
@@ -1993,7 +1993,7 @@ The rules, in the order they matter:
   that guessed would guess wrong in the direction that matters: telling somebody
   their four thousand rows did not post when they did.
 - **The threshold at which a bar earns its row of layout is
-  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1226`), not a literal in a
+  `PROGRESS_STREAM_MIN_ROWS`** (`src/shared/domain.ts:1251`), not a literal in a
   page. Fifty is a judgement rather than a boundary in nature — below it the work
   is over before a bar could be read, and a bar that flashes is worse than none.
   It sits under the cap `AGENTS.md` fixes: "Ten thousand rows is the cap, and it
@@ -2271,7 +2271,7 @@ names the specific thing, says exactly what happens to it, says what does **not*
 happen, and says whether it can be undone. The `ConfirmDialog` descriptions are
 the model:
 
-> "£1,240.00 is posted out of "Old current account" to Opening Balances, so the
+> "$1,240.00 is posted out of "Old current account" to Opening Balances, so the
 > account closes at zero and that amount stops counting toward your totals. The
 > books stay balanced and its history stays readable. Restoring the account posts
 > the balance back."

@@ -146,7 +146,7 @@ export function decodeCursor(
   // `userId`. It is not an authorisation boundary — no cursor has ever been one
   // — so the window costs opacity for one release and nothing else.
   //
-  // It goes on **1 March 2027**, which is the sunset this release already
+  // It goes on **March 1, 2027**, which is the sunset this release already
   // publishes on the four renamed paths (`RENAMED_PATH_SUNSET` in
   // `src/server/api.ts`). One date for everything deprecated in one release, so
   // an operator has one thing to remember; `http.md`'s deprecation policy asks

@@ -81,14 +81,14 @@ AUTH_SECRET=product-kit-secret-long-enough-for-the-config-validator-01 \
 NODE_ENV=development RECURRENCE_SCHEDULER=false npx tsx src/server/index.ts &
 npx vite --port 5173 --strictPort &
 
-# 3. build it
-node scripts/product-kit/build.mjs
+# 3. build it — `tsx`, because it asks `calendarDayIn` what day it is
+npx tsx scripts/product-kit/build.mjs
 
 # 4. and put the database away
 docker rm -f sb-kit-pg
 ```
 
-### Five traps, all paid for already
+### Six traps, all paid for already
 
 - **Do not pipe the output through `head`.** SIGPIPE kills it mid-capture and
   leaves a partial set that looks complete. Redirect to a file.
@@ -103,6 +103,17 @@ docker rm -f sb-kit-pg
   failing, and the seed is idempotent.
 - **A re-run against a dirty database is fine; a re-run against a *different*
   database is not.** Drop it and start clean if anything looks off.
+- **One clock, or the current month comes out short.** The seed's dates and
+  the browser's "today" have to be the same day. They were not: the dates
+  were computed in UTC and the browser used the machine's zone, so a capture
+  run in the evening in California dated the month's last entries into
+  tomorrow — and this application correctly declines to count money that has
+  not moved, so the dashboard, the budgets and the reports were all quietly
+  a hundred and seventy dollars light with nothing on screen to say so — two
+  entries, and no sign of them anywhere. The script now asks
+  `calendarDayIn` and hands the browser the same zone. If `capturedAt` in
+  `screenshots.json` disagrees with the "As of" date in the pictures, this is
+  what has come apart again.
 
 ## 3. Check the output, do not assume it
 

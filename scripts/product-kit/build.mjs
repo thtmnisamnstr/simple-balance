@@ -19,12 +19,17 @@
  * `docs/standards/operations.md` has the runbook, and the `product-kit`
  * skill has the order and the traps.
  *
- *   node scripts/product-kit/build.mjs
+ *   npx tsx scripts/product-kit/build.mjs
  */
 import { chromium } from "playwright";
 import sharp from "sharp";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+// Run under `tsx`, because this is the one question that may not be answered
+// twice. `AGENTS.md`: whether it is a given day where somebody lives is
+// answered in one place, and a second implementation here is what put the
+// seed a day ahead of the browser reading it.
+import { calendarDayIn } from "../../src/shared/recurrence-dates.js";
 
 const BASE = process.env.APP_URL ?? "http://localhost:5173";
 const OUT = process.env.OUT_DIR ?? "docs/product/screenshots";
@@ -35,8 +40,21 @@ const features = JSON.parse(readFileSync("docs/product/features.json", "utf8"));
    screenshot set can be recognised as older than the app it advertises. */
 const { version: appVersion } = JSON.parse(readFileSync("package.json", "utf8"));
 
+/**
+ * The zone both halves of this script agree on.
+ *
+ * The seed's dates are worked out here and read back by a browser, and those
+ * two used to be different clocks: the dates were UTC and the browser was on
+ * whatever the machine was set to. Run in the evening in California that put
+ * every clamped date a day into the future, and this application correctly
+ * declines to count money that has not moved yet — so the current month came
+ * out short with no visible sign, which is the worst way for a marketing
+ * screenshot to be wrong. One zone, used for the dates and handed to the
+ * browser below.
+ */
+const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const today = new Date();
-const iso = (d) => d.toISOString().slice(0, 10);
+const iso = (d) => calendarDayIn(d, zone);
 
 /** Day `day` of the month `monthsAgo` back, never dated into the future. */
 function dayOfMonth(monthsAgo, day) {
@@ -55,6 +73,14 @@ async function main() {
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 2,
     colorScheme: "light",
+    // Both pinned, because both reach the pictures. `src/client/locale.ts`
+    // reads the browser's own language tag to choose the new account's
+    // currency, so an unpinned locale means a laptop set to en-GB captures a
+    // marketing set denominated in pounds. And `zone` is the same one the
+    // seed's dates were built in, which is what makes "today" mean one day
+    // on both sides of the wire.
+    locale: "en-US",
+    timezoneId: zone,
   });
   const page = await context.newPage();
 

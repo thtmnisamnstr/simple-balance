@@ -37,7 +37,7 @@ const report: BudgetReport = {
       start: "2026-03-01",
       end: "2026-03-31",
       partial: false,
-      currency: "GBP",
+      currency: "USD",
       budgeted: "700",
       spent: "845",
       carriedIn: "0",
@@ -122,7 +122,7 @@ function stub(payload: BudgetReport = report) {
 
 const session = {
   user: { id: "u1", name: "Test", email: "test@example.com" },
-  preferences: { timezone: "UTC", defaultCurrency: "GBP", chosen: true, theme: "system" },
+  preferences: { timezone: "UTC", defaultCurrency: "USD", chosen: true, theme: "system" },
   auth: { hasLocalPassword: true, hasGoogle: false },
 } as unknown as Session;
 
@@ -268,7 +268,7 @@ describe("the budgets page", () => {
       groupName: null,
       // What the page calls the budget, whichever kind of thing it is about.
       targetName: "Groceries",
-      currency: "GBP",
+      currency: "USD",
       periodUnit: "month" as const,
       amount: "200",
       activeFrom: "2026-01-01",
@@ -366,7 +366,7 @@ describe("the budgets page", () => {
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body).toMatchObject({
       categoryId: groceries,
-      currency: "GBP",
+      currency: "USD",
       periodUnit: "month",
       periodStart: "2026-03-01",
       amount: "300.00",
@@ -436,7 +436,7 @@ describe("the budgets page", () => {
       id: "66666666-6666-4666-8666-666666666666",
       categoryId: rent,
       categoryName: "Rent",
-      currency: "GBP",
+      currency: "USD",
       periodUnit: "month" as const,
       periodStart: "2026-03-01",
       amount: "500",

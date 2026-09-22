@@ -221,7 +221,7 @@ interesting row.
 ### Step 2: make the leftovers mean something (envelopes)
 
 Tick **Carry what is left over into the next month** on a budget and it
-becomes an envelope: the £50 you did not spend on groceries in March is £50
+becomes an envelope: the $50 you did not spend on groceries in March is $50
 more grocery money in April, and overspending carries forward too, as a debt
 the calendar does not forgive. This is the whole of "envelope budgeting".
 Money you did not spend stays earmarked instead of evaporating at month end.
@@ -282,7 +282,7 @@ file a new category as you make it. A group is budgeted one of two ways, chosen
 when you make it:
 
 - **Has a budget of its own**: one number for the whole group ("Eating out:
-  £200 across restaurants, takeaway, coffee"). Bucket budgeting; three such
+  $200 across restaurants, takeaway, coffee"). Bucket budgeting; three such
   groups make 50/30/20. The Budgets page badges these **Own budget**.
 - **Adds up its categories' budgets**: the group is whatever its member
   budgets total, badged **Adds up**. Hierarchical budgeting; the group line is
