@@ -1,6 +1,6 @@
 /*
  * The app writes its own CSS and uses no utility classes, so it carries its own
- * reset rather than pulling in a framework for one. These are the normalisations
+ * reset rather than pulling in a framework for one. These are the normalizations
  * the components actually rely on: icons that sit on the line rather than the
  * text baseline, controls that inherit their type, and elements that start
  * without the browser's own spacing.
@@ -71,8 +71,8 @@ a {
 }
 
 /*
- * Every colour in this file comes from here, and each one is declared once per
- * theme. A colour written inline further down is a colour that has only one
+ * Every color in this file comes from here, and each one is declared once per
+ * theme. A color written inline further down is a color that has only one
  * theme, which is the bug that makes half an app unreadable, so
  * `tests/theme-tokens.test.ts` fails on any literal outside these blocks.
  *
@@ -295,7 +295,7 @@ a {
 
 /*
  * Declared because there was no rule for it at all, which left the selection
- * colour to the user agent. That was survivable while `color-scheme` was always
+ * color to the user agent. That was survivable while `color-scheme` was always
  * light; once it can be dark the browser picks its own highlight for the theme
  * and it has no reason to match this palette.
  */
@@ -912,12 +912,12 @@ a {
 /* A disabled control is exempt from SC 1.4.3 and SC 1.4.11, which is what lets
    this edge drop back to the decorative --line: something that is no longer a
    control needs no control boundary. The fill is what states the condition, and
-   it has to, because .input paints its own background, colour and border and so
+   it has to, because .input paints its own background, color and border and so
    overrides the rendering the browser would otherwise give a dead field — which
    is why fourteen disabled fields shipped pixel-identical to live ones. Not
    opacity, which is the house answer for a disabled button: these sit on
    .bulk-edit-field.enabled's green row, and dimming one would let the row's
-   colour through instead of saying anything. */
+   color through instead of saying anything. */
 .input:disabled {
   border-color: var(--line);
   color: var(--muted);
@@ -927,7 +927,7 @@ a {
 
 .input:focus {
   /* --focus-ring, not --green-line-strong. Now that a resting edge holds 3:1, the
-     old focus colour sat at the same lightness as it — 1.05:1 between the two —
+     old focus color sat at the same lightness as it — 1.05:1 between the two —
      so focusing a field changed its hue and almost nothing else. This is the
      token named for the job, and it is darker than the resting edge as well as
      greener. */
@@ -991,7 +991,7 @@ a {
    Red text on the page's own background rather than a tinted box: an error box
    here would stack with `ErrorSummary`'s at the top of the same form, and two
    boxes saying one thing reads as two problems. The control beside it carries
-   `aria-invalid` and points at this sentence, so the colour is a third cue
+   `aria-invalid` and points at this sentence, so the color is a third cue
    rather than the only one. */
 .field-error {
   color: var(--red);
@@ -1081,7 +1081,7 @@ input[type="radio"] {
 }
 
 /* Only what is new. The summary carries `alert alert-error` as well, so its
-   border, radius, fill, colour, size and line height are the ones every other
+   border, radius, fill, color, size and line height are the ones every other
    alert already uses, and it stays one family with them rather than becoming a
    second red box with its own geometry. */
 
@@ -1340,7 +1340,7 @@ input[type="radio"] {
 
 /* The category name is a link now, so it would otherwise take the green every
    anchor gets and sit next to a green bar reading as two different things. Same
-   treatment as .account-mini-row: the row's own colour, green on hover. */
+   treatment as .account-mini-row: the row's own color, green on hover. */
 .spending-row a {
   color: inherit;
   text-decoration: none;
@@ -2072,7 +2072,7 @@ input[type="radio"] {
 /*
  * The painted button stays small so a row does not grow, but the area that
  * responds to a finger reaches the 44px a touch target needs. The overlay sits
- * behind the icon so neighbouring buttons still take their own taps.
+ * behind the icon so neighboring buttons still take their own taps.
  */
 .row-actions button::after,
 .icon-button::after {
@@ -2128,7 +2128,7 @@ input[type="radio"] {
 
 /* The stronger green, not `--green-line`: this is a control edge, and §2.2 holds
    one to 3:1. The decorative green sat at 1.4 against its own fill, so the
-   enabled state was signalled almost entirely by the background — colour as the
+   enabled state was signaled almost entirely by the background — color as the
    only cue, and a faint one. */
 .bulk-edit-field.enabled {
   border-color: var(--green-line-strong);
@@ -2539,7 +2539,7 @@ input[type="radio"] {
 }
 
 /* Each column stacks its own cards, so a tall card cannot push a short one's
-   neighbour down to meet it. */
+   neighbor down to meet it. */
 .settings-column {
   display: grid;
   gap: 24px;
@@ -3003,7 +3003,7 @@ input[type="radio"] {
 }
 
 /* Set apart from the panels above it, because nothing in it can be undone. The
-   page's own gap supplies the distance; only the colour is this rule's job. */
+   page's own gap supplies the distance; only the color is this rule's job. */
 .danger-zone {
   border-color: var(--red-line);
 }
@@ -3418,7 +3418,7 @@ input[type="radio"] {
   line-height: 1;
 }
 
-/* The two ends are pinned inside the drawing rather than centred on it, or half
+/* The two ends are pinned inside the drawing rather than centered on it, or half
    of the first date hangs off the left of the panel. */
 .chart-axis-x span.at-start,
 .chart-axis-x span.at-end {
@@ -3450,7 +3450,7 @@ input[type="radio"] {
   stroke-linecap: round;
 }
 
-/* A hairline in the surface colour, because adjacent series sit as low as
+/* A hairline in the surface color, because adjacent series sit as low as
    1.05:1 against each other (section 11.2 argues why ten distinguishable hues
    are not available) and two bars touching at that ratio read as one shape.
    The stroke separates them without changing any measured pair. */
@@ -3484,28 +3484,28 @@ input[type="radio"] {
 
 /* Ten hues, kept apart under three kinds of vision rather than swept round a
    wheel, so a ledger with ten accounts still has a readable legend. There were
-   six, and a seventh account shared a colour with the first. Beyond ten they do
+   six, and a seventh account shared a color with the first. Beyond ten they do
    wrap; the table under the chart is what carries the exact figures.
-   SERIES_COLOURS in charts.tsx counts these, and a test fails if the two
+   SERIES_COLORS in charts.tsx counts these, and a test fails if the two
    disagree.
 
    Each slot keeps its hue family across the two themes — slot 3 is the amber one
    in both — because otherwise switching theme silently reassigns every account's
-   colour and a chart somebody had learned to read stops being readable.
+   color and a chart somebody had learned to read stops being readable.
 
    The values are in the token blocks at the top. They are not the semantic
    --green/--red/--blue: a series is an arbitrary identity, and borrowing the
-   colour that means "money out" for whichever account happens to sort second
+   color that means "money out" for whichever account happens to sort second
    says something the chart does not mean.
 
-   An honest limit: ten categorical colours cannot all be told apart by somebody
+   An honest limit: ten categorical colors cannot all be told apart by somebody
    with dichromatic vision, and no choice of ten fixes that. Measured as CIEDE2000
    between every pair under simulated deuteranopia and protanopia, the set that
    shipped before this had a worst pair of 1.78 — the green and the pink were the
-   same colour. These reach 5.6 in light and 4.7 in dark, which is three times
+   same color. These reach 5.6 in light and 4.7 in dark, which is three times
    better and still not enough on its own: a search that held hue identity and the
    3:1 a line needs could not beat about 7 in light or 4 in dark. The remedy is a
-   second channel that is not colour — a dash pattern per series — which is a
+   second channel that is not color — a dash pattern per series — which is a
    change to the charts rather than to this palette, and is not made here. Until
    then the legend and the table under every chart are what carry identity, and
    both are always present. */
@@ -3541,9 +3541,9 @@ polyline.chart-line {
 .chart-swatch.chart-series-9 { background: var(--series-9); }
 
 /*
- * A second channel that is not colour, which section 11.3 has been asking for.
+ * A second channel that is not color, which section 11.3 has been asking for.
  *
- * Ten categorical colours cannot all be told apart under dichromatic vision and
+ * Ten categorical colors cannot all be told apart under dichromatic vision and
  * no choice of ten fixes that — the palette comment above measures the best
  * available set at 5.6 in light and 4.7 in dark, which is three times better
  * than the six it replaced and still not enough on its own. A dash pattern is
@@ -3573,8 +3573,8 @@ polyline.chart-line {
  * And the same pattern in the legend, which is what makes it usable.
  *
  * The legend was the wrong way round for the reader who needs it most: the
- * swatch is `aria-hidden`, so a screen reader gets the label and a colour-blind
- * sighted reader gets only a block of colour they may not be able to match to a
+ * swatch is `aria-hidden`, so a screen reader gets the label and a color-blind
+ * sighted reader gets only a block of color they may not be able to match to a
  * line. A swatch that carries the line's rhythm can be matched by shape.
  *
  * A repeating gradient rather than a border, because the swatch is a `<span>`
@@ -3725,8 +3725,8 @@ polyline.chart-line {
 /* Budgets.
    The bar carries how much, and the badge beside it carries the state as a
    word. That split is deliberate: fullness already says "nearly there", so the
-   bar needs no third colour for it, and nothing on the row is told by colour
-   alone. Over budget is the one state worth a colour of its own, because it is
+   bar needs no third color for it, and nothing on the row is told by color
+   alone. Over budget is the one state worth a color of its own, because it is
    the one somebody scans for. */
 .budget-form {
   display: flex;

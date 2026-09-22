@@ -59,7 +59,7 @@ jobs:
       packages: write
     strategy:
       # One architecture failing must not cancel the other: two architectures
-      # that both failed is a state somebody can describe, one cancelled halfway
+      # that both failed is a state somebody can describe, one canceled halfway
       # through is not.
       fail-fast: false
       matrix:

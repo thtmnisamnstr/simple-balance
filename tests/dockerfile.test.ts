@@ -306,7 +306,7 @@ describe("the labels on every image", () => {
     expect(dockerfiles).not.toContain("deploy/docker/citus.Dockerfile");
   });
 
-  it("names the product, its licence and where it came from", () => {
+  it("names the product, its license and where it came from", () => {
     for (const path of dockerfiles) {
       const dockerfile = read(path);
       for (const label of [
@@ -477,7 +477,7 @@ describe("the nginx template and the image that renders it", () => {
  *
  * `docs/standards/operations.md` §An image we build for a dependency carries the
  * dependency's version is the rule. The obligations it shares with the other
- * four — a pinned base, a licence, a source — are checked here rather than in the
+ * four — a pinned base, a license, a source — are checked here rather than in the
  * loop above, because two of that loop's assertions are actively wrong for this
  * image: its `FROM` comes from an `ARG` so the digest is one level down, and its
  * version label is Citus's rather than `APP_VERSION`.
@@ -512,7 +512,7 @@ describe("the database image", () => {
     expect(dockerfile).toContain("sha256sum -c -");
   });
 
-  it("carries the licence and source, and does not claim this product's version", () => {
+  it("carries the license and source, and does not claim this product's version", () => {
     for (const label of [
       "org.opencontainers.image.title=",
       'org.opencontainers.image.licenses="AGPL-3.0-only"',
@@ -521,7 +521,7 @@ describe("the database image", () => {
       expect(dockerfile, `${path} must set ${label}`).toContain(label);
     }
     // The rule, stated as a check: this image's version belongs to Citus and
-    // PostgreSQL. Labelling it with APP_VERSION would print 0.2.0 on contents
+    // PostgreSQL. Labeling it with APP_VERSION would print 0.2.0 on contents
     // decided by somebody else's release cycle.
     //
     // Instructions only, the same way the four-image loop above reads them: the

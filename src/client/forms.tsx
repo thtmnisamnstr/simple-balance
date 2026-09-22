@@ -298,7 +298,7 @@ export function AccountForm({
 
 /**
  * The payee field, with the suggestions and the snap-to-existing-spelling
- * behaviour that keeps a ledger from growing three spellings of one shop. Its
+ * behavior that keeps a ledger from growing three spellings of one shop. Its
  * own component because the template editor needs exactly this and a second
  * copy would be a second answer to "what counts as the same payee".
  */
@@ -447,7 +447,7 @@ const transactionTypeOptions: {
 /**
  * The transaction type, as one control rather than three copies of it.
  *
- * Two shapes, because there are two behaviours. A template may hold no type at
+ * Two shapes, because there are two behaviors. A template may hold no type at
  * all, and clicking the chosen one again is how somebody says so — which a radio
  * cannot express, since a radio has no way to become unset. That shape is a group
  * of toggles reporting `aria-pressed`.
@@ -902,7 +902,7 @@ function reminderSendDates(
  * Its own form rather than the transaction form with pieces switched off,
  * because what it collects genuinely differs: every field may be left blank, no
  * date is recorded at all, and nothing here can be committed or staged. The two
- * pieces that carry real behaviour - the payee suggestions and the category
+ * pieces that carry real behavior - the payee suggestions and the category
  * matching - are shared components, so the rules that matter cannot drift
  * between them.
  *
@@ -1045,7 +1045,7 @@ export function TemplateForm({
     }
   }, [reminderBusinessDayBlocked, reminderWeekendPolicy]);
 
-  // Worked out during render rather than memoised. The only honest dependency
+  // Worked out during render rather than memoized. The only honest dependency
   // is the parse result, which `safeParse` rebuilds every render, so a
   // `useMemo` keyed on it would never hit - and this one got around that by
   // stringifying the parsed rule, which costs more than the five dates it was
@@ -1406,7 +1406,7 @@ export function TemplateForm({
             {reminderRepeats ? (
               <Field
                 label="When it lands on a weekend"
-                hint="A business day here means Monday to Friday. Public holidays are not modelled."
+                hint="A business day here means Monday to Friday. Public holidays are not modeled."
               >
                 <Select
                   value={reminderWeekendPolicy}
@@ -1566,7 +1566,7 @@ export function TransactionForm({
       )?.name ??
       // The name the draft carried, for a row filed by name and no id. Falling
       // through to "" wrote null over it on the next save, and the row then
-      // committed uncategorised.
+      // committed uncategorized.
       initial?.categoryName ??
       "",
   );
@@ -2684,7 +2684,7 @@ export function RecurrenceForm({
     const usable = (category: Category) => !category.archivedAt;
     const selected = categories.find((category) => category.id === categoryId);
     if (selected && !usable(selected)) {
-      // Synchronising with the categories query: archiving happens on another
+      // Synchronizing with the categories query: archiving happens on another
       // page and arrives here on a refetch. Cleared rather than derived because
       // somebody now has to choose again, and a name derived away on render
       // would leave the field looking merely empty on the next save.
@@ -2710,7 +2710,7 @@ export function RecurrenceForm({
   const previewWatermark = recurrence
     ? { proposesFrom: recurrence.proposesFrom, lastOccurrenceDate: recurrence.lastOccurrenceDate }
     : { proposesFrom: today, lastOccurrenceDate: null };
-  // Worked out during render rather than memoised, for the reason the reminder
+  // Worked out during render rather than memoized, for the reason the reminder
   // preview is. The dependency array named the fields the schedule is built from
   // rather than the parse result it reads, and those are not the same set:
   // `intervalNumber` is null for an interval of "abc" and null again for a blank
@@ -3113,7 +3113,7 @@ export function RecurrenceForm({
 
         <Field
           label="When it lands on a weekend"
-          hint="A business day here means Monday to Friday. Public holidays are not modelled."
+          hint="A business day here means Monday to Friday. Public holidays are not modeled."
         >
           <Select
             value={weekendPolicy}

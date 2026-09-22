@@ -39,22 +39,22 @@ not duplication.
 | **House** | Defensible taste. Consistency is the point, so change it here rather than in one file, and change it everywhere at once. |
 | **Contested** | Published guidance disagrees with itself. The guide records both positions and says which this product picked, so the next person argues with the decision rather than rediscovering the disagreement. |
 
-There is no unlabelled rule in a guide. A rule nobody will label is a rule
+There is no unlabeled rule in a guide. A rule nobody will label is a rule
 nobody believes.
 
 **This file is the exception, and says so rather than leaving it implicit.** The
-sentences here are the labelling scheme itself, and labelling them would be
+sentences here are the labeling scheme itself, and labeling them would be
 circular: "**Binding**: every rule carries a label" tells a reader nothing about
 which authority it comes from, because the answer is this document. For the same
 reason this file carries no "What is not enforced" table and
-`tests/standards-citations.test.ts` filters it out of the labelled-rule count.
+`tests/standards-citations.test.ts` filters it out of the labeled-rule count.
 What holds it instead is that every guide it governs is checked against it — a
-guide with an unlabelled rule, or a rule with no stated mechanism, fails that
+guide with an unlabeled rule, or a rule with no stated mechanism, fails that
 test, which is a stronger thing than a label on this page would be.
 
 A label attaches to a rule. A preamble, a record of what the code does today, a
 roll-up of what is checked, and a note of where a guide and the repository
-disagree are none of them rules, and labelling them would make the labels mean
+disagree are none of them rules, and labeling them would make the labels mean
 less. A subsection carrying rules of its own carries its own label rather than
 inheriting one.
 
@@ -66,7 +66,7 @@ aspiration, and it is how the count of rules only a person can catch stays
 visible and gets smaller.
 
 This repository already works this way. `tests/theme-tokens.test.ts` refuses a
-colour that is not a token, `tests/mcp-parity.test.ts` compares the two
+color that is not a token, `tests/mcp-parity.test.ts` compares the two
 transports service by service in both directions, `tests/security-header-parity.test.ts`
 compares the Hono headers with the nginx ones character for character, and
 `tests/nav-order.test.ts` pins an ordering somebody decided. The guides extend

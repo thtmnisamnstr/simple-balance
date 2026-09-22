@@ -39,9 +39,9 @@ then-current rates". Two of them charge for the exit: Rocket Money puts CSV
 export behind Premium, and PocketGuard gates both import and export, delivering
 export as a link that expires in 24 hours.
 
-None of the products examined is double-entry. They are single-entry categorised
+None of the products examined is double-entry. They are single-entry categorized
 registers with budget overlays, which is why so much of what they do has no
-analogue here and needs none.
+analog here and needs none.
 
 Agent access is not the differentiator it looked like. **Firefly III has around
 ten community MCP servers and Actual Budget at least two**, and **PocketSmith
@@ -57,7 +57,7 @@ Passport install registers none, so every token carries the user's full API
 rights. Monarch publishes no developer API — `monarch.com/developers` is a 404 —
 so its community servers authenticate by copying the browser's `cookie:` header
 out of DevTools, register every mutating tool unconditionally, and pass merchant
-names to the model unsanitised. The leading one's README suggests the fix:
+names to the model unsanitized. The leading one's README suggests the fix:
 configure your client to require manual approval before any mutating tool runs.
 That is a staging tier, asked for as a client setting because the server has
 nowhere to put it.
@@ -150,7 +150,7 @@ where somebody can see it.
 
 **Research.** Firefly III's own documentation says a recurring transaction "can
 be a withdrawal, deposit or a transfer" — exactly the three shapes already
-modelled here, so no new accounting primitive is required and generated rows
+modeled here, so no new accounting primitive is required and generated rows
 travel the same zero-sum validation as any other. Its how-to documents the
 mechanics real creation needs and reminding does not: month-length fallback for
 the 29th through 31st, four weekend policies, and skipping every N occurrences.
@@ -240,7 +240,7 @@ The dashboard currently stops at balances, cash flow, and spending by category.
 
 **How it was met**
 
-One parameterised aggregation with named presets, after hledger: a statement is
+One parameterized aggregation with named presets, after hledger: a statement is
 a preset over one query differing by which accounts it reads, whether it reports
 a period's movement or the balance it ends on, and how time is bucketed. That is
 why six reports cost one route and one tool, and why the seventh will cost an
@@ -345,7 +345,7 @@ section was written before any of it existed.
 **As designed, across the six stories.** `budget_plan` is the standing
 instruction for one target: how the amount is decided, whether it rolls over,
 its funding priority, and the window it is active in. One row covers every
-period, so nothing is materialised and no scheduler writes a budget figure.
+period, so nothing is materialized and no scheduler writes a budget figure.
 `budget_entry` is an explicit amount for one target in one period, which is the
 exception rather than the rule: three hundred for December only is a row, two
 hundred a month is not. `category_group` is one level of grouping, and a target
@@ -368,7 +368,7 @@ is now the one this section describes: a plan says how the amount is decided
 a sinking fund's own arithmetic), whether it rolls over and how far, its funding
 priority, and the window it is active in. A target is a category or a group.
 `category_group` exists with the one-level rule and the two policies. Nothing
-materialises a period, nothing stores a carry, and no budget figure comes from
+materializes a period, nothing stores a carry, and no budget figure comes from
 anywhere but plans, entries and postings.
 
 ### An assignment is not a posting
@@ -389,8 +389,8 @@ permits one equity account per user per currency, accounts have no parent
 column, and no transaction may name a counter-account as a side. Envelopes as
 equity sub-accounts means amending an index from the initial migration and
 relaxing a rule recorded as non-negotiable. It would also cost the property that
-relabelling a leg writes no postings, because depleting an envelope by posting
-would make recategorising write compensating postings.
+relabeling a leg writes no postings, because depleting an envelope by posting
+would make recategorizing write compensating postings.
 
 The justification the plan rested on does not hold either. Equity sub-accounts
 are not how plain-text accounting has always done it: hledger's three placements
@@ -435,7 +435,7 @@ category it came from without any figure being taught what a refund is.
 - Nothing in this story writes a posting, and no budget figure is derived from
   anything except postings, plans and entries
 - An assignment is not a posting, and a rollover is derived rather than stored
-- A standing budget needs no row per period and nothing materialises one
+- A standing budget needs no row per period and nothing materializes one
 - Reachable over MCP, reads and writes on the same scope rules as everything else
 
 **How it was met**
@@ -443,7 +443,7 @@ category it came from without any figure being taught what a refund is.
 The budget is a standing instruction and the period is the unit. A plan covers
 every period in its window from one row, both ends snapped to whole periods in
 PostgreSQL rather than in JavaScript, so a limit and the spending it is compared
-against cannot land on different months. Nothing materialises a period and no
+against cannot land on different months. Nothing materializes a period and no
 scheduler writes a budget figure, which is what makes an open-ended budget one
 row rather than one row a month for ever.
 
@@ -477,13 +477,13 @@ stage a CSV. An agent that has only this scope can propose new transactions and
 nothing else.
 
 So the useful thing people will actually want — let the agent suggest
-recategorising six months of groceries, and look at the suggestion before it
-lands — has no home. Recategorising committed rows is `bulk_edit_transactions`,
+recategorizing six months of groceries, and look at the suggestion before it
+lands — has no home. Recategorizing committed rows is `bulk_edit_transactions`,
 which is `ledger:write`, and granting that also grants
 `bulk_delete_transactions`, `delete_account`, and everything else. The tier
 exists, it is simply too narrow to be the answer to anything but an import.
 
-This is new modelling and not plumbing, and the earlier research claimed
+This is new modeling and not plumbing, and the earlier research claimed
 otherwise. `staged_transaction` holds drafts of new transactions. There is no
 representation for "a proposed change to transaction X", and giving it one means
 deciding what a proposal does when the row underneath it moves, how a proposal
@@ -679,7 +679,7 @@ because of what it says, and the stored `amount_rule` column is derived from
 that rather than chosen — the word "method" appears nowhere on the page, which
 is the rule SB-019 set for all six of these stories.
 
-Three refusals rather than three silent behaviours: a fund whose rollover is off
+Three refusals rather than three silent behaviors: a fund whose rollover is off
 (it would save nothing), a fund with an amount beside its target (a number
 nothing reads), and a cap on a budget that carries nothing. Each says which half
 is missing.
@@ -718,7 +718,7 @@ changes every time somebody looks at it.
 
 An amount somebody typed for one period beats every rule, and the chain carries
 on from what they typed. That falls out of the fold reading the resolved limit
-rather than the plan's column, and it is the behaviour anybody would expect from
+rather than the plan's column, and it is the behavior anybody would expect from
 an override that did not have to be argued for.
 
 **The funding order is the fourth rule, and the one with an opinion.** Lower
@@ -755,12 +755,12 @@ A `category_group` table, a nullable `group_id` on a category, and a budget
 target that is a category or a group and never both. **A group is filled from
 the categories list**: every row carries a group picker and the add-category form
 takes one, which is the half this story shipped without — the only way in was a
-select inside an edit modal behind an unlabelled pencil, and a page showing a
+select inside an edit modal behind an unlabeled pencil, and a page showing a
 group with "0 categories" and no visible way to change that reads as a feature
 that does not work. `groupId` on create was also a request field only an agent
 could set until then. The policy is declared when
 the group is created and has no default, because the whole point of writing this
-story down was that having Monarch's behaviour and expecting hledger's is a page
+story down was that having Monarch's behavior and expecting hledger's is a page
 of figures all wrong in the same direction. A `sum_of_children` group is refused
 a budget of its own: it already has an amount, and a second one would have an
 equal claim to be the group's with nothing on the page able to say which was
@@ -905,28 +905,28 @@ dependency, a rate limit, and a source of numbers that can be wrong in a product
 whose whole argument is that its numbers are right. Holding crypto as a native
 quantity says exactly what is known and nothing more.
 
-**A rules engine for auto-categorisation.** The agent is the rules engine. One
-holding `ledger:read` and `ledger:stage` categorises better than any pattern
+**A rules engine for auto-categorization.** The agent is the rules engine. One
+holding `ledger:read` and `ledger:stage` categorizes better than any pattern
 list and leaves its work somewhere it can be looked at. A second, dumber
 automation path would duplicate the surface and undercut the reason MCP is here.
 The counter-argument is real and worth recording: the agent is not present
 during an import unless somebody invokes it, and the research lists rules-based
-categorisation among the things a manual-entry user genuinely misses. If the
+categorization among the things a manual-entry user genuinely misses. If the
 staging queue plus a stage-scoped agent turns out not to cover it in practice,
 this is the entry to revisit first.
 
-**Lead generation, and anything that monetises the data.** Not a product
+**Lead generation, and anything that monetizes the data.** Not a product
 decision.
 
 **Advertising was in that sentence until 0.2.0, and half of it still is.** This
-entry used to read "Advertising, lead generation, and anything that monetises the
+entry used to read "Advertising, lead generation, and anything that monetizes the
 data", and it is edited rather than deleted because the reasoning is what
 changed, not the mind.
 
 What shipped is an operator's choice, off unless they set `ADSENSE_CLIENT_ID`,
-and it monetises no data: the server decides placement and the browser is never
+and it monetizes no data: the server decides placement and the browser is never
 told the rule, so a subscriber's page never fetches Google's script at all;
-requests are non-personalised unless a consent platform is collecting consent;
+requests are non-personalized unless a consent platform is collecting consent;
 and nothing about anybody's ledger leaves the deployment. `docs/monetization.md`
 states the cost to the operator in their own words before they turn it on, and
 `docs/standards/operations.md` §One process, one database counts what the browser

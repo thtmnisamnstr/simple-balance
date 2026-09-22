@@ -1,7 +1,7 @@
 /**
  * Billing and advertising both on, for this file only.
  *
- * Set at module scope because `getConfig` memoises on first call and every
+ * Set at module scope because `getConfig` memoizes on first call and every
  * predicate below is derived from it, and restored in `afterAll` because
  * `vitest.config.ts` sets `fileParallelism: false` — every integration file
  * shares one process, so a variable left behind here follows every file that
@@ -145,12 +145,12 @@ integration("which sessions carry ad configuration", () => {
     expect(await getAdPlacement(actor)).not.toBeNull();
   });
 
-  it("hands nothing to a cancelled subscriber, who is back on the free plan", async () => {
-    // Cancelled is history: they are entitled to nothing, so they are shown an
+  it("hands nothing to a canceled subscriber, who is back on the free plan", async () => {
+    // Canceled is history: they are entitled to nothing, so they are shown an
     // ad like any other free account. The assertion is that they get one — the
     // opposite of the rows above, and the reason this rule cannot simply be
     // "anybody who has ever had a subscription".
-    const actor = await seed("ads-cancelled");
+    const actor = await seed("ads-canceled");
     await subscribe(actor.userId, "canceled");
     expect(await getAdPlacement(actor)).not.toBeNull();
   });

@@ -129,7 +129,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           // Always sent, both ways. `queryString` drops a falsy value, so
           // sending only "true" meant unchecked sent nothing and fell through
           // to the server default, which is now true: the box changed nothing
-          // in either position while the two behaviours differ by every penny
+          // in either position while the two behaviors differ by every penny
           // spent through a closed account.
           includeArchived: includeArchived ? "true" : "false",
           // Both ways for the same reason.

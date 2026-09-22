@@ -53,7 +53,7 @@ describe("the content security policy in report-only mode", () => {
   /**
    * And the restriction that makes the whole thing acceptable: asking for a
    * rehearsal on any other surface gets an enforced policy anyway. Taking the
-   * defence off every page that renders balances, to learn about a page that
+   * defense off every page that renders balances, to learn about a page that
    * renders none, is not a trade worth offering.
    */
   it("refuses to rehearse any page but the plan tab", () => {
@@ -109,7 +109,7 @@ describe("where a browser posts what the policy would have blocked", () => {
   /**
    * The content type is the point of this one. A violation report is posted by
    * the browser as `application/csp-report`, never `application/json`, and with
-   * no `Origin` this app would recognise — so a route under `/api/v1` would be
+   * no `Origin` this app would recognize — so a route under `/api/v1` would be
    * refused by `protectBrowserMutation` before it was read, and the rehearsal
    * would produce a silence indistinguishable from a clean run.
    */

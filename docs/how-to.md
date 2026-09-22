@@ -48,7 +48,7 @@ readable, and its balance stops counting toward your totals.
 5. Press **Commit transaction**.
 
 That is the whole job. Categories are what the reports and budgets group
-spending by, so the more consistently you categorise, the more the rest of the
+spending by, so the more consistently you categorize, the more the rest of the
 app can tell you.
 
 ## The three kinds of transaction
@@ -106,7 +106,7 @@ category side to divide.
   and after it. Read down until the running balance stops matching your
   statement, and that is the row to fix.
 - **Change many rows at once**: tick their checkboxes on Transactions (or use
-  the select-all box), then use the bulk bar to recategorise, redate, rename
+  the select-all box), then use the bulk bar to recategorize, redate, rename
   the payee, or delete. Up to 10,000 rows, all-or-nothing, after being told
   exactly how many rows the change will touch.
 - **Repeat something similar**: open the row's ⋯ menu and choose **Clone

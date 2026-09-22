@@ -187,7 +187,7 @@ describe("bounded request bodies", () => {
   });
 
   it("cancels a streaming body as soon as it exceeds the limit", async () => {
-    let cancelled = false;
+    let canceled = false;
     let chunk = 0;
     const stream = new ReadableStream<Uint8Array>({
       pull(controller) {
@@ -195,7 +195,7 @@ describe("bounded request bodies", () => {
         controller.enqueue(new TextEncoder().encode(chunk === 1 ? "123456" : "789"));
       },
       cancel() {
-        cancelled = true;
+        canceled = true;
       },
     });
     const request = new Request(`${applicationOrigin}/`, {
@@ -207,18 +207,18 @@ describe("bounded request bodies", () => {
 
     const response = await limitedApp(8).fetch(request);
     expect(response.status).toBe(413);
-    expect(cancelled).toBe(true);
+    expect(canceled).toBe(true);
   });
 
   it("does not trust Content-Length instead of measuring a streaming body", async () => {
-    let cancelled = false;
+    let canceled = false;
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new TextEncoder().encode("123456"));
         controller.enqueue(new TextEncoder().encode("789"));
       },
       cancel() {
-        cancelled = true;
+        canceled = true;
       },
     });
     const request = new Request(`${applicationOrigin}/`, {
@@ -233,7 +233,7 @@ describe("bounded request bodies", () => {
 
     const response = await limitedApp(8).fetch(request);
     expect(response.status).toBe(413);
-    expect(cancelled).toBe(true);
+    expect(canceled).toBe(true);
   });
 
   it("replays an in-limit streaming body for the route handler", async () => {

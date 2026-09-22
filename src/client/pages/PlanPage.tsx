@@ -66,7 +66,7 @@ const STATUS_WORDS: Record<string, { label: string; tone: "green" | "amber" }> =
   incomplete: { label: "Waiting for payment", tone: "amber" },
   unpaid: { label: "Unpaid", tone: "amber" },
   paused: { label: "Paused", tone: "amber" },
-  canceled: { label: "Cancelled", tone: "amber" },
+  canceled: { label: "Canceled", tone: "amber" },
 };
 
 /**
@@ -430,7 +430,7 @@ export function PlanPage({ session }: { session: Session }) {
                 <h2>{subscription ? "Change your plan" : `Upgrade to ${PLAN_LABELS.plus}`}</h2>
                 <p>
                   {billing.selling
-                    ? "Cancel whenever you like. A cancelled plan runs to the end of the period you paid for."
+                    ? "Cancel whenever you like. A canceled plan runs to the end of the period you paid for."
                     : "This deployment is not selling subscriptions at the moment."}
                 </p>
               </div>

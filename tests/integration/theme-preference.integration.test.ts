@@ -44,7 +44,7 @@ integration("which theme an account is set to", () => {
   });
 
   it("starts every account following the machine", async () => {
-    // Read before anything is written: the answer is synthesised, and it has to
+    // Read before anything is written: the answer is synthesized, and it has to
     // agree with the column default or a fresh account reads one thing and then
     // changes on its first save.
     const before = await getPreferences(chooser);

@@ -69,7 +69,7 @@ where the code is counter-intuitive and thin out where it is ordinary:
 | Where | Why |
 | --- | --- |
 | Anywhere money changes form | Because the wrong thing looks right. |
-| Any deliberate sequence | A loop that must not be parallelised says so beside the loop, because the linter would otherwise be right. |
+| Any deliberate sequence | A loop that must not be parallelized says so beside the loop, because the linter would otherwise be right. |
 | Any place a rule reverses | The refund rule inverts what a deposit normally does. Every site that participates says so. |
 | Any workaround for a tool | `unstubGlobals` in `vitest.config.ts` carries a paragraph on why `restoreAllMocks` is not enough. |
 | Any exception to a lint rule | See 5. |
@@ -157,14 +157,15 @@ comment when the code around it moves and does nothing else. Had it reflowed the
 formatter that rewrites the reasoning is not worth consistent brace placement.
 
 If the formatter is ever changed, re-run that measurement first. The check is:
-strip every comment line, normalise whitespace, compare before and after.
+strip every comment line, normalize whitespace, compare before and after.
 
 ## 7. Prose style
 
 **House**, inherited from [`docs/standards/writing.md`](../writing.md), with two
 additions for comments specifically:
 
-- **Full sentences, and British spelling**, matching the product's copy.
+- **Full sentences, and American spelling**, matching the product's copy.
+  `docs/standards/common.md` §Naming owns that rule; this is where it lands.
 - **Say what happened, not what might.** "This used to credit income and the
   budget never moved" beats "this could cause issues". The first is a fact
   somebody can check; the second is a feeling.

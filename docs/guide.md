@@ -44,7 +44,7 @@ Any row can be cloned, from its menu on either list. The copy opens the staging
 form prefilled and lands on Staged rather than in the books, because a copy is a
 proposal until somebody has looked at it — and it deliberately leaves the
 original's bank reference behind, or the next import of that statement would
-recognise its own row in the copy and stay silent.
+recognize its own row in the copy and stay silent.
 
 ## Splitting one receipt across categories
 
@@ -78,7 +78,7 @@ to commit. Both say how far along they are while they work, row by row, so a
 long wait looks like a long wait rather than like nothing happening. Because a
 commit is all or nothing, a bar that stops on a refusal means nothing was
 written, and the message beside it says so. If the connection goes instead, the
-message says that too and asks you to reload — the work is never cancelled
+message says that too and asks you to reload — the work is never canceled
 because a browser went away, so it may well have finished.
 
 Staged transactions flags a row that repeats something you already have. The
@@ -126,7 +126,7 @@ month or on a relative day such as the second Tuesday or the last Friday. You
 choose what happens when the month is too short for the day you picked, and what
 happens when a date lands on a weekend.
 
-A business day here means Monday to Friday. Public holidays are not modelled, so
+A business day here means Monday to Friday. Public holidays are not modeled, so
 a proposal can land on one.
 
 Make one on the Recurring screen, or from the menu on any row, on the
@@ -190,7 +190,7 @@ checks the full form uses. The fields that depend on parts the list cannot show
 in-place edit can never quietly decide something off screen.
 
 Categories and payees match case-insensitively, flag their own near-duplicates,
-and merge by rewriting every reference at once. Recategorising the last
+and merge by rewriting every reference at once. Recategorizing the last
 transaction off a category removes that category, unless something still names
 it — a recurrence, a template, or a budget — or unless it was made ahead of
 time and is standing empty on purpose.
@@ -369,7 +369,7 @@ different device brings it along. It is applied before the page draws, so there 
 no flash of the wrong theme on the way in.
 
 Every figure means the same thing in both themes. Money out is red and money in is
-green in each of them, and the report charts keep each account on the same colour
+green in each of them, and the report charts keep each account on the same color
 family when the theme changes, so a chart you have learned to read still reads the
 same way.
 

@@ -427,7 +427,7 @@ describe("CSV normalization", () => {
       });
     });
 
-    it("still honours the sign on a mapped signed-amount column", () => {
+    it("still honors the sign on a mapped signed-amount column", () => {
       const [row] = normalizeCsvRows(
         [{ Date: "07/30/2026", Memo: "Reversal", Amount: "-250.00" }],
         {
@@ -531,15 +531,15 @@ describe("CSV normalization", () => {
   /**
    * The same rule in the spellings a spreadsheet also reads as a formula.
    *
-   * Excel and Google Sheets normalise the full-width forms before deciding
+   * Excel and Google Sheets normalize the full-width forms before deciding
    * whether a cell is a formula, so a value led by a full-width equals was
-   * neutralised nowhere and evaluated everywhere — the one outright code defect
+   * neutralized nowhere and evaluated everywhere — the one outright code defect
    * the CSV guide records. The leading-whitespace half is the same story: the
    * class stopped at U+0020, so a no-break space or a zero-width space in front
    * of an `=` carried the cell past the test.
    *
    * Written with escapes rather than the characters themselves, so that what is
-   * being tested survives a copy, a paste and an editor that normalises.
+   * being tested survives a copy, a paste and an editor that normalizes.
    */
   it("neutralizes the full-width and wide-space spellings too", () => {
     const cases = [
@@ -709,7 +709,7 @@ describe("the CSV media type", () => {
  * on line 4 and "Row 2" for a fault on line 3 — both wrong, and wrong by
  * different amounts, which is worse than being consistently off.
  *
- * These cases pin the dependency's behaviour as much as ours: if papaparse ever
+ * These cases pin the dependency's behavior as much as ours: if papaparse ever
  * changes either base, this fails rather than the numbers quietly shifting.
  */
 describe("which line of a CSV an error is about", () => {

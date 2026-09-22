@@ -7,7 +7,7 @@ import { normalizeHumanName } from "../src/shared/names.js";
  * One rule for comparing payee names, spelled in SQL in five places.
  *
  * It is the same rule every time — NFKC, trim, collapse whitespace, lower — and
- * it has to be, because the value it is compared against is normalised in
+ * it has to be, because the value it is compared against is normalized in
  * JavaScript by `normalizeHumanName`. A spelling that differs does not raise: it
  * silently fails to match. One of the five had dropped the NFKC and read
  * "Match the same way payees are compared elsewhere" directly above, so
@@ -27,7 +27,7 @@ const FILES = [
 const read = (file: string) => readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
 
 /**
- * Each SQL normalisation, with the column it reads replaced by a placeholder so
+ * Each SQL normalization, with the column it reads replaced by a placeholder so
  * expressions over different columns compare as equal.
  */
 function spellings(source: string) {
@@ -62,7 +62,7 @@ describe("comparing payee names", () => {
     ).toHaveLength(1);
   });
 
-  it("normalises the way the value it compares against is normalised", () => {
+  it("normalizes the way the value it compares against is normalized", () => {
     // Both halves have to fold NFKC or a folded parameter never meets an
     // unfolded column.
     expect(all[0]!.shape).toContain("NFKC");

@@ -55,7 +55,7 @@ export default function ActivityPage() {
                   <strong>{sentence(event)}</strong>
                   <small>
                     {/* In the account's stored timezone, not the browser's:
-                        an audit trail read while travelling must agree with
+                        an audit trail read while traveling must agree with
                         the dates on the entries it audits. */}
                     {formatTimestamp(event.createdAt, timezone)}
                   </small>

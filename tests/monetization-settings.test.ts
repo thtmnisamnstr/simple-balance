@@ -127,7 +127,7 @@ describe("reading the ad settings", () => {
   const ads = {
     ADSENSE_CLIENT_ID: "ca-pub-1234567890123456",
     ADSENSE_BANNER_SLOT_ID: "9876543210",
-    // Required once ads are configured: Google's programme policies demand a
+    // Required once ads are configured: Google's program policies demand a
     // privacy policy on any site serving their ads.
     PRIVACY_POLICY_URL: "https://smpl.money/privacy/",
   };

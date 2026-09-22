@@ -56,9 +56,9 @@ export function fillPercent(limit: string, actual: string) {
 /**
  * What the row is doing, as a word.
  *
- * A word rather than only a colour, because colour alone fails anybody who
+ * A word rather than only a color, because color alone fails anybody who
  * cannot separate the two and it fails everybody in a printout. The bar takes
- * its colour from this, so the two can never disagree.
+ * its color from this, so the two can never disagree.
  */
 export function rowState(row: BudgetReportRow, partial = false) {
   if (row.limit === null || row.remaining === null) return "unbudgeted" as const;

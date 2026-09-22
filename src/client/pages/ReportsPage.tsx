@@ -37,7 +37,7 @@ const TITLES: Record<ReportName, string> = {
  *
  * Six entries rather than a categories/else pair: `income-expense` rows are the
  * literals "Income" and "Expenses" and `cash-flow` rows are activity segments,
- * so neither holds an account and both would be mislabelled by the obvious
+ * so neither holds an account and both would be mislabeled by the obvious
  * two-way answer.
  */
 const ROW_HEADINGS: Record<ReportName, string> = {
@@ -292,7 +292,7 @@ export default function ReportsPage() {
               key: entry.key,
               label: entry.label,
               values: entry.values,
-              // The colour it had before anything was excluded, so a line
+              // The color it had before anything was excluded, so a line
               // does not change clothes at exactly the moment somebody is
               // comparing the view with and without a category.
               paint: currency.rows.indexOf(entry),

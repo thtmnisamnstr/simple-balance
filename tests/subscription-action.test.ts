@@ -107,7 +107,7 @@ describe("what a request to change plan means", () => {
    * Prices are immutable at Stripe, so raising one means pointing the
    * deployment at a different id — and every existing subscriber is then on a
    * price this code cannot name. Charging them now, and moving the renewal date
-   * they have been billed against, off a value that means "I do not recognise
+   * they have been billed against, off a value that means "I do not recognize
    * this" is not a thing to do.
    */
   it("waits for the renewal for somebody on a price this deployment retired", () => {

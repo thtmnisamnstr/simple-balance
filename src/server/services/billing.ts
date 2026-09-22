@@ -80,7 +80,7 @@ export async function getEntitlement(
     .from(billingOverrides)
     .where(eq(billingOverrides.userId, actor.userId))
     .limit(1);
-  // Every row, not the newest: somebody who cancelled and resubscribed has two,
+  // Every row, not the newest: somebody who canceled and resubscribed has two,
   // and Stripe guarantees no ordering between the deliveries that wrote them,
   // so picking by which was read last would let a late cancellation outrank the
   // live subscription beside it. There are only ever a handful per person.
@@ -168,10 +168,10 @@ export type SubscriptionSnapshot = {
  * is no request naming an actor to derive one from — the same exception
  * `services.md` 1.1 already names for `revokeAllConnectedApps`.
  *
- * Two guards, and they do different jobs. The lock serialises the
+ * Two guards, and they do different jobs. The lock serializes the
  * read-decide-write so two replicas cannot both decide theirs is newer. The
  * `syncedAt` comparison is what decides: a snapshot fetched before the stored
- * one is dropped, which is what stops a slow request carrying a cancelled
+ * one is dropped, which is what stops a slow request carrying a canceled
  * subscription from putting somebody back on the free plan after a later fetch
  * had already seen them resubscribe.
  *
@@ -268,7 +268,7 @@ export async function reconcileSubscription(
  * The Stripe fetch happens *before* the transaction opens, so no database lock
  * is ever held across a network call.
  *
- * Two replicas handed the same delivery serialise here rather than racing: the
+ * Two replicas handed the same delivery serialize here rather than racing: the
  * primary key makes the second wait for the first to commit, and it then finds
  * the event claimed and does nothing.
  *
@@ -564,7 +564,7 @@ function priceIdFor(interval: BillingInterval): string {
 /**
  * Refuses a sale on a deployment that has stopped selling.
  *
- * Cancelling is deliberately *not* guarded by this. Turning `SB_BILLING_ENABLED`
+ * Canceling is deliberately *not* guarded by this. Turning `SB_BILLING_ENABLED`
  * off is how an operator stops taking new money without abandoning the people
  * already paying, and a switch that also took away their way out would turn a
  * pause into a trap.
@@ -825,7 +825,7 @@ async function underIdempotency<T>(
 /**
  * The same answer with the client secrets taken out, for storing.
  *
- * A `clientSecret` authorises confirming a payment or attaching a card, and the
+ * A `clientSecret` authorizes confirming a payment or attaching a card, and the
  * row it would be written to is never deleted. Keeping one is a credential at
  * rest with no expiry and no reason: the replay path exists so a retried write
  * is not a second charge, and a browser that needs a secret asks for a fresh
@@ -974,7 +974,7 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
 
         // Chose one interval, did not pay, and has now chosen the other. The
         // unpaid subscription is abandoned and a new one made at the price they
-        // actually asked for. Cancelling voids its open invoice, so the change
+        // actually asked for. Canceling voids its open invoice, so the change
         // of mind costs nothing — and doing anything else here is how somebody
         // presses a $3 button and is charged $30.
         //
@@ -1101,7 +1101,7 @@ export async function setSubscriptionCancellation(
  *
  * Not guarded by `assertSelling`: somebody whose card expired has to be able to
  * replace it on a deployment that has stopped taking new subscribers, or the
- * pause becomes a way of cancelling people by attrition.
+ * pause becomes a way of canceling people by attrition.
  */
 export async function createPaymentSetup(
   actor: Actor,
@@ -1207,9 +1207,9 @@ export async function confirmPaymentSetup(
  * webhook for it is acknowledged as "a customer we do not know", and nothing left
  * here can find it to stop it. A 409 somebody can act on is the better failure.
  *
- * The Stripe customer is deleted rather than each subscription cancelled, which
+ * The Stripe customer is deleted rather than each subscription canceled, which
  * is the difference between one call and a loop with a gap in it: a subscription
- * created between listing and cancelling would survive a loop. Deleting the
+ * created between listing and canceling would survive a loop. Deleting the
  * customer cancels everything it owns, immediately and idempotently.
  *
  * Silent — doing nothing and refusing nothing — on a deployment with no Stripe
@@ -1232,7 +1232,7 @@ export async function closeBillingForDeletion(actor: Actor): Promise<void> {
     if (!isMissingStripeResource(error)) {
       log.warn("billing.deletion.blocked", { error: String(error) });
       throw conflict(
-        "Your subscription could not be cancelled, so the account was not deleted. Try again in a few minutes.",
+        "Your subscription could not be canceled, so the account was not deleted. Try again in a few minutes.",
         { stage: "billing" },
         "Stripe could not be reached to cancel this person's subscription. Nothing was deleted. The deletion is safe to retry.",
       );
@@ -1565,7 +1565,7 @@ export type AdPlacement = {
  *
  * Read for the deletion confirmation, which otherwise lists what is destroyed
  * without naming the one item that costs money: the subscription goes with the
- * account, immediately, and nothing brings a cancelled one back.
+ * account, immediately, and nothing brings a canceled one back.
  *
  * False without a word to Stripe when no Stripe is configured, which is the
  * default — the confirmation must not become a network call for a deployment

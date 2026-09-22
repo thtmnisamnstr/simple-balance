@@ -13,7 +13,7 @@ wins and this file is wrong.
 
 **A version is never cut on inference.** Not a bump, not a tag, not a changelog
 date, not even locally. The go-ahead must be explicit, name the version or
-clearly authorise choosing one, and be given **in the current turn** — an
+clearly authorize choosing one, and be given **in the current turn** — an
 earlier "we're close to a release" is not it, and neither is a branch that
 looks ready.
 

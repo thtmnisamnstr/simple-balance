@@ -148,7 +148,7 @@ transaction is worse than an outage, it is the right one.
 ## Changing PostgreSQL settings
 
 `bootstrap.dcs` in the chart's Patroni ConfigMap applies **once**, when a group
-first initialises. After that the cluster owns its own configuration, and
+first initializes. After that the cluster owns its own configuration, and
 changing the chart does not reach a running database. That is Patroni's design
 and it is the right one — a `helm upgrade` should not be able to quietly change
 a live database's WAL settings.
@@ -232,7 +232,7 @@ Taken on a laptop, against datasets built by `scripts/capacity/seed.mjs` at
 Citus before being distributed. A straight line through the single-node points
 above 660,000 fits them to within 4.5% and gives **49,000 postings a second**;
 the three-node cluster manages **64,000**, because the shard creation
-parallelises across nodes and the work is not network-bound on one machine.
+parallelizes across nodes and the work is not network-bound on one machine.
 
 Extrapolating to the capacity target `docs/capacity.md` measures — 66,100,000
 postings, ten thousand people — that is **about 23 minutes on one node and 17 on

@@ -80,7 +80,7 @@ function useRouter() {
 const PLAN_SURFACE_PATH = "/settings/plan";
 
 /**
- * Whether a path is the plan tab, normalised the way this router matches.
+ * Whether a path is the plan tab, normalized the way this router matches.
  *
  * Exported because two unrelated things need the same answer and must not
  * disagree about it: this file, deciding that leaving the tab has to be a

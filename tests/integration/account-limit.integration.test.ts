@@ -1,7 +1,7 @@
 /**
  * Billing on, for this file only.
  *
- * Set at module scope because `getConfig` memoises on first call and every
+ * Set at module scope because `getConfig` memoizes on first call and every
  * predicate below is derived from it, and restored in `afterAll` because
  * `vitest.config.ts` sets `fileParallelism: false` — every integration file
  * shares one process, so a variable left behind here follows every file that

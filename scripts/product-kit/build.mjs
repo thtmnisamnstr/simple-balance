@@ -37,7 +37,7 @@ const seed = JSON.parse(readFileSync("scripts/product-kit/seed.json", "utf8"));
 const features = JSON.parse(readFileSync("docs/product/features.json", "utf8"));
 /* The release these pictures are of. The marketing site records it so that
    "which version is the site describing" has an answer, and so that a
-   screenshot set can be recognised as older than the app it advertises. */
+   screenshot set can be recognized as older than the app it advertises. */
 const { version: appVersion } = JSON.parse(readFileSync("package.json", "utf8"));
 
 /**

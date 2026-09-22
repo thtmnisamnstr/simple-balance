@@ -63,7 +63,7 @@ Both discovery documents advertise all seven scopes — the three above plus
 and asks for everything arrives with write access it may have no use for. That
 is more than a first connection needs, and narrowing it is a change this release
 does not make: a client written against an older SDK, or by hand, may not
-implement the RFC 6750 step-up, so anybody re-authorising after the upgrade
+implement the RFC 6750 step-up, so anybody re-authorizing after the upgrade
 would come back read-only with nothing on screen saying why. Taking a capability
 away quietly is not something an upgrade here does.
 
@@ -240,7 +240,7 @@ transactions and staged rows already committed or discarded. A row that has been
 committed is counted once, as a transaction, not again as the staged row it came
 from.
 
-**A category can disappear as a side effect of an edit.** Recategorising the last
+**A category can disappear as a side effect of an edit.** Recategorizing the last
 transaction off a category deletes that category, in the same transaction, and
 writes an audit event for the deletion. It happens on `update_transaction`,
 `bulk_edit_transactions`, `update_staged_transaction` and
@@ -267,7 +267,7 @@ that grant is not in the tool list at all, so this is how to tell a capability
 you were not granted from one that does not exist, and what to name when asking
 somebody to reconnect the client with more.
 
-`get_preferences` reports their timezone, default currency and colour theme, and
+`get_preferences` reports their timezone, default currency and color theme, and
 reading the first of those matters more than it sounds. What counts as today is
 decided by their timezone rather than the server's, and `get_financial_summary`
 and `get_account_balances` resolve "today" through it. Without reading it an agent
@@ -275,7 +275,7 @@ cannot explain the `asOf` it was given or predict which day an entry dated today
 will land on. `chosen: false` means nobody has picked yet rather than that they
 chose UTC.
 
-`theme` is `system`, `light` or `dark`. `system` is not a colour but a standing
+`theme` is `system`, `light` or `dark`. `system` is not a color but a standing
 instruction — follow whatever this person's own machine is set to, and keep
 following it when it changes — which is why it is the default and why nothing
 detects a theme and stores the answer. It affects nothing but what their screen
@@ -410,7 +410,7 @@ alone and takes the group's own budget with it.
 `list_budget_plans`, `get_budget_plan`, `create_budget_plan`,
 `update_budget_plan` and `delete_budget_plan` handle the standing amounts. One
 plan covers every period in its window, so a budget that runs all year is one
-row rather than twelve, and nothing materialises the months nobody has reached.
+row rather than twelve, and nothing materializes the months nobody has reached.
 Windows for one category may not overlap: raising a budget means ending the old
 plan and starting another from the next period, which is also what keeps last
 March answering with what last March intended.
@@ -546,7 +546,7 @@ four of some weekdays and five of others; anybody who means the fifth means the
 last. `monthPolicy` decides what a schedule anchored to the 31st does in
 February, and `weekendPolicy` decides what happens when a date lands on a
 Saturday or Sunday. **A business day means Monday to Friday. Public holidays are
-not modelled**, so a proposal can land on one.
+not modeled**, so a proposal can land on one.
 
 Two refusals worth knowing before you hit them. A daily schedule of one or two
 days cannot use either business-day policy: a policy moves a date up to two
@@ -660,7 +660,7 @@ trail.
 The two listings answer different questions. `list_payees` is every spelling the
 ledger holds, one row each as it was typed, which is why one shop entered two
 ways is two rows. `list_duplicate_payees` groups the spellings that collide once
-Unicode form, whitespace and case are normalised, and that normalisation is the
+Unicode form, whitespace and case are normalized, and that normalization is the
 server's own rather than something an agent can reproduce from the spellings.
 Reach for the grouping before a merge, and for the flat list when you want
 everything.

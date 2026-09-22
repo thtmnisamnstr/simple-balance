@@ -61,7 +61,7 @@ ENV SB_MAX_UPLOAD_SIZE=61m
 # Configured, not selling. An operator winding down sets SB_BILLING_ENABLED=false
 # and keeps the Stripe settings, and their subscribers still need to replace an
 # expired card on that page. Default false, so an operator who never set it gets
-# today's behaviour exactly.
+# today's behavior exactly.
 ENV SB_BILLING_CONFIGURED=false
 # Whether the plan tab reports its content security policy instead of enforcing
 # it. A default here is not optional decoration: the template references

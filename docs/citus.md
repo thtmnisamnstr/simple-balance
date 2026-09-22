@@ -69,7 +69,7 @@ and a distribution column cannot be null.
 
 ## What it costs
 
-**One behaviour: `category.group_id` loses `ON DELETE SET NULL`.** Citus refuses
+**One behavior: `category.group_id` loses `ON DELETE SET NULL`.** Citus refuses
 it with `SET NULL or SET DEFAULT is not supported in ON DELETE operation when
 distribution key is included in the foreign key constraint`. That is the whole
 reason, and it is worth being precise about because the obvious guess is wrong:

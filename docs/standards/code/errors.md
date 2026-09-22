@@ -19,7 +19,7 @@ throw a bare `Error` or `TypeError` and become a 500 — because a 500 is what
 caller to fix something they did not do.
 
 Five throws in `src/server/services` are that second kind, and all five are
-correct: three `TypeError`s in the idempotency canonicaliser for payload shapes
+correct: three `TypeError`s in the idempotency canonicalizer for payload shapes
 that cannot occur (`src/server/services/helpers.ts:175`, `:191` and `:197`), and
 two `Error`s for a reference count that came back non-numeric after being cast
 to one in SQL (`src/server/services/payees.ts:57` and
@@ -197,7 +197,7 @@ stack trace for what is only ever a mistyped value. The twin covers the WHOLE
 constraint: the budget percent rules validated the floor while the constraint
 capped both ends, so a mistyped 10000 passed Zod and died on the check; and the
 control-character refinements existed for most text fields while a NUL in a
-bulk patch travelled all the way to a jsonb write PostgreSQL refuses. When a
+bulk patch traveled all the way to a jsonb write PostgreSQL refuses. When a
 constraint moves — 0018 widened the incremental floor — the twin moves in the
 same change, which is why the twin lives beside the schema field rather than in
 a service.
@@ -232,7 +232,7 @@ the row's own issue list's job.
 
 Four `human` rules in this guide, down from three and then up again for the
 two the audit distilled. The first looked
-unmechanisable and was — a blanket ban on `throw new Error` under
+unmechanizable and was — a blanket ban on `throw new Error` under
 `src/server/services` would flag the five correct ones, and which kind a throw is
 cannot be read off its syntax. So `tests/service-errors.test.ts` inverts it: it
 holds the list of throws already argued to be impossible, and fails on a new one

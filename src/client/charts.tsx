@@ -17,9 +17,9 @@ type Series = {
   label: string;
   values: string[];
   /**
-   * Which colour this series keeps, when the list it came from can shrink.
-   * Colours were dealt by array position, so excluding one category from the
-   * categories report recoloured every line and swatch after it — the moment
+   * Which color this series keeps, when the list it came from can shrink.
+   * Colors were dealt by array position, so excluding one category from the
+   * categories report recolored every line and swatch after it — the moment
    * somebody most wants to compare before and after is the moment everything
    * changed clothes. Left out, position still decides.
    */
@@ -57,15 +57,15 @@ const bounds = (series: Series[]) => {
 const PADDING = 8;
 
 /**
- * Which of the stylesheet's series colours this row gets.
+ * Which of the stylesheet's series colors this row gets.
  *
  * The count lives here as well as in the stylesheet, so a test asserts the two
- * agree: adding a colour to one and not the other would leave a series either
- * uncoloured or needlessly sharing.
+ * agree: adding a color to one and not the other would leave a series either
+ * uncolored or needlessly sharing.
  */
-export const SERIES_COLOURS = 10;
+export const SERIES_COLORS = 10;
 
-const seriesClass = (index: number) => `chart-series-${index % SERIES_COLOURS}`;
+const seriesClass = (index: number) => `chart-series-${index % SERIES_COLORS}`;
 
 const y = (value: string, low: string, high: string) => {
   const plot = VIEW.height - PADDING * 2;
@@ -73,7 +73,7 @@ const y = (value: string, low: string, high: string) => {
   return VIEW.height - PADDING - fromBottom;
 };
 
-const columnCentre = (index: number, count: number) => {
+const columnCenter = (index: number, count: number) => {
   const plot = VIEW.width - PADDING * 2;
   return count <= 1 ? VIEW.width / 2 : PADDING + (index / (count - 1)) * plot;
 };
@@ -138,7 +138,7 @@ export function niceTicks(low: string, high: string, count = 4): string[] {
  * Which buckets get a label under them.
  *
  * A report may have up to six hundred columns, and six hundred dates under a
- * chart is a grey smear. Thinned by a fixed stride rather than by spreading a
+ * chart is a gray smear. Thinned by a fixed stride rather than by spreading a
  * fixed number of labels across the range: spreading twelve months over seven
  * slots rounded to 0, 1, 2, 4, 5, 6, 7 and skipped April on its own, which
  * reads as a chart missing a month rather than as an axis showing every other
@@ -146,18 +146,18 @@ export function niceTicks(low: string, high: string, count = 4): string[] {
  */
 const MAX_TIME_LABELS = 12;
 
-export function labelledBuckets(count: number, budget = MAX_TIME_LABELS): number[] {
+export function labeledBuckets(count: number, budget = MAX_TIME_LABELS): number[] {
   if (count <= 0) return [];
   const stride = Math.ceil(count / Math.max(budget, 1));
-  const labelled: number[] = [];
-  for (let index = 0; index < count; index += stride) labelled.push(index);
-  return labelled;
+  const labeled: number[] = [];
+  for (let index = 0; index < count; index += stride) labeled.push(index);
+  return labeled;
 }
 
 /**
  * How many dates will fit under a chart this wide.
  *
- * Twelve reads well across a panel and is a grey smear across a phone, so the
+ * Twelve reads well across a panel and is a gray smear across a phone, so the
  * budget comes from the width rather than from a constant. Roughly the room one
  * label needs with a gap either side; two is the floor, because an axis naming
  * one date says less than no axis at all.
@@ -347,14 +347,14 @@ export function LineChart({ buckets, series, currency, title, bucket }: ChartPro
   const { low, high } = bounds(series);
   const zeroAt = !isPositiveMoney(low) && !isNegativeMoney(high) ? y("0", low, high) : null;
   const ticks = tickPositions(niceTicks(low, high), low, high);
-  // A point sits at the centre of its column, so its label goes there too.
+  // A point sits at the center of its column, so its label goes there too.
   // `edge` marks the labels that really sit at the ends of the axis: pinning
   // "the last label in the list" to the right edge misplaced it by up to a
   // whole stride whenever thinning stopped short of the final bucket.
-  const timeLabels = labelledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
+  const timeLabels = labeledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
     key: buckets[index]!.start,
     text: bucketLabel(buckets[index]!.start, bucket),
-    at: (columnCentre(index, buckets.length) / VIEW.width) * 100,
+    at: (columnCenter(index, buckets.length) / VIEW.width) * 100,
     edge: index === 0 ? ("start" as const) : index === buckets.length - 1 ? ("end" as const) : null,
   }));
 
@@ -376,7 +376,7 @@ export function LineChart({ buckets, series, currency, title, bucket }: ChartPro
             points={entry.values
               .map(
                 (value, position) =>
-                  `${columnCentre(position, buckets.length)},${y(value, low, high)}`,
+                  `${columnCenter(position, buckets.length)},${y(value, low, high)}`,
               )
               .join(" ")}
           />
@@ -401,7 +401,7 @@ export function BarChart({ buckets, series, currency, title, bucket }: ChartProp
   // A group of bars fills its own slice of the width rather than sitting on a
   // point, so the label goes under the middle of the slice. `edge` as above:
   // only a label whose bucket really is first or last sits on the frame edge.
-  const timeLabels = labelledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
+  const timeLabels = labeledBuckets(buckets.length, labelBudget(plot.width)).map((index) => ({
     key: buckets[index]!.start,
     text: bucketLabel(buckets[index]!.start, bucket),
     at: ((index * groupWidth + groupWidth / 2) / VIEW.width) * 100,

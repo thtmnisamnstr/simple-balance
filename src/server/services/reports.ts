@@ -400,7 +400,7 @@ async function flowCells(
       on c.user_id = p.user_id
       -- A case rather than a coalesce: a leg with no category is a share the
       -- person left unfiled on purpose, and coalesce would quietly fall
-      -- through to the transaction's own label instead of honouring it.
+      -- through to the transaction's own label instead of honoring it.
       and c.id = case
         when p.leg_id is not null then l.category_id
         else t.category_id

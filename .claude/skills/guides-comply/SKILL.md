@@ -3,7 +3,7 @@ name: guides-comply
 description: Sweep the whole product against the standards guides and close the gaps the guides record about themselves. Audits every page section, API route, MCP tool and service against the rules, fixes what violates them, then builds mechanisms for rules nothing checks. Use when asked to make the app or its services comply with the guides, to verify every part of every surface against the standards, or to close the gaps in the guides.
 ---
 
-# Make every surface comply, and mechanise what nothing checks
+# Make every surface comply, and mechanize what nothing checks
 
 Two directions, run as one pass:
 
@@ -13,7 +13,7 @@ Two directions, run as one pass:
   the missing checks.
 
 They run together and in this order because the sweep is what *ranks* the
-mechanising: a rule that nothing checks and nothing breaks is a worse investment
+mechanizing: a rule that nothing checks and nothing breaks is a worse investment
 than one the sweep just caught being broken three times.
 
 **Never fix a violation by weakening the rule**, and never fix it by breaking
@@ -124,7 +124,7 @@ The checks that repeatedly find real defects:
 
 ## 5. Fix, with a test each
 
-Every fix that changes behaviour gets a focused test, and every new check gets
+Every fix that changes behavior gets a focused test, and every new check gets
 **mutation-proved**: break the guarded thing, watch the check fail by name,
 restore, watch it pass. Non-negotiable. Three checks in this repository could
 not fail at all, and each was found this way; one had lost a `.push()` during an
@@ -133,9 +133,9 @@ edit and silently passed forever.
 ## 6. Triage what nothing checks
 
 Now that the sweep has shown which rules actually get broken, sort every
-unmechanised rule into four:
+unmechanized rule into four:
 
-- **Mechanisable.** A test can decide it. Build it — see 7.
+- **Mechanizable.** A test can decide it. Build it — see 7.
 - **Judgment.** No test can decide it: whether a figure has a subject worth
   linking, whether phrasing is right, whether an omission was argued. Leave
   `*Checked by:* human` and make sure the guide says *why* it cannot be checked.
@@ -162,12 +162,12 @@ stable key where one exists.
 
 Two habits the guides call out that look like mistakes and are not: comments are
 dense on purpose (about 20% of non-blank lines in `src`), and some loops must
-not be parallelised — legs resolve one at a time so two naming the same new
+not be parallelized — legs resolve one at a time so two naming the same new
 category land on one category.
 
 ## 8. Update the guides
 
-Every rule newly mechanised moves out of "not checked" and into the guide's
+Every rule newly mechanized moves out of "not checked" and into the guide's
 `## What is checked` section, naming the test. Every rule found wrong goes to
 `guides-update`. Every deliberate non-enforcement gets its reasoning written
 down where the rule is.
@@ -189,7 +189,7 @@ BROWSER_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/simple_balanc
 ## 10. Report
 
 Surfaces swept and how many items each held. Violations found and fixed, with
-`file:line`. Rules newly mechanised, and that each was mutation-proved. Rules
-deliberately left unmechanised, in which of the four categories, and why. And
+`file:line`. Rules newly mechanized, and that each was mutation-proved. Rules
+deliberately left unmechanized, in which of the four categories, and why. And
 say plainly where the sweep found nothing — a clean surface is a result, and
 manufacturing findings to look thorough is worse than reporting it clean.

@@ -181,7 +181,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 76
-  descriptions, 26,735 characters, median 295, range 33 to 1,890, and **12 under
+  descriptions, 26,733 characters, median 295, range 33 to 1,890, and **12 under
   100 characters**. The distribution is bimodal, but the terse half does not
   cover the dangerous tools: `commit_staged_transactions` is 232 characters and
   tells the agent to confirm with the person first, `merge_categories` is 186
@@ -195,7 +195,7 @@ Further rules:
   this ordering can be resumed at all, and that staged rows are somewhere else.
   `list_accounts` was the other: it now says that `balance` counts future-dated
   postings, which is the one thing about it an agent would otherwise get wrong,
-  and names the two tools that answer the neighbouring questions.
+  and names the two tools that answer the neighboring questions.
 
   What is left under 100 characters is twelve read tools and creates whose whole
   contract is a bare id or a name, and that is the honest floor rather than a
@@ -208,7 +208,7 @@ Further rules:
   and a payee merge say there is no undo, a bulk write says to show the count
   with `dryRun` first, and a transaction delete says it posts a reversal and can
   be undone.
-- **House, narrowed 2026-08-25: only a tool whose behaviour changes with scope
+- **House, narrowed 2026-08-25: only a tool whose behavior changes with scope
   names one.** Scope is enforced by non-registration, so a tool the caller
   cannot use is absent from discovery: "needs ledger:write" on `create_account`
   is read only by an agent that already holds ledger:write, and never by the one
@@ -223,7 +223,7 @@ Further rules:
   the whole server says once" exists to refuse. So the tier is said once, in
   `instructions`, which every connection receives whatever it holds, and which
   names the grant this connection actually has and says that a tool outside it
-  is absent rather than refused. What a description owes is the *behaviour*:
+  is absent rather than refused. What a description owes is the *behavior*:
   `stage_csv`, `update_staged_transaction` and `bulk_edit_staged_transactions`
   do different things under `ledger:stage` than under `ledger:write` — a
   category is matched but not created, and a category emptied by the edit is
@@ -248,11 +248,14 @@ Further rules:
   retypes wrong.
 - **House.** One person and one spelling, per `common.md`. The surface drifted
   between "this user's" and "this person" — two descriptions against seventeen —
-  and between "normalization" and "normalised". Both are settled the way the
-  product's prose already is: "this person", and the British spelling. The
-  `normalizedName` **field** keeps its American spelling, because a field name
-  is published contract and an identifier rather than prose; the rule is about
-  what an agent reads, not about what it addresses.
+  and between "normalisation" and "normalization". Both are settled the way the
+  product's prose is: "this person", and the American spelling. The
+  `normalizedName` **field** was already American while the prose around it was
+  not, which is why the check excludes it by name — a field name is published
+  contract and an identifier rather than prose, and it could not turn over with
+  the sentences even when they were on the other side. The exclusion stays: it
+  is what keeps the check's positive control honest rather than counting the
+  field as evidence that the prose says the word.
 - **House, and this guide owns it for the whole set.** Any convention an agent
   must obey appears in a tool or field description, not only in `docs/mcp.md`.
   An agent never reads the prose. `docs/mcp.md:86` states the principle
@@ -394,7 +397,7 @@ unrepresentable, so the model's own sampling cannot produce it.
 - **Binding (a MUST NOT and a SHOULD).** Keep schemas bounded. Implementations
   "MUST NOT automatically dereference `$ref` values that resolve to a network
   URI" and SHOULD bound schema depth and subschema count as a denial-of-service
-  defence, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
+  defense, so heavy `oneOf`/`anyOf` composition is both a strict-sampling risk
   and a thing clients are told to refuse. Measured: 433 `anyOf` and 7 `oneOf`
   across the surface. 348 of the 433 are two-member nullable pairs, 143 of them
   on inputs; 149 of all the `anyOf` are on inputs and 284 on outputs. The 7
@@ -407,7 +410,7 @@ the schema their service actually parses, `list_transactions`,
 `list_staged_transactions` and `list_import_batches`, because "a tool declaring
 a wider schema than its service parses is worse than a missing filter".
 `list_audit_events` is the fourth cursor-taking listing and is not pinned.
-*Also checked by:* `tests/mcp-measurements.test.ts:375-397` for the closed
+*Also checked by:* `tests/mcp-measurements.test.ts:376-398` for the closed
 objects and `:271-302` for the described fields, both against the counts above,
 so an open schema or an undescribed field fails the suite rather than the
 sentence. *Not checked:* that no money argument is a number.
@@ -424,12 +427,12 @@ them still answer to their date.
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 37 | 167,798 | ~42,000 |
+| `ledger:read` | 37 | 167,796 | ~42,000 |
 | `ledger:stage` | 42 | 204,446 | ~51,000 |
-| `ledger:write` | 76 | 471,692 | ~118,000 |
+| `ledger:write` | 76 | 471,691 | ~118,000 |
 
-Composition at the write tier: names 1,448, titles 1,851, descriptions 26,735,
-input schemas 207,077, output schemas 218,224. **Descriptions are 5.7% of what
+Composition at the write tier: names 1,448, titles 1,851, descriptions 26,733,
+input schemas 207,079, output schemas 218,223. **Descriptions are 5.7% of what
 an agent loads; names, titles and descriptions together are 6.4%.** Output
 schemas are 46.1%.
 
@@ -470,7 +473,7 @@ The rules:
   "provide structured results that conform to this schema" and puts the checking
   on the other side: "Clients SHOULD validate structured results against this
   schema." Record the strictness as deliberate rather than as framework
-  behaviour that happens to be there. The failure it exists to stop is the quiet
+  behavior that happens to be there. The failure it exists to stop is the quiet
   one: an enum pinned to a subset of the actor sources "makes every page of the
   audit log containing a new source come back empty"
   (`tests/mcp-output.test.ts:251-274`).
@@ -478,12 +481,12 @@ The rules:
   `{ result: <success> | { error: { code, message, details? } } }`, published as
   a two-member `anyOf` by `mcpOutputSchema`
   (`src/server/mcp-output-schemas.ts:101-106`) and returned as both
-  `structuredContent` and a JSON text mirror built from one serialisation
+  `structuredContent` and a JSON text mirror built from one serialization
   (`src/server/mcp.ts:256-263`), which is what the specification
   recommends: a tool returning structured content "SHOULD also return the
   serialized JSON in a TextContent block".
 - **House, and worth stating because a client author will assume otherwise.**
-  Because the published schema legitimises the error member, a strictly
+  Because the published schema legitimizes the error member, a strictly
   validating client cannot tell success from failure by schema alone. `isError`
   carries that, correctly.
 - **Contested, and Anthropic contradicts itself.** The engineering post says to
@@ -497,7 +500,7 @@ The rules:
   be on every versioned entity in the output schemas — 37 property positions
   across 34 of the surface's then 71 tools, `required` at every one, and every
   one carrying the
-  same constant: the id of the actor that authorised the connection. No agent
+  same constant: the id of the actor that authorized the connection. No agent
   could do anything with it. `AGENTS.md` says "Never accept a public `userId`",
   which is an input rule and does not by itself forbid publishing one; what it
   means here is that nothing on this surface will ever read one back, so the
@@ -737,7 +740,7 @@ claim, and a false claim is a defect.
   to say it in words and each of the three recoverable ones to say how to get
   back — so the distinction is a distinction rather than a synonym.
 - **House, and its reason is an absence of evidence.** Only VS Code's use of
-  `readOnlyHint` is documented behaviour. Whether any major client acts on the
+  `readOnlyHint` is documented behavior. Whether any major client acts on the
   other three could not be established, so no rule here depends on a client
   acting on one. The annotations are set because they are true, not because
   something is known to read them.
@@ -793,7 +796,7 @@ Anthropic's guidance is not internally consistent on granularity, so deferring t
 it means choosing which half to defer to anyway.
 
 - **House, the exception the rule needs.** Three tools take scope as a
-  *behaviour* switch rather than a gate — `stage_csv`,
+  *behavior* switch rather than a gate — `stage_csv`,
   `update_staged_transaction` and `bulk_edit_staged_transactions` — which is how
   `ledger:stage` proposes without deciding. A tool whose
   result differs by scope is still one tool with one scope: the wider scope
@@ -811,7 +814,7 @@ it means choosing which half to defer to anyway.
   has a proposal form, not when the queue has a row type; today `ledger:stage`
   adds five transaction-shaped tools to the read set, so an agent holding it can
   propose new transactions and nothing else. The obvious ask, "suggest
-  recategorising six months of groceries and let me look before it lands", has no
+  recategorizing six months of groceries and let me look before it lands", has no
   home, because that is `bulk_edit_transactions` and that is `ledger:write`.
 - **House, and original rather than cited.** No published propose-then-confirm
   pattern found is durable. Every one of them (Asana's preview/confirm pairs,
@@ -859,7 +862,7 @@ it means choosing which half to defer to anyway.
   the advertisement everybody reads untouched and the one nobody reads correct.
   And it has to keep `offline_access` whatever else goes, because Better Auth
   issues a refresh token only when that scope was requested, and a long-lived
-  client without one re-authorises by hand.
+  client without one re-authorizes by hand.
   Narrowing both documents stays rejected either way: the consent screen offers
   Allow or Deny and no third answer, so a client asking for `ledger:write`
   cannot be trimmed to read at approval, and leaving no machine-readable trace
@@ -891,7 +894,7 @@ it means choosing which half to defer to anyway.
   connected-agents list in Settings. Naming the required scope in each gated
   tool's description was considered and rejected: under non-registration the
   only caller who could read it already holds the scope. The three tools where
-  scope changes behaviour rather than access are the real case and already say
+  scope changes behavior rather than access are the real case and already say
   so in their own words.
 - **Binding (MUST), met.** `hasScope` (`src/server/mcp.ts:508-513`) implements
   the scope hierarchy the specification requires servers to account for: stage
@@ -905,7 +908,7 @@ it means choosing which half to defer to anyway.
   total. Track the payload against a ceiling. Keep names, descriptions and
   argument names readable, because that is exactly what a client's tool search
   reads. Toolsets by area remain an available option, following GitHub's
-  precedent, with the honest note that the protocol does not standardise how a
+  precedent, with the honest note that the protocol does not standardize how a
   client opts in.
 
 *Checked by:* `tests/mcp-parity.test.ts:336-359` and `:425-457`;
@@ -967,7 +970,7 @@ at `:320` guarding the regex from silently matching nothing. Backward at
 `:566-594`, which matches each route's whole path against `src/client`, each
 parameter standing in for a template hole rather than only the prefix before the
 first one: `/api/v1/accounts` is satisfied the moment anything fetches an
-account, which left every parameterised sub-route beneath it unchecked and a
+account, which left every parameterized sub-route beneath it unchecked and a
 page free to stop calling one. Exceptions are policed at `:282-292`, which fails
 an exception naming a route that no longer exists, and at `:596-600`, which
 fails any agent-only reason under forty characters. Nothing measures the
@@ -1001,8 +1004,8 @@ are pinned by name at `:357-367`.
   state", and expiry returns a tool execution error saying so rather than a
   silent empty result. The bulk selection fingerprint is the case here.
 
-*Checked by:* the idempotency and version behaviour at the service layer, and
-`tests/mcp-measurements.test.ts:461-483` on this surface, which is what stops
+*Checked by:* the idempotency and version behavior at the service layer, and
+`tests/mcp-measurements.test.ts:462-484` on this surface, which is what stops
 `idempotentHint` becoming a lie: it counts the mutating tools from the
 annotations and the keys from the schemas, so a tool added without one moves one
 number and not the other rather than moving both and agreeing with itself, and
@@ -1035,7 +1038,7 @@ creating state which expires says so, which is prose in a description.
   remains the blast radius above it. The input side says it too: the shared
   `externalId` now carries the same warning, so an agent reads it on the way in
   rather than only on the way back.
-- **House, framing an existing behaviour so it is not optimised away.** Routing
+- **House, framing an existing behavior so it is not optimized away.** Routing
   every authorization request through the consent screen, including for
   signed-in users and clients that omit `prompt=consent`, is the confused-deputy
   mitigation, not a UX preference.
@@ -1089,7 +1092,7 @@ SSRF surface bought for portability across authorization servers that a
 single-tenant personal ledger does not need. Three consequences to plan for: CIMD
 needs an SSRF story on the authorization server, CIMD client ids are portable
 across authorization servers where DCR credentials are not, and the day-old sweep
-of unapproved registrations has no CIMD analogue because there is no stored
+of unapproved registrations has no CIMD analog because there is no stored
 registration to sweep.
 
 *Not checked mechanically.* Nothing fails if a deprecated feature is adopted, and
@@ -1147,7 +1150,7 @@ which is an evaluation rather than a test.
 | A tool name is well formed and no title claims another tier's verb | `tests/mcp-parity.test.ts` |
 | The `tools/list` payload stays under its ceiling | `tests/mcp-measurements.test.ts`, and more strictly than a ceiling: each of the three tiers' exact character cost is pinned to the number this guide publishes, so a payload that grows fails whether or not it has passed a threshold |
 | A destructive tool's description warns | `tests/mcp-measurements.test.ts:103-113` |
-| A tool whose behaviour changes with scope names it, and no other tool does | `tests/mcp-parity.test.ts` |
+| A tool whose behavior changes with scope names it, and no other tool does | `tests/mcp-parity.test.ts` |
 | An under-scoped call is a 403 naming the scope, and a misspelled name is not | `tests/mcp-scope-challenge.test.ts` |
 | Both discovery documents still advertise every tier a client already had | `tests/mcp-discovery-scopes.test.ts` |
 | `TOOL_SCOPES` still agrees with the three registration blocks | `tests/mcp-measurements.test.ts` |
@@ -1156,7 +1159,7 @@ which is an evaluation rather than a test.
 | A tool named in a description exists | `tests/mcp-measurements.test.ts`, which reads every `snake_case` word in a description as a claim about a tool |
 | A tool that cannot be undone says so, and a recoverable one says how to get back | `tests/mcp-measurements.test.ts` |
 | One spelling per concept across every description | `tests/mcp-measurements.test.ts` |
-| A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:461-483` |
+| A mutating tool takes an idempotency key | `tests/mcp-measurements.test.ts:462-484` |
 | `readOnlyHint` matches where the tool is registered | **Not checked.** |
 | Tool order is deterministic | **Not checked.** Registration order is the de facto order. |
 | CIMD is offered before DCR, and the documents say which is current | **Not a rule.** The priority order is a rule for a *client* choosing how to obtain a client id, and a server that advertises no CIMD support moves the client to the fallback this deployment implements. Concluded in the specification-gaps section below, where this row used to contradict it |
@@ -1164,7 +1167,7 @@ which is an evaluation rather than a test.
 | The server instructions name the grant, the two error envelopes and untrusted text | `tests/mcp-instructions.test.ts` |
 | The named revision is the one the SDK negotiates | **Not checked.** |
 | Every parameter carries a description | `tests/mcp-measurements.test.ts`, held at zero |
-| Every input schema is closed | `tests/mcp-measurements.test.ts:321-328` |
+| Every input schema is closed | `tests/mcp-measurements.test.ts:322-329` |
 | Every output field carries a description | **Not checked**, and deliberately not a rule. The misleading ones are checked by name above. |
 | Whether a description teaches | **Review only,** and the evaluation above is the nearest thing to a check. |
 

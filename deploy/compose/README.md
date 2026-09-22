@@ -145,7 +145,7 @@ policies. The differences here are the ones a single machine forces:
   schedulers, which is the arrangement that shows the scheduler dividing work.
 - nginx's graceful stop is stated as `stop_signal: SIGQUIT` rather than the
   chart's preStop hook. The image already declares SIGQUIT and compose would
-  honour that, but the reason the frontend can stop without cutting a response
+  honor that, but the reason the frontend can stop without cutting a response
   is worth stating where somebody reading the file will find it — nginx reads
   SIGQUIT as a graceful shutdown and SIGTERM as a fast one.
 - The tmpfs mounts carry `uid=101`, which the chart's emptyDirs do not need.

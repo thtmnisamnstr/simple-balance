@@ -215,13 +215,13 @@ integration("a list of domains and addresses admits exactly those", () => {
     });
     expect(named.status).toBe(200);
 
-    const neighbour = await signUp(app, {
+    const neighbor = await signUp(app, {
       name: "Other Person",
       email: "other.person@example.com",
       password: "a-perfectly-good-password",
     });
-    expect(neighbour.status).toBe(403);
-    expect(await neighbour.json()).toMatchObject({
+    expect(neighbor.status).toBe(403);
+    expect(await neighbor.json()).toMatchObject({
       code: "REGISTRATION_CLOSED",
       message: "That email address is not allowed to register here.",
     });

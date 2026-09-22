@@ -48,7 +48,7 @@ export type SecuritySurface = "app" | "stripe";
  * It applies to the `stripe` surface and to nothing else, and that restriction
  * is the point rather than a limitation. The policy every other page carries is
  * the one this container has shipped since 0.1.0 and has nothing to rehearse;
- * turning enforcement off there would take a working defence off every page
+ * turning enforcement off there would take a working defense off every page
  * that renders somebody's balances in order to learn about a page that does
  * not render any.
  */
@@ -99,7 +99,7 @@ export const CSP_REPORT_PATH = "/api/csp-report";
  * `SB_CSP_REPORT_ONLY` exists so an operator with one can find out without
  * enforcing anything. `docs/acceptance.md` carries it as outstanding.
  *
- * `m.stripe.network` is deliberately absent. Stripe retired it in favour of
+ * `m.stripe.network` is deliberately absent. Stripe retired it in favor of
  * `m.stripe.com`, which is listed above; most third-party guides still carry
  * the old name, and copying it would have widened the policy for a host nothing
  * contacts.
@@ -205,7 +205,7 @@ export const securityHeaderOptions = (
         ? ["'self'", "https://*.hcaptcha.com"]
         : ["'self'", ...(context.ads === true ? ADS_STYLE_SOURCES : [])],
     // Only where ads are served. Absent otherwise, so `default-src 'self'`
-    // governs and no third-party face loads — which is the behaviour this
+    // governs and no third-party face loads — which is the behavior this
     // container has always had.
     ...(surface !== "stripe" && context.ads === true ? { fontSrc: ADS_FONT_SOURCES } : {}),
     scriptSrc:
@@ -232,7 +232,7 @@ export const securityHeaderOptions = (
     // real gaps. base-uri stops an injected <base> quietly repointing every
     // relative URL on the page, including the one the sign-in form posts to.
     // form-action stops a form being aimed somewhere else. frame-ancestors
-    // is the modern half of the clickjacking defence that X-Frame-Options
+    // is the modern half of the clickjacking defense that X-Frame-Options
     // covers for older browsers. object-src closes plugin embedding.
     baseUri: ["'self'"],
     formAction: ["'self'"],
@@ -256,7 +256,7 @@ export const securityHeaderOptions = (
     // Not the `no-referrer` this defaults to. Under that policy a browser sends
     // `Origin: null` on a form submission, including the sign-in form posting to
     // this very server, and protectAuthMutation rightly refuses an origin it
-    // cannot recognise. That broke MCP authorization, where the sign-in form is
+    // cannot recognize. That broke MCP authorization, where the sign-in form is
     // submitted natively so the OAuth redirect stays a top-level navigation.
     // `same-origin` still sends nothing at all to anybody else.
     referrerPolicy: "same-origin",
@@ -273,7 +273,7 @@ export const securityHeaderOptions = (
 /**
  * Whether a request is for the one page served under the Stripe policy.
  *
- * Normalised the way the browser's own router matches, so the two agree by
+ * Normalized the way the browser's own router matches, so the two agree by
  * construction rather than by both happening to be spelled the same. A bare
  * string comparison served `/settings/plan/` and `//settings/plan` under the
  * strict policy while the router rendered the plan tab for both — a payment
@@ -283,7 +283,7 @@ export const securityHeaderOptions = (
 export const isStripeSurfacePath = (path: string) => STRIPE_SURFACE_PATTERN.test(path);
 
 /**
- * The one path served under the Stripe policy, and the same normalisation the
+ * The one path served under the Stripe policy, and the same normalization the
  * browser's router does, as one pass.
  *
  * The router splits on `/` and drops empty segments, so it renders the plan tab
@@ -343,7 +343,7 @@ export const BULK_REQUEST_BODY_LIMIT_BYTES =
   MAX_BULK_SELECTION_ENTRIES * BULK_SELECTION_ENTRY_BYTES + BULK_REQUEST_ENVELOPE_BYTES;
 
 /**
- * Recognised by shape rather than listed, because a list has to be revisited
+ * Recognized by shape rather than listed, because a list has to be revisited
  * every time a route is added and is silently wrong until somebody notices.
  * The template mass edit and mass delete were sized as ordinary requests for
  * exactly that reason, so a selection their schemas accept came back 413.

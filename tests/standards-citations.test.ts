@@ -514,12 +514,12 @@ describe("what the standards guides cite", () => {
    * The contract the code guides state about themselves.
    *
    * `index.md` says "Every rule says how it is checked" and gives a count of the
-   * ones nothing checks. Both were false: 34 of the 67 labelled rules named no
+   * ones nothing checks. Both were false: 34 of the 67 labeled rules named no
    * mechanism at all — not even `human` — and the count said 19 because a rule
    * that stayed silent was not counted as anything. A silent rule is the worst
    * of the four states, because it reads as covered.
    */
-  it("gives every labelled rule a mechanism, and counts the ones with none", () => {
+  it("gives every labeled rule a mechanism, and counts the ones with none", () => {
     const guides = globSync("docs/standards/code/*.md").filter(
       (file) => !file.endsWith("index.md"),
     );
@@ -534,7 +534,7 @@ describe("what the standards guides cite", () => {
       // rather than at the next one of its own level. Ending only at the next
       // `###` let the last `###` in a file swallow the `##` section after it and
       // borrow its footer, and it never looked at a `##`-level rule at all —
-      // which is three labelled rules in this set answering to nothing.
+      // which is three labeled rules in this set answering to nothing.
       const starts = lines.flatMap((line, index) => (/^#{2,6} /.test(line) ? [index] : []));
       for (const [position, start] of starts.entries()) {
         const end = starts[position + 1] ?? lines.length;
@@ -544,7 +544,7 @@ describe("what the standards guides cite", () => {
         const heading = lines[start]!.replace(/^#+ /, "");
         // `## 4.` and `### 3.3` number themselves differently — a top-level
         // heading carries the trailing dot a subsection does not — and the
-        // tables spell both without it. Normalised here rather than in seven
+        // tables spell both without it. Normalized here rather than in seven
         // tables, because the tables are what a person reads.
         const number = heading.split(" ")[0]!.replace(/\.$/, "");
         // A row in the file's own table is the other way to name a mechanism:

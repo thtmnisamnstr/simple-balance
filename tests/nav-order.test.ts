@@ -62,7 +62,7 @@ describe("the sidebar", () => {
     const reachedFromElsewhere = new Set([
       // A payee has no id of its own — it is text on a transaction — so its
       // detail page carries the name in the query string and sits under a
-      // static path instead of a parameterised one.
+      // static path instead of a parameterized one.
       "/payees/transactions",
       // The run through the flagged rows, started from Staged transactions.
       // It is a job you do to the queue, not a place alongside it.

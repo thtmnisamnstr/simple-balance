@@ -107,7 +107,7 @@ export function mcpOutputSchema<T extends z.ZodType>(successSchema: T) {
 /**
  * What every record an agent can name carries, and deliberately no `userId`.
  *
- * Every row on this surface belongs to the actor that authorised the
+ * Every row on this surface belongs to the actor that authorized the
  * connection, so an owner id is one constant repeated on every row of every
  * page, and `AGENTS.md` forbids reading one back, so no next call can ever use
  * it. `toolResult` drops the key from the payload as well, because a schema and
@@ -691,7 +691,7 @@ export const ownDataSummaryResultSchema = z.object({
   activeSubscription: z
     .boolean()
     .describe(
-      "Whether a paid subscription is live. Deleting the account cancels it immediately, and a cancelled subscription cannot be restored.",
+      "Whether a paid subscription is live. Deleting the account cancels it immediately, and a canceled subscription cannot be restored.",
     ),
 });
 

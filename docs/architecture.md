@@ -30,7 +30,7 @@ contract breaks, which is not the same as when the app does.
 
 | Path | What is in it |
 | --- | --- |
-| `src/shared` | Zod contracts, money and date primitives, CSV normalisation. Imported by both sides. |
+| `src/shared` | Zod contracts, money and date primitives, CSV normalization. Imported by both sides. |
 | `src/server/services` | The ledger itself: tenancy, concurrency, idempotency, postings, summaries, staging, import/export, audit. |
 | `src/server/api.ts` | HTTP transport. Resolves the user from Better Auth and calls services. |
 | `src/server/mcp.ts` | MCP transport. Exposes tools and filters them by OAuth scope. |
@@ -91,7 +91,7 @@ Each posting carries its own date. Balances, cash flow, and spending by category
 therefore read one table, and a balance as of a date is an indexed range rather
 than a scan of the ledger. Labels are the exception. Which category an entry was
 filed under is read from the transaction, or from the leg the posting belongs
-to, which is why recategorising updates past reports rather than only future
+to, which is why recategorizing updates past reports rather than only future
 ones.
 
 A split transaction is that counter-account side cut into legs. Each leg is a
@@ -100,7 +100,7 @@ its own leg id, so a hundred-pound receipt split three ways is three postings
 adding to a hundred rather than one posting counted three times. Because the
 legs are those postings, "the legs add up to the total" is the zero-sum check
 that was already running: there is no way to write a split that satisfies one
-and not the other, and no balance query changes a line. Relabelling a leg is a
+and not the other, and no balance query changes a line. Relabeling a leg is a
 single update that writes no postings at all, since the leg's identity does not
 change when its label does. A leg is zeroed rather than deleted, because the
 postings naming it are append-only; it falls out of every report through the

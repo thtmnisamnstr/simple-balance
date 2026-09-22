@@ -292,8 +292,8 @@ Unversioned, and each for a reason.
 | `/mcp`, `/mcp/` | The MCP transport. Governed by [`mcp.md`](mcp.md). |
 | `GET /metrics` | Prometheus text format, and registered only when `METRICS_ENABLED=true`, so a deployment that did not ask for it has no such route rather than a route that refuses. A `METRICS_TOKEN` makes it demand a bearer token. Not proxied by the bundled frontend. |
 | `POST /api/billing/webhook` | Where Stripe reports what happened, and registered only when Stripe is configured, so a deployment that sells nothing has no such route. Outside `/api/v1` because everything under that prefix is guarded by `protectBrowserMutation`, which refuses a mutation carrying no matching `Origin` — and a webhook carries none. Authenticated by Stripe's signature over the raw body rather than by a session. Every deliberate no-op answers 2xx, because a non-2xx makes Stripe retry and delays finalization of every auto-collection invoice on the account for up to 72 hours. |
-| `GET /ads.txt` | The authorised-sellers file, registered only when AdSense is configured. Derived from the publisher id rather than stored, because there is one correct answer for a deployment whose only ad partner is AdSense and it cannot ship in the image — one image serves every operator. `text/plain`, cached an hour. Unversioned because the format is the IAB's. |
-| `POST /api/csp-report` | Where a browser posts what the content security policy would have blocked, registered only while `SB_CSP_REPORT_ONLY` is set. Outside `/api/v1` and above its guards because a violation report carries no `Origin` this app would recognise and a content type of its own — under `protectBrowserMutation` every report would be refused before it was read, and the rehearsal would produce a silence indistinguishable from a clean run. Always `204`; it is a one-way message with nobody to tell about a failure. |
+| `GET /ads.txt` | The authorized-sellers file, registered only when AdSense is configured. Derived from the publisher id rather than stored, because there is one correct answer for a deployment whose only ad partner is AdSense and it cannot ship in the image — one image serves every operator. `text/plain`, cached an hour. Unversioned because the format is the IAB's. |
+| `POST /api/csp-report` | Where a browser posts what the content security policy would have blocked, registered only while `SB_CSP_REPORT_ONLY` is set. Outside `/api/v1` and above its guards because a violation report carries no `Origin` this app would recognize and a content type of its own — under `protectBrowserMutation` every report would be refused before it was read, and the rehearsal would produce a silence indistinguishable from a clean run. Always `204`; it is a one-way message with nobody to tell about a failure. |
 
 **House.** These stay unversioned. `/api/v1` versions this product's own
 contract; an OAuth discovery document is versioned by the RFC that defines it,
@@ -416,7 +416,7 @@ add it.
   `bulk-edit`, `bulk-delete`, `bulk-selection`, `commit` or `delete`
   (`src/server/http-security.ts:831-923`, `:925-957`). A limit is derived, not
   guessed: the template mass edit and mass delete were once sized as ordinary
-  requests, so a selection their own schemas accepted came back 413. Recognising
+  requests, so a selection their own schemas accepted came back 413. Recognizing
   a bulk route by shape rather than by a hand-kept list is what stops that
   recurring.
   *Checked by:* `tests/http-security.test.ts:259-398` for the arithmetic, and
@@ -689,7 +689,7 @@ and does not know this product's envelope. **The rule:**
   `status` and `detail`, plus two extension members: `code`, which is the
   `ApiErrorCode`, and whatever named members the situation needs. RFC 9457
   permits extensions and requires consumers to ignore ones they do not
-  recognise.
+  recognize.
 - `type` is a stable URI under this deployment's base URL, one per code. It is
   an identifier, not a page that has to exist, though it should resolve.
 - `title` does not change from occurrence to occurrence. `detail` is the
@@ -856,7 +856,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
     collection, so a filter added to a list schema is bound without anybody
     remembering — which is the failure the member exists to prevent, one level
     up. The five excluded are the ones `AGENTS.md` calls presentation.
-  - **The canonicaliser is the one this product already has.**
+  - **The canonicalizer is the one this product already has.**
     `idempotencyRequestHash` sorts keys, drops `undefined` and renders dates as
     ISO strings, so two spellings of one query hash alike. Two canonical forms
     is a way for one of them to drift.
@@ -919,7 +919,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   still accepting the old one*". The cost of the window, stated rather than
   implied: an unsigned cursor can be hand-built, and what that buys is a
   different starting boundary inside a query already scoped to the caller's own
-  `userId`. No cursor has ever been an authorisation boundary, so the window
+  `userId`. No cursor has ever been an authorization boundary, so the window
   costs opacity for one release and nothing else. `docs/upgrades.md` schedules
   the removal.
 
@@ -972,7 +972,7 @@ That invariant is why this API has both mechanisms, and it is not indecision.
   `GET /api/v1/audit-events` was the one that was not. It read `cursor` and
   `limit` out of the query string by hand and handed `Number(...)` to the
   service, so `?limit=x` arrived as `NaN` and the service grew a guard against
-  it — the right defence in the wrong place, and one the MCP tool's own inline
+  it — the right defense in the wrong place, and one the MCP tool's own inline
   shape said nothing about. Both transports now parse `auditListQuerySchema`
   (`src/shared/domain.ts:1956-1974`), which lives with the others, is coerced so
   that a query string's `"50"` and a tool call's `50` are one contract, and is
@@ -1085,10 +1085,10 @@ so a second submit fails rather than duplicating."
   `(user, operation, key)`, stored with a hash of the canonical request and the
   response, replayed on repeat, and refused with a 409 when the same key arrives
   with a different request (`src/server/services/helpers.ts:91-172`). The
-  request is canonicalised before hashing, with object keys sorted and `Date`
+  request is canonicalized before hashing, with object keys sorted and `Date`
   instances stringified, so key order cannot change the fingerprint
   (`src/server/services/helpers.ts:168-207`). Concurrent uses of one key are
-  serialised by a transaction-scoped advisory lock
+  serialized by a transaction-scoped advisory lock
   (`src/server/services/helpers.ts:210-222`), which is stronger than Stripe,
   which errors on a concurrent conflict rather than waiting.
 - **House, a deliberate divergence worth writing down.** Stripe replays
@@ -1222,7 +1222,7 @@ edit, a mass delete, a commit, and a CSV import."
   the request shape is what the recorded idempotency payload is hashed from
   (`src/server/services/staging.ts:1129-1134`), so a commit retried across the
   deploy would come back `CONFLICT` instead of replaying — a self-inflicted
-  failure on the write that can least afford one, in exchange for no behaviour a
+  failure on the write that can least afford one, in exchange for no behavior a
   caller can observe. A missing map entry already refused rather than wrote.
 
   What the parallel map could get wrong is fixed instead. Two structures
@@ -1342,7 +1342,7 @@ socket already open is the only channel that exists.
   payload is identical; only the transcript differs, which is what `Accept` is
   for. A body field would have put the switch in the contract and published it
   on a tool whose transport answers in a single JSON object
-  (`enableJsonResponse: true`, `src/server/mcp.ts:2130`) and could never honour
+  (`enableJsonResponse: true`, `src/server/mcp.ts:2130`) and could never honor
   it — advertising a capability an agent cannot reach, which is the
   `categoryKind` defect pointing the other way.
 - **Three frame types, and exactly one terminal frame, last:** `progress` while
@@ -1419,17 +1419,17 @@ forwards the frames unbuffered. That is `docs/deployment.md` and an operator.
   `deploy/docker/nginx-security-headers.conf`.
 
   *Checked by:* `tests/security-header-parity.test.ts`, and
-  `tests/http-security.test.ts` for the behaviour.
+  `tests/http-security.test.ts` for the behavior.
 - **House, one subtlety already handled and worth not undoing.**
   `referrerPolicy` is `same-origin`, not Hono's `no-referrer` default, because
   under `no-referrer` a browser sends `Origin: null` on a native form
   submission, including the sign-in form posting to this very server, and the
-  origin check rightly refuses an origin it cannot recognise
+  origin check rightly refuses an origin it cannot recognize
   (`src/server/http-security.ts:256-262`).
 - **House, and the two halves are one rule.** Same-origin and JSON content type
   are presented together and neither is relaxed on the grounds that the other
-  exists. OWASP files origin checking under defence in depth rather than as a
-  primary defence, and separately notes that disallowing simple content types is
+  exists. OWASP files origin checking under defense in depth rather than as a
+  primary defense, and separately notes that disallowing simple content types is
   itself a mitigation. Together they are enough; separately neither is.
 - **Contested, and now decided: CORS.** The rule used to be that `/api/v1`
   emits no CORS headers ever, and cross-origin access is MCP's job. Publishing
@@ -1501,7 +1501,7 @@ way.
 
 *Checked by:* `tests/api-security.test.ts` and `tests/http-security.test.ts` for
 the discovery routes and their caching, and `tests/security-header-parity.test.ts`
-for the headers. *Not checked:* the token lifetime and revocation behaviour, which
+for the headers. *Not checked:* the token lifetime and revocation behavior, which
 is Better Auth's and is covered by its own tests rather than these.
 
 ## Versioning and deprecation

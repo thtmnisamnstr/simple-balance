@@ -85,9 +85,25 @@ where somebody lives is answered in one place."
   follow it.
 - **A boolean is named for what being true means** (`includeArchived`,
   `allowDuplicate`), never for what it disables.
+- **American spelling, in prose and in names alike.** `normalization`, not
+  `normalisation`; `color`, not `colour`; `canceled`, not `cancelled`. The
+  product is sold in dollars to a mostly American audience and the marketing
+  site is written that way, so this is the side the whole repository picks —
+  including comments, guides, test names and the sentences the MCP surface
+  hands an agent. It was the other way until the prices moved. The changelog
+  turned over with everything else: its entries are documentation somebody
+  reads today, not a transcript, and one product spelling itself two ways
+  across its own history is the inconsistency this rule exists to stop. What
+  did not turn over is a quotation — `web.md` quotes the GOV.UK style guide in
+  its own spelling, because rewriting somebody else's sentence is not a
+  convention change — and `drizzle/`, whose comments are inside files the
+  migrator identifies by hash. Editing one is editing a migration, which
+  `AGENTS.md` forbids for a reason that has nothing to do with spelling.
 
-*Not checked mechanically.* A naming registry would need to know what a concept
-is, so this one is review.
+*Not checked mechanically*, except the spelling, which
+`tests/mcp-measurements.test.ts` holds on the agent surface by naming the
+losing spelling and refusing it. A naming registry would need to know what a
+concept is, so the rest is review.
 
 ## Errors
 

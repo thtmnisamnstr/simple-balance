@@ -594,7 +594,7 @@ const likelyCommittedMatch = sql`(
  * guard asks what validation already decided instead of trying to out-guess the
  * calendar: a row reaches the cast only if nothing filed an issue against its
  * date, and only if its type named one of the union branches. The second term
- * is not redundant. An unrecognised type fails the discriminator, so Zod never
+ * is not redundant. An unrecognized type fails the discriminator, so Zod never
  * reaches the date at all and files nothing against it; such a row would carry
  * a bad date and no date issue.
  */
@@ -1418,7 +1418,7 @@ function patchedStageDraft(draft: Record<string, unknown>, patch: BulkStagePatch
  * What differs from the committed version is what happens after the selection
  * is settled, and it is simpler: a staged row is a draft, so nothing here posts,
  * reverses, or touches a balance. The patch is written into the draft, the payee
- * is canonicalised the way a single edit does it, and the row is validated
+ * is canonicalized the way a single edit does it, and the row is validated
  * again so the queue's own verdict on it is current. A patch that turns an
  * invalid row valid is the ordinary reason to do this at all.
  */
@@ -1663,7 +1663,7 @@ export async function bulkEditStages(
     }
     await writeAuditMany(tx, actor, audits);
     // The same rule the single-row edit applies, which this path did not:
-    // recategorising the last row off a category clears the category behind it,
+    // recategorizing the last row off a category clears the category behind it,
     // and doing the identical edit to a hundred rows in one request left it
     // standing. Gated the same way too — a queue token proposes and never
     // decides, and removing one of the ledger's own records is a decision.

@@ -295,13 +295,13 @@ export function Button({
    * completely silent: nothing has been typed wrongly, so there is no field
    * error, and nothing has been submitted, so there is no summary. Six of them
    * shipped and one had a sentence — the split remainder line, which is the
-   * model this generalises.
+   * model this generalizes.
    *
    * Rendered only while `disabled` is true and `loading` is not, because a
    * button that is working already says so and a reason for that state would
    * be a second answer to a question already answered.
    *
-   * Wired with `aria-describedby` rather than left as a neighbouring
+   * Wired with `aria-describedby` rather than left as a neighboring
    * paragraph: a sighted person reads what is next to the button, and somebody
    * on a screen reader is told the button's name and its state and then has to
    * go looking. The description is what makes "disabled" say why.
@@ -405,7 +405,7 @@ export function ErrorSummary({
   // name; a second `<h2>` in the body reads as a peer section of the dialog
   // rather than as content in it. Same reasoning as `EmptyState`.
   const Heading = level === 2 ? "h2" : "h3";
-  // Plain defence against a refusal carrying an unbounded list. No call site
+  // Plain defense against a refusal carrying an unbounded list. No call site
   // reaches it today.
   const shown = messages.slice(0, 10);
   const rest = messages.length - shown.length;
@@ -614,7 +614,7 @@ export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
  * Deliberately not `role="menu"`. Those roles promise a screen reader arrow-key
  * navigation, and a roving tabindex exists nowhere else in this client. A
  * disclosure that behaves like a disclosure is honest; menu roles without the
- * keyboard behaviour they imply are worse than none.
+ * keyboard behavior they imply are worse than none.
  */
 export function RowMenu({ label, children }: { label: string; children: ReactNode }) {
   const details = useRef<HTMLDetailsElement>(null);

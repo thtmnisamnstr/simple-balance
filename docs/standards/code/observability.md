@@ -59,7 +59,7 @@ than exempting the labels we add ourselves.
 one per account. `routeLabel` (`src/server/api.ts:315-322`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
-from the body limit lands — is labelled by its prefix from a fixed list
+from the body limit lands — is labeled by its prefix from a fixed list
 (`:313`), and a path that matched nothing at all is one literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
@@ -74,9 +74,9 @@ What the setting decides is whether `GET /metrics` is registered at all
 (`src/server/api.ts:325`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
-The measurement behind that: a labelled increment costs about 130ns and does
+The measurement behind that: a labeled increment costs about 130ns and does
 allocate, because `prom-client` hashes the label object into a string key on
-every call; an unlabelled one costs about 12ns (2M iterations of `Counter.inc`,
+every call; an unlabeled one costs about 12ns (2M iterations of `Counter.inc`,
 Node 26). Both are a rounding error beside the database round trip they sit
 next to, and a branch in front of every write in the product would cost more
 attention than the nanoseconds are worth.
@@ -90,7 +90,7 @@ and never on a path that did not do the work:
   `tests/integration/metrics.integration.test.ts` refuses a create and insists
   the counter did not move.
 - An idempotent replay is not a second write. Five counters double-counted one
-  until each mutation started signalling replay out of its transaction callback
+  until each mutation started signaling replay out of its transaction callback
   (`src/server/services/transactions.ts:1048`, `:1058`, `:1084`), and the
   visible cost was a client retrying a four-thousand-row edit reporting eight
   thousand rows changed. The retry is a fact about the client, and it has its
@@ -172,7 +172,7 @@ it is the person the error happened to. The rule and its check are about
 `src/server`.
 
 *Checked by:* `tests/log-level.test.ts`, which holds both halves — the gate's
-behaviour at each level, and that no file under `src/server` outside the
+behavior at each level, and that no file under `src/server` outside the
 configuration layer names `console` in code at all. The exception list is itself
 checked: a file on it that has stopped warning from inside `getConfig()` fails,
 because an exception nobody needs any more proves nothing.
@@ -198,7 +198,7 @@ five minutes saying so is how a log stops being read.
 takes the finished string. For the two per-request lines that is one template
 literal against a request that has just been through the database, which is not
 worth an `enabled()` predicate and the two call sites that would then have to
-remember to use it. It would be worth it for a line that had to serialise
+remember to use it. It would be worth it for a line that had to serialize
 something to say itself; there is no such line, and adding one is the moment to
 revisit this.
 
@@ -264,7 +264,7 @@ catch through it costs nothing when the doubt was wrong.
 
 *Checked by:* `tests/log-level.test.ts`, which asserts the id is present in the
 request line, the search term is absent from it, the payee an agent filtered by
-is absent from the tool line, and — serialising the call rather than
+is absent from the tool line, and — serializing the call rather than
 stringifying it, because `String(error)` hides the difference — that a failing
 statement is logged while the values bound into it are not. And
 `tests/mail-logging.test.ts` for the rule this paragraph used to write out and
@@ -294,7 +294,7 @@ that is quietly doing half its job, which is the failure mode the degradation
 was designed to avoid in the first place.
 
 An empty `catch` is for a case where nothing went wrong, and it says which in a
-comment. There are two in `src/server`, both cancelling a request body the peer
+comment. There are two in `src/server`, both canceling a request body the peer
 may have closed already (`src/server/http-security.ts:424` and `:908`), and both
 carry that sentence.
 
@@ -335,7 +335,7 @@ reports no pool series at all, which is the honest answer.
 | 3 Where a measurement belongs | A grep cannot tell a transport fact from a domain one. |
 
 Seven `human` rules — only `testing.md` carries more — and the reason is
-worth stating rather than apologising for: the two channels are checkable in
+worth stating rather than apologizing for: the two channels are checkable in
 their mechanics and not in their judgement. Whether a label is identifying, and
 whether a counter moved when it should not have, are properties a test can hold
 — and both are held. Whether a line was worth writing at all, and whether it was

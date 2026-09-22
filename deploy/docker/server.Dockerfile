@@ -56,7 +56,7 @@ COPY --from=runtime-dependencies --chown=node:node /runtime/node_modules ./node_
 COPY --from=build --chown=node:node /app/dist/server ./dist/server
 COPY --chown=node:node drizzle ./drizzle
 # This image conveys an AGPL-3.0 program, so it carries the terms it is offered
-# under. The AGPL is a complete licence rather than a supplement, so one file
+# under. The AGPL is a complete license rather than a supplement, so one file
 # is enough, and the source label above says where the corresponding source is.
 COPY --chown=node:node LICENSE ./
 USER node

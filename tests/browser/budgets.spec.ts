@@ -492,7 +492,7 @@ test.describe("the budgets page in a browser", () => {
    * jsdom computes no styles for an SVG `<path>` and no gradients at all, so it
    * can say the rules exist and nothing about whether the browser applies them.
    * That is the half that matters: a `stroke-dasharray` on the wrong selector,
-   * or a gradient the engine cannot parse, leaves a reader with colour alone —
+   * or a gradient the engine cannot parse, leaves a reader with color alone —
    * which looks fine to whoever wrote it.
    */
   test("a chart line and its legend swatch carry the same second channel", async () => {

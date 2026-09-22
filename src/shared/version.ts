@@ -18,7 +18,7 @@ export const APP_VERSION = "0.1.6";
  *
  * `index.html` carries it a fifth time and cannot import this — it is served
  * before any module runs. `tests/app-name.test.ts` holds the two together,
- * the same way the theme-colour literals in that file are held to the
+ * the same way the theme-color literals in that file are held to the
  * stylesheet.
  */
 export const APP_NAME = "Simple Balance";

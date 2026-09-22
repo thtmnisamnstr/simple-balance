@@ -12,7 +12,7 @@ name: simple-balance-dev
 services:
   postgres:
     # The same 18 the deployment profiles ship, so development and production
-    # agree about collation, planner behaviour and anything else a version
+    # agree about collation, planner behavior and anything else a version
     # changes. Alpine is fine here and nowhere else: this database holds test
     # data, and nobody reads a sorted list out of it.
     image: postgres:18-alpine

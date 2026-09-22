@@ -68,7 +68,7 @@ If the answer is that they should lose the plan, cancel the subscription in
 Stripe — the cancellation arrives as its own delivery and the ledger follows it.
 If the answer is that they keep it, do nothing; they already have it.
 
-A dispute that Stripe resolves by cancelling the subscription needs nothing
+A dispute that Stripe resolves by canceling the subscription needs nothing
 either. That cancellation is a `customer.subscription.updated` like any other.
 
 ## When a webhook was missed
@@ -107,17 +107,17 @@ What changed is what somebody arriving now is offered.
 
 Somebody on the old price sees **"On a price this deployment no longer sells"**
 on their plan tab, with their real status and renewal date beside it.
-`intervalOfPrice` recognises neither interval for an id that is not one of the
+`intervalOfPrice` recognizes neither interval for an id that is not one of the
 two configured, and the page says so rather than guessing: telling an annual
 subscriber "Monthly" would put a figure and a renewal date on the screen that
 are both wrong.
 
 They move when they choose to, and the move lands at their renewal rather than
 today. `subscriptionAction` returns `schedule` for anybody whose current
-interval is unrecognised, whichever button they press — deliberately, because
+interval is unrecognized, whichever button they press — deliberately, because
 the immediate path bills the difference on the spot, and charging somebody now
 and moving a renewal date they have already been billed against is not a thing
-to do off a value that means "I do not recognise this". Nothing here ever moves
+to do off a value that means "I do not recognize this". Nothing here ever moves
 somebody to a new price on their behalf; doing that is a Stripe-side decision
 with whatever notice your terms promise attached to it.
 
@@ -134,7 +134,7 @@ Set `SB_BILLING_ENABLED=false` and restart. Do not remove the Stripe settings.
 | What                                   | After the flag goes off                                      |
 | -------------------------------------- | ------------------------------------------------------------ |
 | New subscriptions and interval changes | Refused, `409`                                               |
-| Cancelling                             | **Still works.** Trapping people is not a pause              |
+| Canceling                             | **Still works.** Trapping people is not a pause              |
 | Replacing a card                       | Still works, and pays the outstanding invoice with it        |
 | The account limit                      | Not enforced — nobody is held to a plan that is not for sale |
 | Webhooks                               | Still received, still reconciled                             |

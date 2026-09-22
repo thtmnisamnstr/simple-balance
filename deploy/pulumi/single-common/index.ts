@@ -201,7 +201,7 @@ function block(contents: string, spaces: number): string {
  * place in the tree — copied out, vendored, or built to a different depth —
  * where `repoRoot` resolves to a directory that simply does not have these
  * files under it. Node's own error for that names a path three levels from
- * anything recognisable and says nothing about why it was looking there.
+ * anything recognizable and says nothing about why it was looking there.
  */
 function repoFile(relative: string): string {
   const file = path.join(repoRoot, relative);

@@ -224,7 +224,7 @@ const OWNER_ID_OPAQUE_KEYS = new Set(["rows", "rawData"]);
  * The owner id, gone from every reply.
  *
  * One walk rather than seventy-one per-tool mappings: every row a tool returns
- * belongs to the actor that authorised the connection, so `userId` is one
+ * belongs to the actor that authorized the connection, so `userId` is one
  * constant repeated on every row of every page, and `AGENTS.md`'s "Never accept
  * a public `userId`" means no next call can ever send it back. The output
  * schemas no longer declare it either, and the two halves have to move
@@ -253,7 +253,7 @@ export const withoutUserId = (node: unknown): unknown => {
 const toolResult = (result: unknown) => {
   // The round trip runs first and the walk second. A `Date` reaches here as an
   // object with no own keys, so walking the raw result would flatten it to `{}`
-  // where the serialisation turns it into the instant a client can read.
+  // where the serialization turns it into the instant a client can read.
   const serializedResult = withoutUserId(JSON.parse(JSON.stringify(result)));
   return {
     structuredContent: { result: serializedResult },
@@ -380,7 +380,7 @@ const destructiveAnnotations = {
  * so: `bulk_delete_transactions` already reads "deleting posts a reversal
  * rather than erasing, so it can be undone with set_transaction_deleted",
  * which is the invariant working — a delete voids an entry and a restore posts
- * it back, so nothing is lost. And a revoked agent can be authorised again
+ * it back, so nothing is lost. And a revoked agent can be authorized again
  * from a browser, which its own description says. The two merges are the real
  * case: they collapse rows into one and there is nothing left to unpick.
  *
@@ -563,7 +563,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
        * the polite thing to do, and that no total crosses currencies.
        */
       instructions: [
-        "Simple Balance is one person's double-entry ledger. Every figure you read or write belongs to the account that authorised this connection.",
+        "Simple Balance is one person's double-entry ledger. Every figure you read or write belongs to the account that authorized this connection.",
         "",
         'Money is always an exact decimal string, never a JSON number: send "12.50", not 12.5. Totalling amounts as floats loses money, and no total may cross currencies — each currency is reported on its own.',
         "",
@@ -701,7 +701,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List duplicate categories",
         description:
-          "Find this person's categories whose names match after normalisation. Two spellings that normalise to one name are one category somebody entered twice; `merge_categories` is what joins them, and it cannot be undone.",
+          "Find this person's categories whose names match after normalization. Two spellings that normalize to one name are one category somebody entered twice; `merge_categories` is what joins them, and it cannot be undone.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(duplicateCategoriesResultSchema),
         annotations: readAnnotations,
@@ -728,7 +728,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List duplicate payees",
         description:
-          "Payee spellings that collide once Unicode form, whitespace and case are normalised, grouped by what they normalise to. This is the grouping `list_payees` does not do, and the normalisation is the server’s own: an agent cannot reliably reproduce it from the spellings alone. Reach for this before merging, and for `list_payees` when you want the whole list.",
+          "Payee spellings that collide once Unicode form, whitespace and case are normalized, grouped by what they normalize to. This is the grouping `list_payees` does not do, and the normalization is the server’s own: an agent cannot reliably reproduce it from the spellings alone. Reach for this before merging, and for `list_payees` when you want the whole list.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(duplicatePayeesResultSchema),
         annotations: readAnnotations,
@@ -830,7 +830,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Get preferences",
         description:
-          "This person's timezone, default currency and colour theme. Read it before dating anything: what counts as today is decided by their timezone, not the server's, and a transaction dated by the wrong one lands on the wrong day. `theme` is `system`, `light` or `dark`, where `system` means they follow whatever their own machine is set to; it affects nothing but what their screen looks like. `chosen` is false until somebody has actually picked these rather than been given them.",
+          "This person's timezone, default currency and color theme. Read it before dating anything: what counts as today is decided by their timezone, not the server's, and a transaction dated by the wrong one lands on the wrong day. `theme` is `system`, `light` or `dark`, where `system` means they follow whatever their own machine is set to; it affects nothing but what their screen looks like. `chosen` is false until somebody has actually picked these rather than been given them.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(preferencesResultSchema),
         annotations: readAnnotations,
@@ -1271,7 +1271,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
         const options = {
           mayMutateCategories: scopes.has("ledger:write"),
         };
-        // Both branches now, because stageCsv honours the key itself.
+        // Both branches now, because stageCsv honors the key itself.
         return runTool(() => stageCsv(actor, input, undefined, options));
       },
     );
@@ -1732,7 +1732,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Set preferences",
         description:
-          'Set the timezone, the default currency, or the colour theme. What you leave out keeps its current value. The timezone decides what today means everywhere a date is worked out, so changing it changes which day an open-ended range stops at and which day an entry dated "today" lands on. Confirm it with the person before changing it; there is no version to check and no undo beyond setting it back. The theme is `system`, `light` or `dark`, where `system` follows whatever the person\'s own machine is set to and is the only one of the three that keeps following it when they change it. Set the theme only when asked to: it is what their screen looks like, and you cannot see it.',
+          'Set the timezone, the default currency, or the color theme. What you leave out keeps its current value. The timezone decides what today means everywhere a date is worked out, so changing it changes which day an open-ended range stops at and which day an entry dated "today" lands on. Confirm it with the person before changing it; there is no version to check and no undo beyond setting it back. The theme is `system`, `light` or `dark`, where `system` follows whatever the person\'s own machine is set to and is the only one of the three that keeps following it when they change it. Set the theme only when asked to: it is what their screen looks like, and you cannot see it.',
         // Every field of the patch is optional, so without this an agent is
         // told `{ idempotencyKey }` alone is a valid call and finds out
         // otherwise from a runtime refusal. The service checks it too; this is

@@ -61,7 +61,7 @@ function count(value: unknown) {
 
 /**
  * List exact stored spellings. Logical duplicate grouping is deliberately done
- * in JavaScript so Unicode NFKC normalisation is identical to browser/import
+ * in JavaScript so Unicode NFKC normalization is identical to browser/import
  * canonicalization rather than dependent on database collation behavior.
  */
 export async function payeeSummaries(executor: Executor, actor: Actor) {
@@ -71,7 +71,7 @@ export async function payeeSummaries(executor: Executor, actor: Actor) {
 /**
  * The one logical payee a name belongs to, rather than all of them.
  *
- * The normalisation is spelled out in SQL here and in JavaScript everywhere
+ * The normalization is spelled out in SQL here and in JavaScript everywhere
  * else. It has to be the same rule, and it is the same rule findDuplicate
  * already uses on the same column, so the two spellings are checked against
  * each other in tests rather than trusted.

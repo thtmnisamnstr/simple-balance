@@ -11,7 +11,7 @@ import { TimezoneProvider } from "../src/client/timezone.js";
 /**
  * The three forms after their derived values stopped being state.
  *
- * Every case here is behaviour that used to be produced by an effect writing
+ * Every case here is behavior that used to be produced by an effect writing
  * state or by a `useMemo` whose dependency array had drifted from what the body
  * reads. None of it should have changed, which is the point of the file: it is
  * the evidence that clearing the warnings left the screens alone.

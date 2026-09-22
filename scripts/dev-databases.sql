@@ -1,4 +1,4 @@
--- Runs once, the first time the development database container initialises.
+-- Runs once, the first time the development database container initializes.
 --
 -- The integration suite needs a database of its own so it can be reset without
 -- touching whatever you have been working with. Creating it here means

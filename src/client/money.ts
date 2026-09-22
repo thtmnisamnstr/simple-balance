@@ -225,7 +225,7 @@ export function sumMoney(amounts: readonly string[]) {
  * The largest of several decimal money strings, compared exactly.
  *
  * Bar widths need the biggest row on show, and the biggest is no longer simply
- * the first now that uncategorised spending is pinned to the bottom of the
+ * the first now that uncategorized spending is pinned to the bottom of the
  * list. Compared as scaled integers rather than through Number, so a value with
  * eighteen fractional digits is ordered by what it says and not by what a float
  * can hold.
@@ -338,7 +338,7 @@ export function formatDate(value: string) {
  *
  * The two places that print one — the activity log and the connected-apps
  * panel — each rolled their own formatter in the browser's zone, so an audit
- * trail read while travelling disagreed with the dates on the entries it
+ * trail read while traveling disagreed with the dates on the entries it
  * audits. Total for formatDate's reason: an unreadable timestamp renders as it
  * arrived rather than unmounting the page, and an unknown zone falls back to
  * the browser's rather than throwing.
@@ -368,8 +368,8 @@ export function formatTimestamp(value: string, timezone: string) {
  * itself says whether money arrived or left. A list of movements has to say so
  * anyway, and it has to say it the same way on every page.
  *
- * It used to say it three ways. The register signed and coloured by type; the
- * reports coloured by the value's own sign; and the review queue, the templates
+ * It used to say it three ways. The register signed and colored by type; the
+ * reports colored by the value's own sign; and the review queue, the templates
  * and the recurrences said nothing at all, so the same withdrawal read three
  * ways in three places and one of the three did not read at all.
  *
@@ -385,8 +385,8 @@ export function movementSign(
   if (type === "withdrawal") return { sign: "−", className: "withdrawal" };
   if (type === "transfer") {
     // A transfer between somebody's own accounts is not spending, so it is
-    // signed but left uncoloured. The inbound side reads as an arrival, which
-    // is why it takes the deposit colour and the outbound side takes none.
+    // signed but left uncolored. The inbound side reads as an arrival, which
+    // is why it takes the deposit color and the outbound side takes none.
     // That asymmetry is the register's own and is preserved here rather than
     // tidied, because tidying it would repaint a screen without being asked.
     if (inbound === true) return { sign: "+", className: "deposit" };

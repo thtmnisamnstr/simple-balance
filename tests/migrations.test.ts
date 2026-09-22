@@ -421,7 +421,7 @@ describe("migration baseline", () => {
  * statement whose work is already done.
  *
  * Neither can be exercised here: CI has no Citus. So this holds the structure
- * rather than the behaviour, which is worth saying out loud — a gate deleted
+ * rather than the behavior, which is worth saying out loud — a gate deleted
  * from the file is caught, a gate that stops working is not.
  */
 describe("the Citus migration decides whether to run", () => {

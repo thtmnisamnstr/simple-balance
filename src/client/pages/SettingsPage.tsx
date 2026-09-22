@@ -30,7 +30,7 @@ import {
 
 /**
  * Named for what each one does rather than for the value it stores. "Follow my
- * system" is a standing instruction, not a colour, and calling it "System"
+ * system" is a standing instruction, not a color, and calling it "System"
  * leaves somebody guessing whose system and when.
  */
 const THEME_CHOICES = [
@@ -133,7 +133,7 @@ export default function SettingsPage({ session }: { session: Session }) {
               </span>
               <div>
                 <h2>Appearance</h2>
-                <p>How the app is coloured. Nothing here changes a figure.</p>
+                <p>How the app is colored. Nothing here changes a figure.</p>
               </div>
             </header>
             {/* Outside a form and with no Save button, unlike everything else on
@@ -483,8 +483,8 @@ function DeleteAccount({ session }: { session: Session }) {
               {summary.data.activeSubscription ? (
                 <>
                   {" "}
-                  Your paid plan is cancelled at the same time, immediately and for good — a
-                  cancelled subscription cannot be restored.
+                  Your paid plan is canceled at the same time, immediately and for good — a canceled
+                  subscription cannot be restored.
                 </>
               ) : null}
             </Note>

@@ -64,7 +64,7 @@ export type OwnDataSummary = {
    * is a number telling somebody how much they are about to lose; this is the
    * one item that costs money and cannot be undone by re-entering it. Deleting
    * the account cancels it at Stripe, immediately, and nothing restores a
-   * cancelled subscription.
+   * canceled subscription.
    */
   activeSubscription: boolean;
 };

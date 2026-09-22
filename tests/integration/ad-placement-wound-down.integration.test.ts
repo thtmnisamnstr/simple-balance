@@ -1,7 +1,7 @@
 /**
  * Stripe configured, nothing for sale — the state an operator winds down into.
  *
- * A file of its own, and that is forced rather than tidy: `getConfig` memoises
+ * A file of its own, and that is forced rather than tidy: `getConfig` memoizes
  * on first call, so a deployment's billing posture is fixed for the life of the
  * process and cannot be varied inside a describe block.
  *

@@ -15,7 +15,7 @@ afterEach(cleanup);
  *
  * `APP_NAME` is the one spelling (`src/shared/version.ts`). `index.html`
  * carries a second, because it is served before any module runs and cannot
- * import one; this holds the two together, the same way the theme-colour
+ * import one; this holds the two together, the same way the theme-color
  * literals in that file are held to the stylesheet.
  */
 describe("the product name", () => {

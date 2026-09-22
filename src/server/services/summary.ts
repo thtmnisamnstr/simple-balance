@@ -80,7 +80,7 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
     group by p.currency
   `);
   // The amount is the posting's; the transaction and the leg are joined only
-  // for the label it was filed under. Recategorising therefore updates past
+  // for the label it was filed under. Recategorizing therefore updates past
   // reports, and a voided entry drops out because its postings already net to
   // nothing.
   //
@@ -111,7 +111,7 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
       on c.user_id = p.user_id
       -- A case rather than a coalesce: a leg with no category is a share the
       -- person left unfiled on purpose, and coalesce would quietly fall
-      -- through to the transaction's own label instead of honouring it.
+      -- through to the transaction's own label instead of honoring it.
       and c.id = case
         when p.leg_id is not null then l.category_id
         else t.category_id
@@ -122,7 +122,7 @@ export async function getSummary(actor: Actor, input: unknown, includeArchived =
       ${archived.filter}
     group by p.currency, c.id, c.name
     having sum(p.amount) <> 0
-    -- Uncategorised last, whatever it totals. It is not a category somebody
+    -- Uncategorized last, whatever it totals. It is not a category somebody
     -- chose, so ranking it against the ones they did puts "work still to do" at
     -- the top of a list meant to answer where the money went. Sorted here
     -- rather than in the page, so an agent reading the summary sees the same

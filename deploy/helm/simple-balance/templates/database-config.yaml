@@ -4,7 +4,7 @@ Patroni's configuration. Everything that is the same for every pod is here;
 identity — which pod, which Citus group — arrives as environment variables from
 the StatefulSet, because those differ per pod and per group.
 
-`bootstrap.dcs` is applied once, when the first cluster member initialises, and
+`bootstrap.dcs` is applied once, when the first cluster member initializes, and
 is then owned by the cluster rather than by this file. Changing a value here
 after that does not reach a running cluster: `patronictl edit-config` does, and
 `docs/citus-runbook.md` says so. That is Patroni's design rather than a

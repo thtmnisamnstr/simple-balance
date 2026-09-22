@@ -7,7 +7,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Report } from "../src/client/api.js";
-import { bucketLabel, labelBudget, labelledBuckets, niceTicks } from "../src/client/charts.js";
+import { bucketLabel, labelBudget, labeledBuckets, niceTicks } from "../src/client/charts.js";
 import { moneyExtent, moneyRatioPercent, moneyScalePercent } from "../src/client/money.js";
 import ReportsPage from "../src/client/pages/ReportsPage.js";
 import { BrowserRouter, Route, Routes } from "../src/client/router.js";
@@ -163,16 +163,16 @@ describe("the axis a chart is read against", () => {
 
   /**
    * A report will draw up to six hundred columns, and six hundred dates under
-   * one is a grey smear. Both ends are always named, or the axis stops saying
+   * one is a gray smear. Both ends are always named, or the axis stops saying
    * where the series begins and ends.
    */
   it("thins the dates evenly, and labels a year of months in full", () => {
-    expect(labelledBuckets(4)).toEqual([0, 1, 2, 3]);
+    expect(labeledBuckets(4)).toEqual([0, 1, 2, 3]);
     // Twelve months all get a label. Spreading a fixed count across the range
     // instead rounded to 0, 1, 2, 4, 5, 6, 7 and skipped April on its own.
-    expect(labelledBuckets(12)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(labeledBuckets(12)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 
-    const many = labelledBuckets(600);
+    const many = labeledBuckets(600);
     expect(many.length).toBeLessThanOrEqual(12);
     expect(many[0]).toBe(0);
     // Every gap identical, because a stride cannot bunch.
@@ -181,7 +181,7 @@ describe("the axis a chart is read against", () => {
   });
 
   /**
-   * Twelve dates read well across a report panel and are a grey smear across a
+   * Twelve dates read well across a report panel and are a gray smear across a
    * phone, where they overlapped into one illegible line. The budget comes from
    * the measured width of the drawing rather than from a breakpoint, because the
    * same chart is wide on this page and narrow in a card at the same viewport.
@@ -198,10 +198,10 @@ describe("the axis a chart is read against", () => {
   });
 
   it("thins to whatever budget it is given", () => {
-    expect(labelledBuckets(12, 4)).toEqual([0, 3, 6, 9]);
-    expect(labelledBuckets(12, 12)).toHaveLength(12);
+    expect(labeledBuckets(12, 4)).toEqual([0, 3, 6, 9]);
+    expect(labeledBuckets(12, 12)).toHaveLength(12);
     // A budget of nothing still returns something rather than dividing by zero.
-    expect(labelledBuckets(4, 0)).toEqual([0]);
+    expect(labeledBuckets(4, 0)).toEqual([0]);
   });
 
   /**
@@ -221,12 +221,12 @@ describe("the axis a chart is read against", () => {
   });
 
   it("labels nothing when there is nothing to label", () => {
-    expect(labelledBuckets(0)).toEqual([]);
+    expect(labeledBuckets(0)).toEqual([]);
   });
 });
 
 // The chart palette moved to tests/theme-tokens.test.ts, which checks it in both
-// themes. Counting the rules here could not survive that: a colour set matched
+// themes. Counting the rules here could not survive that: a color set matched
 // with `new Set` collapses a duplicated dark palette back to ten and passes while
 // two definitions of the palette exist, which is the drift that mattered.
 

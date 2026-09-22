@@ -227,7 +227,7 @@ one. They hold the order the steps go in and the traps in them, and they cite
 the guides rather than restating them, so the rules still live in one place.
 
 `npm run verify` is typecheck, lint, format, tests and build, and it has to pass.
-Add a test for the behaviour you changed: this repository tests heavily and a
+Add a test for the behavior you changed: this repository tests heavily and a
 change with no test is a change nobody can keep. If you touched anything with a
 database behind it, run `npm run test:integration` against a throwaway
 PostgreSQL, and if you touched the browser app, `npm run test:browser`.

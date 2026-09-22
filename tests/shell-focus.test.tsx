@@ -18,7 +18,7 @@ import { Alert } from "../src/client/components.js";
  * shell needs a session, a router, a query client and a timezone provider to
  * mount, and the properties under test — that a skip link exists and is first,
  * that the column behind the drawer goes inert, that navigation moves focus —
- * are structural. The fourth is behaviour and is rendered.
+ * are structural. The fourth is behavior and is rendered.
  */
 // Rendered tests share one document, and this suite renders two alerts with
 // the same role. Nothing in `vitest.config.ts` cleans up between cases.
@@ -109,7 +109,7 @@ describe("the mobile drawer", () => {
 });
 
 /**
- * And the one that is behaviour: where focus goes when the button goes.
+ * And the one that is behavior: where focus goes when the button goes.
  *
  * A bulk action's button lives in the selection bar, and finishing the work
  * unmounts the bar. Focus fell to `<body>`, so the next Tab started at the top

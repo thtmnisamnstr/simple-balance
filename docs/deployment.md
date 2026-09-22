@@ -109,7 +109,7 @@ a refusal is explainable rather than surprising.
 | Limit | Value | What hits it |
 | --- | --- | --- |
 | Rows in one mass edit or mass delete | 10,000 | A selection larger than this is refused rather than truncated. Split the work across calls; each one stands or falls on its own. |
-| Category legs on one transaction | 50 | Far past a receipt anybody itemises by hand. A split is the whole counter-side of the entry rewritten, so the cost is paid on every read of it. |
+| Category legs on one transaction | 50 | Far past a receipt anybody itemizes by hand. A split is the whole counter-side of the entry rewritten, so the cost is paid on every read of it. |
 | Recurring transactions per person | 200 | Each one is a standing instruction that proposes rows on every tick, so an uncapped list is a way to flood Staged transactions with nothing but `ledger:write`. |
 | Transaction templates per person | 200 | A template is read into the form's dropdown on every visit, so the list is loaded whole rather than paged. |
 | Columns in one report | 600 | A long history asked for weekly buckets is thousands of columns nobody can read. Refused with the coarser bucket named, rather than served slowly. |
@@ -172,7 +172,7 @@ prices net, and the table of what is on in which combination.
 The five Stripe settings are set together or not at all, and they answer only
 whether Stripe can be reached. `SB_BILLING_ENABLED` answers the separate
 question of whether anything is for sale. That split is what lets a deployment
-stop selling while it goes on honouring — and listening to — the subscriptions
+stop selling while it goes on honoring — and listening to — the subscriptions
 people are already paying for. Set none of it and this process never opens a
 connection to Stripe.
 
@@ -180,11 +180,11 @@ connection to Stripe.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `PRIVACY_POLICY_URL` | unset | Where this deployment's privacy policy lives. **Required whenever AdSense is configured** — Google's programme policies require one on any site serving their ads, and the server refuses to start without it rather than letting an operator breach them from the first impression. Must be absolute and https. Linked from the sidebar on every page. |
+| `PRIVACY_POLICY_URL` | unset | Where this deployment's privacy policy lives. **Required whenever AdSense is configured** — Google's program policies require one on any site serving their ads, and the server refuses to start without it rather than letting an operator breach them from the first impression. Must be absolute and https. Linked from the sidebar on every page. |
 | `ADSENSE_CLIENT_ID` | unset | The AdSense publisher id, `ca-pub-` followed by sixteen digits. The dashboard shows it as `pub-…`, and the missing `ca-` prefix is refused at startup because it otherwise fails by rendering nothing, which looks exactly like having no inventory. |
 | `ADSENSE_BANNER_SLOT_ID` | unset | The ad unit shown once in the application shell. Ten digits. Set with the client id or not at all. |
 | `ADSENSE_FOOTER_SLOT_ID` | unset | A second unit at the foot of the page. Off unless you set it, and an addition to the banner rather than a replacement, so setting it alone refuses to start. |
-| `ADSENSE_CONSENT_MANAGED` | `false` | Whether a certified consent platform is collecting consent. Off by default, and then every ad request forces non-personalised ads, which Google serves without a platform at all. Set it to `true` once you have published a European regulations message in AdSense's own **Privacy and messaging** — free, part of your account, and delivered by the ad tag this app already loads, so nothing is added here. It then stops forcing the flag and lets the platform's answer decide. Nothing in this software can check the platform exists. See `monetization.md`. |
+| `ADSENSE_CONSENT_MANAGED` | `false` | Whether a certified consent platform is collecting consent. Off by default, and then every ad request forces non-personalized ads, which Google serves without a platform at all. Set it to `true` once you have published a European regulations message in AdSense's own **Privacy and messaging** — free, part of your account, and delivered by the ad tag this app already loads, so nothing is added here. It then stops forcing the flag and lets the platform's answer decide. Nothing in this software can check the platform exists. See `monetization.md`. |
 
 **Know what this costs before turning it on.** AdSense publishes no list of the
 hosts it loads from, so serving it means widening this app's content security
@@ -572,7 +572,7 @@ when it is not, so silence there means the setting took.
 
 Only leave `TRUST_PROXY` off when the application is reached directly, or when
 the proxy in front passes through `X-Forwarded-For` rather than replacing it.
-With it off, an address a caller made up is ignored in favour of the connection
+With it off, an address a caller made up is ignored in favor of the connection
 they actually opened; with it on and a proxy that appends, a caller can put
 whatever they like at the front of the chain.
 

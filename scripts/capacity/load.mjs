@@ -309,7 +309,7 @@ async function fire(user, kind) {
  * One of a list, uniformly.
  *
  * `randomInt` rather than `Math.random`, and the reason is a linter rather than
- * a requirement: nothing this driver randomises is a secret — which request to
+ * a requirement: nothing this driver randomizes is a secret — which request to
  * fire, which account to touch, what to rename a payee to — so `Math.random`
  * was correct and CodeQL's `js/insecure-randomness` flagged all four uses
  * anyway. The rule cannot tell a load generator from a token mint. Swapping it
@@ -383,7 +383,7 @@ async function drive({ seconds, rateAt, phaseAt, pool, record, label }) {
  * The largest CSV the product accepts, in the format it round-trips.
  *
  * Built from a real export rather than from a header written out here, and that
- * is the whole design. The import only recognises a file as one of its own when
+ * is the whole design. The import only recognizes a file as one of its own when
  * *every* one of the nineteen app columns is present, and the format marker is
  * a version string rather than a number. A hand-written header got both wrong —
  * fourteen columns and a `1` — so all ten imports in the first full run came
@@ -628,7 +628,7 @@ async function databaseState() {
  *
  * A flag rather than an assumed window, and the difference is not cosmetic. The
  * first spelling guessed ten minutes; a rehearsal with `--imports-at 0` then
- * labelled every request in a one-minute run as an import, which left the steady
+ * labeled every request in a one-minute run as an import, which left the steady
  * arm with no samples — and an arm with no samples reports a 0 ms p95 and a
  * 100% error rate, which is a failing verdict on a phase that never ran.
  * Imports take as long as they take, and only the driver knows when.

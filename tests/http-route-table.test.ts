@@ -120,7 +120,7 @@ describe("the conventions the paths follow", () => {
    * bound in one place. `GET /api/v1/audit-events` was the exception: it read
    * `cursor` and `limit` by hand and handed `Number(c.req.query("limit"))` to
    * the service, so `?limit=x` arrived as `NaN` and the service grew a guard
-   * against it — the right defence in the wrong place, and invisible to a
+   * against it — the right defense in the wrong place, and invisible to a
    * comparison of route lists.
    *
    * A bare JavaScript conversion is the thing worth refusing rather than the
@@ -142,7 +142,7 @@ describe("the conventions the paths follow", () => {
    *
    * Eight reads remain and every one of them hands its string straight to
    * something that parses it — `queryBooleanSchema` for the flag,
-   * `isoDateSchema` inside the service for the dates. That is the defence in
+   * `isoDateSchema` inside the service for the dates. That is the defense in
    * the right place, so these are not defects; naming them is what makes a
    * ninth a decision somebody made rather than one that arrived.
    */

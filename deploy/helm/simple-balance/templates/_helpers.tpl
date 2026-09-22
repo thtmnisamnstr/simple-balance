@@ -385,7 +385,7 @@ point of running it. A worker is never connected to directly: Citus routes.
 {{/*
 The three database passwords, decided once per render and kept across upgrades.
 
-Three things have to be true at once and none of them is the default behaviour.
+Three things have to be true at once and none of them is the default behavior.
 A password the operator set wins. A password already in the cluster is kept,
 because rolling the superuser password out from under a running Patroni cluster
 on every `helm upgrade` would break replication and the failover with it. And a

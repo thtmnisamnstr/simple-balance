@@ -143,7 +143,7 @@ export function laterOf(left: string, right: string) {
  */
 export function calendarDayIn(instant: Date, timezone: string) {
   // The stored timezone is free text, checked only when it was written, so an
-  // ICU update or a hand-edited row can leave one unrecognisable years later.
+  // ICU update or a hand-edited row can leave one unrecognizable years later.
   // Inside a loop that serves everybody, one such row must not be able to throw.
   //
   // The locale decides nothing here and is only ever a label: every part is

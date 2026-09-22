@@ -102,7 +102,7 @@ docker compose down -v
 # 4. Pull this release, which brings up an empty PostgreSQL 18.
 git pull && docker compose up -d postgres
 #    `-h 127.0.0.1` matters here as much as `-T` did above: the entrypoint runs a
-#    temporary server while it initialises, and that one answers on the unix
+#    temporary server while it initializes, and that one answers on the unix
 #    socket alone. Without it this loop finishes against a server about to be
 #    replaced, and the restore below meets `the database system is shutting down`.
 until docker compose exec -T postgres \
@@ -180,7 +180,7 @@ combination turns on. Two names join the seven that already take a `_FILE` form,
 easiest to miss because they are not in either `.env.example`: nginx serves the
 application shell in that shape, so it — not the API — decides the content
 security policy each page arrives with. `SB_BILLING_CONFIGURED` and
-`SB_ADS_CONFIGURED` default to false, which is exactly today's behaviour. Set
+`SB_ADS_CONFIGURED` default to false, which is exactly today's behavior. Set
 Stripe on the server without the first and the plan tab opens with no card
 fields; set AdSense without the second and no ad renders. The compose recipe
 derives both from settings you are already providing, so only a hand-assembled
@@ -374,7 +374,7 @@ Dark, which stay put, and Follow my system, which is the default and changes whe
 the machine does.
 
 Three things change in the light theme as a consequence, all of them repairs. Six
-greys carrying real text were below the contrast a person needs to read them —
+grays carrying real text were below the contrast a person needs to read them —
 the input placeholder was the worst at 2.65:1 — and they now sit on one three-step
 ramp that clears it. The border on an input was 1.39:1 against the field it edges,
 which is not a boundary — and an input here is white on a white card, so that

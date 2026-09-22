@@ -213,8 +213,8 @@ integration("what a CSV round trip preserves", () => {
   });
 
   // A file written before the reference column existed still has to import,
-  // which is why the column is not part of what makes a file recognisable.
-  it("still recognises a file with none of the new columns", () => {
+  // which is why the column is not part of what makes a file recognizable.
+  it("still recognizes a file with none of the new columns", () => {
     const shipped = [
       "simple_balance_format",
       "transaction_id",

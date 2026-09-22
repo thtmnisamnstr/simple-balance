@@ -179,7 +179,7 @@ application writes for a deposit and a withdrawal.
 | The import window | 15,000 | 25 ms | 30,372 ms | 43,663 ms | 0.93% (140) |
 
 **The import row understates itself, and by how much is known.** The run
-labelled requests as belonging to the import window by a fixed ten minutes from
+labeled requests as belonging to the import window by a fixed ten minutes from
 the moment the imports began, and the imports actually took 161 seconds — so
 about 4,000 of those 15,000 requests overlapped an import and roughly 11,000 did
 not. Diluted that way, the figure shown as the 95th percentile is nearer the

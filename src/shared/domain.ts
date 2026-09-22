@@ -85,7 +85,7 @@ export const accountTypeOrder: readonly UserAccountType[] = [
  * left out.
  *
  * The type is read as a plain string because the dashboard summary sends it as
- * one. A type this does not recognise is grouped under itself and sorted to the
+ * one. A type this does not recognize is grouped under itself and sorted to the
  * end rather than dropped, so a new type shows up unstyled instead of
  * disappearing from the page.
  */
@@ -339,7 +339,7 @@ const freeText = <T extends z.ZodString>(schema: T) =>
  * The most category legs one entry may be split into. A split is the whole of
  * the counter-account side of the entry rewritten as several postings, so the
  * cost of a large one is paid on every read of that entry, not just on the
- * write. Fifty is far past a receipt anybody itemises by hand and still small
+ * write. Fifty is far past a receipt anybody itemizes by hand and still small
  * enough that a hydrated page of them is a page.
  */
 export const MAX_TRANSACTION_LEGS = 50;
@@ -478,7 +478,7 @@ function checkTransactionLegs(
  */
 const transactionShapeCommon = {
   payee: oneLine(z.string().trim().min(1, "Payee is required").max(160)).describe(
-    "Who the money went to or came from. Case and spacing are canonicalised to the spelling already in use; any other variation starts a second payee somebody has to merge later. It is part of the duplicate check.",
+    "Who the money went to or came from. Case and spacing are canonicalized to the spelling already in use; any other variation starts a second payee somebody has to merge later. It is part of the duplicate check.",
   ),
   description: freeText(z.string().trim().max(240))
     .optional()
@@ -650,7 +650,7 @@ const stagedDraftSchema = z
       .unknown()
       .optional()
       .describe(
-        "Who the money went to or came from. Canonicalised against the spelling this ledger already uses when the row is staged, not when it commits.",
+        "Who the money went to or came from. Canonicalized against the spelling this ledger already uses when the row is staged, not when it commits.",
       ),
     categoryId: z
       .unknown()
@@ -719,7 +719,7 @@ const blankToAbsent = <T extends z.ZodTypeAny>(schema: T) =>
   );
 
 /**
- * The same rule for a list. `blankToAbsent` only recognises a blank string, so
+ * The same rule for a list. `blankToAbsent` only recognizes a blank string, so
  * an empty `legs` array would survive into storage as a template that says "I
  * was saved with no legs" rather than one that never mentioned legs at all.
  */
@@ -1090,7 +1090,7 @@ export const categoryMergeSchema = z.object({
   // has always demanded a key; this one has never accepted one, and 0.1.5
   // clients — the browser included — merge without sending anything. Refusing
   // those requests on upgrade would break a working client to fix a defect it
-  // was not having. So a key sent is honoured, a key left out behaves exactly
+  // was not having. So a key sent is honored, a key left out behaves exactly
   // as it did, and a later release may narrow it once every client sends one.
   //
   // The versions do not make this redundant. A retry after a timeout arrives
@@ -1403,7 +1403,7 @@ export type BudgetGroupPolicy = (typeof budgetGroupPolicies)[number];
 /**
  * A group somebody names, with the one decision that cannot be silent.
  *
- * The name is normalised the way a category's is, so "Fixed costs" and "fixed
+ * The name is normalized the way a category's is, so "Fixed costs" and "fixed
  * costs" are one group rather than two that split a budget between them.
  */
 export const categoryGroupCreateSchema = z
@@ -1445,7 +1445,7 @@ export type BudgetAmountRule = (typeof budgetAmountRules)[number];
 
 /**
  * A budget may be zero, which is a real budget meaning "anything here is over".
- * It may not be negative. Without this the value travelled all the way to the
+ * It may not be negative. Without this the value traveled all the way to the
  * table's check constraint and came back as a 500 with a stack trace, for what
  * is only ever a mistyped amount.
  */
@@ -1479,7 +1479,7 @@ const budgetTarget = {
  * Exported because five routes used to compare `=== "true"` by hand, which
  * silently reads `?includeArchived=yes` as false: the caller asked for
  * something, was not refused, and got the opposite. This refuses anything that
- * is not `true` or `false`, which is the behaviour a caller can learn from.
+ * is not `true` or `false`, which is the behavior a caller can learn from.
  *
  * The budget report was a sixth. It kept its own `=== "true"` in the transport
  * for two flags that default to **on**, so `?includeArchived=1` turned them off
@@ -1944,7 +1944,7 @@ export type StageSortField = (typeof stageSortFields)[number];
  * `GET /api/v1/audit-events` read `cursor` and `limit` out of the query string
  * by hand and handed `Number(c.req.query("limit"))` to the service, so `?limit=x`
  * arrived as `NaN` and the service defended itself against it — the right
- * defence in the wrong place, and one the MCP tool's own inline shape said
+ * defense in the wrong place, and one the MCP tool's own inline shape said
  * nothing about. Shared for the same reason every other list contract is: one
  * description, and two transports that cannot come to disagree about a bound.
  *
@@ -2182,7 +2182,7 @@ const bulkTransactionPatchSchema = z
     payee: oneLine(z.string().trim().min(1, "Payee is required").max(160))
       .optional()
       .describe(
-        'Renames the payee on every selected row to this one, canonicalised against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
+        'Renames the payee on every selected row to this one, canonicalized against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
       ),
     categoryId: uuid()
       .nullable()
@@ -2328,7 +2328,7 @@ export const stageListQuerySchema = listQuerySchema
  * Only the fields `stageFilterConditions` actually applies, with the paging and
  * ordering that describe a view rather than scope it taken out.
  *
- * `.strict()` is the load-bearing part: a filter this cannot honour is an error
+ * `.strict()` is the load-bearing part: a filter this cannot honor is an error
  * rather than a key quietly dropped, because a selection resolves twice and an
  * ignored filter makes the count and the fingerprint agree about the wrong set.
  */
@@ -2476,7 +2476,7 @@ const bulkStagePatchSchema = z
     payee: oneLine(z.string().trim().min(1, "Payee is required").max(160))
       .optional()
       .describe(
-        'Renames the payee on every selected row to this one, canonicalised against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
+        'Renames the payee on every selected row to this one, canonicalized against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
       ),
     categoryId: uuid()
       .nullable()
@@ -3097,7 +3097,7 @@ export const templateNotificationSchema = z
      * `.strict()` below refuses anything else, which is what catches a typo. But
      * it also refused a caller its own output: an agent reads a template, changes
      * the time, and sends the object back — the only way it can, having no form
-     * to fill in — and was told `repeats` was an unrecognised key. `repeats` is
+     * to fill in — and was told `repeats` was an unrecognized key. `repeats` is
      * `frequency !== null` restated, and the two dates are watermarks the
      * scheduler owns, so there is nothing here worth refusing.
      */
@@ -3314,7 +3314,7 @@ export type Entitlement =
  * Which Stripe subscription statuses entitle somebody to the paid plan.
  *
  * `trialing` is here deliberately. No trial is sold, so the only way one exists
- * is that an operator made it in Stripe's dashboard — and refusing to honour a
+ * is that an operator made it in Stripe's dashboard — and refusing to honor a
  * trial somebody deliberately granted would be this product overruling its own
  * operator. Everything absent from this set, including a status Stripe adds
  * after this was written, falls to the free plan: nobody loses an account they
@@ -3340,7 +3340,7 @@ export function resolveEntitlement(input: {
   /**
    * Every subscription row this person has, not the newest one.
    *
-   * Somebody who cancelled and resubscribed has two, and Stripe guarantees no
+   * Somebody who canceled and resubscribed has two, and Stripe guarantees no
    * ordering between the deliveries that wrote them — so choosing by which was
    * read most recently lets a late-arriving cancellation outrank the live
    * subscription beside it. What decides the plan is whether *any* of them
@@ -3589,7 +3589,7 @@ export function subscriptionAction(input: {
   // A subscription on a price this deployment has stopped selling reads as
   // neither interval, and charging that person now — moving the renewal date
   // they have been billed against — is not a thing to do off a value that means
-  // "I do not recognise this".
+  // "I do not recognize this".
   //
   // And one that owes money already has an unpaid invoice. The upgrade path
   // bills the difference on the spot, so taking it here charges a card that is

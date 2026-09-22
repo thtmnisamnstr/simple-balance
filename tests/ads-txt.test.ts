@@ -4,12 +4,12 @@ import app from "../src/server/api.js";
 /**
  * The file that decides whether an operator is paid.
  *
- * AdSense treats inventory on a domain with no `/ads.txt` as unauthorised and
+ * AdSense treats inventory on a domain with no `/ads.txt` as unauthorized and
  * pays nothing for it. The failure is silent from inside the product — ads
  * render, impressions happen, revenue is zero — so the file existing and being
  * correct is worth pinning rather than trusting.
  */
-describe("the authorised-sellers file", () => {
+describe("the authorized-sellers file", () => {
   const environment = { ...process.env };
 
   afterEach(() => {
@@ -35,13 +35,13 @@ describe("the authorised-sellers file", () => {
     return module.default;
   }
 
-  it("declares Google as an authorised seller for the operator's own publisher id", async () => {
+  it("declares Google as an authorized seller for the operator's own publisher id", async () => {
     const server = await freshApp(true);
     const response = await server.request("http://localhost/ads.txt");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/plain");
     // `pub-…`, not `ca-pub-…`. The ad code uses one spelling and this file uses
-    // the other, and the wrong one parses cleanly while authorising nobody.
+    // the other, and the wrong one parses cleanly while authorizing nobody.
     expect(await response.text()).toBe(
       "google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n",
     );

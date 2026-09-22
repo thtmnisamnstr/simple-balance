@@ -81,14 +81,14 @@ same paragraph or it does not get written.
 
 `AGENTS.md` is the authority here: a query that forgets the scope is a
 cross-tenant read, which is the one class of bug in this product that cannot be
-apologised for.
+apologized for.
 
 *Checked by:* `tests/integration/tenant-isolation.integration.test.ts`, which
 walks the surface with two users and asserts neither can see the other.
 
 ### 1.2 The transport layer decides nothing
 
-**House.** A route parses, calls one service function, and serialises. It does
+**House.** A route parses, calls one service function, and serializes. It does
 not branch on business rules. The test for whether a line is in the wrong place:
 if the MCP and the HTTP API would both need it, it belongs in the service.
 
@@ -265,7 +265,7 @@ Same key and same request returns the stored response. Same key and a
 something else and silently returning the old answer would be worse than
 refusing.
 
-The hash is over a canonicalised payload
+The hash is over a canonicalized payload
 (`src/server/services/helpers.ts:168`):
 keys sorted, `undefined` dropped, dates as ISO strings. Without that, two
 identical requests whose JSON key order differed would hash differently and the
@@ -282,7 +282,7 @@ now pad the counter rather than the string
 transaction and staging idempotency keys to their request": the same request
 twice comes back as one row, the same key over a changed amount is refused as a
 `conflict`, and a stage whose `rawData` keys arrive in the other order still
-replays, which is the canonicalisation being exercised rather than the key.
+replays, which is the canonicalization being exercised rather than the key.
 Two simultaneous retries are covered a few cases below it. That a create takes a
 key at all is held only on the agent surface, by
 `tests/mcp-measurements.test.ts`, which counts the mutating tools from their
@@ -300,13 +300,13 @@ both read "no", and both create.
 Accounts were the fifth and were added late, which is the point of listing them.
 `createAccount` called `assertAccountNameAvailable` under no lock at all, and
 `updateAccount` held only the per-account-id reference lock — which does not
-serialise two *different* accounts being renamed to the same name. Two
+serialize two *different* accounts being renamed to the same name. Two
 concurrent `POST /api/v1/accounts` naming one account both succeeded. There was
 no `lockAccountNamespace` to have forgotten, which is why a walk of the call
 sites would not have found it: nothing named a lock that did not exist.
 
-The lock is per user and per namespace, so it serialises the smallest thing that
-has to be serialised.
+The lock is per user and per namespace, so it serializes the smallest thing that
+has to be serialized.
 
 Two more rules ride on the locks, and both live in comments a new path will not
 stumble on by itself. First, the order is fixed: all account locks in sorted id
@@ -342,7 +342,7 @@ a payee has no row to constrain at all.
 
 **Binding.** 47 `writeAudit` calls, nine `writeAuditMany`, and seven
 `auditedTransaction`. The audit row carries the entity, the
-operation, and the row before and after, serialised through `serializeRow` so a
+operation, and the row before and after, serialized through `serializeRow` so a
 `Date` does not end up in JSON as something unparseable.
 
 An operation name is a sentence about intent, not a table verb:
@@ -454,13 +454,13 @@ categories. The sequence *is* the algorithm. A linter cannot tell that apart
 from an accident, so the rule is off and the reasoning lives in the comment
 beside the loop.
 
-The rule for a reader: parallelise reads that do not see each other's writes;
-never parallelise a loop whose iterations resolve names.
+The rule for a reader: parallelize reads that do not see each other's writes;
+never parallelize a loop whose iterations resolve names.
 
 *Checked by:* `tests/integration/splits.integration.test.ts`, "creates a category
 named by a leg, and reuses it for a second leg naming the same one" — the outcome
 the sequence exists for, on two legs spelled "Garden supplies" and "garden
-supplies", asserting they land on one id. Resolution matches on a normalised name
+supplies", asserting they land on one id. Resolution matches on a normalized name
 and stores the raw one, so two legs resolved side by side would insert two rows
 that `category_user_name_unique` is perfectly happy with, and the assertion
 fails. Nothing checks the other half, that the loop stays sequential, because the

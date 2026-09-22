@@ -409,13 +409,13 @@ describe("the Overview's budget panel", () => {
     expect(within(panel).queryByText("Uncategorized")).not.toBeInTheDocument();
   });
 
-  it("says which categories are over, in words as well as colour", async () => {
+  it("says which categories are over, in words as well as color", async () => {
     stub();
     renderOverview();
     const panel = await budgetPanel();
     await within(panel).findByRole("link", { name: "Groceries" });
     // Groceries spent 245 of 200. The bar's accessible name carries the same
-    // judgement the badge does, so the state never reaches somebody as colour
+    // judgement the badge does, so the state never reaches somebody as color
     // alone.
     expect(
       screen.getByRole("img", { name: /Groceries: Over, \$245\.00 of \$200\.00/ }),

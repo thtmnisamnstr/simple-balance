@@ -307,7 +307,7 @@ app.use("*", async (c, next) => {
  * twice over, though, and those two cases are not the same thing: a mistyped
  * URL that matched no route, and a request answered by middleware mounted on
  * `*` before any route ran — which is where a 413 from the body limit lands.
- * Labelling both "unmatched" put a refused CSV upload in the same series as a
+ * Labeling both "unmatched" put a refused CSV upload in the same series as a
  * typo, so the prefix decides between them, from a fixed list.
  */
 const KNOWN_PREFIXES = ["api", "mcp", "health", ".well-known", "metrics", "assets"] as const;
@@ -431,7 +431,7 @@ app.get("/health/ready", async (c) => {
 });
 
 app.use("/api/auth/*", async (c, next) => {
-  // These answer with a cookie for authorisation and hand back session tokens,
+  // These answer with a cookie for authorization and hand back session tokens,
   // IP addresses and user agents, which is exactly what a shared cache or a
   // browser's back-forward store will hold on to by default.
   //
@@ -552,7 +552,7 @@ app.post("/api/auth/sign-up/email", async (c) => {
     return c.json(
       transportError(
         "INVALID_SETUP_TOKEN",
-        "That setup code was not recognised. Copy it from the server log at startup.",
+        "That setup code was not recognized. Copy it from the server log at startup.",
       ),
       403,
     );
@@ -936,7 +936,7 @@ app.post("/api/auth/oauth2/consent", async (c) => {
 // nobody reads. Registered above the catch-all because Hono runs matching
 // handlers in registration order and the catch-all answers; and through an
 // arrow, because `protectedResourceMetadata` is declared further down and a
-// bare reference here would be read before its initialiser has run.
+// bare reference here would be read before its initializer has run.
 app.get("/api/auth/.well-known/oauth-protected-resource", (c) => protectedResourceMetadata(c));
 app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)));
 /**
@@ -954,7 +954,7 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => getAuth().handler(authRequest(c)))
  * names by hand as a thing worth fixing.
  *
  * **It is not fixed here, and that is deliberate.** Narrowing this to
- * `ledger:read` is a behaviour change for anybody who re-authorises after
+ * `ledger:read` is a behavior change for anybody who re-authorizes after
  * upgrading: they would come back read-only and regain write only if their
  * client implements the RFC 6750 step-up. The MCP SDK does; a client written
  * against an older SDK, or by hand, may not, and would lose the ability to
@@ -1158,7 +1158,7 @@ if (getConfig().billing) {
     const customerId = stripeCustomerIdForEvent(event);
 
     // A customer Stripe no longer has. The subscriptions it owned were
-    // cancelled by the same action and arrive as their own deliveries, so all
+    // canceled by the same action and arrive as their own deliveries, so all
     // that is left here is the mapping — which, kept, would make the next
     // attempt to subscribe fail against a customer that does not exist.
     if (event.type === "customer.deleted" && customerId) {
@@ -1213,7 +1213,7 @@ if (getConfig().billing) {
  *
  * Outside `/api/v1` and above its guards, and that is forced rather than
  * chosen. A violation report is sent by the browser with no `Origin` this app
- * would recognise and a content type of its own — `application/csp-report` or
+ * would recognize and a content type of its own — `application/csp-report` or
  * `application/reports+json`, never `application/json` — so under
  * `protectBrowserMutation` every report would be refused before it was read,
  * and the rehearsal would produce silence indistinguishable from a clean run.
@@ -1228,7 +1228,7 @@ if (getConfig().billing) {
  * whatever they like, and the browser's own reports carry URLs from pages this
  * app does not control. Newlines would let one report write several log lines —
  * a forged "error" among them — and an unbounded string would let one request
- * fill a disk. Neither is exotic; both are what an unsanitised log line is for.
+ * fill a disk. Neither is exotic; both are what an unsanitized log line is for.
  */
 const field = (value: unknown) => {
   if (typeof value !== "string" || value === "") return "something";
@@ -1265,11 +1265,11 @@ if (getConfig().cspReportOnly) {
 }
 
 /**
- * The authorised-sellers file, derived rather than configured.
+ * The authorized-sellers file, derived rather than configured.
  *
  * An ad is only paid for if the domain serving it declares who may sell its
  * inventory, at `/ads.txt`, in plain text, at the root. Without it AdSense
- * treats the inventory as unauthorised and the operator earns nothing — which
+ * treats the inventory as unauthorized and the operator earns nothing — which
  * is the whole point of the feature failing silently.
  *
  * Derived from the publisher id rather than asked for, because there is exactly
@@ -1280,7 +1280,7 @@ if (getConfig().cspReportOnly) {
  *
  * Note the id loses its `ca-` prefix here. `ca-pub-…` is the ad code's spelling
  * and `pub-…` is this file's; using the wrong one is a file that parses and
- * authorises nobody. The trailing constant is Google's own certification
+ * authorizes nobody. The trailing constant is Google's own certification
  * authority id, the same for every publisher.
  *
  * An operator selling through other partners as well needs more lines than
@@ -1841,7 +1841,7 @@ app.post(
  * request, the work and the final payload are identical either way, so this
  * chooses a representation rather than stating anything about the contract. A
  * body field would have published the switch on the MCP tool as well, whose
- * transport answers in one JSON object and could never honour it.
+ * transport answers in one JSON object and could never honor it.
  */
 const wantsFrames = (c: Context<AppEnv>) =>
   (c.req.header("Accept") ?? "").includes(PROGRESS_MEDIA_TYPE);

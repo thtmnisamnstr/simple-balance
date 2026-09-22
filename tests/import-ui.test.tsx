@@ -365,7 +365,7 @@ describe("the interpreted preview", () => {
 
   it("stamps an interpretation with the settings it was run under", async () => {
     // The race nothing else can see: change a control while the request is in
-    // flight and the reply, read at the moment it arrives, would be labelled
+    // flight and the reply, read at the moment it arrives, would be labeled
     // with settings it knows nothing about.
     let release: (() => void) | undefined;
     const held = new Promise<void>((resolve) => {

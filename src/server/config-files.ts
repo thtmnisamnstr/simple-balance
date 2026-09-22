@@ -56,7 +56,7 @@ let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
  * are never assigned back into `process.env`, for two reasons, and the second is
  * the load-bearing one.
  *
- * A Node diagnostic report serialises `process.env` as it stands when the report
+ * A Node diagnostic report serializes `process.env` as it stands when the report
  * is written, and `kubectl describe pod` and `kubectl exec -- env` show it too.
  * A value that never enters the environment cannot appear in any of them, which
  * is the whole reason an operator reached for the `_FILE` form.
@@ -70,7 +70,7 @@ let resolved: ReadonlyMap<FileBackedSecret, string> | undefined;
  * entirely, and `db/migrate.ts` needs no knowledge of this file.
  */
 /**
- * Said once per process. `resolveFileBackedSecrets` memoises, so this only
+ * Said once per process. `resolveFileBackedSecrets` memoizes, so this only
  * repeats across a `vi.resetModules()` in tests, but the set costs nothing and
  * makes the intent plain.
  */

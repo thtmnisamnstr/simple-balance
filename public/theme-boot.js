@@ -54,7 +54,7 @@
   // covers everybody on `system` with no script at all. An override is the case
   // media cannot express, because it keys off the machine and not off this app:
   // there the winning meta has to be unscoped or the phone frames a dark page in
-  // the light colour.
+  // the light color.
   if (theme === "light" || theme === "dark") {
     try {
       var metas = document.querySelectorAll('meta[name="theme-color"]');
@@ -65,7 +65,7 @@
         else meta.setAttribute("media", "not all");
       }
     } catch (error) {
-      // A wrong chrome colour is not worth a broken boot.
+      // A wrong chrome color is not worth a broken boot.
     }
   }
 })();

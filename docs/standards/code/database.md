@@ -202,9 +202,9 @@ somebody gives it a case where the two tables disagree.
 
 ### 4.1 Uniqueness by name takes an advisory lock, not a unique index
 
-**House, with a reason.** Names are compared after normalisation — case folded,
+**House, with a reason.** Names are compared after normalization — case folded,
 whitespace collapsed, NFKC — so a unique index on the raw column would not
-express the rule. The lock serialises the read-then-create
+express the rule. The lock serializes the read-then-create
 (`src/server/services/helpers.ts:307`),
 and it is scoped per user so two people naming a category at once do not queue
 behind each other.

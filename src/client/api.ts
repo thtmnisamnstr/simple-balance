@@ -143,7 +143,7 @@ const STREAM_TRUNCATED = "HTTP_STREAM_TRUNCATED";
  *
  * Only true when the server answered — a refusal has a code and a sentence, and
  * an atomic write that was refused wrote nothing. A connection that died says
- * nothing about the outcome: the transaction is not cancelled when a browser
+ * nothing about the outcome: the transaction is not canceled when a browser
  * goes away, so a commit that vanished on the way back may well be in the
  * books, which is what the retained idempotency key exists for. Telling
  * somebody "nothing was committed" there is a guess, and the wrong one more

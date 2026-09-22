@@ -23,7 +23,7 @@ describe("what a plan allows", () => {
     });
   });
 
-  it("honours an active subscription", () => {
+  it("honors an active subscription", () => {
     expect(
       resolveEntitlement({
         billingEnabled: true,
@@ -33,7 +33,7 @@ describe("what a plan allows", () => {
     ).toMatchObject({ plan: "plus", accountLimit: null, source: "subscription" });
   });
 
-  it("honours a trial an operator created, because nothing else could have made one", () => {
+  it("honors a trial an operator created, because nothing else could have made one", () => {
     expect(
       resolveEntitlement({
         billingEnabled: true,
@@ -99,15 +99,15 @@ describe("what a plan allows", () => {
     ).toMatchObject({ plan: "free" });
   });
 
-  it("takes the live subscription when a cancelled one sits beside it, in either order", () => {
-    // Somebody who cancelled and resubscribed has two rows, and Stripe
+  it("takes the live subscription when a canceled one sits beside it, in either order", () => {
+    // Somebody who canceled and resubscribed has two rows, and Stripe
     // guarantees no ordering between the deliveries that wrote them.
     const active = { status: "active", pastDueSince: null } as const;
-    const cancelled = { status: "canceled", pastDueSince: null } as const;
+    const canceled = { status: "canceled", pastDueSince: null } as const;
 
     for (const subscriptions of [
-      [cancelled, active],
-      [active, cancelled],
+      [canceled, active],
+      [active, canceled],
     ]) {
       expect(resolveEntitlement({ billingEnabled: true, subscriptions, now })).toMatchObject({
         plan: "plus",

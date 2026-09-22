@@ -130,14 +130,14 @@ the same path `STRIPE_PUBLISHABLE_KEY` already takes. One published image serves
 every operator with their own account; nothing is compiled in, and there is no
 shared publisher id.
 
-**Ads are requested non-personalised unless a consent platform is collecting
+**Ads are requested non-personalized unless a consent platform is collecting
 consent.** `ADSENSE_CONSENT_MANAGED` defaults to false, and then every request
 carries `requestNonPersonalizedAds` — which is what lets a deployment serve ads
-with no consent platform at all, since Google gates only _personalised_ ads on
+with no consent platform at all, since Google gates only _personalized_ ads on
 one. It is also the right default on its own merits: the page beside the ad is
 showing somebody their own balances.
 
-An operator who wants personalised ads uses **AdSense's own Privacy and
+An operator who wants personalized ads uses **AdSense's own Privacy and
 messaging**, which is a certified platform, free, and part of the account they
 already have — no second vendor, no second contract, and nothing added to this
 application, because Google's ad tag delivers the consent message itself and
@@ -147,7 +147,7 @@ point: forcing it on top of a platform would override somebody who consented as
 surely as it protects somebody who did not.
 
 **`/ads.txt` is served automatically**, derived from the publisher id. Without
-it AdSense treats the inventory as unauthorised and pays nothing, which is a
+it AdSense treats the inventory as unauthorized and pays nothing, which is a
 failure with no symptom inside the product: the ads render, the impressions
 happen, the revenue is zero. An operator selling through other partners serves
 their own file at the edge.
@@ -182,8 +182,8 @@ publishes only part of the host list Elements actually reaches, so setting this
 makes that page report what its policy would have blocked and block nothing, and
 registers `POST /api/csp-report` for the reports. It reaches that one page:
 every other page goes on enforcing, because learning about a page that renders
-no balances is not worth taking the defence off every page that does. Both
-deployment shapes honour it, and `tests/security-header-parity.test.ts` now
+no balances is not worth taking the defense off every page that does. Both
+deployment shapes honor it, and `tests/security-header-parity.test.ts` now
 compares the TypeScript and the nginx spelling across both surfaces and both
 modes — a comparison that ran only for the default surface before, which is how
 the split deployment shipped a plan tab whose payment form could not load.
@@ -193,7 +193,7 @@ includes, how much of it is used, what it costs — read from Stripe, not from
 this deployment's settings, so the figure on the screen is the figure that gets
 charged — and changes it. Monthly to annual takes effect immediately and charges
 the difference; annual to monthly waits for the renewal, because the period
-already paid for is not this software's to cut short. Cancelling always means
+already paid for is not this software's to cut short. Canceling always means
 "at the end of the period", in both directions.
 
 The tab is a separate document rather than a panel on Settings, and the link
@@ -218,7 +218,7 @@ returns without touching the database where no Stripe is configured, which is
 the default.
 
 **Two metrics for the Stripe seam** — `simple_balance_stripe_requests_total` and
-`simple_balance_stripe_request_duration_seconds`, labelled by operation and
+`simple_balance_stripe_request_duration_seconds`, labeled by operation and
 outcome and by nothing else — and `simple_balance_billing_sweeps_total`, which
 carries an `off` outcome so a deployment that sells nothing is distinguishable
 from one whose sweep has stopped.
@@ -259,7 +259,7 @@ file by hand.
 installed.** The service cleared the categories' group by leaving it to
 `on delete set null`, which a Citus cluster cannot use when the distribution
 column is part of the constraint. It now clears the column itself, which is
-identical behaviour on a single database and the difference between working and
+identical behavior on a single database and the difference between working and
 failing outright on a cluster.
 
 **The release script is no longer told which files pin an image; it is asked.**
@@ -419,7 +419,7 @@ teaches the model that the argument works.
 ### Added
 
 **A category can be put in a group from the categories list.** The control
-existed, in a modal behind an unlabelled pencil, and no row ever said which group
+existed, in a modal behind an unlabeled pencil, and no row ever said which group
 a category was already in — so a page with a Groups panel showing "0 categories"
 and no way to change it read as a feature that does not work. Every row now
 carries its group and changes it in place, the add form files a new category
@@ -568,7 +568,7 @@ A budget is a standing instruction rather than a row per month. Both ends of its
 window are snapped to the period, so any day inside a month names that whole
 month and a budget set today applies today. One plan covers every period in its
 window, so a budget that runs all year is one row and the
-months nobody has reached yet are not materialised by anything. Setting an
+months nobody has reached yet are not materialized by anything. Setting an
 amount for a single period overrides the plan for that period alone, and the
 report says which of the two produced each figure. Windows for one category may
 not overlap, which is what keeps last March answering with what last March
@@ -800,7 +800,7 @@ Committing or deleting staged transactions now refuses a selection that leaves
 out the version for one of its own rows, and says which row, instead of
 reporting it as a version conflict on a row nothing had changed. A repeated id
 in the same selection is refused as a duplicate rather than reported as a row
-that could not be found. Over MCP both requests also refuse an unrecognised
+that could not be found. Over MCP both requests also refuse an unrecognized
 field rather than dropping it — a body typing `expectedVersion` where the field
 is `expectedVersions` is refused by name — and over HTTP they still drop it, as
 they did in 0.1.5. Tightening the HTTP side was in an earlier draft of this
@@ -847,21 +847,21 @@ fingerprint that no longer match the set. The sweep removes a bounded batch per
 pass, so a first sweep after a year of records drains over a few ticks instead
 of locking the table, and it reads by age through an index added for it.
 
-**A greyed-out button says why it is greyed out.** Eight submit and merge
+**A grayed-out button says why it is grayed out.** Eight submit and merge
 controls are disabled until the form is ready and one of them had a sentence
 beside it. It is the one control that can go completely silent: nothing has been
 typed wrongly, so there is no field error, and nothing has been submitted, so
-there is no summary — the button is grey and you guess which of the form's
+there is no summary — the button is gray and you guess which of the form's
 conditions is unmet. Each now carries a sentence under it, wired so a screen
 reader hears it as part of the button rather than as text somewhere nearby, and
 it names the _first_ thing to fix rather than everything outstanding.
 
-**A line chart no longer relies on colour alone.** Ten account colours cannot
-all be told apart under colour-blind vision — the palette here is the best
+**A line chart no longer relies on color alone.** Ten account colors cannot
+all be told apart under color-blind vision — the palette here is the best
 available set and is measured at three times the separation of the six it
 replaced, which is still not enough by itself. Nine of the ten line series now
 carry their own dash rhythm, and the legend swatch beside each one shows the
-same rhythm rather than a block of colour, so a line can be matched to its
+same rhythm rather than a block of color, so a line can be matched to its
 label by shape. The first series stays solid, which is what a single-line chart
 should look like.
 
@@ -882,7 +882,7 @@ undone, which are different decisions for whoever approves the call. Merging
 categories or payees collapses rows into one and there is nothing to unpick, so
 both say so. The four-item list this started from was wrong, and the code caught
 it: deleting transactions in bulk already said it posts a reversal that can be
-undone, and revoking an agent already said it can be authorised again.
+undone, and revoking an agent already said it can be authorized again.
 
 **And a write is counted when it commits.** Every MCP write hands the service a
 transaction the transport opened, so the `ledger_writes_total` increment
@@ -908,7 +908,7 @@ They were all on screen and none of them was connected: a label associated by
 wrapping rather than by name, a hint rendered _after_ the control with nothing
 pointing at it, and no error slot at all — no `aria-invalid` anywhere in the
 app. So a screen reader read a box with a name and no explanation of what to
-type, and a field that was wrong said so in colour and in nothing else. A field
+type, and a field that was wrong said so in color and in nothing else. A field
 that is wrong now says so in three places that agree: the sentence, the control
 marked invalid, and the control pointing at the sentence.
 
@@ -923,7 +923,7 @@ because the hint was not associated at all.
 up to fifty rows of three inputs, and a label around that binds to the first of
 them — so the first leg borrowed the label and every leg after it had no
 accessible name, while the amount and note boxes in the same row had one. The
-field is a labelled group now and each picker names itself: "Category for split
+field is a labeled group now and each picker names itself: "Category for split
 2", and so on.
 
 **A keyboard user can get past the navigation, and stays where they were.**
@@ -997,7 +997,7 @@ A button leads with a verb and takes an object, and two shipped as a bare
 on the other two screens, and "Clear" on one where the others said "Clear
 selection". Two pages carried an eyebrow repeating their own title. And a staged
 row on the transactions list showed a dash where its category should be, so a
-row read as uncategorised on one page and categorised on the next.
+row read as uncategorized on one page and categorized on the next.
 
 `common.md`'s table of worked error sentences is now the sentences the product
 actually says. Six of its thirteen rows named messages that were nowhere in the
@@ -1075,7 +1075,7 @@ matched a UUID anywhere in the draft; both filters read the real fields now.
 Links that promise rows — the post-import review link, the recurrence
 waiting-count — pin the date range that makes those rows visible instead of
 opening a this-month queue that hides them. Removing a middle split leg no
-longer leaves focus on a button that deletes its neighbour. A refused group
+longer leaves focus on a button that deletes its neighbor. A refused group
 rename no longer stays on screen looking accepted. Restoring an archived
 account asks before it moves money, exactly as archiving always did. The
 category picker no longer snaps a typed name onto an archived category's id
@@ -1193,7 +1193,7 @@ Two touching bars in a grouped chart have an edge between them. Adjacent series
 run as close as 1.05:1 against each other, which is fine for lines that rarely
 overlap and not for bars that share a border.
 
-A spreadsheet cell led by a full-width `＝`, `＋`, `－` or `＠` is neutralised on
+A spreadsheet cell led by a full-width `＝`, `＋`, `－` or `＠` is neutralized on
 export, as the ASCII forms already were — Excel and Sheets fold them to the
 ASCII leader before deciding whether a cell is a formula. So is one led by a
 no-break or zero-width space. An older file re-imports unchanged.
@@ -1303,19 +1303,19 @@ put it directly under the picker.
 
 **Two accessibility defects, one of them on the consent screen.** Denying an
 agent's request put the spinner on "Allow access" — the button nobody pressed —
-while the pressed one only greyed out. Both buttons now show the state of the
+while the pressed one only grayed out. Both buttons now show the state of the
 answer actually in flight. And the two CSV preview tables were the only
 scrolling regions in the app a keyboard could not reach, so the columns past the
 right edge could not be read at all.
 
-**And fourteen buttons went grey without saying why**, against a rule that says
+**And fourteen buttons went gray without saying why**, against a rule that says
 they must. The check meant to catch that had been passing since it was written:
 it read a hand-written list of five files, and matched with a pattern that
 cannot cross the `>` inside `onClick={() => …}`, so an arrow-function-first
 button was invisible even in the five it did read. It saw eight buttons and
 eight reasons and reported success. Counting properly finds 22. Ten now carry a
 reason they did not have — including "Add transaction" on three pages, which
-goes grey before you have an account and used to leave a first-time reader with
+goes gray before you have an account and used to leave a first-time reader with
 a dead button and an empty list telling them to add a transaction.
 
 **Five procedures that kept being rediscovered are written down.** Bringing the
@@ -1450,16 +1450,16 @@ would have reached a release as a flash of the wrong theme on every load.
 
 The stylesheet had one palette written into it in 189 places. It now has two, in
 one place each: 57 tokens, every one declared in both themes, with a test that
-fails on a colour written anywhere else and on a token given a value in only one
+fails on a color written anywhere else and on a token given a value in only one
 theme — which is the bug that makes half an app unreadable while looking fine to
-whoever wrote it. Four literals turned out to be two colours sharing a spelling:
+whoever wrote it. Four literals turned out to be two colors sharing a spelling:
 white is both a card and the text on a green button, and only one of those is
 still white in the dark. The same split runs through the accent, where the green
 that reads as a link is not the green a button is filled with, and in dark the
 first has to lift while the second stays dark enough to carry white.
 
 Three repairs to the light theme came out of writing the second one down. Six
-greys carrying real text were under the contrast a person needs, the input
+grays carrying real text were under the contrast a person needs, the input
 placeholder worst at 2.65:1. An input's border was 1.39:1 against the field it
 edges, which is not a boundary — and an input here is white on a white card, so
 that border is the only thing saying where the field is. It holds 3:1 now, and a
@@ -1470,13 +1470,13 @@ semi-transparent; it is opaque now.
 
 The report palette was worse than it looked. Under simulated deuteranopia its
 green and its pink were 1.78 apart as CIEDE2000 measures it, which is to say they
-were the same colour, and that shipped in 0.1.4 when six colours became ten. The
+were the same color, and that shipped in 0.1.4 when six colors became ten. The
 two palettes now reach 5.6 and 4.7 by keeping each slot's hue family across both
 themes and varying lightness, which is the channel that survives. An honest limit
-on that: ten categorical colours cannot all be told apart by somebody with
+on that: ten categorical colors cannot all be told apart by somebody with
 dichromatic vision, and a search that held hue identity and the contrast a line
 needs could not beat about 7 and 4. The remedy is a second channel that is not
-colour, which is a change to the charts rather than to the palette. Until then the
+color, which is a change to the charts rather than to the palette. Until then the
 legend and the table under every chart carry identity, and both are always there.
 
 Emailed notifications, on a schedule, in two kinds.
@@ -1607,7 +1607,7 @@ commits. The one already in the books sits second — on the right, or underneat
 on a phone — and where both are staged the older one does. Only a staged side
 can be dropped, because the way out of a duplicate is to remove the copy that
 has not been recorded yet. It is not a diff: the fields that differ are the ones
-that always differ, and colouring them says nothing a person reading two
+that always differ, and coloring them says nothing a person reading two
 transactions cannot already see.
 
 ### Changed
@@ -1646,7 +1646,7 @@ An idempotency key means the same thing over MCP as it does over the HTTP API.
 Ten MCP writes kept a replay record of their own on top of the one the service
 they call already keeps, and the two matched a retry differently: the outer one
 against the request as it arrived, the inner against what the service had
-normalised. A retry of a mass edit that listed the same rows in a different
+normalized. A retry of a mass edit that listed the same rows in a different
 order was a different request to one and the same request to the other. They
 call their service directly now. Records already written are inert, and no key
 in an existing database loses its replay.
@@ -1667,7 +1667,7 @@ Recurrences report their shape over MCP. `get_recurrence` and
 `list_recurrences` declared it as an unknown value, so the one thing an agent
 reads a recurrence for was the one thing the tools would not describe.
 
-Recategorising the last transaction off a category removes that category. Only
+Recategorizing the last transaction off a category removes that category. Only
 what an edit moved off is considered, so one made ahead of time and standing
 empty on purpose is left alone, and anything a recurrence or a template still
 names is kept — neither holds a foreign key, so nothing else would stop the
@@ -1766,7 +1766,7 @@ in under it, one for what went out — and Uncategorized always is. Only a name
 that really does span both sides is qualified now; every other row reads as the
 person wrote it.
 
-A report chart had six colours and no limit on how many rows it would draw, so a
+A report chart had six colors and no limit on how many rows it would draw, so a
 seventh account shared the first account's line and the legend said two things at
 once. There are ten, and a test fails if the stylesheet and the code disagree
 about how many.
@@ -1797,7 +1797,7 @@ accepts, so it was dropped and the row landed on the whole unfiltered
 transactions list. It narrows by account and that one day now.
 
 The application shell described the product differently from the manifest the
-release publishes, and coloured a phone's browser chrome near-black on a
+release publishes, and colored a phone's browser chrome near-black on a
 stylesheet that commits to a light scheme.
 
 A staged mass edit left behind a category the identical edit, done one row at a
@@ -1837,7 +1837,7 @@ application shell with a 200. Responses carrying a session token had no
 `Cache-Control`. A broken consent cookie 500ed. An `APP_BASE_URL` that was not a
 URL, and every strict scalar setting, refused to start without saying which
 variable was wrong. A register window opening after today summed future postings
-into a balance labelled as of today. The cash flow statement read every posting
+into a balance labeled as of today. The cash flow statement read every posting
 in the ledger to answer about one month, at eight times the cost. A failed report
 also told a full ledger it was empty, and reports could show figures from before
 an edit. The recurring list ordered amounts as text, so 1.50 sorted below 1.45.
@@ -1980,7 +1980,7 @@ documented single container keeps working with nothing added to it. Set
 Running several with it on is safe: each recurrence is claimed with `for update
 skip locked`, so replicas divide the due list rather than wait on one another,
 and a per-occurrence unique key refuses a duplicate proposal even if a claim
-were bypassed. Public holidays are not modelled; a business day means Monday to
+were bypassed. Public holidays are not modeled; a business day means Monday to
 Friday.
 
 Four settings control it: `RECURRENCE_SCHEDULER`, `RECURRENCE_TICK_SECONDS`,
@@ -2018,7 +2018,7 @@ The entry still settles to zero in each currency it touches, postings are still
 append-only, a correction still costs the difference and nothing more, and
 deleting still voids the entry a leg at a time.
 
-Relabelling a leg writes no postings at all, because the label lives on the leg
+Relabeling a leg writes no postings at all, because the label lives on the leg
 and the leg's identity does not change when you rename what it is for. Changing
 what a leg is worth writes two, which is right: the money was divided
 differently.
@@ -2036,7 +2036,7 @@ every figure reads the same the moment they finish.
 
 ### Changed
 
-The licence is now the [GNU Affero General Public License v3.0 only](LICENSE)
+The license is now the [GNU Affero General Public License v3.0 only](LICENSE)
 (`AGPL-3.0-only`), where it was the LGPL. What changes for somebody running this
 is nothing: self-hosting it for yourself, your household or your company was
 free before and is free now. What section 13 adds is that offering a _modified_
@@ -2045,8 +2045,8 @@ version to people over a network entitles those people to that version's source.
 Every release up to and including 0.1.3 was published under the LGPL and remains
 available under it. This applies from 0.1.4 onward.
 
-The AGPL is a complete licence rather than a set of permissions layered on the
-GPL, so the images carry one licence file where they used to carry two, and
+The AGPL is a complete license rather than a set of permissions layered on the
+GPL, so the images carry one license file where they used to carry two, and
 `COPYING` is gone.
 
 ### Security
@@ -2129,7 +2129,7 @@ and deleting one now counts them as a use rather than destroying the category
 underneath them. Deleting your whole account also names the recurring
 transactions it is about to take.
 
-A stored timezone that has stopped being recognisable, after an ICU update or a
+A stored timezone that has stopped being recognizable, after an ICU update or a
 hand-edited row, no longer throws when the dashboard works out what day it is.
 It falls back to UTC. The value is free text checked only when it was written,
 and the scheduler now reads it in a loop that serves everybody, where one bad
@@ -2140,7 +2140,7 @@ names, is refused rather than leaving a template that cannot be saved or a
 schedule that proposes a flagged row every month with nothing saying why.
 Neither reference has a foreign key, because both live inside JSON.
 
-The audit trail records a split's legs. Relabelling one is a single update to
+The audit trail records a split's legs. Relabeling one is a single update to
 the leg: it writes no posting and changes no column on the transaction, so
 Activity showed a before and after that were identical for the change most worth
 looking up later.
@@ -2217,7 +2217,7 @@ the ledger refused every save. A transfer also keeps its category when you edit
 it, rather than losing it to a form that has nowhere to display one.
 
 A staged row filed under a category by name keeps that name when you open it to
-review it, instead of committing uncategorised.
+review it, instead of committing uncategorized.
 
 Two settings changes made at the same time no longer overwrite one another.
 
@@ -2385,7 +2385,7 @@ quietly.
 ### Fixed
 
 An export could only be imported back into the ledger it came from. The importer
-recognised its own format and then read the account ids out of the file, and
+recognized its own format and then read the account ids out of the file, and
 those ids name accounts of the ledger that wrote it. Into a different account,
 a different person's books, or a fresh install they resolved to nothing, so
 every row was rejected with "An exported account is unavailable" and staged
@@ -2484,12 +2484,12 @@ a valid token in hand, and then got a bare 404 on every call, which an agent
 reports as an authorization problem. Discovery under the resource path accepts
 the slash for the same reason, and so does the larger request body an MCP CSV
 upload is allowed: the route was registered for both spellings but the body
-limit still recognised only one, so a client using the slash could reach the
+limit still recognized only one, so a client using the slash could reach the
 endpoint and then be refused a payload the other spelling was allowed.
 
 ### Changed
 
-Uncategorised spending sits at the bottom of spending by category rather than
+Uncategorized spending sits at the bottom of spending by category rather than
 wherever its total ranks. It is not a category anybody chose, so putting it
 first answers "what needs filing" on a panel that was asked where the money
 went. It is still shown, and shown even when the list is cut short, because it
@@ -2525,7 +2525,7 @@ requested, so the policy deciding who may open an account was told
 `/callback/:id`, matched nothing, and fell through to refusing. A first-ever
 Google sign-up therefore failed with `unable_to_create_user` while linking
 Google to an account that already existed kept working, because linking creates
-no user. Both forms of the path are now recognised.
+no user. Both forms of the path are now recognized.
 
 The icon. It was in the built bundle and nothing routed to it: only `/assets/*`
 was served as files, so a request for `/favicon.svg` fell through to the
@@ -2624,7 +2624,7 @@ makes the request stale rather than silently changing its scope.
 
 ### Getting data in and out
 
-Bank CSV import detects the format, maps columns, parses localised dates and
+Bank CSV import detects the format, maps columns, parses localized dates and
 numbers, matches or creates categories and payees, and lands everything in a
 review queue. Committing a batch validates every row first and runs as one
 transaction. Simple Balance's own export reads back in without loss.

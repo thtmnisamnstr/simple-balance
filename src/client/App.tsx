@@ -532,7 +532,7 @@ export function OAuthConsent() {
   const [error, setError] = useState("");
   // Which answer is in flight, not merely that one is. A single boolean put
   // the spinner on "Allow access" when Deny was pressed — the busy state on the
-  // button nobody touched, while the pressed one only greyed out.
+  // button nobody touched, while the pressed one only grayed out.
   const [deciding, setDeciding] = useState<null | boolean>(null);
   const request = useQuery<ConsentRequest>({
     queryKey: ["consent-request", consentCode],

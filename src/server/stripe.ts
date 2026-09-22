@@ -93,8 +93,8 @@ export function resetStripeClient() {
 /**
  * Turns a delivery into an event, or refuses it.
  *
- * The signature is checked against the raw bytes rather than a re-serialised
- * object, because re-serialising changes whitespace and key order and the
+ * The signature is checked against the raw bytes rather than a re-serialized
+ * object, because re-serializing changes whitespace and key order and the
  * signature covers neither. Stripe's own verifier is used rather than a hand
  * rolled HMAC: it carries the timestamp tolerance that stops a captured request
  * being replayed a week later, and getting that wrong is silent.
@@ -436,7 +436,7 @@ export async function scheduleStripeSubscriptionPrice(
 /**
  * Abandons a scheduled price change, leaving the subscription as it is.
  *
- * Released, never cancelled. `subscription_schedules.cancel` cancels the
+ * Released, never canceled. `subscription_schedules.cancel` cancels the
  * *subscription* the schedule governs, so the two calls differ by one word and
  * by whether the person is still a customer afterwards.
  */
@@ -466,7 +466,7 @@ export async function stripeScheduleFor(subscriptionId: string): Promise<string 
  * complete the payment, and has now chosen monthly. The unpaid subscription has
  * to go before another can be made, because a person is meant to have one.
  *
- * Cancelling voids the open invoice, so nobody is charged for the plan they
+ * Canceling voids the open invoice, so nobody is charged for the plan they
  * changed their mind about. Never call this on a subscription that has been
  * paid for — `setStripeCancelAtPeriodEnd` is that, and the difference is
  * whether somebody loses days they bought.
@@ -607,7 +607,7 @@ export async function openStripeInvoiceFor(subscriptionId: string): Promise<stri
  * Deletes a Stripe customer, which cancels everything it owns.
  *
  * One idempotent call rather than a walk of the subscriptions, because the walk
- * has a gap: a subscription created between listing and cancelling survives it.
+ * has a gap: a subscription created between listing and canceling survives it.
  * Used when somebody deletes their account, where leaving a live subscription
  * behind would go on charging a person who asked to be forgotten.
  */

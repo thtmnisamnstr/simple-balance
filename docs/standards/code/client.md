@@ -55,12 +55,12 @@ invalidation written by hand, and no test will remind you.
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
 (`src/client/forms.tsx:1721-1733` and `:1725`), and every one of them would be
-a synchronisation bug as state.
+a synchronization bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
 decided. Some were derived values pretending to be state and were moved into
-the render; the rest are genuine synchronisation with something outside React —
-the OS colour-scheme preference in `theme.ts`, a query's result seeding a form
+the render; the rest are genuine synchronization with something outside React —
+the OS color-scheme preference in `theme.ts`, a query's result seeding a form
 that is then edited — and each carries a disable comment saying which of the two
 it is. That distinction is the whole rule, and it is the reason this could not
 be a bulk fix: the two look identical and only one of them is a bug.
@@ -72,7 +72,7 @@ what the person typed.
 
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
-`inlineInFlight`, `inlineCancelled` and `focusAfterInline` in refs
+`inlineInFlight`, `inlineCanceled` and `focusAfterInline` in refs
 (`src/client/pages/StagingPage.tsx:569-580`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
@@ -156,7 +156,7 @@ split the server refused with a 422 nobody could predict from the screen.
 
 ## 3. Components
 
-### 3.1 `Field` wraps every labelled control in a form
+### 3.1 `Field` wraps every labeled control in a form
 
 **House.** Layout, label, hint and error in one place
 (`src/client/components.tsx:471`). Three consequences worth knowing, and the
@@ -170,7 +170,7 @@ first of them used to be the opposite:
   which is the point of the fix rather than a side effect of it: a hint is a
   description, and a name that swallows it is a name nobody can predict.
   **A test looking for a control by its label now asks for the label**, and one
-  written against the old behaviour asks for a string nothing has.
+  written against the old behavior asks for a string nothing has.
 - A `Field` holding a composite is `as="group"`, and hands out no id. Every
   control inside then has to name itself — see `web.md` 8.1, where forgetting
   the single unsplit picker was the trap.
@@ -183,7 +183,7 @@ one-row "add a category", "add a group", "add a payee" bar. In the second, a
 stacked label per control would treble the row's height for three words that the
 button beside them already implies, and a field-level error has nowhere to go
 because the refusal comes back as one `Alert` under the row. The carve-out is written here rather
-than left implicit because this sentence used to say "every labelled control"
+than left implicit because this sentence used to say "every labeled control"
 without qualification, and the one page that obeyed it literally — Templates,
 which wrapped its Type filter in a `Field` — ended up with a filter twenty
 pixels taller than the search box beside it. A filter takes effect on change,
@@ -221,10 +221,10 @@ level down, at the field.
 
 | Rule | Why it is only a sentence |
 | --- | --- |
-| 1.1 Server state is a query | Not mechanisable. |
+| 1.1 Server state is a query | Not mechanizable. |
 | 2.1 `Number()` only where approximate | A lint rule banning `Number(` in `src/client` would fire on legitimate uses; a narrower one keyed on variable names is possible and fiddly. |
 | 2.2 The preview calls the rule rather than copying it | Checkable one rule at a time — that `forms.tsx` imports `resolveEntrySide` is a grep — but what needs catching is the next preview somebody writes, and a copy of a rule that has no shared home yet reads as ordinary client code. `tests/module-boundaries.test.ts` proves the import is allowed, not that it was taken. |
-| 3.1 `Field` wraps every labelled control in a form | Half checked now. `tests/field-contract.test.tsx` holds that every `<input>`, `<select>` and `<textarea>` in `src/client` goes through the three shared components, so every one of them is *reachable* by a `Field`; whether a given call site wrapped it is still a reader's job, because the lint rule that would see that is off precisely because it cannot see through `Field`. A control labelled by hand beside a `Field` fails nothing, since the accessible name comes out the same either way. |
+| 3.1 `Field` wraps every labeled control in a form | Half checked now. `tests/field-contract.test.tsx` holds that every `<input>`, `<select>` and `<textarea>` in `src/client` goes through the three shared components, so every one of them is *reachable* by a `Field`; whether a given call site wrapped it is still a reader's job, because the lint rule that would see that is off precisely because it cannot see through `Field`. A control labeled by hand beside a `Field` fails nothing, since the accessible name comes out the same either way. |
 | 3.3 Fields reachable from the browser | Parity checks routes, not fields. This is the gap that let `categoryKind` through. |
 
 Five `human` rules in this guide. It said three until 2.2 and 3.1 were counted:

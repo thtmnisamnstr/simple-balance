@@ -167,7 +167,7 @@ integration("defects the audit claimed", () => {
   });
 
   /**
-   * Recategorising a leg is one update to the leg table: it writes no posting
+   * Recategorizing a leg is one update to the leg table: it writes no posting
    * and changes no column on the transaction. An audit entry built from the
    * transaction row alone therefore said nothing about the one change somebody
    * is most likely to come looking for.

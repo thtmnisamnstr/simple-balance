@@ -209,7 +209,7 @@ describe("a cell with nothing in it", () => {
     expect(literal, "a dash is what a missing value renders as, not what a cell says").toEqual([]);
   });
 
-  it("styles the uncategorised word the same way wherever it stands as text", () => {
+  it("styles the uncategorized word the same way wherever it stands as text", () => {
     const bare: string[] = [];
     let styled = 0;
     for (const path of globSync("src/client/**/*.tsx")) {
@@ -220,7 +220,7 @@ describe("a cell with nothing in it", () => {
       }
     }
     // The two remaining sites are an inline-edit button's own label and its
-    // `aria-label`, where the word takes the button's colour by design and is
+    // `aria-label`, where the word takes the button's color by design and is
     // not a span at all. Only text standing on its own is in scope.
     expect(styled).toBeGreaterThan(2);
     expect(bare, "one state, one rendering").toEqual([]);

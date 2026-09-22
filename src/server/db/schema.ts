@@ -379,7 +379,7 @@ export const categoryGroups = pgTable(
     name: text("name").notNull(),
     /**
      * The name with case and spacing taken out, which is what uniqueness is
-     * about. The same normalisation categories and payees already use, so
+     * about. The same normalization categories and payees already use, so
      * "Fixed Costs" and "fixed costs" are one group here as they would be one
      * category there.
      */
@@ -468,7 +468,7 @@ export const transactions = pgTable(
       foreignColumns: [ledgerAccounts.userId, ledgerAccounts.id],
       name: "ledger_transaction_destination_account_owner_fk",
     }),
-    // The normalised payee, indexed as the expression that reads it. Resolving a
+    // The normalized payee, indexed as the expression that reads it. Resolving a
     // payee to the spelling the ledger already keeps runs on every single
     // transaction write, and matching on
     // `lower(regexp_replace(trim(normalize(payee, NFKC)), ...))` is an expression
@@ -673,7 +673,7 @@ export const postings = pgTable(
     // to a transaction, and changing when something happened moves the posting.
     //
     // A category is deliberately still NOT here. A posting names the leg it
-    // belongs to, and the leg holds the one copy of the label, so recategorising
+    // belongs to, and the leg holds the one copy of the label, so recategorizing
     // is a single update that leaves the postings alone and cannot make the
     // books and the reports disagree.
     date: date("date").notNull(),
@@ -1149,7 +1149,7 @@ export const recurrences = pgTable(
  * The standing instruction for one budget target.
  *
  * One row covers every period, so a budget that runs all year is one row rather
- * than twelve, and nothing has to materialise the months nobody has reached
+ * than twelve, and nothing has to materialize the months nobody has reached
  * yet. That is the whole reason there is no scheduler anywhere near budgeting:
  * an amount that is derived on read cannot drift from what it was derived from,
  * and there is no backlog for a stopped cron to eat.
@@ -1403,7 +1403,7 @@ export type BudgetEntryRow = typeof budgetEntries.$inferSelect;
  * customer and has to find its way back to a user, and two rows claiming the
  * same customer would make that lookup a coin toss about whose plan changed.
  *
- * That unique does not contain `user_id`, and so does this table's neighbour
+ * That unique does not contain `user_id`, and so does this table's neighbor
  * below. Both are therefore candidates to leave the distributed set when the
  * Citus work lands, exactly as the OAuth tables are — recorded here so that
  * migration does not have to rediscover it. The trade was made deliberately:
@@ -1435,7 +1435,7 @@ export const billingCustomers = pgTable(
  * generated from a shared tuple, and this set is not ours to close: Stripe may
  * add a status, and a `pgEnum` would then refuse to store what Stripe actually
  * said. A reconciler that cannot record the truth is worse than one holding a
- * word it does not recognise, and `resolveEntitlement` already treats anything
+ * word it does not recognize, and `resolveEntitlement` already treats anything
  * it has not heard of as unentitled.
  */
 export const billingSubscriptions = pgTable(
@@ -1486,7 +1486,7 @@ export const billingSubscriptions = pgTable(
      * birthday rather than the revision's. Two replicas fetching concurrently
      * both hold a true answer, and the later fetch saw the later state, so a
      * write whose fetch is older than the stored one is refused rather than
-     * allowed to put a cancelled subscriber back on the paid plan.
+     * allowed to put a canceled subscriber back on the paid plan.
      */
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull(),
     ...timestamps,

@@ -78,7 +78,7 @@ function createAuthInstance() {
       minPasswordLength: 12,
       maxPasswordLength: 128,
       // Both of these need somewhere to send a link. A deployment with no mail
-      // server keeps the behaviour it has always had: no reset, and an address
+      // server keeps the behavior it has always had: no reset, and an address
       // nobody is asked to prove. Configure SMTP_HOST and MAIL_FROM and the two
       // switch on together, because requiring an address to be confirmed
       // without being able to send the confirmation would lock everybody out.
@@ -211,7 +211,7 @@ function createAuthInstance() {
             // path it is reachable from, this plugin's `/api/auth` one
             // included. Left wide because the plugin's fallback when this is
             // absent is its four OpenID defaults, which name no ledger scope at
-            // all: a client following that would authorise with nothing it
+            // all: a client following that would authorize with nothing it
             // could call a tool with. `scopes` above is the separate question
             // of what `/authorize` accepts, and must keep every tier, because
             // the step-up challenge sends clients back to ask for one.

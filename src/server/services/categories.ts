@@ -1094,7 +1094,7 @@ export async function mergeCategories(
           ),
         );
       // The version has to move with the label. A mass edit describes the set
-      // it is about to change by id and version, so a leg relabelled underneath
+      // it is about to change by id and version, so a leg relabeled underneath
       // one would leave that description agreeing about a row that changed.
       updatedLegTransactions = await tx
         .update(transactions)

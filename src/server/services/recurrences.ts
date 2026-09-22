@@ -224,8 +224,8 @@ export type ProposedOccurrences = {
  * One transaction per recurrence, never one for a whole tick. It keeps the
  * write set bounded on a one-connection deployment, it lets somebody's edit
  * land between two recurrences rather than behind all of them, and it keeps one
- * transaction to one tenant, which the payee canonicalisation cache requires
- * because it is keyed by transaction and normalised name with no user in it.
+ * transaction to one tenant, which the payee canonicalization cache requires
+ * because it is keyed by transaction and normalized name with no user in it.
  */
 export async function proposeDueOccurrences(
   actor: Actor,
@@ -356,7 +356,7 @@ export async function runDueRecurrences(
            r.user_id,
            r.next_occurrence_date,
            -- Left joined and defaulted, never an inner join: getPreferences
-           -- synthesises UTC for somebody with no row, so an inner join would
+           -- synthesizes UTC for somebody with no row, so an inner join would
            -- silently skip everybody who has never opened settings and would
            -- look exactly like a scheduler that works.
            coalesce(p.timezone, 'UTC') as timezone

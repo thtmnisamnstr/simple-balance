@@ -214,7 +214,7 @@ let cached: AppConfig | undefined;
 
 export function getConfig(): AppConfig {
   if (cached) return cached;
-  // `readSecret` memoises, so this call buys exactly one thing: an unreadable
+  // `readSecret` memoizes, so this call buys exactly one thing: an unreadable
   // secret file, or a name set both ways, refuses at startup rather than at the
   // first query. That is what the "Validating at startup" rule in
   // `docs/standards/operations.md` asks of every other setting here.
@@ -258,7 +258,7 @@ export function getConfig(): AppConfig {
     .enum(["true", "false"], { error: () => "TRUST_PROXY must be true or false" })
     .transform((value) => value === "true")
     .parse((process.env.TRUST_PROXY ?? "false").toLowerCase());
-  // Parsed strictly rather than treating anything unrecognised as off. A
+  // Parsed strictly rather than treating anything unrecognized as off. A
   // misspelling here has no symptom: the process starts, serves, and quietly
   // proposes nothing until somebody notices a year of missing rent.
   const recurrenceSchedulerEnabled = z
@@ -281,7 +281,7 @@ export function getConfig(): AppConfig {
   // It reaches that one page and no other. Every other page keeps the policy
   // this container has shipped since 0.1.0 and keeps enforcing it, because
   // learning about a page that renders no balances is not worth taking the
-  // defence off every page that does.
+  // defense off every page that does.
   const cspReportOnly = z
     .enum(["true", "false"], {
       error: () => "SB_CSP_REPORT_ONLY must be true or false",
@@ -376,7 +376,7 @@ export function getConfig(): AppConfig {
   // not, and the two are indistinguishable from in here. So the one that can be
   // said is said, once, at the moment somebody turns the endpoint on.
   // Said every time, and at `warn` rather than `info`, because this is the one
-  // setting that turns a defence off. A rehearsal that was never turned back
+  // setting that turns a defense off. A rehearsal that was never turned back
   // off looks exactly like a working deployment from the outside.
   if (cspReportOnly && isProduction) {
     console.warn(
@@ -398,7 +398,7 @@ export function getConfig(): AppConfig {
   // the boolean is the likely slip in a two-axis design, and it fails silently:
   // the deployment starts, reaches Stripe, sells nothing and limits nobody,
   // with every page looking exactly as it did. The other reading — a deployment
-  // winding down, still honouring what it sold — is legitimate and is why this
+  // winding down, still honoring what it sold — is legitimate and is why this
   // is not a refusal.
   if (billing && !billing.enforcing && isProduction) {
     console.warn(
@@ -558,7 +558,7 @@ const stripeInputs = [
 /**
  * Which half of Stripe a key belongs to, when the key says so.
  *
- * Undefined rather than a guess for anything unrecognised, because this is used
+ * Undefined rather than a guess for anything unrecognized, because this is used
  * to refuse a mismatch and a wrong refusal is worse than a missed one: Stripe
  * has added key forms before and a deployment holding a shape this file has not
  * heard of should start, not stop.
@@ -688,7 +688,7 @@ export type AdSettings = {
   readonly bannerSlotId: string;
   /**
    * Where this deployment's privacy policy lives. Required whenever ads are
-   * configured, because Google's programme policies require one on any site
+   * configured, because Google's program policies require one on any site
    * serving their ads — see `parseAdSettings`.
    *
    * It sits on the ad settings rather than beside them, so that "ads are on"
@@ -703,7 +703,7 @@ export type AdSettings = {
    *
    * It decides one thing: whether the ad request forces
    * `requestNonPersonalizedAds`. Off, it does, and every visitor gets
-   * non-personalised ads — the conservative default for a page showing somebody
+   * non-personalized ads — the conservative default for a page showing somebody
    * their own money, and the setting under which Google will serve without a
    * certified platform at all.
    *
@@ -779,7 +779,7 @@ export function parseAdSettings(env: {
   /*
    * A privacy policy is not optional once ads are served.
    *
-   * Google's programme policies require one on any site showing their ads,
+   * Google's program policies require one on any site showing their ads,
    * naming third-party cookies and the vendors that set them. An operator who
    * turns ads on without it is in breach from the first impression, and the
    * failure is the expensive kind: the account is suspended rather than the
@@ -794,7 +794,7 @@ export function parseAdSettings(env: {
   if (!privacyPolicyUrl) {
     throw new Error(
       "PRIVACY_POLICY_URL must be set when AdSense is configured. Google's " +
-        "programme policies require a privacy policy on any site serving their " +
+        "program policies require a privacy policy on any site serving their " +
         "ads, naming third-party cookies and the vendors that set them. Point " +
         "this at yours.",
     );

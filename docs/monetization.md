@@ -61,7 +61,7 @@ Stripe's, which is the state in which somebody is charged for a plan the app no
 longer believes they have.
 
 So: leave `SB_BILLING_ENABLED` unset and keep the Stripe settings, and the
-deployment honours and reconciles what exists while offering nothing new.
+deployment honors and reconciles what exists while offering nothing new.
 
 ## What the two plans are
 
@@ -138,7 +138,7 @@ operator with their own account. Nothing is compiled in.
 
 **Done for you, with one thing you must add.** `/ads.txt` is served
 automatically at this deployment's own root, derived from `ADSENSE_CLIENT_ID`: `google.com, pub-…, DIRECT, f08c47fec0942fa0`. Without that
-file AdSense treats your inventory as unauthorised and pays nothing for it,
+file AdSense treats your inventory as unauthorized and pays nothing for it,
 which is a silent failure — the ads render, the impressions happen, the revenue
 is zero. If you sell through other partners as well you need more lines than
 this one, and the way to do that is to serve your own `/ads.txt` from whatever
@@ -149,7 +149,7 @@ terminates TLS in front of this deployment; it will take precedence.
 What that means depends on whether the publisher id is the same in both places:
 
 - **Same publisher id, which is the ordinary case** — the root file's own
-  `DIRECT` record already authorises this subdomain and there is nothing more
+  `DIRECT` record already authorizes this subdomain and there is nothing more
   to do. Google is explicit: *"You only need to do this if the authorized
   seller or your publisher ID are different for the subdomain when compared to
   the root domain."*
@@ -164,12 +164,12 @@ An earlier version of this page stated the referral as mandatory. It is not,
 and adding one where it is not needed is actively worse: a referral makes
 crawlers consume the subdomain's file *instead of* the root's, and this
 application only registers the `/ads.txt` route while ads are configured — so
-the referral hands the whole authorisation chain to a file that disappears the
+the referral hands the whole authorization chain to a file that disappears the
 moment `ADSENSE_CLIENT_ID` is unset or this deployment is down.
 
 Either way the root file must carry a `DIRECT` record naming the publisher id.
 A root `ads.txt` that exists and does **not** name it is the documented state
-that stops the domain being monetised at all.
+that stops the domain being monetized at all.
 
 **Yours to do.**
 
@@ -235,7 +235,7 @@ tab report what its policy _would_ have blocked and block nothing, and registers
 start an upgrade, and read the log.
 
 It reaches that one page. Every other page goes on enforcing, because finding
-out about a page that renders no balances is not worth taking the defence off
+out about a page that renders no balances is not worth taking the defense off
 every page that does.
 
 In the split deployment set it on the frontend container as well as the server:
@@ -262,13 +262,13 @@ that switch exists for exactly this.
 Two different rules, and conflating them is the mistake to avoid.
 
 **Google's rule** is that a _certified_ consent platform is required to serve
-_personalised_ ads in the EEA, the UK and Switzerland. Non-personalised and
+_personalized_ ads in the EEA, the UK and Switzerland. Non-personalized and
 limited ads are not gated on it. So on the defaults here —
 `ADSENSE_CONSENT_MANAGED` unset — every ad request carries
 `requestNonPersonalizedAds`, and Google asks for no certified platform.
 
 **The ePrivacy rule is separate and still applies.** Consent is required for
-storing anything non-essential on somebody's device, and a non-personalised ad
+storing anything non-essential on somebody's device, and a non-personalized ad
 still sets cookies for frequency capping and fraud prevention. Google's own
 guidance says so. So a deployment serving ads to people in the EEA, the UK or
 Switzerland needs a consent notice whatever this setting says — the default
@@ -283,11 +283,11 @@ That is also the right default for this product on its own merits: the page
 beside the ad is showing somebody their own balances, and profiling the person
 reading it is not something to switch on by accident.
 
-### The consent notice, and personalised ads
+### The consent notice, and personalized ads
 
 Use **Google's own platform**, which is free and part of the AdSense account
 you already have. Turn it on for the consent notice whether or not you want
-personalised ads; set `ADSENSE_CONSENT_MANAGED=true` only when you do. It is a certified platform — it appears on Google's list as "Google LLC
+personalized ads; set `ADSENSE_CONSENT_MANAGED=true` only when you do. It is a certified platform — it appears on Google's list as "Google LLC
 CMP" — so this is not a second vendor, a second contract or a second script.
 
 1. In AdSense, open **Privacy and messaging** and create a **European
@@ -309,10 +309,10 @@ would leave the platform ornamental. Nothing here can check the platform exists,
 so leaving the setting off is always the safe answer.
 
 Two things this does not do. It is not legal advice. And a hand-built banner is
-not an alternative for personalised ads: that requirement is for a _certified_
+not an alternative for personalized ads: that requirement is for a _certified_
 platform, and certification is a process with Google and the IAB rather than a
 property of the code. A hand-built banner could satisfy the ePrivacy consent
-requirement for non-personalised ads on its own, but there is little reason to
+requirement for non-personalized ads on its own, but there is little reason to
 build one when the certified platform is free and already in the account.
 
 ## Turning it off

@@ -43,7 +43,7 @@ Check the diff against each surface:
 | --- | --- |
 | HTTP `/api/v1` | A field removed or renamed, an accepted input narrowed, a status or error code changed for an unchanged request, a default changed |
 | MCP | A tool removed or renamed, a required argument added, a scope widened, an output field removed |
-| CSV | A recognised column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed |
+| CSV | A recognized column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed |
 | Deployment | A configuration variable renamed, removed, or made required; a refusal to start on a configuration the previous version accepted; a new external dependency; a raised floor on PostgreSQL or Node |
 
 The three shapes a fix almost always takes:
@@ -56,7 +56,7 @@ The three shapes a fix almost always takes:
   `Deprecation` and `Sunset` headers.
 
 A new setting defaults to **off**, so a deployment that never set it is
-unchanged. A new behaviour that deletes or prunes anything defaults to off in
+unchanged. A new behavior that deletes or prunes anything defaults to off in
 the safe direction, and an invalid value falls back to off rather than to the
 active default — the reverse prunes on a typo.
 
@@ -89,7 +89,7 @@ claims did not survive checking and are named in the commit that closed it.
 
 ## 3. Fix what phases 1 and 2 found
 
-Every fix that changes domain behaviour gets a focused test. Every new check
+Every fix that changes domain behavior gets a focused test. Every new check
 gets **mutation-proved**: break the thing it guards, watch the check fail by
 name, restore it, watch it pass. A check nobody has seen fail is a check that
 may not be able to fail. Several in this repository could not, each found

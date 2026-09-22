@@ -715,7 +715,7 @@ export default function CategoriesPage() {
                 {category.archivedAt ? <Badge>Archived</Badge> : null}
               </div>
               {/* The group, on the row, because until now the only way to put a
-                  category in one was an unlabelled pencil that opens a modal —
+                  category in one was an unlabeled pencil that opens a modal —
                   and no row ever said which group it was already in. A group
                   you cannot see is a group nobody fills. */}
               <Select

@@ -231,7 +231,7 @@ export default function DashboardPage() {
                   {currency.spendingByCategory.length ? (
                     <div>
                       {(() => {
-                        // Uncategorised arrives last from the server and stays
+                        // Uncategorized arrives last from the server and stays
                         // last here, but it is kept rather than cut: it is the
                         // one row that says there is filing left to do, and
                         // losing it at rank eight would hide that.
@@ -244,7 +244,7 @@ export default function DashboardPage() {
                         return [...named.slice(0, 7), ...unnamed];
                       })().map((item, _index, shown) => {
                         // Scaled against the largest row on show rather than
-                        // the first. With uncategorised moved off the top the
+                        // the first. With uncategorized moved off the top the
                         // first row is no longer necessarily the biggest, and a
                         // ratio over one is clamped to a full bar, which would
                         // draw two different amounts the same width.
@@ -254,7 +254,7 @@ export default function DashboardPage() {
                           <div key={item.categoryId ?? "uncategorized"} className="spending-row">
                             <div>
                               {/* Linked where there is something to link to.
-                                  Uncategorised has no id — it is the absence of
+                                  Uncategorized has no id — it is the absence of
                                   a category rather than one of them — and a
                                   link to /categories/null is a 404. The range
                                   travels, because the detail page mounts its

@@ -50,7 +50,7 @@
 - A posting carries its own date and stands on its own. Balances, cash flow, and
   spending by category all read the posting table; only a label such as a
   category is looked up elsewhere. A posting names the leg it belongs to, and
-  the leg holds the label, so recategorising is one update and writes no
+  the leg holds the label, so recategorizing is one update and writes no
   postings at all. The exception says what it is: a category whose kind runs
   against the entry's direction makes it a refund, which moves the other half
   between the income and expense counter-accounts, so that one appends a delta
@@ -74,7 +74,7 @@
   zeroed, never deleted, because the postings that name it are append-only.
 - Any write that changes a leg must bump the parent transaction's `version` in
   the same transaction. A mass edit describes the set it is about to change by
-  `id:version`, so a leg relabelled underneath one would leave that description
+  `id:version`, so a leg relabeled underneath one would leave that description
   agreeing about a row that changed.
 - Postings are append-only. To correct one, work out the difference per account,
   currency, and date, and append only that. Never update or delete a posting.
@@ -147,7 +147,7 @@
   the ledger's own records and need `ledger:write`, wherever they are reached
   from, including a CSV import.
 - An audit entry records what changed, and for a split that includes the legs:
-  relabelling one writes no posting and touches no column on the transaction.
+  relabeling one writes no posting and touches no column on the transaction.
 - Budgeting sits over the ledger and never inside it. An assignment is not a
   posting: nothing in a budget writes one, so deleting a budget leaves the books
   exactly as they were, and every budget figure comes from plans, entries and
@@ -169,7 +169,7 @@
   never did and a cluster that refused an edit a single node accepted would be
   the same divergence one step along. This is the shape every such difference
   must take: where a profile cannot enforce something in the schema, the service
-  enforces it everywhere rather than the behaviour depending on where it runs.
+  enforces it everywhere rather than the behavior depending on where it runs.
 - A forecast is a projection and never a balance. Money dated in the future has
   not moved, so no figure `src/server/services/forecast.ts` produces may reach a
   balance, a report total, or the trial balance, nothing but the two transports
@@ -318,7 +318,7 @@ both look like mistakes:
 - **Comments are dense on purpose** — 22.6% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
-- **Some loops must not be parallelised.** Legs resolve one at a time so two
+- **Some loops must not be parallelized.** Legs resolve one at a time so two
   naming the same new category land on one category. `no-await-in-loop` is off
   for this reason. (`docs/standards/code/services.md`.)
 - **Nothing outside the configuration layer names `console`.** Every line goes
@@ -361,7 +361,7 @@ the order and the traps do not have to be rediscovered:
 - `guides-update` — bring the guides, `AGENTS.md`, `CHANGELOG.md` and
   `docs/upgrades.md` back to true after work lands.
 - `guides-comply` — sweep every page section, route, tool and service against
-  the guides, and mechanise rules nothing checks.
+  the guides, and mechanize rules nothing checks.
 - `design-review` — review the browser app against `docs/standards/web.md`,
   comparing each section across pages rather than reading a page at a time.
 - `release-prep` — upgrade-safety audit, adversarial audit, dead code, recount,

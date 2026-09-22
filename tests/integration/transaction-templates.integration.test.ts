@@ -1075,7 +1075,7 @@ integration("what an agent reads about the person and their settings", () => {
     });
   });
 
-  it("refuses a timezone no calendar recognises", async () => {
+  it("refuses a timezone no calendar recognizes", async () => {
     await expect(setPreferences(solo, { timezone: "Middle/Earth" })).rejects.toThrow();
     expect(await getPreferences(solo)).toMatchObject({
       timezone: "America/New_York",

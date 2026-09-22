@@ -129,7 +129,7 @@ The chart and the compose files are read from a local path, so run these from a
 checkout of this repository. A copy of `deploy/pulumi/` on its own has no chart
 to install and no deployment material to send to a machine — `single-common`
 says so by name rather than failing on a path three levels from anything
-recognisable.
+recognizable.
 
 ```sh
 cd deploy/pulumi

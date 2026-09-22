@@ -18,7 +18,7 @@ import { type SourceFile, sourceFiles } from "./support/source.js";
  * What this cannot see, stated rather than implied: a label assembled from
  * pieces, and the lower-case wire value used as a word in a sentence. The
  * second is deliberate — `plan === "plus"` is the wire value doing its job and
- * has to stay legal everywhere — so the guard looks for the *capitalised*
+ * has to stay legal everywhere — so the guard looks for the *capitalized*
  * form, which is what a sentence uses.
  */
 
@@ -60,11 +60,11 @@ describe("the label a person reads for a plan", () => {
     for (const file of sourceFiles("src")) {
       const code = readerVisible(file);
       for (const plan of renamed) {
-        const capitalised = plan.charAt(0).toUpperCase() + plan.slice(1);
-        const word = new RegExp(`\\b${capitalised}\\b`, "g");
+        const capitalized = plan.charAt(0).toUpperCase() + plan.slice(1);
+        const word = new RegExp(`\\b${capitalized}\\b`, "g");
         for (const match of code.matchAll(word)) {
           const line = code.slice(0, match.index).split("\n").length;
-          offenders.push(`${file.path}:${line} — ${capitalised}`);
+          offenders.push(`${file.path}:${line} — ${capitalized}`);
         }
       }
     }

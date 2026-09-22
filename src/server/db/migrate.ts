@@ -48,7 +48,7 @@ async function createDatabaseIfMissing(connectionString: string) {
 
   try {
     // The name comes from the operator's own connection string, and an
-    // identifier cannot be parameterised, so it is quoted rather than bound.
+    // identifier cannot be parameterized, so it is quoted rather than bound.
     await client.query(`create database "${name.replaceAll('"', '""')}"`);
     log.info(`Created database "${name}".`);
   } catch (error) {

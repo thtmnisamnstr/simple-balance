@@ -35,7 +35,7 @@ shapes can share.
 **Where we deploy a database, it is PostgreSQL 18.** That is `vps`, whose
 `postgres` service is part of the deployment, and `ha`, whose cluster is Citus
 on top of it. One version across both, because a dump taken from one shape has
-to restore into another, and because collation and planner behaviour both change
+to restore into another, and because collation and planner behavior both change
 between releases — `docs/deployment-sizing.md` has the measurement showing what
 a collation difference alone does to every name-sorted list in the product.
 

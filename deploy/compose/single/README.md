@@ -78,7 +78,7 @@ reboot and gives an operator one place to stop it. `../../systemd/` holds the
 units, and `deploy/systemd/simple-balance.service` carries the installation
 commands in its own header.
 
-The division of labour is worth knowing because two process managers over the
+The division of labor is worth knowing because two process managers over the
 same containers is a question people expect to be a problem:
 
 - **systemd owns ordering and intent.** Boot, `systemctl start`,

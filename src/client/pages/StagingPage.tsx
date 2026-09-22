@@ -569,8 +569,8 @@ export default function StagingPage() {
   const inlineInFlight = useRef(false);
   // Escape's other half: removing a focused editor fires a browser blur, and
   // the blur handler's closure still holds the pre-Escape state — so without
-  // this, cancelling could commit. Set before the state change, read first.
-  const inlineCancelled = useRef(false);
+  // this, canceling could commit. Set before the state change, read first.
+  const inlineCanceled = useRef(false);
   // Where focus goes when an editor closes. Commit, refusal and Escape all
   // removed the focused element and stranded keyboard users on <body>; the
   // trigger the editor replaced is the honest place to land.
@@ -632,7 +632,7 @@ export default function StagingPage() {
     stage: StagedTransaction,
     override?: { value?: string; categoryName?: string },
   ) => {
-    if (!inline || inlineInFlight.current || inlineCancelled.current) return;
+    if (!inline || inlineInFlight.current || inlineCanceled.current) return;
     const value = override?.value ?? inline.value;
     const categoryName = override?.categoryName ?? inline.categoryName;
     const source = stage.draft as Record<string, unknown>;
@@ -689,11 +689,11 @@ export default function StagingPage() {
     categoryName = "",
   ) => {
     setInlineError("");
-    inlineCancelled.current = false;
+    inlineCanceled.current = false;
     setInline({ id: stage.id, field, value, categoryName });
   };
   const cancelInline = () => {
-    inlineCancelled.current = true;
+    inlineCanceled.current = true;
     if (inline) focusAfterInline.current = { id: inline.id, field: inline.field };
     setInline(null);
   };
@@ -1095,7 +1095,7 @@ export default function StagingPage() {
                           {/* `.subtle` here and nowhere else on this row: the
                               two inline-edit cells below render the same word as
                               a button's own label, where it takes the button's
-                              colour. This one is plain text and matches the
+                              color. This one is plain text and matches the
                               transactions list, which is the page a person
                               compares it against. */}
                           {categoryNames.get(

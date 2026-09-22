@@ -179,7 +179,7 @@ describe("Ralph Git guard", () => {
     const gitDirectory = realpathSync(path.join(root, ".git"));
     const configPath = path.join(gitDirectory, "config");
     // Written by hand, because `git config` always emits the two-line form. git
-    // honours both; the scan only ever read one, so this shape reached the
+    // honors both; the scan only ever read one, so this shape reached the
     // snapshot as though the file held nothing executable.
     writeFileSync(
       configPath,

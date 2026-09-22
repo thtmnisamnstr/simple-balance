@@ -42,7 +42,7 @@ function watchScripts() {
  * document — deliberately, so the script is fetched once however many slots
  * mount — which means a shared id would let one test's fetch satisfy the next
  * one's assertion. Distinct ids rather than a reset hatch, because the caching
- * is the behaviour the last case here is about.
+ * is the behavior the last case here is about.
  */
 let ids = 0;
 const placementFor = (consentManaged = false) => ({
@@ -115,7 +115,7 @@ describe("an ad slot", () => {
 /**
  * What is asked of Google before the ad is requested.
  *
- * Without a consent platform the request forces non-personalised ads: this page
+ * Without a consent platform the request forces non-personalized ads: this page
  * is showing somebody their own money, and Google will serve on that footing
  * without a certified platform at all.
  *
@@ -125,7 +125,7 @@ describe("an ad slot", () => {
  * did not — which would make the platform ornamental.
  *
  * The flag has to be set *before* the push either way. Google reads it when the
- * request is made, so setting it afterwards personalises the ad that has
+ * request is made, so setting it afterwards personalizes the ad that has
  * already gone.
  */
 describe("what is requested from Google", () => {
@@ -156,7 +156,7 @@ describe("what is requested from Google", () => {
     await vi.waitFor(() => expect(queue()).toBeDefined());
   }
 
-  it("asks for non-personalised ads by default", async () => {
+  it("asks for non-personalized ads by default", async () => {
     await mountAndLoad(false);
     expect(queue()?.requestNonPersonalizedAds).toBe(1);
     // And the flag was set before the request went, not after it.
@@ -175,7 +175,7 @@ describe("what is requested from Google", () => {
  *
  * `session.ads` can go from a placement to null and back within one document:
  * an entitlement read that failed and then succeeded, a plan that lapsed, a
- * subscription that was cancelled. The `<ins>` is unmounted with the slot, so
+ * subscription that was canceled. The `<ins>` is unmounted with the slot, so
  * the element that returns has never been pushed for — a latch left closed
  * across that gap leaves it permanently blank, which is revenue quietly lost
  * for the rest of the session.
@@ -239,7 +239,7 @@ describe("which paths the shell will render an ad on", () => {
     }
   });
 
-  it("treats its neighbours as ordinary pages", () => {
+  it("treats its neighbors as ordinary pages", () => {
     for (const path of ["/settings", "/settings/plans", "/settings/plan/extra", "/", "/accounts"]) {
       expect(isPlanSurfacePath(path), path).toBe(false);
     }

@@ -51,7 +51,7 @@ update it without reading it. Read those four as the ratio they illustrate.
 "Can see" is the whole rule, and it is easy to get wrong in both directions.
 
 - **Node unit** for pure functions: money arithmetic, recurrence dates, name
-  normalisation, `resolveEntrySide`. Most of the value in this repository is
+  normalization, `resolveEntrySide`. Most of the value in this repository is
   here because most of the rules are pure.
 - **jsdom** for what a form does with what it is given. It renders React
   properly and it is fast.
@@ -114,7 +114,7 @@ reviewer's.
 
 ## 2. What makes a test worth keeping
 
-### 2.1 A test name is a sentence about behaviour
+### 2.1 A test name is a sentence about behavior
 
 **House.** "lowers the category a refund came back to", not "test refund case
 2". The name is what somebody reads when it fails at 2am, and it should tell
@@ -272,7 +272,7 @@ this way.
 
 ### 3.2 Property testing
 
-Generate randomised ledgers and assert the laws rather than the cases. 100
+Generate randomized ledgers and assert the laws rather than the cases. 100
 random ledgers and an exhaustive 3,754 (plan, period) window pairs found the
 period-independence violation that every hand-written case had agreed with.
 
@@ -444,7 +444,7 @@ cannot do that should leave the number alone and fail loudly instead.
 | --- | --- |
 | 1 Cheapest tier that can see it | Judgement. |
 | 1.1 What jsdom cannot see | A defect jsdom is blind to is one no jsdom run reports, so the only check is somebody deciding a case needs a browser. |
-| 2.1 A test name is a sentence about behaviour | Editorial. |
+| 2.1 A test name is a sentence about behavior | Editorial. |
 | 2.2 Outcome, not mechanism | Judgement. A rule banning `toHaveBeenCalledWith` would fire on the tests where the call *is* the outcome, of which `tests/idempotency-key.test.ts` is one. |
 | 2.3 A test only your understanding could have written | Judgement, and the reason for reviewing tests as carefully as code. |
 | 2.4 Order independence, outside budgets | The wider suite does not hold it and is not going to soon. |

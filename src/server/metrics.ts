@@ -20,9 +20,9 @@ import { APP_VERSION } from "../shared/version.js";
  * one series; `/api/v1/accounts/<uuid>` is one series per account, which is how
  * a monitoring system falls over on a ledger with ten thousand transactions.
  *
- * **Collection is always on; only the endpoint is switched.** A labelled
+ * **Collection is always on; only the endpoint is switched.** A labeled
  * increment costs about 130ns and does allocate — `prom-client` hashes the
- * label object into a string key on every call — and an unlabelled one about
+ * label object into a string key on every call — and an unlabeled one about
  * 12ns (2M iterations of `Counter.inc` on this machine, Node 26). That is a
  * rounding error beside the database round trip it sits next to, so gating it
  * on `METRICS_ENABLED` would buy back nothing worth a branch in front of every
@@ -165,7 +165,7 @@ export const mailMessages = new Counter({
 /**
  * Requests this process made to Stripe, by what it asked for and how it went.
  *
- * Labelled by operation and outcome and by nothing else. A Stripe request is
+ * Labeled by operation and outcome and by nothing else. A Stripe request is
  * always about one person's money, so a customer id, a subscription id or an
  * amount here would put somebody's payment history in front of whoever can
  * reach the scrape endpoint — `observability.md` 1.2 — and would be unbounded

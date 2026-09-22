@@ -49,8 +49,8 @@ export const APP_CSV_COLUMNS = [
 
 /**
  * `legs_json` is deliberately not one of the columns above. That list is what a
- * file must carry to be recognised as an export at all, so adding to it would
- * stop every file written by an earlier version from being recognised as one.
+ * file must carry to be recognized as an export at all, so adding to it would
+ * stop every file written by an earlier version from being recognized as one.
  * A split is read back when the column is there and nothing is missed when it
  * is not.
  */
@@ -59,7 +59,7 @@ export const APP_CSV_LEGS_COLUMN = "legs_json";
 /**
  * The bank's own reference for the row, out of the same list and for the same
  * reason. It is written for a person to read; the value the importer trusts
- * travels in `roundtrip_text_json`, where the spreadsheet-formula neutraliser
+ * travels in `roundtrip_text_json`, where the spreadsheet-formula neutralizer
  * cannot reach it.
  */
 export const APP_CSV_EXTERNAL_ID_COLUMN = "external_id";
@@ -119,7 +119,7 @@ export const csvMappingSchema = z
       .string()
       .optional()
       .describe(
-        "The heading of the column holding the one-line description for each entry. Leave it out where the file has no such column: a misspelt heading is not refused, it reads blank on every row, so the import succeeds with no descriptions.",
+        "The heading of the column holding the one-line description for each entry. Leave it out where the file has no such column: a misspelled heading is not refused, it reads blank on every row, so the import succeeds with no descriptions.",
       ),
     amount: z
       .string()
@@ -465,9 +465,9 @@ export function normalizeCsvRows(
  * What a spreadsheet will read as a formula, in every spelling of it.
  *
  * The four ASCII leaders are the well-known half. The full-width forms are the
- * half that shipped: Excel and Google Sheets normalise the full-width equals to
+ * half that shipped: Excel and Google Sheets normalize the full-width equals to
  * `=` before deciding whether a cell is a formula, so a cell led by one was
- * neutralised nowhere and evaluated everywhere — the guide called this the one
+ * neutralized nowhere and evaluated everywhere — the guide called this the one
  * outright code defect it records.
  *
  * The leading-whitespace class is the same story one level down.
@@ -487,8 +487,8 @@ export function neutralizeSpreadsheetFormula(value: unknown): string {
 }
 
 /**
- * Take back the apostrophe the neutraliser adds, for a file written before the
- * value also travelled in `roundtrip_text_json`.
+ * Take back the apostrophe the neutralizer adds, for a file written before the
+ * value also traveled in `roundtrip_text_json`.
  *
  * Not injective, and cannot be: a category genuinely named `'-Reimbursements`
  * and one named `-Reimbursements` export identically. The JSON channel is what

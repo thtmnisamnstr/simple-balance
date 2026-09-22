@@ -24,7 +24,7 @@ const IMPOSSIBLE = [
   {
     where: "src/server/services/helpers.ts",
     message: "Idempotency payload numbers must be finite",
-    because: "The canonicaliser has already refused anything that is not a JSON number.",
+    because: "The canonicalizer has already refused anything that is not a JSON number.",
   },
   {
     where: "src/server/services/helpers.ts",
@@ -94,7 +94,7 @@ const bareThrows: Throw[] = sourceFiles("src/server/services").flatMap((file) =>
   [...file.code.matchAll(/\bthrow\s+new\s+(Error|TypeError|RangeError|SyntaxError)\s*\(/g)].map(
     (match) => ({
       where: file.path,
-      // Enough of the line to recognise, and the message is what the list below
+      // Enough of the line to recognize, and the message is what the list below
       // matches on, so a reworded throw comes back here for a second look.
       text: file.code
         .slice(match.index, match.index + 160)
@@ -121,7 +121,7 @@ describe("a bare Error in a service", () => {
   });
 
   // The other half of the ratchet, borrowed from `tests/lint-budget.test.ts`: a
-  // throw that has been fixed or deleted must not leave its licence behind for
+  // throw that has been fixed or deleted must not leave its license behind for
   // the next one to inherit.
   it("has no entry standing for a throw that is no longer there", () => {
     const stale = IMPOSSIBLE.filter(

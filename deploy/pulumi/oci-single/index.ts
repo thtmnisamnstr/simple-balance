@@ -79,7 +79,7 @@ const routeTable = new oci.core.RouteTable(name, {
 
 /**
  * The firewall's cloud half. The other half is on the instance — see
- * `platformCommands` below, which is not an optimisation but the difference
+ * `platformCommands` below, which is not an optimization but the difference
  * between a machine that serves and one that times out.
  *
  * Nothing opens 5432 or 3000. PostgreSQL and the application reach each other

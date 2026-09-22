@@ -16,7 +16,7 @@ of them unusually, so an unwritten convention is a convention with one holder.
 | Document | Reader | Mode | Changes when |
 | --- | --- | --- | --- |
 | `README.md` | Somebody deciding whether to run it | Orientation | The product's shape changes, or the commands to run it do |
-| `docs/guide.md` | Somebody using it | Tutorial and explanation | A behaviour changes, or the decision behind one does |
+| `docs/guide.md` | Somebody using it | Tutorial and explanation | A behavior changes, or the decision behind one does |
 | `docs/how-to.md` | Somebody using it, mid-task | How-to | A screen changes what it asks for or what it does |
 | `docs/architecture.md` | Somebody changing the code | Explanation | A boundary moves, or a guarantee is added or withdrawn |
 | `docs/deployment.md` | An operator standing one up | Reference and how-to | A setting is added, renamed, or given a new default |
@@ -45,7 +45,7 @@ was being rediscovered, in the wrong order, every time.
 They are `.claude/skills/`, and the rule that keeps them from becoming a second
 copy of this set is that **a skill cites a guide and never restates it.** A rule
 written down twice drifts, which is the defect the whole set exists to prevent;
-so a skill says "read `web.md` section 9" where it is tempted to summarise
+so a skill says "read `web.md` section 9" where it is tempted to summarize
 section 9. What a skill is allowed to hold is what a guide has no place for: the
 order the steps go in, and the traps. `release-prep` says twice that the recount
 is last, because doing it early cost four passes in one session.
@@ -78,7 +78,7 @@ warning against empty template sections. Only the second is actionable at this
 size.
 
 So: test a page against the four modes when it feels wrong to read, and fix the
-page. Do not reorganise `docs/` into four directories. The existing documents
+page. Do not reorganize `docs/` into four directories. The existing documents
 land in the quadrants without having been designed to, which is the evidence
 that the shape is real rather than imposed.
 
@@ -114,12 +114,12 @@ convention expects.
   six and seven. The 0.1.0 entry predates the convention and uses its own
   headings; leave it.
 - **A change a person would notice gets an entry.** "Notice" means one of four
-  things: behaviour on a screen, a value on the wire in any of the three
+  things: behavior on a screen, a value on the wire in any of the three
   contracts, something an operator configures, or something that changes at
   startup. A refactor with none of those is not an entry. This is the rule that
   decides, and it decides at commit time, not at release time.
 - **An entry says why, not only what.** The entry that reads well a year later
-  is the one carrying the reason, including the limits: "ten categorical colours
+  is the one carrying the reason, including the limits: "ten categorical colors
   cannot all be told apart by somebody with dichromatic vision" is the model.
 - **State the limit rather than omitting it.** A fix that is partial says which
   part.
@@ -152,7 +152,7 @@ things somebody can depend on:
 | --- | --- |
 | HTTP `/api/v1` | A field removed or renamed, an accepted input narrowed, a status or error code changed for an unchanged request, a default changed. [`http.md`](http.md#what-counts-as-a-breaking-change) holds the full list and the deprecation policy this obliges. |
 | MCP | A tool removed or renamed, a required argument added, a scope widened for an existing tool, an output field removed. |
-| CSV | A recognised column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed. Adding a column is not breaking and column order is not part of the contract; [`csv.md`](csv.md#6-the-columns) says why. |
+| CSV | A recognized column removed from `APP_CSV_COLUMNS`, or an existing column's meaning changed. Adding a column is not breaking and column order is not part of the contract; [`csv.md`](csv.md#6-the-columns) says why. |
 | The deployment | A configuration variable renamed, removed, or made required; a refusal to start on a configuration the previous version accepted; a new external dependency; a raised floor on PostgreSQL or Node. |
 
 **A surface's own version and the release version answer different questions**,
@@ -196,7 +196,7 @@ What that rules out, and what it leaves:
   later release rather than this one.
 - A capability a client had must not narrow. Advertising a smaller scope in the
   RFC 9728 document would be least privilege and would also take write access
-  away from anybody who re-authorises without step-up support, so it waits.
+  away from anybody who re-authorizes without step-up support, so it waits.
 
 None of these is permanent. A break becomes fine once it has been announced for
 a release and the thing being removed has been deprecated in the field — which
@@ -258,7 +258,7 @@ and has no test behind it has been wrong before: the 0.1.5 contrast note quoted
 a number that was not the old value, and the change it described as an
 improvement was a small regression.
 
-*Checked by:* `tests/migrations.test.ts`. Per-migration behaviour assertions
+*Checked by:* `tests/migrations.test.ts`. Per-migration behavior assertions
 cover 0005 through 0011; the frozen ordering list at `:36-43` names the first
 five explicitly and the rest are held by number, file and snapshot rather than
 by name, and 0012 has no assertion there at all. *Checked by:* `tests/migrations.test.ts`, which reads `AGENTS.md` and fails when
@@ -306,7 +306,7 @@ out.
   **done**, because that is presence rather than judgement and presence is the
   half that fell behind.
 - **A "Deliberately not planned" section with the counter-argument in it.** The
-  auto-categorisation entry states the case against its own decision and names
+  auto-categorization entry states the case against its own decision and names
   the condition under which to revisit it. That is what makes the section
   useful rather than defensive.
 - **Nothing is committed to here.** `tasks/product.prd.json` records the product
@@ -370,10 +370,10 @@ with `docs/guide.md` keeping the explanations.
 - **A section per question somebody actually asks**, in this order: what it is,
   everything else it does, run it locally, run the tests, host it, connect an
   agent, security, not built yet, more, built with, license.
-- **The licence is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the licence is a term of use. `README.md:269-279` names it, links it,
+- **The license is stated in the README, not only in `LICENSE`.** For an AGPL
+  project the license is a term of use. `README.md:269-279` names it, links it,
   and explains what section 13 adds, including for versions published under the
-  older licence.
+  older license.
 - **No badge wall.** There are none today.
 - **A Security section, and a `SECURITY.md` behind it.** It ships an OAuth
   authorization server with dynamic client registration and a public MCP
@@ -452,7 +452,7 @@ a layer has almost always failed it, because those are answers to "where" and
 the subject's question is "what changed for somebody".
 
 Two habits that follow from that. Say the domain thing rather than the technical
-thing where both would do: "spell a payee", not "normalise the payee string".
+thing where both would do: "spell a payee", not "normalize the payee string".
 And where a commit really does several things, join them with a comma rather
 than inventing a category: "Stop a staging token making ledger changes, and a
 JWT carrying a credential".
@@ -547,14 +547,14 @@ them cover the whole range:
 - **The trade named, not only the choice.** `src/client/components.tsx:604-618`:
   a fixed popover, why absolute fails in a scrolling table card, what fixed
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
-  roles without the keyboard behaviour they imply are worse than none."
+  roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
   `src/shared/domain.ts:2331-2333`: "`.strict()` is the load-bearing part: a
-  filter this cannot honour is an error rather than a key quietly dropped,
+  filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
 - **The rule stated where somebody will try to break it.**
-  `src/client/styles.css:73-92`: why every colour is a token, which test fails
+  `src/client/styles.css:73-92`: why every color is a token, which test fails
   if one is not, and why the two dark blocks cannot be merged.
 
 Three further rules:
@@ -596,7 +596,7 @@ here is testable, because the thing being judged is whether a sentence is true.
 
 ## Keeping a document true
 
-**House. A change that alters behaviour a document describes changes that
+**House. A change that alters behavior a document describes changes that
 document in the same commit.** `AGENTS.md`'s definition of done covers the code
 half. The documentation half is habit, and habit is why seven of these are
 checked and four are not.
@@ -654,7 +654,7 @@ document; 76 lines in `CHANGELOG.md` currently run past 80 and should come back.
 image, because an image cannot be diffed and goes stale in silence. There is
 exactly one, at `docs/architecture.md:8-19`. There is exactly one screenshot,
 `docs/images/dashboard.png`, and it is replaced when the thing it shows changes
-shape rather than when it changes colour. It was last retaken against a real
+shape rather than when it changes color. It was last retaken against a real
 production build during the 0.1.5 cut, which is the standard: a seeded ledger
 and the real Content-Security-Policy in force, not a development server.
 
@@ -699,7 +699,9 @@ edit.
   trailers GitHub wrote.
 - **Four forms of a release subject** across six release commits.
 - **`Humanize the docs`**, an American spelling in a subject, in a repository
-  whose prose is British. Pre-convention, and the only one.
+  whose prose was British when that commit landed. Pre-convention, and the only
+  one — and the convention has since turned over to meet it
+  (`docs/standards/common.md` §Naming).
 - **The browser tier is new and thin.** `tests/browser/` covers the budgets
   page and nothing else. Every other page still rests on jsdom, which cannot
   see the class of defect that tier was added for.

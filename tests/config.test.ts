@@ -592,7 +592,7 @@ describe("a secret held in a file", () => {
     const { directConnectionString } = await import("../src/server/db/client.js");
 
     expect((await configFor()).databaseUrl).toBe(url);
-    // The point of the whole form. A Node diagnostic report serialises
+    // The point of the whole form. A Node diagnostic report serializes
     // `process.env`, so the one thing that must not happen is the resolved
     // value being handed back to the environment on the way past.
     expect(process.env.DATABASE_URL).toBeUndefined();

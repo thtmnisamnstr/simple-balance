@@ -77,7 +77,7 @@ missing `<title>`. A plain-text message has none of them, for free, forever.
 browser in 0.1.5, and it does not transfer:
 `prefers-color-scheme` has roughly 42% support across tested mail clients, Yahoo
 and AOL rewrite the query into something that never matches, and clients that do
-not honour it invert colours with their own algorithms. Plain text inherits the
+not honor it invert colors with their own algorithms. Plain text inherits the
 reader's own theme correctly everywhere.
 
 **House.** If HTML is ever added it ships as `multipart/alternative` with the
@@ -93,7 +93,7 @@ asserts it stays that way.
 
 ### Headers
 
-**How a SHOULD is labelled here**, stated once because this section leans on
+**How a SHOULD is labeled here**, stated once because this section leans on
 four of them. A SHOULD about what this product emits is **Binding**: it is an
 obligation on us and breaking it is a defect. A SHOULD about how a receiver
 behaves, or one that only describes a practice, is **House**: the reasoning
@@ -159,7 +159,7 @@ CR or LF. Recurrence and template names go through `oneLine`
 (`src/shared/domain.ts:300-306`), which refuses every character
 from U+0000 to U+001F and U+007F, so header injection through a subject is
 closed at the schema rather than at the mailer. Worth writing down precisely because the
-defence is nowhere near the code it defends.
+defense is nowhere near the code it defends.
 
 *Checked by:* `tests/mail-subjects.test.ts`, which pins both fixed parts and the
 cap, including that a name of astral-plane characters comes back whole rather
@@ -212,11 +212,11 @@ message, and an identical response whether or not the account exists, which is
 the whole reason `sendMail` returns `false` rather than throwing
 (`src/server/mail.ts:133-141`).
 
-**House, and this is the constraint to state as a defence rather than as
+**House, and this is the constraint to state as a defense rather than as
 strictness.** The URL in a reset message is built from `APP_BASE_URL`, which
 `config.ts:26-60` validates as an exact HTTP(S) origin with no credentials, path,
 query or fragment, HTTPS everywhere but loopback. That is the Host-header
-injection defence: a reset link assembled from the request's `Host` header lets a
+injection defense: a reset link assembled from the request's `Host` header lets a
 stranger send a real user a real reset link pointing at the stranger's server.
 Written as "the origin must be exact" it reads as fussiness about URLs.
 
@@ -225,7 +225,7 @@ never a second factor. NIST SP 800-63B revision 4 §3.1.3.1 is the citation, and
 revision 3 is superseded.
 
 *Checked by:* `tests/config.test.ts` (the origin rule, including the four
-non-origin forms it refuses). The single-use and expiry behaviour is Better
+non-origin forms it refuses). The single-use and expiry behavior is Better
 Auth's and is not asserted here.
 
 ### Deliverability
@@ -487,7 +487,7 @@ settings.
 
 The resolved values are held in a module-level map and handed out by
 `readSecret`, and are never written back into `process.env`. Two reasons, and
-the second is the load-bearing one. A Node diagnostic report serialises
+the second is the load-bearing one. A Node diagnostic report serializes
 `process.env`, so a value that never enters it cannot appear in the dump this
 section exists to worry about. And a resolver that writes into the environment
 has to run before anything reads it, which is an ordering nobody can see:
@@ -693,7 +693,7 @@ The root file is the model for all five. `AUTH_SECRET=` is empty with
 `RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:77-81`),
 and the mail block is commented out as a group (`.env.example:31-51`).
 
-It also does one thing beyond the rule, worth generalising: it warns about
+It also does one thing beyond the rule, worth generalizing: it warns about
 `NODE_ENV` (`.env.example:1-4`), a variable the images set and the operator is
 not meant to touch, because unset reads as development "with nothing said about
 it". **A silent hazard gets a comment even when the variable is not one you are
@@ -834,7 +834,7 @@ returns 200 or 503 (`src/server/api.ts:416-431`, and the same pair on the
 scheduler at `src/server/scheduler.ts:23-32`). Both are registered above every
 auth middleware and neither is authenticated.
 
-The rule that generalises best is already written in `docs/deployment.md:648`: "A
+The rule that generalizes best is already written in `docs/deployment.md:648`: "A
 process with the scheduler switched off is not an unhealthy one." A readiness
 check that fails because an optional subsystem is off takes a working server out
 of rotation. Readiness must not consult mail, and it must not consult the
@@ -1046,7 +1046,7 @@ whether the endpoint answers, which is the part with a security consequence.
 
 **The client is `prom-client`, and it is deprecated by rename.** npm prints
 "prom-client has been replaced by @prometheus-io/client" on every install, and
-the successor is the same project under the Prometheus organisation. It is not
+the successor is the same project under the Prometheus organization. It is not
 adopted here yet, and the reason is dates rather than doubt:
 `@prometheus-io/client` first appeared on August 21, 2026 and has four releases,
 the newest a day before this was written, while `prom-client@15.1.3` is what the
@@ -1170,7 +1170,7 @@ whether or not this workflow chooses to cache with it.
 *Checked by:* `human`, and by the refusal itself the first time somebody tries
 to publish an unmerged commit. Nothing in the suite runs a workflow file, and a
 test that asserted the shell string would pin the spelling rather than the
-behaviour. The four alerts CodeQL raised for this on the default branch, and the
+behavior. The four alerts CodeQL raised for this on the default branch, and the
 two the browser job added, are dismissed against this paragraph rather than left
 open to be rediscovered.
 
@@ -1192,7 +1192,7 @@ operator actually cashes, moving from `single` to `vps` by restoring a file — 
 it is why `docs/deployment-profiles.md` can be a comparison rather than three
 manuals.
 
-The obvious alternative is a `SB_PROFILE` setting selecting behaviour. It is
+The obvious alternative is a `SB_PROFILE` setting selecting behavior. It is
 wrong for the reason most mode flags are: every branch on it doubles the surface
 that has to be tested, and the branches that matter are already expressed by the
 settings themselves. A deployment with no `SMTP_HOST` degrades identically on all
@@ -1359,7 +1359,7 @@ a renamed variable moved the version.
 
 | Rule | Check |
 | --- | --- |
-| Booleans and closed sets refuse an unrecognised value, naming the variable | `tests/config.test.ts:162-183` |
+| Booleans and closed sets refuse an unrecognized value, naming the variable | `tests/config.test.ts:162-183` |
 | `APP_BASE_URL` is an exact origin, HTTPS off loopback | `tests/config.test.ts` |
 | A non-production process with a real `APP_BASE_URL` refuses to start | `tests/config.test.ts` |
 | A bounded integer outside its range refuses at startup, naming the variable | `tests/config-limits.test.ts`, `tests/config.test.ts` |
@@ -1403,7 +1403,7 @@ Review only, because no test can judge them:
   when it is wrong", in words an operator can act on.
 - Whether the release still refuses a tag the default branch does not contain.
   Nothing in the suite runs a workflow file, and a test that asserted the shell
-  string would pin its spelling rather than its behaviour. The refusal itself is
+  string would pin its spelling rather than its behavior. The refusal itself is
   the check, and it happens the first time somebody tries.
 
 A rule in neither list is a rule nobody is responsible for, and that is a defect

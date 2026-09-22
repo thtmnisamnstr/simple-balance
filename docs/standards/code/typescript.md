@@ -26,7 +26,7 @@ repository before going on; all but one cost nothing, and the one with a price
 ### 1.2 `erasableSyntaxOnly`, and the two classes it changed
 
 **Binding.** Every construct in this repository erases. Nothing here compiles to
-runtime behaviour that is not visible in the source: no `enum`, no `namespace`,
+runtime behavior that is not visible in the source: no `enum`, no `namespace`,
 no constructor parameter properties.
 
 The last of those cost five lines. `AppError` and `ApiClientError` both declared
@@ -270,7 +270,7 @@ fails; nothing here prefers one of the two.
 ### 3.3 `src/shared` may not import from `src/server` or `src/client`
 
 **Binding.** `src/shared` is the code both sides run: the domain schemas, the
-CSV grammar, the name normalisation, the recurrence arithmetic. It is imported
+CSV grammar, the name normalization, the recurrence arithmetic. It is imported
 by a browser bundle, so a stray `node:` import there ends up in the client or
 fails the build.
 
@@ -364,7 +364,7 @@ reads.
 | --- | --- |
 | 1.3 `noImplicitReturns` is declined | Nothing re-measures it, so a fourth site would arrive unargued. |
 | 1.4 `noUncheckedIndexedAccess` is declined | A count taken once is a measurement, not a check, and 441 goes stale quietly. |
-| 2.2 Assertions carry a reason | Not mechanisable. |
+| 2.2 Assertions carry a reason | Not mechanizable. |
 | 4.1 Argument order | A signature is read, not called, and nothing reads one. |
 | 4.2 Throw or return a result | Which of the two a caller needs is a judgement about the caller. |
 

@@ -86,7 +86,7 @@ integration("reconciling what Stripe says about a subscription", () => {
   });
 
   it("drops a snapshot fetched before the stored one, and one fetched at the same instant", async () => {
-    // The defect this prevents: a slow request carrying a cancelled
+    // The defect this prevents: a slow request carrying a canceled
     // subscription committing after a later fetch already saw a resubscribe.
     await seedUser("rec-order");
     await reconcileSubscription(

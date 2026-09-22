@@ -17,7 +17,7 @@ carries errata. Two things follow from picking it. Some level AAA criteria are
 met because they are cheap, and meeting one does not move the target. And APCA
 is not used: WCAG 3.0 is a Working Draft whose own status section says it is
 inappropriate to cite as other than a work in progress, and its contrast
-algorithm is undecided. Where a perceptual method likes a colour that the 2.x
+algorithm is undecided. Where a perceptual method likes a color that the 2.x
 ratio refuses, the 2.x ratio wins.
 
 ## 1. Tokens
@@ -25,17 +25,17 @@ ratio refuses, the 2.x ratio wins.
 ### 1.1 One tier, and it is semantic
 
 **House.** There is one token tier and a token's name says what it is for, never
-what colour it is. Material's three tiers exist to serve dynamic colour
+what color it is. Material's three tiers exist to serve dynamic color
 generation; this product has one brand and two themes, so a reference tier would
 double the names and buy nothing.
 
-*Checked by:* `tests/theme-tokens.test.ts`, which fails on any literal colour
+*Checked by:* `tests/theme-tokens.test.ts`, which fails on any literal color
 written outside the token blocks, on a token referenced but never declared, and
 on a token declared but never used.
 
 ### 1.2 The three blocks
 
-**House, and already enforced.** Every colour lives in exactly three blocks at
+**House, and already enforced.** Every color lives in exactly three blocks at
 the top of `src/client/styles.css`. Nothing in a specification or in
 `AGENTS.md` requires this structure; the test and the reasoning at
 `styles.css:73-92` are what carry it.
@@ -64,13 +64,13 @@ media one (`:55`), and that each block declares `color-scheme`.
 ### 1.3 What is a token, and what is not
 
 **House, and the largest gap in this chapter.** Sixty tokens are declared and
-all sixty are a colour or a shadow made of colours. Nothing else in
+all sixty are a color or a shadow made of colors. Nothing else in
 the stylesheet is a token: not a space, not a radius, not a size, not a weight,
 not a duration, not a z-index, not a breakpoint. There is no stated rule for why
 `--shadow` earns a name and `13px` does not.
 
 The rule, from here: **a value becomes a token when it is a decision that has to
-be the same in two places.** A colour qualifies because a theme must answer for
+be the same in two places.** A color qualifies because a theme must answer for
 it twice. A spacing step qualifies because a gap that is 11px on one card and
 12px on the next is not a decision, it is two accidents. A one-off geometry
 value does not qualify: the nine inline `style` props in the client
@@ -95,7 +95,7 @@ list: `ground`, `surface`, `field`, `fill`, `line`, `ink`, `muted`, `track`,
 two tokens using it as a role.
 
 Two consequences worth stating. First, do not reach for a token because its
-colour happens to match; a token used outside the concept it names breaks in the
+color happens to match; a token used outside the concept it names breaks in the
 other theme. Second, `--ambient`, `--art-glow-a`, `--art-glow-b`, `--art-veil`, `--chrome`
 and `--scrim` carry no property segment and cannot be read from their names
 alone. They are exempted here by name rather than left as a hole in the list —
@@ -125,7 +125,7 @@ without moving all of them.
 fields ship disabled — the mass-edit panels on transactions, staged rows and
 templates (`src/client/bulk-edit.tsx`, `src/client/TransactionBrowser.tsx`,
 `src/client/pages/StagingPage.tsx`, `src/client/pages/TemplatesPage.tsx`) — and
-because `.input` sets its own background, colour and border, the browser's
+because `.input` sets its own background, color and border, the browser's
 disabled rendering was overridden and a dead field was pixel-identical to a live
 one. `.bulk-edit-field.enabled` paints its row green as soon as an action is
 chosen, and on the templates panel choosing "Clear so it is filled in on use"
@@ -134,7 +134,7 @@ control is exempt from SC 1.4.3 and SC 1.4.11 (section 2.1), which is what lets
 its edge drop to the decorative `--line`; the exemption says the contrast need
 not be measured, not that the state may be invisible. Opacity is the house
 answer for a disabled *button* and the wrong answer here: a field sits on
-coloured rows, and dimming one lets the row's colour through instead of stating
+colored rows, and dimming one lets the row's color through instead of stating
 anything.
 
 A read-only field is not a disabled one and has not shipped. When the first one
@@ -148,7 +148,7 @@ and takes its fill from `--field-disabled`, and that the two fills differ in
 every theme — the last of those being the difference between declaring a
 disabled state and having one anybody can see.
 
-## 2. Colour and contrast
+## 2. Color and contrast
 
 ### 2.1 Text contrast
 
@@ -194,12 +194,12 @@ this table was written by hand and all eleven rows above reproduce exactly — a
 enumerated check would have caught nothing, and the one real failure it found
 was a pair nobody had thought to enumerate. One sanctioned exception,
 `.auth-ledger-card`, whose translucent wash composites over a gradient rather
-than over the token underneath and reads as 1.00:1 to a two-colour test.
+than over the token underneath and reads as 1.00:1 to a two-color test.
 
 ### 2.2 Non-text contrast
 
 **Binding, WCAG 2.2 SC 1.4.11 Non-text Contrast, level AA.** 3:1 against
-adjacent colours for anything required to identify a control or its state, and
+adjacent colors for anything required to identify a control or its state, and
 for parts of a graphic required to understand it. The enumerated exceptions are
 inactive components, components whose appearance the user agent determines and
 the author has not modified, and graphics whose particular presentation is
@@ -241,16 +241,16 @@ recompute them. The control-edge *selectors* are still read by a person: which
 borders are a control and which are a card outline is a judgement, and a test
 enumerating them would be a list of the answer rather than a check on it.
 
-### 2.3 Colour is never the only cue
+### 2.3 Color is never the only cue
 
 **Binding, WCAG 2.2 SC 1.4.1 Use of Color, level A.** A 3:1 lightness difference
-can count as the extra cue, but where the content depends on telling one colour
+can count as the extra cue, but where the content depends on telling one color
 from another an additional visual indicator is required regardless of ratio.
 
 This product already mostly obeys it, deliberately: a deleted row gets
 `line-through` as well as opacity, a staged row an amber badge as well as an
 amber background, an archived account an "Archived" badge as well as opacity,
-and the split remainder line changes its words and not only its colour. Keep
+and the split remainder line changes its words and not only its color. Keep
 that. Section 10 covers the money case, which is the one that still slips.
 
 *Checked by:* nothing mechanical. This is review, and it is the honest kind of
@@ -261,16 +261,16 @@ information.
 
 **Contested.** Red and green are the most common confusion pair, and no source
 found in research says whether a financial table should use them at all as a
-redundant cue. The published guidance says only that colour cannot be the sole
+redundant cue. The published guidance says only that color cannot be the sole
 cue.
 
 This product uses them, because the sign is always present and load-bearing and
-the colour is decoration on top of it (section 10). The decision is recorded
+the color is decoration on top of it (section 10). The decision is recorded
 here so the next person argues with it rather than rediscovering the
-disagreement. If the sign is ever suppressed in favour of the colour, this
-decision is void and the colour has to go.
+disagreement. If the sign is ever suppressed in favor of the color, this
+decision is void and the color has to go.
 
-*Not checked mechanically.* Whether the sign is still present beside the colour
+*Not checked mechanically.* Whether the sign is still present beside the color
 is what section 10.1 covers, and that is review.
 
 ## 3. The scales
@@ -282,7 +282,7 @@ description of what exists.
 *Not checked mechanically, and not yet checkable.* The scales do not exist: every
 spacing, radius, size and weight in `styles.css` is a hand-picked value. Once the
 tokens land, `tests/support/css.ts` can refuse a literal outside them the way
-`tests/theme-tokens.test.ts` already refuses a literal colour. Until then this
+`tests/theme-tokens.test.ts` already refuses a literal color. Until then this
 section is a proposal, and says so.
 
 ### 3.1 Spacing
@@ -316,9 +316,9 @@ eight different numbers expressing one intent, and it is now one gap on one
 container. Section 7.4 has it. It uses the literal `24px` rather than
 `--space-7`, and the reason is worth recording so nobody "finishes the job" and
 finds out the hard way: `tests/theme-tokens.test.ts` requires every token to be
-declared in all three colour blocks and to be used somewhere, so the ramp cannot
-arrive as nine tokens in `:root` — it needs the token blocks split into colour
-and non-colour first. **That split is the first step of the ramp, not a detail
+declared in all three color blocks and to be used somewhere, so the ramp cannot
+arrive as nine tokens in `:root` — it needs the token blocks split into color
+and non-color first. **That split is the first step of the ramp, not a detail
 of it.**
 
 ### 3.2 Radius
@@ -435,7 +435,7 @@ documented constants rather than tokens until container queries or
 
 **House.** Durations and easings are tokens, and the reduced-motion block sets
 those tokens in one place. Otherwise every new animation has to remember to add
-itself to a second block, which is the exact failure the colour test exists to
+itself to a second block, which is the exact failure the color test exists to
 prevent.
 
 Today there are no motion tokens. Transitions are written inline at 120ms (six
@@ -453,7 +453,7 @@ everything.
 somebody who asked for reduced motion got no busy indicator at all. `.skeleton`
 was exempted by hand and the spinner was not, and nothing said which of the two
 was the oversight. A slow rotation is acceptable under `reduce`, which asks for
-minimised non-essential motion; no indicator is not.
+minimized non-essential motion; no indicator is not.
 
 The spinner now swaps its rotation for an opacity pulse rather than stopping
 (`styles.css:791-798`), which carries the same meaning with no motion across the
@@ -591,7 +591,7 @@ and the error message, does.
 2. It does not duplicate something in the table above. A name check catches the
    obvious case and nothing else, so this one is judgement.
 3. It is reachable and operable by keyboard, and it has an accessible name.
-4. It does not need a new colour, space, radius or size outside the scales.
+4. It does not need a new color, space, radius or size outside the scales.
 
 Three things in the app are past the threshold and are not components yet:
 
@@ -613,7 +613,7 @@ Three things in the app are past the threshold and are not components yet:
   which is one state rendered two ways on two screens a person moves between.
   Both are held by `tests/ui-copy.test.ts`. The word stays plain inside the two
   inline-edit cells, where it is a button's own label and takes the button's
-  colour, and the test says so rather than skipping them.
+  color, and the test says so rather than skipping them.
 
 *Not checked mechanically.* Whether something has crossed the threshold is
 judgement; that a repeated markup has one owner is what a component test would
@@ -678,7 +678,7 @@ scrolling wrapper within eight lines above it, and that `.table-wrap` declares
 
 ### 7.3 One body, then the responsive body
 
-**House, and enforced.** The stylesheet is three colour blocks (section 1.2),
+**House, and enforced.** The stylesheet is three color blocks (section 1.2),
 then one body of component rules, then one body of responsive and preference
 blocks, and nothing after them. It was not always: component rules used to
 resume below the breakpoints and run for another 426 lines, with a stray 980px
@@ -695,7 +695,7 @@ which is how a list of work comes to include work nobody should do — the
 absence of a breakpoint is only a defect where something needs one.
 
 Two blocks are outside the responsive body on purpose and are named here rather
-than left as holes. The dark-token block belongs to the three colour blocks at
+than left as holes. The dark-token block belongs to the three color blocks at
 the top, which section 1.2 requires and which this rule does not override. And
 the reduced-motion block that stops the skeleton shimmer sits directly beneath
 `.skeleton`, four lines qualifying the rule six lines above it: that is part of
@@ -791,9 +791,9 @@ Templates' Type select — twenty pixels taller than the search box beside it, a
 other filter in the app was already bare.
 
 This is the one place where this guide and
-[`code/client.md`](code/client.md#31-field-wraps-every-labelled-control-in-a-form)
+[`code/client.md`](code/client.md#31-field-wraps-every-labeled-control-in-a-form)
 disagreed, and the disagreement is recorded rather than resolved by silence:
-that rule says "`Field` wraps every labelled control", and it has been amended
+that rule says "`Field` wraps every labeled control", and it has been amended
 to carve out the filter bar rather than left to be rediscovered by the next
 person who adds a filter.
 
@@ -1356,7 +1356,7 @@ harder than anything else here (six columns of arbitrary CSV headers inside a
 300px aside), was the one scrolling container in the client a keyboard could not
 reach. Nothing was wrong with the rule; the check and the sentence had both been
 written against the classes that existed the day they were written. The pairing is good practice; the
-`tabindex` is the rule, and a focusable region with no name is an unlabelled tab
+`tabindex` is the rule, and a focusable region with no name is an unlabeled tab
 stop, which is why the two travel together. The name repeats the table's
 `.sr-only` caption, so the two cannot describe different tables.
 
@@ -1421,7 +1421,7 @@ is only what a screen adds.
 ### 10.1 The sign carries the meaning
 
 **Binding, SC 1.4.1 Use of Color, level A, and `AGENTS.md` for the arithmetic.**
-The minus sign is load-bearing and the colour is decoration on top of it.
+The minus sign is load-bearing and the color is decoration on top of it.
 Whether a figure is negative is decided by `isNegativeMoney`, never by
 `Number(x) < 0`.
 
@@ -1432,18 +1432,18 @@ is what replaced it.
 | Where | Treatment |
 | --- | --- |
 | `DashboardPage`, `AccountsPage`, `ReportsPage`, `AccountDetailPage` | `money-negative` on the value, with Intl's own minus sign. Still the rule for a computed total, which has a sign of its own |
-| `TransactionBrowser` | Coloured and signed by transaction *type*, with a hand-prefixed `+` or `−` |
-| `StagingPage`, `TemplatesPage`, `RecurrencesPage` | No colour and no sign |
+| `TransactionBrowser` | Colored and signed by transaction *type*, with a hand-prefixed `+` or `−` |
+| `StagingPage`, `TemplatesPage`, `RecurrencesPage` | No color and no sign |
 
 Page names without line numbers, for 12.2's reason: the table records a state
-the code is no longer in — the queue's amount cell now colours and signs
+the code is no longer in — the queue's amount cell now colors and signs
 through `movementSign` like the rest — and a line number into it could only
 ever go stale.
 
 One rule, and it is **direction** rather than the value's own sign: a stored
 amount is always positive, because `AGENTS.md` keeps direction in the type. So a
 deposit reads `+` in green, a withdrawal `−` in red, and a transfer is signed
-but uncoloured — money moving between somebody's own accounts is not spending.
+but uncolored — money moving between somebody's own accounts is not spending.
 
 `movementSign` (`src/client/money.ts`) is that rule, and five lists share it —
 the register, the review queue, the templates, the recurrences and the import
@@ -1451,11 +1451,11 @@ preview.
 The register already did this; the review queue, the templates and the
 recurrences showed no sign at all, so the same withdrawal read three ways in
 three places and one of the three did not read at all. The register may
-additionally show direction through `.transaction-icon`, because a colour and an
+additionally show direction through `.transaction-icon`, because a color and an
 icon fail in different conditions.
 
 **One asymmetry survives, deliberately.** An inbound transfer takes the deposit
-colour and an outbound one takes none. That is the register's own behaviour and
+color and an outbound one takes none. That is the register's own behavior and
 it was preserved rather than tidied, because tidying it would repaint a screen
 nobody asked to have repainted. It is recorded here so the next person finds a
 decision rather than a bug.
@@ -1503,7 +1503,7 @@ Instants go through `formatTimestamp(instant, timezone)`
 (`src/client/money.ts:333-348`), whose zone comes from `useTimezone()`: the
 activity log (`src/client/pages/ActivityPage.tsx:60`) and the connected-apps
 panel (`src/client/pages/SettingsPage.tsx:574`) each rolled their own in the
-*browser's* zone, so an audit trail read while travelling disagreed with the
+*browser's* zone, so an audit trail read while traveling disagreed with the
 dates on the entries it audits. A date column is right-aligned or left-aligned
 by taste, but it gets tabular figures either way.
 
@@ -1529,7 +1529,7 @@ no pie chart, which decides a question below.
 
 ### 11.1 Series against the background
 
-**Binding, SC 1.4.11, level AA.** Every series colour clears 3:1 against the
+**Binding, SC 1.4.11, level AA.** Every series color clears 3:1 against the
 surface it is drawn on. Measured, all ten do, in both themes:
 
 | Series | Light | Dark | | Series | Light | Dark |
@@ -1558,16 +1558,16 @@ two adjacent slices at 1.8:1 against the page would pass today.
 
 **Contested, and this is where the guide departs from the research behind it.**
 
-The UK Government Analysis Function publishes a six-colour categorical palette
-where all adjacent colours clear 3:1 against each other, caps categories at four
+The UK Government Analysis Function publishes a six-color categorical palette
+where all adjacent colors clear 3:1 against each other, caps categories at four
 as best practice, and treats five and six as "only when essential". Read
 literally, that says this product should cut ten series to six.
 
 This product keeps ten, on measured grounds recorded at `styles.css:3501-3513`.
-The previous six-colour set had a worst dichromatic pair of 1.78 in CIEDE2000
+The previous six-color set had a worst dichromatic pair of 1.78 in CIEDE2000
 under simulated deuteranopia and protanopia, where the green and the pink were
-the same colour; the current ten reach 5.6 in light and 4.7 in dark. Going from
-six to ten made colour-blind separation better, not worse. The number of series
+the same color; the current ten reach 5.6 in light and 4.7 in dark. Going from
+six to ten made color-blind separation better, not worse. The number of series
 here is also not an author's editorial choice: it is how many accounts somebody
 has.
 
@@ -1582,19 +1582,19 @@ set `stroke: none`. Two touching bars at 1.05:1 had no visible boundary.
 The fix was geometry rather than a repainted palette: `.chart-bar` now carries a
 one-pixel `--surface` stroke (`styles.css:3337-3340`), which separates every
 adjacent pair against the page they are drawn on and disturbs none of the
-measured dichromatic separation the ten-colour set was chosen for.
+measured dichromatic separation the ten-color set was chosen for.
 
 *Checked by:* `tests/theme-tokens.test.ts`, which asserts `.chart-bar` declares a
 stroke and that the stroke is not `none` — the state it was in. The ratio
 between two *series* tokens is deliberately not asserted: this section argues at
-length that the ten-colour set beats a compliant six-colour one on the measure
+length that the ten-color set beats a compliant six-color one on the measure
 that matters here, and a test demanding 3:1 between adjacent series would be a
 test that contradicts the guide it is attached to.
 
-### 11.3 A second channel that is not colour
+### 11.3 A second channel that is not color
 
 **Binding, SC 1.4.1, level A, plus the source guidance.** Ten categorical
-colours cannot all be told apart under dichromatic vision, and no choice of ten
+colors cannot all be told apart under dichromatic vision, and no choice of ten
 fixes that: the palette in 11.2 is the best available set and reaches 5.6 in
 light, which is three times better than the six it replaced and still not enough
 on its own.
@@ -1611,19 +1611,19 @@ defect.
 
 **And the legend carries the same rhythm**, which is the half that was
 backwards. `ChartLegend` renders the swatch with `aria-hidden="true"` and the
-label as text, so a screen reader gets the label and a colour-blind sighted
-reader got only a block of colour to match against a line. A swatch that shows
+label as text, so a screen reader gets the label and a color-blind sighted
+reader got only a block of color to match against a line. A swatch that shows
 the line's pattern can be matched by shape. It is a repeating gradient rather
 than a border, because the swatch is a `<span>` and has no stroke to dash, and
 the stops are the dash arrays scaled to a 10px box so the two rhythms are the
 same rather than similar.
 
-Direct labelling is the other published answer, and both the Analysis Function
+Direct labeling is the other published answer, and both the Analysis Function
 and Okabe and Ito recommend it over a legend for lines. Use it where a chart has
 few enough series to fit labels; keep the legend where it does not.
 
 *Checked by:* `tests/theme-tokens.test.ts`, which requires nine dashed series and
-no two sharing a rhythm — two series on one pattern would put them back on colour
+no two sharing a rhythm — two series on one pattern would put them back on color
 alone for the reader this exists for — and a patterned swatch for every dashed
 line. And `tests/browser/budgets.spec.ts` for the half only a browser resolves:
 jsdom computes no styles for an SVG `<path>` and no gradients at all, so it can
@@ -1655,11 +1655,11 @@ and it is the only place in the chart code that is allowed to make one.
 
 *Checked by:* `tests/client-money.test.ts`.
 
-### 11.6 A series keeps its colour when the visible set shrinks
+### 11.6 A series keeps its color when the visible set shrinks
 
-**House.** A series' colour is bound to its place in the full set, never to its
-index in whatever subset is currently drawn. Colours were dealt by array
-position, so excluding one category from the categories report recoloured every
+**House.** A series' color is bound to its place in the full set, never to its
+index in whatever subset is currently drawn. Colors were dealt by array
+position, so excluding one category from the categories report recolored every
 line and swatch after it — and the moment somebody most wants to compare before
 and after is the moment everything changed clothes. `Series.paint`
 (`src/client/charts.tsx:15-26`) carries the full-set position past the filter,
@@ -1745,9 +1745,9 @@ about is exactly the figure worth linking, and "why is Groceries $182?" is the
 question that panel provokes.
 
 **Two conditions.** The link appears only where there is something to link to:
-the uncategorised row has a null id, because it is the absence of a category
+the uncategorized row has a null id, because it is the absence of a category
 rather than one of them, and `/categories/null` is a 404. And a linked name
-inside a row takes the row's own colour rather than the global anchor green,
+inside a row takes the row's own color rather than the global anchor green,
 greening on hover — the treatment `.account-mini-row` already had and
 `.spending-row` did not, or the name reads as a second green thing beside a
 green bar.
@@ -1761,7 +1761,7 @@ is 11.7's, and it is not caught there either.
 Research found no primary source on empty-state categories, on when to show a
 spinner versus a skeleton, or on how long before either. Carbon's and Polaris's
 pages could not be retrieved. So this section is reasoning, not citation, and it
-is labelled accordingly.
+is labeled accordingly.
 
 ### 12.1 Four states per list
 
@@ -1867,12 +1867,12 @@ disabled on a computed predicate and one had a sentence beside it — the split
 remainder line, which is the model the rest now follow. It is the one control
 that can go completely silent: nothing has been typed wrongly, so there is no
 field error, and nothing has been submitted, so there is no summary. The button
-is grey and the person guesses which of the form's conditions is unmet.
+is gray and the person guesses which of the form's conditions is unmet.
 
 `Button` takes `disabledReason`, rendered only while `disabled` is true and
 `loading` is not — a button that is working already says so, and a reason for
 that state would be a second answer to a question already answered. Wired with
-`aria-describedby` rather than left as a neighbouring paragraph: a sighted
+`aria-describedby` rather than left as a neighboring paragraph: a sighted
 person reads what is beside the button, and somebody on a screen reader is told
 the button's name and its state and then has to go looking.
 
@@ -1884,7 +1884,7 @@ when a reason exists remounts the button as the reason comes and goes, which
 takes focus off it at the moment it becomes usable, which is the defect 13.3 is
 about.
 
-*Checked by:* `tests/field-contract.test.tsx`, which holds the behaviour — shown
+*Checked by:* `tests/field-contract.test.tsx`, which holds the behavior — shown
 when disabled, absent when enabled, absent while working, and the same element
 across the change — and requires the prop at every `<Button>` in the client with
 a computed `disabled`. That last part is what this section said it had nothing to
@@ -1898,8 +1898,8 @@ without having it. It read a hand-written list of five files and matched
 the five. Eight buttons carried the prop and the check saw exactly those eight,
 which is what a passing check looks like when it is measuring itself. Walking
 the client properly finds 22, and the fourteen it had never seen were fourteen
-controls that went grey and said nothing. Four of those are exempt and named in
-`WORKING_NOT_BLOCKED`: the unpressed half of a pair, greyed while its sibling
+controls that went gray and said nothing. Four of those are exempt and named in
+`WORKING_NOT_BLOCKED`: the unpressed half of a pair, grayed while its sibling
 works, where the answer is the sibling's spinner.
 
 ### 12.4 One live region per page
@@ -1987,7 +1987,7 @@ The rules, in the order they matter:
   committed." or "Nothing was staged.", because no other copy on either page
   says so and somebody who watched the bar climb has no other way to know.
   **A connection that died is not a refusal and gets no such sentence.** The
-  work is never cancelled because a browser went away, so the outcome is
+  work is never canceled because a browser went away, so the outcome is
   genuinely unknown and the page says exactly that instead. `writeDidNotHappen`
   (`src/client/api.ts`) is the one place the two are told apart, because a page
   that guessed would guess wrong in the direction that matters: telling somebody
@@ -2027,11 +2027,11 @@ checked by hand in Chromium in both themes and is listed in 17.3.
 ### 13.1 The indicator
 
 **Binding, SC 1.4.11 for the contrast; House for the composition.** The focus
-indicator is two colours so that one of them always contrasts, which is GOV.UK's
+indicator is two colors so that one of them always contrasts, which is GOV.UK's
 reasoning for pairing yellow with a thick black border. `--focus-ring` and
 `--focus-inner` already are that pair, and `--focus-ring` measures 5.08:1 light
 and 9.70:1 dark against `--surface`. The reasoning is recorded here so a future
-simplification to one colour reads as a regression rather than a tidy-up.
+simplification to one color reads as a regression rather than a tidy-up.
 
 Meeting SC 2.4.13 Focus Appearance (level AAA) is cheap here, a 2px perimeter at
 3:1, and meeting it does not move the target.
@@ -2119,7 +2119,7 @@ and starting again.
   used to leave a scrim over a page nobody could dismiss.
 
 Modals were already correct: a native `<dialog>` driven by `showModal()` and
-`close()`, labelled by `aria-labelledby` from a `useId()`, with `onCancel`
+`close()`, labeled by `aria-labelledby` from a `useId()`, with `onCancel`
 intercepted (`components.tsx:481-531`), and with the form body mounted only while
 the dialog is open so closing discards what was half-typed.
 
@@ -2135,7 +2135,7 @@ keyboard pass in section 14 remains a person's job.
 ### 13.4 Target size
 
 **Binding, SC 2.5.8 Target Size (Minimum), level AA.** 24 by 24 CSS pixels,
-subject to the spacing exception: if a 24px circle centred on each target's
+subject to the spacing exception: if a 24px circle centered on each target's
 bounding box does not intersect another target's circle, the target passes.
 
 This is already solved, deliberately. `.icon-button` is 31 by 31
@@ -2168,7 +2168,7 @@ What belongs here, and only here:
 - What actually went over the wire, when a control's whole job is to change it.
 - Keyboard reachability of a page, which needs real focus order.
 - That a page produces no console error and no failed request.
-- Anything whose failure mode is "the element is correct and the behaviour is
+- Anything whose failure mode is "the element is correct and the behavior is
   not".
 
 What does not: rules about markup, which jsdom checks faster; anything a
@@ -2255,7 +2255,7 @@ in sentence case and uppercased by CSS, never by the string.
 dropped: "Add menu item", not "Add a menu item". Bare verbs are allowed for four
 labels and only four: Done, Close, Cancel, OK. "Save" is not one of them and
 takes an object. This product's verbs are already domain verbs (Commit, Stage,
-Archive, Merge, Restore), so the rule mostly formalises what exists.
+Archive, Merge, Restore), so the rule mostly formalizes what exists.
 
 **House.** *Create* generates something from nothing; *add* brings in something
 that already exists. This distinction matters more in a ledger than the usual
@@ -2314,12 +2314,12 @@ is which.
 
 | Test | What it holds |
 | --- | --- |
-| `tests/theme-tokens.test.ts` | Three token blocks exist, share a key set, and the two dark ones parse to the same token map; the attribute block is last; `color-scheme` per block; no literal colour outside the blocks; no undeclared or unused token; no text token used as a fill or fill token used as text; one token per series in both themes, all distinct; every `.chart-series-N` draws from its token; `.input` draws its fill and edge from `--field` and `--field-line`, `.input:disabled` exists and takes its fill from `--field-disabled`, and that fill differs from `--field` in every theme |
+| `tests/theme-tokens.test.ts` | Three token blocks exist, share a key set, and the two dark ones parse to the same token map; the attribute block is last; `color-scheme` per block; no literal color outside the blocks; no undeclared or unused token; no text token used as a fill or fill token used as text; one token per series in both themes, all distinct; every `.chart-series-N` draws from its token; `.input` draws its fill and edge from `--field` and `--field-line`, `.input:disabled` exists and takes its fill from `--field-disabled`, and that fill differs from `--field` in every theme |
 | `tests/table-overflow.test.ts` | Every `.data-table` sits in a scrolling wrapper; `.table-wrap` carries `overflow-x` and none of the card chrome |
 | `tests/styles-skeleton.test.ts` | The shimmer animation belongs to `.skeleton` alone; every card paints its own background; every selector whose animation says `infinite` is answered by name under `prefers-reduced-motion` (4) |
 | `tests/styles-order.test.ts` | No top-level rule follows the responsive body; the four breakpoint blocks are contiguous and in descending order; the two preference blocks above them are named and so are the two selectors the motion one qualifies; no two independently-triggered layers share a `z-index` (3.5, 3.6, 4) |
 | `tests/contrast.test.ts` | Every rule painting text on a fill clears 4.5:1 (or 3:1 where the rule says it is large) in both themes, derived from the token values rather than quoted; the six published non-text pairs clear 3:1 (2.1, 2.2, 11.1) |
-| `tests/modal-layout.test.ts` | `.modal` centres independently of the global margin reset |
+| `tests/modal-layout.test.ts` | `.modal` centers independently of the global margin reset |
 | `tests/error-summary-ui.test.tsx` | A refusal's every sentence is rendered, two fields sharing one sentence stay two lines, one field refused twice shows once, the summary takes focus and retakes it on an identical repeat, its heading is an `h3` under a dialog's `h2`, and a parser's own errors leave the app's sentence standing (8.3) |
 | `tests/radio-groups.test.tsx` | Every radio belongs to exactly one group; two forms on one page stay separate; the transaction type choice is one tab stop with arrow wraparound |
 | `tests/new-category-kind-ui.test.tsx` | The form asks which kind a name with nothing behind it should become, stays quiet when the category exists or the picker is empty, sends the answer only when one was given, and forgets it when the direction changes |
@@ -2333,14 +2333,14 @@ is which.
 | `tests/progress-bar-ui.test.tsx`, `tests/progress-frames.test.ts` | When a progress bar is drawn, what it says, and that it is removed rather than frozen (12.6) |
 | `tests/recurrence-dates.test.ts`, `tests/locale-detection.test.ts` | The date and locale arithmetic every rendered date rests on (10.4) |
 | `tests/page-stack.test.ts` (continued) | A page-prefixed class is used on its own page, or is one of twenty-one registered components; every full-height rule measures `dvh`; a right-aligned cell gets tabular figures whether it is a header or not (6.3, 9.3, 15) |
-| `tests/field-contract.test.tsx` | Every `<Button>` with a computed `disabled` carries a `disabledReason`, which is shown and pointed at while disabled, absent while enabled or working, and does not remount the button (12.3); a field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labelled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
+| `tests/field-contract.test.tsx` | Every `<Button>` with a computed `disabled` carries a `disabledReason`, which is shown and pointed at while disabled, absent while enabled or working, and does not remount the button (12.3); a field names its control explicitly, points it at the hint and the error, marks it invalid, and is a labeled group around a composite; every `<input>`, `<select>` and `<textarea>` in the client goes through the three shared components, with two named exceptions (8.1) |
 | `tests/shell-focus.test.tsx`, `tests/browser/budgets.spec.ts` | The skip link is first and lands in `<main>`; a route change moves focus and resets scroll; the drawer makes the page behind it inert, moves focus in and out, and closes on Escape; a finished bulk action puts focus on the sentence saying so (13.3) |
 | `tests/ui-copy.test.ts` | No banned word in any string a person reads, in all three of client, shared and server; every literal button label is a verb phrase or one of the four bare actions; the three bulk bars use the four sanctioned strings; no eyebrow repeats its title; a blank cell's dash is a fallback and never cell text; `Uncategorized` is styled once; every worked sentence in `common.md`'s table appears verbatim in `src`; every page rendering a list's empty state gives it a conditional rather than one sentence for two situations, with six named exceptions; and an empty state sits behind its query's error rather than beside it, with two named exceptions (6.2, 12.1, 16) |
 
 ### 17.2 Worth building, ranked by bugs caught per hour
 
 1. **No spacing, radius, size or weight literal outside the scales.** The same
-   trick the colour test uses, with an allow-list for `1px` borders, `0` and
+   trick the color test uses, with an allow-list for `1px` borders, `0` and
    percentages. This is the largest unmanaged surface in the stylesheet: 291
    spacing declarations across 35 values. The census itself is now derived
    rather than recounted — `tests/standards-citations.test.ts` holds section 3's
@@ -2352,8 +2352,8 @@ is which.
 3. **Duration and easing tokens exist and the reduced-motion block sets them**,
    so a new animation cannot forget the second block. The bar separation half of
    what used to be item 5 has landed; the adjacent-series half is deliberately
-   not here, because section 11.2 argues at length that the ten-colour set beats
-   a compliant six-colour one on the measure that matters, and a test demanding
+   not here, because section 11.2 argues at length that the ten-color set beats
+   a compliant six-color one on the measure that matters, and a test demanding
    3:1 between adjacent series would contradict the guide it is attached to.
    Section 11.3's dash patterns were the honest successor and have landed.
 4. **No `type="number"` on a field bound to a decimal-string money value.**
@@ -2420,9 +2420,9 @@ invariant, and the money-field ban in section 8.5 is the invariant reaching a
 screen rather than an argument with it.
 
 What it does record is four places where published guidance and this product
-disagree, each labelled Contested and each naming the position it did not take:
+disagree, each labeled Contested and each naming the position it did not take:
 green and red in a ledger (2.4), the dense transaction form against one question
-per page (8.7), a table rather than a grid (9.1), and ten series colours rather
+per page (8.7), a table rather than a grid (9.1), and ten series colors rather
 than six (11.2). Section 10.2 records a fifth departure, from GOV.UK's prose rule
 about trailing zeros, which is a reversal rather than a disagreement: the rule is
 right for a sentence and wrong for a column.

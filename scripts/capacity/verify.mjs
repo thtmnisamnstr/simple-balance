@@ -11,7 +11,7 @@
  * zero. A capacity number measured against a ledger that does not balance
  * measures nothing — the queries would be reading rows the application could
  * never have written, and the shape of a real one is exactly what the index
- * behaviour depends on.
+ * behavior depends on.
  *
  * So: every check below is one the service would have enforced on the way in.
  *

@@ -381,7 +381,7 @@ async function requireBudgetableTarget(
  *
  * Checked under the category namespace lock, which is the lock this file takes
  * for the same reason `categories.ts` takes it: a uniqueness rule the database
- * cannot express needs somewhere to be serialised, and taking it here keeps the
+ * cannot express needs somewhere to be serialized, and taking it here keeps the
  * order the rest of the ledger already uses.
  */
 async function assertNoOverlap(
@@ -1067,7 +1067,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
   // itself. Defaulting to a single day would compare a whole month's limit
   // against one day's spending and call the difference "remaining", which is
   // the wrong answer arrived at silently and on the path most people take. A
-  // start that was asked for is honoured as it stands, the way every other
+  // start that was asked for is honored as it stands, the way every other
   // report clips to the window rather than to the period.
   const start = parsed.start ?? (await truncatePeriod(getDb(), parsed.periodUnit, asOf));
   // Refused rather than answered with nothing, the way every other report
@@ -1235,7 +1235,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
         b.amount::text as limit_amount,
         b.source as source,
         coalesce(s.actual, 0)::text as actual,
-        -- Uncategorised last, whatever it totals, the way the dashboard already
+        -- Uncategorized last, whatever it totals, the way the dashboard already
         -- ranks it: it is not a category anybody chose, so it belongs at the
         -- bottom rather than competing with the ones they did.
         (b.category_id is null) as unfiled
@@ -1727,7 +1727,7 @@ type CarryingPlan = Awaited<ReturnType<typeof rolloverPlans>>[number];
 /**
  * The start of the period before this one.
  *
- * Same licence as `periodsBetween`: the argument is a period start PostgreSQL
+ * Same license as `periodsBetween`: the argument is a period start PostgreSQL
  * produced, so stepping back is arithmetic rather than a second opinion about
  * where periods begin. A week is seven days back; the others move whole
  * months on a first-of-month date, which no month length can bend.

@@ -158,11 +158,11 @@ afterEach(() => {
 
 describe("the budgets page", () => {
   /**
-   * The state has to be readable without seeing the colour. A bar that is red
+   * The state has to be readable without seeing the color. A bar that is red
    * and nothing else says nothing to anybody who cannot separate red from
    * green, and nothing at all in a printout.
    */
-  it("says what each row is doing in words, not only in colour", async () => {
+  it("says what each row is doing in words, not only in color", async () => {
     stub();
     renderBudgets();
     expect(await screen.findByText("Over")).toBeInTheDocument();

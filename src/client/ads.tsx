@@ -99,7 +99,7 @@ export function AdSlot({
         const queue = (target.adsbygoogle = target.adsbygoogle ?? []);
         // Before the push, which is where Google's documentation puts it: the
         // flag is read when the request is made, so setting it afterwards
-        // personalises the ad that has already gone.
+        // personalizes the ad that has already gone.
         //
         // Forced unless a consent platform is collecting consent. With one, it
         // is deliberately *not* forced: the platform's whole job is to ask and

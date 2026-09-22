@@ -520,7 +520,7 @@ export async function listAccounts(actor: Actor, end?: string, includeArchived =
   // names every other account response uses, and a caller could reasonably
   // start depending on either.
   // A raw query hands timestamps back as PostgreSQL writes them, while the
-  // Drizzle paths hand back Dates that serialise as ISO 8601. Both describe
+  // Drizzle paths hand back Dates that serialize as ISO 8601. Both describe
   // themselves with the same schema, so a caller reading one and then the other
   // sees the same field in two shapes. These become Dates to match.
   const timestamp = (value: unknown) =>

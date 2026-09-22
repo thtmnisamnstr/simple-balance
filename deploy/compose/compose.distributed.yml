@@ -327,7 +327,7 @@ services:
     # nginx reads SIGTERM as a fast shutdown and SIGQUIT as a graceful one, so
     # without this a `docker compose down` cuts off whatever it is still
     # serving. Stated rather than inherited: the image declares SIGQUIT as its
-    # stop signal and compose would honour that anyway, but the whole reason the
+    # stop signal and compose would honor that anyway, but the whole reason the
     # frontend can be stopped without cutting a response is worth naming where
     # somebody reading this file will find it.
     stop_signal: SIGQUIT

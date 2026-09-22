@@ -190,7 +190,7 @@ describe("the plan page's wider policy, in both places it is written", () => {
   /**
    * The two matchers agree about which paths get the wider policy.
    *
-   * nginx matches `^/settings/plan/?$` and the API normalises before comparing,
+   * nginx matches `^/settings/plan/?$` and the API normalizes before comparing,
    * because the browser's own router renders the plan tab for both spellings.
    * One of them matching where the other does not is a payment form that loads
    * in one deployment shape and not the other.
@@ -212,7 +212,7 @@ describe("the plan page's wider policy, in both places it is written", () => {
     // comparing a raw string against the location regex models something nginx
     // never does — which is how a percent-encoded lookalike passed this test
     // while really reaching the block. The raw check nginx now applies is the
-    // `$sb_plan_raw` map, so both are modelled: the location as nginx matches
+    // `$sb_plan_raw` map, so both are modeled: the location as nginx matches
     // it, and the raw gate as written.
     const asNginxMatches = (path: string) => decodeURIComponent(path).replaceAll(/\/+/g, "/");
     const rawGate = new RegExp(
@@ -232,7 +232,7 @@ describe("the plan page's wider policy, in both places it is written", () => {
       "/settings/plans",
       "/settings/plan/extra",
       "/accounts",
-      // The spellings that decode or normalise into the plan path. nginx would
+      // The spellings that decode or normalize into the plan path. nginx would
       // match the location for each; the raw gate is what refuses them, and the
       // API refuses them by matching the raw path too. Divergence here is a
       // policy widened for a page the browser's router does not render.
@@ -254,7 +254,7 @@ describe("the plan page's wider policy, in both places it is written", () => {
  * blocked and block nothing. It reaches that page and no other, deliberately:
  * every other page keeps enforcing the policy this container has shipped since
  * 0.1.0, because learning about a page that renders no balances is not worth
- * taking the defence off every page that does.
+ * taking the defense off every page that does.
  */
 describe("rehearsing the plan page's policy instead of enforcing it", () => {
   it("sends the same report-only policy the API would", async () => {

@@ -423,7 +423,7 @@ integration("reports", () => {
   /**
    * The third leg was filed under nothing on purpose. A coalesce to the
    * transaction's own category would quietly move that twenty pounds into
-   * whatever the receipt as a whole was labelled.
+   * whatever the receipt as a whole was labeled.
    */
   it("leaves an unfiled leg unfiled", async () => {
     const report = await getReport(actor, { report: "categories", ...year });
