@@ -518,8 +518,23 @@ describe("what mcp.md says it measured", () => {
       (tool.inputSchema as { properties?: Record<string, unknown> })?.properties ?? {};
     const mutating = tools.filter((tool) => !tool.annotations?.["readOnlyHint"]);
     const withKey = mutating.filter((tool) => properties(tool)["idempotencyKey"] !== undefined);
+    /**
+     * The one tool whose `idempotentHint` is true for a different reason.
+     *
+     * Every other mutating tool is idempotent because a key or a version
+     * makes a replay recognisable. `set_active_accounts` is idempotent
+     * because the request states the whole of what it sets: sending the same
+     * list twice leaves exactly the state the first call left, which is what
+     * makes a PUT a PUT. A key here would be ceremony that changes nothing,
+     * and the annotation would be no truer for it.
+     *
+     * Named rather than derived, because "the request replaces the whole
+     * resource" is a property of the operation and not of its schema.
+     */
+    const WHOLE_STATE = new Set(["set_active_accounts"]);
     const uncovered = mutating.filter(
       (tool) =>
+        !WHOLE_STATE.has(tool.name) &&
         properties(tool)["idempotencyKey"] === undefined &&
         properties(tool)["expectedVersion"] === undefined &&
         properties(tool)["expectedVersions"] === undefined &&

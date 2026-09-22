@@ -77,7 +77,14 @@ import {
   writeAuditMany,
 } from "./helpers.js";
 import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
-import { ensureSystemAccount, findSystemAccount, postClosingBalance } from "./accounts.js";
+import {
+  type AccountFreeze,
+  accountFreeze,
+  assertAccountsWritable,
+  ensureSystemAccount,
+  findSystemAccount,
+  postClosingBalance,
+} from "./accounts.js";
 import { pruneOrphanedCategories, resolveDraftCategory } from "./categories.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import { resolveCanonicalPayee } from "./payees.js";
@@ -179,6 +186,7 @@ async function getOwnedAccounts(
   ids: string[],
   allowedArchivedIds: ReadonlySet<string> = new Set(),
   preloaded?: ReadonlyMap<string, typeof ledgerAccounts.$inferSelect>,
+  freeze?: AccountFreeze,
 ) {
   const rows = preloaded
     ? [...new Set(ids)]
@@ -204,6 +212,11 @@ async function getOwnedAccounts(
   ) {
     throw validationError("One or more accounts are unavailable");
   }
+  // Separately, and with its own sentence: "unavailable" is what an account
+  // somebody else owns says, and a frozen account is one of theirs that they
+  // can have back. There is no allowlist beside this one — an entry already on
+  // a frozen account is exactly what must not move.
+  if (freeze) assertAccountsWritable(freeze, ids);
   return new Map(rows.map((row) => [row.id, row]));
 }
 
@@ -244,6 +257,14 @@ export type LedgerReferences = {
   accounts: Map<string, typeof ledgerAccounts.$inferSelect>;
   categories: Map<string, CategoryRow>;
   templateIds: ReadonlySet<string>;
+  /**
+   * Which accounts a limited plan has put out of reach, read once here.
+   *
+   * It belongs with the other three for the same reason they are here: the
+   * ranking behind it needs every account this person has, so working it out
+   * per draft would be a whole-table read per row of an import.
+   */
+  freeze: AccountFreeze;
 };
 
 /** Everything prepareTransaction would otherwise look up per draft. */
@@ -265,10 +286,13 @@ export async function loadLedgerReferences(
     .select({ id: transactionTemplates.id })
     .from(transactionTemplates)
     .where(eq(transactionTemplates.userId, actor.userId));
+  const accounts = new Map(accountRows.map((row) => [row.id, row]));
   return {
-    accounts: new Map(accountRows.map((row) => [row.id, row])),
+    accounts,
     categories: new Map(categoryRows.map((row) => [row.id, row])),
     templateIds: new Set(templateRows.map((row) => row.id)),
+    // From the rows already in hand rather than a fifth query.
+    freeze: await accountFreeze(tx, actor, accounts),
   };
 }
 
@@ -901,12 +925,14 @@ export async function prepareTransaction(
     ...draft,
     payee: await resolveCanonicalPayee(tx, actor, draft.payee),
   };
+  const freeze = options.references?.freeze ?? (await accountFreeze(tx, actor));
   const accountMap = await getOwnedAccounts(
     tx,
     actor,
     accountIds,
     options.allowedArchivedAccountIds,
     options.references?.accounts,
+    freeze,
   );
 
   // Every category the entry names, whether it names one or one per leg. The
@@ -1870,16 +1896,13 @@ export async function bulkEditTransactions(
       draft: applyBulkPatch(row, parsed.patch, snapshotLegs.get(row.id)),
     }));
 
-    await lockAccountReferences(
-      tx,
-      actor,
-      snapshotDrafts.flatMap(({ row, draft }) => [
-        ...[row.sourceAccountId, row.destinationAccountId].filter((id): id is string =>
-          Boolean(id),
-        ),
-        ...draftAccountIds(draft),
-      ]),
-    );
+    const editedAccountIds = snapshotDrafts.flatMap(({ row, draft }) => [
+      ...[row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
+      ...draftAccountIds(draft),
+    ]);
+    await lockAccountReferences(tx, actor, editedAccountIds);
+    // Both ends of the move, and the whole request or none of it.
+    assertAccountsWritable(await accountFreeze(tx, actor), editedAccountIds);
     // A split row carries its categories on the legs, with `categoryId` null
     // on both the row and the draft — so the legs are part of the question,
     // exactly as `lockStagedDraftReferences` already reads them for staged
@@ -2183,13 +2206,14 @@ export async function bulkDeleteTransactions(
       throw validationError("Select at least one transaction");
     }
     const snapshotFingerprint = selectionFingerprint(snapshotRows);
-    await lockAccountReferences(
-      tx,
-      actor,
-      snapshotRows.flatMap((row) =>
-        [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
-      ),
+    const deletedAccountIds = snapshotRows.flatMap((row) =>
+      [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
     );
+    await lockAccountReferences(tx, actor, deletedAccountIds);
+    // Refused whole, never skipped: a mass delete that quietly left some rows
+    // alone would report a count nobody could account for, and AGENTS.md asks
+    // for a refusal rather than a partial.
+    assertAccountsWritable(await accountFreeze(tx, actor), deletedAccountIds);
 
     const snapshotIds = snapshotRows.map((row) => row.id);
     const lockedRows = await tx
@@ -2316,6 +2340,10 @@ export async function updateTransaction(
         (accountId): accountId is string => accountId !== null,
       ),
     );
+    // `prepareTransaction` below checks the accounts the draft names. These are
+    // the ones it may be moving OFF, which only the stored row knows and which
+    // a move changes just as much.
+    assertAccountsWritable(await accountFreeze(tx, actor), allowedArchivedAccountIds);
     const beforeLegs = (await legsByTransaction(tx, actor, [before.id])).get(before.id);
     const allowedArchivedCategoryIds = new Set(
       [before.categoryId, ...(beforeLegs ?? []).map((leg) => leg.categoryId)].filter(
@@ -2401,6 +2429,15 @@ export async function setTransactionDeleted(
       .limit(1);
     if (!before) throw notFound("Transaction not found");
     if (before.version !== expectedVersion) throw staleVersion({ currentVersion: before.version });
+    // Both directions move money: voiding posts the reversal, restoring posts
+    // it back. The accounts come from the stored row, because the request
+    // carries an id and a version and nothing else.
+    assertAccountsWritable(
+      await accountFreeze(tx, actor),
+      [before.sourceAccountId, before.destinationAccountId].filter(
+        (accountId): accountId is string => accountId !== null,
+      ),
+    );
     if (!deleted && before.deletedAt) {
       await assertDuplicateAllowed(tx, actor, transactionToDraft(before), allowDuplicate, id);
     }

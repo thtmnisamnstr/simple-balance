@@ -477,7 +477,13 @@ const transactionTypeOptions: {
  */
 function selectableAccounts(accounts: Account[], ...referenced: (string | undefined)[]) {
   const kept = new Set(referenced.filter((id): id is string => Boolean(id)));
-  return accounts.filter((account) => !account.archivedAt || kept.has(account.id));
+  // Frozen answers to the same rule as archived, and for the same reason: the
+  // server refuses a new entry on one and keeps an entry that already names
+  // it, so offering it would be offering a choice the save refuses, and
+  // dropping it would hide the account an open entry is already filed under.
+  return accounts.filter(
+    (account) => (!account.archivedAt && !account.frozen) || kept.has(account.id),
+  );
 }
 
 type TransactionTypeChoiceProps =

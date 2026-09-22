@@ -1005,6 +1005,24 @@ export type TransactionTemplateBulkSelection = z.infer<
 >;
 export type TransactionTemplateBulkResult = z.infer<typeof transactionTemplateBulkResultSchema>;
 
+/**
+ * The accounts a person wants to keep usable, named all at once.
+ *
+ * A set rather than a switch per account, because swapping which three are
+ * live is one decision: toggling would make somebody turn one off before they
+ * could turn another on, and every intermediate state would be a save that
+ * could fail halfway. The whole set also makes the operation idempotent, which
+ * is what lets it go without an idempotency key.
+ */
+export const activeAccountsSchema = z.object({
+  accountIds: z
+    .array(uuid())
+    .max(1000)
+    .describe(
+      "Every account that stays usable. Any account of yours left out of this list is frozen: still readable, and closed to every change until it is named here again or the plan stops limiting how many may be active. Archived accounts are not part of this and do not use up a place.",
+    ),
+});
+
 export const accountCreateSchema = z.object({
   name: oneLine(z.string().trim().min(1).max(120)).describe(
     "What you call this account. Unique among your accounts.",
@@ -3420,6 +3438,101 @@ export function accountAllowance(
       `A free plan keeps ${limit} accounts, and this one has ${current}. ` +
       "Upgrade under Settings to add more.",
   };
+}
+
+/**
+ * An account, as the freeze rule needs to see one.
+ *
+ * Four fields and no more, so the browser can answer this from the accounts
+ * list it already holds and the server can answer it from a row it already
+ * read. Dates are accepted in either shape because one side has parsed JSON
+ * and the other has a `Date` from the driver.
+ */
+export type FreezableAccount = {
+  readonly id: string;
+  /** The person's choice. Meaningless on a plan with no limit. */
+  readonly active: boolean;
+  readonly archivedAt: string | Date | null;
+  readonly createdAt: string | Date;
+};
+
+/**
+ * Which of somebody's accounts are frozen — readable, and closed to every write.
+ *
+ * **Derived, never stored.** The column records the *choice*; this combines it
+ * with the entitlement, and it has to be that way round because entitlements
+ * change with nobody present. An operator override expires at a moment no code
+ * observes; a `past_due` grace runs out mid-request; a deployment that stops
+ * selling hands back `{billing: false}` while Stripe goes on charging its
+ * subscribers. A `frozen_at` column written on the way down would go on saying
+ * what it said then, and the last of those cases would lock paying customers
+ * out of their own books.
+ *
+ * So the predicate is spelled the way `getAdPlacement` spells its own — *a
+ * limited plan is in force* — and never as "not on the paid plan". Those are
+ * different questions wherever `billing` is false, which is every self-hosted
+ * install and every deployment arriving from the release before this one.
+ *
+ * **The ordering rule is what covers the gap between a downgrade and a
+ * choice.** Nobody is present when a subscription lapses, so `active` is still
+ * true on everything somebody owns. Rather than have a webhook guess and write,
+ * the oldest accounts keep working and the rest go quiet until the person says
+ * otherwise — deterministic, explainable in one sentence on the page, and
+ * costing no write at all. Choosing overwrites it, and the rule then never
+ * reaches for the ordering again because the count already fits.
+ *
+ * **Archived accounts are outside this.** They already refuse every write, so
+ * freezing one would change nothing, and letting one hold a slot would mean
+ * somebody with three archived accounts could not use the one they still have.
+ */
+export function frozenAccountIds(
+  entitlement: Entitlement,
+  accounts: readonly FreezableAccount[],
+): ReadonlySet<string> {
+  // Both halves, and not "is this the paid plan": a deployment that sells
+  // nothing has no `accountLimit` at all, and the shorter spelling only
+  // happens to behave because `slice(0, undefined)` keeps everything. That is
+  // an accident of one built-in rather than a property of this rule.
+  if (!entitlement.billing || entitlement.accountLimit === null) return new Set();
+  const limit = entitlement.accountLimit;
+  const at = (value: string | Date) =>
+    value instanceof Date ? value.getTime() : Date.parse(value);
+  // Oldest first, and the id breaks a tie: two accounts created in the same
+  // millisecond must not order differently on two machines, or the browser
+  // would grey out a different row than the server refuses.
+  // `sort`, not `toSorted`: this file compiles against ES2022 on the server.
+  const candidates = accounts
+    .filter((account) => account.archivedAt === null)
+    .slice()
+    .sort(
+      (left, right) => at(left.createdAt) - at(right.createdAt) || left.id.localeCompare(right.id),
+    );
+  // Nothing needs freezing while everything fits. Without this, a stored
+  // choice left over from a time when there were more accounts would go on
+  // freezing one after the others were archived or deleted — and the browser
+  // panel that could undo it is only shown when there are more accounts than
+  // places, so the account would be unusable with nothing on screen to fix it.
+  if (candidates.length <= limit) return new Set();
+  const keeping = candidates.filter((account) => account.active).slice(0, limit);
+  const kept = new Set(keeping.map((account) => account.id));
+  return new Set(
+    candidates.filter((account) => !kept.has(account.id)).map((account) => account.id),
+  );
+}
+
+/**
+ * What a frozen account says when somebody tries to change it.
+ *
+ * One sentence, shared, because `docs/standards/code/errors.md` 4 asks that a
+ * disabled control and a refusal say the same thing. It names both ways out —
+ * a person can activate it, and that is a move an agent can make too, which
+ * `accountAllowance`'s message deliberately cannot say.
+ */
+export function frozenAccountRefusal(limit: number) {
+  return (
+    `This account is frozen. A free plan keeps ${limit} accounts active and the rest readable, ` +
+    "so nothing here can change until you make it one of the active ones or upgrade."
+  );
 }
 
 /**

@@ -225,6 +225,27 @@ from one whose sweep has stopped.
 
 ### Changed
 
+**A free plan now freezes the accounts it cannot keep active, instead of
+letting you carry on using all of them.** Somebody who drops to the free plan
+with more than three accounts keeps every one of them and chooses three to
+carry on using. The rest are frozen: still listed, still readable, still
+counted in every balance, report and export, and closed to every change — no
+new entry, no edit, no delete, not even a rename. Choosing is one operation
+over the whole set, `PUT /api/v1/accounts/active` or `set_active_accounts` for
+an agent, because swapping which three are live is one decision and a switch
+per account would make somebody pass through a state their plan forbids.
+Nothing is frozen on a deployment that sells nothing, which is every install
+arriving from 0.1.6.
+
+Frozen is worked out rather than stored. `0024_active_accounts.sql` adds the
+*choice*; `frozenAccountIds` combines it with the entitlement, and it has to be
+that way round because entitlements change with nobody present — an override
+expires at a moment no code observes, and a deployment that stops selling
+answers "no billing" while Stripe goes on charging its subscribers. Until
+somebody chooses, the oldest accounts stay usable, which costs no write at all
+and is what makes a subscription lapsing at three in the morning correct rather
+than merely handled.
+
 **The Overview and the Reports page lead with your own currency.** Both group
 money by currency and both sorted the groups by code, so somebody holding
 dollars and a euro account kept for one trip met the euros first — at the top of

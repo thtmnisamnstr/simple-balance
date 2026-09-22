@@ -215,6 +215,24 @@
   sixteen hours for anyone whose stored timezone is an offset. Ask
   `calendarDayIn`, `clockTimeIn` or `todayIn` from `src/shared/recurrence-dates.ts`;
   never ask the database.
+- A plan that limits how many accounts may be *active* freezes the rest, and
+  freezing is worked out rather than stored. `ledger_account.active` is the
+  person's choice and `frozenAccountIds` in `src/shared/domain.ts` combines it
+  with the entitlement, because entitlements change with nobody present: an
+  override expires at a moment no code observes, and a deployment that stops
+  selling answers `{billing: false}` while Stripe goes on charging its
+  subscribers. A column written on the way down would go on saying what it said
+  then, and that last case would lock paying customers out of their own books.
+  So the predicate is the one `getAdPlacement` uses — a limited plan is in
+  force — and never "not on the paid plan". A frozen account is fully readable
+  and counts toward every balance, summary and report: no `frozen` clause may
+  enter a read, or the archive rule's warning applies, that never make a figure
+  correct by filtering alone while the figures beside it do not. What it refuses
+  is every write, including the ones that name no account — an entry deleted by
+  id, an edit moving money off it, and a payee or category merge that walks the
+  whole ledger. Those refuse whole rather than skipping rows. Archived accounts
+  are outside all of it: they already refuse every write, so they are never
+  frozen and use up none of the places.
 - **`docs/product/` is this repository's public description of itself**, and
   the marketing site at smpl.money is its only consumer. `facts.json` is the
   machine contract, `features.json` is what the product does tiered by how
@@ -256,12 +274,15 @@
   `0016_category_groups.sql`, `0017_budget_perimeter.sql`,
   `0018_incremental_taper.sql`, `0019_budget_target_pair.sql`,
   `0020_reference_indexes.sql` and `0021_idempotency_retention.sql` in 0.1.6.
-  `0022_plans_and_billing.sql` and `0023_citus_distribution.sql` are on disk and
-  **unreleased**, so they are the two migrations here that may still be
-  regenerated: nobody has run either. They freeze when 0.2.0 ships, and until
-  then the rule to keep is that everything through `0021` is somebody else's
-  history and `0022` and `0023` are still ours. The next schema change after
-  them starts at `0024`. `0023` is the one migration that does nothing on most
+  `0022_plans_and_billing.sql`, `0023_citus_distribution.sql` and
+  `0024_active_accounts.sql` are on disk and **unreleased**, so they are the
+  three migrations here that may still be regenerated: nobody has run any of
+  them. They freeze when 0.2.0 ships, and until then the rule to keep is that
+  everything through `0021` is somebody else's history and `0022` through
+  `0024` are still ours. The next schema change after them starts at `0025`.
+  `0024` adds one column with a constant default, which rewrites no rows on any
+  PostgreSQL and which Citus propagates to the shards without a gate. `0023` is
+  the one migration that does nothing on most
   deployments and says so at the top: it distributes the ledger and is gated on
   the Citus extension being installed, so the `single` and `vps` profiles record
   it as run and keep the schema they had. It is also the only place the cluster's
@@ -315,7 +336,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 22.6% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 22.8% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

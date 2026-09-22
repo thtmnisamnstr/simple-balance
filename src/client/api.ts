@@ -376,6 +376,16 @@ export type Account = {
   archivedAt?: string | null;
   /** Whether the budget's "left to assign" figure counts this account. */
   inBudget?: boolean;
+  /**
+   * Whether this account refuses every change right now.
+   *
+   * The server's answer, not the stored choice: it combines the choice with
+   * the plan, and a page that re-derived it would be a second copy of the rule
+   * in `frozenAccountIds`. Optional because a rolling update briefly serves a
+   * new bundle against an old server, and absent reads as "nothing is frozen"
+   * — which is what every 0.1.x server means by not sending it.
+   */
+  frozen?: boolean;
   version: number;
   balance: string;
   balancePresentation: { label: string; amount: string };

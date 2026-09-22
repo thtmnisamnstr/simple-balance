@@ -56,11 +56,11 @@ than exempting the labels we add ourselves.
 ### 1.3 A route label is the pattern, never the path
 
 **Binding.** `/api/v1/accounts/:id` is one series; `/api/v1/accounts/<uuid>` is
-one per account. `routeLabel` (`src/server/api.ts:315-322`) reads Hono's matched
+one per account. `routeLabel` (`src/server/api.ts:316-323`) reads Hono's matched
 pattern, and resolves the two different things that both arrive as `/*`: a
 request answered by middleware mounted above the routes — which is where a 413
 from the body limit lands — is labeled by its prefix from a fixed list
-(`:313`), and a path that matched nothing at all is one literal, because a
+(`:314`), and a path that matched nothing at all is one literal, because a
 mistyped URL is exactly where unbounded labels come from.
 
 *Checked by:* `tests/metrics.test.ts`, which asks for `/api/v1/accounts/<uuid>`
@@ -71,7 +71,7 @@ paths and insists both land under one name.
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(`src/server/api.ts:325`) — registered rather than refusing, so a deployment
+(`src/server/api.ts:326`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labeled increment costs about 130ns and does
@@ -91,7 +91,7 @@ and never on a path that did not do the work:
   the counter did not move.
 - An idempotent replay is not a second write. Five counters double-counted one
   until each mutation started signaling replay out of its transaction callback
-  (`src/server/services/transactions.ts:1048`, `:1058`, `:1084`), and the
+  (`src/server/services/transactions.ts:1074`, `:1084`, `:1110`), and the
   visible cost was a client retrying a four-thousand-row edit reporting eight
   thousand rows changed. The retry is a fact about the client, and it has its
   own counter.
@@ -131,8 +131,8 @@ produce refusals, is where the label itself is checked.
 ### 1.7 Instrument the seam, not the call sites
 
 **House.** Seventy-six tools are timed and counted by wrapping `registerTool`
-once (`src/server/mcp.ts:611`), and every HTTP request by one middleware
-mounted above everything, including the guards (`src/server/api.ts:263`). Both
+once (`src/server/mcp.ts:614`), and every HTTP request by one middleware
+mounted above everything, including the guards (`src/server/api.ts:264`). Both
 are chosen so a tool or a route added tomorrow is instrumented by existing
 rather than by somebody remembering.
 
@@ -228,10 +228,10 @@ The four sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (`src/server/api.ts:288`) and never the query string, because a filter carries
+  (`src/server/api.ts:289`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
-  (`src/server/mcp.ts:637`) and never the arguments, which are somebody's ledger
+  (`src/server/mcp.ts:640`) and never the arguments, which are somebody's ledger
   by definition.
 - **A message** logs `message.about` — "the password reset", "the reminder" —
   and never the recipient or the subject (`src/server/mail.ts:174`, `:180`), and

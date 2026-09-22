@@ -16,6 +16,7 @@ import {
   transactionTemplates,
   transactions,
 } from "../db/schema.js";
+import { accountFreeze, assertAccountsWritable } from "./accounts.js";
 import { notFound, validationError } from "./errors.js";
 import { stagedDuplicateKey } from "./transactions.js";
 import {
@@ -349,6 +350,17 @@ export async function mergePayees(actor: Actor, input: unknown, transaction?: Db
     }
 
     const transactionRowsBefore = transactionRows.filter((row) => sourcePayees.includes(row.payee));
+    // A merge renames a payee on rows all over the ledger and bumps each one's
+    // version, and a row on a frozen account is a row that may not change.
+    // Refused whole rather than applied to the rest: a merge that left some
+    // rows behind would leave two spellings of one payee and report that it
+    // had joined them.
+    assertAccountsWritable(
+      await accountFreeze(tx, actor),
+      transactionRowsBefore.flatMap((row) =>
+        [row.sourceAccountId, row.destinationAccountId].filter((id): id is string => Boolean(id)),
+      ),
+    );
     const stagedRowsBefore = stagedRows.filter((row) =>
       sourcePayees.includes(String((row.draft as Record<string, unknown>).payee)),
     );

@@ -291,6 +291,23 @@ export const ledgerAccounts = pgTable(
     openingDate: date("opening_date").notNull(),
     openingBalance: numeric("opening_balance", { precision: 44, scale: 18 }).default("0").notNull(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    /**
+     * Whether this is one of the accounts the person keeps usable.
+     *
+     * The *choice*, not the answer. On a plan with no account limit it means
+     * nothing and every account is writable whatever it says; on a limited one
+     * it is how somebody says which of their accounts stay live and which go
+     * read-only. `frozenAccountIds` in `src/shared/domain.ts` combines the two
+     * and is the only thing that decides, because whether an account is frozen
+     * has to change the moment an entitlement does — an operator override can
+     * expire overnight with no code running, and a column somebody wrote on the
+     * way down would still say what it said then.
+     *
+     * Defaulting to true is what makes this safe to add to a ledger that
+     * already exists: nothing is frozen until a plan says so, and then the
+     * ordering rule decides until the person chooses.
+     */
+    active: boolean("active").default(true).notNull(),
     version: integer("version").default(1).notNull(),
     ...timestamps,
   },
