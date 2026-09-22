@@ -75,6 +75,10 @@ export default function AccountsPage({ session }: { session: Session }) {
     session.plan?.entitlement ?? { billing: false },
     session.plan?.accountsUsed ?? 0,
   );
+  // Null unless a plan limits how many accounts may be active, which is the
+  // only reason anything is ever frozen.
+  const entitlement = session.plan?.entitlement ?? { billing: false };
+  const activeLimit = entitlement.billing ? entitlement.accountLimit : null;
   const today = calendarDateInTimezone(new Date(), session.preferences.timezone);
   const accounts = useQuery({
     queryKey: ["accounts", "all", includeArchived, today],
@@ -173,6 +177,7 @@ export default function AccountsPage({ session }: { session: Session }) {
       </div>
       {accounts.error ? <Alert>{accounts.error.message}</Alert> : null}
       {mutation.error ? <Alert>{mutation.error.message}</Alert> : null}
+      <ActiveAccountChooser accounts={accounts.data ?? []} limit={activeLimit} />
       {accountCount ? (
         groupedAccounts.map((group) => (
           <section className="account-type-section" key={group.type}>
@@ -197,11 +202,13 @@ export default function AccountsPage({ session }: { session: Session }) {
                       </span>
                       <div className="account-card-actions">
                         {account.archivedAt ? <Badge>Archived</Badge> : null}
+                        {account.frozen ? <Badge tone="amber">Frozen</Badge> : null}
                         <RowMenu label={`Actions for ${account.name}`}>
-                          <button onClick={() => setEditing(account)}>
+                          <button disabled={account.frozen} onClick={() => setEditing(account)}>
                             <Pencil size={15} /> Edit
                           </button>
                           <button
+                            disabled={account.frozen}
                             onClick={() => {
                               // Archiving moves money: the balance is posted
                               // out to equity so the account ends at zero.
@@ -236,6 +243,7 @@ export default function AccountsPage({ session }: { session: Session }) {
                           </button>
                           <button
                             className="danger"
+                            disabled={account.frozen}
                             onClick={() => {
                               removal.ask(account, () =>
                                 mutation.mutate({ account, action: "delete" }),
@@ -365,5 +373,103 @@ export default function AccountsPage({ session }: { session: Session }) {
         onCancel={removal.cancel}
       />
     </>
+  );
+}
+
+/**
+ * Choosing which accounts stay usable, when a plan limits how many may be.
+ *
+ * Shown only where it can do something: a plan with a limit, and more live
+ * accounts than places. On every other ledger it renders nothing at all rather
+ * than a panel explaining a rule that is not in force.
+ *
+ * The whole set is saved at once because swapping is one decision — turning
+ * one off to turn another on would be two saves and an intermediate state the
+ * plan does not allow. So the button is disabled until the selection fits,
+ * carrying the same sentence the server would refuse with.
+ */
+function ActiveAccountChooser({
+  accounts,
+  limit,
+}: {
+  readonly accounts: readonly Account[];
+  readonly limit: number | null;
+}) {
+  const queryClient = useQueryClient();
+  const live = useMemo(() => accounts.filter((account) => !account.archivedAt), [accounts]);
+  const [chosen, setChosen] = useState<ReadonlySet<string> | null>(null);
+  const current = useMemo(
+    () => new Set(live.filter((account) => !account.frozen).map((account) => account.id)),
+    [live],
+  );
+  const selection = chosen ?? current;
+  const save = useMutation({
+    mutationFn: (accountIds: string[]) =>
+      api<Account[]>("/api/v1/accounts/active", { ...json({ accountIds }), method: "PUT" }),
+    onSuccess: async () => {
+      setChosen(null);
+      await queryClient.invalidateQueries({ queryKey: ["accounts"] });
+      // Every figure on every other page is unchanged, but what those pages
+      // may offer is not: a picker that was hiding an account now shows it.
+      await queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    },
+  });
+
+  // Driven by what is actually frozen rather than by a count of its own. The
+  // two used to be separate conditions and they could disagree — archiving an
+  // active account took the list back under the limit and took the panel away
+  // while an account was still frozen, with no way left to unfreeze it.
+  const anyFrozen = live.some((account) => account.frozen);
+  if (limit === null || !anyFrozen) return null;
+  const over = selection.size > limit;
+  return (
+    <section className="panel panel-stack">
+      <header className="section-title">
+        <div>
+          <h2>Which accounts stay usable</h2>
+          <p>
+            {`Your plan keeps ${limit} accounts usable at a time. The rest stay here in full — every ` +
+              "balance, every entry, every report — and refuse changes until you pick them instead. " +
+              "Nothing is deleted, and nothing is hidden."}
+          </p>
+        </div>
+      </header>
+      <ul className="active-account-choices">
+        {live.map((account) => (
+          <li key={account.id}>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={selection.has(account.id)}
+                onChange={(event) => {
+                  const next = new Set(selection);
+                  if (event.target.checked) next.add(account.id);
+                  else next.delete(account.id);
+                  setChosen(next);
+                }}
+              />
+              {account.name}
+              {account.frozen ? <Badge tone="amber">Frozen</Badge> : null}
+            </label>
+          </li>
+        ))}
+      </ul>
+      {save.error ? <Alert>{save.error.message}</Alert> : null}
+      <div className="form-actions">
+        <span className="subtle">{`${selection.size} of ${limit} chosen`}</span>
+        <Button
+          onClick={() => save.mutate([...selection])}
+          loading={save.isPending}
+          disabled={over}
+          disabledReason={
+            over
+              ? `Your plan keeps ${limit} accounts usable. Clear one to pick another.`
+              : undefined
+          }
+        >
+          Save which accounts are usable
+        </Button>
+      </div>
+    </section>
   );
 }

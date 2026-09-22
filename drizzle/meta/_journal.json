@@ -169,6 +169,13 @@
       "when": 1790006530314,
       "tag": "0023_citus_distribution",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790053428654,
+      "tag": "0024_active_accounts",
+      "breakpoints": true
     }
   ]
 }

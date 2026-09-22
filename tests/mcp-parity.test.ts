@@ -46,6 +46,7 @@ const COVERED_BY: Record<string, string> = {
   "POST /api/v1/accounts": "create_account",
   "PUT /api/v1/accounts/:id": "update_account",
   "POST /api/v1/accounts/:id/archived": "archive_account",
+  "PUT /api/v1/accounts/active": "set_active_accounts",
   "DELETE /api/v1/accounts/:id": "delete_account",
   "GET /api/v1/category-groups": "list_category_groups",
   "POST /api/v1/category-groups": "create_category_group",

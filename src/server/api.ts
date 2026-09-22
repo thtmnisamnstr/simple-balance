@@ -73,6 +73,7 @@ import {
   getAccountBalances,
   listAccounts,
   setAccountArchived,
+  setActiveAccounts,
   updateAccount,
 } from "./services/accounts.js";
 import { listAuditEvents } from "./services/audit.js";
@@ -1544,6 +1545,12 @@ app.get("/api/v1/accounts/:id/balances", async (c) =>
 app.get("/api/v1/accounts/:id", async (c) => c.json(await getAccount(c.get("actor"), pathId(c))));
 app.post("/api/v1/accounts", async (c) =>
   created(c, "accounts", await createAccount(c.get("actor"), await body(c))),
+);
+// A collection, not a sub-resource on one account: which accounts stay usable
+// is one decision about the set, and a switch per account would make somebody
+// pass through a state their plan does not allow to get to one it does.
+app.put("/api/v1/accounts/active", async (c) =>
+  c.json(await setActiveAccounts(c.get("actor"), await body(c))),
 );
 app.put("/api/v1/accounts/:id", async (c) =>
   c.json(await updateAccount(c.get("actor"), pathId(c), await body(c))),

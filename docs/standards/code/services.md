@@ -202,7 +202,7 @@ and ends the tenant whose work anything composing with it would be doing. A
 seventh has to argue that nothing will ever want to compose with it.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:311-329`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:313-331`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -231,7 +231,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:695`).
+(`updateAccount`, `src/server/services/accounts.ts:878`).
 
 Two windows have to be closed, not one. Comparing before the update leaves a
 gap between the read and the write, so the update itself also filters on the
@@ -447,7 +447,7 @@ the same new category end up on one category rather than two: the second
 lookup sees what the first created.
 ```
 
-(`src/server/services/categories.ts:199`.)
+(`src/server/services/categories.ts:200`.)
 
 Run those in parallel and a split naming "Groceries" twice creates two
 categories. The sequence *is* the algorithm. A linter cannot tell that apart
@@ -489,7 +489,7 @@ a source read can settle here.
 **Binding**, because it is the rule most recently got wrong.
 
 Resolving a category by name never widens the category it finds
-(`src/server/services/categories.ts:154`).
+(`src/server/services/categories.ts:155`).
 Widening to `both` was correct while an entry could only name a category of its
 own direction. It stopped being correct when a category running against the
 direction became a refund, and it stopped quietly: `both` agrees with whichever
@@ -498,7 +498,7 @@ instead of lowering the spending.
 
 Where the direction genuinely cannot decide — a name with nothing behind it
 yet — the caller says so with `categoryKind`
-(`src/server/services/categories.ts:209`),
+(`src/server/services/categories.ts:210`),
 and that field is ignored when the category already exists, because that one has
 an answer already.
 

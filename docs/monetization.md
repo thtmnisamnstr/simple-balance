@@ -65,11 +65,11 @@ deployment honors and reconciles what exists while offering nothing new.
 
 ## What the two plans are
 
-**Free** keeps three financial accounts and sees ads where a deployment serves
-them. **Premium** is unlimited and never sees an ad. (`plus` is the wire value
-in `plans`, on the session and in `whoami`; `Premium` is the word a person
-reads. Renaming the wire value would break every client that has seen it, and
-renaming the label would not.) Everything else — every report,
+**Free** keeps three financial accounts *usable* and sees ads where a
+deployment serves them. **Premium** is unlimited and never sees an ad. (`plus`
+is the wire value in `plans`, on the session and in `whoami`; `Premium` is the
+word a person reads. Renaming the wire value would break every client that has
+seen it, and renaming the label would not.) Everything else — every report,
 every import, the whole CSV round trip and the entire MCP surface — is the same
 on both. There are no transaction quotas.
 
@@ -79,10 +79,30 @@ restoring. The refusal names both numbers — the limit and what was counted —
 somebody who archived an account and expected a free slot can see why they do
 not have one.
 
-**An account that already holds more than three keeps all of them.** Turning
-billing on does not take anybody's data away, hide an account, or stop an import;
-it refuses to create a fourth until the count is back under the limit or the
-plan is upgraded.
+**Somebody who already has more than three keeps all of them, and chooses three
+to keep using.** The rest are *frozen*: every balance, every entry and every
+report still counts them and still shows them, and nothing about them may
+change — no new entry, no edit, no delete, not even a rename. Choosing is one
+operation over the whole set (`PUT /api/v1/accounts/active`, or
+`set_active_accounts` for an agent), because swapping which three are live is
+one decision and a switch per account would make somebody pass through a state
+their plan forbids.
+
+**Frozen is worked out, never stored.** `ledger_account.active` is the choice;
+`frozenAccountIds` in `src/shared/domain.ts` combines it with the entitlement,
+and it has to be that way round because entitlements change with nobody
+present. An operator override expires at a moment no code observes, a
+`past_due` grace runs out mid-request, and a deployment that stops selling
+answers `{billing: false}` while Stripe goes on charging its subscribers — a
+column written on the way down would go on saying what it said then, and that
+last case would lock paying customers out of their own books.
+
+Until somebody chooses, the oldest accounts stay usable and the rest go quiet.
+That costs no write at all, which is what makes a subscription lapsing at three
+in the morning correct rather than merely handled.
+
+Archiving is a different thing and stays one: an archived account already
+refuses every write, so it is never frozen and uses up none of the three.
 
 ## The prices, and what they actually net
 

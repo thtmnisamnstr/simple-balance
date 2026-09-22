@@ -144,6 +144,15 @@ export const accountResultSchema = z
       .describe(
         "Whether the money here is money the budget is about. On by default, including for credit cards, because spending on a card empties an envelope. It changes no balance and no report — only the budget report's figure for what is left to assign.",
       ),
+    // Declared rather than left to `.passthrough()`: a field an agent receives
+    // but cannot see in `tools/list` is the defect `AGENTS.md` names about
+    // `categoryKind`, one level down. An agent that does not know this field
+    // exists meets its refusals with no way to explain them.
+    frozen: z
+      .boolean()
+      .describe(
+        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every write — no new entry, no edit, no delete, not even a rename. Everything about it still counts toward balances and reports. Only the person who owns the ledger can change which accounts are active, from the browser.",
+      ),
   })
   .passthrough();
 

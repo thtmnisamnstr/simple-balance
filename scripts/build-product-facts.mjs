@@ -67,7 +67,12 @@ const declared = {
     "Email reminders, where a mail server is configured",
   ],
   /** What the paid plan changes, and nothing else does. */
-  paidPlanAdds: ["No account limit", "No advertising"],
+  /*
+   * "No account limit" stopped being true when freezing arrived: a free plan
+   * keeps every account somebody has, and limits how many are usable at once.
+   * What the paid plan adds is the use of all of them.
+   */
+  paidPlanAdds: ["Every account stays usable", "No advertising"],
 };
 
 const facts = {

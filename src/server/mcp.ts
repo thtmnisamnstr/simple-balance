@@ -6,6 +6,7 @@ import { APP_VERSION } from "../shared/version.js";
 import {
   accountCreateSchema,
   accountUpdateSchema,
+  activeAccountsSchema,
   budgetEntrySetSchema,
   budgetPlanCreateSchema,
   categoryGroupCreateSchema,
@@ -56,6 +57,7 @@ import {
   getAccountBalances,
   listAccounts,
   setAccountArchived,
+  setActiveAccounts,
   updateAccount,
 } from "./services/accounts.js";
 import { listAuditEvents } from "./services/audit.js";
@@ -467,6 +469,7 @@ export const TOOL_SCOPES: ReadonlyMap<string, LedgerTier> = new Map<string, Ledg
   ["create_account", "ledger:write"],
   ["update_account", "ledger:write"],
   ["archive_account", "ledger:write"],
+  ["set_active_accounts", "ledger:write"],
   ["delete_account", "ledger:write"],
   ["create_category", "ledger:write"],
   ["update_category", "ledger:write"],
@@ -1631,6 +1634,22 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             (tx) => setAccountArchived(actor, id, expectedVersion, archived, tx),
           ),
         ),
+    );
+    server.registerTool(
+      "set_active_accounts",
+      {
+        title: "Choose which accounts stay usable",
+        description:
+          "Name every account that stays usable. Any account left out is frozen: still readable, still counted in every balance and report, and closed to every change — no new entry, no edit, no delete, not even a rename. A plan that limits how many accounts may be active is the only reason an account is ever frozen, and `whoami` reports that limit. Archived accounts are not part of this and use up no place. This replaces the whole set rather than toggling one account, so sending the same list twice does nothing the second time.",
+        inputSchema: toolInput({
+          accountIds: activeAccountsSchema.shape.accountIds,
+        }),
+        outputSchema: mcpOutputSchema(z.array(accountResultSchema)),
+        // Not destructive: nothing is deleted and nothing moves, and sending
+        // the previous list puts everything back exactly as it was.
+        annotations: additiveAnnotations,
+      },
+      ({ accountIds }) => runTool(() => setActiveAccounts(actor, { accountIds })),
     );
     server.registerTool(
       "delete_account",

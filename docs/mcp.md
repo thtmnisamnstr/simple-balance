@@ -96,7 +96,16 @@ because that is money owed.
 ## Accounts
 
 `list_accounts`, `get_account`, `get_account_balances`, `create_account`,
-`update_account`, `archive_account`, and `delete_account`.
+`update_account`, `archive_account`, `set_active_accounts`, and
+`delete_account`.
+
+**A frozen account refuses every write, and says so in `frozen`.** A plan that
+limits how many accounts may be active is the only thing that freezes one: the
+rest stay fully readable and keep counting toward every balance and report,
+and they refuse new entries, edits, deletes and renames alike. `whoami` carries
+the limit, `set_active_accounts` names the whole set that stays usable, and
+sending the same set again does nothing. Archived accounts are outside it and
+use up no place.
 
 An account's `balance` is every posting it holds, future-dated ones included,
 which is what the accounts page shows. `get_account_balances` is what separates
