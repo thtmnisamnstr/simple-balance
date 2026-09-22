@@ -237,6 +237,21 @@ per account would make somebody pass through a state their plan forbids.
 Nothing is frozen on a deployment that sells nothing, which is every install
 arriving from 0.1.6.
 
+**The choice is made once.** An account you are using stays that way until you
+archive or delete it, and only then can a frozen one take its place. Parking
+one to make room for another would be having them all a few minutes at a time,
+which is the same as not having a limit. The cap counts the accounts you are
+using rather than every account you ever opened, so archiving or deleting one
+really does free a place — and coming back out of the archive needs a free
+place too, which is what stops the quota being cycled.
+
+You are asked again when the question changes. A spell on Premium leaves any
+account you opened while the limit was lifted sitting beside a choice you made
+about a smaller ledger, so the next lapse puts the choice back rather than
+freezing an account nobody ever asked you about. Archiving one of the ones you
+are using is the other case and is not the same: that frees a place, and only
+a place.
+
 Frozen is worked out rather than stored. `0024_active_accounts.sql` adds the
 *choice*; `frozenAccountIds` combines it with the entitlement, and it has to be
 that way round because entitlements change with nobody present — an override

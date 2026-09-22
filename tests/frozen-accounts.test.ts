@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeAccountChange,
+  activeChoicePending,
   type Entitlement,
   type FreezableAccount,
   frozenAccountIds,
@@ -167,5 +169,103 @@ describe("what a frozen account says", () => {
     // one has to name the move that does not cost money, because an agent
     // meeting it cannot buy a plan.
     expect(message.toLowerCase()).toContain("active");
+  });
+});
+
+describe("changing which accounts are active", () => {
+  const change = (accounts: FreezableAccount[], wanted: string[]) =>
+    activeAccountChange({ entitlement: free, accounts, wanted: new Set(wanted) });
+
+  it("lets the first choice name any three, because nobody has chosen yet", () => {
+    // What a downgrade leaves behind: every account still marked active,
+    // because nothing writes the column on the way down. The ordering is
+    // standing in for a choice, and standing in is not the same as chosen.
+    expect(change(four, ["b", "c", "d"])).toEqual({ ok: true });
+  });
+
+  it("refuses more than the plan keeps", () => {
+    const refusal = change(four, ["a", "b", "c", "d"]);
+    expect(refusal.ok).toBe(false);
+    if (!refusal.ok) expect(refusal.message).toContain("3");
+  });
+
+  it("refuses giving up an account in use to make room for another", () => {
+    // The whole rule. Having chosen a, b and c, swapping c for d would be
+    // having all four a few seconds at a time.
+    const chosen = four.map((entry) => ({ ...entry, active: entry.id !== "d" }));
+    const refusal = change(chosen, ["a", "b", "d"]);
+    expect(refusal.ok).toBe(false);
+    if (!refusal.ok) expect(refusal.message.toLowerCase()).toContain("stays active");
+  });
+
+  it("lets a frozen account into a place that has come free", () => {
+    // `c` was deleted, so only a and b are in use and there is one place left.
+    const afterDeletion = [
+      account("a", { createdAt: day(1) }),
+      account("b", { createdAt: day(2) }),
+      account("d", { createdAt: day(4), active: false }),
+    ];
+    // Three live accounts and a limit of three: nothing is frozen any more,
+    // so this is the case the rule lets through on its own.
+    expect(frozenAccountIds(free, afterDeletion)).toEqual(new Set());
+
+    const overSubscribed = [...afterDeletion, account("e", { createdAt: day(5), active: false })];
+    expect(change(overSubscribed, ["a", "b", "d"])).toEqual({ ok: true });
+  });
+
+  it("lets a set be re-sent unchanged, so a retry is not a refusal", () => {
+    const chosen = four.map((entry) => ({ ...entry, active: entry.id !== "d" }));
+    expect(change(chosen, ["a", "b", "c"])).toEqual({ ok: true });
+  });
+
+  it("opens the choice again when a paid spell left accounts nobody chose about", () => {
+    // Chose a, b and c of four. Subscribed, opened `e` while there was no
+    // limit, then cancelled. `e` is marked active because that is the column's
+    // default, and the choice beside it was made about a ledger that did not
+    // contain it — so reading the column as settled would freeze an account
+    // nobody has ever been asked about, with no way back but archiving one of
+    // the three.
+    const secondDowngrade = [
+      ...four.map((entry) => ({ ...entry, active: entry.id !== "d" })),
+      account("e", { createdAt: day(5) }),
+    ];
+    // Four marked active against a limit of three: the column cannot be an
+    // answer to the question being asked now.
+    expect(activeChoicePending(MAX_FREE_ACCOUNTS, secondDowngrade)).toBe(true);
+    expect(change(secondDowngrade, ["a", "b", "e"])).toEqual({ ok: true });
+  });
+
+  it("does not reopen the choice when the paid spell opened nothing", () => {
+    // Same round trip, no new account. The earlier choice is still an answer
+    // to this question, so re-asking would be an invitation to swap.
+    const unchangedByTheSpell = four.map((entry) => ({ ...entry, active: entry.id !== "d" }));
+    expect(activeChoicePending(MAX_FREE_ACCOUNTS, unchangedByTheSpell)).toBe(false);
+    expect(change(unchangedByTheSpell, ["a", "b", "d"]).ok).toBe(false);
+  });
+
+  it("reads a place freed by archiving as a place, not as a fresh choice", () => {
+    // Below the limit rather than above it, which is the whole difference:
+    // two in use and one place open takes a frozen account, and lets go of
+    // neither of the two.
+    const archivedOne = [
+      account("a", { createdAt: day(1), archivedAt: day(9) }),
+      account("b", { createdAt: day(2) }),
+      account("c", { createdAt: day(3) }),
+      account("d", { createdAt: day(4), active: false }),
+      account("e", { createdAt: day(5), active: false }),
+    ];
+    const live = archivedOne.filter((entry) => entry.archivedAt === null);
+    expect(activeChoicePending(MAX_FREE_ACCOUNTS, live)).toBe(false);
+    expect(change(archivedOne, ["b", "c", "d"])).toEqual({ ok: true });
+    expect(change(archivedOne, ["b", "d", "e"]).ok).toBe(false);
+  });
+
+  it("decides nothing on a plan with no limit", () => {
+    expect(
+      activeAccountChange({ entitlement: paid, accounts: four, wanted: new Set(["a"]) }),
+    ).toEqual({ ok: true });
+    expect(
+      activeAccountChange({ entitlement: { billing: false }, accounts: four, wanted: new Set() }),
+    ).toEqual({ ok: true });
   });
 });

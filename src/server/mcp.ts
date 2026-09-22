@@ -820,8 +820,9 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             // All three null on a deployment that sells nothing, which is the
             // default: an agent should be able to tell "no limit here" from
             // "limited, and you are near it" without a second call. The count
-            // comes from the same place the refusal counts, because
-            // list_accounts leaves archived accounts out and the limit does not.
+            // comes from the same place the refusal counts: places in use,
+            // which list_accounts cannot be totalled into without applying the
+            // entitlement to every row it returns.
             plan: entitlement.billing ? entitlement.plan : null,
             accountLimit: entitlement.billing ? entitlement.accountLimit : null,
             accountsUsed,
@@ -1640,7 +1641,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Choose which accounts stay usable",
         description:
-          "Name every account that stays usable. Any account left out is frozen: still readable, still counted in every balance and report, and closed to every change — no new entry, no edit, no delete, not even a rename. A plan that limits how many accounts may be active is the only reason an account is ever frozen, and `whoami` reports that limit. Archived accounts are not part of this and use up no place. This replaces the whole set rather than toggling one account, so sending the same list twice does nothing the second time.",
+          "Name every account that stays usable. Any account left out is frozen: still readable, still counted in every balance and report, and closed to every change — no new entry, no edit, no delete, not even a rename. A plan that limits how many accounts may be active is the only reason an account is ever frozen, and `whoami` reports that limit. **The choice is made once.** While the choice is still open — which is whenever more accounts are marked `active` than the plan keeps, as a downgrade or a spell on the paid plan leaves behind — this may name any set within the limit; afterwards an account already in use must stay in the list, and a frozen one can only be added when a place has come free — which happens when somebody archives or deletes an account they were using. Archived accounts are not part of this and use up no place. This replaces the whole set rather than toggling one account, so sending the same list twice does nothing the second time.",
         inputSchema: toolInput({
           accountIds: activeAccountsSchema.shape.accountIds,
         }),

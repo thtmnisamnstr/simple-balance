@@ -26,7 +26,12 @@ import type { Actor } from "../../src/shared/domain.js";
 import { MAX_FREE_ACCOUNTS } from "../../src/shared/domain.js";
 import { getDb } from "../../src/server/db/client.js";
 import { billingOverrides, ledgerAccounts, user } from "../../src/server/db/schema.js";
-import { createAccount, setAccountArchived } from "../../src/server/services/accounts.js";
+import {
+  createAccount,
+  getAccount,
+  listAccounts,
+  setAccountArchived,
+} from "../../src/server/services/accounts.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
 
@@ -118,7 +123,16 @@ integration("the free plan's account limit", () => {
     await expect(makeAccount(owner, "Fourth")).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
-  it("counts an archived account, so the quota cannot be cycled", async () => {
+  it("frees the place an archived account held, and refuses to give it back twice", async () => {
+    /*
+     * This assertion used to read the other way, and the reversal is the
+     * point. The limit counted every account ever opened, so archiving freed
+     * nothing — the rule existed to stop a quota being cycled by archiving
+     * and restoring. It now counts the accounts somebody is *using*, and the
+     * cycle is closed at the other end instead: archiving frees the place,
+     * and coming back out of the archive needs a free place of its own. So a
+     * fourth account can be opened, and the third one cannot simply return.
+     */
     const owner = actor("limit-archived");
     await seedUser(owner.userId);
     const first = await makeAccount(owner, "Archived one");
@@ -126,7 +140,14 @@ integration("the free plan's account limit", () => {
     await makeAccount(owner, "Third");
     await setAccountArchived(owner, first.id, first.version, true);
 
-    await expect(makeAccount(owner, "Fourth")).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(makeAccount(owner, "Fourth")).resolves.toBeTruthy();
+
+    const archived = await getAccount(owner, first.id);
+    await expect(
+      setAccountArchived(owner, first.id, archived.version, false),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    // And the ledger is where it says it is: four accounts, three of them in use.
+    await expect(makeAccount(owner, "Fifth")).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
   it("lets exactly one of two requests take the last slot", async () => {
@@ -218,8 +239,17 @@ integration("the free plan's account limit", () => {
       .where(and(eq(ledgerAccounts.userId, owner.userId), isNull(ledgerAccounts.systemKind)));
 
     expect(owned).toHaveLength(MAX_FREE_ACCOUNTS + 2);
+    /*
+     * Still five accounts and still nothing taken away — but the figure the
+     * refusal reports is now three rather than five, and the difference is
+     * the rule rather than a rounding of it. The limit is on the accounts
+     * somebody can *use*: five are kept, three are in use, and it is the
+     * three that decide whether another may be opened.
+     */
     await expect(makeAccount(owner, "One more")).rejects.toMatchObject({
-      details: { current: MAX_FREE_ACCOUNTS + 2 },
+      details: { current: MAX_FREE_ACCOUNTS },
     });
+    const frozen = (await listAccounts(owner)).filter((account) => account.frozen);
+    expect(frozen, "the two over the limit are frozen, not gone").toHaveLength(2);
   });
 });

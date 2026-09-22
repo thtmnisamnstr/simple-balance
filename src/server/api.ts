@@ -1400,13 +1400,14 @@ app.get("/api/v1/session", async (c) =>
     user: c.get("authUser"),
     preferences: await getPreferences(c.get("actor")),
     auth: await getUserAuthState(c.get("authUser").id),
-    // The plan, its ceiling, and how much of it is used. The count is here
-    // rather than derived in the browser because the accounts list a page holds
-    // depends on whether archived ones are being shown, and the limit counts
-    // them either way. The browser invalidates this query when it creates or
-    // deletes an account, so the only window in which the number is stale is a
-    // second tab — and the server refuses there regardless, which is what makes
-    // the disabled button a courtesy rather than the enforcement.
+    // The plan, its ceiling, and how many places are in use. The count is here
+    // rather than derived in the browser because freezing is worked out from
+    // the entitlement as well as the rows, so a page holding whichever accounts
+    // it happened to fetch cannot arrive at it. The browser invalidates this
+    // query when it creates or deletes an account, so the only window in which
+    // the number is stale is a second tab — and the server refuses there
+    // regardless, which is what makes the disabled button a courtesy rather
+    // than the enforcement.
     plan: await getPlanSummary(c.get("actor")),
     // The ad slots this person should see, or null. Decided here rather than in
     // the browser so that a paying subscriber's session carries no ad

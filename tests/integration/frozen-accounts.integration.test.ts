@@ -219,7 +219,9 @@ integration("a frozen account", () => {
     ).rejects.toThrow(/frozen/i);
   });
 
-  it("lets the person choose a different three", async () => {
+  it("takes the one choice, which may name any three", async () => {
+    // Nobody has chosen yet: every account is still marked active, and the
+    // ordering has only been standing in.
     await setActiveAccounts(actor, { accountIds: [ids.First!, ids.Second!, ids.Fourth!] });
     const accounts = await listAccounts(actor);
     expect(accounts.filter((account) => account.frozen).map((account) => account.name)).toEqual([
@@ -230,12 +232,45 @@ integration("a frozen account", () => {
     await expect(spend(ids.Third!, "7")).rejects.toThrow(/frozen/i);
   });
 
+  it("refuses a swap once the choice has been made", async () => {
+    // The rule, against a real database: Third is frozen and Fourth is in
+    // use, and trading one for the other would be having both.
+    await expect(
+      setActiveAccounts(actor, { accountIds: [ids.First!, ids.Second!, ids.Third!] }),
+    ).rejects.toThrow(/stays active/i);
+    const accounts = await listAccounts(actor);
+    expect(accounts.filter((account) => account.frozen).map((account) => account.name)).toEqual([
+      "Third",
+    ]);
+  });
+
+  it("accepts the same set again, so a retry is not a refusal", async () => {
+    await expect(
+      setActiveAccounts(actor, { accountIds: [ids.First!, ids.Second!, ids.Fourth!] }),
+    ).resolves.toBeDefined();
+  });
+
   it("refuses a choice larger than the plan allows", async () => {
     await expect(
       setActiveAccounts(actor, {
         accountIds: [ids.First!, ids.Second!, ids.Third!, ids.Fourth!],
       }),
     ).rejects.toThrow(/keeps 3 accounts active/i);
+  });
+
+  it("lets a frozen account into a place archiving one frees", async () => {
+    // Archiving is not a swap: the account is closed at zero and coming back
+    // needs a place of its own. What it does do is free the place it held.
+    const fourth = await getAccount(actor, ids.Fourth!);
+    await setAccountArchived(actor, ids.Fourth!, fourth.version, true);
+    await setActiveAccounts(actor, { accountIds: [ids.First!, ids.Second!, ids.Third!] });
+    await expect(spend(ids.Third!, "4")).resolves.toMatchObject({ id: expect.any(String) });
+
+    // And it cannot come back while all three places are in use.
+    const archived = await getAccount(actor, ids.Fourth!);
+    await expect(setAccountArchived(actor, ids.Fourth!, archived.version, false)).rejects.toThrow(
+      /accounts active/i,
+    );
   });
 
   it("unfreezes everything the moment the plan does, with nothing written", async () => {
@@ -253,5 +288,56 @@ integration("a frozen account", () => {
     // no row, which is what makes an override expiring at 3am correct too.
     expect(after.rows).toEqual(before.rows);
     await paidUntil(null);
+  });
+
+  it("asks again after a paid spell that opened accounts nobody chose about", async () => {
+    // The state this walks into: First, Second and Third in use, Fourth
+    // archived, nothing frozen. Subscribe, open two more, and the plan lapses
+    // again with five live accounts all marked active — the first choice.
+    const open = async (name: string) =>
+      (
+        await createAccount(actor, {
+          name,
+          type: "checking",
+          currency: "USD",
+          openingDate: "2026-01-01",
+          openingBalance: "0",
+        })
+      ).id;
+    await paidUntil(new Date("2099-01-01"));
+    ids["Fifth"] = await open("Fifth");
+    ids["Sixth"] = await open("Sixth");
+    await paidUntil(null);
+    await setActiveAccounts(actor, { accountIds: [ids.First!, ids.Second!, ids.Fifth!] });
+
+    // Now the discriminating half. Subscribe once more, open a seventh, and
+    // lapse. Third and Sixth are still marked inactive from the choice above,
+    // so "every live account is marked active" is false — and reading that as
+    // "already chosen" would freeze Seventh, an account nobody was ever asked
+    // about, leaving no way to use it but archiving one of the three.
+    await paidUntil(new Date("2099-01-01"));
+    ids["Seventh"] = await open("Seventh");
+    await paidUntil(null);
+    const reopened = await listAccounts(actor);
+    expect(
+      reopened
+        .filter((account) => account.frozen)
+        .map((account) => account.name)
+        .sort(),
+    ).toEqual(["Seventh", "Sixth", "Third"]);
+
+    // Four marked active against a limit of three: the question is open, so
+    // this may name any three — including one that drops Fifth, which the
+    // settled rule refuses.
+    await setActiveAccounts(actor, {
+      accountIds: [ids.First!, ids.Second!, ids.Seventh!],
+    });
+    await expect(spend(ids.Seventh!, "2")).resolves.toMatchObject({ id: expect.any(String) });
+    await expect(spend(ids.Fifth!, "2")).rejects.toThrow(/frozen/i);
+
+    // And it is settled again straight away: three in use, none to spare.
+    await expect(
+      setActiveAccounts(actor, { accountIds: [ids.First!, ids.Second!, ids.Fifth!] }),
+    ).rejects.toThrow(/stays active/i);
   });
 });

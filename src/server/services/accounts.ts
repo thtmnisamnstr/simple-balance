@@ -3,6 +3,7 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 import type { Decimal } from "decimal.js";
 import {
   accountAllowance,
+  activeAccountChange,
   activeAccountsSchema,
   type Actor,
   type FreezableAccount,
@@ -39,7 +40,7 @@ import {
   writeAuditMany,
 } from "./helpers.js";
 import { getPreferences } from "./preferences.js";
-import { countOwnedAccounts, getEntitlement } from "./billing.js";
+import { getEntitlement } from "./billing.js";
 import { calendarDayIn, todayIn } from "../../shared/recurrence-dates.js";
 import { log } from "../log.js";
 
@@ -691,7 +692,13 @@ async function assertAccountNameAvailable(
 async function assertAccountAllowance(tx: DbTransaction, actor: Actor) {
   const entitlement = await getEntitlement(actor, tx);
   if (!entitlement.billing || entitlement.accountLimit === null) return;
-  const allowance = accountAllowance(entitlement, await countOwnedAccounts(tx, actor));
+  // The places in use, not every account ever opened. Under freezing the limit
+  // is on how many accounts somebody can *use*, so deleting or archiving one
+  // they were using makes room for another — and an account they are not using
+  // costs them nothing. The quota it replaced counted archived accounts to stop
+  // a reset by archiving and restoring; that cannot happen here, because coming
+  // back out of the archive needs a free place too.
+  const allowance = accountAllowance(entitlement, await countActiveAccounts(tx, actor));
   if (allowance.ok) return;
   throw conflict(
     allowance.message,
@@ -758,6 +765,23 @@ export async function accountFreeze(
 }
 
 /**
+ * How many of somebody's accounts are holding a place right now.
+ *
+ * Live accounts minus the frozen ones, which is the same arithmetic the page
+ * shows. Archived accounts hold nothing: they refuse every write already, so a
+ * place spent on one would be a place spent on nothing.
+ */
+export async function countActiveAccounts(tx: DbTransaction, actor: Actor): Promise<number> {
+  const rows = await tx
+    .select()
+    .from(ledgerAccounts)
+    .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
+  const entitlement = await getEntitlement(actor, tx);
+  const frozen = frozenAccountIds(entitlement, rows);
+  return rows.filter((row) => row.archivedAt === null && !frozen.has(row.id)).length;
+}
+
+/**
  * Refuses a change to an account a limited plan has put out of reach.
  *
  * `validationError` rather than `conflict`, and the choice decides behaviour
@@ -815,11 +839,16 @@ export async function setActiveAccounts(actor: Actor, input: unknown, transactio
 
     const entitlement = await getEntitlement(actor, tx);
     const limit = entitlement.billing ? entitlement.accountLimit : null;
-    if (limit !== null && wanted.size > limit) {
+    // The shared rule, so the page greys out the same boxes the server would
+    // refuse: choose once, and afterwards only fill a place that came free.
+    const change = activeAccountChange({ entitlement, accounts: rows, wanted });
+    if (!change.ok) {
       throw conflict(
-        `A free plan keeps ${limit} accounts active, and this names ${wanted.size}.`,
+        change.message,
         { limit, current: wanted.size, plan: entitlement.billing ? entitlement.plan : "free" },
-        `This ledger's plan keeps ${limit} accounts active at a time. Name at most that many.`,
+        // An agent can make this call, so the refusal has to say what a valid
+        // one looks like rather than hand the job back to a person.
+        `${change.message} list_accounts reports \`frozen\` on every account: name each one where it is false, and add a frozen account only where fewer than ${limit ?? 0} are in use.`,
       );
     }
 
@@ -1004,6 +1033,24 @@ export async function setAccountArchived(
       throw conflict(
         "Resolve staged transactions that reference this account before archiving it.",
       );
+    }
+    if (!archived) {
+      // Coming back out of the archive needs a free place, the same as any
+      // other account would. Without this the restore would land as a fourth
+      // active account and the ordering rule would quietly freeze somebody
+      // else's — a swap through the back door, which is the one thing the
+      // choose-once rule exists to stop.
+      const entitlement = await getEntitlement(actor, tx);
+      if (entitlement.billing && entitlement.accountLimit !== null) {
+        const allowance = accountAllowance(entitlement, await countActiveAccounts(tx, actor));
+        if (!allowance.ok) {
+          throw conflict(
+            `${allowance.message} Bringing this one back needs one of those places.`,
+            { limit: allowance.limit, current: allowance.current, plan: entitlement.plan },
+            `This ledger's plan keeps ${allowance.limit} accounts active and all of them are in use. Deleting or archiving one frees a place.`,
+          );
+        }
+      }
     }
     const [updated] = await tx
       .update(ledgerAccounts)

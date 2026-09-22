@@ -181,15 +181,23 @@ describe("whether another account may be made", () => {
     if (refusal.ok) throw new Error("expected a refusal");
     expect(refusal.current).toBe(5);
     expect(refusal.limit).toBe(MAX_FREE_ACCOUNTS);
-    expect(refusal.message).toContain("Upgrade");
+    expect(refusal.message.toLowerCase()).toContain("upgrade");
   });
 
-  it("names a move that works, and not one that does not", () => {
+  it("names the moves that work, which is now more than one", () => {
     const refusal = accountAllowance(free, MAX_FREE_ACCOUNTS);
     if (refusal.ok) throw new Error("expected a refusal");
-    // Archiving does not free a slot and deleting a used account is refused, so
-    // suggesting either would be offering a move that fails.
-    expect(refusal.message).not.toMatch(/archiv/i);
-    expect(refusal.message).not.toMatch(/delete/i);
+    /*
+     * This assertion used to read the other way, and the reversal is the
+     * point. The limit counted every account ever opened, so archiving freed
+     * nothing and naming it would have offered a move that fails. It now
+     * counts the accounts somebody is *using*: archiving one frees a place,
+     * and coming back out of the archive needs a free place too, so the
+     * reset that counting archived accounts existed to prevent cannot happen.
+     * Three moves work, and the sentence names all three.
+     */
+    expect(refusal.message).toMatch(/archiv/i);
+    expect(refusal.message).toMatch(/delete/i);
+    expect(refusal.message.toLowerCase()).toContain("upgrade");
   });
 });

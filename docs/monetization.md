@@ -73,20 +73,44 @@ seen it, and renaming the label would not.) Everything else — every report,
 every import, the whole CSV round trip and the entire MCP surface — is the same
 on both. There are no transaction quotas.
 
-Counter-accounts the ledger owns do not count against the three. Archived
-accounts do, because the alternative is a quota that resets by archiving and
-restoring. The refusal names both numbers — the limit and what was counted — so
-somebody who archived an account and expected a free slot can see why they do
-not have one.
+Counter-accounts the ledger owns do not count against the three, and neither do
+archived accounts: the three are the accounts somebody is using. The refusal
+names both numbers — the limit and what was counted — and the moves that work,
+which are archiving one, deleting one, or upgrading.
 
 **Somebody who already has more than three keeps all of them, and chooses three
 to keep using.** The rest are *frozen*: every balance, every entry and every
 report still counts them and still shows them, and nothing about them may
-change — no new entry, no edit, no delete, not even a rename. Choosing is one
-operation over the whole set (`PUT /api/v1/accounts/active`, or
-`set_active_accounts` for an agent), because swapping which three are live is
-one decision and a switch per account would make somebody pass through a state
-their plan forbids.
+change — no new entry, no edit, no delete, not even a rename.
+
+**The choice is made once, and after that the only move is filling a place that
+has come free.** An account somebody is using stays that way until they archive
+or delete it; nothing lets them park one to make room for another, because
+having them in turn is having them all and the limit would mean nothing.
+Choosing is one operation over the whole set (`PUT /api/v1/accounts/active`, or
+`set_active_accounts` for an agent), and `activeAccountChange` in
+`src/shared/domain.ts` is the rule both the page and the server ask.
+
+`activeChoicePending` says when the question is still open: more live accounts
+marked active than the plan keeps. A downgrade leaves exactly that behind, the
+column defaulting to true and nothing writing it on the way down — so that call
+may name any three and every call after it may only add.
+
+**A spell on the paid plan reopens it, and it has to.** An account opened while
+the limit was lifted is marked active beside a choice made about a ledger that
+did not contain it, so reading the column as settled would freeze an account
+nobody was ever asked about, with no way back but archiving one of the three.
+Four marked active against a limit of three is the signal, and it is the same
+one: the column cannot be an answer to the question being asked now. Archiving
+one of the three puts the count *below* the limit instead, which is a place
+coming free and not a new question.
+
+**The limit counts the accounts in use, not every account ever opened.** That
+is a change from the release before this one, where archived accounts counted
+so that a quota could not be cycled by archiving and restoring. The cycle is
+closed at the other end now: archiving frees the place it held, and coming back
+out of the archive needs a free place of its own. Somebody can accumulate
+closed accounts they are not using; nobody can ever use more than three.
 
 **Frozen is worked out, never stored.** `ledger_account.active` is the choice;
 `frozenAccountIds` in `src/shared/domain.ts` combines it with the entitlement,

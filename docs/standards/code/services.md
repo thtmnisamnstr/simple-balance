@@ -119,7 +119,7 @@ pure, and called from both sides.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:1496`)
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:1527`)
 returns the publisher and slot ids, or `null`: a session belonging to somebody
 who should see no advertising simply carries no ad configuration, so the page
 has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:78`) has no
@@ -231,7 +231,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:878`).
+(`updateAccount`, `src/server/services/accounts.ts:954`).
 
 Two windows have to be closed, not one. Comparing before the update leaves a
 gap between the read and the write, so the update itself also filters on the

@@ -232,7 +232,18 @@
   id, an edit moving money off it, and a payee or category merge that walks the
   whole ledger. Those refuse whole rather than skipping rows. Archived accounts
   are outside all of it: they already refuse every write, so they are never
-  frozen and use up none of the places.
+  frozen and use up none of the places. **The choice is made once.** An account
+  in use stays in use until it is archived or deleted, and only then may a
+  frozen one take its place — `activeAccountChange` is that rule, and
+  `activeChoicePending` says when the question is still open: more live
+  accounts marked active than the plan keeps. A downgrade leaves that behind,
+  and so does a spell on the paid plan, because an account opened while the
+  limit was lifted is active beside a choice made about a smaller ledger and
+  nobody has been asked about it. Below the limit is a free place rather than
+  a fresh choice. The cap counts the accounts in use rather than every
+  account opened, which reverses the old reason for counting archived ones: the
+  quota cannot be cycled because coming back out of the archive needs a free
+  place too.
 - **`docs/product/` is this repository's public description of itself**, and
   the marketing site at smpl.money is its only consumer. `facts.json` is the
   machine contract, `features.json` is what the product does tiered by how
@@ -336,7 +347,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 22.8% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 22.9% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

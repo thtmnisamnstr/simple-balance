@@ -1,9 +1,10 @@
-import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt } from "drizzle-orm";
 import {
   type Actor,
   type BillingInterval,
   cancellationPutSchema,
   type Entitlement,
+  frozenAccountIds,
   intervalOfPrice,
   liveSubscriptionStatuses,
   paymentSetupConfirmSchema,
@@ -101,31 +102,15 @@ export async function getEntitlement(
 }
 
 /**
- * How many financial accounts this person has made, as `MAX_FREE_ACCOUNTS`
- * counts them: archived ones included, the ledger's own counter-accounts not.
- * That constant carries the reasoning for both halves; repeating it here would
- * give one rule two homes and let the copy drift.
- *
- * The `system_kind is null` clause is the same one every user-facing account
- * read uses, so this counts exactly what a person can see.
- */
-export async function countOwnedAccounts(tx: Executor, actor: Actor): Promise<number> {
-  const [row] = await tx
-    .select({ count: sql<number>`count(*)::int` })
-    .from(ledgerAccounts)
-    .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
-  return row?.count ?? 0;
-}
-
-/**
  * The plan and what it has been spent on, for the session the browser loads.
  *
- * Counted here rather than left to the browser because the accounts list it
- * holds depends on whether archived ones are being shown, and the limit counts
- * them either way — a page that derived the number from the list it happened to
- * have would offer the button to somebody who cannot use it. The browser
- * invalidates this query whenever it creates or deletes an account, so the only
- * window in which it is stale is a second tab, which the server still refuses.
+ * Counted here rather than left to the browser because the number is the
+ * places in use, and working that out needs the entitlement as well as the
+ * rows: freezing is derived, so a page holding only the accounts it happened
+ * to fetch — archived ones shown or not — would offer the button to somebody
+ * who cannot use it. The browser invalidates this query whenever it creates or
+ * deletes an account, so the only window in which it is stale is a second tab,
+ * which the server still refuses.
  *
  * No count at all where nothing is sold, which is the default: the session read
  * costs exactly what it cost before this release.
@@ -137,7 +122,16 @@ export async function getPlanSummary(
   if (!entitlement.billing || entitlement.accountLimit === null) {
     return { entitlement, accountsUsed: null };
   }
-  return { entitlement, accountsUsed: await countOwnedAccounts(getDb(), actor) };
+  // The places in use, which is what the limit is now about: live accounts
+  // that are not frozen. Counted from the rows and the entitlement already in
+  // hand rather than through the service helper, which needs a transaction.
+  const rows = await getDb()
+    .select()
+    .from(ledgerAccounts)
+    .where(and(eq(ledgerAccounts.userId, actor.userId), isNull(ledgerAccounts.systemKind)));
+  const frozen = frozenAccountIds(entitlement, rows);
+  const active = rows.filter((row) => row.archivedAt === null && !frozen.has(row.id)).length;
+  return { entitlement, accountsUsed: active };
 }
 
 /**

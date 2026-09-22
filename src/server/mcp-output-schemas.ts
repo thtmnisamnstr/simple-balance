@@ -148,6 +148,11 @@ export const accountResultSchema = z
     // but cannot see in `tools/list` is the defect `AGENTS.md` names about
     // `categoryKind`, one level down. An agent that does not know this field
     // exists meets its refusals with no way to explain them.
+    active: z
+      .boolean()
+      .describe(
+        "Whether the person has this account among the ones they keep usable. The choice, not the answer — read `frozen` for that. It means nothing on a plan with no limit, and while the choice is still open more accounts carry it than the plan keeps.",
+      ),
     frozen: z
       .boolean()
       .describe(
@@ -673,14 +678,14 @@ export const identityResultSchema = z.object({
     .int()
     .nullable()
     .describe(
-      "How many financial accounts this plan keeps. Null means no limit. create_account refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after.",
+      "How many financial accounts this plan keeps usable at a time. Null means no limit. create_account refuses once accountsUsed reaches it, and only the person who owns these books can raise it, so check this before proposing a new account rather than after. Accounts beyond it are frozen rather than lost: fully readable, and refusing every write.",
     ),
   accountsUsed: z
     .number()
     .int()
     .nullable()
     .describe(
-      "How many of accountLimit are gone, counted the way the limit counts: archived accounts included, the ledger's own counter-accounts excluded. Null wherever there is no limit. Do not compute this from list_accounts, which leaves archived accounts out by default and so reports fewer than the limit counts.",
+      "How many of accountLimit are in use: accounts that are neither archived nor frozen, the ledger's own counter-accounts excluded. Null wherever there is no limit. Archiving or deleting an account frees its place, and a frozen account may then take it — but only then, because the choice of which accounts are in use is made once.",
     ),
 });
 

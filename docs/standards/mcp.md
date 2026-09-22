@@ -23,7 +23,7 @@ contract. Anything in this guide that contradicts it loses.
   stateless protocol: all the information needed to process a request is
   contained in the request itself." This surface holds by construction rather
   than by discipline: `handleMcpRequest` builds a server and a transport per
-  request (`src/server/mcp.ts:2066-2075`), so there is no connection to carry
+  request (`src/server/mcp.ts:2067-2076`), so there is no connection to carry
   state in.
 - **Where the target is not met, say so rather than claiming it.** The installed
   SDK, `@modelcontextprotocol/sdk` 1.30.0, declares
@@ -128,7 +128,7 @@ usually the polite option, and that a refund is not income.
   the sentence `commit_staged_transactions` owns: a person approving that dialog
   could believe they were releasing a row they had already reviewed rather than
   writing one they had never seen. It is titled "Write a new transaction
-  straight into the books" (`src/server/mcp.ts:1943`), and "Commit" now
+  straight into the books" (`src/server/mcp.ts:1944`), and "Commit" now
   appears in exactly one title on this surface, on the tool that commits.
 - **Contested, decided 2026-08-23: no namespace prefix.** The specification puts
   disambiguation on the client: aggregating clients "SHOULD implement a
@@ -181,7 +181,7 @@ parts, in order:
 Further rules:
 
 - **House.** A floor of three to four sentences. Measured today: 77
-  descriptions, 27,256 characters, median 295, range 33 to 1,890, and **12 under
+  descriptions, 27,690 characters, median 295, range 33 to 1,890, and **12 under
   100 characters**. The distribution is bimodal, but the terse half does not
   cover the dangerous tools: `commit_staged_transactions` is 232 characters and
   tells the agent to confirm with the person first, `merge_categories` is 186
@@ -383,9 +383,9 @@ unrepresentable, so the model's own sampling cannot produce it.
   `preview_bulk_transaction_selection`, `bulk_edit_transactions` and
   `bulk_delete_transactions`. **Done**, and in one edit rather than five:
   `listQuerySchema.currency` now carries a filter sentence of its own
-  (`src/shared/domain.ts:1967-1971`), and the other four derive from it —
-  `bulkTransactionFilterSchema` by `.omit()` at `:2001` and
-  `stageListQuerySchema` at `:2326-2327`, which is a sixth position nobody had
+  (`src/shared/domain.ts:1971-1975`), and the other four derive from it —
+  `bulkTransactionFilterSchema` by `.omit()` at `:2005` and
+  `stageListQuerySchema` at `:2330-2331`, which is a sixth position nobody had
   counted. The shared sentence is untouched, because it is right where an
   account is being opened. `set_preferences`'s `defaultCurrency` was the same
   sentence in a third context and now says what a default is
@@ -427,14 +427,14 @@ them still answer to their date.
 | Token holds | Tools | `tools/list` characters | Approx tokens |
 | --- | --- | --- | --- |
 | no ledger scope | 0 | `tools/list` is not offered at all | 0 |
-| `ledger:read` | 37 | 168,638 | ~42,000 |
-| `ledger:stage` | 42 | 205,288 | ~51,000 |
-| `ledger:write` | 77 | 478,510 | ~118,000 |
+| `ledger:read` | 37 | 169,361 | ~42,000 |
+| `ledger:stage` | 42 | 206,011 | ~51,000 |
+| `ledger:write` | 77 | 480,982 | ~118,000 |
 
-Composition at the write tier: names 1,467, titles 1,884, descriptions 27,256,
-input schemas 207,598, output schemas 223,732. **Descriptions are 5.7% of what
-an agent loads; names, titles and descriptions together are 6.4%.** Output
-schemas are 46.1%.
+Composition at the write tier: names 1,467, titles 1,884, descriptions 27,690,
+input schemas 207,729, output schemas 225,639. **Descriptions are 5.8% of what
+an agent loads; names, titles and descriptions together are 6.5%.** Output
+schemas are 46.9%.
 
 The rises were bought on purpose: describing the output fields whose names
 mislead, publishing the error-code enum at 150 characters a tool and 11,400 in
@@ -530,7 +530,7 @@ The rules:
   `tests/mcp-output.test.ts` holds it: no output schema may declare a `userId`
   property except by named exception.
 - **House.** Describe an output field whose meaning its name does not give — and
-  only those. Measured: **1,766 output properties, 473 with a description**,
+  only those. Measured: **1,772 output properties, 479 with a description**,
   having been 52, and having gone up by forty-eight when the input fields were
   described — a schema shared between a draft and the row it becomes carries its
   sentences both ways. `decimalSchema` and `timestampSchema` were bare `z.string()`,
@@ -635,7 +635,7 @@ envelope and the worked sentences.
   `tests/mcp-output.test.ts` pins the shape of that refusal and holds
   `docs/mcp.md` to naming it.
 - **House.** The code list is closed and published. `serviceErrorCodes`
-  (`src/shared/domain.ts:2592-2602`) is a `const` array rather than a bare
+  (`src/shared/domain.ts:2596-2606`) is a `const` array rather than a bare
   TypeScript union precisely so `toolErrorSchema` can publish it as an enum
   (`src/server/mcp-output-schemas.ts:93-99`): a closed list exists so a caller
   can branch — `STALE_VERSION` means read it again, `DUPLICATE` may mean it
@@ -776,7 +776,7 @@ requiring it, so this is a decision and not an obligation; it is argued at
 length because it is the one that decides the tool count.
 
 A tool is gated by which of three registration blocks it sits in
-(`src/server/mcp.ts:647`, `:1128` and `:1231`), and scope is enforced by
+(`src/server/mcp.ts:647`, `:1129` and `:1232`), and scope is enforced by
 non-registration, so a tool the caller cannot use is **absent from discovery**
 rather than present and refusing. Measured: 37 tools at `ledger:read`, 42 at
 `ledger:stage`, 77 at `ledger:write`, and a token with no ledger scope gets a
@@ -809,7 +809,7 @@ it means choosing which half to defer to anyway.
   may carry are changes to the ledger's own records and need `ledger:write`,
   wherever they are reached from, including a CSV import." `stage_csv` is the
   worked case and its description is the model for saying so
-  (`src/server/mcp.ts:1278-1286`).
+  (`src/server/mcp.ts:1279-1287`).
 - **House.** Read, propose, write are three tiers answering three questions.
   `dryRun: true` asks "what would this do", synchronously, leaving nothing
   behind; it is on 7 tools. `ledger:stage` says "do this when a person agrees",
@@ -1070,7 +1070,7 @@ One line each, with the condition that would reopen it.
 | Elicitation | The staging queue solves the same problem asynchronously and durably, and form mode may not be used for anything sensitive anyway. |
 | Completion | Covers prompt and resource template arguments only. It cannot cover tool arguments, which is what this surface would want it for. |
 | Tasks | A second protocol surface with per-client opt-in, against a ten-thousand-row cap that already keeps work inside one request. |
-| Progress notifications | The transport answers in a single JSON object (`enableJsonResponse: true`, `src/server/mcp.ts:2149`), so there is no open channel a `notifications/progress` could travel on — which is why the two routes that report progress to the browser do it with `Accept` rather than a request field an agent would see and could not use. Reopen with `Tasks`, above: both need the same change to how every tool call answers. |
+| Progress notifications | The transport answers in a single JSON object (`enableJsonResponse: true`, `src/server/mcp.ts:2150`), so there is no open channel a `notifications/progress` could travel on — which is why the two routes that report progress to the browser do it with `Accept` rather than a request field an agent would see and could not use. Reopen with `Tasks`, above: both need the same change to how every tool call answers. |
 | Icons | Nothing renders them here. |
 | `x-mcp-header` | Nothing needs proxy routing, and the sensitive-parameter warning points the wrong way for a ledger. |
 | `server/discover`, caching hints, `_meta` version negotiation | Wanted, and blocked on the SDK. See the first section. |

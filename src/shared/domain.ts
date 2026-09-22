@@ -1008,18 +1008,22 @@ export type TransactionTemplateBulkResult = z.infer<typeof transactionTemplateBu
 /**
  * The accounts a person wants to keep usable, named all at once.
  *
- * A set rather than a switch per account, because swapping which three are
- * live is one decision: toggling would make somebody turn one off before they
- * could turn another on, and every intermediate state would be a save that
- * could fail halfway. The whole set also makes the operation idempotent, which
- * is what lets it go without an idempotency key.
+ * A set rather than a switch per account, because the first choice is one
+ * decision about the whole shape: a switch each would make somebody turn one
+ * off before they could turn another on, and every intermediate state would be
+ * a save that could fail halfway. The whole set also makes the operation
+ * idempotent, which is what lets it go without an idempotency key.
+ *
+ * What the set may say is `activeAccountChange`, not this schema: after the
+ * first choice an account in use is fixed, so a set that gives one up is
+ * refused there rather than being unrepresentable here.
  */
 export const activeAccountsSchema = z.object({
   accountIds: z
     .array(uuid())
     .max(1000)
     .describe(
-      "Every account that stays usable. Any account of yours left out of this list is frozen: still readable, and closed to every change until it is named here again or the plan stops limiting how many may be active. Archived accounts are not part of this and do not use up a place.",
+      "Every account that stays usable. Any account of yours left out of this list is frozen: still readable, and closed to every change until the plan stops limiting how many may be active. The choice is made once — an account already in use stays in use, and a frozen one may be named here only when archiving or deleting an account has freed a place. Archived accounts are not part of this and use up no place.",
     ),
 });
 
@@ -3277,10 +3281,14 @@ export type Plan = (typeof plans)[number];
  * How many financial accounts a free plan keeps.
  *
  * Counter-accounts the ledger owns are never counted, because a person did not
- * make them and a second currency should not cost somebody a slot. Archived
- * accounts are counted, and that is the deliberate half: the alternative is a
- * quota that resets by archiving and restoring, which is a limit that only
- * binds people who have not noticed.
+ * make them and a second currency should not cost somebody a slot. **Archived
+ * accounts are not counted either, and that is the half worth explaining.**
+ *
+ * They used to be, to stop a quota resetting by archiving and restoring. Under
+ * freezing the limit is on how many accounts somebody can *use*, and coming
+ * back out of the archive needs a free place like anything else — so the reset
+ * is one-way and buys nobody a fourth usable account. Somebody can accumulate
+ * closed accounts they are not using; they can never use more than this many.
  */
 export const MAX_FREE_ACCOUNTS = 3;
 
@@ -3411,10 +3419,13 @@ export function resolveEntitlement(input: {
  * `docs/standards/code/errors.md` 4 states: if the browser can tell in advance
  * it must, and the sentence must be the same one.
  *
- * The message names upgrading and nothing else on purpose. Archiving does not
- * free a slot under this counting policy, and deleting is refused for any
- * account that has ever been used, so offering either would be offering a move
- * that does not work.
+ * The message names three moves because all three work. Archiving frees a
+ * place, since an archived account refuses every write already and so uses
+ * none; deleting frees one for an account nothing has been posted to, which is
+ * the only kind that may be deleted at all; and upgrading lifts the limit.
+ * Under the old counting policy archiving freed nothing and only upgrading was
+ * worth naming — the cap counts the accounts in use now, which is what changed
+ * it.
  */
 export function accountAllowance(
   entitlement: Entitlement,
@@ -3435,8 +3446,8 @@ export function accountAllowance(
     limit,
     current,
     message:
-      `A free plan keeps ${limit} accounts, and this one has ${current}. ` +
-      "Upgrade under Settings to add more.",
+      `A free plan keeps ${limit} accounts active, and this one has ${current}. ` +
+      "Archive or delete one to free a place, or upgrade under Settings.",
   };
 }
 
@@ -3518,6 +3529,88 @@ export function frozenAccountIds(
   return new Set(
     candidates.filter((account) => !kept.has(account.id)).map((account) => account.id),
   );
+}
+
+/**
+ * Whether a person may make this the set of accounts they keep usable.
+ *
+ * The rule is not "pick any three whenever you like". Choosing happens **once**
+ * — when a plan starts limiting how many accounts may be active — and after
+ * that the only move is to fill a place that has come free. An account that is
+ * active stays active until it is deleted or archived; nothing lets somebody
+ * park one to make room for another, because that is the same as having them
+ * all and the limit would mean nothing.
+ *
+ * **Nobody has chosen while more live accounts are marked active than the plan
+ * keeps** — `activeChoicePending`, which is what a downgrade leaves behind and
+ * what a spell on the paid plan leaves behind too. So that call may name any
+ * set within the limit, and every call after it may only add.
+ */
+/**
+ * Whether the one-time choice is still to be made.
+ *
+ * More accounts marked active than the plan keeps means the stored column
+ * cannot be an answer to the question being asked now, so the question is open.
+ * Two states produce it and both deserve a fresh choice:
+ *
+ * - **A downgrade.** The column defaults to true and nothing writes it on the
+ *   way down, so every live account arrives marked active.
+ * - **A spell on the paid plan.** Accounts opened while the limit was lifted
+ *   are active beside a choice made before it, and that choice was made about
+ *   a smaller ledger. Reading it as settled would freeze an account somebody
+ *   opened and never chose about, with no way back but archiving one they are
+ *   using.
+ *
+ * Once chosen, the count is at or under the limit — every write path holds it
+ * there — so this stays false until the limit lapses again. Archiving one of
+ * the accounts in use puts the count *below* the limit rather than above it,
+ * which is a free place and not a fresh choice.
+ *
+ * Takes the live accounts and the limit rather than an `Entitlement`, because
+ * the browser has the limit already and has no `createdAt` to build a
+ * `FreezableAccount` from. `active` is optional for the same reason it is
+ * optional on the wire: a 0.1.x server sends no such field, and the column it
+ * stands for defaults to true.
+ */
+export function activeChoicePending(
+  limit: number | null,
+  liveAccounts: readonly { readonly active?: boolean }[],
+): boolean {
+  if (limit === null) return false;
+  return liveAccounts.filter((account) => account.active !== false).length > limit;
+}
+
+export function activeAccountChange(input: {
+  readonly entitlement: Entitlement;
+  readonly accounts: readonly FreezableAccount[];
+  readonly wanted: ReadonlySet<string>;
+}): { readonly ok: true } | { readonly ok: false; readonly message: string } {
+  const { entitlement, accounts, wanted } = input;
+  if (!entitlement.billing || entitlement.accountLimit === null) return { ok: true };
+  const limit = entitlement.accountLimit;
+  if (wanted.size > limit) {
+    return {
+      ok: false,
+      message: `A free plan keeps ${limit} accounts active, and this names ${wanted.size}.`,
+    };
+  }
+  const live = accounts.filter((account) => account.archivedAt === null);
+  // The one-time choice. Until it is made the ordering is standing in for it,
+  // and standing in is not the same as having been chosen.
+  if (activeChoicePending(limit, live)) return { ok: true };
+
+  const frozen = frozenAccountIds(entitlement, accounts);
+  const losing = live.filter((account) => !frozen.has(account.id) && !wanted.has(account.id));
+  if (losing.length) {
+    return {
+      ok: false,
+      message:
+        "An account that is active stays active. You can bring a frozen one back when a place " +
+        "comes free — by deleting or archiving one you are using — but you cannot swap one for " +
+        "another.",
+    };
+  }
+  return { ok: true };
 }
 
 /**

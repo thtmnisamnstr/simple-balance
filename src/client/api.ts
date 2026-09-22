@@ -386,6 +386,15 @@ export type Account = {
    * — which is what every 0.1.x server means by not sending it.
    */
   frozen?: boolean;
+  /**
+   * The person's own choice, as opposed to `frozen`, which is the answer.
+   *
+   * The two differ in exactly one way that matters to a page: while nobody has
+   * chosen yet, every account is still marked active and the ordering rule is
+   * standing in — so the accounts page can offer a free first choice, and
+   * afterwards offer only the places that have come free.
+   */
+  active?: boolean;
   version: number;
   balance: string;
   balancePresentation: { label: string; amount: string };

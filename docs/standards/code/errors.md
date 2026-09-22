@@ -219,7 +219,7 @@ unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
 the row's own issue list's job.
 
 *Checked by:* `human`. The instance is pinned where it bit
-(`src/shared/domain.ts:1117-1122`, the comment on `payeeSummarySchema.name`).
+(`src/shared/domain.ts:1121-1126`, the comment on `payeeSummarySchema.name`).
 
 ## 5. What is not enforced
 

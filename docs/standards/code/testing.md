@@ -6,7 +6,7 @@ keeping.
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
 | Unit (node) | 100 | `npm test` | nothing |
-| Unit (jsdom) | 43 | `npm test` | nothing |
+| Unit (jsdom) | 44 | `npm test` | nothing |
 | Integration | 65 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
@@ -18,14 +18,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 144 pass, 64 skip | **1,488 pass, 717 skip** |
-| `npm test`, database set | 208 pass | **2,205 pass** |
-| `npm run test:integration` | 65 pass | 718 pass |
+| `npm test`, no database | 145 pass, 64 skip | **1,504 pass, 721 skip** |
+| `npm test`, database set | 209 pass | **2,225 pass** |
+| `npm run test:integration` | 65 pass | 722 pass |
 
-The integration tier reports 718 tests on its own and 717 skips inside a
+The integration tier reports 722 tests on its own and 721 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-1,488 rather than among the skips, which is why the two rows add up to 2,205
+1,504 rather than among the skips, which is why the two rows add up to 2,225
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -33,7 +33,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,488 is the number that
+The first row is what CI and `npm run verify` see, and 1,504 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming

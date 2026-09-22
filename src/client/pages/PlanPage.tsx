@@ -327,8 +327,8 @@ export function PlanPage({ session }: { session: Session }) {
 
             {limit !== null && billing.accountsUsed !== null ? (
               <p>
-                {billing.accountsUsed} of {limit} accounts used. Archived accounts count, because an
-                archived account is kept rather than deleted.
+                {billing.accountsUsed} of {limit} places in use. Archiving or deleting an account
+                frees its place, and a frozen account can then take it.
               </p>
             ) : null}
 

@@ -18,6 +18,7 @@ import {
   liabilityAccountTypes,
   type AccountType,
   accountAllowance,
+  activeChoicePending,
 } from "../../shared/domain.js";
 import { api, json, type Account, type Session } from "../api.js";
 import {
@@ -28,6 +29,7 @@ import {
   ConfirmDialog,
   EmptyState,
   Modal,
+  Note,
   PageHeader,
   RowMenu,
   Skeleton,
@@ -383,12 +385,19 @@ export default function AccountsPage({ session }: { session: Session }) {
  * accounts than places. On every other ledger it renders nothing at all rather
  * than a panel explaining a rule that is not in force.
  *
- * The whole set is saved at once because swapping is one decision — turning
+ * The whole set is saved at once because the choice is one decision — turning
  * one off to turn another on would be two saves and an intermediate state the
- * plan does not allow. So the button is disabled until the selection fits,
- * carrying the same sentence the server would refuse with.
+ * plan does not allow. And it puts two different questions depending on
+ * `activeChoicePending`: the first choice, where any set within the limit is
+ * open, and afterwards, where the accounts in use are fixed and only a place
+ * that has come free can be filled. Both are the server's own rule, because
+ * a panel that offered a choice the save refuses would be worse than no panel.
+ *
+ * Exported for `tests/active-accounts-ui.test.tsx`, which drives it directly:
+ * the page around it needs a session, a router and four queries, and none of
+ * them is what the panel's rule is about.
  */
-function ActiveAccountChooser({
+export function ActiveAccountChooser({
   accounts,
   limit,
 }: {
@@ -402,7 +411,16 @@ function ActiveAccountChooser({
     () => new Set(live.filter((account) => !account.frozen).map((account) => account.id)),
     [live],
   );
-  const selection = chosen ?? current;
+  // A choice is held by id, and the list under it can change while the panel
+  // is open — archiving or deleting an account happens a few rows up this same
+  // page. An id that has gone takes a place in `free` and would make the save
+  // name an account the server no longer has, so the held choice is narrowed
+  // to what is still there rather than trusted.
+  const selection = useMemo(() => {
+    if (!chosen) return current;
+    const present = new Set(live.map((account) => account.id));
+    return new Set([...chosen].filter((id) => present.has(id)));
+  }, [chosen, current, live]);
   const save = useMutation({
     mutationFn: (accountIds: string[]) =>
       api<Account[]>("/api/v1/accounts/active", { ...json({ accountIds }), method: "PUT" }),
@@ -412,62 +430,95 @@ function ActiveAccountChooser({
       // Every figure on every other page is unchanged, but what those pages
       // may offer is not: a picker that was hiding an account now shows it.
       await queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      await queryClient.invalidateQueries({ queryKey: ["session"] });
     },
   });
 
-  // Driven by what is actually frozen rather than by a count of its own. The
-  // two used to be separate conditions and they could disagree — archiving an
-  // active account took the list back under the limit and took the panel away
-  // while an account was still frozen, with no way left to unfreeze it.
   const anyFrozen = live.some((account) => account.frozen);
   if (limit === null || !anyFrozen) return null;
+
+  // The same predicate the server asks, so the panel cannot offer a choice the
+  // save would refuse, or fix a row the save would let go. Before the choice
+  // any set is open; afterwards an account in use is fixed and the only move
+  // is filling a place that came free.
+  const choosing = activeChoicePending(limit, live);
+  const free = limit - selection.size;
   const over = selection.size > limit;
+  // The sets, not their sizes. Sizes are the same shape as a swap, and during
+  // the one-time choice the default already holds exactly `limit` accounts —
+  // so comparing sizes disabled every full first choice and told the person
+  // there was nothing to save, which is the one thing this panel is for.
+  const unchanged =
+    selection.size === current.size && [...selection].every((id) => current.has(id));
+
   return (
     <section className="panel panel-stack">
       <header className="section-title">
         <div>
-          <h2>Which accounts stay usable</h2>
+          <h2>{choosing ? "Choose which accounts stay usable" : "Accounts you are using"}</h2>
           <p>
-            {`Your plan keeps ${limit} accounts usable at a time. The rest stay here in full — every ` +
-              "balance, every entry, every report — and refuse changes until you pick them instead. " +
-              "Nothing is deleted, and nothing is hidden."}
+            {choosing
+              ? `Your plan keeps ${limit} accounts usable at a time, and this is the one time you ` +
+                "pick them. The rest stay here in full — every balance, every entry, every " +
+                "report — and refuse changes until a place comes free. Nothing is deleted, and " +
+                "nothing is hidden."
+              : `Your plan keeps ${limit} accounts usable at a time. These are fixed: an account ` +
+                "you are using stays that way until you archive or delete it. When that frees a " +
+                "place you can bring a frozen one back here."}
           </p>
         </div>
       </header>
       <ul className="active-account-choices">
-        {live.map((account) => (
-          <li key={account.id}>
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={selection.has(account.id)}
-                onChange={(event) => {
-                  const next = new Set(selection);
-                  if (event.target.checked) next.add(account.id);
-                  else next.delete(account.id);
-                  setChosen(next);
-                }}
-              />
-              {account.name}
-              {account.frozen ? <Badge tone="amber">Frozen</Badge> : null}
-            </label>
-          </li>
-        ))}
+        {live.map((account) => {
+          // An account already in use cannot be given up to make room for
+          // another — that is the swap the rule exists to stop — so its box is
+          // fixed rather than merely unchecked.
+          const fixed = !choosing && !account.frozen;
+          const noRoom = !choosing && account.frozen && free <= 0 && !selection.has(account.id);
+          return (
+            <li key={account.id}>
+              <label className="check-label">
+                <input
+                  type="checkbox"
+                  checked={selection.has(account.id)}
+                  disabled={fixed || noRoom}
+                  onChange={(event) => {
+                    const next = new Set(selection);
+                    if (event.target.checked) next.add(account.id);
+                    else next.delete(account.id);
+                    setChosen(next);
+                  }}
+                />
+                {account.name}
+                {account.frozen ? <Badge tone="amber">Frozen</Badge> : null}
+                {fixed ? <span className="subtle">In use</span> : null}
+              </label>
+            </li>
+          );
+        })}
       </ul>
+      {!choosing && free <= 0 ? (
+        <Note>
+          {`All ${limit} places are in use. Archiving or deleting an account you are using frees ` +
+            "one, and then a frozen account can take it."}
+        </Note>
+      ) : null}
       {save.error ? <Alert>{save.error.message}</Alert> : null}
       <div className="form-actions">
-        <span className="subtle">{`${selection.size} of ${limit} chosen`}</span>
+        <span className="subtle">{`${selection.size} of ${limit} in use`}</span>
         <Button
           onClick={() => save.mutate([...selection])}
           loading={save.isPending}
-          disabled={over}
+          disabled={over || unchanged}
           disabledReason={
             over
               ? `Your plan keeps ${limit} accounts usable. Clear one to pick another.`
-              : undefined
+              : unchanged
+                ? "Nothing to save yet."
+                : undefined
           }
         >
-          Save which accounts are usable
+          {choosing ? "Save which accounts are usable" : "Bring these back"}
         </Button>
       </div>
     </section>
