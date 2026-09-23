@@ -18,9 +18,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * because the Vite dev server it runs against sends no policy at all.
  */
 const stripeScripts = () =>
-  [...document.querySelectorAll("script")].filter((script) =>
-    (script.getAttribute("src") ?? "").includes("js.stripe.com"),
-  );
+  [...document.querySelectorAll("script")].filter((script) => {
+    // By host rather than by substring, which would also count a script whose
+    // address merely mentions js.stripe.com somewhere in its path or query.
+    const src = script.getAttribute("src");
+    return src !== null && URL.parse(src, document.baseURI)?.hostname === "js.stripe.com";
+  });
 
 /** Long enough for the default entry's `Promise.resolve().then(…)` to have run. */
 const settle = async () => {
