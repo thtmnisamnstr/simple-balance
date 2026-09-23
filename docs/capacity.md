@@ -115,7 +115,7 @@ somebody reading their register at the same moment.
 | 5% | `PATCH /api/v1/transactions/:id` | A rename, which posts nothing |
 | 5% | `GET /api/v1/budget-report` | Budgets |
 
-Weighted towards reading because that is what people do with a ledger, and
+Weighted toward reading because that is what people do with a ledger, and
 deliberately not all reading: a proof with no write path measures the half of
 the system that never takes a lock.
 
@@ -139,7 +139,7 @@ and the tail the proof exists to find never appears.
 ## The machine
 
 The `single` profile at `small`: 2 vCPU and 4 GiB, which
-`docs/deployment-sizing.md` prices and `scripts/capacity/compose.limits.yml`
+`docs/deployment-sizing.md` describes and `scripts/capacity/compose.limits.yml`
 enforces.
 
 **With the database on the same machine**, which that profile does not do — it
@@ -148,9 +148,10 @@ points at one somebody else keeps. The harness supplies its own
 the harder case for the application, since the two then compete for one pair of
 cores, and the easier one to reproduce, since it needs nothing but this
 repository. A deployment whose database is elsewhere has strictly more of the
-machine for the application than these numbers assume. The two processes share it — PostgreSQL gets 1.5 cores and 3 GiB, the
-application 0.5 and 1 GiB — and the remainder is the page cache
-`effective_cache_size` tells the planner to expect.
+machine for the application than these numbers assume. In the harness the two
+processes share it — PostgreSQL gets 1.5 cores and 3 GiB, the application 0.5
+and 1 GiB — and the remainder is the page cache `effective_cache_size` tells the
+planner to expect.
 
 Seeding runs unconstrained, and that is not a thumb on the scale: building the
 dataset is setup, and in a real deployment it arrives as a restored backup
@@ -240,12 +241,15 @@ Those are counts, and they are exact.
 ### Two things the run measured that the thresholds do not
 
 **The disk is the binding constraint, not the CPU.** This population is 35 GB,
-and `docs/deployment-sizing.md` sizes `small`'s data disk at 20 GiB. So the
-machine that served this comfortably could not have stored it: ten thousand
-users needs `medium`'s disk at minimum, and only with dumps kept off the box —
-fourteen daily dumps of a 37 GB ledger is another 79 GB, which is past `large`.
-The CPU and memory of `small` are ample for ten thousand users; the disk is not,
-and it is the disk that should be sized from the table.
+and `docs/deployment-sizing.md` sizes `small`'s disk at 20 GiB. So the machine
+that served this comfortably could not have stored it: ten thousand users needs
+`medium`'s disk at minimum, and only with dumps kept off the box — fourteen
+daily dumps of a 37 GB ledger is another 79 GB, which on one disk beside the
+ledger is past `large`. The `single` profile splits the two, which moves the
+problem rather than removing it: the database server wants `medium`'s disk, and
+the application machine's data disk, where the dumps land, wants `large`'s. The
+CPU and memory of `small` are ample for ten thousand users; the disks are not,
+and they are what should be sized from the table.
 
 **Signing 500 sessions in at once loses some of them.** 29 of 500 failed, for
 the same reason the imports did: verifying a password is deliberately expensive,

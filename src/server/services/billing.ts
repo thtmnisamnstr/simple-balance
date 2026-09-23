@@ -7,10 +7,13 @@ import {
   frozenAccountIds,
   intervalOfPrice,
   liveSubscriptionStatuses,
+  owesPaymentStatuses,
   paymentSetupConfirmSchema,
+  type Plan,
   paymentSetupCreateSchema,
   resolveEntitlement,
   subscriptionAction,
+  type SubscriptionAction,
   subscriptionPutSchema,
 } from "../../shared/domain.js";
 import { billingEnabled, getConfig } from "../config.js";
@@ -27,7 +30,11 @@ import { log } from "../log.js";
 import {
   createStripeCustomer,
   createStripeSetupIntent,
+  currentStripeDefaultPaymentMethod,
   fetchStripeSetupIntent,
+  isMissingStripeResource,
+  lastPriceCheck,
+  stripeCustomerStanding,
   openStripeInvoiceFor,
   payStripeInvoice,
   setStripeDefaultPaymentMethod,
@@ -140,7 +147,10 @@ export async function getPlanSummary(
  * `syncedAt` is when the snapshot was *read from Stripe*, not when the
  * subscription changed. It is the ordering this product trusts, because Stripe
  * publishes none: a Subscription carries no revision number, and its `created`
- * is the subscription's birthday rather than the revision's.
+ * is the subscription's birthday rather than the revision's. The sweep also
+ * stamps it when it asks about a row and Stripe cannot answer, which moves that
+ * row to the back of its line without touching what the row says — see
+ * `runBillingReconciliation`.
  */
 export type SubscriptionSnapshot = {
   readonly stripeSubscriptionId: string;
@@ -258,6 +268,11 @@ export async function reconcileSubscription(
  * unclaimed and does the work. Committing the claim separately would be the
  * shape that loses a delivery permanently: the row would say "handled" for work
  * that never happened, and the retry would be swallowed by this very check.
+ *
+ * Where the work is a call to Stripe rather than a write here, it cannot share
+ * a transaction with anything, and the claim is made *after* it instead —
+ * `applySetupIntentSucceeded` is that case. What must never happen is the
+ * claim committing first.
  *
  * The Stripe fetch happens *before* the transaction opens, so no database lock
  * is ever held across a network call.
@@ -556,17 +571,124 @@ function priceIdFor(interval: BillingInterval): string {
 }
 
 /**
- * Refuses a sale on a deployment that has stopped selling.
+ * Why nothing can be sold on this deployment right now, or null when something
+ * can.
  *
- * Canceling is deliberately *not* guarded by this. Turning `SB_BILLING_ENABLED`
- * off is how an operator stops taking new money without abandoning the people
- * already paying, and a switch that also took away their way out would turn a
- * pause into a trap.
+ * Two reasons. The deployment has stopped selling, which is how an operator
+ * stops taking new money without abandoning the people already paying. Or a
+ * configured price does not fit the plan it is sold as, asked before anything
+ * reaches Stripe so the refusal is a sentence rather than a charge: swapped ids
+ * bill the annual price every month, and a one-time or other-mode price is a
+ * 500 at the first payment with the reason only in the log. `planPriceProblems`
+ * in `stripe.ts` is that rule and says which case it is.
+ *
+ * Only a definite answer about the prices refuses. Where Stripe could not be
+ * reached to check, the sale goes ahead and meets Stripe on its own terms — the
+ * same Stripe that could not answer about a price will answer about the
+ * subscription, one way or the other — because refusing every sale for an hour
+ * of network trouble is an outage bought for a check.
+ *
+ * Returned rather than thrown, because not every change of plan sells
+ * something — `sellsSomething` says which do — and paying a bill somebody
+ * already owes is not a sale either reason should stop.
  */
-function assertSelling() {
+async function saleRefusal() {
   if (!billingEnabled()) {
-    throw conflict("This deployment is not selling subscriptions", { selling: false });
+    return conflict("This deployment is not selling subscriptions", { selling: false });
   }
+  try {
+    await fetchPlanPrices();
+  } catch (error) {
+    log.warn("billing.prices.unchecked", { error: String(error) });
+  }
+  if (pricesUnsellable()) {
+    return conflict(
+      "Subscriptions cannot be started on this deployment until its prices are fixed. Nothing was charged.",
+      { prices: "misconfigured" },
+    );
+  }
+  return null;
+}
+
+/** Whether the last price check found anything that stops a sale. */
+function pricesUnsellable(): boolean {
+  return (lastPriceCheck()?.problems.length ?? 0) > 0;
+}
+
+/**
+ * Whether carrying out a change of plan sells something, and so needs a
+ * deployment that is selling at prices that fit.
+ *
+ * `resume` on a renewal Stripe is still retrying (`past_due`) or has given up
+ * on (`unpaid`) sells nothing: it hands back an invoice that already exists,
+ * for a plan the person has been on all along, and depends on neither
+ * configured price. Refusing it on a deployment that has stopped selling would
+ * leave somebody unable to pay what they owe, which is the trap
+ * `createPaymentSetup` and canceling are kept out of for the same reason. A
+ * first payment left unfinished (`incomplete`) is the other kind: finishing it
+ * starts a subscription, which is a sale. `none` sends nothing, and `release`
+ * lets go of a pending change and keeps what is already paid for.
+ */
+function sellsSomething(action: SubscriptionAction, status: string | null): boolean {
+  if (action.kind === "resume") return status === "incomplete";
+  return action.kind !== "none" && action.kind !== "release";
+}
+
+/**
+ * What a request for `requested` means against one stored subscription.
+ *
+ * The whole branch decision, in the shared pure function the browser previews
+ * with. Seven outcomes, each tested against every Stripe status in
+ * `tests/subscription-action.test.ts`.
+ */
+function actionFor(row: SubscriptionRow, requested: BillingInterval): SubscriptionAction {
+  const billing = requireBilling();
+  return subscriptionAction({
+    current: {
+      status: row.status,
+      interval: intervalOfPrice(row.priceId, billing),
+      scheduled: intervalOfPrice(row.scheduledPriceId, billing),
+    },
+    requested,
+  });
+}
+
+/**
+ * Whether a "no such customer" or "no such subscription" from this key can be
+ * believed.
+ *
+ * Asked before this deployment forgets anything Stripe says it does not have,
+ * because three different keys give that answer and only one of them means it.
+ *
+ *  - A key for the wrong account says it about every object. It is told apart
+ *    by not finding the two configured prices, which belong to the account
+ *    the rest of these rows came from.
+ *  - A test key of the right account, on a deployment that has gone live, says
+ *    it about every live customer and subscription — Stripe answers "a similar
+ *    object exists in live mode" — and it *does* find the prices, because an
+ *    operator rehearsing in test mode points all five settings at test values.
+ *    Believing it would cancel every paying subscriber's plan, fifty a sweep,
+ *    and replace the customer of anybody who pressed a button on the plan tab,
+ *    leaving the live subscription charging a card that no delivery and no
+ *    account deletion could reach anymore.
+ *  - A live key of the right account can be missing only a test-mode leftover
+ *    — an operator who tried the plan tab in test mode and then switched to
+ *    live keys, which is the case this exists for — or an object purged at
+ *    Stripe. Both are gone as far as anything this deployment can do with them.
+ *
+ * So only a live key that found both prices in live mode is believed. The cost
+ * is on a test deployment whose test data was purged at Stripe all at once,
+ * which leaves every object missing rather than deleted: its mappings are kept
+ * and the rows fail, and clearing the billing tables by hand is the way out
+ * that `docs/billing-operations.md` describes for going live.
+ */
+async function missingMeansGone(): Promise<boolean> {
+  try {
+    await fetchPlanPrices();
+  } catch (error) {
+    log.warn("billing.prices.unchecked", { error: String(error) });
+  }
+  return lastPriceCheck()?.confirmedMode === "live";
 }
 
 /**
@@ -627,12 +749,23 @@ async function currentSubscription(
  * implementation detail: `invoice.paid` can arrive before the call that created
  * the subscription has returned, and a webhook that cannot map the customer to
  * a person acknowledges the delivery and does nothing. Writing the mapping
- * afterwards would lose the activation that paid for it.
+ * afterward would lose the activation that paid for it.
  *
  * The race between two first-time requests is settled by the insert rather than
  * by a lock, so no lock is held across the network call. The loser has made a
  * Stripe customer that owns nothing and will never be found again, so it is
  * deleted rather than left as litter in somebody's dashboard.
+ *
+ * A stored customer is asked about before it is handed back, which costs one
+ * read per subscribe and is the only way the next case gets noticed at all. An
+ * operator who tried the plan tab in test mode and then switched to live keys
+ * is mapped to a customer the live key cannot see, and every attempt to
+ * subscribe failed against it with a 500 and no way forward short of a
+ * database edit. Where Stripe says the customer was deleted, or a live key that
+ * reaches the account owning the prices cannot see it, the mapping is dropped
+ * along with the subscriptions it owned and a new customer made. Any other key
+ * keeps the mapping — `missingMeansGone` says why each of them is wrong about
+ * a missing customer.
  */
 async function ensureBillingCustomer(actor: Actor, stripeKey: string): Promise<string> {
   const existing = await getDb()
@@ -641,7 +774,16 @@ async function ensureBillingCustomer(actor: Actor, stripeKey: string): Promise<s
     .where(eq(billingCustomers.userId, actor.userId))
     .limit(1);
   const found = existing[0]?.stripeCustomerId;
-  if (found) return found;
+  if (found) {
+    const standing = await stripeCustomerStanding(found);
+    if (standing === "present") return found;
+    if (standing === "missing" && !(await missingMeansGone())) {
+      log.warn("billing.customer.unconfirmed", { stripeCustomerId: found });
+      return found;
+    }
+    await withTransaction(undefined, (tx) => closeStripeCustomer(found, tx));
+    log.warn("billing.customer.replaced", { stripeCustomerId: found, standing });
+  }
 
   const [person] = await getDb()
     .select({ email: authUsers.email, name: authUsers.name })
@@ -652,7 +794,10 @@ async function ensureBillingCustomer(actor: Actor, stripeKey: string): Promise<s
 
   const created = await createStripeCustomer(
     { email: person.email, name: person.name, userId: actor.userId },
-    `${stripeKey}:customer`,
+    // Distinct from the key a first customer is made with. Where this key made
+    // the customer being replaced, Stripe would answer it with the stored
+    // response — that deleted customer — for up to a day.
+    found ? `${stripeKey}:customer:replacing:${found}` : `${stripeKey}:customer`,
   );
   const [won] = await getDb()
     .insert(billingCustomers)
@@ -678,13 +823,24 @@ async function ensureBillingCustomer(actor: Actor, stripeKey: string): Promise<s
   return winner.stripeCustomerId;
 }
 
+/**
+ * One price as the plan tab shows it. `interval` is Stripe's, not the setting's,
+ * so the words beside the amount say how often it is really billed.
+ */
+type PlanPrice = {
+  readonly id: string;
+  readonly unitAmount: number | null;
+  readonly currency: string;
+  readonly interval: "month" | "year" | null;
+};
+
 /** What the plan tab reads. Entirely from this deployment's own tables, bar the two prices. */
 export type BillingStatus = {
   readonly selling: boolean;
   readonly publishableKey: string;
   readonly prices: {
-    readonly monthly: { id: string; unitAmount: number | null; currency: string } | null;
-    readonly yearly: { id: string; unitAmount: number | null; currency: string } | null;
+    readonly monthly: PlanPrice | null;
+    readonly yearly: PlanPrice | null;
   };
   readonly entitlement: Entitlement;
   readonly accountsUsed: number | null;
@@ -696,8 +852,14 @@ export type BillingStatus = {
     readonly pastDueSince: string | null;
     readonly scheduledInterval: BillingInterval | null;
     readonly scheduledAt: string | null;
+    /**
+     * Money is owed on this subscription and asking to pay it would be
+     * accepted now. Worked out here, from the rule `setSubscription` refuses
+     * by, so the tab never offers a payment the server turns down.
+     */
+    readonly payable: boolean;
   } | null;
-  readonly override: { readonly plan: string; readonly expiresAt: string | null } | null;
+  readonly override: { readonly plan: Plan; readonly expiresAt: string | null } | null;
 };
 
 /**
@@ -745,36 +907,50 @@ export async function getBillingStatus(actor: Actor): Promise<BillingStatus> {
     }),
   ]);
 
+  const shown = (price: typeof prices.monthly): PlanPrice | null =>
+    price
+      ? {
+          id: price.id,
+          unitAmount: price.unitAmount,
+          currency: price.currency,
+          interval: price.interval,
+        }
+      : null;
+
+  // Not selling where the prices are known not to fit, for the same reason
+  // `setSubscription` refuses then: a button offering "Annual — $3.00 a year"
+  // off a monthly price is the charge the check exists to prevent, and the
+  // server would refuse the press anyway. What the tab can still do — pay a
+  // renewal that is owed, replace a card, cancel — depends on neither price
+  // and sells nothing, so it is not refused; see `sellsSomething`.
+  const selling = billingEnabled() && !pricesUnsellable();
+  // The request the pay button sends is the interval the subscription is on,
+  // so this asks what that request would mean and whether it would be refused.
+  // A price this deployment no longer sells has no interval to ask for, and
+  // there is nothing to press: replacing the card is the way to pay it.
+  const interval = row ? intervalOfPrice(row.priceId, billing) : null;
+  const owedAction = row && interval ? actionFor(row, interval) : null;
+  const payable =
+    row !== null &&
+    owedAction?.kind === "resume" &&
+    (selling || !sellsSomething(owedAction, row.status));
+
   return {
-    selling: billingEnabled(),
+    selling,
     publishableKey: billing.publishableKey,
-    prices: {
-      monthly: prices.monthly
-        ? {
-            id: prices.monthly.id,
-            unitAmount: prices.monthly.unitAmount,
-            currency: prices.monthly.currency,
-          }
-        : null,
-      yearly: prices.yearly
-        ? {
-            id: prices.yearly.id,
-            unitAmount: prices.yearly.unitAmount,
-            currency: prices.yearly.currency,
-          }
-        : null,
-    },
+    prices: { monthly: shown(prices.monthly), yearly: shown(prices.yearly) },
     entitlement: summary.entitlement,
     accountsUsed: summary.accountsUsed,
     subscription: row
       ? {
           status: row.status,
-          interval: intervalOfPrice(row.priceId, billing),
+          interval,
           currentPeriodEnd: row.currentPeriodEnd?.toISOString() ?? null,
           cancelAtPeriodEnd: row.cancelAtPeriodEnd,
           pastDueSince: row.pastDueSince?.toISOString() ?? null,
           scheduledInterval: intervalOfPrice(row.scheduledPriceId, billing),
           scheduledAt: row.scheduledAt?.toISOString() ?? null,
+          payable,
         }
       : null,
     override: override[0]
@@ -853,10 +1029,18 @@ async function resyncStatus(userId: string, stripeSubscriptionId: string): Promi
  * pending interval change has to be let go before anything else can be asked
  * for. That is the right precedence anyway: somebody who cancels, or who
  * upgrades, has just said something more recent about the same subscription.
+ *
+ * Keyed on the schedule it releases rather than once per request. A retry of a
+ * request that released one schedule and then failed finds a different one
+ * attached — the schedule its own first attempt made — and releasing that under
+ * the same key is a different endpoint, which Stripe refuses outright.
+ *
+ * Returns the schedule it let go, or null when there was none.
  */
 async function releaseAnySchedule(subscriptionId: string, stripeKey: string) {
   const scheduleId = await stripeScheduleFor(subscriptionId);
-  if (scheduleId) await releaseStripeSchedule(scheduleId, `${stripeKey}:release`);
+  if (scheduleId) await releaseStripeSchedule(scheduleId, `${stripeKey}:release:${scheduleId}`);
+  return scheduleId;
 }
 
 /**
@@ -873,6 +1057,11 @@ type StripeChange = {
   readonly clientSecret: string | null;
   readonly resync: boolean;
   readonly abandoned?: string;
+  /**
+   * The change charged something now, so it may have left an invoice the
+   * browser has to confirm. See the upgrade branch.
+   */
+  readonly charged?: boolean;
 };
 
 export type SubscriptionResult = {
@@ -911,10 +1100,18 @@ export type SubscriptionResult = {
  * only the calls that change something at Stripe are inside.
  */
 export async function setSubscription(actor: Actor, input: unknown): Promise<SubscriptionResult> {
-  assertSelling();
   const parsed = subscriptionPutSchema.parse(input);
-  const billing = requireBilling();
   const targetPriceId = priceIdFor(parsed.interval);
+
+  // Asked before anything reaches Stripe, and held until the action is known,
+  // because paying what somebody already owes is not a sale. The early read is
+  // only so a request that will be refused makes no Stripe customer on the way;
+  // the locked read below is the one that decides.
+  const refusal = await saleRefusal();
+  if (refusal) {
+    const row = await currentSubscription(actor);
+    if (!row || sellsSomething(actionFor(row, parsed.interval), row.status)) throw refusal;
+  }
 
   return underIdempotency(
     actor,
@@ -928,7 +1125,8 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
       const customerId = await ensureBillingCustomer(actor, stripeKey);
 
       // Everything from here to `commit` holds one connection. `changed` is what
-      // the lock protects; storing what Stripe then says is done afterwards,
+      // the lock protects. A subscription created here is stored before the
+      // lock is let go; re-reading what Stripe then says is done afterward,
       // without one, because `reconcileSubscription` takes the same lock itself
       // and drops a snapshot older than the stored one.
       const changed = await getDb().transaction(async (tx): Promise<StripeChange> => {
@@ -936,10 +1134,20 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
         const row = await currentSubscription(actor, tx);
 
         if (!row) {
+          if (refusal) throw refusal;
           const created = await createStripeSubscription(
             { customerId, priceId: targetPriceId },
             stripeKey,
           );
+          // Stored before the lock is let go, not after. A second press made
+          // while this one waited on Stripe — a reload, a second tab — is
+          // waiting on this lock, and the moment it is released that request
+          // reads the books. Stored afterward, as the resync below does, it
+          // found none, made a second subscription, and the person could pay
+          // both. Stored here, it finds this one and resumes it. The lock is
+          // re-entrant within one transaction, so storing through
+          // reconcileSubscription cannot wait on itself.
+          await reconcileSubscription(actor.userId, created.snapshot, tx);
           return {
             subscriptionId: created.subscriptionId,
             clientSecret: created.clientSecret,
@@ -947,15 +1155,8 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
           };
         }
 
-        const current = intervalOfPrice(row.priceId, billing);
-        const scheduled = intervalOfPrice(row.scheduledPriceId, billing);
-        // The whole branch decision, in one shared pure function the browser
-        // previews with. Seven outcomes, each tested against every Stripe status
-        // in `tests/subscription-action.test.ts`.
-        const action = subscriptionAction({
-          current: { status: row.status, interval: current, scheduled },
-          requested: parsed.interval,
-        });
+        const action = actionFor(row, parsed.interval);
+        if (refusal && sellsSomething(action, row.status)) throw refusal;
 
         if (action.kind === "resume") {
           return {
@@ -980,6 +1181,8 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
             { customerId, priceId: targetPriceId },
             `${stripeKey}:replace`,
           );
+          // Stored under the lock for the same reason as a first subscription.
+          await reconcileSubscription(actor.userId, created.snapshot, tx);
           return {
             subscriptionId: created.subscriptionId,
             clientSecret: created.clientSecret,
@@ -1012,12 +1215,37 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
             },
             stripeKey,
           );
+          return {
+            subscriptionId: row.stripeSubscriptionId,
+            clientSecret: null,
+            resync: true,
+            charged: true,
+          };
         } else {
           // Everything else waits for the renewal: annual to monthly, because
           // doing it now would shorten a year somebody has already paid for and
           // refunding the difference is not what they asked for either, and a
           // move off a retired price, because charging now for a plan we cannot
           // price is worse than waiting.
+          //
+          // Whatever was pending is let go first, as the two branches above do.
+          // Stripe gives a subscription exactly one schedule and refuses a
+          // second `from_subscription`, and `none` above only catches a repeat
+          // of a change it can name: a pending switch onto a retired price, one
+          // an operator arranged in the dashboard, and the monthly phase of a
+          // downgrade that has already begun all read as nothing pending and
+          // reached here — a 500 on every press until the schedule ran out. The
+          // newer request replaces the older one, which is the precedence
+          // `releaseAnySchedule` already states.
+          //
+          // The creation is keyed on the schedule that was just let go, and a
+          // retry is why. A first attempt that made its schedule and then failed
+          // to set the phases leaves that schedule attached, so the retry
+          // releases it — and a creation under the first attempt's key would be
+          // answered with Stripe's stored reply, that same schedule, now
+          // released and refusing any change. Under the released schedule's name
+          // the retry makes a new one and carries on.
+          const released = await releaseAnySchedule(row.stripeSubscriptionId, stripeKey);
           await scheduleStripeSubscriptionPrice(
             {
               subscriptionId: row.stripeSubscriptionId,
@@ -1027,7 +1255,7 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
               // target on a one-month phase.
               interval: parsed.interval === "yearly" ? "year" : "month",
             },
-            stripeKey,
+            `${stripeKey}:schedule:${released ?? "none"}`,
           );
         }
 
@@ -1040,9 +1268,24 @@ export async function setSubscription(actor: Actor, input: unknown): Promise<Sub
       const status = changed.resync
         ? await resyncStatus(actor.userId, changed.subscriptionId)
         : ((await currentSubscription(actor))?.status ?? "incomplete");
+      // An upgrade that could not be collected on the spot. `allow_incomplete`
+      // leaves the subscription `past_due` with an open invoice rather than
+      // refusing, which is right when the card simply needs 3-D Secure — and
+      // only useful if the person is handed that invoice now, while they are
+      // looking at the page. Answering with no secret mounted no form, and the
+      // annual button they had just pressed was then disabled as "the plan you
+      // are on", so the authentication their bank asked for had nowhere to
+      // happen. Only when the status says something is owed: a paid invoice
+      // still carries a secret, and confirming it again is an error.
+      const owed = (owesPaymentStatuses as readonly string[]).includes(status);
+      const clientSecret =
+        changed.clientSecret ??
+        (changed.charged && owed
+          ? await fetchSubscriptionClientSecret(changed.subscriptionId)
+          : null);
       return {
         subscriptionId: changed.subscriptionId,
-        clientSecret: changed.clientSecret,
+        clientSecret,
         status,
       };
     },
@@ -1093,9 +1336,9 @@ export async function setSubscriptionCancellation(
 /**
  * A secret the browser uses to attach a card, without one ever reaching here.
  *
- * Not guarded by `assertSelling`: somebody whose card expired has to be able to
- * replace it on a deployment that has stopped taking new subscribers, or the
- * pause becomes a way of canceling people by attrition.
+ * Not refused where nothing is for sale: somebody whose card expired has to be
+ * able to replace it on a deployment that has stopped taking new subscribers,
+ * or the pause becomes a way of canceling people by attrition.
  */
 export async function createPaymentSetup(
   actor: Actor,
@@ -1124,9 +1367,9 @@ export async function createPaymentSetup(
  * otherwise an unowned string and pinning somebody else's card to their
  * subscription would be a stranger paying, or not paying, their bill.
  *
- * Not guarded by `assertSelling`, for the same reason `createPaymentSetup` is
- * not: this is how somebody whose card expired stays a customer on a deployment
- * that has stopped taking new ones.
+ * Not refused where nothing is for sale, for the same reason `createPaymentSetup`
+ * is not: this is how somebody whose card expired stays a customer on a
+ * deployment that has stopped taking new ones.
  */
 export async function confirmPaymentSetup(
   actor: Actor,
@@ -1171,7 +1414,7 @@ export async function confirmPaymentSetup(
 
       // And pay what is outstanding, so replacing a card fixes a failed renewal
       // now rather than at Stripe's next retry — which may be days away and may
-      // be after the seven-day grace has run out. Best effort: the card is
+      // be after the fifteen-day grace has run out. Best effort: the card is
       // attached and pinned either way, and Stripe retries on its own schedule,
       // so a failure here costs the person nothing they had.
       let paidInvoice = false;
@@ -1222,8 +1465,28 @@ export async function closeBillingForDeletion(actor: Actor): Promise<void> {
     await deleteStripeCustomer(row.stripeCustomerId);
   } catch (error) {
     // A customer already deleted at Stripe is the outcome this was asking for,
-    // so it is not a reason to keep somebody's account alive. Anything else is.
-    if (!isMissingStripeResource(error)) {
+    // so it is not a reason to keep somebody's account alive. Anything else is,
+    // and that includes a `resource_missing` nobody can vouch for: see
+    // `customerIsGone`.
+    const verdict = isMissingStripeResource(error)
+      ? await customerIsGone(row.stripeCustomerId)
+      : "unreadable";
+    if (verdict !== "gone") {
+      // Two causes, and only one of them passes by waiting. Stripe not
+      // answering, or not answering the read back, does; a "no such customer"
+      // this key cannot vouch for does not, because it will say the same thing
+      // until the keys change, and a message promising a short retry would send
+      // somebody round the same refusal until they gave up.
+      if (verdict === "unconfirmed") {
+        log.warn("billing.deletion.unconfirmed", {
+          confirmedMode: lastPriceCheck()?.confirmedMode ?? null,
+        });
+        throw conflict(
+          "Your subscription could not be confirmed as canceled, so the account was not deleted. Nothing was changed. Contact whoever runs this server.",
+          { stage: "billing" },
+          "Stripe says it has no such customer, but the configured key cannot vouch for that answer — it is a test key, or a key for another account — so the subscription may still be charging. Nothing was deleted. Put the live keys back, then retry.",
+        );
+      }
       log.warn("billing.deletion.blocked", { error: String(error) });
       throw conflict(
         "Your subscription could not be canceled, so the account was not deleted. Try again in a few minutes.",
@@ -1237,11 +1500,34 @@ export async function closeBillingForDeletion(actor: Actor): Promise<void> {
   await getDb().delete(billingCustomers).where(eq(billingCustomers.userId, actor.userId));
 }
 
-/** Whether Stripe's answer was "there is no such thing", which here is success. */
-function isMissingStripeResource(error: unknown): boolean {
-  const code = (error as { code?: unknown; statusCode?: unknown } | null)?.code;
-  const status = (error as { statusCode?: unknown } | null)?.statusCode;
-  return code === "resource_missing" || status === 404;
+/**
+ * Whether a customer Stripe would not delete, because it has no such customer,
+ * really is gone.
+ *
+ * Asked because the refusal is the same answer from keys that mean different
+ * things by it. To a test key on a deployment that has gone live, and to a key
+ * for the wrong account, a live customer is missing too — and believing either
+ * would let the account go with its subscription still charging, the one case
+ * `closeBillingForDeletion` exists to refuse, since the mapping this would drop
+ * is the only thing left that could ever reach that subscription. So the
+ * customer is read back. One that reads as deleted was deleted in this key's
+ * own mode, because only its own mode can say so. One that reads as missing is
+ * believed where `missingMeansGone` believes it and nowhere else.
+ *
+ * "unreadable" rather than thrown on a failed read, because a read that says
+ * nothing about the customer leaves the deletion exactly as unconfirmed as
+ * before — but it is the one refusal that waiting can clear, so the caller
+ * tells the person to try again only for that one.
+ */
+async function customerIsGone(customerId: string): Promise<"gone" | "unconfirmed" | "unreadable"> {
+  try {
+    const standing = await stripeCustomerStanding(customerId);
+    if (standing === "deleted") return "gone";
+    return standing === "missing" && (await missingMeansGone()) ? "gone" : "unconfirmed";
+  } catch (error) {
+    log.warn("billing.deletion.unchecked", { error: String(error) });
+    return "unreadable";
+  }
 }
 
 /**
@@ -1290,6 +1576,20 @@ export type BillingSweepSummary = {
  * the default: the cost of this feature to a deployment that never enabled it
  * is one function call per tick, the same bargain `runDueNotifications` strikes
  * with mail.
+ *
+ * Two answers other than a snapshot, and each used to hold the head of the
+ * queue for good. A subscription Stripe says does not exist is gone, and is
+ * stored as canceled — but only under a live key that found both prices in
+ * live mode, because a key for the wrong account says that about every
+ * subscription, and so does a test key on a deployment that has gone live, and
+ * believing either would end every paying subscriber's plan. `missingMeansGone`
+ * has the three cases. The one it exists for is a deployment tried out in test
+ * mode and then switched to live keys, whose test rows no live key can read.
+ * Under any other key the row is one more failure, below. And every failure
+ * moves the row to the back of the line by stamping it as read when the attempt
+ * began, so it is tried again after the same staleness window as everything
+ * else. Left as it was, a row that fails every time kept the oldest `synced_at`
+ * in the table, and fifty of them were every row this sweep would ever read.
  */
 export async function runBillingReconciliation(
   stopped: () => boolean = () => false,
@@ -1299,6 +1599,10 @@ export async function runBillingReconciliation(
   }
 
   const staleBefore = new Date(Date.now() - BILLING_SYNC_STALE_HOURS * 60 * 60 * 1000);
+  // Asked once per sweep rather than per row, and it is also where a process
+  // running only the scheduler checks the two prices at all. Cached, so on most
+  // ticks this is no network call.
+  const believeMissing = await missingMeansGone();
   const rows = await getDb()
     .select({
       userId: billingSubscriptions.userId,
@@ -1322,6 +1626,7 @@ export async function runBillingReconciliation(
   for (const row of rows) {
     if (stopped()) break;
     examined += 1;
+    const attemptedAt = new Date();
     try {
       // One at a time rather than in parallel. These are network calls to one
       // vendor, and fanning fifty of them out at once is how a sweep turns a
@@ -1330,15 +1635,152 @@ export async function runBillingReconciliation(
       const snapshot = await fetchSubscriptionSnapshot(row.stripeSubscriptionId);
       if ((await reconcileSubscription(row.userId, snapshot)) === "written") written += 1;
     } catch (error) {
+      if (isMissingStripeResource(error) && believeMissing) {
+        // Guarded like the deferral below, and for the same reason: a write
+        // that throws here would end the sweep, and the rows behind this one
+        // would wait for the next tick behind the same row.
+        try {
+          if (await storeSubscriptionGone(row, attemptedAt)) {
+            written += 1;
+            log.info("billing.reconcile.gone", {
+              stripeSubscriptionId: row.stripeSubscriptionId,
+            });
+          }
+        } catch (storing) {
+          failed += 1;
+          log.warn("billing.reconcile.gone_failed", { error: String(storing) });
+          // The deferral takes no lock, so it can land where the locked write
+          // above timed out.
+          await deferQuietly(row, attemptedAt);
+        }
+        continue;
+      }
       // Counted and carried on. One subscription Stripe cannot answer about
-      // must not stop the forty-nine behind it, and the next sweep will find
-      // this row still stale and try again.
+      // must not stop the forty-nine behind it, so it goes to the back of the
+      // line — see the docstring — and is tried again once it is stale again.
       failed += 1;
-      log.warn("billing.reconcile.failed", { error: String(error) });
+      log.warn("billing.reconcile.failed", {
+        error: String(error),
+        ...(isMissingStripeResource(error) ? { missingBelieved: false } : {}),
+      });
+      await deferQuietly(row, attemptedAt);
     }
   }
 
   return { examined, written, failed, capped: rows.length === BILLING_SWEEP_MAX, skipped: false };
+}
+
+/**
+ * `deferSubscriptionRead`, logged rather than thrown. A deferral that fails
+ * costs one row its place in the line, and throwing it would cost the sweep
+ * every row behind this one.
+ */
+async function deferQuietly(
+  row: { readonly userId: string; readonly stripeSubscriptionId: string },
+  attemptedAt: Date,
+) {
+  try {
+    await deferSubscriptionRead(row, attemptedAt);
+  } catch (deferral) {
+    log.warn("billing.reconcile.defer_failed", { error: String(deferral) });
+  }
+}
+
+/**
+ * Stores a subscription Stripe says it has no record of as canceled.
+ *
+ * Under the same lock `reconcileSubscription` takes, and only over a row
+ * nothing has refreshed since the attempt began: a delivery that read the
+ * subscription in the meantime saw something this read did not, and wins.
+ * `synced_at` is the attempt's start, which is when this deployment last asked.
+ */
+async function storeSubscriptionGone(
+  row: { readonly userId: string; readonly stripeSubscriptionId: string },
+  attemptedAt: Date,
+): Promise<boolean> {
+  return withTransaction(undefined, async (tx) => {
+    await lockBillingState(tx, row.userId);
+    const updated = await tx
+      .update(billingSubscriptions)
+      .set({
+        status: "canceled",
+        cancelAtPeriodEnd: false,
+        scheduledPriceId: null,
+        scheduledAt: null,
+        pastDueSince: null,
+        syncedAt: attemptedAt,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(billingSubscriptions.userId, row.userId),
+          eq(billingSubscriptions.stripeSubscriptionId, row.stripeSubscriptionId),
+          lt(billingSubscriptions.syncedAt, attemptedAt),
+        ),
+      )
+      .returning({ status: billingSubscriptions.status });
+    return updated.length > 0;
+  });
+}
+
+/**
+ * Moves a row Stripe could not answer about to the back of the sweep's line.
+ *
+ * By stamping it as read at the moment the attempt began, which is when this
+ * deployment last asked — the stored snapshot itself is left exactly as it was.
+ * The attempt's start rather than its end, and only over an older stamp, so a
+ * delivery that read the subscription while this attempt was failing still
+ * lands: its snapshot is newer than the stamp. The one it can drop is a
+ * delivery read before the attempt began that commits after it failed, which is
+ * a window as wide as one delivery's database write, and the next delivery or
+ * the next sweep repairs it.
+ */
+async function deferSubscriptionRead(
+  row: { readonly userId: string; readonly stripeSubscriptionId: string },
+  attemptedAt: Date,
+) {
+  await getDb()
+    .update(billingSubscriptions)
+    .set({ syncedAt: attemptedAt })
+    .where(
+      and(
+        eq(billingSubscriptions.userId, row.userId),
+        eq(billingSubscriptions.stripeSubscriptionId, row.stripeSubscriptionId),
+        lt(billingSubscriptions.syncedAt, attemptedAt),
+      ),
+    );
+}
+
+/**
+ * Whether a delivery for a saved card arrived after a newer card was chosen.
+ *
+ * Stripe retries a delivery for up to 72 hours, so a `setup_intent.succeeded`
+ * can land days after somebody replaced that card with another. Pinning it then
+ * would put the older card back in front of dunning. Card against card: the
+ * one Stripe bills now outranks this intent's card when it is a different card
+ * saved *after* it. The same card is this intent already pinned, and an older
+ * card is the one this intent was meant to replace. `saved.created` is the
+ * card's date, not the intent's — `fetchStripeSetupIntent` says why the
+ * intent's would get a slow tab's newer card wrong.
+ *
+ * Pure, and exported for the test that pins the three cases down.
+ */
+export function isSupersededSetupIntent(
+  saved: { readonly paymentMethodId: string; readonly created: Date },
+  current: { readonly id: string; readonly created: Date } | null,
+): boolean {
+  if (!current || current.id === saved.paymentMethodId) return false;
+  return current.created.getTime() > saved.created.getTime();
+}
+
+/** Whether a delivery has been claimed already, without claiming it. */
+async function isWebhookEventClaimed(eventId: string): Promise<boolean> {
+  const [row] = await getDb()
+    .select({ eventId: billingWebhookEvents.eventId })
+    .from(billingWebhookEvents)
+    .where(eq(billingWebhookEvents.eventId, eventId))
+    .limit(1);
+  return row !== undefined;
 }
 
 /**
@@ -1351,8 +1793,22 @@ export async function runBillingReconciliation(
  * `setup_intent.succeeded` — which is dashboard configuration this repository
  * cannot see.
  *
- * Doing it twice is harmless: pinning the same card again is the same state.
- * The event is still claimed, so Stripe's retries stop after the first.
+ * The claim comes last, after the work it records, and that order is the one
+ * `claimWebhookEvent` warns about getting wrong. The work here is two Stripe
+ * calls rather than a database write, so it cannot share the claim's
+ * transaction; claiming first and committing meant one timeout between the
+ * claim and the pin left the event marked handled, and Stripe's retry was then
+ * answered "duplicate" while the subscription went on billing the dead card.
+ * Doing the work first costs nothing, because it is safe to repeat: the pin
+ * sets the same state under keys derived from the intent, so a retry after a
+ * crash between the pin and the claim pins again and changes nothing. One
+ * caveat: Stripe keeps the answer to an idempotency key for a day, including a
+ * 500 of its own, so a retry inside that day after Stripe itself failed gets
+ * the same failure back. Stripe's retries run for three days and a later one
+ * gets through; a timeout, a dropped connection or a 429 is not stored at all.
+ *
+ * A claimed event is still answered without calling Stripe — read first, and
+ * claimed only at the end — so an ordinary duplicate costs one query.
  *
  * Actor-less like the rest of the webhook path — the delivery names a customer,
  * and the person was resolved from it before this was called.
@@ -1368,19 +1824,16 @@ export async function applySetupIntentSucceeded(
   const object = event.data.object as Record<string, unknown> | null;
   const setupIntentId = object && typeof object["id"] === "string" ? object["id"] : null;
   if (!setupIntentId) return "ignored";
+  if (await isWebhookEventClaimed(event.id)) return "duplicate";
 
   // Re-read rather than trusting the payload, for the reason the subscription
   // path re-reads: a delivery says what happened at some point, and only a
   // fresh read says what is true now.
   const intent = await fetchStripeSetupIntent(setupIntentId);
-  if (intent.status !== "succeeded" || !intent.paymentMethodId || !intent.customerId) {
+  const { customerId, paymentMethodId } = intent;
+  if (intent.status !== "succeeded" || !paymentMethodId || !customerId) {
     return "ignored";
   }
-
-  const claimed = await withTransaction(undefined, async (tx) =>
-    claimWebhookEvent(event.id, event.type, tx),
-  );
-  if (!claimed) return "duplicate";
 
   const [row] = await getDb()
     .select({ stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId })
@@ -1393,16 +1846,32 @@ export async function applySetupIntentSucceeded(
     )
     .orderBy(billingSubscriptions.syncedAt)
     .limit(1);
+  const subscriptionId = row?.stripeSubscriptionId ?? null;
+
+  const current = await currentStripeDefaultPaymentMethod({ customerId, subscriptionId });
+  if (isSupersededSetupIntent({ paymentMethodId, created: intent.paymentMethodCreated }, current)) {
+    // Claimed all the same, so the answer to this delivery is settled: it is
+    // a card somebody has since replaced, and no retry will make it otherwise.
+    return (await claimWebhookEvent(event.id, event.type)) ? "ignored" : "duplicate";
+  }
 
   await setStripeDefaultPaymentMethod(
-    {
-      customerId: intent.customerId,
-      subscriptionId: row?.stripeSubscriptionId ?? null,
-      paymentMethodId: intent.paymentMethodId,
-    },
+    { customerId, subscriptionId, paymentMethodId },
     `setup:${setupIntentId}`,
   );
-  if (row) await resync(userId, row.stripeSubscriptionId);
+  if (!(await claimWebhookEvent(event.id, event.type))) return "duplicate";
+
+  // After the claim and outside it, because the card is pinned either way and
+  // a failure to re-read is not a reason to have Stripe deliver this again.
+  // The snapshot this would store is the subscription's status, which the
+  // pin does not change; the sweep re-reads it regardless.
+  if (subscriptionId) {
+    try {
+      await resync(userId, subscriptionId);
+    } catch (error) {
+      log.warn("billing.setup.resync_failed", { error: String(error) });
+    }
+  }
   return "written";
 }
 
@@ -1436,29 +1905,46 @@ export function isNoteworthyEvent(type: string): boolean {
 }
 
 /**
- * Forgets a Stripe customer that Stripe no longer has.
+ * Forgets a Stripe customer that Stripe no longer has, and closes what it owned.
  *
- * Deleting a customer in Stripe's dashboard cancels everything it owns, and
- * those cancellations arrive as their own deliveries, so the subscriptions look
- * after themselves. What is left is the mapping, which now points at nothing:
- * kept, it would make the next attempt to subscribe fail against a customer
- * Stripe has deleted, and there is no way back from that without a database
- * edit. Dropped, the next attempt makes a new customer and works.
+ * The mapping first. Kept, it would make the next attempt to subscribe fail
+ * against a customer Stripe has deleted, and there is no way back from that
+ * without a database edit. Dropped, the next attempt makes a new customer and
+ * works.
+ *
+ * And the subscriptions, in the same transaction. Deleting a customer cancels
+ * its subscriptions and Stripe sends a delivery for each — but those name the
+ * customer that has just stopped existing here, so `userForStripeCustomer`
+ * answers null and they are acknowledged without being acted on. Waiting for
+ * them would leave somebody on `active` forever, entitled to a plan nobody is
+ * paying for. A customer this key cannot see at all owned nothing this key can
+ * see either, so the same close is right for that case too.
+ *
+ * Returns whose customer it was, or null for one this deployment never mapped.
  *
  * Actor-less for the same reason the rest of the webhook path is: the delivery
  * names a customer, and this is the lookup that would have found a person.
  */
-async function forgetStripeCustomer(
+async function closeStripeCustomer(
   stripeCustomerId: string,
-  transaction?: DbTransaction,
+  tx: DbTransaction,
 ): Promise<string | null> {
-  return withTransaction(transaction, async (tx) => {
-    const removed = await tx
-      .delete(billingCustomers)
-      .where(eq(billingCustomers.stripeCustomerId, stripeCustomerId))
-      .returning({ userId: billingCustomers.userId });
-    return removed[0]?.userId ?? null;
-  });
+  const removed = await tx
+    .delete(billingCustomers)
+    .where(eq(billingCustomers.stripeCustomerId, stripeCustomerId))
+    .returning({ userId: billingCustomers.userId });
+  const userId = removed[0]?.userId ?? null;
+  if (!userId) return null;
+  await tx
+    .update(billingSubscriptions)
+    .set({ status: "canceled", cancelAtPeriodEnd: false, updatedAt: new Date() })
+    .where(
+      and(
+        eq(billingSubscriptions.userId, userId),
+        inArray(billingSubscriptions.status, [...liveStatuses]),
+      ),
+    );
+  return userId;
 }
 
 /**
@@ -1473,26 +1959,7 @@ export async function applyCustomerDeletion(
 ): Promise<"written" | "duplicate" | "unknown"> {
   return withTransaction(transaction, async (tx) => {
     if (!(await claimWebhookEvent(event.id, event.type, tx))) return "duplicate";
-    const userId = await forgetStripeCustomer(stripeCustomerId, tx);
-    if (!userId) return "unknown";
-
-    // And close what the customer owned, in the same transaction. Deleting a
-    // customer cancels its subscriptions and Stripe sends a delivery for each —
-    // but those name the customer that has just stopped existing here, so
-    // `userForStripeCustomer` answers null and they are acknowledged without
-    // being acted on. Waiting for them would leave somebody on `active`
-    // forever, entitled to a plan nobody is paying for and invisible to the
-    // sweep, which only re-reads rows it can still resolve.
-    await tx
-      .update(billingSubscriptions)
-      .set({ status: "canceled", cancelAtPeriodEnd: false, updatedAt: new Date() })
-      .where(
-        and(
-          eq(billingSubscriptions.userId, userId),
-          inArray(billingSubscriptions.status, [...liveStatuses]),
-        ),
-      );
-    return "written";
+    return (await closeStripeCustomer(stripeCustomerId, tx)) ? "written" : "unknown";
   });
 }
 
@@ -1503,7 +1970,7 @@ export async function applyCustomerDeletion(
  * design. A client-side gate has to be written the right way round — show an ad
  * where a *limited* plan is in force, never as the inverse of "is on Plus" —
  * and it has to wait for an entitlement that arrives a round trip after first
- * paint. Both are easy to get wrong, and both fail towards showing an ad to
+ * paint. Both are easy to get wrong, and both fail toward showing an ad to
  * somebody who is paying.
  *
  * Deciding on the server removes the question. A subscriber's session simply

@@ -1,10 +1,25 @@
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
-import { PLAN_LABELS } from "../../shared/domain.js";
-import { loadStripe, type Stripe } from "@stripe/stripe-js";
+import { BILLING_GRACE_DAYS, PLAN_LABELS, subscriptionAction } from "../../shared/domain.js";
+// The `pure` entry, and the difference is the whole promise below. The default
+// entry injects Stripe's script one microtask after it is *imported*, whether or
+// not `loadStripe` is ever called — and this module is imported by the app shell,
+// so every page of every deployment fetched Stripe.js: the sign-in screen, a
+// subscriber's balances, a deployment that sells nothing at all. Where ads widen
+// the policy it ran, fraud signals and all; everywhere else the policy refused it
+// and the console said so on every load. `pure` loads it only when called.
+import { loadStripe } from "@stripe/stripe-js/pure";
+import type { Stripe } from "@stripe/stripe-js";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CreditCard, ShieldCheck } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { api, json, type BillingStatus, type SubscriptionResult, type Session } from "../api.js";
+import {
+  api,
+  json,
+  type BillingStatus,
+  type PlanPrice,
+  type SubscriptionResult,
+  type Session,
+} from "../api.js";
 import { Alert, Badge, Button, Note, PageHeader, SettingsTabs, Skeleton } from "../components.js";
 import { newIdempotencyKey } from "../idempotency.js";
 import { formatTimestamp } from "../money.js";
@@ -14,10 +29,14 @@ import type { BillingInterval } from "../../shared/domain.js";
 /**
  * Stripe.js, fetched once for the life of the tab.
  *
- * Keyed by the publishable key rather than loaded at module scope, because the
- * key arrives with the status response: loading at import time would mean
- * fetching Stripe's script on a deployment that sells nothing, which is the one
- * thing this whole feature promises not to do.
+ * Fetched only here, on the plan tab, once there is something to confirm: that
+ * is the `pure` import above, which injects nothing until `loadStripe` runs.
+ * Fetching Stripe's script anywhere else — a deployment that sells nothing, a
+ * page that renders somebody's balances — is the one thing this whole feature
+ * promises not to do, and `tests/stripe-script-loading.test.tsx` holds it.
+ *
+ * Keyed by the publishable key because the key arrives with the status
+ * response, and a second key would need a second instance.
  */
 const stripeByKey = new Map<string, Promise<Stripe | null>>();
 function stripeFor(publishableKey: string) {
@@ -26,6 +45,26 @@ function stripeFor(publishableKey: string) {
   const loading = loadStripe(publishableKey);
   stripeByKey.set(publishableKey, loading);
   return loading;
+}
+
+/**
+ * How often a price is billed, in the words the button uses — Stripe's interval
+ * rather than the slot the id was configured in, so the label says what the
+ * charge will be. Null for anything else, and the button then names the amount
+ * alone rather than guess.
+ */
+function perInterval(price: PlanPrice | null) {
+  if (price?.interval === "year") return "a year";
+  if (price?.interval === "month") return "a month";
+  return null;
+}
+
+/** "$30.00 a year", or as much of it as is known. */
+function priceLabel(price: PlanPrice | null) {
+  const amount = formatPrice(price);
+  if (!amount) return null;
+  const per = perInterval(price);
+  return per ? `${amount} ${per}` : amount;
 }
 
 /** An amount as Stripe holds it: minor units, and a currency that says how many. */
@@ -70,6 +109,23 @@ const STATUS_WORDS: Record<string, { label: string; tone: "green" | "amber" }> =
 };
 
 /**
+ * How long a failed renewal keeps the plan, as the past-due alert says it.
+ *
+ * Worked out from `BILLING_GRACE_DAYS`, the number the server enforces, rather
+ * than written here a second time, because "a few days" is what this said
+ * while the grace went from seven to fifteen. In words because the alert is a
+ * sentence; a number past the end of the list falls back to digits, which
+ * reads worse and is still true.
+ */
+const NUMBER_WORDS = (
+  "zero one two three four five six seven eight nine ten eleven twelve thirteen " +
+  "fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty-one " +
+  "twenty-two twenty-three twenty-four twenty-five twenty-six twenty-seven " +
+  "twenty-eight twenty-nine thirty thirty-one"
+).split(" ");
+const GRACE_IN_WORDS = `${NUMBER_WORDS[BILLING_GRACE_DAYS] ?? String(BILLING_GRACE_DAYS)} days`;
+
+/**
  * Which kind of secret the form is holding, carried rather than sniffed.
  *
  * The two look almost alike — `pi_…_secret_…` and `seti_…_secret_…` — and they
@@ -78,10 +134,23 @@ const STATUS_WORDS: Record<string, { label: string; tone: "green" | "amber" }> =
  * a second place for the answer to live when the code that asked for the secret
  * already knew.
  */
-type PendingConfirmation = {
-  readonly secret: string;
-  readonly kind: "payment" | "setup";
-};
+type PendingConfirmation =
+  | {
+      readonly secret: string;
+      readonly kind: "payment";
+      /**
+       * What the money is for, which is what the button taking it says. Carried
+       * from the button that asked for the secret, because a first
+       * subscription's invoice and a failed renewal's look exactly alike, and
+       * "Pay and upgrade" to somebody already on the plan misdescribes the
+       * charge on the page that takes it.
+       */
+      readonly purpose: PaymentPurpose;
+    }
+  | { readonly secret: string; readonly kind: "setup" };
+
+/** `upgrade` starts or raises a plan; `settle` pays what is owed on the one somebody is on. */
+type PaymentPurpose = "upgrade" | "settle";
 
 /**
  * The card form, mounted only when there is something to confirm.
@@ -173,7 +242,11 @@ function PaymentStep({
           disabled={!stripe}
           disabledReason="Stripe's payment form is still loading."
         >
-          {paying ? "Pay and upgrade" : "Save this card"}
+          {pending.kind === "setup"
+            ? "Save this card"
+            : pending.purpose === "settle"
+              ? "Pay now"
+              : "Pay and upgrade"}
         </Button>
       </div>
       <Note>
@@ -206,18 +279,18 @@ export function PlanPage({ session }: { session: Session }) {
   };
 
   const choose = useMutation({
-    mutationFn: (interval: BillingInterval) =>
+    mutationFn: ({ interval }: { interval: BillingInterval; purpose: PaymentPurpose }) =>
       api<SubscriptionResult>("/api/v1/billing/subscription", {
         ...json({ interval, idempotencyKey: newIdempotencyKey() }),
         method: "PUT",
       }),
-    onSuccess: async (result) => {
+    onSuccess: async (result, { purpose }) => {
       setFailure(null);
       // A secret means there is a payment left to make; its absence means the
       // change was arranged without one, which is every case but a first
       // subscription.
       if (result.clientSecret) {
-        setPending({ secret: result.clientSecret, kind: "payment" });
+        setPending({ secret: result.clientSecret, kind: "payment", purpose });
         // Refreshed as well, and this is the part that is easy to leave out.
         // Without it the page still believes there is no subscription, so it
         // goes on offering both priced buttons directly under the open card
@@ -275,8 +348,8 @@ export function PlanPage({ session }: { session: Session }) {
   const plan = billing.entitlement.billing ? billing.entitlement.plan : "free";
   const limit = billing.entitlement.billing ? billing.entitlement.accountLimit : null;
   const subscription = billing.subscription;
-  const monthly = formatPrice(billing.prices.monthly);
-  const yearly = formatPrice(billing.prices.yearly);
+  const monthly = priceLabel(billing.prices.monthly);
+  const yearly = priceLabel(billing.prices.yearly);
   const busy = choose.isPending || setCancellation.isPending || replaceCard.isPending;
   // A subscription waiting for its first payment. Stripe holds it for 23 hours
   // and then expires it, so this state is not rare — it is what a closed tab or
@@ -293,6 +366,45 @@ export function PlanPage({ session }: { session: Session }) {
       ? subscription.interval
       : null;
   const owing = owingInterval !== null;
+  // The button itself, only where the server would take the payment — which
+  // for `incomplete` is only where something is for sale, because finishing a
+  // first payment starts a subscription. `payable` is the server's answer, so
+  // the page cannot offer what the next press is refused. The sale is also
+  // asked of `selling` here, the flag the heading above the button reads,
+  // because "Finish your payment" under "not selling subscriptions" is the page
+  // contradicting itself whichever of the two is behind.
+  const finishInterval =
+    subscription?.payable && (billing.selling || subscription.status !== "incomplete")
+      ? owingInterval
+      : null;
+  // The plan they are on, where pressing it lets a scheduled switch go in the
+  // shared rule the server acts by, and null elsewhere. Not every pending
+  // switch can be let go that way: on a renewal that is owed, the same press
+  // is `resume` and pays the invoice, and on a price this deployment no longer
+  // sells there is no plan of theirs to press at all.
+  const releaseInterval =
+    subscription?.interval &&
+    subscription.scheduledInterval &&
+    subscriptionAction({
+      current: {
+        status: subscription.status,
+        interval: subscription.interval,
+        scheduled: subscription.scheduledInterval,
+      },
+      requested: subscription.interval,
+    }).kind === "release"
+      ? subscription.interval
+      : null;
+  // A renewal, or an upgrade's charge, that Stripe is still retrying. Kept apart
+  // from `owing` rather than folded into it, because the plan is still running:
+  // the other plan, a new card and canceling all stay on offer beside this. The
+  // button reaches the same `resume` the server already answers for `past_due`
+  // — the open invoice's own secret — which is the one way to pay a charge the
+  // bank wants authenticated. Replacing the card pays it off-session, and a
+  // bank that asks for 3-D Secure refuses exactly that. Offered whether or not
+  // anything is for sale, because paying what is owed is not a sale.
+  const payableInterval =
+    subscription?.status === "past_due" && subscription.payable ? subscription.interval : null;
 
   return (
     <>
@@ -334,7 +446,7 @@ export function PlanPage({ session }: { session: Session }) {
 
             {billing.override ? (
               <Note>
-                An operator granted you {billing.override.plan}
+                An operator granted you {PLAN_LABELS[billing.override.plan]}
                 {billing.override.expiresAt
                   ? ` until ${formatTimestamp(billing.override.expiresAt, timezone)}`
                   : " with no end date"}
@@ -370,16 +482,30 @@ export function PlanPage({ session }: { session: Session }) {
               <Note>
                 Switching to the{" "}
                 {subscription.scheduledInterval === "yearly" ? "annual" : "monthly"} price on{" "}
-                {formatTimestamp(subscription.scheduledAt, timezone)}. Nothing changes before then,
-                and choosing your current plan again cancels the switch.
+                {formatTimestamp(subscription.scheduledAt, timezone)}. Nothing changes before then
+                {/* Each way out is named only beside the button that takes it.
+                    Letting the switch go is a button whether or not anything is
+                    for sale, because it sells nothing. Replacing it, on a price
+                    this deployment no longer sells, is a new schedule and so a
+                    sale, which the plan buttons offer only while selling. */}
+                {releaseInterval
+                  ? ", and choosing your current plan again cancels the switch."
+                  : !subscription.interval && billing.selling && !owing
+                    ? ", and choosing the other plan replaces the switch."
+                    : "."}
               </Note>
             ) : null}
 
             {subscription?.pastDueSince ? (
               <Alert kind="info">
                 A payment failed on {formatTimestamp(subscription.pastDueSince, timezone)}. Your
-                plan continues for a few days while Stripe retries. Replacing the card below fixes
-                it straight away.
+                plan continues for {GRACE_IN_WORDS} from then while Stripe retries.{" "}
+                {/* Paying now is named only beside a button that does it: a
+                    price this deployment no longer sells has none, and the
+                    card is then the way to pay. */}
+                {payableInterval
+                  ? "Paying now, or replacing the card below, fixes it right away."
+                  : "Replacing the card below fixes it right away."}
               </Alert>
             ) : null}
 
@@ -436,10 +562,33 @@ export function PlanPage({ session }: { session: Session }) {
               </div>
             </header>
 
-            {owingInterval ? (
+            {finishInterval ? (
               <div className="form-actions">
-                <Button onClick={() => choose.mutate(owingInterval)} loading={busy}>
-                  {subscription?.status === "unpaid" ? "Pay what is owed" : "Finish your payment"}
+                {subscription?.status === "unpaid" ? (
+                  <Button
+                    onClick={() => choose.mutate({ interval: finishInterval, purpose: "settle" })}
+                    loading={busy}
+                  >
+                    Pay what is owed
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => choose.mutate({ interval: finishInterval, purpose: "upgrade" })}
+                    loading={busy}
+                  >
+                    Finish your payment
+                  </Button>
+                )}
+              </div>
+            ) : null}
+
+            {payableInterval ? (
+              <div className="form-actions">
+                <Button
+                  onClick={() => choose.mutate({ interval: payableInterval, purpose: "settle" })}
+                  loading={busy}
+                >
+                  Pay now
                 </Button>
               </div>
             ) : null}
@@ -447,30 +596,57 @@ export function PlanPage({ session }: { session: Session }) {
             {billing.selling && !owing ? (
               <div className="form-actions">
                 <Button
-                  onClick={() => choose.mutate("yearly")}
+                  onClick={() => choose.mutate({ interval: "yearly", purpose: "upgrade" })}
                   loading={busy}
                   // Pressable while a switch to the other price is pending,
                   // because pressing the plan you are on is how a scheduled
                   // switch is abandoned — which the note above says in so many
-                  // words, and which the server handles.
-                  disabled={subscription?.interval === "yearly" && !subscription.scheduledInterval}
+                  // words, and which the server handles. Only where that press
+                  // is a release: on a renewal that is owed it would hand back
+                  // the invoice under "Pay and upgrade", beside the Pay now
+                  // button that already does it under its own name.
+                  disabled={subscription?.interval === "yearly" && !releaseInterval}
                   disabledReason="You are on the annual plan already."
                 >
-                  {yearly ? `Annual — ${yearly} a year` : "Annual"}
+                  {yearly ? `Annual — ${yearly}` : "Annual"}
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={() => choose.mutate("monthly")}
+                  onClick={() => choose.mutate({ interval: "monthly", purpose: "upgrade" })}
                   loading={busy}
-                  disabled={subscription?.interval === "monthly" && !subscription.scheduledInterval}
+                  disabled={subscription?.interval === "monthly" && !releaseInterval}
                   disabledReason="You are on the monthly plan already."
                 >
-                  {monthly ? `Monthly — ${monthly} a month` : "Monthly"}
+                  {monthly ? `Monthly — ${monthly}` : "Monthly"}
                 </Button>
               </div>
             ) : null}
 
-            {yearly && monthly && !owing ? (
+            {/* The one change of plan left while nothing is for sale. Letting
+                a scheduled switch go keeps the plan already paid for and sells
+                nothing, so the server takes it, and without this button the
+                note above would name a way out the page did not offer. */}
+            {!billing.selling && releaseInterval ? (
+              <div className="form-actions">
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    // Never read: a release charges nothing and hands back no
+                    // secret. `settle` because it is about the plan they are
+                    // on, so a secret, were one ever sent, would not be named
+                    // an upgrade.
+                    choose.mutate({ interval: releaseInterval, purpose: "settle" })
+                  }
+                  loading={busy}
+                >
+                  {releaseInterval === "yearly"
+                    ? "Stay on the annual plan"
+                    : "Stay on the monthly plan"}
+                </Button>
+              </div>
+            ) : null}
+
+            {billing.selling && yearly && monthly && !owing ? (
               <Note>
                 Moving from monthly to annual takes effect now and charges the difference. Moving
                 the other way takes effect at your next renewal, because the period you are in has

@@ -43,7 +43,7 @@ describe("what a plan allows", () => {
     ).toMatchObject({ plan: "plus" });
   });
 
-  it("keeps a failed renewal for seven days from the failure, to the minute", () => {
+  it("keeps a failed renewal for fifteen days from the failure, to the minute", () => {
     // Literal dates rather than arithmetic on BILLING_GRACE_DAYS: a test that
     // derives its boundary from the constant it is checking passes for any
     // value of that constant, and says nothing about whether the comparison is
@@ -56,12 +56,18 @@ describe("what a plan allows", () => {
       });
 
     expect(failedAt("2026-06-15T11:59:00.000Z"), "just now").toMatchObject({ plan: "plus" });
-    expect(failedAt("2026-06-08T12:00:01.000Z"), "a second inside").toMatchObject({ plan: "plus" });
-    // Exactly seven days is over, not still running: the boundary is strict.
-    expect(failedAt("2026-06-08T12:00:00.000Z"), "exactly seven days").toMatchObject({
+    // Stripe's recommended default retries eight times within two weeks, so a
+    // subscriber whose last retry lands on day fourteen must still be paid for
+    // when it does. Seven days froze them halfway through that schedule.
+    expect(failedAt("2026-06-01T12:00:00.000Z"), "fourteen days in").toMatchObject({
+      plan: "plus",
+    });
+    expect(failedAt("2026-05-31T12:00:01.000Z"), "a second inside").toMatchObject({ plan: "plus" });
+    // Exactly fifteen days is over, not still running: the boundary is strict.
+    expect(failedAt("2026-05-31T12:00:00.000Z"), "exactly fifteen days").toMatchObject({
       plan: "free",
     });
-    expect(failedAt("2026-06-08T11:59:59.000Z"), "a second past").toMatchObject({ plan: "free" });
+    expect(failedAt("2026-05-31T11:59:59.000Z"), "a second past").toMatchObject({ plan: "free" });
   });
 
   it("gives a past_due row with no recorded failure time no grace at all", () => {

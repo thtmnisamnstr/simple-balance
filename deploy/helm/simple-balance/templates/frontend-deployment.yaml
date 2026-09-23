@@ -64,18 +64,20 @@ spec:
               value: {{ .Values.frontend.maxUploadSize | quote }}
             # nginx serves the shell in this shape, so it — not the API — decides
             # the policy the plan tab arrives with. Stripe's payment form needs
-            # the wider one.
+            # the wider one. Billing and ads are each on when their switch is or
+            # when config.extraEnv carries the key; _helpers.tpl says why both.
             #
-            # Both emitted unconditionally and both quoted. The template reads
-            # them in `map` directives, and envsubst leaves an absent name as a
-            # literal that nginx refuses to start on; an unquoted Helm boolean
-            # renders as `value: false`, which Kubernetes rejects outright.
+            # All three emitted unconditionally and all three quoted. The
+            # template reads them in `map` directives, and envsubst leaves an
+            # absent name as a literal that nginx refuses to start on; an
+            # unquoted Helm boolean renders as `value: false`, which Kubernetes
+            # rejects outright.
             - name: SB_BILLING_CONFIGURED
-              value: {{ .Values.frontend.billingConfigured | quote }}
+              value: {{ include "simple-balance.billingConfigured" . | quote }}
             - name: SB_CSP_REPORT_ONLY
               value: {{ .Values.frontend.cspReportOnly | quote }}
             - name: SB_ADS_CONFIGURED
-              value: {{ .Values.frontend.adsConfigured | quote }}
+              value: {{ include "simple-balance.adsConfigured" . | quote }}
             # Which addresses may say where a request really came from. An
             # ingress terminating TLS is the address every visitor arrives
             # from, so without this the API counts every sign-in attempt in the

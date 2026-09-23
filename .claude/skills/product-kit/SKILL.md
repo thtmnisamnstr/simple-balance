@@ -10,18 +10,21 @@ description: Rebuild docs/product — the tiered feature list and a screenshot o
 | File | What it is |
 | --- | --- |
 | `facts.json` | The plans, their labels, the free account limit and the prices. Half of it is read out of the source and half of it is declared — see below. |
-| `features.json` | What the product does, tiered by how much a general reader would care. **Declared** — a judgement, not a property of a module. |
+| `features.json` | What the product does, tiered by how much a general reader would care. **Declared** — a judgment, not a property of a module. |
 | `screenshots/` | Every screen, both themes, 1600px WebP. |
 | `screenshots.json` | The manifest tying the two together. |
 
-**`facts.json` is generated, and only half of it is checked.** `derived` — the
-plans, their labels and the free account limit — is read out of `src/shared/`,
-and `tests/product-facts.test.ts` fails when the committed file disagrees with
-those constants. `declared` — the prices and the capability list — is written
+**`facts.json` is generated, and only half of it is checked against the
+source.** `derived` — the plans, their labels and the free account limit — is
+read out of `src/shared/`, and `tests/product-facts.test.ts` fails when the
+committed file disagrees with those constants. `declared` — the prices and the capability list — is written
 by hand in `scripts/build-product-facts.mjs`, because the prices live at Stripe
-and only the ids are here; the test checks that a price is a decimal string and
-nothing more. So **a price, plan, label or limit change is an edit to that
-script and a re-run of it, in the same commit as the change itself**:
+and only the ids are here. The test holds the whole file to what that script
+writes, so an edit to the JSON alone fails, but whether a declared price is the
+one Stripe charges is nothing it can know. `docs/guide.md`'s Plans section is
+held to the same labels and limit. So **a price, plan, label or limit change is
+an edit to that script and a re-run of it, in the same commit as the change
+itself**:
 
 ```sh
 npx tsx scripts/build-product-facts.mjs   # `node` cannot: it imports TypeScript
@@ -100,9 +103,23 @@ docker rm -f sb-kit-pg
   populated one, which reads as a broken feature.
 - **The identity is fixed and visible** in the sidebar of every shot, so a
   re-run meets an account that already exists. The script signs in instead of
-  failing, and the seed is idempotent.
-- **A re-run against a dirty database is fine; a re-run against a *different*
-  database is not.** Drop it and start clean if anything looks off.
+  failing, and the seed replays rather than duplicating.
+- **A re-run against the kit's own database replays, on any day.** Each
+  entry's idempotency key is `kit-<YYYY-MM>-<its place in seed.entries>`: the
+  calendar month it belongs to, before any clamping, and never its date
+  (`scripts/product-kit/entry-key.mjs` says why). An entry still ahead of today
+  is clamped to today, so its date moves between runs; the replay of one whose
+  date has moved meets its own key with a different body, is refused with a
+  409, and keeps the date it was first posted with. The build counts those as
+  "already posted under an earlier date" rather than as problems. Once the
+  month turns, the new month's entries are posted and the oldest month stays,
+  so the history grows by a month. Two cases still need a clean start. A
+  database seeded by a build from before these keys (`kit-<n>-<date>`) shares
+  none of them, so the next run posts the whole history a second time: drop it
+  once. And any other database already holds rows the pictures would show.
+  Either way the dashboard, budgets and reports come out inflated with nothing
+  on screen to say so. Drop it and start clean whenever anything looks off —
+  step 4 of the block above already puts it away.
 - **One clock, or the current month comes out short.** The seed's dates and
   the browser's "today" have to be the same day. They were not: the dates
   were computed in UTC and the browser used the machine's zone, so a capture
@@ -139,8 +156,10 @@ build. The test catches the second; the first is worth a thought.
 ## 5. Finish
 
 The kit is committed, and `AGENTS.md` records it as this repository's public
-description of itself. The marketing site pulls it from `main`, so **it is not
-available to that site until this branch merges** — say so when handing over,
-because the obvious assumption is that pushing is enough.
+description of itself. The marketing site reads it from `main` once `main`
+carries it, and until then from the branch of the open release pull request;
+the site works out which of the two itself. So **a kit pushed anywhere else
+does not reach that site** until it lands on one of them — say where it went
+when handing over, because the obvious assumption is that pushing is enough.
 
 Then `npm run verify`, and `release-prep` if this is part of one.

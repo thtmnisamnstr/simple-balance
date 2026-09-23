@@ -151,12 +151,12 @@ export const accountResultSchema = z
     active: z
       .boolean()
       .describe(
-        "Whether the person has this account among the ones they keep usable. The choice, not the answer — read `frozen` for that. It means nothing on a plan with no limit, and while the choice is still open more accounts carry it than the plan keeps.",
+        "Whether the person has this account among the ones they keep usable. The choice, not the answer — read `frozen` for that. It means nothing on a plan with no limit, every live account carries it while they all fit within the free plan's limit, and while the choice is still open more accounts carry it than the plan keeps.",
       ),
     frozen: z
       .boolean()
       .describe(
-        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every write — no new entry, no edit, no delete, not even a rename. Everything about it still counts toward balances and reports. Only the person who owns the ledger can change which accounts are active, from the browser.",
+        "Whether this account is closed to changes. A plan that limits how many accounts may be active leaves the rest frozen: still readable, and refusing every write — no new entry, no edit, no delete, not even a rename. Everything about it still counts toward balances and reports. Which accounts are active is chosen with set_active_accounts or on the Accounts page, and the choice is made once: afterward a frozen account can only take a place that opens up when an account in use is archived or deleted, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again (see set_active_accounts).",
       ),
   })
   .passthrough();
@@ -597,7 +597,8 @@ export const csvStageResultSchema = z.union([
  *
  * `frequency` null is a reminder that happens once, which `repeats` says outright
  * so a caller does not have to infer it. `nextNotificationDate` null means
- * nothing further is owed, which for a one-off is how it says it has been sent.
+ * nothing further is owed, which for a one-time reminder is how it says it has
+ * been sent.
  */
 const templateNotificationResultSchema = z.object({
   frequency: z.enum(recurrenceFrequencies).nullable(),
@@ -874,7 +875,7 @@ export const budgetPlanResultSchema = z
     targetName: z
       .string()
       .describe("What this budget is about, whichever kind it is. Use it to name the budget."),
-    currency: z.string().describe("ISO-like code, upper case."),
+    currency: z.string().describe("ISO-like code, uppercase."),
     periodUnit: z.enum(budgetPeriodUnits),
     amount: z.string().describe("Decimal string. Never a number."),
     activeFrom: isoDateSchema.describe(
@@ -909,7 +910,7 @@ export const budgetPlanResultSchema = z
         "How many finished periods a trailing average looks back over, or null under any other rule.",
       ),
     percentOfPrevious: nullableStringSchema.describe(
-      'The percentage added to the previous period\'s amount, when that is the rule. A decimal string: "10" is ten per cent more each period.',
+      'The percentage added to the previous period\'s amount, when that is the rule. A decimal string: "10" is ten percent more each period.',
     ),
     percentOfIncome: nullableStringSchema.describe(
       "The percentage of the previous whole period's income this budget takes, when that is the rule.",
@@ -964,7 +965,7 @@ export const budgetReportResultSchema = z.object({
       clipped: z
         .boolean()
         .describe(
-          "True when the fold stopped at its bound instead of reaching that start, so the carry began from nothing part way through a budget's life. Say so rather than reporting the figure as though it were complete.",
+          "True when the fold stopped at its bound instead of reaching that start, so the carry began from nothing partway through a budget's life. Say so rather than reporting the figure as though it were complete.",
         ),
     })
     .nullable()

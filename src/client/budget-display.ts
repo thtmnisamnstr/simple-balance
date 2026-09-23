@@ -14,7 +14,7 @@ import { compareMoney, formatDate, isNegativeMoney, moneyFromUnits, moneyUnits }
  * The period a stored date names, written the way somebody would say it.
  *
  * Both ends of a window are stored as the first day of a period, so printing
- * one raw says "to 1 June" about a budget that covers all of June, and a budget
+ * one raw says "to June 1" about a budget that covers all of June, and a budget
  * covering exactly one month reads as a single day. The date is right; it is
  * the name of a period rather than a boundary, so it is rendered as one.
  */

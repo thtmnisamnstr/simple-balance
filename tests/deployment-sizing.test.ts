@@ -9,10 +9,11 @@ const read = (relative: string) => readFileSync(path.join(root, relative), "utf8
  * The sizing table exists twice, and this holds the two together.
  *
  * `deploy/pulumi/single-common/index.ts` is where it is *executed*: both cloud
- * programs read it to choose an instance shape, a disk size and the five
- * PostgreSQL settings they write into the machine's `.env`.
- * `docs/deployment-sizing.md` is where it is *read*, by somebody deciding how
- * big a machine to buy.
+ * programs read it to choose an instance shape and a data disk, which
+ * `oci-single` raises to OCI's 50 GB minimum. The five PostgreSQL settings are
+ * what the document gives for the server `DATABASE_URL` names, and nothing on
+ * the machine applies them. `docs/deployment-sizing.md` is where it is *read*,
+ * by somebody deciding how big a machine to buy.
  *
  * A table that disagrees with the program implementing it is worse than no
  * table: the reader sizes their machine from the document, the program builds

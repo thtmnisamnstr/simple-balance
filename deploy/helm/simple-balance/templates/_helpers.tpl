@@ -84,6 +84,41 @@ upgrade moves all three workloads together by default.
 {{- end }}
 
 {{/*
+What the frontend is told about Stripe and about AdSense, as the "true" or
+"false" the nginx template's map directives compare against.
+
+nginx serves every page in this shape, so it decides the policy each arrives
+with, and these two are all it knows. Told neither, a server with Stripe set up
+opens a plan tab whose card fields never load, and one with AdSense set up has
+every page block the script it asks for, and nothing in any pod says why.
+
+So each is derived the way the compose recipes derive it, from its key being
+set in config.extraEnv, and the switch is kept beside the key rather than
+replaced by it, for a key that reaches the pods by a route this render cannot
+read, such as an existingSecret or a post-renderer. Derived rather than refused
+when the two disagree, because a values file 0.1.6 rendered may carry anything
+in extraEnv, and a setting that was accepted stays accepted.
+
+Set means what the pods receive is not blank, because the server trims the
+value and reads a blank one as unset; a false or a 0 arrives as text and counts.
+And extraEnv defaults to a dict here because a values file whose extraEnv holds
+only commented lines, or --set config.extraEnv=null, leaves it null, which `get`
+refuses and 0.1.6 rendered.
+*/}}
+{{- define "simple-balance.extraEnvIsSet" -}}
+{{- $value := get (.root.Values.config.extraEnv | default dict) .name -}}
+{{- if not (kindIs "invalid" $value) }}{{ if trim (toString $value) }}true{{ end }}{{ end -}}
+{{- end }}
+
+{{- define "simple-balance.billingConfigured" -}}
+{{- if or .Values.frontend.billingConfigured (include "simple-balance.extraEnvIsSet" (dict "root" . "name" "STRIPE_PUBLISHABLE_KEY")) }}true{{ else }}false{{ end -}}
+{{- end }}
+
+{{- define "simple-balance.adsConfigured" -}}
+{{- if or .Values.frontend.adsConfigured (include "simple-balance.extraEnvIsSet" (dict "root" . "name" "ADSENSE_CLIENT_ID")) }}true{{ else }}false{{ end -}}
+{{- end }}
+
+{{/*
 The Secret holding the credentials, whichever way it got there. Refusing both at
 once is the point: an operator who names an existing Secret and leaves create on
 would otherwise get a chart-built Secret alongside it and no sign of which one

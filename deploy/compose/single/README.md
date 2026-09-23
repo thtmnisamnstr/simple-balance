@@ -89,6 +89,19 @@ They do not fight, and the reason is one line: the unit's `ExecStop` runs
 `docker compose down`, which removes the containers, so there is nothing left
 for Docker's restart policy to bring back after a deliberate stop.
 
+A setting changes the same way however the machine was built: edit it, then
+`sudo systemctl restart simple-balance`, which takes the containers down and
+brings them up on the new values. What you edit differs. Installed by hand, it
+is `/opt/simple-balance/.env`, the copy the unit's header installs: the unit
+runs from `/opt/simple-balance`, and `deploy/compose/single/.env` is read only
+by a `docker compose` run in this directory, never by the unit. A machine one of
+the single-machine Pulumi programs built has a drop-in beside the unit,
+`simple-balance.service.d/env.conf`, that reassembles `/opt/simple-balance/.env`
+from its parts before every start, so there the edit goes in
+`/var/lib/simple-balance/env.local`, and an edit to `.env` is overwritten at the
+next start. That drop-in exists only on those machines;
+`deploy/pulumi/README.md` describes them.
+
 ## Backups
 
 ```sh

@@ -13,6 +13,12 @@
 # satisfied on machines that never run it.
 name: simple-balance-app
 
+# The whole of what reaches either process: .env only fills in the ${...}, so a
+# setting this block does not name is dropped without a word, and a name the
+# server does not read does nothing at all. tests/env-example.test.ts holds it
+# to exactly the names src/server reads, in both directions, because this block
+# once had both defects at once — eight settings missing, and the mail block
+# spelled SMTP_SECURE and SMTP_FROM, so configuring mail stopped both machines.
 x-app-env: &app-env
   # Where the browser reaches this deployment, which is the frontend machine's
   # public name — not this machine's address. Cookies are set by the API and read
@@ -23,6 +29,11 @@ x-app-env: &app-env
   # This machine's own address is not in it. The connection string points at the
   # database machine's private address, across the provider's private network.
   DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to the database machine's private address}
+  # Only when a transaction pooler sits between these machines and the database,
+  # which this profile does not ship. Migrations and the first-account claim hold
+  # a session-level advisory lock that a pooler cannot carry, so they connect
+  # here instead.
+  DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL:-}
   AUTH_SECRET: "${AUTH_SECRET:?generate one with openssl rand -base64 32}"
 
   # Pinned rather than left to the image, which does set it. Unset reads as
@@ -31,7 +42,13 @@ x-app-env: &app-env
   NODE_ENV: production
   AUTH_MODE: ${AUTH_MODE:-local}
   ALLOWED_EMAILS: ${ALLOWED_EMAILS:-}
+  SETUP_TOKEN: ${SETUP_TOKEN:-}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
+  # Stated rather than left to the image, which sets the same value, because the
+  # published port and both health checks below are written against it.
+  PORT: "3000"
 
   # True, and it has to be: nothing reaches the API except the frontend machine,
   # so the connection's own address is the frontend's for every visitor alike and
@@ -46,12 +63,16 @@ x-app-env: &app-env
   # deploy/compose/vps/README.md keeps them together.
   TRUST_PROXY: "true"
 
+  # Mail is optional, and SMTP_HOST and MAIL_FROM are set together or the server
+  # refuses to start. The scheduler is the machine that sends the reminders, so
+  # it reads these as much as the API does.
   SMTP_HOST: ${SMTP_HOST:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+  MAIL_REPLY_TO: ${MAIL_REPLY_TO:-}
   SMTP_PORT: ${SMTP_PORT:-587}
-  SMTP_SECURE: ${SMTP_SECURE:-false}
+  SMTP_SSL: ${SMTP_SSL:-false}
   SMTP_USERNAME: ${SMTP_USERNAME:-}
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-  SMTP_FROM: ${SMTP_FROM:-}
 
   # Move these together with SB_MAX_UPLOAD_SIZE on the frontend machine: nginx
   # refuses a body over its limit before the API sees it, and the API sizes its
@@ -84,6 +105,9 @@ x-app-env: &app-env
   ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
   ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
   ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
+  # Required, as an absolute https:// address, the moment the AdSense ids are
+  # set: both processes refuse to start without it.
+  PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
 
 x-logging: &logging
   driver: json-file
@@ -94,7 +118,13 @@ x-logging: &logging
 services:
   server:
     profiles: [server]
-    image: ghcr.io/thtmnisamnstr/simple-balance-server:${SB_VERSION:-0.1.6}
+    # Written out, as the single profile writes its own, so `npm run
+    # set-version` rewrites it on a cut and tests/version.test.ts can see it. A
+    # ${SB_VERSION:-...} default was invisible to both, and a release would have
+    # left this profile pulling the one before. To move to another release,
+    # change the tag here, on the scheduler below and in compose.frontend.yml,
+    # to the same value on every machine, after a dump: docs/upgrades.md.
+    image: ghcr.io/thtmnisamnstr/simple-balance-server:0.1.6
     restart: unless-stopped
     environment:
       <<: *app-env
@@ -125,7 +155,8 @@ services:
 
   scheduler:
     profiles: [scheduler]
-    image: ghcr.io/thtmnisamnstr/simple-balance-scheduler:${SB_VERSION:-0.1.6}
+    # Written out with the server's, and moved with it.
+    image: ghcr.io/thtmnisamnstr/simple-balance-scheduler:0.1.6
     restart: unless-stopped
     environment: *app-env
     # No published port. The scheduler serves health probes and, with metrics on,

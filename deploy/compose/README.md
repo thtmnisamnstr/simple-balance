@@ -137,7 +137,8 @@ have to line up there, because there is nothing to line them up between.
 images to Kubernetes with an Ingress, cert-manager, autoscaling and network
 policies. The differences here are the ones a single machine forces:
 
-- The chart provisions no database. A cluster's PostgreSQL is bring your own,
+- The chart provisions no database by default. A cluster's PostgreSQL is bring
+  your own unless `database.enabled` runs the `ha` profile's Citus cluster,
   since whoever runs it owns its backups, its version and its
   `max_connections`. Here it is a container, because a trial on one machine
   should take one command.
@@ -192,10 +193,14 @@ The role it names needs `CREATEDB` if the database does not exist yet. See
 which refuses an `APP_BASE_URL` that is neither HTTPS nor loopback, and that is
 the setting that also decides secure cookies and the OAuth issuer. So this needs
 a reverse proxy terminating TLS in front of the frontend and an `https://` origin
-in `.env`, not a wider port binding. Give that proxy the `X-Forwarded-For`
-handling `docs/deployment.md` shows, and add `set_real_ip_from` to
-`deploy/docker/nginx.conf.template`, or `$remote_addr` inside nginx is the proxy
-and every visitor shares one sign-in allowance again.
+in `.env`, not a wider port binding. Have that proxy set `X-Forwarded-For`, and
+set `SB_TRUSTED_PROXY_CIDR` in `.env` to the proxy's own address or range, or
+`$remote_addr` inside nginx is the proxy and every visitor shares one sign-in
+allowance again. That one value is the whole fix: the image already carries
+`set_real_ip_from ${SB_TRUSTED_PROXY_CIDR}`, so there is no template to edit and
+no image to rebuild, and it keeps `real_ip_recursive off` on purpose —
+`deploy/docker/nginx.conf.template` says why. Name the proxy's range and nothing
+wider, because this decides whose word is taken for a visitor's address.
 
 **Mail.** Off unless `SMTP_HOST` and `MAIL_FROM` are both set in `.env`. With
 neither there is no password reset and nobody is asked to confirm an address,

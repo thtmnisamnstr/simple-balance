@@ -1,5 +1,6 @@
 import Stripe from "stripe";
-import { getConfig } from "./config.js";
+import { getConfig, stripeMode } from "./config.js";
+import { log } from "./log.js";
 import { stripeDuration, stripeRequests } from "./metrics.js";
 
 /**
@@ -88,6 +89,22 @@ async function measured<T>(operation: string, run: () => Promise<T>): Promise<T>
 export function resetStripeClient() {
   client = undefined;
   priceCache = undefined;
+  priceCheck = undefined;
+  reportedPriceCheck = undefined;
+}
+
+/**
+ * Whether Stripe's answer was "there is no such thing".
+ *
+ * Here rather than in the service because more than one caller has to tell it
+ * apart from every other failure, and the distinction is Stripe's: a
+ * `resource_missing` is a definite answer about one object, while a timeout or
+ * a 500 says nothing about it at all.
+ */
+export function isMissingStripeResource(error: unknown): boolean {
+  const code = (error as { code?: unknown; statusCode?: unknown } | null)?.code;
+  const status = (error as { statusCode?: unknown } | null)?.statusCode;
+  return code === "resource_missing" || status === 404;
 }
 
 /**
@@ -260,7 +277,7 @@ export async function createStripeCustomer(
 export async function createStripeSubscription(
   input: { readonly customerId: string; readonly priceId: string },
   idempotencyKey: string,
-): Promise<{ subscriptionId: string; clientSecret: string | null }> {
+): Promise<{ subscriptionId: string; clientSecret: string | null; snapshot: StripeSnapshot }> {
   const subscription = await measured("subscription.create", () =>
     getStripe().subscriptions.create(
       {
@@ -276,6 +293,10 @@ export async function createStripeSubscription(
   return {
     subscriptionId: subscription.id,
     clientSecret: confirmationSecretOf(subscription.latest_invoice),
+    // What was just made, for the caller to store while it still holds the
+    // lock: a new subscription has no schedule, so the unexpanded one reads
+    // as none, which is true.
+    snapshot: snapshotOfSubscription(subscription, new Date()),
   };
 }
 
@@ -335,7 +356,7 @@ export async function switchStripeSubscriptionNow(
  * price in a phase that starts when it ends.
  *
  * `end_behavior: "release"` lets the subscription carry on by itself once the
- * new phase has run, which is what makes this a one-off change of price rather
+ * new phase has run, which is what makes this a one-time change of price rather
  * than a fixed-term plan that stops.
  */
 export async function scheduleStripeSubscriptionPrice(
@@ -426,8 +447,11 @@ export async function scheduleStripeSubscriptionPrice(
       },
       // A distinct key from the create above: Stripe scopes a key to one
       // request, and reusing it here would replay the creation's response
-      // instead of making this change.
-      { idempotencyKey: `${idempotencyKey}:phases` },
+      // instead of making this change. Named for the schedule as well, so one
+      // key is never spent on two schedules whatever key the caller hands in:
+      // updating another schedule is a different endpoint, which Stripe
+      // refuses under a key it has already seen.
+      { idempotencyKey: `${idempotencyKey}:phases:${schedule.id}` },
     ),
   );
   return updated.id;
@@ -438,7 +462,7 @@ export async function scheduleStripeSubscriptionPrice(
  *
  * Released, never canceled. `subscription_schedules.cancel` cancels the
  * *subscription* the schedule governs, so the two calls differ by one word and
- * by whether the person is still a customer afterwards.
+ * by whether the person is still a customer afterward.
  */
 export async function releaseStripeSchedule(scheduleId: string, idempotencyKey: string) {
   await measured("schedule.release", () =>
@@ -498,7 +522,7 @@ export async function setStripeCancelAtPeriodEnd(
  * The id comes back beside the secret, and it is needed: confirming a
  * SetupIntent attaches a payment method to the *customer* and stops there.
  * Nothing about it tells Stripe which card to bill, so the id is how the
- * caller finds the attached method afterwards and says so.
+ * caller finds the attached method afterward and says so.
  */
 export async function createStripeSetupIntent(
   customerId: string,
@@ -525,9 +549,24 @@ export async function fetchStripeSetupIntent(setupIntentId: string): Promise<{
   status: string;
   customerId: string | null;
   paymentMethodId: string | null;
+  /**
+   * When the intent's own card was saved, which is what tells a late delivery
+   * from a current one — compared with the card Stripe bills now, card to
+   * card. Not the intent's `created`: an intent opened in one tab and
+   * confirmed after another tab had already saved and pinned a card holds the
+   * newer card of the two, and dating it by the intent called it the older.
+   * The intent's own date stands in only where Stripe sent the card as a bare
+   * id, which an expanded read does not; a card is saved no earlier than the
+   * intent that saved it, so that is the earliest it can be.
+   */
+  paymentMethodCreated: Date;
 }> {
   const intent = await measured("setup_intent.retrieve", () =>
-    getStripe().setupIntents.retrieve(setupIntentId),
+    getStripe().setupIntents.retrieve(setupIntentId, {
+      // Expanded in the same read, for `created`: a second round trip for the
+      // card would be one more chance to fail on a webhook path.
+      expand: ["payment_method"],
+    }),
   );
   const customer = intent.customer;
   const method = intent.payment_method;
@@ -535,7 +574,78 @@ export async function fetchStripeSetupIntent(setupIntentId: string): Promise<{
     status: intent.status,
     customerId: typeof customer === "string" ? customer : (customer?.id ?? null),
     paymentMethodId: typeof method === "string" ? method : (method?.id ?? null),
+    paymentMethodCreated: new Date(
+      (method && typeof method !== "string" ? method.created : intent.created) * 1000,
+    ),
   };
+}
+
+/**
+ * The card Stripe bills now, and when that card was saved.
+ *
+ * The subscription's own `default_payment_method` first, because it outranks
+ * the customer's and is the one dunning retries. The customer's
+ * `invoice_settings.default_payment_method` is the fallback Stripe bills for a
+ * subscription carrying none, and it is the one `setStripeDefaultPaymentMethod`
+ * writes on every pin — including a pin made while there was no subscription
+ * to update. Expanded in the same read, because `created` is the whole point
+ * and a second round trip per card would be one more chance to fail on a
+ * webhook path.
+ */
+export async function currentStripeDefaultPaymentMethod(input: {
+  readonly customerId: string;
+  readonly subscriptionId: string | null;
+}): Promise<{ id: string; created: Date } | null> {
+  const subscriptionId = input.subscriptionId;
+  if (subscriptionId) {
+    const subscription = await measured("subscription.retrieve", () =>
+      getStripe().subscriptions.retrieve(subscriptionId, { expand: ["default_payment_method"] }),
+    );
+    const method = subscription.default_payment_method;
+    if (method && typeof method !== "string") {
+      return { id: method.id, created: new Date(method.created * 1000) };
+    }
+  }
+  const customer = await measured("customer.retrieve", () =>
+    getStripe().customers.retrieve(input.customerId, {
+      expand: ["invoice_settings.default_payment_method"],
+    }),
+  );
+  if (customer.deleted) return null;
+  const method = customer.invoice_settings?.default_payment_method;
+  if (method && typeof method !== "string") {
+    return { id: method.id, created: new Date(method.created * 1000) };
+  }
+  return null;
+}
+
+/**
+ * Whether Stripe still has a customer this deployment has mapped somebody to.
+ *
+ * Three answers rather than a boolean, because the two ways of not having one
+ * are not the same fact. `deleted` is this account saying the customer existed
+ * and was removed — `customer.deleted` normally tells us, and this is the same
+ * news arriving the other way. `missing` is this key being unable to see the
+ * customer at all, which is what a test-mode customer looks like to a live key,
+ * and also what every customer looks like to a key for the wrong account. The
+ * caller has to tell those two apart before acting on it, and cannot from here.
+ *
+ * Anything else — a timeout, a 500, a refused key — is thrown, because it says
+ * nothing about the customer and treating it as absence would replace a real
+ * mapping on a bad afternoon.
+ */
+export async function stripeCustomerStanding(
+  customerId: string,
+): Promise<"present" | "deleted" | "missing"> {
+  try {
+    const customer = await measured("customer.retrieve", () =>
+      getStripe().customers.retrieve(customerId),
+    );
+    return customer.deleted ? "deleted" : "present";
+  } catch (error) {
+    if (isMissingStripeResource(error)) return "missing";
+    throw error;
+  }
 }
 
 /**
@@ -583,7 +693,7 @@ export async function setStripeDefaultPaymentMethod(
  * Pays a subscription's open invoice with whatever card is now the default.
  *
  * Called after a replacement card is pinned, so "replacing the card fixes it
- * straight away" is true rather than "at Stripe's next retry, which may be days
+ * right away" is true rather than "at Stripe's next retry, which may be days
  * away and may be after the grace has run out". Failure is not the caller's
  * problem: the card is attached either way and Stripe will retry on its own.
  */
@@ -651,16 +761,24 @@ export type StripePriceFacts = {
   readonly id: string;
   readonly unitAmount: number | null;
   readonly currency: string;
+  /**
+   * How often Stripe bills it, which is what the plan tab names — "a month",
+   * "a year" — rather than which setting the id came from. The two agree when
+   * the prices are right, and when they do not the label is the one that would
+   * have lied: a swapped pair read "$3.00 a year" off a price billing monthly.
+   */
   readonly interval: "month" | "year" | null;
 };
 
 /**
  * How long a fetched price is reused before being read again.
  *
- * Prices are immutable in Stripe — changing one means pointing the deployment
- * at a different id — so the only thing this staleness can hide is an operator
- * editing the environment, which needs a restart anyway. Ten minutes keeps the
- * plan tab from making two network calls every time somebody opens it.
+ * Most of a Price is immutable in Stripe — changing an amount means pointing
+ * the deployment at a different id, which needs a restart anyway. The one thing
+ * that does change underneath is whether it is archived, and ten minutes is how
+ * long an operator who archives the one being sold waits before the check below
+ * notices. It also keeps the plan tab from making two network calls every time
+ * somebody opens it.
  */
 const PRICE_CACHE_MS = 10 * 60 * 1000;
 
@@ -681,18 +799,202 @@ function priceFactsOf(price: Stripe.Price): StripePriceFacts {
   };
 }
 
+/** The part of a Price the check reads, so the rule can be tested without Stripe. */
+export type PriceShape = {
+  readonly id: string;
+  readonly type: string;
+  readonly interval: string | null;
+  readonly intervalCount: number | null;
+  readonly active: boolean;
+  readonly currency: string;
+  readonly product: string | null;
+  readonly livemode: boolean;
+};
+
+function shapeOfPrice(price: Stripe.Price): PriceShape {
+  const product = price.product;
+  return {
+    id: price.id,
+    type: price.type,
+    interval: price.recurring?.interval ?? null,
+    intervalCount: price.recurring?.interval_count ?? null,
+    active: price.active,
+    currency: price.currency,
+    product: typeof product === "string" ? product : (product?.id ?? null),
+    livemode: price.livemode,
+  };
+}
+
+/**
+ * Every way the two configured prices do not fit the plans they are sold as.
+ *
+ * The configuration holds two ids and checks only that each starts `price_`,
+ * which is all a string can say. What the ids name is Stripe's to answer, and
+ * every mistake below passed that check and started cleanly: swapped ids sell
+ * "Annual" at the monthly price, billed every month; a one-time price or one
+ * from the other mode makes every subscribe a 500 with the reason only in the
+ * log; a price billed every three months is sold as monthly. None of them shows
+ * until a customer is charged the wrong amount or cannot be charged at all.
+ *
+ * Only definite answers are problems. A price that could not be *read* is not
+ * one of them — that is Stripe being unreachable, which says nothing about the
+ * price — and the caller keeps the previous verdict rather than inventing one.
+ *
+ * `selling` is here for one rule. An archived price cannot start a
+ * subscription, so it is a problem wherever something is for sale — and exactly
+ * what an operator winding a deployment down is expected to have done, where
+ * nothing is for sale and saying so every ten minutes would be noise.
+ *
+ * `null` is a price Stripe answered `resource_missing` for, which is the
+ * definite form of "wrong id".
+ */
+export function planPriceProblems(input: {
+  readonly monthlyId: string;
+  readonly yearlyId: string;
+  readonly monthly: PriceShape | null;
+  readonly yearly: PriceShape | null;
+  readonly keyMode: "live" | "test" | undefined;
+  readonly selling: boolean;
+}): string[] {
+  const problems: string[] = [];
+  const slots = [
+    ["STRIPE_PRICE_MONTHLY_ID", input.monthlyId, input.monthly, "month", "monthly"],
+    ["STRIPE_PRICE_YEARLY_ID", input.yearlyId, input.yearly, "year", "annual"],
+  ] as const;
+  for (const [name, id, price, interval, plan] of slots) {
+    if (!price) {
+      problems.push(
+        `${name} is ${id}, and Stripe has no such price for this key. A price from the ` +
+          "other mode — a test price beside a live key, or the reverse — or from another " +
+          "Stripe account is the usual cause.",
+      );
+      continue;
+    }
+    if (input.keyMode && price.livemode !== (input.keyMode === "live")) {
+      problems.push(
+        `${name} is a ${price.livemode ? "live" : "test"}-mode price and ` +
+          `STRIPE_SECRET_KEY is a ${input.keyMode} key.`,
+      );
+    }
+    if (price.type !== "recurring") {
+      problems.push(
+        `${name} is a ${price.type === "one_time" ? "one-time" : price.type} price, and a ` +
+          "subscription can only be started on a recurring one.",
+      );
+      continue;
+    }
+    if (price.interval !== interval) {
+      problems.push(
+        `${name} bills every ${price.interval ?? "unknown interval"}, and it is the ${plan} ` +
+          "setting. Swapped ids are the usual cause.",
+      );
+    }
+    if (price.intervalCount !== 1) {
+      problems.push(
+        `${name} bills every ${price.intervalCount ?? "unknown number of"} ` +
+          `${price.interval ?? "interval"}s, and the ${plan} plan is sold one ${interval} ` +
+          "at a time.",
+      );
+    }
+    if (!price.active && input.selling) {
+      problems.push(`${name} is archived at Stripe, and no subscription can start on it.`);
+    }
+  }
+  const { monthly, yearly } = input;
+  if (monthly && yearly) {
+    // Between the two rather than of either, because each can be a perfectly
+    // good price on its own. Moving monthly to annual is an update to one
+    // subscription, which Stripe bills in one currency for its whole life; and
+    // two products are two plans, where this deployment sells one.
+    if (monthly.currency !== yearly.currency) {
+      problems.push(
+        `STRIPE_PRICE_MONTHLY_ID is in ${monthly.currency.toUpperCase()} and ` +
+          `STRIPE_PRICE_YEARLY_ID is in ${yearly.currency.toUpperCase()}. Both plans have ` +
+          "to be in one currency, or moving between them changes what somebody pays in.",
+      );
+    }
+    if (monthly.product !== yearly.product) {
+      problems.push(
+        "STRIPE_PRICE_MONTHLY_ID and STRIPE_PRICE_YEARLY_ID belong to different products " +
+          `(${monthly.product ?? "none"} and ${yearly.product ?? "none"}). They are meant ` +
+          "to be two prices of one plan.",
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * What the last definite read of the two prices found.
+ *
+ * `confirmedMode` is the other half, and it answers a different question: in
+ * which of Stripe's two modes this key found both prices, or null where it did
+ * not find both in its own. Finding them is the one piece of evidence in this
+ * process that the key belongs to the account the deployment's records came
+ * from, and the mode is read off the prices rather than the key's prefix,
+ * because a Price says which half it lives in and a key can read only its own
+ * half. A caller about to read "no such customer" or "no such subscription" as
+ * the object really being gone asks this first — see `missingMeansGone` in the
+ * billing service for why only `live` will do.
+ */
+export type PriceCheck = {
+  readonly problems: readonly string[];
+  readonly confirmedMode: "live" | "test" | null;
+};
+
+/**
+ * Undefined until Stripe has answered once. Kept across a failed read rather
+ * than cleared, because an unreachable Stripe says nothing new about the prices
+ * and forgetting a definite mismatch then would let a sale through it.
+ */
+let priceCheck: PriceCheck | undefined;
+/** The problems last written to the log, so a verdict is said once rather than every refresh. */
+let reportedPriceCheck: string | undefined;
+
+/** The verdict `fetchPlanPrices` last reached, or undefined when Stripe has never answered. */
+export function lastPriceCheck(): PriceCheck | undefined {
+  return priceCheck;
+}
+
+function recordPriceCheck(check: PriceCheck) {
+  priceCheck = check;
+  const summary = check.problems.join(" ");
+  if (summary === reportedPriceCheck) return;
+  const first = reportedPriceCheck === undefined;
+  reportedPriceCheck = summary;
+  // An error rather than a warning, and a refusal rather than a warning at the
+  // point of sale, because every one of these is money taken wrongly or not at
+  // all. Said on the change rather than on every read, which is every ten
+  // minutes on a deployment that would otherwise repeat it until somebody
+  // stopped reading.
+  if (check.problems.length > 0) {
+    log.error(
+      "The configured Stripe prices do not fit the plans they are sold as, so no " +
+        `subscription will be started until they do. ${summary}`,
+    );
+  } else if (first) {
+    log.info("Stripe is configured, and both prices fit the plans they are sold as.");
+  } else {
+    log.info("The configured Stripe prices fit the plans they are sold as again.");
+  }
+}
+
 /**
  * The two prices this deployment sells, read from Stripe rather than from the
- * environment.
+ * environment, and checked against the plans they are sold as.
  *
  * The environment holds ids, not amounts, and that is deliberate: an amount
  * copied into configuration is a second place for the price to live and the one
  * that does not get charged. A page that showed it would eventually lie.
  *
- * A failure here is not a failure of the page. The caller still knows which
- * plan somebody is on and what it allows; it just cannot name the amount, so
- * this answers with nulls and lets the tab render without a figure rather than
- * refusing to open.
+ * Every refresh is also a check — see `planPriceProblems` — and the verdict is
+ * kept for `lastPriceCheck`. A price Stripe says does not exist is an answer
+ * rather than a failure: it comes back null and the verdict says why.
+ *
+ * A failure to reach Stripe is not a failure of the page. The caller still
+ * knows which plan somebody is on and what it allows; it just cannot name the
+ * amount, so the plan tab catches this and renders without a figure rather
+ * than refusing to open.
  */
 export async function fetchPlanPrices(): Promise<PlanPrices> {
   const cached = priceCache;
@@ -700,18 +1002,77 @@ export async function fetchPlanPrices(): Promise<PlanPrices> {
   const { billing } = getConfig();
   if (!billing) throw new Error("Stripe is not configured on this deployment");
   const stripe = getStripe();
+  const retrieve = (id: string) =>
+    stripe.prices.retrieve(id).catch((error: unknown) => {
+      if (isMissingStripeResource(error)) return null;
+      throw error;
+    });
   const [monthly, yearly] = await measured("price.retrieve", () =>
-    Promise.all([
-      stripe.prices.retrieve(billing.monthlyPriceId),
-      stripe.prices.retrieve(billing.yearlyPriceId),
-    ]),
+    Promise.all([retrieve(billing.monthlyPriceId), retrieve(billing.yearlyPriceId)]),
   );
+  const monthlyShape = monthly ? shapeOfPrice(monthly) : null;
+  const yearlyShape = yearly ? shapeOfPrice(yearly) : null;
+  const keyMode = stripeMode(billing.secretKey);
+  const inKeyMode = (shape: PriceShape | null): shape is PriceShape =>
+    shape !== null && (keyMode === undefined || shape.livemode === (keyMode === "live"));
+  // Both found, both in the key's own mode, and both in the same one — which a
+  // key of an unrecognized form is not held to by the check above.
+  const confirmedMode =
+    inKeyMode(monthlyShape) &&
+    inKeyMode(yearlyShape) &&
+    monthlyShape.livemode === yearlyShape.livemode
+      ? monthlyShape.livemode
+        ? "live"
+        : "test"
+      : null;
+  recordPriceCheck({
+    problems: planPriceProblems({
+      monthlyId: billing.monthlyPriceId,
+      yearlyId: billing.yearlyPriceId,
+      monthly: monthlyShape,
+      yearly: yearlyShape,
+      keyMode,
+      selling: billing.enforcing,
+    }),
+    confirmedMode,
+  });
   const prices = {
-    monthly: priceFactsOf(monthly),
-    yearly: priceFactsOf(yearly),
+    monthly: monthly ? priceFactsOf(monthly) : null,
+    yearly: yearly ? priceFactsOf(yearly) : null,
   };
   priceCache = { at: Date.now(), prices };
   return prices;
+}
+
+/**
+ * Checks the two prices once, for a process starting up.
+ *
+ * The same rule `checkMailTransport` follows, for the same reason: the ledger
+ * is what people came for, and Stripe being unreachable at the moment a
+ * container starts is not a reason to keep it from starting. So an unreachable
+ * Stripe is a warning and nothing else, and a definite mismatch is an error in
+ * the log and a refusal at the point of sale — `setSubscription` asks
+ * `lastPriceCheck` before charging anybody — rather than a process that will
+ * not start. Neither stops the webhook or the sweep, which serve subscriptions
+ * that already exist and do not care what a new one would cost.
+ *
+ * Returns whether the prices are known to fit, for a caller that wants to say
+ * so; nothing depends on the answer.
+ */
+export async function checkStripePrices(): Promise<boolean> {
+  if (!getConfig().billing) return true;
+  try {
+    await fetchPlanPrices();
+  } catch (error) {
+    log.warn(
+      "Stripe could not be reached to check STRIPE_PRICE_MONTHLY_ID and " +
+        "STRIPE_PRICE_YEARLY_ID. Carrying on; they are checked again the next time " +
+        "the plan tab is opened and before any subscription is started.",
+      String(error),
+    );
+    return false;
+  }
+  return priceCheck?.problems.length === 0;
 }
 
 /** Dropped between tests, and by nothing else. */

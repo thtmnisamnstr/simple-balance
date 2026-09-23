@@ -3,6 +3,13 @@ import * as pulumi from "@pulumi/pulumi";
 
 import * as single from "../single-common";
 
+import {
+  chooseAvailabilityDomain,
+  dataVolumeGb,
+  instanceMetadata,
+  requireSshPublicKey,
+} from "./platform";
+
 /**
  * The `single` profile on Oracle Cloud.
  *
@@ -13,15 +20,19 @@ import * as single from "../single-common";
  * cloud's.
  *
  * Why this provider at all: Ampere A1 is the cheapest way to run this shape by
- * a wide margin, and Oracle's Always Free allowance covers a `small` deployment
+ * a wide margin, and Oracle's Always Free allowance covers a `small` machine
  * outright — 4 OCPUs and 24 GB of A1 across a tenancy, two block volumes and
- * 200 GB of storage. `docs/deployment-costs.md` has the comparison and its
- * caveats, of which the important one is that free A1 capacity is frequently
- * unavailable in a given region.
+ * 200 GB of storage. The database is not in this program: it is whatever
+ * DATABASE_URL names, set on the machine afterward, and the README's "A
+ * database for Oracle Cloud" is how to get one. OCI's managed PostgreSQL is not
+ * in that allowance; one run by hand on what is left of it can be.
+ * `docs/deployment-costs.md` has the comparison and its caveats, of which the
+ * important one is that free A1 capacity is frequently unavailable.
  */
 
 const settings = single.readSingleSettings();
 const size = settings.size;
+requireSshPublicKey(settings.sshPublicKey);
 
 // OCI has no notion of a default compartment: every resource is created in one,
 // and the tenancy's root compartment is a poor choice because its policies
@@ -38,16 +49,31 @@ const tags = { Project: "simple-balance", Profile: "single", PulumiStack: pulumi
  * The same reasoning as the AWS program: this profile is one machine with one
  * disk, and a block volume cannot be attached across domains anyway. Several
  * OCI regions have exactly one.
+ *
+ * The first, unless `simple-balance:availabilityDomain` names another, by name
+ * or by number. Set it before the first successful `pulumi up` and leave it: the
+ * data volume lives in the domain, so changing it afterward replaces the
+ * volume, and the secret, env.local and the backups on it go with the old one.
  */
+const requestedDomain = cfg.get("availabilityDomain") ?? "";
 const availabilityDomain = oci.identity
   .getAvailabilityDomainsOutput({ compartmentId })
-  .apply((result) => {
-    const domains = result.availabilityDomains;
-    if (!domains || domains.length === 0) {
-      throw new Error("No availability domain in this compartment. Check oci:region.");
-    }
-    return domains[0]!.name;
-  });
+  .apply((result) =>
+    chooseAvailabilityDomain(
+      (result.availabilityDomains ?? []).map((domain) => domain.name),
+      requestedDomain,
+    ),
+  );
+
+// Optional, and off by default: a private subnet for an OCI Database with
+// PostgreSQL to be created in by hand. The database itself is not built here,
+// for the reason DATABASE_URL is not a stack setting — its admin password would
+// be in Pulumi's state — and because it is billed, where everything else this
+// program makes can sit inside Always Free.
+const databaseSubnetWanted = cfg.getBoolean("databaseSubnet") ?? false;
+
+const instanceCidr = "10.30.0.0/24";
+const databaseCidr = "10.30.1.0/24";
 
 // --------------------------------------------------------------- network ---
 
@@ -71,7 +97,11 @@ const routeTable = new oci.core.RouteTable(name, {
   compartmentId,
   vcnId: vcn.id,
   routeRules: [
-    { destination: "0.0.0.0/0", destinationType: "CIDR_BLOCK", networkEntityId: internetGateway.id },
+    {
+      destination: "0.0.0.0/0",
+      destinationType: "CIDR_BLOCK",
+      networkEntityId: internetGateway.id,
+    },
   ],
   displayName: name,
   freeformTags: tags,
@@ -79,20 +109,21 @@ const routeTable = new oci.core.RouteTable(name, {
 
 /**
  * The firewall's cloud half. The other half is on the instance — see
- * `platformCommands` below, which is not an optimization but the difference
- * between a machine that serves and one that times out.
+ * `PLATFORM_COMMANDS` in `./platform.ts`, which is not an optimization but the
+ * difference between a machine that serves and one that times out.
  *
- * Nothing opens 5432 or 3000. PostgreSQL and the application reach each other
- * over the Docker network inside the machine.
+ * Nothing opens 3000: Caddy reaches the application over the Docker network
+ * inside the machine. Nothing opens 5432 either, because there is no database
+ * here to reach; the machine connects out to the one DATABASE_URL names.
  */
 const securityList = new oci.core.SecurityList(name, {
   compartmentId,
   vcnId: vcn.id,
   displayName: name,
   egressSecurityRules: [
-    // Open, and it has to be: images, Let's Encrypt, and whatever SMTP relay or
-    // Stripe endpoint an operator configures. Neither vendor publishes a host
-    // list that could be narrowed to.
+    // Open, and it has to be: images, Let's Encrypt, the database, and whatever
+    // SMTP relay or Stripe endpoint an operator configures. Neither vendor
+    // publishes a host list that could be narrowed to.
     { destination: "0.0.0.0/0", destinationType: "CIDR_BLOCK", protocol: "all" },
   ],
   ingressSecurityRules: [
@@ -119,6 +150,17 @@ const securityList = new oci.core.SecurityList(name, {
       protocol: "17",
       udpOptions: { min: 443, max: 443 },
     },
+    // From this subnet only, which is where an OCI Bastion's private endpoint
+    // sits. Both kinds of Bastion session connect to port 22 from there, so
+    // without this rule the service has nothing it can reach, and SSH is still
+    // published to nobody outside the VCN.
+    {
+      description: "SSH, from a Bastion in this subnet",
+      source: instanceCidr,
+      sourceType: "CIDR_BLOCK",
+      protocol: "6",
+      tcpOptions: { min: 22, max: 22 },
+    },
     ...(settings.sshCidr
       ? [
           {
@@ -136,7 +178,7 @@ const securityList = new oci.core.SecurityList(name, {
 const subnet = new oci.core.Subnet(name, {
   compartmentId,
   vcnId: vcn.id,
-  cidrBlock: "10.30.0.0/24",
+  cidrBlock: instanceCidr,
   displayName: name,
   dnsLabel: "host",
   routeTableId: routeTable.id,
@@ -144,6 +186,43 @@ const subnet = new oci.core.Subnet(name, {
   prohibitPublicIpOnVnic: false,
   freeformTags: tags,
 });
+
+/**
+ * Where an OCI Database with PostgreSQL can go, when asked for.
+ *
+ * Private, with no route anywhere, and answering on 5432 to the instance's
+ * subnet and nothing else. OCI's managed PostgreSQL goes in a private subnet,
+ * which the instance's is not; the instance already reaches this one, because
+ * its own egress is open and security lists are stateful.
+ */
+const databaseSubnet = databaseSubnetWanted
+  ? new oci.core.Subnet(`${name}-db`, {
+      compartmentId,
+      vcnId: vcn.id,
+      cidrBlock: databaseCidr,
+      displayName: `${name}-db`,
+      dnsLabel: "db",
+      prohibitPublicIpOnVnic: true,
+      securityListIds: [
+        new oci.core.SecurityList(`${name}-db`, {
+          compartmentId,
+          vcnId: vcn.id,
+          displayName: `${name}-db`,
+          ingressSecurityRules: [
+            {
+              description: "PostgreSQL, from the instance's subnet",
+              source: instanceCidr,
+              sourceType: "CIDR_BLOCK",
+              protocol: "6",
+              tcpOptions: { min: 5432, max: 5432 },
+            },
+          ],
+          freeformTags: tags,
+        }).id,
+      ],
+      freeformTags: tags,
+    })
+  : undefined;
 
 // --------------------------------------------------------------- machine ---
 
@@ -175,17 +254,21 @@ const image = oci.core
   });
 
 /**
- * The database's disk, separate from the boot volume and outliving it.
+ * The data disk, separate from the boot volume and outliving it.
  *
- * Replacing the instance destroys the boot volume and leaves this one, and the
- * first-boot script formats it only when it is not already a filesystem — so a
- * rebuild keeps the ledger and the two secrets stored beside it.
+ * It holds the generated secret, env.local and the nightly dumps — not the
+ * ledger, which is in the database DATABASE_URL names. Replacing the instance
+ * destroys the boot volume and leaves this one, and the first-boot script
+ * formats it only when it is not already a filesystem, so a rebuild keeps all
+ * three. Never smaller than OCI's 50 GB floor, which the shared table's
+ * `small` is under.
  */
+const dataGb = dataVolumeGb(size);
 const dataVolume = new oci.core.Volume(name, {
   compartmentId,
   availabilityDomain,
   displayName: `${name}-data`,
-  sizeInGbs: String(size.dataGib),
+  sizeInGbs: String(dataGb),
   freeformTags: tags,
 });
 
@@ -215,51 +298,63 @@ const instance = new oci.core.Instance(
       assignPublicIp: "true",
       hostnameLabel: "app",
     },
-    metadata: {
-      // Only where a key was given. `readSingleSettings` refuses an sshCidr
-      // without one, so the security list never opens a port that nothing can
-      // answer; a key without a CIDR is allowed and is how the OCI Bastion
-      // service reaches a machine that publishes no SSH at all.
-      ...(settings.sshPublicKey ? { ssh_authorized_keys: settings.sshPublicKey } : {}),
-      user_data: pulumi
-        .output(
-          single.cloudInit({
-            settings,
-            // OCI's consistent device paths, which exist precisely so a guest
-            // does not have to guess. The attachment below asks for this name
-            // and the guest sees this symlink, on every reboot, whatever order
-            // the devices enumerate in.
-            dataDevice: "/dev/oracleoci/oraclevdb",
-            platformCommands: [
-              // OCI's Ubuntu images ship a netfilter ruleset that accepts 22
-              // and REJECTs the rest, so the security list above opens the
-              // cloud and the host still refuses. Inserted at the top of the
-              // INPUT chain — appending would land after the REJECT that ends
-              // it and change nothing — and persisted, because the rules are
-              // reloaded from that file on boot.
-              '["/bin/sh", "-c", "iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT && iptables -I INPUT 2 -p tcp --dport 443 -j ACCEPT && iptables -I INPUT 3 -p udp --dport 443 -j ACCEPT && netfilter-persistent save"]',
-            ],
-          }),
-        )
-        .apply((text) => Buffer.from(text, "utf8").toString("base64")),
+    // Managed SSH sessions go through the Bastion plugin of Oracle Cloud Agent,
+    // which is off unless asked for. A port-forwarding session needs no plugin,
+    // only the key and the rule above, which is why nextSteps leads with it.
+    agentConfig: {
+      pluginsConfigs: [{ name: "Bastion", desiredState: "ENABLED" }],
     },
+    // The key and the cloud-init, gzipped and base64'd, and refused at preview
+    // if together they would pass OCI's 32,000-byte ceiling on metadata.
+    metadata: instanceMetadata(settings, settings.sshPublicKey),
     freeformTags: tags,
   },
-  // A newer Canonical build every few weeks would otherwise replace the machine
-  // on every `pulumi up`. Take one deliberately: remove this line, deploy, put
-  // it back.
-  { ignoreChanges: ["sourceDetails"] },
+  {
+    // sourceDetails: a newer Canonical build every few weeks would otherwise
+    // replace the machine on every `pulumi up`. Take one deliberately: remove
+    // it here, deploy, put it back.
+    //
+    // metadata: OCI cannot change user_data or the key on a running instance,
+    // so the provider replaces the instance whenever either differs — which,
+    // since the user data embeds this repository's compose files and scripts,
+    // would be every release and every edit to one of them, each a new machine
+    // on a new address. Cloud-init runs once per instance anyway, so the new
+    // text would change nothing on the old one. Ignoring it makes the rule the
+    // README states true: this program provisions the machine once, and a
+    // release, a setting or a new key is applied on the machine.
+    ignoreChanges: ["sourceDetails", "metadata"],
+    // Deleted before its replacement is made, not after, which is the reverse
+    // of Pulumi's default. Building the new machine first cannot work here: its
+    // VNIC's hostname label has to be unique in the subnet and the old one is
+    // still holding "app", and the Always Free A1 allowance has no room for two
+    // machines anyway. The address is ephemeral and changes on a replacement
+    // either way, so building first would buy nothing.
+    deleteBeforeReplace: true,
+  },
 );
 
-new oci.core.VolumeAttachment(name, {
-  instanceId: instance.id,
-  volumeId: dataVolume.id,
-  // Paravirtualized rather than iSCSI, which is the difference between a disk
-  // the guest simply has and one cloud-init has to run three `iscsiadm`
-  // commands to find.
-  attachmentType: "paravirtualized",
-  device: "/dev/oracleoci/oraclevdb",
-});
+new oci.core.VolumeAttachment(
+  name,
+  {
+    instanceId: instance.id,
+    volumeId: dataVolume.id,
+    // Paravirtualized rather than iSCSI, which is the difference between a disk
+    // the guest simply has and one cloud-init has to run three `iscsiadm`
+    // commands to find.
+    attachmentType: "paravirtualized",
+    device: "/dev/oracleoci/oraclevdb",
+  },
+  {
+    // A new instance means a new attachment, and Pulumi's default builds the
+    // replacement before removing the old one. OCI refuses to attach a volume
+    // that is still attached elsewhere, so that order fails the update with
+    // two machines and the volume on the old one. Removing first detaches it
+    // and then attaches it to the new one. That can take longer than the two
+    // minutes firstboot waits for the volume, and the README says what to do
+    // when it does.
+    deleteBeforeReplace: true,
+  },
+);
 
 /**
  * The address, read off the VNIC the instance was given.
@@ -274,34 +369,71 @@ new oci.core.VolumeAttachment(name, {
  * Docker is worse than an address that is stable only for the life of the
  * instance.
  *
- * In practice it is stable: nothing here replaces the instance, so the address
- * lasts until somebody destroys it deliberately. An operator who needs one that
- * outlives the machine can promote this address to reserved in the console,
- * which OCI supports for an existing ephemeral IP. `../aws-single/` has no such
- * constraint and uses an Elastic IP.
+ * In practice it is stable: a routine `pulumi up` replaces nothing — a new
+ * `size` reshapes the instance and grows its volume in place — so the address
+ * lasts until the instance itself is replaced: by a destroy, a new
+ * `availabilityDomain`, a new image taken by lifting `ignoreChanges`, or
+ * `pulumi up --replace`. An
+ * operator who needs one that outlives the machine can promote this address to
+ * reserved in the console, which OCI supports for an existing ephemeral IP, but
+ * promoting it does not make it follow: the replacement comes up on a fresh
+ * ephemeral address, for the same one-per-private-IP reason, and the reserved
+ * one has to be moved onto it by hand. `../aws-single/` has no such constraint
+ * and uses an Elastic IP.
  */
-const vnicId = oci.core
+const vnic = oci.core
   .getVnicAttachmentsOutput({ compartmentId, instanceId: instance.id })
-  .apply((result) => result.vnicAttachments[0]!.vnicId);
+  .apply((result) => oci.core.getVnicOutput({ vnicId: result.vnicAttachments[0]!.vnicId }));
 
-const publicIpAddress = oci.core
-  .getVnicOutput({ vnicId })
-  .apply((vnic) => vnic.publicIpAddress);
+const publicIpAddress = vnic.apply((details) => details.publicIpAddress);
+const privateIpAddress = vnic.apply((details) => details.privateIpAddress);
 
 export const publicIp = publicIpAddress;
+export const privateIp = privateIpAddress;
 export const instanceId = instance.id;
+export const subnetId = subnet.id;
+export const databaseSubnetId = databaseSubnet?.id;
 export const url = `https://${settings.hostname}`;
-export const machine = `VM.Standard.A1.Flex — ${size.vcpu} OCPU, ${size.memoryGib} GB, ${size.dataGib} GB data`;
+export const machine = `VM.Standard.A1.Flex — ${size.vcpu} OCPU, ${size.memoryGib} GB, ${dataGb} GB data`;
+
+const reach = settings.sshCidr
+  ? pulumi.interpolate`2. Reach the machine:   ssh ubuntu@${publicIpAddress}
+   (simple-balance:sshCidr opens 22 to ${settings.sshCidr}. A Bastion session works too:
+   "Reaching the Oracle Cloud machine" in deploy/pulumi/README.md has the commands.)`
+  : pulumi.interpolate`2. Reach the machine. SSH is not published; the OCI Bastion service reaches it from
+   inside its subnet. Create a bastion once (it is free), allowing your own address:
+     oci bastion bastion create --bastion-type STANDARD --compartment-id ${compartmentId} \\
+       --target-subnet-id ${subnet.id} --client-cidr-list '["<your address>/32"]'
+   then a session, which prints the ssh command to run once it is ACTIVE:
+     oci bastion session create-port-forwarding --bastion-id <bastion OCID> \\
+       --target-private-ip ${privateIpAddress} --target-port 22 \\
+       --ssh-public-key-file ~/.ssh/id_ed25519.pub
+     oci bastion session get --session-id <session OCID>    (under ssh-metadata)
+   That command forwards a local port; ssh -p <that port> ubuntu@localhost in another
+   terminal. The console's Bastion page does the same with a Copy SSH command button.
+   Or set simple-balance:sshCidr to your own address, run 'pulumi up', and ssh ubuntu@${publicIpAddress}.`;
 
 export const nextSteps = pulumi.interpolate`
 1. Point ${settings.hostname} at ${publicIpAddress} with an A record.
    Caddy cannot obtain a certificate until it resolves, and it retries until it does.
-2. Reach the machine. With simple-balance:sshCidr unset there is no open SSH port —
-   use the OCI Bastion service, or set sshCidr to your own address and redeploy.
-3. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
-4. Optional settings — SMTP, Stripe, AdSense — go in /var/lib/simple-balance/env.local,
-   which is on the data volume and survives a rebuild. Restart with
+   The address is ephemeral: promote it to reserved in the OCI console if the record
+   has to outlive this instance.
+${reach}
+3. Give it a database. None was created: put the connection string in env.local,
+     sudo nano /var/lib/simple-balance/env.local
+         DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=no-verify'
+   and, if that URL goes through a transaction pooler, DIRECT_DATABASE_URL beside it,
+   the same database past the pooler, for the migrations and the first-account claim.
+   Then run
+     sudo /usr/local/sbin/simple-balance-firstboot
+   which starts the deployment and its nightly backup. Until then it is installed and
+   stopped, and /etc/motd says so. The README's "A database for Oracle Cloud" has the
+   steps for one, and simple-balance:databaseSubnet the subnet.
+4. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
+5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires —
+   go in /var/lib/simple-balance/env.local, which is on the data volume and survives
+   a rebuild. Once the deployment has started, a setting is an edit to it, then
    sudo systemctl restart simple-balance.
-5. A later 'pulumi up' does not re-run the machine's setup. See the header of
-   /var/lib/cloud/instance/user-data.txt on the machine for how to apply a change.
+6. A later 'pulumi up' does not re-run the machine's setup. How to apply a change
+   is at the top of what it ran:   sudo cloud-init query userdata | head -16
 `;

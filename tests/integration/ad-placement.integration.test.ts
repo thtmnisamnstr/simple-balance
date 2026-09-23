@@ -109,7 +109,7 @@ integration("which sessions carry ad configuration", () => {
   });
 
   /**
-   * Inside the seven-day grace a failed renewal still entitles, so there is
+   * Inside the fifteen-day grace a failed renewal still entitles, so there is
    * still nothing to show them. They are a paying customer whose card bounced,
    * not a free account.
    */

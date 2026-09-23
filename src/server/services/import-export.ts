@@ -86,7 +86,7 @@ export const csvStageInputSchema = z.object({
     .enum(["YMD", "MDY", "DMY"])
     .default("YMD")
     .describe(
-      "How to read an ambiguous date. 03/04/2026 is 3 April under DMY and 4 March under MDY, and nothing in the file says which, so getting this wrong misfiles rows silently rather than failing.",
+      "How to read an ambiguous date. 03/04/2026 is April 3 under DMY and March 4 under MDY, and nothing in the file says which, so getting this wrong misfiles rows silently rather than failing.",
     ),
   decimalSeparator: z
     .enum([".", ","])

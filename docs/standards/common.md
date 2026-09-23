@@ -100,10 +100,13 @@ where somebody lives is answered in one place."
   migrator identifies by hash. Editing one is editing a migration, which
   `AGENTS.md` forbids for a reason that has nothing to do with spelling.
 
-*Not checked mechanically*, except the spelling, which
-`tests/mcp-measurements.test.ts` holds on the agent surface by naming the
-losing spelling and refusing it. A naming registry would need to know what a
-concept is, so the rest is review.
+*Not checked mechanically*, except the spelling and the idioms.
+`tests/mcp-measurements.test.ts` holds the spelling on the agent surface by
+naming the losing spelling and refusing it. `tests/american-wording.test.ts`
+holds the British idioms a word map cannot see — "tick the box", "fortnight",
+"straight away", "afterwards" and the rest it lists — across `src`,
+`index.html`, and the product kit's seed and scripts, comments included. A
+naming registry would need to know what a concept is, so the rest is review.
 
 ## Errors
 

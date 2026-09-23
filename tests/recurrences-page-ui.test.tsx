@@ -391,9 +391,11 @@ describe("the recurrence form", () => {
 
     const policy = screen.getByLabelText(/When it lands on a weekend/);
     expect(
-      within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
+      within(policy).getByRole("option", { name: /Move it to the Friday before/ }),
     ).toBeDisabled();
-    expect(within(policy).getByRole("option", { name: /Move it on to the Monday/ })).toBeDisabled();
+    expect(
+      within(policy).getByRole("option", { name: /Move it to the Monday after/ }),
+    ).toBeDisabled();
     expect(
       screen.getByText(/Make the interval three days or more to use those two/),
     ).toBeInTheDocument();
@@ -403,14 +405,14 @@ describe("the recurrence form", () => {
       target: { value: "2" },
     });
     expect(
-      within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
+      within(policy).getByRole("option", { name: /Move it to the Friday before/ }),
     ).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/^Every N days/), {
       target: { value: "3" },
     });
     expect(
-      within(policy).getByRole("option", { name: /Move it back to the Friday/ }),
+      within(policy).getByRole("option", { name: /Move it to the Friday before/ }),
     ).not.toBeDisabled();
   });
 

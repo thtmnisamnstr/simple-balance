@@ -214,7 +214,7 @@ server:
     failureThreshold: 720 # an hour, for the first start only
 ```
 
-Put it back afterwards. A startup budget of an hour on a steady deployment means
+Put it back afterward. A startup budget of an hour on a steady deployment means
 a pod that is genuinely wedged takes an hour to be replaced.
 
 **How long it takes, measured.** The cost is essentially the row count in

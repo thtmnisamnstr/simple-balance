@@ -140,8 +140,8 @@ export type TransactionType = (typeof transactionTypes)[number];
  * whether getting there reverses the direction it was entered in.
  *
  * A deposit normally credits income and a withdrawal normally debits expense.
- * A refund is the exception in both directions: thirty pounds back from the
- * shop is not income, and what should move is the spending it reverses. So the
+ * A refund is the exception in both directions: thirty dollars back from the
+ * store is not income, and what should move is the spending it reverses. So the
  * kinds of the categories the entry names decide, and the direction is only the
  * default when nothing contradicts it. A `both` category contradicts nothing,
  * which is what makes it `both`.
@@ -540,7 +540,7 @@ const transactionCommon = {
     .optional()
     .nullable()
     .describe(
-      "The reference this row carried in the file it was imported from, if any. It is what stops the same bank statement being imported twice, so treat it as bank-supplied text rather than as anything a person wrote — it arrives from outside this ledger and nothing here validates its meaning.",
+      "The reference this row carried in the file it was imported from, if any. It is what keeps the same bank statement from being imported twice, so treat it as bank-supplied text rather than as anything a person wrote — it arrives from outside this ledger and nothing here validates its meaning.",
     ),
   // Which template this was made from, kept so a template can report what came
   // of it. Provenance only: nothing reads it back into the entry.
@@ -663,7 +663,7 @@ const stagedDraftSchema = z
       .unknown()
       .optional()
       .describe(
-        "The reference the row carried in the file it came from. It is what stops a second import of the same statement staging the same rows twice.",
+        "The reference the row carried in the file it came from. It is what keeps a second import of the same statement from staging the same rows twice.",
       ),
     fromAccountId: z
       .unknown()
@@ -687,7 +687,7 @@ const stagedDraftSchema = z
       .unknown()
       .optional()
       .describe(
-        "What arrived in the destination account, in that account's currency. A cross-currency transfer cannot commit without it, which is the commonest reason a row waits here.",
+        "What arrived in the destination account, in that account's currency. A cross-currency transfer cannot commit without it, which is the most common reason a row waits here.",
       ),
     legs: z
       .unknown()
@@ -786,7 +786,7 @@ export const transactionTemplateDraftSchema = z
     ),
     date: blankToAbsent(isoDateSchema),
     payee: blankToAbsent(oneLine(z.string().trim().max(160))).describe(
-      "Who entries made from this are with, prefilled. Left out, the form keeps whatever is in the field already, so omit it deliberately for a template standing for a kind of spending rather than one shop.",
+      "Who entries made from this are with, prefilled. Left out, the form keeps whatever is in the field already, so omit it deliberately for a template standing for a kind of spending rather than one store.",
     ),
     fromAccountId: blankToAbsent(uuid()).describe(
       "The account the money leaves, prefilled, for a withdrawal or a transfer. Left out, the person chooses each time. Stored on a deposit template nothing ever reads it, and an account archived since is dropped with a notice when the template is used.",
@@ -963,7 +963,7 @@ export const transactionTemplateBulkEditSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterward.",
       ),
   })
   .strict();
@@ -978,7 +978,7 @@ export const transactionTemplateBulkDeleteSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterward.",
       ),
   })
   .strict();
@@ -1023,7 +1023,7 @@ export const activeAccountsSchema = z.object({
     .array(uuid())
     .max(1000)
     .describe(
-      "Every account that stays usable. Any account of yours left out of this list is frozen: still readable, and closed to every change until the plan stops limiting how many may be active. The choice is made once — an account already in use stays in use, and a frozen one may be named here only when archiving or deleting an account has freed a place. Archived accounts are not part of this and use up no place.",
+      "Every account that stays usable. Any account of yours left out of this list is frozen: still readable, and closed to every change until the plan stops limiting how many may be active. The choice is made once — an account already in use stays in use, and a frozen one may be named here only when archiving or deleting an account has freed a place, unless time on the paid plan left more accounts marked active than the plan keeps, which opens the choice again. Archived accounts are not part of this and use up no place. Refused while nothing is frozen, which is on a plan with no limit and whenever every account fits within it, unless the list names exactly the accounts already active.",
     ),
 });
 
@@ -1059,7 +1059,7 @@ export const accountCreateSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Whether the money in this account is money the budget is about. On by default, including for credit cards: spending on a card empties an envelope, so leaving cards out would say there is more money to assign than there is. Turn it off for an account the budget should not see, such as a mortgage or a pension. It changes no balance and no report — only the figure for what is left to assign.",
+      "Whether the money in this account is money the budget is about. On by default, including for credit cards: spending on a card empties an envelope, so leaving cards out would say there is more money to assign than there is. Turn it off for an account the budget should not see, such as a mortgage or a retirement account. It changes no balance and no report — only the figure for what is left to assign.",
     ),
 });
 
@@ -1198,7 +1198,7 @@ export const directTransactionCreateSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what stops a statement being imported twice.",
+      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what keeps a statement from being imported twice.",
     ),
 });
 
@@ -1211,7 +1211,7 @@ export const transactionUpdateSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what stops a statement being imported twice.",
+      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what keeps a statement from being imported twice.",
     ),
 });
 
@@ -1229,7 +1229,7 @@ export const transactionDeletedMutationSchema = versionedMutationSchema.extend({
     .boolean()
     .default(false)
     .describe(
-      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what stops a statement being imported twice.",
+      "Write the entry even though one with the same payee, amount and date already exists nearby. Leave it false and read the refusal first: the duplicate check is what keeps a statement from being imported twice.",
     ),
 });
 
@@ -1302,13 +1302,13 @@ export const commitStageSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what stops the same statement landing twice.",
+      "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what keeps the same statement from landing twice.",
     ),
   dryRun: z
     .boolean()
     .default(false)
     .describe(
-      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterward.",
     ),
 });
 
@@ -1343,7 +1343,7 @@ export const bulkDeleteStageSchema = z.object({
     .boolean()
     .default(false)
     .describe(
-      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+      "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterward.",
     ),
 });
 
@@ -1357,7 +1357,8 @@ export const dateRangeSchema = z.object({
  *
  * A statement row and the same purchase entered by hand rarely land on one day:
  * the bank posts when it settles. Three days either side covers that without
- * making a weekly shop of the same amount look like a repeat of last week's.
+ * making this week's groceries at the same amount look like a repeat of last
+ * week's.
  */
 export const LIKELY_DUPLICATE_DAYS = 3;
 
@@ -1553,7 +1554,7 @@ const budgetRule = {
     .nullable()
     .optional()
     .describe(
-      "Budget the previous period's amount plus this percentage — 3 for three per cent more each period, 0 to repeat it, a negative number down to -100 to taper. The first period of the window is the plain amount itself; the step starts from the period after it. Send null to go back to a fixed amount.",
+      "Budget the previous period's amount plus this percentage — 3 for three percent more each period, 0 to repeat it, a negative number down to -100 to taper. The first period of the window is the plain amount itself; the step starts from the period after it. Send null to go back to a fixed amount.",
     ),
   percentOfIncome: decimalStringSchema
     .nullable()
@@ -1696,7 +1697,7 @@ const percentagesAreNumbers = (value: BudgetRuleFields) =>
     (percent) => percent == null || /^[+-]?\d+(\.\d+)?$/.test(percent.trim()),
   );
 const percentagesAreNumbersMessage = {
-  message: "A percentage is a plain number, such as 3 or 12.5. Leave the per-cent sign out.",
+  message: "A percentage is a plain number, such as 3 or 12.5. Leave the percent sign out.",
   path: ["percentOfIncome"],
 };
 
@@ -1706,7 +1707,7 @@ const incomeShareIsAShare = (value: BudgetRuleFields) =>
   value.percentOfIncome == null ||
   (Number(value.percentOfIncome) >= 0 && Number(value.percentOfIncome) <= 1000);
 const incomeShareIsAShareMessage = {
-  message: "A share of income is between 0 and 1000 per cent.",
+  message: "A share of income is between 0 and 1000 percent.",
   path: ["percentOfIncome"],
 };
 
@@ -1720,7 +1721,7 @@ const stepIsNotBelowNothing = (value: BudgetRuleFields) =>
   (Number(value.percentOfPrevious) >= -100 && Number(value.percentOfPrevious) <= 1000);
 const stepIsNotBelowNothingMessage = {
   message:
-    "A step is between -100 and 1000 per cent. A step down of more than a hundred per cent would budget less than nothing; use -100 to taper to zero.",
+    "A step is between -100 and 1000 percent. A step down of more than a hundred percent would budget less than nothing; use -100 to taper to zero.",
   path: ["percentOfPrevious"],
 };
 
@@ -2204,7 +2205,7 @@ const bulkTransactionPatchSchema = z
     payee: oneLine(z.string().trim().min(1, "Payee is required").max(160))
       .optional()
       .describe(
-        'Renames the payee on every selected row to this one, canonicalized against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
+        'Renames the payee on every selected row to this one, canonicalized against the spellings you already use, so "walmart" files under "Walmart". Not a search and replace: rows that had different payees all end up with this one.',
       ),
     categoryId: uuid()
       .nullable()
@@ -2256,13 +2257,13 @@ export const bulkTransactionEditSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what stops the same statement landing twice.",
+        "Write rows that look like entries already in the ledger. Leave it false and read the refusal first: the duplicate check is what keeps the same statement from landing twice.",
       ),
     dryRun: z
       .boolean()
       .default(false)
       .describe(
-        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterward.",
       ),
   })
   .strict();
@@ -2278,7 +2279,7 @@ export const bulkTransactionDeleteSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterward.",
       ),
   })
   .strict();
@@ -2498,7 +2499,7 @@ const bulkStagePatchSchema = z
     payee: oneLine(z.string().trim().min(1, "Payee is required").max(160))
       .optional()
       .describe(
-        'Renames the payee on every selected row to this one, canonicalized against the spellings you already use, so "tesco" files under "Tesco". Not a search and replace: rows that had different payees all end up with this one.',
+        'Renames the payee on every selected row to this one, canonicalized against the spellings you already use, so "walmart" files under "Walmart". Not a search and replace: rows that had different payees all end up with this one.',
       ),
     categoryId: uuid()
       .nullable()
@@ -2560,7 +2561,7 @@ export const bulkStageEditSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterwards.",
+        "Validate the whole request and report what would happen without writing anything. Ask first when you are unsure; a bulk write is all-or-nothing and there is no per-row report afterward.",
       ),
   })
   .strict();
@@ -2578,7 +2579,7 @@ export const bulkStageEditResultSchema = z
   .object({
     dryRun: z.boolean(),
     updatedCount: z.number().int().nonnegative(),
-    // What the queue will look like afterwards, which is the thing somebody is
+    // What the queue will look like afterward, which is the thing somebody is
     // usually editing in bulk to change.
     validCount: z.number().int().nonnegative(),
     invalidCount: z.number().int().nonnegative(),
@@ -2830,7 +2831,7 @@ const recurrenceShapeFields = {
 /**
  * What a recurrence remembers about the transaction it proposes.
  *
- * The amount is optional because the electricity bill recurs and its amount does
+ * The amount is optional because the electric bill recurs and its amount does
  * not. A proposal missing one lands in the queue flagged, which is the point:
  * somebody types the number and commits it.
  *
@@ -2935,7 +2936,7 @@ function checkSchedule(
   // collides, and nothing else does; an exhaustive sweep of every frequency,
   // interval and anchor weekday finds collisions in exactly those two. The
   // queue refuses to commit a selection holding rows that alike, so either
-  // makes a queue nobody can clear in one go.
+  // makes a queue nobody can clear at once.
   const movesToABusinessDay =
     schedule.weekendPolicy === "previous_business_day" ||
     schedule.weekendPolicy === "next_business_day";
@@ -2966,7 +2967,7 @@ export const recurrenceScheduleSchema = z
     frequency: z
       .enum(recurrenceFrequencies)
       .describe(
-        "How often it comes round, counted from anchorDate, each occurrence proposing a staged row rather than posting anything. Monthly and yearly count from the anchor and never from the occurrence before, so one anchored on the 31st gives February the 28th and March the 31st.",
+        "How often it comes around, counted from anchorDate, each occurrence proposing a staged row rather than posting anything. Monthly and yearly count from the anchor and never from the occurrence before, so one anchored on the 31st gives February 28 and March 31.",
       ),
     interval: z
       .number()
@@ -2975,7 +2976,7 @@ export const recurrenceScheduleSchema = z
       .max(MAX_RECURRENCE_INTERVAL)
       .default(1)
       .describe(
-        "How many frequency units between occurrences, so 2 on a weekly schedule is every fortnight. A daily interval of one or two is refused with a business-day weekend policy: the move would put two occurrences on one date, which the queue will not commit.",
+        "How many frequency units between occurrences, so 2 on a weekly schedule is every two weeks. A daily interval of one or two is refused with a business-day weekend policy: the move would put two occurrences on one date, which the queue will not commit.",
       ),
     anchorDate: recurrenceAnchorDateSchema,
     monthPolicy: z
@@ -2988,7 +2989,7 @@ export const recurrenceScheduleSchema = z
       .enum(recurrenceWeekendPolicies)
       .default("allow")
       .describe(
-        "Where an occurrence landing on a Saturday or Sunday goes: allow leaves it, skip proposes nothing, previous_business_day moves it to the Friday, next_business_day to the Monday. Only the proposed row's date moves, so the schedule never drifts.",
+        "Where an occurrence landing on a Saturday or Sunday goes: allow leaves it, skip proposes nothing, previous_business_day moves it to the Friday before, next_business_day to the Monday after. Only the proposed row's date moves, so the schedule never drifts.",
       ),
     position: recurrencePositionSchema
       .nullable()
@@ -3014,7 +3015,7 @@ export const recurrenceSchedulePatchSchema = z
       .enum(recurrenceFrequencies)
       .optional()
       .describe(
-        "How often it comes round, counted from anchorDate, each occurrence proposing a staged row rather than posting anything. Monthly and yearly count from the anchor and never from the occurrence before, so one anchored on the 31st gives February the 28th and March the 31st.",
+        "How often it comes around, counted from anchorDate, each occurrence proposing a staged row rather than posting anything. Monthly and yearly count from the anchor and never from the occurrence before, so one anchored on the 31st gives February 28 and March 31.",
       ),
     interval: z
       .number()
@@ -3023,7 +3024,7 @@ export const recurrenceSchedulePatchSchema = z
       .max(MAX_RECURRENCE_INTERVAL)
       .optional()
       .describe(
-        "How many frequency units between occurrences, so 2 on a weekly schedule is every fortnight. A daily interval of one or two is refused with a business-day weekend policy: the move would put two occurrences on one date, which the queue will not commit.",
+        "How many frequency units between occurrences, so 2 on a weekly schedule is every two weeks. A daily interval of one or two is refused with a business-day weekend policy: the move would put two occurrences on one date, which the queue will not commit.",
       ),
     anchorDate: recurrenceAnchorDateSchema.optional(),
     monthPolicy: z
@@ -3036,7 +3037,7 @@ export const recurrenceSchedulePatchSchema = z
       .enum(recurrenceWeekendPolicies)
       .optional()
       .describe(
-        "Where an occurrence landing on a Saturday or Sunday goes: allow leaves it, skip proposes nothing, previous_business_day moves it to the Friday, next_business_day to the Monday. Only the proposed row's date moves, so the schedule never drifts.",
+        "Where an occurrence landing on a Saturday or Sunday goes: allow leaves it, skip proposes nothing, previous_business_day moves it to the Friday before, next_business_day to the Monday after. Only the proposed row's date moves, so the schedule never drifts.",
       ),
     position: recurrencePositionSchema
       .nullable()
@@ -3070,9 +3071,10 @@ const clockTimeSchema = z
  * somebody fills in by hand, and half the reason to be reminded of one is a
  * payment that happens once.
  *
- * The fields a one-off cannot use are refused rather than ignored, the same way
- * a position on a daily schedule is: silently dropping an interval somebody
- * typed is how a reminder ends up arriving on a day nobody chose.
+ * The fields a one-time reminder cannot use are refused rather than ignored,
+ * the same way a position on a daily schedule is: silently dropping an
+ * interval somebody typed is how a reminder ends up arriving on a day nobody
+ * chose.
  */
 export const templateNotificationSchema = z
   .object({
@@ -3081,7 +3083,7 @@ export const templateNotificationSchema = z
       .nullable()
       .default(null)
       .describe(
-        "How often the reminder repeats, on the same schedules a recurrence offers. Null, the default, is a single reminder on anchorDate; only a frequency makes one repeat, and a one-off refuses an interval, a policy or a position rather than reading it as a repeat.",
+        "How often the reminder repeats, on the same schedules a recurrence offers. Null, the default, is a single reminder on anchorDate; only a frequency makes one repeat, and a one-time reminder refuses an interval, a policy or a position rather than reading it as a repeat.",
       ),
     interval: z
       .number()
@@ -3103,7 +3105,7 @@ export const templateNotificationSchema = z
       .enum(recurrenceWeekendPolicies)
       .optional()
       .describe(
-        "Where a reminder due on a Saturday or Sunday goes: allow leaves it, skip sends none, previous_business_day moves it to the Friday, next_business_day to the Monday. Only the send date moves, and a reminder with no frequency accepts only the default allow.",
+        "Where a reminder due on a Saturday or Sunday goes: allow leaves it, skip sends none, previous_business_day moves it to the Friday before, next_business_day to the Monday after. Only the send date moves, and a reminder with no frequency accepts only the default allow.",
       ),
     position: recurrencePositionSchema
       .nullable()
@@ -3127,7 +3129,7 @@ export const templateNotificationSchema = z
       .boolean()
       .optional()
       .describe(
-        "Whether this reminder repeats, which is frequency not being null said again. Accepted and ignored, so a stored reminder can be read, changed and sent straight back; setting it true does not make a one-off repeat.",
+        "Whether this reminder repeats, which is frequency not being null said again. Accepted and ignored, so a stored reminder can be read, changed and sent straight back; setting it true does not make a one-time reminder repeat.",
       ),
     lastNotifiedDate: z
       .string()
@@ -3146,7 +3148,7 @@ export const templateNotificationSchema = z
   })
   .strict()
   .describe(
-    'An emailed reminder to make this transaction, or null for none. `frequency` null is a single reminder on `anchorDate`; a frequency repeats it on the same schedules a recurrence offers. `time` is "HH:MM" on this person\'s own clock. A reminder that happens once refuses an `interval`, a policy or a `position` that asks for a repeat, rather than ignoring it; sending back the stored defaults it reads is fine, so a read-modify-write of a one-off works. On an update, leaving this out keeps whatever is stored and null removes it; a value replaces the whole rule. Needs a deployment with SMTP configured, which `whoami` reports.',
+    'An emailed reminder to make this transaction, or null for none. `frequency` null is a single reminder on `anchorDate`; a frequency repeats it on the same schedules a recurrence offers. `time` is "HH:MM" on this person\'s own clock. A reminder that happens once refuses an `interval`, a policy or a `position` that asks for a repeat, rather than ignoring it; sending back the stored defaults it reads is fine, so a read-modify-write of a one-time reminder works. On an update, leaving this out keeps whatever is stored and null removes it; a value replaces the whole rule. Needs a deployment with SMTP configured, which `whoami` reports.',
   )
   .superRefine((notification, context) => {
     if (notification.frequency === null) {
@@ -3239,7 +3241,7 @@ export const recurrenceCreateSchema = z
       "The entry to propose each time, without a date — the occurrence supplies that. Amounts may be left blank for something whose figure changes.",
     ),
     schedule: recurrenceScheduleSchema.describe(
-      "When it comes round: how often, from when, and what to do when an occurrence lands on a weekend or in a month too short to hold it.",
+      "When it comes around: how often, from when, and what to do when an occurrence lands on a weekend or in a month too short to hold it.",
     ),
     notifyOnCreate: recurrenceNotifySchema.default(false),
   })
@@ -3260,7 +3262,7 @@ export const recurrenceUpdateSchema = z
     schedule: recurrenceSchedulePatchSchema
       .optional()
       .describe(
-        "When it comes round. A field left out keeps what is stored — the patch is merged onto the saved schedule and the result re-checked whole — so send only what changes.",
+        "When it comes around. A field left out keeps what is stored — the patch is merged onto the saved schedule and the result re-checked whole — so send only what changes.",
       ),
     notifyOnCreate: recurrenceNotifySchema.optional(),
     expectedVersion: expectedVersionSchema,
@@ -3352,11 +3354,25 @@ const entitlingStatuses = new Set(["active", "trialing"]);
 /**
  * How long a failed renewal keeps the paid plan, counted from the failure.
  *
- * Stripe retries a declined card over several days, so cutting access off at
- * the first failure would punish somebody whose card is about to succeed. Seven
- * days outlasts the retry schedule.
+ * Stripe retries a declined card, so cutting access off at the first failure
+ * would punish somebody whose card is about to succeed. Fifteen days is sized
+ * to Stripe's recommended default, eight tries within two weeks, with a day
+ * over for a webhook that lands after the failure it reports. It was seven,
+ * which the comment here claimed outlasted the retries and did not: a default
+ * Stripe account went on retrying for a week after the plan had dropped to
+ * free, so a paying subscriber sat frozen out of their own books until a
+ * retry that was always going to come.
+ *
+ * Sized to the default rather than to whatever an operator chooses, because
+ * the application cannot see that setting. A retry window of three weeks or
+ * more outlasts this, and `docs/deployment.md` says so beside the webhooks.
+ *
+ * Exported so that whatever tells a person how long this is — the Plan page's
+ * past-due alert, the guide's Plans section — can be held to this number
+ * rather than drift from it, as the alert did: it said "a few days" while the
+ * grace went from seven to fifteen.
  */
-const BILLING_GRACE_DAYS = 7;
+export const BILLING_GRACE_DAYS = 15;
 
 /** What one person's plan and limits are, given what is known about them. */
 export function resolveEntitlement(input: {
@@ -3399,9 +3415,9 @@ export function resolveEntitlement(input: {
   // Only `past_due` gets the grace, and only from the moment the renewal
   // actually failed. A subscription Stripe has given up on — canceled, unpaid,
   // or one that never completed its first payment — is not a renewal in
-  // progress, and treating it as one would hand a free week to anybody who lets
-  // a subscription lapse. A `past_due` row with no recorded failure time gets
-  // no grace rather than an unbounded one.
+  // progress, and treating it as one would hand two free weeks to anybody who
+  // lets a subscription lapse. A `past_due` row with no recorded failure time
+  // gets no grace rather than an unbounded one.
   const inGrace = subscriptions.some((s) => {
     if (s.status !== "past_due" || !s.pastDueSince) return false;
     const graceEnds = new Date(s.pastDueSince);
@@ -3510,7 +3526,7 @@ export function frozenAccountIds(
     value instanceof Date ? value.getTime() : Date.parse(value);
   // Oldest first, and the id breaks a tie: two accounts created in the same
   // millisecond must not order differently on two machines, or the browser
-  // would grey out a different row than the server refuses.
+  // would gray out a different row than the server refuses.
   // `sort`, not `toSorted`: this file compiles against ES2022 on the server.
   const candidates = accounts
     .filter((account) => account.archivedAt === null)
@@ -3531,21 +3547,6 @@ export function frozenAccountIds(
   );
 }
 
-/**
- * Whether a person may make this the set of accounts they keep usable.
- *
- * The rule is not "pick any three whenever you like". Choosing happens **once**
- * — when a plan starts limiting how many accounts may be active — and after
- * that the only move is to fill a place that has come free. An account that is
- * active stays active until it is deleted or archived; nothing lets somebody
- * park one to make room for another, because that is the same as having them
- * all and the limit would mean nothing.
- *
- * **Nobody has chosen while more live accounts are marked active than the plan
- * keeps** — `activeChoicePending`, which is what a downgrade leaves behind and
- * what a spell on the paid plan leaves behind too. So that call may name any
- * set within the limit, and every call after it may only add.
- */
 /**
  * Whether the one-time choice is still to be made.
  *
@@ -3580,21 +3581,70 @@ export function activeChoicePending(
   return liveAccounts.filter((account) => account.active !== false).length > limit;
 }
 
+/**
+ * Whether a person may make this the set of accounts they keep usable.
+ *
+ * The rule is not "pick any three whenever you like". Choosing happens **once**
+ * — when a plan starts limiting how many accounts may be active — and after
+ * that the only move is to fill a place that has opened up. An account that is
+ * active stays active until it is deleted or archived; nothing lets somebody
+ * park one to make room for another, because that is the same as having them
+ * all and the limit would mean nothing.
+ *
+ * **Nobody has chosen while more live accounts are marked active than the plan
+ * keeps** — `activeChoicePending`, which is what a downgrade leaves behind and
+ * what a spell on the paid plan leaves behind too. So that call may name any
+ * set within the limit, and every call after it may only add.
+ *
+ * **And there is no choice at all while nothing can be frozen**: on a plan with
+ * no limit, and while the live accounts fit within the one there is. Those are
+ * the states in which the Accounts page shows no chooser, and accepting a set
+ * in them was a capability only an agent had. It was worse than redundant: a
+ * choice written on the paid plan bound silently at the next downgrade, so the
+ * free first choice that downgrade is owed never came. A request naming exactly
+ * the accounts already marked active is let through, because it changes
+ * nothing, and a retry of a call that was accepted a moment ago must not come
+ * back as a refusal.
+ *
+ * `reason` is for the transport, which tells an agent something different for
+ * each: "nothing to choose" wants it to stop calling, the other two want a
+ * different list.
+ */
 export function activeAccountChange(input: {
   readonly entitlement: Entitlement;
   readonly accounts: readonly FreezableAccount[];
   readonly wanted: ReadonlySet<string>;
-}): { readonly ok: true } | { readonly ok: false; readonly message: string } {
+}):
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly reason: "nothing-frozen" | "over-limit" | "swap";
+      readonly message: string;
+    } {
   const { entitlement, accounts, wanted } = input;
-  if (!entitlement.billing || entitlement.accountLimit === null) return { ok: true };
-  const limit = entitlement.accountLimit;
+  const live = accounts.filter((account) => account.archivedAt === null);
+  const limit = entitlement.billing ? entitlement.accountLimit : null;
+  if (limit === null || live.length <= limit) {
+    const stored = live.filter((account) => account.active);
+    if (stored.length === wanted.size && stored.every((account) => wanted.has(account.id))) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      reason: "nothing-frozen",
+      message:
+        limit === null
+          ? "Nothing is frozen while no plan limits how many accounts may be active, so there is no choice to make."
+          : `A free plan keeps ${limit} accounts active, and this ledger has ${live.length}, so nothing is frozen and there is no choice to make.`,
+    };
+  }
   if (wanted.size > limit) {
     return {
       ok: false,
+      reason: "over-limit",
       message: `A free plan keeps ${limit} accounts active, and this names ${wanted.size}.`,
     };
   }
-  const live = accounts.filter((account) => account.archivedAt === null);
   // The one-time choice. Until it is made the ordering is standing in for it,
   // and standing in is not the same as having been chosen.
   if (activeChoicePending(limit, live)) return { ok: true };
@@ -3604,13 +3654,64 @@ export function activeAccountChange(input: {
   if (losing.length) {
     return {
       ok: false,
+      reason: "swap",
       message:
         "An account that is active stays active. You can bring a frozen one back when a place " +
-        "comes free — by deleting or archiving one you are using — but you cannot swap one for " +
+        "opens up — by deleting or archiving one you are using — but you cannot swap one for " +
         "another.",
     };
   }
   return { ok: true };
+}
+
+/**
+ * Which live accounts to mark active again, because every one of them fits.
+ *
+ * `active` has to go on describing which accounts are in use, and while the
+ * live accounts number no more than the free plan keeps, all of them are: that
+ * is where `frozenAccountIds` stops reading the column at all. A column left
+ * saying false there went stale, and stayed stale until it did damage.
+ * Somebody who chose three of five and archived two had the other two back in
+ * use while the column still said they were not; a paid spell that opened one
+ * more then lapsed with two marked active against a limit of three, so the
+ * choice stayed closed and the two accounts they had been using for months
+ * were the ones frozen.
+ *
+ * The free plan's number, never the entitlement's limit. That limit is null on
+ * the paid plan and wherever nothing is sold, which are exactly the stretches in
+ * which the stale state built up — archiving down to three while subscribed
+ * reached the same dead end. And nothing is rewritten while the live accounts
+ * are over it: a spell that opened nothing must leave the earlier choice
+ * standing, or every round trip through the paid plan would invite a swap.
+ *
+ * Takes every account rather than the live ones, and filters, so the server
+ * can hand it the rows it already read.
+ */
+export function accountsToMarkActive(accounts: readonly FreezableAccount[]): string[] {
+  const live = accounts.filter((account) => account.archivedAt === null);
+  if (live.length > MAX_FREE_ACCOUNTS) return [];
+  return live.filter((account) => !account.active).map((account) => account.id);
+}
+
+/**
+ * Whether an archived account may come back, and the sentence if not.
+ *
+ * Coming back out of the archive needs a free place, the same as opening an
+ * account would, so this is `accountAllowance` with one more sentence on the
+ * end. The sentence lives here rather than in the service because the Accounts
+ * page puts it beside a disabled Restore, and `docs/standards/code/errors.md` 4
+ * asks for the one the refusal would give.
+ */
+export function restoreAllowance(
+  entitlement: Entitlement,
+  current: number,
+): ReturnType<typeof accountAllowance> {
+  const allowance = accountAllowance(entitlement, current);
+  if (allowance.ok) return allowance;
+  return {
+    ...allowance,
+    message: `${allowance.message} Bringing this one back needs one of those places.`,
+  };
 }
 
 /**
@@ -3762,12 +3863,19 @@ export type SubscriptionAction =
  *    interval they are already on. The open invoice belongs to the stored
  *    subscription, so handing it back for a different interval charges the price
  *    nobody pressed.
- *  - An unpaid subscription and a different interval is `replace`, never a
- *    change: Stripe gives one person one subscription, and changing the price on
- *    an unpaid one leaves the old invoice outstanding.
+ *  - A first payment that never completed (`incomplete`) and a different
+ *    interval is `replace`, never a change: Stripe gives one person one
+ *    subscription, and changing the price on one that was never paid leaves the
+ *    old invoice outstanding. An `unpaid` one asking for the other interval is
+ *    a `schedule`: it has been paid before, and the switch waits for the
+ *    renewal like any other.
  *  - A change that is already scheduled is `none`. Stripe gives a subscription
  *    exactly one schedule, so asking again would be refused rather than being
- *    the no-op a second press means it as.
+ *    the no-op a second press means it as. `none` catches only a repeat of a
+ *    change it can name: any other schedule — a switch on a price this
+ *    deployment no longer sells, or one made in the Stripe dashboard — is
+ *    released by `setSubscription` before it creates the new one, because
+ *    Stripe would refuse a second schedule rather than replace the first.
  */
 export function subscriptionAction(input: {
   readonly current: {

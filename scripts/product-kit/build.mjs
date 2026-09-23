@@ -30,6 +30,7 @@ import { join } from "node:path";
 // answered in one place, and a second implementation here is what put the
 // seed a day ahead of the browser reading it.
 import { calendarDayIn } from "../../src/shared/recurrence-dates.js";
+import { entryKey } from "./entry-key.mjs";
 
 const BASE = process.env.APP_URL ?? "http://localhost:5173";
 const OUT = process.env.OUT_DIR ?? "docs/product/screenshots";
@@ -153,7 +154,8 @@ async function main() {
 
   const drafts = [];
   for (let month = 0; month < seed.monthsOfHistory; month += 1) {
-    for (const entry of seed.entries) {
+    for (const [entryIndex, entry] of seed.entries.entries()) {
+      const key = entryKey(today, month, entryIndex);
       const date = dayOfMonth(month, entry.day);
       const common = {
         date,
@@ -163,37 +165,52 @@ async function main() {
       };
       if (entry.type === "transfer") {
         drafts.push({
-          ...common,
-          type: "transfer",
-          fromAccountId: ids.accounts[entry.from],
-          toAccountId: ids.accounts[entry.to],
-          sourceAmount: entry.amount,
-          destinationAmount: entry.amount,
+          key,
+          draft: {
+            ...common,
+            type: "transfer",
+            fromAccountId: ids.accounts[entry.from],
+            toAccountId: ids.accounts[entry.to],
+            sourceAmount: entry.amount,
+            destinationAmount: entry.amount,
+          },
         });
       } else if (entry.type === "deposit") {
-        drafts.push({ ...common, type: "deposit", toAccountId: ids.accounts[entry.to], amount: entry.amount });
+        drafts.push({ key, draft: { ...common, type: "deposit", toAccountId: ids.accounts[entry.to], amount: entry.amount } });
       } else {
-        drafts.push({ ...common, type: "withdrawal", fromAccountId: ids.accounts[entry.from], amount: entry.amount });
+        drafts.push({ key, draft: { ...common, type: "withdrawal", fromAccountId: ids.accounts[entry.from], amount: entry.amount } });
       }
     }
   }
 
   const written = await page.evaluate(async (list) => {
     let ok = 0;
+    let kept = 0;
     const problems = [];
-    for (const [index, draft] of list.entries()) {
+    for (const { key, draft } of list) {
       const res = await fetch("/api/v1/transactions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        // Stable across runs, so a re-run replays rather than duplicating.
-        body: JSON.stringify({ draft, idempotencyKey: `kit-${index}-${draft.date}` }),
+        // Stable across runs and days, so a re-run replays rather than
+        // duplicating: `entry-key.mjs` says why it is not the date.
+        body: JSON.stringify({ draft, idempotencyKey: key }),
       });
-      if (res.ok) ok += 1;
-      else if (problems.length < 3) problems.push(`${res.status} ${(await res.text()).slice(0, 180)}`);
+      if (res.ok) {
+        ok += 1;
+        continue;
+      }
+      const text = await res.text();
+      // The entry is already there under the date it had when it was first
+      // posted; its clamped date has moved since, so the replay differs.
+      if (res.status === 409 && /idempotency key/i.test(text)) kept += 1;
+      else if (problems.length < 3) problems.push(`${res.status} ${text.slice(0, 180)}`);
     }
-    return { ok, problems };
+    return { ok, kept, problems };
   }, drafts);
-  console.log(`transactions: ${written.ok}/${drafts.length}`);
+  console.log(
+    `transactions: ${written.ok}/${drafts.length}` +
+      (written.kept ? `, ${written.kept} already posted under an earlier date` : ""),
+  );
   if (written.problems.length) console.log("problems:", written.problems);
 
   const budgets = await page.evaluate(

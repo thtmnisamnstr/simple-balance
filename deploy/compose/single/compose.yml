@@ -24,7 +24,9 @@ name: simple-balance
 services:
   app:
     # The one container: the API, the MCP server, the browser bundle and the
-    # recurrence scheduler, which RECURRENCE_SCHEDULER leaves on by default.
+    # recurrence scheduler. RECURRENCE_SCHEDULER is deliberately not passed
+    # below: this is the only process there is, so turning it off would leave
+    # recurrences that never propose.
     # Pinned rather than :latest, because an upgrade moves the schema and should
     # be a decision rather than whatever a restart happened to pull.
     image: ghcr.io/thtmnisamnstr/simple-balance:0.1.6
@@ -37,6 +39,9 @@ services:
       # with the session cookie on it.
       - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
 
+    # The whole of what reaches the container: .env only fills in the ${...},
+    # so a setting this block does not name is silently dropped.
+    # tests/env-example.test.ts holds it to every name src/server reads.
     environment:
       # Set by the image already. Pinned here because unset reads as development
       # and that is the one misconfiguration with no symptom: no setup code, no
@@ -53,6 +58,10 @@ services:
       # Where the database should live is the one thing this profile does not
       # decide. What it does decide is that losing this machine loses no data.
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in deploy/compose/single/.env}
+      # Only behind a transaction pooler, which managed services often hand
+      # out. Migrations and the first-account claim hold a session-level
+      # advisory lock that a pooler cannot carry, so they connect here instead.
+      DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL:-}
 
       # The origin a browser opens, which behind a terminator is its https:// URL
       # and not this container's port. The API sets the cookies the browser reads
@@ -94,10 +103,10 @@ services:
       CSV_MAX_BYTES: "10485760"
       CSV_MAX_ROWS: "10000"
 
-      # One process, so this deployment opens 10 + 1 = 11 of the
-      # POSTGRES_MAX_CONNECTIONS above. That is the entire connection budget for
-      # this profile: there is nothing to scale out, so the number does not move
-      # unless the pool does.
+      # One process, so this deployment opens 10 + 1 = 11 of whatever
+      # max_connections the database at DATABASE_URL allows. That is all this
+      # profile ever asks of it: there is nothing to scale out, so the number
+      # does not move unless the pool does.
       DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
 
       RECURRENCE_TICK_SECONDS: "300"
@@ -123,6 +132,11 @@ services:
       ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
       ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
       ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
+      # Required, as an absolute https:// address, the moment the AdSense ids
+      # are set: the server refuses to start without it. This block once left
+      # it out, so the value in .env never arrived and turning AdSense on took
+      # the whole deployment down asking for a variable already set.
+      PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
 
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

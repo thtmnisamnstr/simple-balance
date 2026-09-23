@@ -151,7 +151,7 @@ describe.skipIf(!connection)("every tool answers over a real connection", () => 
     ).rejects.toThrow(/cannot include split transactions/);
 
     // A leg relabeled by id, which the ledger records without writing a single
-    // posting, and the reader sees the new label straight away.
+    // posting, and the reader sees the new label right away.
     const relabeled = (await call("update_transaction", {
       id: created.id,
       idempotencyKey: "split-relabel",

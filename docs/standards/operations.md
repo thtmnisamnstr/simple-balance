@@ -156,7 +156,7 @@ conformance.
 
 **Binding, and already met by accident of the schema.** A subject cannot contain
 CR or LF. Recurrence and template names go through `oneLine`
-(`src/shared/domain.ts:300-306`), which refuses every character
+(`src/shared/domain.ts:324-330`), which refuses every character
 from U+0000 to U+001F and U+007F, so header injection through a subject is
 closed at the schema rather than at the mailer. Worth writing down precisely because the
 defense is nowhere near the code it defends.
@@ -174,7 +174,7 @@ Nothing asserts that `oneLine` refuses a newline.
 subject.
 
 One policy about personal data in log lines, in one process.
-`account-deletion.ts:216-221` logs counts and no address, with the comment
+`account-deletion.ts:213-220` logs counts and no address, with the comment
 "Deliberately without the address: they asked to be gone." `sendMail` follows it:
 every `Message` carries `about`, a fixed phrase naming the kind of message
 (`src/server/mail.ts:97-107`), and that phrase is what the log line carries
@@ -195,7 +195,7 @@ deliberately answers identically either way. `smtpFailure`
 refusing their credentials, or refusing this one message. `response` is the
 relay's own sentence and may quote the address inside it; that is the relay
 talking, and an operator who cannot read it has to reproduce the failure by
-hand. `src/server/api.ts:391-397` narrows a Drizzle error the same way for a
+hand. `src/server/api.ts:398-402` narrows a Drizzle error the same way for a
 harder reason: its message is built from the failing SQL and its bound
 parameters, one of which is an OAuth access token.
 
@@ -307,20 +307,20 @@ works whether or not mail does; what must not happen is failing in silence".
 This is the one named exception to fail-fast configuration, below.
 
 **Settled, and the process that sends was the one not doing it.** Both
-entrypoints check the transport at startup now. `src/server/index.ts:35` always
-did; `src/server/scheduler.ts:68-75` does as of this change, and it has the
+entrypoints check the transport at startup now. `src/server/index.ts:36` always
+did; `src/server/scheduler.ts:74-81` does as of this change, and it has the
 stronger claim on the check: it sends every scheduled message, and nobody is
 waiting for one. A person locked out of a password reset complains within the
 hour, and a reminder that never arrives is noticed by nobody at all. A scheduler
 with no mail configured says that too, in one line
-(`src/server/scheduler.ts:76-89`), because a container that was never handed the
+(`src/server/scheduler.ts:82-95`), because a container that was never handed the
 SMTP settings and one whose relay answers are indistinguishable in a log that
 says nothing — and a split deployment assembled by hand is exactly where that
 happens, since the chart and the compose file both give the scheduler the whole
 of the API's environment and a hand-built one gives it what somebody remembered.
 
 What it deliberately does not copy from the API is written above its own
-`main()` (`src/server/scheduler.ts:42-55`). The archived-account reconciliation
+`main()` (`src/server/scheduler.ts:43-56`). The archived-account reconciliation
 is a repair of somebody's postings rather than anything the schedule needs, and
 the API image runs in every deployment that runs this one; the `TRUST_PROXY`
 notice and the first-run setup code belong to a sign-in this process does not
@@ -393,14 +393,14 @@ else refuses to start.
 
 This is the rule most worth stating because the alternative is truthiness, and
 truthiness has no symptom. `RECURRENCE_SCHEDULER` already does it, and
-`config.ts:219-221` gives the reason: "A misspelling here has no symptom: the
+`config.ts:261-263` gives the reason: "A misspelling here has no symptom: the
 process starts, serves, and quietly proposes nothing until somebody notices a
 year of missing rent." `RECURRENCE_SCHEDULER=yes` read as falsy is a deployment
-that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:215-218`) and
-`SMTP_SSL` (`config.ts:383-386`) follow the same pattern.
+that looks healthy and proposes nothing. `TRUST_PROXY` (`config.ts:257-260`) and
+`SMTP_SSL` (`config.ts:504-507`) follow the same pattern.
 
 The same argument applies to any closed set, not only booleans. `NODE_ENV` is
-parsed against three values and refuses a fourth (`config.ts:188-192`), because
+parsed against three values and refuses a fourth (`config.ts:232-236`), because
 `NODE_ENV=Production` compared against the string `production` had no symptom
 either: no setup code, no rate limiting, no secure cookies.
 
@@ -410,7 +410,7 @@ the database or the process.
 
 **House.** A list is comma-separated, each entry trimmed, and empty entries are
 skipped rather than refused. `parseRegistrationRule`
-(`src/server/config.ts:879-914`) is the model: split, trim, lowercase, drop the
+(`src/server/config.ts:902-937`) is the model: split, trim, lowercase, drop the
 blanks, then validate what is left with a message naming the bad entry.
 
 *Checked by:* `tests/config.test.ts:162-183`, which asserts that
@@ -501,7 +501,7 @@ contradictory secret file then refuses at startup rather than at the first
 query, which is what the next section asks of everything else.
 
 The same argument decided the one line that looks like it should have been left
-alone. `config.ts:308-316` hands `getPool()` the *development default* for
+alone. `config.ts:430-438` hands `getPool()` the *development default* for
 `DATABASE_URL` and is now guarded so it does that and nothing else, because
 unguarded it would have written a value read from `DATABASE_URL_FILE` straight
 back into the environment the form exists to keep it out of.
@@ -523,14 +523,14 @@ Secret is consumed through `envFrom` too
 chart declares no volume or volume mount on either workload, so the file has to
 be placed by something else and named through `config.extraEnv`. The compose
 file writes `DATABASE_URL` inline and makes `AUTH_SECRET` a required
-interpolation (`deploy/compose/compose.distributed.yml:46`, `:61`), so both have
+interpolation (`deploy/compose/compose.distributed.yml:50`, `:71`), so both have
 to be edited out first. A plain `docker run` reaches the form with a bind mount
 and nothing else, which is the path `README.md` documents. The application
 supports it everywhere; the two orchestrated paths this section argues from do
 not, and marking this settled without saying so would credit the guide with a
 capability neither of them can reach.
 
-*Checked by:* `tests/config.test.ts:380-598`, over six of the seven by the
+*Checked by:* `tests/config.test.ts:380-622`, over six of the seven by the
 consumer that has to end up holding the value, including that a resolved
 `DATABASE_URL` reaches `directConnectionString` without reaching `process.env`,
 and that it does so in a process that never calls `getConfig` at all.
@@ -605,7 +605,7 @@ default whenever the value was not a safe integer in range, so `CSV_MAX_ROWS`,
 `RECURRENCE_CLAIM_LIMIT` all fell back silently while `DATABASE_POOL_SIZE` threw.
 The five were made to do what the one did, and then all six were made to warn
 instead, which is where they are now
-(`src/server/config-limits.ts:52-72`).
+(`src/server/config-limits.ts:40-84`).
 
 **The reversal is the interesting half, and it is not a retreat from the rule.**
 A release upgrades cleanly from the one before it, which `AGENTS.md` states as a
@@ -621,11 +621,11 @@ it was given, the range it had to be in, and the number in force instead — and
 is printed once per name at startup, in front of whoever just deployed. What was
 kept from the first pass is the part that mattered most: all six are read at
 startup rather than at the call site. `configuredCsvMaxRows()` used to run inside
-an import (`src/server/services/import-export.ts:795`) and the recurrence limits
+an import (`src/server/services/import-export.ts:796`) and the recurrence limits
 inside a tick, so a message about either arrived hours later in a log nobody was
 reading, or on a deployment that never imported a CSV, not at all.
 `assertConfiguredLimits()` (`src/server/config-limits.ts:224-231`) reads all six
-and `getConfig()` calls it (`src/server/config.ts:199-214`), which every
+and `getConfig()` calls it (`src/server/config.ts:215-227`), which every
 entrypoint runs before it serves anything.
 
 *Checked by:* `tests/config.test.ts` ("warns and falls back when %s is not a
@@ -643,12 +643,12 @@ happens when it is set wrong.
 
 There is no specification for this. `docs/deployment.md` delivers the first five
 for every variable. The sixth is given wherever there is a ceiling
-(`docs/deployment.md:51-57`, of which `CSV_MAX_ROWS` at `:52` is the fullest: the
+(`docs/deployment.md:59-67`, of which `CSV_MAX_ROWS` at `:62` is the fullest: the
 cap matches the bulk-action cap so an import always fits one review-queue
-action). The seventh appears for `TRUST_PROXY` (`:49`, "getting it wrong costs
-per-visitor rate limiting"), `RECURRENCE_SCHEDULER` (`:53`, "A value other than
+action). The seventh appears for `TRUST_PROXY` (`:58`, "getting it wrong costs
+per-visitor rate limiting"), `RECURRENCE_SCHEDULER` (`:63`, "A value other than
 `true` or `false` refuses to start, because the wrong setting is otherwise
-silent") and the six bounded integers (`:58-72`), and nowhere else.
+silent") and the six bounded integers (`:72-93`), and nowhere else.
 `SB_MAX_UPLOAD_SIZE` (`deploy/docker/frontend.Dockerfile:51-54`) models the
 sixth best of all, because it gives the arithmetic so an operator can compute
 their own value rather than copy a number.
@@ -690,7 +690,7 @@ name in the message.
 
 The root file is the model for all five. `AUTH_SECRET=` is empty with
 `openssl rand -base64 32` above it (`.env.example:8-13`),
-`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:77-81`),
+`RECURRENCE_SCHEDULER` carries its own silence warning (`.env.example:128-132`),
 and the mail block is commented out as a group (`.env.example:31-51`).
 
 It also does one thing beyond the rule, worth generalizing: it warns about
@@ -704,7 +704,7 @@ parsers read `.env` in this repository and they disagree about quoting.
 
 | Path | Parser | Rule |
 | --- | --- | --- |
-| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:509`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
+| `docker run --env-file .env` (`README.md:122`, `docs/deployment.md:592`) | Docker CLI | `NAME=value`, `#` only at line start, values passed as-is. **No interpolation and no quote processing. Do not quote.** Quoting an `SMTP_PASSWORD` here puts the quote marks in the password. |
 | Compose `.env` and `env_file` (`deploy/compose/compose.distributed.yml`) | Compose | Interpolation applies to unquoted and double-quoted values, `${VAR:-default}` and friends work. **Single-quote a value containing `$`.** |
 
 The intuitive advice, "quote your secrets in `.env`", is wrong on the path this
@@ -726,16 +726,16 @@ is believed.
 **Settled, and six variables had drifted.** Three were in the root example and
 in no table, because prose was doing the work a table row does: `NODE_ENV` and
 the two Google settings, which are now rows of their own
-(`docs/deployment.md:21`, `:105-106`). Prose is where the reasoning goes and a
+(`docs/deployment.md:31`, `:124-125`). Prose is where the reasoning goes and a
 table is what somebody scans for a name, so a variable mentioned only in a
 sentence is one an operator searching the tables concludes does not exist.
 
 **The other three are a named exception rather than an omission, and this is the
 reason.** `SB_API_ORIGIN`, `SB_FRONTEND_PORT` and `SB_MAX_UPLOAD_SIZE`
-(`docs/deployment.md:632-634`) belong to the nginx container, and neither example
+(`docs/deployment.md:714-716`) belong to the nginx container, and neither example
 file configures it: the root file serves the single container, which has no
 nginx in it, and the compose recipe sets all three on the frontend service
-itself (`deploy/compose/compose.distributed.yml:232-236`), where a value can
+itself (`deploy/compose/compose.distributed.yml:285-289`), where a value can
 carry the reason it is what it is. Their defaults are in the image
 (`deploy/docker/frontend.Dockerfile:49-54`), so a deployment that changes none of
 them has nothing to write down. This is the same shape as `POSTGRES_PASSWORD`
@@ -831,10 +831,10 @@ needs and nothing a request does not.
 
 `/health/live` returns 200 unconditionally. `/health/ready` runs `select 1` and
 returns 200 or 503 (`src/server/api.ts:417-432`, and the same pair on the
-scheduler at `src/server/scheduler.ts:23-32`). Both are registered above every
+scheduler at `src/server/scheduler.ts:30-38`). Both are registered above every
 auth middleware and neither is authenticated.
 
-The rule that generalizes best is already written in `docs/deployment.md:648`: "A
+The rule that generalizes best is already written in `docs/deployment.md:871`: "A
 process with the scheduler switched off is not an unhealthy one." A readiness
 check that fails because an optional subsystem is off takes a working server out
 of rotation. Readiness must not consult mail, and it must not consult the
@@ -847,10 +847,10 @@ failure."
 **House, and this is the interaction most container guides miss: startup, not
 shutdown, is the slow half.** Migrations run at startup under advisory lock
 724202607 and `runMigrations()` is awaited before `serve()`
-(`src/server/index.ts:27,68`; `src/server/scheduler.ts:67,74`), so readiness
+(`src/server/index.ts:28,68`; `src/server/scheduler.ts:73,74`), so readiness
 cannot open before they finish. The 0.1.5 notes record that the payee index
 "takes a moment to build while the container starts, before it opens readiness"
-(`docs/upgrades.md:121-122`). So the generous number is `--start-period`, currently
+(`docs/upgrades.md:442-443`). So the generous number is `--start-period`, currently
 20s (`Dockerfile:58`), plus a Kubernetes startup probe. Not the shutdown
 deadline.
 
@@ -858,7 +858,7 @@ deadline.
 `/health/ready` "says configuration, the database, and the migrations have all
 succeeded, and stays closed until they have", and readiness never knew anything
 about configuration or migrations. Both now say what it does:
-`docs/deployment.md:764-769` and `README.md:131-134` describe one statement
+`docs/deployment.md:862-867` and `README.md:137-140` describe one statement
 against the database and nothing else, and `src/server/api.ts:418-431` says the
 same beside the route. The difference matters to an operator designing alerting:
 a migration that succeeded on an older image leaves readiness green against a
@@ -986,7 +986,7 @@ carry the id and not the payee, the search term or the bound parameter.
 
 **House, and off unless asked for.** `GET /metrics` answers in the Prometheus
 text format, on the port everything else is served on, and only when
-`METRICS_ENABLED=true` (`src/server/api.ts:326`). Registered rather
+`METRICS_ENABLED=true` (`src/server/api.ts:327`). Registered rather
 than refused: a deployment that never asked has no such route, which is the same
 answer the MCP surface gives for a tool outside a token's scope.
 
@@ -1071,17 +1071,17 @@ is killed at the end of the grace period every time.
 grace period, and a second signal exits immediately.
 `src/server/server-lifecycle.ts` implements both: `DEFAULT_SHUTDOWN_DEADLINE_MS`
 is 10,000 (`src/server/server-lifecycle.ts:3`), and a signal arriving while
-draining forces the exit (`:105-110`),
+draining forces the exit (`:104-107`),
 which is the case most implementations miss and the one that makes Ctrl-C twice
 behave the way a person expects. The compose file sets
 `stop_grace_period: 30s` with a comment saying it is "Longer than the 10s drain
 the process gives itself on SIGTERM (DEFAULT_SHUTDOWN_DEADLINE_MS), so it is not
-killed mid-drain" (`deploy/compose/compose.distributed.yml:184-186`), and the
+killed mid-drain" (`deploy/compose/compose.distributed.yml:243-245`), and the
 chart sets `terminationGracePeriodSeconds: 30`
-(`deploy/helm/simple-balance/values.yaml:238`).
+(`deploy/helm/simple-balance/values.yaml:255`).
 
 **Settled.** Both documented `docker run` commands now pass
-`--stop-timeout 30` (`README.md:118-123`, `docs/deployment.md:430-437`). Docker's
+`--stop-timeout 30` (`README.md:122-127`, `docs/deployment.md:592-599`). Docker's
 default is 10 seconds, exactly the drain deadline, so the forced exit and
 SIGKILL used to land in the same instant and the drain never got to finish.
 
@@ -1100,7 +1100,7 @@ Node images and `USER 101` in the frontend (`Dockerfile:56`,
 `--read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m`. The chart sets
 `runAsNonRoot`, `runAsUser: 1000`, `seccompProfile: RuntimeDefault`,
 `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true` and
-`capabilities.drop: [ALL]` (`deploy/helm/simple-balance/values.yaml:220-234`).
+`capabilities.drop: [ALL]` (`deploy/helm/simple-balance/values.yaml:237-251`).
 
 **Settled.** `--cap-drop=ALL` and `--security-opt=no-new-privileges` are on the
 documented `docker run` in both `README.md` and `docs/deployment.md`, and
@@ -1110,7 +1110,7 @@ Simple Balance services in `deploy/compose/compose.distributed.yml` through one
 nginx binding 8080 as uid 101, need no capability at all, so this costs nothing
 and closes the two routes a container escape usually takes. The Pulumi programs
 deploy the chart, so they inherit the Kubernetes spelling at
-`deploy/helm/simple-balance/values.yaml:220-234` and need nothing of their own.
+`deploy/helm/simple-balance/values.yaml:237-251` and need nothing of their own.
 
 **The one exception, stated because an unstated one reads as an oversight.** The
 `postgres` service in the compose file gets `no-new-privileges` and keeps its
@@ -1163,7 +1163,7 @@ would have failed the gates" is worth more than the finding, and this keeps
 both.
 
 The npm cache stays off whenever a ref is passed
-(`.github/workflows/verify.yml:64`, `:110` and `:220`), which was the earlier guard and is still
+(`.github/workflows/verify.yml:68`, `:118` and `:330`), which was the earlier guard and is still
 right, but it was never sufficient on its own: the token exists for the job
 whether or not this workflow chooses to cache with it.
 
@@ -1391,7 +1391,7 @@ Not checked mechanically, ranked by how cheap the check would be:
 3. `oneLine` refuses CR and LF, which is what closes header injection.
 4. A failed send names the notification row and not only the kind of message it
    was. The code half is done — both scheduled senders pass the id
-   (`src/server/services/notifications.ts:175`, `:373`), as the mail policy
+   (`src/server/services/notifications.ts:170`, `:376`), as the mail policy
    section above records — so what is missing is the test that would keep it
    done.
 
@@ -1431,5 +1431,5 @@ guide argues for and the code does not do:
 
 | What | Where | Why it is a row |
 | --- | --- | --- |
-| The `_FILE` secret form is unreachable through the orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:62-66`, `deploy/compose/compose.distributed.yml:46`, `:61`, `deploy/compose/vps/compose.app.yml` | The chart consumes an existing Secret through `envFrom` and declares no volume on either workload; both compose files write `DATABASE_URL` inline and make `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose files rather than the resolver. A `secretFiles` values block mounting a Secret as a volume, and a commented `secrets:` stanza, are what would close it. The `vps` profile widened this rather than changing it: a third orchestrated path arrived in 0.2.0 and took the same shortcut |
+| The `_FILE` secret form is unreachable through the orchestrated paths this guide argues from | `deploy/helm/simple-balance/templates/server-deployment.yaml:62-66`, `deploy/compose/compose.distributed.yml:50`, `:71`, `deploy/compose/vps/compose.app.yml` | The chart consumes an existing Secret through `envFrom` and declares no volume on either workload; both compose files write `DATABASE_URL` inline and make `AUTH_SECRET` a required interpolation. The application supports the form everywhere and a `docker run` reaches it with a bind mount, so this is the chart and the compose files rather than the resolver. A `secretFiles` values block mounting a Secret as a volume, and a commented `secrets:` stanza, are what would close it. The `vps` profile widened this rather than changing it: a third orchestrated path arrived in 0.2.0 and took the same shortcut |
 | `METRICS_TOKEN_FILE` has no consumer-side proof | `src/server/config-files.ts:28-38` | Six of the seven `_FILE` names are read back through the consumer that has to end up holding the value. The seventh rests on the resolver's registry alone, so a name added there and never wired to the scrape endpoint would look identical |

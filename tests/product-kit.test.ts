@@ -113,7 +113,7 @@ describe("the screenshots", () => {
   it("has a manifest, or the kit has never been built", () => {
     expect(
       existsSync(manifestPath),
-      "run `node scripts/product-kit/build.mjs` — see the product-kit skill",
+      "run `npx tsx scripts/product-kit/build.mjs` — see the product-kit skill",
     ).toBe(true);
   });
 

@@ -3,6 +3,8 @@ import * as pulumi from "@pulumi/pulumi";
 
 import * as single from "../single-common";
 
+import { PLACEHOLDER_VOLUME_ID, userDataBase64 } from "./platform";
+
 /**
  * Its own Pulumi project, and that is the point rather than an accident of
  * layout.
@@ -16,6 +18,11 @@ import * as single from "../single-common";
 
 const settings = single.readSingleSettings();
 const size = settings.size;
+
+// Measured now, against a volume id of the real length, so user data that
+// would not fit EC2's 16 KB refuses at `pulumi preview` rather than after the
+// network has been built. The real render below checks again.
+userDataBase64(settings, PLACEHOLDER_VOLUME_ID);
 
 const region = aws.config.region;
 if (!region) {
@@ -59,9 +66,10 @@ const internetGateway = new aws.ec2.InternetGateway(name, {
 });
 
 // One subnet, one availability zone. Spreading across three would be a claim
-// this profile does not make: the machine, the disk and the database are one
-// thing, and a second zone with nothing in it costs money and buys nothing.
-// Surviving the loss of a zone is what the `ha` profile is for.
+// this profile does not make: the machine and its disk are one thing, and a
+// second zone with nothing in it costs money and buys nothing. Surviving the
+// loss of a zone is what the `ha` profile is for, and the database's own
+// resilience is whoever runs it.
 const subnet = new aws.ec2.Subnet(name, {
   vpcId: vpc.id,
   cidrBlock: "10.20.0.0/24",
@@ -84,10 +92,11 @@ new aws.ec2.RouteTableAssociation(name, {
  * The firewall, and the whole of it. `docs/deployment-profiles.md` has the same
  * table in prose.
  *
- * Nothing opens 5432 or 3000. PostgreSQL and the application talk to each other
- * over the Docker network inside the machine, so neither has a reason to be
- * reachable from outside it, and a rule that opened either would be a second way
- * in that the application's own origin checks do not cover.
+ * Nothing opens 3000. Caddy reaches the application over the Docker network
+ * inside the machine, so it has no reason to be reachable from outside, and a
+ * rule that opened it would be a second way in that the application's own
+ * origin checks do not cover. Nothing opens 5432 either: there is no database
+ * here, and the machine connects out to the one DATABASE_URL names.
  */
 const securityGroup = new aws.ec2.SecurityGroup(name, {
   vpcId: vpc.id,
@@ -134,11 +143,11 @@ const securityGroup = new aws.ec2.SecurityGroup(name, {
   ],
   egress: [
     // Outbound is open, and it has to be: the machine pulls images, reaches
-    // Let's Encrypt, and — where an operator configures them — reaches an SMTP
-    // relay and Stripe. Narrowing this to a host list would break on the first
-    // CDN address change, and the list is not published by either vendor.
+    // Let's Encrypt and its database, and — where an operator configures them —
+    // an SMTP relay and Stripe. Narrowing this to a host list would break on the
+    // first CDN address change, and the list is not published by either vendor.
     {
-      description: "Everything: images, ACME, and any SMTP or Stripe host configured",
+      description: "Everything: images, ACME, the database, and any SMTP or Stripe host",
       protocol: "-1",
       fromPort: 0,
       toPort: 0,
@@ -201,13 +210,16 @@ const ami = aws.ec2.getAmiOutput({
 const availabilityZone = subnet.availabilityZone;
 
 /**
- * The database's disk, separate from the machine's.
+ * The data disk, separate from the machine's.
  *
- * Separate because the two have different lifetimes. Replacing the instance —
- * to resize it, or because an upgrade went wrong — destroys the root volume and
- * leaves this one, and cloud-init formats it only when it is not already a
- * filesystem. So a rebuild keeps the ledger, and it keeps the two generated
- * secrets that live beside it.
+ * It holds the generated secret, env.local and the nightly dumps — not the
+ * ledger, which is in the database DATABASE_URL names. Separate because the two
+ * disks have different lifetimes. A new `size` is not a replacement: EC2 stops
+ * the instance, changes its type and starts it again, and this volume grows in
+ * place. Replacing the instance — a new image taken by lifting
+ * `ignoreChanges`, or `pulumi up --replace` after the machine went wrong —
+ * destroys the root volume and leaves this one, and cloud-init formats it only
+ * when it is not already a filesystem. So a rebuild keeps all three.
  */
 const dataVolume = new aws.ebs.Volume(name, {
   availabilityZone,
@@ -221,21 +233,10 @@ const dataVolume = new aws.ebs.Volume(name, {
 });
 
 // The device path is built from the volume's own id, which is why this is an
-// apply rather than a plain string.
-//
-// Not /dev/sdf, and not /dev/nvme1n1. Nitro instances present every EBS volume
-// as an NVMe device numbered in attachment order, so the name the attachment
-// asks for is not the name the kernel uses, and the number depends on what
-// happened to be attached first. A boot that guesses would eventually guess
-// wrong and format the root disk. Ubuntu's AMI ships udev rules that create
-// this by-id symlink, which names the volume itself and cannot be confused with
-// another one.
-const userData = dataVolume.id.apply((volumeId) =>
-  single.cloudInit({
-    settings,
-    dataDevice: `/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${volumeId.replace(/-/g, "")}`,
-  }),
-);
+// apply rather than a plain string; `dataDevice` in ./platform.ts says why it
+// is that path. Gzipped, which cloud-init undoes on its own, because the text
+// is past EC2's 16 KB limit on user data before it is compressed.
+const userData = dataVolume.id.apply((volumeId) => userDataBase64(settings, volumeId));
 
 const instance = new aws.ec2.Instance(
   name,
@@ -256,7 +257,7 @@ const instance = new aws.ec2.Instance(
       encrypted: true,
       deleteOnTermination: true,
     },
-    userData,
+    userDataBase64: userData,
     // Instance metadata v2 only. v1 answers an unauthenticated GET, which is
     // what turns a server-side request forgery in any process on the box into
     // the instance's credentials.
@@ -267,30 +268,64 @@ const instance = new aws.ec2.Instance(
     },
     tags: { ...tags, Name: name },
   },
-  // Canonical publishes a new build every few weeks, and `mostRecent` above
-  // would otherwise make every `pulumi up` replace the machine — destroying the
-  // root volume, rebooting the deployment, and doing it again next month. The
-  // data volume and the ledger survive that, but the outage is real and nobody
-  // asked for it. Take a new image deliberately: remove this line, deploy, put
-  // it back.
-  { ignoreChanges: ["ami"] },
+  {
+    // ami: Canonical publishes a new build every few weeks, and `mostRecent`
+    // above would otherwise make every `pulumi up` replace the machine —
+    // destroying the root volume, rebooting the deployment, and doing it again
+    // next month. The data volume survives that, but the outage is real and
+    // nobody asked for it. Take a new image deliberately: remove it here,
+    // deploy, put it back.
+    //
+    // userDataBase64: the user data embeds this repository's compose files and
+    // scripts, so it differs after every release and every edit to one of them,
+    // and EC2 applies a change to it by stopping and starting the instance.
+    // Cloud-init runs once per instance, so the restarted machine would run
+    // none of the new text: an outage that changes nothing. A release or a
+    // setting is applied on the machine instead, as the README says.
+    ignoreChanges: ["ami", "userDataBase64"],
+  },
 );
 
-new aws.ec2.VolumeAttachment(name, {
-  deviceName: "/dev/sdf",
-  volumeId: dataVolume.id,
-  instanceId: instance.id,
-  // The default detaches on destroy and can hang on a busy filesystem. The
-  // instance is stopped first in any orderly teardown.
-  stopInstanceBeforeDetaching: true,
-});
+const attachment = new aws.ec2.VolumeAttachment(
+  name,
+  {
+    deviceName: "/dev/sdf",
+    volumeId: dataVolume.id,
+    instanceId: instance.id,
+    // The default detaches on destroy and can hang on a busy filesystem. The
+    // instance is stopped first in any orderly teardown.
+    stopInstanceBeforeDetaching: true,
+  },
+  {
+    // A new instance means a new attachment, and Pulumi's default builds the
+    // replacement before removing the old one. EC2 refuses to attach a volume
+    // that is still attached elsewhere, so that order fails the update with
+    // two machines and the volume on the old one. Removing first detaches it,
+    // stopping the old instance as the line above asks, and then attaches it to
+    // the new one. That can take longer than the two minutes firstboot waits
+    // for the volume, and the README says what to do when it does.
+    deleteBeforeReplace: true,
+  },
+);
 
 // A fixed address, because the DNS record points at it and an instance stop
 // otherwise returns the address to the pool. This is also what lets the machine
 // be replaced without a DNS change propagating first.
 const address = new aws.ec2.Eip(name, { domain: "vpc", tags: { ...tags, Name: name } });
 
-new aws.ec2.EipAssociation(name, { instanceId: instance.id, allocationId: address.id });
+new aws.ec2.EipAssociation(
+  name,
+  { instanceId: instance.id, allocationId: address.id },
+  {
+    // In a VPC, associating an address that is already associated moves it,
+    // so on a replacement a new association made as soon as the new machine
+    // exists takes the name there while its data volume is still on the old
+    // one. So the old association goes first, and the new one waits for the
+    // attachment: the address reaches the new machine after its disk does.
+    deleteBeforeReplace: true,
+    dependsOn: [attachment],
+  },
+);
 
 export const publicIp = address.publicIp;
 export const instanceId = instance.id;
@@ -302,11 +337,22 @@ export const shell = pulumi.interpolate`aws ssm start-session --target ${instanc
 export const nextSteps = pulumi.interpolate`
 1. Point ${settings.hostname} at ${address.publicIp} with an A record.
    Caddy cannot obtain a certificate until it resolves, and it retries until it does.
-2. Watch the first boot:  ${shell}  then  journalctl -u simple-balance -f
-3. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
-4. Optional settings — SMTP, Stripe, AdSense — go in /var/lib/simple-balance/env.local,
-   which is on the data volume and survives a rebuild. Restart with
+2. Reach the machine:  ${shell}
+   then wait for the first boot to finish:  sudo cloud-init status --wait
+3. Give it a database. None was created: put the connection string in env.local,
+     sudo nano /var/lib/simple-balance/env.local
+         DATABASE_URL='postgresql://user:password@host:5432/simple_balance?sslmode=no-verify'
+   and, if that URL goes through a transaction pooler, DIRECT_DATABASE_URL beside it,
+   the same database past the pooler, for the migrations and the first-account claim.
+   Then run
+     sudo /usr/local/sbin/simple-balance-firstboot
+   which starts the deployment and its nightly backup. Until then it is installed and
+   stopped, and /etc/motd says so. journalctl -u simple-balance -f follows it from here.
+4. Find the setup code:   sudo docker compose -f /opt/simple-balance/compose.yml logs app | grep -i setup
+5. Optional settings — SMTP, Stripe, AdSense and the PRIVACY_POLICY_URL it requires —
+   go in /var/lib/simple-balance/env.local, which is on the data volume and survives
+   a rebuild. Once the deployment has started, a setting is an edit to it, then
    sudo systemctl restart simple-balance.
-5. A later 'pulumi up' does not re-run the machine's setup. See the header of
-   /var/lib/cloud/instance/user-data.txt on the machine for how to apply a change.
+6. A later 'pulumi up' does not re-run the machine's setup. How to apply a change
+   is at the top of what it ran:   sudo cloud-init query userdata | head -16
 `;

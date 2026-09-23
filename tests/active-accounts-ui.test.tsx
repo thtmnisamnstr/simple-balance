@@ -100,7 +100,7 @@ describe("choosing which accounts stay usable", () => {
     expect(screen.getByText(/All 3 places are in use/)).toBeInTheDocument();
   });
 
-  it("offers the frozen account a place that has come free", () => {
+  it("offers the frozen account a place that has opened up", () => {
     // One of the three was archived, which frees the place it held.
     const freed = [
       account("a", { archivedAt: "2026-02-01" }),
@@ -113,13 +113,13 @@ describe("choosing which accounts stay usable", () => {
     expect(boxFor("Account d")).toBeEnabled();
     fireEvent.click(boxFor("Account d"));
     expect(saveButton()).toBeEnabled();
-    // And only one place came free, so the second frozen account cannot follow.
+    // And only one place opened up, so the second frozen account cannot follow.
     expect(boxFor("Account e")).toBeDisabled();
   });
 
   it("asks again when a paid spell left an account nobody chose about", () => {
     // Chose a, b and c; subscribed; opened `f` while there was no limit;
-    // cancelled. `f` arrives marked active and frozen, and the panel has to
+    // canceled. `f` arrives marked active and frozen, and the panel has to
     // put the question rather than tell somebody their answer is final — the
     // old predicate looked only at whether any frozen account was inactive,
     // which d and e satisfy, so it read this as settled.

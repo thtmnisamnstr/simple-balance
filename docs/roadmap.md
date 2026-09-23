@@ -119,7 +119,7 @@ Two decisions worth writing down rather than leaving implied:
   them being the only guard.
 - **Legs are deliberately out of the duplicate fingerprint.** That fingerprint
   answers whether the same money moved twice, and how somebody carved up the
-  receipt afterwards does not change the answer. Re-importing a statement has to
+  receipt afterward does not change the answer. Re-importing a statement has to
   keep catching rows that were split last month.
 
 Mass editing category or type is refused on a split rather than flattening it,
@@ -198,9 +198,9 @@ what to fix.
 
 Two decisions worth writing down rather than leaving implied:
 
-- **No holiday calendar.** A business day means Monday to Friday, said in the
-  tool description and beside the weekend-policy picker, because per-country
-  holiday data ageing inside a container nobody updates is worse than not having
+- **No holiday calendar.** A business day means Monday through Friday, said in
+  the tool description and beside the weekend-policy picker, because per-country
+  holiday data aging inside a container nobody updates is worse than not having
   it.
 - **A proposed row points back at its recurrence and is not owned by it.**
   `staged_transaction.recurrence_id` carries no foreign key, so deleting a
@@ -408,7 +408,7 @@ is a choice, and the evidence runs the other way.
 
 A budget that cannot see a refund is wrong in the way somebody notices first,
 and until this story the ledger could not represent one: a deposit's other half
-always credited income, so thirty pounds back from the shop raised income
+always credited income, so thirty dollars back from the store raised income
 instead of lowering groceries.
 
 Settled before any budget code, as its own change. A deposit credits income and
@@ -440,12 +440,12 @@ category it came from without any figure being taught what a refund is.
 
 **How it was met**
 
-The budget is a standing instruction and the period is the unit. A plan covers
+The budget is a standing rule and the period is the unit. A plan covers
 every period in its window from one row, both ends snapped to whole periods in
 PostgreSQL rather than in JavaScript, so a limit and the spending it is compared
 against cannot land on different months. Nothing materializes a period and no
 scheduler writes a budget figure, which is what makes an open-ended budget one
-row rather than one row a month for ever.
+row rather than one row a month forever.
 
 Spending is the reports' own query. It sums signed postings on the expense
 counter-account over the same `date_trunc` grid the reports bucket by, so a
@@ -635,9 +635,9 @@ for the once-a-year case where the books and the statement have quietly drifted.
 0014 and 0019.**
 
 Two columns on the plan and a fold at read time. Unspent money carries forward,
-overspending carries forward as a debt, and a cap stops either running away. A
-sinking fund is the same machinery with a target and a date, funding itself over
-the periods remaining.
+overspending carries forward as a debt, and a cap keeps either from running
+away. A sinking fund is the same machinery with a target and a date, funding
+itself over the periods remaining.
 
 This is the first budget figure that depends on more than one period, which
 means a back-dated correction changes every later period. That is correct and it
@@ -690,7 +690,7 @@ is missing.
 0015 and 0018.**
 
 A trailing average of what was actually spent, last period plus a percentage, a
-share of income, and a funding order for when there is not enough to go round.
+share of income, and a funding order for when there is not enough to go around.
 Two columns and a small evaluator over aggregates the reports already compute.
 
 Deliberately few, and typed rather than a language. Actual built a template
@@ -923,8 +923,9 @@ entry used to read "Advertising, lead generation, and anything that monetizes th
 data", and it is edited rather than deleted because the reasoning is what
 changed, not the mind.
 
-What shipped is an operator's choice, off unless they set `ADSENSE_CLIENT_ID`,
-and it monetizes no data: the server decides placement and the browser is never
+What shipped is an operator's choice, off unless they set `ADSENSE_CLIENT_ID`
+and sell the paid plan — an ad goes only to an account on a limited plan — and
+it monetizes no data: the server decides placement and the browser is never
 told the rule, so a subscriber's page never fetches Google's script at all;
 requests are non-personalized unless a consent platform is collecting consent;
 and nothing about anybody's ledger leaves the deployment. `docs/monetization.md`

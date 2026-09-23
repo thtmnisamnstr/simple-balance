@@ -858,7 +858,7 @@ export default function StagingPage() {
               disabledReason={
                 invalidSelected
                   ? "Some selected rows have issues to fix first."
-                  : "Some selected rows look like duplicates. Tick the box to commit them anyway."
+                  : "Some selected rows look like duplicates. Check the box to commit them anyway."
               }
               loading={bulkMutation.isPending}
               onClick={() => bulkMutation.mutate("commit")}
@@ -1509,8 +1509,12 @@ export default function StagingPage() {
                 }
               >
                 <option value="">Choose an account</option>
+                {/* Frozen accounts are left out as well as archived ones, the
+                    rule the transaction browser's picker keeps: the server files
+                    a move onto one as an issue on every row, so offering it
+                    offers an edit that fixes nothing. */}
                 {(accounts.data ?? [])
-                  .filter((account) => !account.archivedAt)
+                  .filter((account) => !account.archivedAt && !account.frozen)
                   .map((account) => (
                     <option key={account.id} value={account.id}>
                       {account.name} ({account.currency})

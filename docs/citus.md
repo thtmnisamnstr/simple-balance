@@ -8,18 +8,19 @@ Citus 14.2 is the newest Citus and gates on 16, 17 and 18, so 18 is the newest
 database the cluster can run and therefore the one every profile that owns its
 database deploys.
 
-**Status: built and exercised, not yet run in anger.** The migration, the image
-and the chart all exist, and a cluster stood up from them has taken a coordinator
-failover and a shard rebalance. What it has not had is a cloud, a real dataset,
+**Status: built and exercised, not yet run in production.** The migration, the
+image and the chart all exist, and a cluster stood up from them has taken a
+coordinator failover and a shard rebalance. What it has not had is a cloud, a real dataset,
 or anybody else's storage class — see §What is left.
 `docs/deployment-profiles.md` says which profile is which, and
 `docs/citus-runbook.md` is how to operate this one.
 
 ## What was run
 
-The whole of `drizzle/` applies to Citus unmodified — all 23 migrations, through
-the application's own startup path, recording themselves normally. Nothing about
-the existing schema had to change to *install* on a Citus cluster. What has to
+Every migration before the distribution applies to Citus unmodified — the 23
+from `0000` through `0022`, through the application's own startup path,
+recording themselves normally. Nothing about the existing schema had to change
+to *install* on a Citus cluster. What has to
 change is everything below, and only to *distribute* it.
 
 `drizzle/0023_citus_distribution.sql` is the procedure, and it applies as one
@@ -145,9 +146,12 @@ tag that carries the PG18 support — so the build is what gets us both.
 Nothing structural. The four things this page listed as missing all exist:
 
 - **The migration** is `drizzle/0023_citus_distribution.sql`, gated on the Citus
-  extension so it does nothing on the two profiles that run a single PostgreSQL.
-  Verified both ways — 24 migrations recorded and the schema untouched on a plain
-  PostgreSQL 18, and the full distribution on a cluster.
+  extension so it does nothing on the two profiles whose database is a single
+  PostgreSQL. Verified both ways — the 24 through `0023` recorded and the schema
+  untouched on a plain PostgreSQL 18, and the full distribution on a cluster.
+  `0024` came after those runs. It adds one column with a constant default,
+  which Citus carries to every shard of a distributed table on its own, so it
+  needs no gate — argued rather than run.
 - **The image** is `deploy/docker/citus.Dockerfile`: PostgreSQL 18 pinned by
   digest, Citus 14.2.0 built from a checksummed source tarball, Patroni beside
   it, built for amd64 and arm64 by `.github/workflows/citus-image.yml`.

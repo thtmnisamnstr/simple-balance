@@ -314,8 +314,8 @@ export async function lockAccountReferences(
  * had all had one since the day their check was written.
  *
  * Taken after the account-reference locks and before the category namespace,
- * so the one path that takes both — renaming an account — takes them in the
- * order every other path does.
+ * so the paths that take both — renaming, archiving or restoring, and deleting
+ * an account — take them in the order every other path does.
  */
 export async function lockAccountNamespace(tx: DbTransaction, actor: Actor) {
   await takeTransactionLock(tx, `accounts:${actor.userId}`);

@@ -8,6 +8,7 @@ import type {
   ActorSource,
   BillingInterval,
   Entitlement,
+  Plan,
   UserAccountType,
   CategoryKind,
   PaginatedPage,
@@ -72,7 +73,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
  * One refusal envelope, read the same way wherever it arrives.
  *
  * A streamed reply cannot use a status code — its 200 went out with the first
- * frame — so the same object turns up in a terminal `error` frame instead. It
+ * frame — so the same object shows up in a terminal `error` frame instead. It
  * is read here rather than twice, because everything below is hard-won and a
  * second copy would be the copy that stops being updated.
  */
@@ -278,22 +279,36 @@ export type PlanSummary = {
   accountsUsed: number | null;
 };
 
+/** One of the two prices, as the plan tab shows it. */
+export type PlanPrice = {
+  id: string;
+  unitAmount: number | null;
+  currency: string;
+  /**
+   * How often Stripe bills this price, which is what the button says beside
+   * the amount. Stripe's word rather than the setting's, so a price configured
+   * in the wrong slot cannot be labeled as the one it is not.
+   */
+  interval: "month" | "year" | null;
+};
+
 /**
  * What the plan tab reads, in one request.
  *
  * The amounts come from Stripe rather than from this deployment's settings,
  * which hold ids and no figures: an amount copied into configuration is a second
- * place for the price to live and the one that does not get charged. Both may be
- * null when Stripe could not be reached, and the tab still renders — somebody
- * whose card expired has to reach the payment form whether or not Stripe can
- * say what a year costs today.
+ * place for the price to live and the one that does not get charged. Either may
+ * be null when Stripe could not be reached or has no such price, and the tab
+ * still renders — somebody whose card expired has to reach the payment form
+ * whether or not Stripe can say what a year costs today.
  */
 export type BillingStatus = {
+  /** False where nothing is for sale, and where the prices are known not to fit. */
   selling: boolean;
   publishableKey: string;
   prices: {
-    monthly: { id: string; unitAmount: number | null; currency: string } | null;
-    yearly: { id: string; unitAmount: number | null; currency: string } | null;
+    monthly: PlanPrice | null;
+    yearly: PlanPrice | null;
   };
   entitlement: Entitlement;
   accountsUsed: number | null;
@@ -305,8 +320,16 @@ export type BillingStatus = {
     pastDueSince: string | null;
     scheduledInterval: BillingInterval | null;
     scheduledAt: string | null;
+    /**
+     * Money is owed and the server would take it now, so the tab offers the
+     * button only where pressing it is accepted. The server works it out,
+     * because whether paying is a sale depends on the status as well as on
+     * whether anything is for sale.
+     */
+    payable: boolean;
   } | null;
-  override: { plan: string; expiresAt: string | null } | null;
+  /** `plan` is the wire value; `PLAN_LABELS` is the word a person reads. */
+  override: { plan: Plan; expiresAt: string | null } | null;
 };
 
 export type SubscriptionResult = {
@@ -392,7 +415,7 @@ export type Account = {
    * The two differ in exactly one way that matters to a page: while nobody has
    * chosen yet, every account is still marked active and the ordering rule is
    * standing in — so the accounts page can offer a free first choice, and
-   * afterwards offer only the places that have come free.
+   * afterward offer only the places that have opened up.
    */
   active?: boolean;
   version: number;
@@ -610,7 +633,10 @@ export type TemplateNotification = {
   time: string;
   repeats: boolean;
   lastNotifiedDate: string | null;
-  /** Null when nothing further is owed, which is where a one-off ends up. */
+  /**
+   * Null when nothing further is owed, which is where a one-time reminder ends
+   * up.
+   */
   nextNotificationDate: string | null;
 };
 
@@ -744,7 +770,7 @@ export type AccountRegister = {
 /**
  * A staged row beside the one thing it looks like a repeat of.
  *
- * `second` is null when nothing matches it any more, which is what a pair
+ * `second` is null when nothing matches it anymore, which is what a pair
  * somebody has already resolved looks like. A committed transaction is always
  * `second`; where both sides are staged, the older one is.
  */

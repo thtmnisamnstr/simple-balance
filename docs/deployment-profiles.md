@@ -19,10 +19,10 @@ shape that owns its whole stack. `ha` shards it.
 **Start with `single`.** It is the supported shape, it is what
 `docs/deployment.md` assumes, and it is measured: `docs/capacity.md` put ten
 thousand people's ledgers — thirty million transactions — on the smallest size
-it sells and answered the busiest hour at a 130 ms 95th percentile with no
-errors. A ledger is not a workload that needs a cluster. Move to `ha` when
-losing one machine for ten minutes is unacceptable, not when the load gets
-interesting.
+it sells, with the database squeezed onto the same machine, and answered the
+busiest hour at a 130 ms 95th percentile with no errors. A ledger is not a
+workload that needs a cluster. Move to `ha` when losing one machine for ten
+minutes is unacceptable, not when the load gets interesting.
 
 ## One PostgreSQL version
 
@@ -73,14 +73,20 @@ The application container still writes nothing: it runs read-only with a 16 MiB
 `tmpfs` for `/tmp`, exactly as `docs/deployment.md` has always described. The
 ledger still lives in PostgreSQL alone.
 
-Two volumes exist in the `single` profile beyond the database's own. The
-container logs are bounded rather than stored — 10 MiB across five files per
-service, which is Docker's own rotation and not state. Caddy keeps its
-certificates and its ACME account key, which is genuine persistent state and is
-also entirely regenerable: losing that volume costs a re-issue, and the only
-reason to care is Let's Encrypt's rate limit of five duplicate certificates per
-name per week. Nothing in either volume is anybody's data, and a deployment that
-terminates TLS elsewhere has neither.
+The `single` profile has no database volume, because it has no database: the
+ledger is wherever `DATABASE_URL` points. What the machine does keep belongs to
+the host and to Caddy rather than to the application. The container logs are
+bounded rather than stored — 10 MiB across five files per service, which is
+Docker's own rotation and not state. Caddy keeps its certificates and its ACME
+account key in one volume and its saved configuration in another, which is
+genuine persistent state and is also entirely regenerable: losing them costs a
+re-issue, and the only reason to care is Let's Encrypt's rate limit of five
+duplicate certificates per name per week. Neither holds anybody's data, and a
+deployment that terminates TLS elsewhere has neither. The cloud programs add a
+data disk for the nightly dumps, the generated secret and the settings added by
+hand — see [host lifecycle](#host-lifecycle-in-the-single-profile) — and the
+dumps are copies of somebody's ledger, which is why they, like the secret and
+`env.local`, are readable by root alone.
 
 Caddy itself is not a new dependency. `docs/deployment.md` has required a
 reverse proxy in front of this application since 0.1.0, because production
@@ -160,13 +166,19 @@ The `single` profile, with the TLS terminator on the same machine:
 | Anywhere | The host | 80/tcp | The redirect to HTTPS, and the ACME challenge |
 | Anywhere | The host | 443/tcp | The application |
 | Anywhere | The host | 443/udp | HTTP/3, which Caddy serves by default. Closing it costs a little connection setup time and nothing else |
-| One named address | The host | 22/tcp | Optional, and off by default. Both cloud programs give a shell without it |
+| One named address | The host | 22/tcp | Optional, and off by default: `simple-balance:sshCidr`. AWS gives a shell through Session Manager without it, and Oracle Cloud through the Bastion service and the next row |
+| The machine's own subnet | The host | 22/tcp | `oci-single` only, and always: an OCI Bastion's private endpoint sits in that subnet, and with no `sshCidr` it is the only way onto the machine |
 | The host | Anywhere | 443/tcp | Container images, Let's Encrypt, and any Stripe endpoint configured |
+| The host | The database | 5432, or whatever port it listens on | The ledger, and the nightly dump. Outbound only: the database is not on this machine |
 | The host | The SMTP relay | 587 or 465 | Only where mail is configured |
 
-Nothing opens 5432 or 3000. The application and PostgreSQL reach each other over
-the container network inside the machine, and a rule that exposed either would
-be a second way in that the application's own origin checks do not cover.
+Nothing opens 3000, and nothing on this machine listens on 5432. The application
+reaches the database outbound, to whatever host `DATABASE_URL` names, and it is
+that database's own firewall that decides whether this machine may connect — by
+the address the cloud program reports, or, for the private subnet `oci-single`
+makes on request, from the machine's subnet and nothing else. A rule exposing
+3000 would be a second way in that the application's own origin checks do not
+cover.
 
 The `ha` profile, where the tiers are separate:
 
@@ -192,24 +204,33 @@ the ephemeral address its VNIC is created with, because OCI maps at most one
 public IP to a private IP at a time: attaching a reserved address to a VNIC that
 already has an ephemeral one is refused, and creating the VNIC without one
 leaves the machine with no route to the internet while cloud-init is installing
-Docker. In practice it is stable — nothing in either program replaces the
-instance — and an operator who needs an address that outlives the machine can
-promote the ephemeral one to reserved in the OCI console.
+Docker. In practice it is stable for the life of the instance, because a later
+`pulumi up` leaves the instance alone and a new `size` reshapes it in place. An
+instance that is replaced — destroyed and built again, by hand or by a change
+that forces it — comes back on a new address, and the record has to follow it.
+Promoting the ephemeral address to reserved in the OCI console keeps it past
+the machine, but it does not follow a replacement: the new instance comes up
+on a fresh ephemeral address, and the reserved one has to be moved onto it by
+hand, or the record moved instead.
 
 The name has to resolve **before** a certificate can be issued: Let's Encrypt
 proves the name by connecting to it. Caddy retries until it works, so the order
 does not matter much — the machine simply serves nothing over HTTPS until the
 record exists.
 
-There is no private DNS in the `single` profile and nothing to configure. The
-application reaches PostgreSQL as `postgres` and Caddy reaches the application
-as `app`, which are Compose service names resolved by the container runtime's
-own resolver on a network that exists inside one host.
+There is no private DNS in the `single` profile and nothing to configure. Caddy
+reaches the application as `app`, a Compose service name resolved by the
+container runtime's own resolver on a network that exists inside one host. The
+database is not on that network: it is whatever host `DATABASE_URL` names,
+resolved the ordinary way — a managed service's public name, or on Oracle Cloud
+a DB system's private endpoint, which resolves inside the stack's own network.
 
 ## Connection budgets
 
 Each API and scheduler process holds `DATABASE_POOL_SIZE` connections and one
-more while it starts. PostgreSQL's default `max_connections` is 100.
+more while it starts. PostgreSQL's default `max_connections` is 100, and a
+managed service usually sets its own from the size of the instance, so check
+the number for the server `DATABASE_URL` names.
 
 | Profile | Processes | Connections at peak |
 | --- | --- | --- |
@@ -232,7 +253,12 @@ the chart refuses to install a combination that would exceed
 **Boot order.** systemd starts `simple-balance.service` after `docker.service`
 and after the network is up. The unit is `Type=oneshot` with
 `RemainAfterExit=yes`, so systemd treats the whole deployment as one thing that
-is either up or down.
+is either up or down. On a machine a cloud program built, a drop-in beside it
+(`/etc/systemd/system/simple-balance.service.d/env.conf`) adds two things: the
+unit waits for the data volume to be mounted, and every start first runs
+`/usr/local/sbin/simple-balance-env`, which rebuilds `.env` from its parts — see
+[secrets](#secrets). A machine set up by hand from `deploy/systemd/` has no
+drop-in and starts on the `.env` it has.
 
 **Who restarts what.** systemd owns ordering and intent — boot, `systemctl
 start`, `systemctl stop`. Docker owns crash recovery, through
@@ -247,40 +273,61 @@ systemd's default of 90 would kill a first migration two thirds of the way
 through.
 
 **Logs.** Docker's `json-file` driver keeps every line forever by default, which
-on a 20 GiB boot disk is how the disk fills. Every service in
-`compose.yml` caps itself at 10 MiB across 5 files. PostgreSQL's own slow-query
-log goes to the same place and is bounded by the same cap.
+on AWS's 20 GiB boot disk is how the disk fills. Every service in `compose.yml`
+and `compose.caddy.yml` caps itself at 10 MiB across 5 files. The database's
+logs are its own server's.
 
 **Disks.** The boot disk holds the operating system, the images and the logs,
-and does not grow. The data disk holds the database, the backups and the two
-generated secrets, and is a separate volume on both clouds — so replacing the
-machine keeps the ledger. `docs/deployment-sizing.md` sizes both.
+and does not grow. The data disk holds the backups, the generated secret in
+`secrets.env` and the settings in `env.local`, and is a separate volume on both
+clouds — so replacing the machine keeps all three. It does not hold the
+database; the ledger was never on this machine. `docs/deployment-sizing.md`
+sizes both disks, and on Oracle Cloud `oci-single` never makes the data disk
+smaller than 50 GB, which is that provider's minimum.
 
-**Backups.** A daily `pg_dump` in PostgreSQL's own compressed format, verified
-by reading it back before it is kept. `deploy/compose/single/README.md` has the
-commands, including the restore.
+**Backups.** A daily `pg_dump` in PostgreSQL's own compressed format, taken over
+the network from a `postgres:18` client container — the database is not on the
+machine — and verified by reading it back before it is kept. The timer's unit
+requires the deployment to be running rather than starting it, so a deployment
+stopped on purpose stays stopped and that night's backup fails instead. Which
+`sslmode` the dump can use is in
+[`docs/deployment.md`](deployment.md#reaching-the-database-over-a-network).
+`deploy/compose/single/README.md` has the commands, including the restore.
 
 ## Secrets
 
-The two the deployment cannot run without — `AUTH_SECRET` and
-`POSTGRES_PASSWORD` — are generated on the machine at first boot and kept on the
-data volume at `0600`. They are in no user data, no Pulumi state file and no
-cloud API response, because nothing outside the machine has any use for either
-value, and a rebuilt instance that reattaches the same volume finds the same
-ones.
+The one the deployment generates, `AUTH_SECRET`, is generated on the machine at
+first boot and kept on the data volume, in `secrets.env` at `0600`. It is in no
+user data, no Pulumi state file and no cloud API response, because nothing
+outside the machine has any use for the value, and a rebuilt instance that
+reattaches the same volume finds the same one.
 
-Everything an operator genuinely supplies — an SMTP password, a Stripe key —
-goes in `/var/lib/simple-balance/env.local`, which is on the data volume rather
-than the boot disk and is folded into `.env` whenever the machine's setup runs.
-The disk is the point: `/opt` is destroyed when the instance is rebuilt, so a
-key kept there would survive until the machine was resized and then vanish with
-no error and no mention of itself. `docs/deployment.md` describes the `_FILE`
-variants for a deployment that keeps secrets somewhere else entirely.
+Everything an operator genuinely supplies goes in
+`/var/lib/simple-balance/env.local`: the `DATABASE_URL` first of all, which the
+deployment cannot start without and this profile cannot generate, and then an
+SMTP password, a Stripe key, the AdSense ids. It is on the data volume rather
+than the boot disk, and it is folded into `.env` every time the deployment
+starts, because the drop-in runs `/usr/local/sbin/simple-balance-env` first. So
+a setting is an edit and a restart:
+
+```sh
+sudo nano /var/lib/simple-balance/env.local
+sudo systemctl restart simple-balance
+```
+
+The first time, when there was no `DATABASE_URL` yet and nothing started,
+`sudo /usr/local/sbin/simple-balance-firstboot` does it instead. The disk is the
+point: `/opt` is destroyed when the instance is rebuilt, so a key kept there
+would survive until the machine was replaced and then vanish with no error and
+no mention of itself. A machine set up by hand has no drop-in and no parts to
+fold, so there the settings are `/opt/simple-balance/.env` itself, followed by
+the same restart. `docs/deployment.md` describes the `_FILE` variants for a
+deployment that keeps secrets somewhere else entirely.
 
 **A `pulumi up` does not re-run any of this.** Cloud-init's `runcmd` is
 per-instance, and neither program replaces the instance when the deployment
 material changes — deliberately, because that would be minutes of downtime on
 every edit and, on Oracle Cloud, a new address. These programs provision a
-machine; they do not keep managing it. Apply an application upgrade or a
-setting on the machine itself, which the generated user-data explains in its own
-header and `deploy/pulumi/README.md` repeats.
+machine; they do not keep managing it. Apply an application upgrade, a setting
+or, on Oracle Cloud, another SSH key on the machine itself, which the generated
+user data explains in its own header and `deploy/pulumi/README.md` repeats.

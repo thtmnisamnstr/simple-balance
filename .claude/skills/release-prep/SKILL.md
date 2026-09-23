@@ -160,9 +160,11 @@ Two things decide whether this phase has work in it:
 It sits here rather than at the end because the kit's output is a document,
 and phase 5 is where documents are brought back to true.
 
-**The marketing site pulls from `main`.** Rebuilding on a branch does not
-reach it until the branch merges, and that is worth saying out loud in the
-readiness report rather than assuming the next person infers it.
+**The marketing site reads the kit from `main` once `main` carries it, and
+until then from the branch of the open release pull request**, and it works
+out which itself. A kit rebuilt on any other branch reaches nobody until it
+lands on one of those, so say in the readiness report which branch the rebuilt
+kit is on rather than assuming the next person infers it.
 
 ## 5. Bring the documents back to true
 

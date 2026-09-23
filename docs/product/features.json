@@ -42,7 +42,7 @@
       "tier": "A",
       "rank": 4,
       "name": "Your data stays yours",
-      "plain": "Run it on your own machine and nobody else has a copy. Export everything to a spreadsheet whenever you want.",
+      "plain": "Run it on your own machine and nobody else has a copy. Export every transaction to a spreadsheet whenever you want.",
       "why": "It is a record of everything somebody spends money on.",
       "screen": "/settings",
       "screenshot": "settings"
@@ -62,7 +62,7 @@
       "tier": "B",
       "rank": 2,
       "name": "Nothing to remember",
-      "plain": "Rent, pay day, a subscription: set it up once and it turns up on the day, waiting for you to approve it.",
+      "plain": "Rent, payday, a subscription: set it up once and it shows up when it is due, waiting for you to approve it.",
       "why": "The annual renewal nobody remembers is the classic way a budget gets blown.",
       "screen": "/recurrences",
       "screenshot": "recurrences"
@@ -93,7 +93,7 @@
       "rank": 5,
       "name": "More than one currency",
       "plain": "Hold accounts in different currencies. Totals are kept separate rather than converted at a rate that would be out of date tomorrow.",
-      "why": "Anybody who has moved country, works abroad, or travels has this problem and most tools guess at it.",
+      "why": "Anybody who has moved to another country, works abroad, or travels has this problem and most tools guess at it.",
       "screen": "/accounts",
       "screenshot": "accounts"
     },
@@ -112,7 +112,7 @@
       "tier": "C",
       "rank": 1,
       "name": "One receipt, several categories",
-      "plain": "Split a shop between groceries and household, each counted on its own.",
+      "plain": "Split a grocery run between groceries and household, each counted on its own.",
       "why": "A supermarket trip is rarely one category.",
       "screen": "/transactions",
       "screenshot": "transactions"
@@ -122,7 +122,7 @@
       "tier": "C",
       "rank": 2,
       "name": "Fix thousands of rows at once",
-      "plain": "Change or delete up to ten thousand transactions in one go, after seeing exactly what it will touch.",
+      "plain": "Change or delete up to ten thousand transactions at once, after seeing exactly what it will touch.",
       "why": "One mis-mapped import can put a year of entries in the wrong category.",
       "screen": "/transactions",
       "screenshot": "transactions"
@@ -162,7 +162,7 @@
       "tier": "C",
       "rank": 6,
       "name": "Let an AI assistant do the filing",
-      "plain": "Connect an assistant and let it import statements and tidy categories. It can suggest, but it cannot commit anything without you.",
+      "plain": "Connect an assistant and let it import statements and clean up categories. When you connect it you see exactly what it is asking to do and can refuse; an assistant limited to suggesting queues entries for you to approve, and Settings shows what each connected assistant can do and lets you cut it off.",
       "why": "It is genuinely useful and genuinely alarming, so the limits matter more than the capability.",
       "screen": "/settings",
       "screenshot": "settings"

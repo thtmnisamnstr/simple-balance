@@ -10,7 +10,10 @@ name: simple-balance-frontend
 
 services:
   frontend:
-    image: ghcr.io/thtmnisamnstr/simple-balance-frontend:${SB_VERSION:-0.1.6}
+    # Written out rather than defaulted from a variable, so `npm run
+    # set-version` rewrites it on a cut; compose.app.yml says why. Move it with
+    # the tags on the two application machines, to the same release.
+    image: ghcr.io/thtmnisamnstr/simple-balance-frontend:0.1.6
     restart: unless-stopped
     environment:
       # The API machine's private address. This is the one setting that makes

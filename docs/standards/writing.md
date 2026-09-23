@@ -127,7 +127,7 @@ convention expects.
 *Not checked mechanically.* Nothing in `tests/`, `scripts/` or `.github/`
 reads `CHANGELOG.md`. In particular nothing checks that the top heading matches
 `package.json`, which is a hand step in the release recipe at
-`docs/upgrades.md:237` and has already been the subject of a commit ("Date
+`docs/upgrades.md:650` and has already been the subject of a commit ("Date
 0.1.4 the day it is cut").
 
 ## Versioning
@@ -139,7 +139,7 @@ cites this section and adds the one consequence that belongs to an operator,
 which is that renaming a configuration variable is a breaking release.
 
 The shape of a version is written in three places and two of them used to
-disagree. `scripts/set-version.mjs:26` and `tests/version.test.ts:67` accept a
+disagree. `scripts/set-version.mjs:28` and `tests/version.test.ts:146` accept a
 prerelease suffix; `tasks/product.prd.schema.json:10` pinned three numeric parts
 and nothing else, so `npm run set-version 0.2.0-rc.1` succeeded, the suite
 stayed green, and the build loop then refused to start on an error two steps
@@ -217,18 +217,18 @@ with no note. The publish runs `npm run verify` first, so an unwritten note now
 stops the release rather than reaching an operator mid-upgrade. *Also checked:*
 the frozen migration list, which `tests/migrations.test.ts` holds to what is on
 disk. *Not checked:* the changelog heading, a hand step in the release recipe at
-`docs/upgrades.md:237`, and which release a migration is attributed to,
+`docs/upgrades.md:650`, and which release a migration is attributed to,
 which is prose inside a list a test can only check the membership of.
 
 ## Upgrade notes
 
-**Binding, quoting `AGENTS.md:181-196`:** "Every migration that has shipped is
+**Binding, quoting `AGENTS.md:289-326`:** "Every migration that has shipped is
 frozen" and "Never edit or regenerate one: someone's database has already run
 it, and changing it would leave their schema and its recorded history
 disagreeing." What follows is the documentation the operator is owed for that.
 
 **House, the shape.** A `## Before you upgrade to X.Y.Z` section, and its first
-sentence tells an operator whether they can stop reading. `docs/upgrades.md:8-9`
+sentence tells an operator whether they can stop reading. `docs/upgrades.md:337-338`
 is the model: "Nothing refuses to start that 0.1.5 accepted, and nothing about
 an existing configuration has to change. Five things are worth knowing." The
 0.1.4 section is the other model, because the answer there was different: "0.1.4
@@ -251,7 +251,7 @@ Then four parts, in this order:
 in a specification or in `AGENTS.md` asks for one; a past failure does. The best
 example in the repository: the 0.1.5 note promises the theme column is a
 constant default and therefore rewrites no table, and
-`tests/migrations.test.ts:327` is called "adds the theme without rewriting a
+`tests/migrations.test.ts:363` is called "adds the theme without rewriting a
 row". Six tests in that file make a claim of that kind, covering migrations
 0005 through 0011. A note that makes a promise about somebody's data
 and has no test behind it has been wrong before: the 0.1.5 contrast note quoted
@@ -259,7 +259,7 @@ a number that was not the old value, and the change it described as an
 improvement was a small regression.
 
 *Checked by:* `tests/migrations.test.ts`. Per-migration behavior assertions
-cover 0005 through 0011; the frozen ordering list at `:36-43` names the first
+cover 0005 through 0011; the frozen ordering list at `:39-45` names the first
 five explicitly and the rest are held by number, file and snapshot rather than
 by name, and 0012 has no assertion there at all. *Checked by:* `tests/migrations.test.ts`, which reads `AGENTS.md` and fails when
 a file in `drizzle/` is not named there. That test exists because the list had
@@ -312,7 +312,7 @@ out.
 - **Nothing is committed to here.** `tasks/product.prd.json` records the product
   as built; the roadmap records intent, and says so in its opening paragraph.
 
-*Not checked mechanically.* `tests/version.test.ts:185-187` checks that the
+*Not checked mechanically.* `tests/version.test.ts:321-323` checks that the
 backlog's version matches the manifest, which is the only mechanical link
 between intent and release.
 
@@ -340,7 +340,7 @@ The reasoning, which is what the next person should argue with:
 So, taking Nygard's Status field and immutability rule without the ceremony:
 
 - **House. A recorded decision names the release it was made in.** The exemplar
-  is `AGENTS.md:181-196`, the frozen migration list, which names every migration
+  is `AGENTS.md:289-326`, the frozen migration list, which names every migration
   and the release it shipped in, and is the most reliable section in the file
   for exactly that reason.
 - **House. A reversal edits the old text to say it is superseded, and says by
@@ -371,7 +371,7 @@ with `docs/guide.md` keeping the explanations.
   everything else it does, run it locally, run the tests, host it, connect an
   agent, security, not built yet, more, built with, license.
 - **The license is stated in the README, not only in `LICENSE`.** For an AGPL
-  project the license is a term of use. `README.md:269-279` names it, links it,
+  project the license is a term of use. `README.md:277-287` names it, links it,
   and explains what section 13 adds, including for versions published under the
   older license.
 - **No badge wall.** There are none today.
@@ -549,7 +549,7 @@ them cover the whole range:
   costs, and then the harder half: "Deliberately not `role="menu"` ... menu
   roles without the keyboard behavior they imply are worse than none."
 - **The invariant with the consequence of breaking it.**
-  `src/shared/domain.ts:2353-2355`: "`.strict()` is the load-bearing part: a
+  `src/shared/domain.ts:2354-2356`: "`.strict()` is the load-bearing part: a
   filter this cannot honor is an error rather than a key quietly dropped,
   because a selection resolves twice and an ignored filter makes the count and
   the fingerprint agree about the wrong set."
@@ -605,9 +605,9 @@ What is checked:
 
 | Correspondence | Checked by |
 | --- | --- |
-| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:301-306`, by name rather than by count, "so the failure says which" |
-| Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:152-182`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
-| The product backlog's version matches the manifest | `tests/version.test.ts:185-187` |
+| Every MCP tool name appears in `docs/mcp.md` | `tests/mcp-parity.test.ts:306-316`, by name rather than by count, "so the failure says which" |
+| Every pinned image tag in the tree matches the release, *and* is a file `set-version` rewrites | `tests/version.test.ts:232-262`, which finds them by sweeping the repository rather than by holding a list — the list had gone stale once, leaving a third file deploying the release it was written during |
+| The product backlog's version matches the manifest | `tests/version.test.ts:321-323` |
 | `docs/deployment.md`'s settings tables against `.env.example` and `deploy/compose/.env.example`, both directions | `tests/env-example.test.ts`, which documents every variable an example names and shows an example of every variable the tables document, and holds its own two exception lists to being genuinely exceptional |
 | The `docker run` command in `README.md` and `docs/deployment.md` carries its hardening flags | `tests/deployment-docs.test.ts`, which requires `--read-only`, the `noexec,nosuid` tmpfs, `--stop-timeout 30`, `--cap-drop=ALL` and `--security-opt=no-new-privileges` in both, and hardens every service in the compose recipe the same way |
 | The README tells somebody who found a hole where to report it, and does not answer the contributing question with the invariants file | `tests/docs-conventions.test.ts` |
@@ -636,7 +636,7 @@ All four hold today, by hand.
 **House, and specific to this product.** Any convention stated in `docs/mcp.md`
 prose that an agent must obey also appears in a tool or field description,
 because an agent never reads the prose. The document already articulates the
-principle at `:67`: "Fields carry descriptions, so an agent reading the schema
+principle at `:91`: "Fields carry descriptions, so an agent reading the schema
 learns the conventions that matter."
 [`mcp.md`](mcp.md#descriptions) owns the rule; it is repeated here because the
 temptation is to write the convention down in the guide and consider it
@@ -673,13 +673,13 @@ edit.
   anybody argued the rule down: a rule nothing enforces loses ground at the rate
   the repository grows, which is the case for scoping it rather than for
   restating it. In user-visible copy the rule holds almost everywhere, with
-  four exceptions: `App.tsx:582`, `select-options.ts:110`,
+  four exceptions: `App.tsx:595`, `select-options.ts:110`,
   `TemplatesPage.tsx:611`, and the review queue's inline-edit labels
-  (`StagingPage.tsx:995`), which lead with the visible value and set the
+  (`StagingPage.tsx:1039`), which lead with the visible value and set the
   instruction off behind a dash. The lone "—" in an empty table cell is a
   placeholder glyph rather than punctuation and is not counted here. Two
   further sites,
-  `SettingsPage.tsx:135` and `ReportsPage.tsx:167-171`, are prose inside JSX
+  `SettingsPage.tsx:141` and `ReportsPage.tsx:195-199`, are prose inside JSX
   and read as copy but are comments, so they answer to the comment rule rather
   than this one. Three of those citations have now drifted off the line they
   name at least once, which is what a line number into a file somebody is
@@ -707,7 +707,7 @@ edit.
   see the class of defect that tier was added for.
 - **No `CONTRIBUTING.md`**, on a published AGPL project that accepts dependabot
   pull requests. The README carries a `## Contributing` section
-  (`README.md:210`) and `tests/docs-conventions.test.ts` holds it to not
+  (`README.md:217`) and `tests/docs-conventions.test.ts` holds it to not
   answering the question by pointing at the invariants file, so the half that
   was missing is the separate document a forge links to from a pull request
   form. Whether pull requests are taken at all is the owner's answer to give,

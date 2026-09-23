@@ -681,7 +681,7 @@ export function RowMenu({ label, children }: { label: string; children: ReactNod
         className="menu-popover row-menu-popover"
         style={anchor ? { top: anchor.top, right: anchor.right } : undefined}
         // Choosing something closes the menu. Without this it stays open behind
-        // whatever the choice opened, and is still there afterwards.
+        // whatever the choice opened, and is still there afterward.
         onClick={() => close()}
       >
         {children}

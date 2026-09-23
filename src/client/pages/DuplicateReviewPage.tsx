@@ -243,7 +243,7 @@ export default function DuplicateReviewPage() {
       ) : !review.data ? null : !review.data.second ? (
         <EmptyState
           icon={<CheckCheck size={22} />}
-          title="Nothing repeats this any more"
+          title="Nothing repeats this anymore"
           body="Whatever it looked like a copy of has been changed, committed or dropped. This row is on its own now."
           action={
             // On to the next one where there is one: this row needs nothing

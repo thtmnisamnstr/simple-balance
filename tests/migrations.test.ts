@@ -168,9 +168,9 @@ describe("migration baseline", () => {
   /**
    * 0022 is the same shape as 0007 and 0008 — five tables the rest of the
    * product does not read yet — which is precisely when a migration slips
-   * through unasserted. It is also the only migration on disk that has not
-   * shipped, so it is the only one these assertions can still change rather
-   * than merely describe.
+   * through unasserted. It is also one of the three on disk that have not
+   * shipped, 0022 to 0024, so its assertions are among the few here that can
+   * still change what a migration says rather than merely describe it.
    */
   it("adds the billing tables as pure additions, and cascades all but one", async () => {
     const sql = await readFile(path.join(migrationDirectory, "0022_plans_and_billing.sql"), "utf8");
@@ -317,11 +317,47 @@ describe("migration baseline", () => {
   });
 
   /**
+   * 0024 has not shipped, so it can still be regenerated, and a regeneration is
+   * where this goes wrong without anybody meaning it to. `DEFAULT false` would
+   * make every account on every existing ledger inactive, and on the first
+   * downgrade after the upgrade the ordering would have nothing to stand in
+   * for; a backfill `UPDATE` would rewrite every account row on the way in.
+   * The column's whole safety on an existing ledger is that it arrives true
+   * and costs no rewrite, so that is asserted rather than described.
+   */
+  it("adds the active flag without rewriting a row", async () => {
+    const sql = await readFile(path.join(migrationDirectory, "0024_active_accounts.sql"), "utf8");
+    // The statements, not the prose above them: the header comment names
+    // ADD COLUMN itself, and a check that counted it would be counting words.
+    const statements = sql
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("--"))
+      .join("\n");
+
+    expect(statements).toMatch(
+      /ALTER TABLE "ledger_account" ADD COLUMN "active" boolean DEFAULT true NOT NULL/,
+    );
+    expect(statements.match(/ADD COLUMN/gi)).toHaveLength(1);
+    // A constant default, so the add is metadata-only. A volatile one would
+    // rewrite the table.
+    expect(statements).not.toMatch(/DEFAULT\s+[a-z_]+\s*\(/i);
+    for (const forbidden of [
+      /^\s*UPDATE\s/im,
+      /^\s*DELETE\s/im,
+      /^\s*INSERT\s/im,
+      /\bDROP\b/i,
+      /\bALTER COLUMN\b/i,
+    ]) {
+      expect(statements, forbidden.source).not.toMatch(forbidden);
+    }
+  });
+
+  /**
    * The theme column, and the promise the upgrade notes make about it to
    * operators: that it is metadata-only, so no table is rewritten and nobody
    * waits. That holds only while the default is a constant and the column is
    * added rather than backfilled — a NOT NULL add with a constant default is
-   * filled by PostgreSQL without touching a row, and an UPDATE afterwards would
+   * filled by PostgreSQL without touching a row, and an UPDATE afterward would
    * quietly take that away on a large table.
    */
   it("adds the theme without rewriting a row", async () => {

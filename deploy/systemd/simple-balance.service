@@ -51,6 +51,12 @@ EnvironmentFile=/etc/default/simple-balance
 # serves both profiles that use Compose, and neither needs one here: `single`
 # has no database on this machine at all, and `vps` runs the database in a
 # project of its own on a machine of its own, where the volume is Docker's.
+#
+# Nor one assembling .env. The machines the cloud programs build add that in a
+# drop-in beside this unit, simple-balance.service.d/env.conf, which runs
+# simple-balance-env first so a restart folds in what was added to env.local.
+# Here it would overwrite the .env a hand install writes, which has no parts to
+# assemble it from.
 
 # `--wait`, and it is the difference between a unit that means something and one
 # that does not. Without it `up -d` returns as soon as the containers are

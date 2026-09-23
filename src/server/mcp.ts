@@ -568,7 +568,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       instructions: [
         "Simple Balance is one person's double-entry ledger. Every figure you read or write belongs to the account that authorized this connection.",
         "",
-        'Money is always an exact decimal string, never a JSON number: send "12.50", not 12.5. Totalling amounts as floats loses money, and no total may cross currencies — each currency is reported on its own.',
+        'Money is always an exact decimal string, never a JSON number: send "12.50", not 12.5. Totaling amounts as floats loses money, and no total may cross currencies — each currency is reported on its own.',
         "",
         "Dates are YYYY-MM-DD in the person's own timezone. A summary stops at today whatever end date you ask for, and tells you the day it used.",
         "",
@@ -691,7 +691,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             .boolean()
             .default(false)
             .describe(
-              "Include archived categories. An archived category still holds everything filed under it, so leaving them out narrows what you are looking at rather than tidying it.",
+              "Include archived categories. An archived category still holds everything filed under it, so leaving them out narrows what you are looking at rather than cleaning it up.",
             ),
         }),
         outputSchema: mcpOutputSchema(z.array(categorySummaryResultSchema)),
@@ -716,7 +716,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List payees",
         description:
-          "Every payee spelling the ledger holds, one row per spelling as it was typed, with how many committed and staged entries carry each. A payee is text on a transaction rather than a record, so two spellings of one shop are two rows here. Use `list_duplicate_payees` to see which of them collide.",
+          "Every payee spelling the ledger holds, one row per spelling as it was typed, with how many committed and staged entries carry each. A payee is text on a transaction rather than a record, so two spellings of one store are two rows here. Use `list_duplicate_payees` to see which of them collide.",
         // The service's own schema, so what is advertised and what is accepted
         // cannot drift. They already had: this said 200 characters where the
         // service allows 160 and strips line breaks.
@@ -821,7 +821,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
             // default: an agent should be able to tell "no limit here" from
             // "limited, and you are near it" without a second call. The count
             // comes from the same place the refusal counts: places in use,
-            // which list_accounts cannot be totalled into without applying the
+            // which list_accounts cannot be totaled into without applying the
             // entitlement to every row it returns.
             plan: entitlement.billing ? entitlement.plan : null,
             accountLimit: entitlement.billing ? entitlement.accountLimit : null,
@@ -865,7 +865,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List import batches",
         description:
-          "CSV imports that still have rows waiting on Staged transactions. The id is what scopes a staged listing or a bulk edit to one file, which is how a whole import is corrected in one go.",
+          "CSV imports that still have rows waiting on Staged transactions. The id is what scopes a staged listing or a bulk edit to one file, which is how a whole import is corrected at once.",
         inputSchema: importBatchListQuerySchema.strict(),
         outputSchema: mcpOutputSchema(cursorPageResultSchema(importBatchResultSchema)),
         annotations: readAnnotations,
@@ -903,7 +903,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "List recurring transactions",
         description:
-          "List the standing instructions that propose transactions on a schedule. A recurrence never posts anything: on its due date it puts an ordinary row on Staged transactions for somebody to commit. `lastOccurrenceDate` of null means it has never run, `overdue` means its next occurrence has passed and nothing was proposed, and the three counts say what became of what it did propose. There is no holiday calendar: a business day is Monday to Friday.",
+          "List the rules that propose transactions on a schedule. A recurrence never posts anything: on its due date it puts an ordinary row on Staged transactions for somebody to commit. `lastOccurrenceDate` of null means it has never run, `overdue` means its next occurrence has passed and nothing was proposed, and the three counts say what became of what it did propose. There is no holiday calendar: a business day is Monday through Friday.",
         inputSchema: toolInput({}),
         outputSchema: mcpOutputSchema(recurrenceListResultSchema),
         annotations: readAnnotations,
@@ -1012,7 +1012,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Open a staged row beside what it repeats",
         description:
-          "Fetch a staged row together with the one thing it looks like a repeat of, ordered for review. The second side is the committed transaction where there is one, and otherwise the older of the two staged rows; it is null when nothing matches it any more. Only a staged side may be deleted, because the way out of a duplicate is to drop the copy that has not been recorded yet.",
+          "Fetch a staged row together with the one thing it looks like a repeat of, ordered for review. The second side is the committed transaction where there is one, and otherwise the older of the two staged rows; it is null when nothing matches it anymore. Only a staged side may be deleted, because the way out of a duplicate is to drop the copy that has not been recorded yet.",
         inputSchema: toolInput({
           id: recordIdSchema.describe("The staged row to review."),
         }),
@@ -1249,7 +1249,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Bulk edit staged transactions",
         description:
-          "Atomically edit explicit versioned staged transactions or a previewed all-matching selection. Every row is validated again afterwards, so filling in a missing account or category clears the issues that were blocking a commit. Account and type are refused on transfers, and dryRun validates without writing. A selection holding even one split refuses a category or type change outright rather than flattening the split, so the whole call fails: leave splits out of the selection, or edit their legs one entry at a time. Confirm it with the person first, and use dryRun to show them the count before writing. The patch names categories by id only. With ledger:write, moving the last row off a category also removes that category when nothing else refers to it — no transaction, staged row, template, recurrence or budget; with ledger:stage alone it is left standing, because removing one of the ledger's own records is a decision rather than a proposal.",
+          "Atomically edit explicit versioned staged transactions or a previewed all-matching selection. Every row is validated again afterward, so filling in a missing account or category clears the issues that were blocking a commit. Account and type are refused on transfers, and dryRun validates without writing. A selection holding even one split refuses a category or type change outright rather than flattening the split, so the whole call fails: leave splits out of the selection, or edit their legs one entry at a time. Confirm it with the person first, and use dryRun to show them the count before writing. The patch names categories by id only. With ledger:write, moving the last row off a category also removes that category when nothing else refers to it — no transaction, staged row, template, recurrence or budget; with ledger:stage alone it is left standing, because removing one of the ledger's own records is a decision rather than a proposal.",
         inputSchema: bulkStageEditSchema.strict(),
         outputSchema: mcpOutputSchema(bulkStageEditMcpResultSchema),
         annotations: destructiveAnnotations,
@@ -1426,7 +1426,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Budget one period only",
         description:
-          "Set the amount for a single period, overriding whatever standing budget covers it. Use this for a one-off, such as a larger food budget in December, and create_budget_plan for anything ongoing. periodStart is truncated to the period unit, so any day inside the period names it. Leave expectedVersion out the first time; setting one that already exists needs its version, which list_budget_entries returns.",
+          "Set the amount for a single period, overriding whatever standing budget covers it. Use this for a one-time change, such as a larger food budget in December, and create_budget_plan for anything ongoing. periodStart is truncated to the period unit, so any day inside the period names it. Leave expectedVersion out the first time; setting one that already exists needs its version, which list_budget_entries returns.",
         inputSchema: budgetEntrySetSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1641,14 +1641,18 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Choose which accounts stay usable",
         description:
-          "Name every account that stays usable. Any account left out is frozen: still readable, still counted in every balance and report, and closed to every change — no new entry, no edit, no delete, not even a rename. A plan that limits how many accounts may be active is the only reason an account is ever frozen, and `whoami` reports that limit. **The choice is made once.** While the choice is still open — which is whenever more accounts are marked `active` than the plan keeps, as a downgrade or a spell on the paid plan leaves behind — this may name any set within the limit; afterwards an account already in use must stay in the list, and a frozen one can only be added when a place has come free — which happens when somebody archives or deletes an account they were using. Archived accounts are not part of this and use up no place. This replaces the whole set rather than toggling one account, so sending the same list twice does nothing the second time.",
+          "Name every account that stays usable. Any account left out is frozen: still readable, still counted in every balance and report, and closed to every change — no new entry, no edit, no delete, not even a rename. A plan that limits how many accounts may be active is the only reason an account is ever frozen, and `whoami` reports that limit. **The choice is made once.** While the choice is still open — which is whenever more accounts are marked `active` than the plan keeps, as a downgrade or a spell on the paid plan leaves behind — this may name any set within the limit; afterward an account already in use must stay in the list, and a frozen one can only be added when a place has opened up — which happens when somebody archives or deletes an account they were using. Archived accounts are not part of this and use up no place. This replaces the whole set rather than toggling one account, so sending the same list twice does nothing the second time. It is refused while nothing is frozen, unless the list names exactly the accounts already active. While the choice is open, this decides which accounts the person keeps, and the set cannot be traded for a different one afterward, so confirm it with the person first.",
         inputSchema: toolInput({
           accountIds: activeAccountsSchema.shape.accountIds,
         }),
         outputSchema: mcpOutputSchema(z.array(accountResultSchema)),
-        // Not destructive: nothing is deleted and nothing moves, and sending
-        // the previous list puts everything back exactly as it was.
-        annotations: additiveAnnotations,
+        // Destructive, because the first call is the one-time choice: every
+        // account it leaves out is frozen, and resending an earlier list does
+        // not bring one back — an account in use leaves the set only by being
+        // archived or deleted. Not `unrecoverableAnnotations`, because that
+        // way back does exist: archiving or deleting frees a place, and a
+        // spell on the paid plan reopens the choice.
+        annotations: destructiveAnnotations,
       },
       ({ accountIds }) => runTool(() => setActiveAccounts(actor, { accountIds })),
     );
@@ -1905,7 +1909,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Merge categories",
         description:
-          "Move transaction and staging references into one target category and remove the sources. Confirm it with the person first: the source categories are gone afterwards and there is no undo.",
+          "Move transaction and staging references into one target category and remove the sources. Confirm it with the person first: the source categories are gone afterward and there is no undo.",
         inputSchema: categoryMergeSchema
           .extend({
             idempotencyKey: idempotencyKeySchema,
@@ -1926,7 +1930,7 @@ export function createMcpServer(actor: Actor, scopes: Set<string>) {
       {
         title: "Merge payees",
         description:
-          "Rewrite selected committed and staged payee spellings to one canonical name. Confirm it with the person first: the source payees are gone afterwards and there is no undo.",
+          "Rewrite selected committed and staged payee spellings to one canonical name. Confirm it with the person first: the source payees are gone afterward and there is no undo.",
         inputSchema: payeeMergeSchema.strict(),
         outputSchema: mcpOutputSchema(mergedPayeesResultSchema),
         annotations: unrecoverableAnnotations,

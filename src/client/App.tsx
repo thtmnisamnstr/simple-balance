@@ -23,7 +23,9 @@ import {
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import {
+  addressCarriesLedgerText,
   isPlanSurfacePath,
+  withoutLedgerText,
   Navigate,
   NavLink,
   Route,
@@ -691,7 +693,14 @@ function Shell({ session }: { session: Session }) {
    * the router's own predicate so the two cannot disagree about which spellings
    * are that page.
    */
-  const ads = isPlanSurfacePath(location.pathname) ? null : session.ads;
+  //
+  // Nor wherever the address carries a payee's name, which an ad request would
+  // send to Google as the page it was on — see addressCarriesLedgerText.
+  const ads =
+    isPlanSurfacePath(location.pathname) ||
+    addressCarriesLedgerText(location.search, document.referrer, window.location.origin)
+      ? null
+      : session.ads;
   const hamburger = useRef<HTMLButtonElement>(null);
   const drawerClose = useRef<HTMLButtonElement>(null);
   useAdoptBrowserRegion(session);
@@ -805,7 +814,8 @@ function Shell({ session }: { session: Session }) {
           {nav.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
-              to={{ pathname: to, search: location.search }}
+              // The date range travels; a payee name does not.
+              to={{ pathname: to, search: withoutLedgerText(location.search) }}
               end={end}
               onClick={() => setMobileNav(false)}
             >

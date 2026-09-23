@@ -56,7 +56,7 @@ export async function listCategoryGroups(actor: Actor): Promise<CategoryGroupVie
   // replaced was written as a raw fragment with an alias of its own, and
   // Drizzle rendered the outer table's columns unqualified inside it: they
   // bound to the inner alias, so every group counted its own members against
-  // themselves and reported nought. The join says which table each column
+  // themselves and reported zero. The join says which table each column
   // belongs to because Drizzle writes both sides.
   const rows = await getDb()
     .select({

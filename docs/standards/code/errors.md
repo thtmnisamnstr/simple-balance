@@ -8,7 +8,7 @@ The wire format — RFC 9457, status codes, the envelope — is
 ## 1. One error type
 
 **Binding, with one named exception.** Anything a caller could act on is an
-`AppError` (`src/server/services/errors.ts:10`). It carries a code, a message, an
+`AppError` (`src/server/services/errors.ts:31`). It carries a code, a message, an
 HTTP status and optional details, and both transports render it: HTTP into a
 problem document, MCP into a tool error.
 
@@ -47,7 +47,7 @@ use the constructor that names the situation.
 | `validationError` | 422 | The request is well-formed and asks for something impossible. |
 
 **The transport is the named exception, and it is two lines.**
-`src/server/api.ts` constructs `AppError` directly at `:1131` and `:1149`, and
+`src/server/api.ts` constructs `AppError` directly at `:1467` and `:1485`, and
 both carry a code no service raises at all: `FORBIDDEN` and
 `REAUTHENTICATION_REQUIRED` belong to the two operations that are reachable
 from a session and never from a token, which is exactly the pair `AGENTS.md`
@@ -59,10 +59,10 @@ So the rule is scoped rather than absolute: a service uses the constructors, and
 the transport may name a status the service half has no word for. It was four
 lines rather than two, and shrinking it is what the other two paragraphs of this
 section used to be about. The already-configured-password site was byte-for-byte
-what `conflict()` produces and now calls it (`:1140`). The malformed-body guard
+what `conflict()` produces and now calls it (`src/server/api.ts:1476`). The malformed-body guard
 was a `VALIDATION_ERROR` **400** where the constructor is 422 by definition,
 which is why it could not use one — it is now a `TransportError`
-(`src/server/api.ts:1325`, the class at `src/server/services/errors.ts:13-23`),
+(`src/server/api.ts:1341`, the class at `src/server/services/errors.ts:13-23`),
 a separate enumeration for the refusals that are about the request rather than
 about the ledger, so `VALIDATION_ERROR` means one status again and the code an
 MCP tool can raise stays the service half alone.
@@ -95,7 +95,7 @@ and it carries `currentVersion` in its details so the client can say what
 happened rather than "something went wrong".
 
 Its message is fixed at the constructor
-(`src/server/services/errors.ts:81-94`)
+(`src/server/services/errors.ts:102-115`)
 because there is nothing per-site to add. Two messages are fixed there now, one
 per audience: `message` tells a browser to reload, and `agentMessage` — read by
 the MCP transport and by nothing else — tells an agent to read the row again and
@@ -164,7 +164,7 @@ array. Showing the envelope is how "A budget cannot be negative" reached the
 screen as "Request validation failed".
 
 The client digs the messages out of the details
-(`src/client/api.ts:104-111`) and shows those
+(`src/client/api.ts:111-118`) and shows those
 in preference to the envelope. Which means schema messages are user-facing:
 write them that way.
 
@@ -176,7 +176,7 @@ specific messages.
 **House.** Some rules the browser has to know before it submits, or the person
 gets a 422 the screen never hinted at. Those live in `src/shared` as a function
 returning a result rather than throwing
-(`src/shared/domain.ts:150`):
+(`src/shared/domain.ts:162`):
 
 ```ts
 { ok: false, message: "An entry is either income or a refund, not both." }
@@ -219,7 +219,7 @@ unusable (missing keys, wrong types), never what makes a row ugly: ugliness is
 the row's own issue list's job.
 
 *Checked by:* `human`. The instance is pinned where it bit
-(`src/shared/domain.ts:1121-1126`, the comment on `payeeSummarySchema.name`).
+(`src/shared/domain.ts:1145-1150`, the comment on `payeeSummarySchema.name`).
 
 ## 5. What is not enforced
 

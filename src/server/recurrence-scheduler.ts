@@ -20,8 +20,8 @@ import {
 /**
  * How long after the process starts listening the first tick fires.
  *
- * Short, so a container restarted after downtime shows its backlog straight
- * away rather than an interval later, and after `serve()` has returned so a slow
+ * Short, so a container restarted after downtime shows its backlog right away
+ * rather than an interval later, and after `serve()` has returned so a slow
  * first tick can never delay a readiness probe.
  */
 export const FIRST_TICK_DELAY_MS = 5_000;

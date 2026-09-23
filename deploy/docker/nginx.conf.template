@@ -105,8 +105,39 @@ map $request_uri $sb_plan_raw {
 # valid source that matches no arm and falls to `default`, which is the strict
 # policy. The safe direction for a value nobody set.
 map "${SB_BILLING_CONFIGURED}:$sb_plan_raw" $sb_plan_policy {
-  "true:true" "default-src 'self'; img-src 'self' data: https:; style-src 'self' https://*.hcaptcha.com; script-src 'self' https://js.stripe.com https://*.js.stripe.com https://*.hcaptcha.com; connect-src 'self' https://api.stripe.com https://m.stripe.com https://q.stripe.com https://errors.stripe.com https://*.hcaptcha.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://*.hcaptcha.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
+  "true:true" "default-src 'self'; img-src 'self' data: https:; style-src 'self' https://*.hcaptcha.com; script-src 'self' https://js.stripe.com https://*.js.stripe.com https://*.hcaptcha.com; connect-src 'self' https://api.stripe.com https://m.stripe.com https://q.stripe.com https://errors.stripe.com https://link.com https://*.link.com https://*.hcaptcha.com; frame-src https://js.stripe.com https://*.js.stripe.com https://hooks.stripe.com https://link.com https://*.link.com https://*.hcaptcha.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'";
   default $sb_app_csp;
+}
+
+# The two headers besides the policy that differ by page, keyed exactly as the
+# policy above is so the three cannot disagree about which page this is.
+#
+# Referrer-Policy is `same-origin` everywhere but the pages that carry ads,
+# which need `strict-origin-when-cross-origin`: Google's consent message does
+# not serve under a policy that keeps the referrer off cross-origin requests.
+# That one still tells another origin only this site's address, never the path.
+# The plan tab keeps `same-origin` — it carries no ads — and where Stripe is not
+# configured that path is an ordinary page and takes whatever they take.
+#
+# Cross-Origin-Opener-Policy is `same-origin` everywhere but the plan tab, which
+# needs `same-origin-allow-popups` so a Google Pay popup can hand its payment
+# back to the page that opened it. `securityHeaderOptions` in
+# `src/server/http-security.ts` gives the reasons at length, and
+# `tests/security-header-parity.test.ts` holds these to it in every
+# combination of settings.
+map "${SB_ADS_CONFIGURED}" $sb_referrer_policy {
+  "true"  "strict-origin-when-cross-origin";
+  default "same-origin";
+}
+
+map "${SB_BILLING_CONFIGURED}:$sb_plan_raw" $sb_plan_referrer_policy {
+  "true:true" "same-origin";
+  default $sb_referrer_policy;
+}
+
+map "${SB_BILLING_CONFIGURED}:$sb_plan_raw" $sb_plan_opener_policy {
+  "true:true" "same-origin-allow-popups";
+  default "same-origin";
 }
 
 # And whether that page enforces the policy or only reports on it. Two maps
@@ -121,8 +152,11 @@ map "${SB_BILLING_CONFIGURED}:$sb_plan_raw" $sb_plan_policy {
 # draws the same line by scoping `reportOnly` to the `stripe` surface.
 #
 # Only this page either way. Every other page enforces whatever
-# `security-headers.conf` says, always: rehearsing the policy that has not
-# changed would take a working defense off every page that renders balances.
+# `security-headers.conf` says, always — including the widened policy the ads
+# pages carry, which is as new as this one. Rehearsing it was declined on
+# purpose: it would take a working defense off every page that renders
+# balances, and an ad the policy refuses shows in the browser console of the
+# page that carries it while that page goes on enforcing.
 map "${SB_BILLING_CONFIGURED}:$sb_plan_raw:${SB_CSP_REPORT_ONLY}" $sb_plan_csp {
   "true:true:true" "";
   default     $sb_plan_policy;

@@ -66,11 +66,11 @@ function numberFormat(locales: string | string[] | undefined, options: Intl.Numb
 
 const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 
-function dateFormat(options: Intl.DateTimeFormatOptions) {
-  const key = JSON.stringify(options);
+function dateFormat(options: Intl.DateTimeFormatOptions, locales?: string | string[]) {
+  const key = `${Array.isArray(locales) ? locales.join(",") : (locales ?? "")}|${JSON.stringify(options)}`;
   let formatter = dateFormatters.get(key);
   if (!formatter) {
-    formatter = new Intl.DateTimeFormat(undefined, options);
+    formatter = new Intl.DateTimeFormat(locales, options);
     dateFormatters.set(key, formatter);
   }
   return formatter;
@@ -303,13 +303,6 @@ export function moneyScalePercent(amount: string, low: string, high: string): st
 }
 
 /**
- * Total on purpose. A staged row is allowed to hold whatever a CSV put in its
- * date column, and Intl throws a RangeError on an invalid date, which unmounts
- * the tree and leaves a white page rather than a badly formatted cell. Anything
- * this cannot read is shown as it arrived, which is also what somebody needs to
- * see in order to fix it.
- */
-/**
  * A month named for an axis: "Aug 2026".
  *
  * Here rather than in charts.tsx because web.md 10.4's own check is a grep for
@@ -322,6 +315,13 @@ export function formatMonth(value: string) {
   return dateFormat({ month: "short", year: "numeric", timeZone: "UTC" }).format(day);
 }
 
+/**
+ * Total on purpose. A staged row is allowed to hold whatever a CSV put in its
+ * date column, and Intl throws a RangeError on an invalid date, which unmounts
+ * the tree and leaves a white page rather than a badly formatted cell. Anything
+ * this cannot read is shown as it arrived, which is also what somebody needs to
+ * see in order to fix it.
+ */
 export function formatDate(value: string) {
   const day = new Date(`${value.slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(day.getTime())) return value;
@@ -331,6 +331,26 @@ export function formatDate(value: string) {
     day: "numeric",
     timeZone: "UTC",
   }).format(day);
+}
+
+/**
+ * A reminder's time of day, "HH:MM" as stored, in the reader's own clock
+ * style: "6:30 PM" for somebody in the US, "18:30" for somebody who reads a
+ * 24-hour clock.
+ *
+ * The stored value is a wall-clock time in the person's own timezone, not an
+ * instant, so it is formatted in UTC against an arbitrary date purely to borrow
+ * Intl's sense of how a time is written; nothing is converted. The two places
+ * that print one — a template's next reminder and the reminder preview in its
+ * form — used to print it raw, so a 24-hour "18:30" sat beside a date that had
+ * been written the reader's way. Total for the same reason `formatDate` is:
+ * anything that is not a time is shown as it arrived.
+ */
+export function formatTime(value: string, locales?: string | string[]) {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return value;
+  return dateFormat({ hour: "numeric", minute: "2-digit", timeZone: "UTC" }, locales).format(
+    new Date(`1970-01-01T${value}:00Z`),
+  );
 }
 
 /**
@@ -388,7 +408,8 @@ export function movementSign(
     // signed but left uncolored. The inbound side reads as an arrival, which
     // is why it takes the deposit color and the outbound side takes none.
     // That asymmetry is the register's own and is preserved here rather than
-    // tidied, because tidying it would repaint a screen without being asked.
+    // cleaned up, because cleaning it up would repaint a screen without being
+    // asked.
     if (inbound === true) return { sign: "+", className: "deposit" };
     if (inbound === false) return { sign: "−", className: "transfer" };
     return { sign: "", className: "transfer" };

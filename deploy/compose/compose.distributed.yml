@@ -36,6 +36,10 @@ x-hardening: &hardening
 #
 # RECURRENCE_SCHEDULER is deliberately absent: it is the one setting the two
 # disagree about, so each sets it for itself.
+#
+# This block is the whole of what reaches either process — .env only fills in
+# the ${...} — so a setting it does not name is dropped without a word.
+# tests/env-example.test.ts holds it to every name src/server reads.
 x-app-config: &app-config
   # Pinned rather than left to the image, which does set it. Unset reads as
   # development, and that is the one misconfiguration with no symptom: no setup
@@ -44,6 +48,12 @@ x-app-config: &app-config
   NODE_ENV: production
 
   DATABASE_URL: postgresql://simple_balance:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/compose/.env}@postgres:5432/simple_balance
+  # Empty while that is the bundled database, which has no pooler in front of
+  # it. Set it once DATABASE_URL names a server behind PgBouncer or another
+  # transaction pooler: migrations and the first-account claim hold a
+  # session-level advisory lock that a pooler cannot carry, so they connect
+  # here instead.
+  DIRECT_DATABASE_URL: ${DIRECT_DATABASE_URL:-}
 
   # The FRONTEND's origin as the browser sees it, not the API's own address.
   # Cookies are set by the API and read by the browser, so both have to be
@@ -137,6 +147,11 @@ x-app-config: &app-config
   ADSENSE_BANNER_SLOT_ID: ${ADSENSE_BANNER_SLOT_ID:-}
   ADSENSE_FOOTER_SLOT_ID: ${ADSENSE_FOOTER_SLOT_ID:-}
   ADSENSE_CONSENT_MANAGED: ${ADSENSE_CONSENT_MANAGED:-false}
+  # Required, as an absolute https:// address, the moment the AdSense ids are
+  # set, and both processes refuse to start without it. This block once left it
+  # out, so a value in .env never arrived and turning AdSense on stopped the
+  # server and the scheduler with a message asking for a variable already set.
+  PRIVACY_POLICY_URL: ${PRIVACY_POLICY_URL:-}
   METRICS_TOKEN: ${METRICS_TOKEN:-}
 
 services:

@@ -44,8 +44,8 @@ matching: an invalidation naming a resource no query files itself under fails,
 because that write refetches nothing and says nothing. The other direction is
 deliberately open. A query nothing invalidates passes, because invalidation is
 not the only sanctioned way to stay fresh: the reports page files
-`["report", ...]` (`src/client/pages/ReportsPage.tsx:82`) and refetches on
-every mount instead (`:94-95`), since no mutation knows which report a change
+`["report", ...]` (`src/client/pages/ReportsPage.tsx:104`) and refetches on
+every mount instead (`:118-119`), since no mutation knows which report a change
 touches. A new query whose data a mutation does change still needs its
 invalidation written by hand, and no test will remind you.
 
@@ -54,7 +54,7 @@ invalidation written by hand, and no test will remind you.
 **Binding, mostly.** If it can be worked out from what is already in state, work
 it out during render. `splitting`, `showsCategoryPicker`, `splitSettled` and
 `entrySide` in `TransactionForm` are all plain `const`s
-(`src/client/forms.tsx:1727-1739` and `:1731`), and every one of them would be
+(`src/client/forms.tsx:1739-1751` and `:1807`), and every one of them would be
 a synchronization bug as state.
 
 `react/set-state-in-effect` found thirteen sites and every one has been
@@ -73,7 +73,7 @@ what the person typed.
 The other thing that is not a derived value: an answer a handler needs before
 the next render can deliver it. The staged list's inline editors keep
 `inlineInFlight`, `inlineCanceled` and `focusAfterInline` in refs
-(`src/client/pages/StagingPage.tsx:569-580`) even though the first shadows
+(`src/client/pages/StagingPage.tsx:566-577`) even though the first shadows
 `isPending`, because the deciding read happens in the same event burst as the
 write: Enter commits, and the blur that follows a click away runs before the
 render that would have set `isPending`, so the state version double-submits —

@@ -62,7 +62,7 @@ export default function DashboardPage() {
   // showing. Keyed under "budgets" so setting one over there refreshes this.
   //
   // Some of what it carries is dropped here on purpose (§11.9), and neither
-  // `rows` nor `groups` is among them any more. "How is the budget going"
+  // `rows` nor `groups` is among them anymore. "How is the budget going"
   // turned out to be two questions — how is it going, and where is it going
   // wrong — and the second needs the categories, so a reader had to leave the
   // page to learn which budget the period's red bar was about. Every budgeted

@@ -10,7 +10,7 @@ import {
   Trash2,
   WalletCards,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Link, useLocation } from "../router.js";
 import {
   accountTypeLabels,
@@ -19,6 +19,7 @@ import {
   type AccountType,
   accountAllowance,
   activeChoicePending,
+  restoreAllowance,
 } from "../../shared/domain.js";
 import { api, json, type Account, type Session } from "../api.js";
 import {
@@ -77,6 +78,14 @@ export default function AccountsPage({ session }: { session: Session }) {
     session.plan?.entitlement ?? { billing: false },
     session.plan?.accountsUsed ?? 0,
   );
+  // And the one the server calls before a restore, which needs a free place
+  // too. Asked here so an archived account whose place has gone says why on
+  // the item, rather than asking to be confirmed and then coming back refused.
+  const restore = restoreAllowance(
+    session.plan?.entitlement ?? { billing: false },
+    session.plan?.accountsUsed ?? 0,
+  );
+  const reasonId = useId();
   // Null unless a plan limits how many accounts may be active, which is the
   // only reason anything is ever frozen.
   const entitlement = session.plan?.entitlement ?? { billing: false };
@@ -193,6 +202,8 @@ export default function AccountsPage({ session }: { session: Session }) {
               {group.accounts.map((account) => {
                 const Icon = iconFor(account.type);
                 const liability = liabilityAccountTypes.has(account.type);
+                const noPlace = Boolean(account.archivedAt) && !restore.ok;
+                const noPlaceId = `${reasonId}-${account.id}`;
                 return (
                   <article
                     className={`account-card ${account.archivedAt ? "archived" : ""}`}
@@ -210,7 +221,8 @@ export default function AccountsPage({ session }: { session: Session }) {
                             <Pencil size={15} /> Edit
                           </button>
                           <button
-                            disabled={account.frozen}
+                            disabled={account.frozen || noPlace}
+                            aria-describedby={noPlace ? noPlaceId : undefined}
                             onClick={() => {
                               // Archiving moves money: the balance is posted
                               // out to equity so the account ends at zero.
@@ -243,6 +255,11 @@ export default function AccountsPage({ session }: { session: Session }) {
                             )}
                             {account.archivedAt ? "Restore" : "Archive"}
                           </button>
+                          {!restore.ok && noPlace ? (
+                            <small className="button-reason menu-reason" id={noPlaceId}>
+                              {restore.message}
+                            </small>
+                          ) : null}
                           <button
                             className="danger"
                             disabled={account.frozen}
@@ -389,8 +406,8 @@ export default function AccountsPage({ session }: { session: Session }) {
  * one off to turn another on would be two saves and an intermediate state the
  * plan does not allow. And it puts two different questions depending on
  * `activeChoicePending`: the first choice, where any set within the limit is
- * open, and afterwards, where the accounts in use are fixed and only a place
- * that has come free can be filled. Both are the server's own rule, because
+ * open, and afterward, where the accounts in use are fixed and only a place
+ * that has opened up can be filled. Both are the server's own rule, because
  * a panel that offered a choice the save refuses would be worse than no panel.
  *
  * Exported for `tests/active-accounts-ui.test.tsx`, which drives it directly:
@@ -439,8 +456,8 @@ export function ActiveAccountChooser({
 
   // The same predicate the server asks, so the panel cannot offer a choice the
   // save would refuse, or fix a row the save would let go. Before the choice
-  // any set is open; afterwards an account in use is fixed and the only move
-  // is filling a place that came free.
+  // any set is open; afterward an account in use is fixed and the only move
+  // is filling a place that opened up.
   const choosing = activeChoicePending(limit, live);
   const free = limit - selection.size;
   const over = selection.size > limit;
@@ -460,7 +477,7 @@ export function ActiveAccountChooser({
             {choosing
               ? `Your plan keeps ${limit} accounts usable at a time, and this is the one time you ` +
                 "pick them. The rest stay here in full — every balance, every entry, every " +
-                "report — and refuse changes until a place comes free. Nothing is deleted, and " +
+                "report — and refuse changes until a place opens up. Nothing is deleted, and " +
                 "nothing is hidden."
               : `Your plan keeps ${limit} accounts usable at a time. These are fixed: an account ` +
                 "you are using stays that way until you archive or delete it. When that frees a " +

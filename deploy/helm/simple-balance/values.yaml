@@ -55,7 +55,9 @@ config:
   # Believable only while the frontend's nginx sets X-Forwarded-For to
   # $remote_addr rather than appending to whatever the caller sent. An ingress
   # terminating TLS in front of it makes $remote_addr the ingress and brings the
-  # shared allowance back; NOTES.txt prints the set_real_ip_from fix.
+  # shared allowance back. The fix is one value, frontend.trustedProxyCidr, set
+  # to the ingress controller's pod range: no template edit and no image
+  # rebuild. NOTES.txt says so when it is left at its off position.
   trustProxy: true
 
   # local, google, or both. Google needs config.google.clientId,
@@ -136,6 +138,16 @@ config:
     enabled: false
 
   # Anything else the API and the scheduler should read, as name/value pairs.
+  #
+  # Selling a plan and serving ads both arrive this way, with their secrets in
+  # the Secret below. SB_BILLING_ENABLED, STRIPE_PUBLISHABLE_KEY and the two
+  # STRIPE_PRICE_*_ID values go here, and so do the ADSENSE_* ids with
+  # PRIVACY_POLICY_URL beside them: the server refuses to start with AdSense
+  # configured and no absolute https:// privacy policy address. The frontend
+  # decides the policy each page arrives with, so a STRIPE_PUBLISHABLE_KEY here
+  # tells it Stripe is configured and an ADSENSE_CLIENT_ID tells it ads are,
+  # the way the compose recipes derive both: frontend.billingConfigured and
+  # frontend.adsConfigured need setting only for a key that arrives elsewhere.
   extraEnv: {}
 
 # DATABASE_URL and AUTH_SECRET, and the other credentials when they apply.
@@ -148,8 +160,13 @@ secret:
   # A Secret that already exists in the release namespace. Its keys have to be
   # named exactly as the environment variables are: DATABASE_URL, AUTH_SECRET,
   # and whichever of DIRECT_DATABASE_URL, GOOGLE_CLIENT_SECRET, SMTP_USERNAME,
-  # SMTP_PASSWORD and SETUP_TOKEN apply. Every key it carries reaches the API
-  # and the scheduler as an environment variable, so it must hold nothing else.
+  # SMTP_PASSWORD, SETUP_TOKEN, METRICS_TOKEN, STRIPE_SECRET_KEY and
+  # STRIPE_WEBHOOK_SECRET apply — the keys templates/secret.yaml writes. Every
+  # key it carries reaches the API and the scheduler as an environment
+  # variable, so it must hold nothing but settings the server reads. One kept
+  # here that the frontend also needs to know about, such as
+  # STRIPE_PUBLISHABLE_KEY, is out of the render's sight: set the frontend
+  # switch it implies by hand.
   #
   # Set secret.create=false alongside it.
   existingSecret: ""
@@ -313,16 +330,22 @@ frontend:
   # this is not a duplicate of the server's setting: in this shape nginx serves
   # the application shell itself, so it decides the content security policy the
   # plan tab arrives with — and Stripe's payment form loads a script and an
-  # iframe from Stripe that every other page forbids. Set on the server and not
-  # here, the tab opens and the card fields never appear.
+  # iframe from Stripe that every other page forbids. Configured on the server
+  # and not known here, the tab opens and the card fields never appear.
   #
   # Configured, not selling. An operator winding down sets the server's
   # SB_BILLING_ENABLED to false and keeps the Stripe settings, and their
   # subscribers still have to be able to replace an expired card on that page.
+  #
+  # A STRIPE_PUBLISHABLE_KEY in config.extraEnv turns this on by itself, which
+  # is how the compose recipes derive it. Set it for a key that reaches the pods
+  # by a route the render cannot read, such as an existingSecret or a
+  # post-renderer.
   billingConfigured: false
 
   # Whether that page reports its content security policy instead of enforcing
-  # it. Only meaningful with billingConfigured, and only for that one page.
+  # it. Only meaningful while nginx is told Stripe is configured, and only for
+  # that one page.
   # nginx serves the document here, so this is the copy that decides which
   # header it arrives with; the server's own SB_CSP_REPORT_ONLY registers the
   # endpoint the reports land on. Set both, or the rehearsal looks live and
@@ -332,7 +355,9 @@ frontend:
   # Whether this deployment serves advertising. nginx serves every document
   # here, so it decides the policy they arrive with, and AdSense needs a
   # materially wider one — scripts, frames and connections to any HTTPS origin.
-  # Set it with the server's own ADSENSE_* settings or neither.
+  # Off while the server has ADSENSE_* set means every page blocks the script
+  # the server asks it to load. An ADSENSE_CLIENT_ID in config.extraEnv turns
+  # this on by itself; set it for one that reaches the pods some other way.
   adsConfigured: false
 
   # Which addresses this nginx will believe about where a request came from.

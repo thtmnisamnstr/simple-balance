@@ -93,6 +93,7 @@ export default function AccountDetailPage() {
           <>
             <Badge tone="blue">{account.data.currency}</Badge>
             {account.data.archivedAt ? <Badge>Archived</Badge> : null}
+            {account.data.frozen ? <Badge tone="amber">Frozen</Badge> : null}
           </>
         }
       />
@@ -134,7 +135,10 @@ export default function AccountDetailPage() {
             description: "Filter, search, export, or add activity for this account.",
           }}
           fixedAccountId={accountId}
-          allowCreate={!account.data.archivedAt}
+          // A frozen account refuses a new entry exactly as an archived one
+          // does, and the form this opens is preselected to it, so offering
+          // the button would be offering a save the server then refuses.
+          allowCreate={!account.data.archivedAt && !account.data.frozen}
           showDateRange={false}
         />
       </section>

@@ -368,7 +368,7 @@ export default function SettingsPage({ session }: { session: Session }) {
               {session.auth.localPasswordConfigured ? (
                 <Note>
                   {authOptions.data?.passwordResetAvailable
-                    ? "Forgotten this password? The sign-in screen can send a link to reset it."
+                    ? "Forgot this password? The sign-in screen can send a link to reset it."
                     : "This deployment has no mail server, so a forgotten password cannot be reset. Keep it in a password manager."}
                 </Note>
               ) : null}
@@ -407,7 +407,7 @@ const readableList = (parts: (string | null)[]) => {
 /**
  * Leaving, and taking everything with you.
  *
- * Its own section at the foot of the page rather than a menu item, because
+ * Its own section at the bottom of the page rather than a menu item, because
  * nothing here is recoverable and it should not sit next to anything somebody
  * clicks by habit. What will be destroyed is counted and shown before the
  * confirmation, and the address has to be typed: it is the one thing on the

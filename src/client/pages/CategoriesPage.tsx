@@ -81,7 +81,7 @@ function CategoryDialog({
     if (!category) return;
     // The deliberate copy: a record seeds the fields once and then the fields
     // are the truth until Save. Nothing here can be worked out during render,
-    // because the whole point is that the person changes it afterwards. The
+    // because the whole point is that the person changes it afterward. The
     // dialog stays mounted so the modal can close, which is why this is an
     // effect on the record rather than a fresh mount keyed on its id — a
     // remount on close would empty the fields while they were still on screen.

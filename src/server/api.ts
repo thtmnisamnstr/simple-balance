@@ -346,7 +346,7 @@ app.use("*", async (context, next) => {
  * One refusal, rendered once, for the two places that can carry it.
  *
  * A streamed response spends its status line on the first frame, so a failure
- * that arrives afterwards has nowhere to be a 409 and becomes a terminal
+ * that arrives afterward has nowhere to be a 409 and becomes a terminal
  * `error` frame instead. Both renderings come from here so the code, the
  * sentence and the details cannot drift apart between them — the same reason
  * the two transports share a service rather than a shape.
@@ -1577,7 +1577,7 @@ app.put("/api/v1/accounts/:id", async (c) =>
  * draft that spelled it as a boolean, and its value "MUST be a Date as per
  * Section 3.3.7 of RFC 9651", which on the wire is `@` and seconds since the
  * epoch. The first version of this shipped `true`, which is the draft nobody
- * implements any more.
+ * implements anymore.
  *
  * The sunset is 188 days after the deprecation, which clears the ninety days
  * and the one minor release `docs/standards/http.md` asks for. It was a date in

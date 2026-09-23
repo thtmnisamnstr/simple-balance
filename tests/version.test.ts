@@ -1,12 +1,59 @@
-import { globSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  copyFileSync,
+  existsSync,
+  globSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { APP_VERSION } from "../src/shared/version.js";
 
 const root = path.resolve(import.meta.dirname, "..");
-const read = (relative: string) => readFileSync(path.join(root, relative), "utf8");
-const manifestVersion = (relative: string) =>
-  (JSON.parse(read(relative)) as { version: string }).version;
+const read = (relative: string, at = root) => readFileSync(path.join(at, relative), "utf8");
+const manifestVersion = (relative: string, at = root) =>
+  (JSON.parse(read(relative, at)) as { version: string }).version;
+
+/**
+ * The three files of the product kit the marketing site reads, each naming the
+ * release it describes. `facts.json` keeps it under `derived`, because it is
+ * read out of the source rather than declared.
+ */
+const PRODUCT_KIT = [
+  "docs/product/features.json",
+  "docs/product/screenshots.json",
+  "docs/product/facts.json",
+];
+const kitVersion = (relative: string, at = root) => {
+  const parsed = JSON.parse(read(relative, at)) as {
+    appVersion?: string;
+    derived?: { appVersion?: string };
+  };
+  return parsed.derived?.appVersion ?? parsed.appVersion;
+};
+
+const OWN_IMAGE = String.raw`ghcr\.io\/thtmnisamnstr\/simple-balance(?:-[a-z]+)?:`;
+
+/**
+ * Everything tracked that a person writes. Lockfiles and generated output are
+ * excluded because neither is edited by hand, and `CHANGELOG.md` and
+ * `docs/upgrades.md` are excluded because a release note *should* name the
+ * release it is about rather than the one being cut.
+ */
+const writtenFiles = (at = root) =>
+  globSync(["**/*.{ts,tsx,js,mjs,yml,yaml,json,md,conf,template,Dockerfile}", "**/Dockerfile"], {
+    cwd: at,
+    exclude: (name) =>
+      /^(node_modules|dist|coverage|\.git)$/.test(name) ||
+      name.endsWith("package-lock.json") ||
+      name === "CHANGELOG.md" ||
+      name === "docs/upgrades.md",
+  });
 
 /**
  * Every file in the tree that pins one of this project's own images, and the
@@ -21,27 +68,11 @@ const manifestVersion = (relative: string) =>
  * Discovered rather than listed, because the list is what went wrong: see the
  * second test below.
  */
-function pinnedImageTags(): Map<string, string[]> {
-  const pattern = /ghcr\.io\/thtmnisamnstr\/simple-balance(?:-[a-z]+)?:([\w.-]+)/g;
-  // Everything tracked that a person writes. Lockfiles and generated output are
-  // excluded because neither is edited by hand, and `CHANGELOG.md` and
-  // `docs/upgrades.md` are excluded because a release note *should* name the
-  // release it is about rather than the one being cut.
-  const candidates = globSync(
-    ["**/*.{ts,tsx,js,mjs,yml,yaml,json,md,conf,template,Dockerfile}", "**/Dockerfile"],
-    {
-      cwd: root,
-      exclude: (name) =>
-        /^(node_modules|dist|coverage|\.git)$/.test(name) ||
-        name.endsWith("package-lock.json") ||
-        name === "CHANGELOG.md" ||
-        name === "docs/upgrades.md",
-    },
-  );
-
+function pinnedImageTags(at = root): Map<string, string[]> {
+  const pattern = new RegExp(`${OWN_IMAGE}([\\w.-]+)`, "g");
   const found = new Map<string, string[]>();
-  for (const relative of candidates) {
-    const tags = [...read(relative).matchAll(pattern)]
+  for (const relative of writtenFiles(at)) {
+    const tags = [...read(relative, at).matchAll(pattern)]
       .map((match) => match[1]!)
       // A repository name that happens to end in a version-shaped word is not
       // a tag; only a tag that looks like one this project cuts is in scope.
@@ -49,6 +80,54 @@ function pinnedImageTags(): Map<string, string[]> {
     if (tags.length > 0) found.set(relative, [...new Set(tags)]);
   }
   return found;
+}
+
+/**
+ * Every place the version is written, read out of the tree at `at`.
+ *
+ * The tests below ask each of these of the real tree one at a time, with the
+ * reason each matters beside it. This asks them all at once so the same
+ * question can be put to a scratch copy after `set-version` has run over it,
+ * which is the only way to know the script rewrites a location rather than
+ * merely mentioning it.
+ */
+function versionsWrittenIn(at: string): (readonly [string, string | undefined])[] {
+  const line = (relative: string, pattern: RegExp) => pattern.exec(read(relative, at))?.[1];
+  const lockedRoot = (relative: string) =>
+    (JSON.parse(read(relative, at)) as { packages: Record<string, { version?: string }> }).packages[
+      ""
+    ]?.version;
+  const chart = "deploy/helm/simple-balance/Chart.yaml";
+  return [
+    ...[
+      "package.json",
+      "package-lock.json",
+      "runtime/package.json",
+      "runtime/package-lock.json",
+      "deploy/pulumi/package.json",
+      "deploy/pulumi/package-lock.json",
+      "tasks/product.prd.json",
+    ].map((relative) => [relative, manifestVersion(relative, at)] as const),
+    ...["package-lock.json", "runtime/package-lock.json", "deploy/pulumi/package-lock.json"].map(
+      (relative) => [`${relative} root package`, lockedRoot(relative)] as const,
+    ),
+    ...[
+      "Dockerfile",
+      "deploy/docker/server.Dockerfile",
+      "deploy/docker/frontend.Dockerfile",
+      "deploy/docker/scheduler.Dockerfile",
+    ].map((relative) => [relative, line(relative, /^ARG APP_VERSION=(.*)$/m)] as const),
+    [`${chart} version`, line(chart, /^version: (.*)$/m)],
+    [`${chart} appVersion`, line(chart, /^appVersion: "(.*)"$/m)],
+    [
+      "src/shared/version.ts",
+      line("src/shared/version.ts", /^export const APP_VERSION = "(.*)";$/m),
+    ],
+    ...PRODUCT_KIT.map((relative) => [relative, kitVersion(relative, at)] as const),
+    ...[...pinnedImageTags(at)].flatMap(([relative, tags]) =>
+      tags.map((tag) => [`${relative} image tag`, tag] as const),
+    ),
+  ];
 }
 
 /**
@@ -182,8 +261,75 @@ describe("the release version", () => {
     expect(unrewritten, "pins an image tag that set-version never rewrites").toEqual([]);
   });
 
+  /**
+   * And never behind a variable's default, which is the spelling both checks
+   * above were blind to.
+   *
+   * The `vps` profile pinned `${SB_VERSION:-0.1.6}`. The sweep's tag pattern
+   * stops at the `$`, so the file carried no pin as far as it could tell, and
+   * `set-version` did not name it either — so a cut would have passed the
+   * suite and left three machines pulling the release before, a release that
+   * reads none of this one's settings and says nothing about ignoring them.
+   * Widening the patterns to see the default would still leave a pin that a
+   * stray variable in somebody's `.env` quietly overrides, so the spelling is
+   * refused instead and every pin is written out.
+   */
+  it("is never hidden behind a variable's default", () => {
+    const hidden = new RegExp(`${OWN_IMAGE}\\$\\{`);
+    const offenders = writtenFiles().filter((relative) => hidden.test(read(relative)));
+    expect(offenders, "pins an image tag through ${...}; write the tag out").toEqual([]);
+  });
+
+  /**
+   * Every location above, rewritten by actually running the script.
+   *
+   * The two tests before this one prove that `set-version` names each file,
+   * which is not the same as rewriting it: a name with a spelling its pattern
+   * does not match stops the script at the cut, halfway through the files,
+   * which is the worst moment to find out. So the script is run over a scratch
+   * copy of everything it names, and every location in the copy has to say
+   * the new version afterward — and the copy has to hold as many locations as
+   * the tree does, so one left out of the copy cannot pass by being absent.
+   */
+  it("is rewritten everywhere when set-version actually runs", () => {
+    const script = read("scripts/set-version.mjs");
+    const named = [
+      ...new Set([...script.matchAll(/"([\w./-]+)"/g)].map((match) => match[1]!)),
+    ].filter((candidate) => {
+      const full = path.join(root, candidate);
+      return existsSync(full) && statSync(full).isFile();
+    });
+    const scratch = mkdtempSync(path.join(tmpdir(), "set-version-"));
+    try {
+      for (const relative of [...named, "scripts/set-version.mjs"]) {
+        mkdirSync(path.dirname(path.join(scratch, relative)), { recursive: true });
+        copyFileSync(path.join(root, relative), path.join(scratch, relative));
+      }
+      const next = "9.8.7-rc.1";
+      execFileSync(process.execPath, [path.join(scratch, "scripts/set-version.mjs"), next], {
+        stdio: "pipe",
+      });
+
+      const written = versionsWrittenIn(scratch);
+      expect(written.length, "locations in the copy").toBe(versionsWrittenIn(root).length);
+      expect(written.filter(([, value]) => value !== next)).toEqual([]);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+
   it("is the version the product backlog says it describes", () => {
     expect(manifestVersion("tasks/product.prd.json")).toBe(version);
+  });
+
+  /**
+   * The release the marketing site is told it is looking at. The kit's own
+   * tests hold each file to the version too; this is here as well so that the
+   * list `set-version` has to cover, below, is the list of everything checked
+   * against `package.json`.
+   */
+  it("is the release the product kit says it describes", () => {
+    for (const kit of PRODUCT_KIT) expect(kitVersion(kit), kit).toBe(version);
   });
 
   /**
@@ -270,9 +416,12 @@ describe("the release version", () => {
       "deploy/pulumi/package.json",
       "deploy/pulumi/package-lock.json",
       "deploy/compose/compose.distributed.yml",
+      "deploy/compose/vps/compose.app.yml",
+      "deploy/compose/vps/compose.frontend.yml",
       "deploy/pulumi/README.md",
       "src/shared/version.ts",
       "tasks/product.prd.json",
+      ...PRODUCT_KIT,
     ]) {
       expect(script, target).toContain(target);
     }

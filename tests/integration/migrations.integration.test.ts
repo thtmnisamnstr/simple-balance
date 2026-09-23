@@ -190,7 +190,19 @@ integration("PostgreSQL migrations", () => {
    * hand, into a database of its own, recording each one the way the migrator
    * would — the file's SHA-256, which is what it compares against.
    */
-  async function upgradesFrom(prefix: number, scratchLabel: string) {
+  async function upgradesFrom(
+    prefix: number,
+    scratchLabel: string,
+    /**
+     * Rows the previous release left behind, written before the upgrade runs,
+     * and what must be true of them after it. An empty database proves the
+     * migrations apply; it cannot prove they leave somebody's data alone.
+     */
+    data?: {
+      seed: (previous: PgClient) => Promise<void>;
+      check: (upgraded: PgClient) => Promise<void>;
+    },
+  ) {
     const scratch = `${databaseName}_${scratchLabel}`;
     await adminClient.query(`create database "${scratch}"`);
     const previousRelease = new PgClient({
@@ -230,6 +242,7 @@ integration("PostgreSQL migrations", () => {
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
       expect(Number(before.rows[0]?.count)).toBe(prefix);
+      await data?.seed(previousRelease);
 
       const restore = process.env.DATABASE_URL;
       process.env.DATABASE_URL = new URL(`/${scratch}`, connection!).toString();
@@ -244,20 +257,47 @@ integration("PostgreSQL migrations", () => {
         `select count(*)::text as count from drizzle.__drizzle_migrations`,
       );
       expect(Number(after.rows[0]?.count)).toBe(journal.entries.length);
+      await data?.check(previousRelease);
     } finally {
       await previousRelease.end();
       await adminClient.query(`drop database if exists "${scratch}"`);
     }
   }
 
-  // What a 0.1.5 database actually looks like: 0000 through 0012, the frozen
+  // What a 0.1.6 database actually looks like: 0000 through 0021, the frozen
   // list in AGENTS.md, and nothing after. This is the upgrade a real
   // deployment performs, so it is the one that runs every unreleased
   // migration in one startup. The number moves when a release ships and
   // freezes more of the directory; the guard above fails rather than testing
   // nothing if it is ever left equal to the whole journal.
-  it("applies every unreleased migration to a database left by 0.1.5", async () => {
-    await upgradesFrom(13, "upgrade_shipped");
+  //
+  // With an account in it, because 0024 is the unreleased migration that
+  // touches a table somebody's ledger already fills. It has to arrive active
+  // on every existing account — the ordering rule stands in for a choice
+  // nobody has made yet only if nobody starts out unchosen.
+  it("applies every unreleased migration to a database left by 0.1.6", async () => {
+    const owner = "migration-upgrade-owner";
+    const accountId = "50000000-0000-4000-8000-000000000001";
+    await upgradesFrom(22, "upgrade_shipped", {
+      seed: async (previous) => {
+        await previous.query(
+          `insert into auth_user (id, name, email) values ($1, 'Upgrading', 'upgrading@example.com')`,
+          [owner],
+        );
+        await previous.query(
+          `insert into ledger_account (id, user_id, name, type, currency, opening_date)
+           values ($1, $2, 'Checking from 0.1.6', 'checking', 'USD', '2026-01-01')`,
+          [accountId, owner],
+        );
+      },
+      check: async (upgraded) => {
+        const account = await upgraded.query<{ active: boolean; version: number }>(
+          `select active, version from ledger_account where id = $1`,
+          [accountId],
+        );
+        expect(account.rows).toEqual([{ active: true, version: 1 }]);
+      },
+    });
   });
 
   // The narrower case, kept because it stays honest whatever ships next: a

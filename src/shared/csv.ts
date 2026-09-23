@@ -155,7 +155,7 @@ export const csvMappingSchema = z
       .string()
       .optional()
       .describe(
-        "The heading of the column holding the bank's own reference, which is what stops a statement being imported twice. It is an identity, not a hint: pointed at a column that repeats, such as an account number or a running balance, every row after the first looks like one already seen.",
+        "The heading of the column holding the bank's own reference, which is what keeps a statement from being imported twice. It is an identity, not a hint: pointed at a column that repeats, such as an account number or a running balance, every row after the first looks like one already seen.",
       ),
   })
   .refine((mapping) => Boolean(mapping.amount || mapping.debit || mapping.credit), {

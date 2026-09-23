@@ -119,10 +119,10 @@ pure, and called from both sides.
 
 There is a second shape, for when the browser has no business previewing at all.
 Rather than send the data and a rule for using it, **send nothing and let the
-absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:1527`)
+absence be the answer.** `getAdPlacement` (`src/server/services/billing.ts:1994`)
 returns the publisher and slot ids, or `null`: a session belonging to somebody
 who should see no advertising simply carries no ad configuration, so the page
-has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:78`) has no
+has nothing to render a slot from. `AdSlot` (`src/client/ads.tsx:70`) has no
 entitlement logic in it, because there is nothing for it to decide.
 
 The obvious alternative — put the entitlement on the session and have the
@@ -202,7 +202,7 @@ and ends the tenant whose work anything composing with it would be doing. A
 seventh has to argue that nothing will ever want to compose with it.
 
 The parameter is not decoration. The MCP transport passes its transaction in
-(`src/server/mcp.ts:313-331`, and every `runIdempotentMcpMutation` call under it)
+(`src/server/mcp.ts:321-335`, and every `runIdempotentMcpMutation` call under it)
 so that
 its idempotency record, the mutation and the audit events land on one connection
 and commit together. Take it away and an agent's write could record its
@@ -231,7 +231,7 @@ numbers above are today's and the test is what keeps the rule.
 **Binding.** Optimistic concurrency, everywhere, no exceptions. The caller sends
 the version it read; the service compares, throws `staleVersion` if it moved,
 and bumps on success
-(`updateAccount`, `src/server/services/accounts.ts:954`).
+(`updateAccount`, `src/server/services/accounts.ts:1019`).
 
 Two windows have to be closed, not one. Comparing before the update leaves a
 gap between the read and the write, so the update itself also filters on the
@@ -294,7 +294,7 @@ service function reached from a route has nothing equivalent behind it.
 **Binding.** Anything that decides "does this name already exist?" takes an
 advisory lock on that namespace first, and there are five namespaces:
 accounts, categories, payees, templates and recurrences
-(`src/server/services/helpers.ts:307-336`). Otherwise two concurrent requests
+(`src/server/services/helpers.ts:307-368`). Otherwise two concurrent requests
 both read "no", and both create.
 
 Accounts were the fifth and were added late, which is the point of listing them.
@@ -318,7 +318,7 @@ it. Second, the category lock is not only for paths deciding a name: a write
 that merely *references* a category takes it too, because a category delete
 counts references before it archives, and a create sitting between its
 ownership check and its insert is invisible to that count — the recurrence
-lands naming a dead category (`src/server/services/recurrences.ts:522-530`,
+lands naming a dead category (`src/server/services/recurrences.ts:528-536`,
 and the same guard in `transaction-templates.ts` and `budgets.ts`). A new write
 that names or references a category needs the lock even though no name is
 being invented.

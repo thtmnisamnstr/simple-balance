@@ -5,9 +5,9 @@ keeping.
 
 | Tier | Files | Runs with | Needs |
 | --- | --- | --- | --- |
-| Unit (node) | 100 | `npm test` | nothing |
-| Unit (jsdom) | 44 | `npm test` | nothing |
-| Integration | 65 | `npm test` **or** `npm run test:integration` | PostgreSQL |
+| Unit (node) | 112 | `npm test` | nothing |
+| Unit (jsdom) | 47 | `npm test` | nothing |
+| Integration | 68 | `npm test` **or** `npm run test:integration` | PostgreSQL |
 | Browser | 1 | `npm run test:browser` | PostgreSQL, Chromium |
 
 **`npm test` collects the integration tier too**, which surprises people and is
@@ -18,14 +18,14 @@ environment, not on the command:
 
 | | Files | Tests |
 | --- | --- | --- |
-| `npm test`, no database | 145 pass, 64 skip | **1,504 pass, 721 skip** |
-| `npm test`, database set | 209 pass | **2,225 pass** |
-| `npm run test:integration` | 65 pass | 722 pass |
+| `npm test`, no database | 160 pass, 67 skip | **1,726 pass, 766 skip** |
+| `npm test`, database set | 227 pass | **2,492 pass** |
+| `npm run test:integration` | 68 pass | 767 pass |
 
-The integration tier reports 722 tests on its own and 721 skips inside a
+The integration tier reports 767 tests on its own and 766 skips inside a
 database-less `npm test`, and the one-test difference is not an error: one case
 in that tier needs no database and so runs either way. It is counted among the
-1,504 rather than among the skips, which is why the two rows add up to 2,225
+1,726 rather than among the skips, which is why the two rows add up to 2,492
 both times.
 
 The third row is one test larger than the first row's skip count, and the odd
@@ -33,7 +33,7 @@ one out is worth knowing: `bulk-transactions-mcp.integration.test.ts` has one
 `describe` outside the database guard, because discovering which tools a scope
 exposes needs no ledger. It runs on every `npm test`, database or not.
 
-The first row is what CI and `npm run verify` see, and 1,504 is the number that
+The first row is what CI and `npm run verify` see, and 1,726 is the number that
 actually gates a change by default. The second is what a developer with a local
 PostgreSQL sees, and it is strictly better. Reporting the second as though it
 were the first overstates what the gate covers, which is a mistake worth naming
@@ -397,9 +397,9 @@ The guides cite the code three ways:
 
 | Shape | Example |
 | --- | --- |
-| Full path | `` `src/client/forms.tsx:340` `` |
-| Bare filename | `` `forms.tsx:335` `` — resolved by basename |
-| Continuation | `` `:626` `` — inherits the last file the prose named |
+| Full path | `` `src/client/forms.tsx:342` `` |
+| Bare filename | `` `forms.tsx:337` `` — resolved by basename |
+| Continuation | `` `:628` `` — inherits the last file the prose named |
 
 The test knew only the first for a while, and that gap was expensive. Adopting
 the formatter moved every line in `src`; the relocation pass repaired the

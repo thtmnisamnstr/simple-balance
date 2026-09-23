@@ -95,7 +95,7 @@ Then land the lot as **one** change through a pull request so CI judges the
 combination, close the superseded ones with the reason, and re-run all three
 tiers plus a `docker build` locally. Two things that bit here and will bite
 again: taking a manifest from a pull request branch cut before the release
-commit silently reverts the version, so run `set-version` again afterwards and
+commit silently reverts the version, so run `set-version` again afterward and
 let `tests/version.test.ts` confirm; and a dependency bump moves the numbers the
 guides quote — zod changed how it emits nullable schemas and a third of the MCP
 surface's `anyOf` composition disappeared, so recount before committing.
@@ -121,6 +121,9 @@ Prereleases are allowed (`0.2.0-rc.1`) and are accepted by `set-version`, by
 `tests/version.test.ts` and by `tasks/product.prd.schema.json` — all three carry
 the same pattern, after a release where two of them disagreed.
 
+A prerelease is still a release: it is cut from the default branch, it freezes
+the migrations it ships, and this whole procedure applies.
+
 ## 3. Confirm the upgrade note exists
 
 ```sh
@@ -132,8 +135,14 @@ work lands, not here. `tests/version.test.ts` refuses a release without it, and
 the publish runs `npm run verify` first, so a missing note stops the release
 rather than reaching an operator mid-upgrade.
 
+It is usually written under a **provisional heading**. The suite asks for a note
+headed with the next _patch_ of whatever `package.json` says, so while 0.1.6 is
+the version, the notes for the coming 0.2.0 sit under
+`## Before you upgrade to 0.1.7`, with a paragraph saying the number is
+provisional. What this step checks is the content; step 4a gives it its number.
+
 It must say what runs automatically, what an operator does by hand, what changed
-under them, and what to check afterwards — even when the answer is that nothing
+under them, and what to check afterward — even when the answer is that nothing
 changed.
 
 ## 4. Set the version
@@ -142,14 +151,69 @@ changed.
 npm run set-version X.Y.Z
 ```
 
-Seventeen files: three manifests and their three lockfiles, four Dockerfiles'
+Twenty-two files: three manifests and their three lockfiles, four Dockerfiles'
 `ARG APP_VERSION`, the chart's `appVersion` and its own `version`, the constant
-the MCP server announces, the product backlog, and the pinned example image tags
-in the split compose file and the Pulumi README.
+the MCP server announces, the product backlog, the release the three product-kit
+files in `docs/product/` say they describe, and the pinned image tags in the
+split compose file, the `single` profile, the `vps` profile's `compose.app.yml`
+and `compose.frontend.yml`, the Pulumi README and the single-machine Pulumi
+programs.
 
-Never edit any of these by hand. `tests/version.test.ts` holds fifteen locations
-to `package.json` and asserts the script knows about every one, so a hand edit
-that misses one fails late and confusingly.
+Never edit any of these by hand. `tests/version.test.ts` holds every one of them
+to `package.json`, asserts the script names each, and runs the script over a
+scratch copy to prove it rewrites them, so a hand edit that misses one fails
+late and confusingly.
+
+**The product kit is stamped, not rebuilt.** Rewriting its `appVersion` is
+honest only because `release-prep` phase 4a rebuilt the kit on the tree being
+cut, and a cut changes nothing a screen shows. `set-version` cannot tell whether
+4a ran, so check it: compare the capture date with the last change to the
+browser app, and if a screen changed after the capture, run the `product-kit`
+skill before going on.
+
+```sh
+grep -m1 capturedAt docs/product/screenshots.json
+git log -1 --format='%cs %h %s' -- src/client
+npx vitest run tests/product-kit.test.ts tests/product-facts.test.ts
+```
+
+`tests/version.test.ts` waits for step 4a: two of its checks read the upgrade
+note's headings, which are still provisional at this point.
+
+## 4a. Give the upgrade note its number, and open the next one
+
+`set-version` does not touch `docs/upgrades.md`, and the moment it has run the
+suite asks two things the provisional heading cannot answer: a line reading
+exactly `## Before you upgrade to X.Y.Z` with something under it, and one
+reading exactly `## Before you upgrade to X.Y.(Z+1)` with something under it.
+Both belong in the cut commit:
+
+1. **Rename the provisional heading** — the first `## Before you upgrade to`,
+   spelled as the next patch of the previous version (0.1.7 on the way to
+   0.2.0) — to this release's number. A prerelease such as `0.2.0-rc.1` takes
+   the release's number, 0.2.0: the test strips the suffix, because a
+   prerelease upgrades on to the schema of the release it precedes.
+2. **Delete the paragraph saying the number is provisional.** It is true now.
+3. **Open the next one.** Above it, add `## Before you upgrade to X.Y.(Z+1)` —
+   0.2.1 after 0.2.0 — with a one-paragraph body saying nothing has landed for
+   it yet, the shape the 0.1.6 cut gave 0.1.7 in `035da59`. An empty note is
+   written down because a missing heading and an unwritten one look the same
+   from the outside.
+
+When this release is itself the next patch — 0.1.7 after 0.1.6 — the heading
+already has the right number, and only steps 2 and 3 apply.
+
+When the previous version was a prerelease of the same release — 0.2.0 after
+0.2.0-rc.1, or 0.2.0-rc.2 after 0.2.0-rc.1 — skip all three. The prerelease's own cut
+already gave the note this release's number and opened the next patch's, so
+renaming "the first heading" here would turn the empty 0.2.1 placeholder into a
+second `## Before you upgrade to 0.2.0`, and the test, which finds the first
+one, would pass on the empty copy. Check only that whatever landed since the
+prerelease is written under this release's heading rather than the next one's.
+
+```sh
+npx vitest run tests/version.test.ts
+```
 
 ## 5. Date the changelog
 
@@ -175,8 +239,9 @@ npm run verify
 ```
 
 Subject `Cut X.Y.Z`. The body names what the release touched: the version
-locations, the dated changelog heading, and the migrations added to the frozen
-list with a word on why that matters. Six release commits exist in four forms;
+locations, the upgrade note given its number and the next one opened, the dated
+changelog heading, and the migrations added to the frozen list with a word on
+why that matters. Six release commits exist in four forms;
 `Cut X.Y.Z` is the current one.
 
 ```text
@@ -236,6 +301,6 @@ run cannot see whether the release was a prerelease and must not guess.
 
 The version, the tag, the images published, whether `latest` moved, and the
 migrations now frozen. Then open the next cycle: `## Unreleased` returns to
-`CHANGELOG.md` when the next work lands, and the next
-`## Before you upgrade to` section is written as that work lands rather than at
-the next cut.
+`CHANGELOG.md` when the next work lands. The next `## Before you upgrade to`
+heading is already there, from step 4a; what it says is written as that work
+lands rather than at the next cut.

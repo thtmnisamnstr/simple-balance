@@ -254,3 +254,50 @@ export function payeeDetailSearch(search: string, payee: string) {
   params.set("name", payee);
   return params.toString();
 }
+
+/**
+ * The one query parameter that carries text from somebody's ledger: the payee
+ * name the view above is addressed by. Everything else a URL here carries is a
+ * date, a preset or an id.
+ */
+export const LEDGER_TEXT_PARAMETER = "name";
+
+/**
+ * A query string with the ledger's own text taken out, for a link leaving the
+ * payee view.
+ *
+ * Links forward the query string so a date range survives moving between
+ * pages, and forwarding it wholesale took the payee name along too — onto a
+ * page that carries an ad, whose request tells Google the page's address.
+ */
+export function withoutLedgerText(search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete(LEDGER_TEXT_PARAMETER);
+  return params.toString();
+}
+
+/**
+ * Whether this document's address, or the page that opened it, carries text
+ * from the ledger.
+ *
+ * An ad request sends Google the page's own address and the address it was
+ * opened from, and a payee name in either is a person's name and who they pay
+ * — "ZELLE TO JANE DOE" — handed to an advertiser, which is also what the
+ * program's policy forbids a page to pass. The referrer is the one this
+ * document arrived with, so a tab opened from the payee view keeps no ads for
+ * as long as it lasts, even after it moves somewhere clean.
+ */
+export function addressCarriesLedgerText(
+  search: string,
+  referrer: string,
+  origin: string,
+): boolean {
+  if (new URLSearchParams(search).has(LEDGER_TEXT_PARAMETER)) return true;
+  if (!referrer) return false;
+  try {
+    const from = new URL(referrer);
+    return from.origin === origin && from.searchParams.has(LEDGER_TEXT_PARAMETER);
+  } catch {
+    return false;
+  }
+}

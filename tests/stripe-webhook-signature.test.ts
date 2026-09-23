@@ -2,7 +2,7 @@ import Stripe from "stripe";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Billing on, for this file only, and restored afterwards because
+ * Billing on, for this file only, and restored afterward because
  * `vitest.config.ts` sets `fileParallelism: false` and every file shares one
  * process.
  */

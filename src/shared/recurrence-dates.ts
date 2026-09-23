@@ -208,8 +208,8 @@ export function clockTimeIn(instant: Date, timezone: string) {
 /**
  * Occurrence `n` counted from the anchor, never from the occurrence before it.
  *
- * That is what makes the 31st of January follow into the 28th of February and
- * then back to the 31st of March. Stepping from the previous date instead turns
+ * That is what makes January 31 follow into February 28 and then back to
+ * March 31. Stepping from the previous date instead turns
  * a rule about the 31st into a rule about the 28th the first time it meets
  * February, and it never recovers.
  */
@@ -250,8 +250,8 @@ function sequenceDate(rule: RecurrenceRule, n: number) {
 /**
  * The date a proposed row carries, which never feeds back into the sequence.
  *
- * A business day is Monday to Friday. There is no holiday calendar and there
- * must not be one: it would be per-country, per-year data ageing inside a
+ * A business day is Monday through Friday. There is no holiday calendar and
+ * there must not be one: it would be per-country, per-year data aging inside a
  * container nobody updates, and PostgreSQL is the only persistent dependency
  * this product allows itself.
  */

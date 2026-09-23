@@ -9,7 +9,7 @@
  * The hash is minted by the application rather than by this script, which is
  * the whole design: it signs one throwaway account up through the real
  * `/api/auth/sign-up/email`, reads back what Better Auth stored, and copies
- * that to every capacity user. So the driver afterwards is exercising the same
+ * that to every capacity user. So the driver afterward is exercising the same
  * sign-in the browser does, against credentials this file never had to know how
  * to produce — and a future change to the hashing algorithm is picked up here
  * for free instead of leaving a hardcoded hash that silently stops matching.

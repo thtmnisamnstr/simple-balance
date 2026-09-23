@@ -52,7 +52,7 @@ describe("deciding what a Stripe delivery is about", () => {
   });
 
   it("has no opinion about an invoice that names no subscription", () => {
-    // A one-off invoice is not a subscription change, and treating it as one
+    // A one-time invoice is not a subscription change, and treating it as one
     // would reconcile something that does not exist.
     expect(subscriptionIdForEvent(event("invoice.paid", { id: "in_1" }))).toBeNull();
     expect(subscriptionIdForEvent(event("invoice.paid", { parent: {} }))).toBeNull();
@@ -107,7 +107,7 @@ describe("deliveries that are noted rather than acted on", () => {
   it("does not note a failed payment, which has to be reconciled", () => {
     // The one that looks like it belongs and does not. It names a subscription,
     // so it goes down the reconciling path — which is how `past_due` and the
-    // seven-day grace it starts get recorded at all. Noting it instead would
+    // fifteen-day grace it starts get recorded at all. Noting it instead would
     // make a failed renewal a log line and nothing else.
     expect(isNoteworthyEvent("invoice.payment_failed")).toBe(false);
     expect(subscriptionIdForEvent(event("invoice.payment_failed", { subscription: "sub_x" }))).toBe(

@@ -180,7 +180,7 @@ export async function deleteOwnAccount(
 
   // Before anything is destroyed, and it refuses rather than warns. The
   // `billing_customer` row cascades away with the user, so a subscription left
-  // running at Stripe afterwards belongs to nobody: it goes on charging
+  // running at Stripe afterward belongs to nobody: it goes on charging
   // somebody who asked to be forgotten, and reconciliation cannot repair it
   // because it compares Stripe against rows that no longer exist.
   await closeBillingForDeletion(actor);

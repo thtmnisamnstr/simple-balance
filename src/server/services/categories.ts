@@ -655,7 +655,7 @@ export async function setCategoryArchived(
 /**
  * Everything that would still point at a category if it went.
  *
- * Shared so that deleting on request and tidying up after an edit cannot come
+ * Shared so that deleting on request and cleaning up after an edit cannot come
  * to different answers about what "unused" means. A recurrence and a template
  * both count: neither holds a foreign key, so nothing in the database would
  * stop the delete, and what is left is a standing instruction or a saved form
@@ -871,7 +871,7 @@ export async function pruneOrphanedCategories(
       // to delete a category is a decision, and the story says plainly that a
       // budget is never a reason to refuse one: the cascade takes it and that
       // is the answer. Moving the last transaction off a category is not that
-      // decision, and tidying the category away underneath a budget somebody
+      // decision, and clearing the category away underneath a budget somebody
       // set is a figure disappearing from a page nobody was looking at.
       uses.budgetCount
     ) {

@@ -96,7 +96,7 @@ ones.
 
 A split transaction is that counter-account side cut into legs. Each leg is a
 row holding one category and one amount, and each leg's share is posted under
-its own leg id, so a hundred-pound receipt split three ways is three postings
+its own leg id, so a hundred-dollar receipt split three ways is three postings
 adding to a hundred rather than one posting counted three times. Because the
 legs are those postings, "the legs add up to the total" is the zero-sum check
 that was already running: there is no way to write a split that satisfies one
@@ -147,7 +147,7 @@ not match the selection.
 A template is a saved starting point for the transaction form, not a record of
 anything: it posts nothing and never touches a balance. The account and category
 it names live inside its JSON with no foreign key, deliberately, because a key
-would cascade and tidying up an old account would take the saved template with
+would cascade and cleaning up an old account would take the saved template with
 it. What it holds instead is an id resolved when the template is used and
 dropped, with a note, when it no longer resolves. Ownership of those ids is
 checked when the template is written rather than when it is read.
@@ -263,7 +263,7 @@ thing to configure, a second thing to notice had stopped, and a second sweep of
 the same tables. Proposals go first, so a notice about what a tick proposed is
 sent in the same tick that proposed it.
 
-Two independent things stop the same occurrence being proposed twice. Every
+Two independent things keep the same occurrence from being proposed twice. Every
 replica sweeps the same due list and claims each recurrence with `for update
 skip locked`, so they divide the work by racing for rows rather than by electing
 one of themselves to do all of it: a row another replica holds is skipped, not

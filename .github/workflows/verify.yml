@@ -203,6 +203,59 @@ jobs:
             fi
           fi
           echo "rendered $(grep -c '^kind:' /tmp/rendered-ha.yaml) objects for the ha database"
+          # What the frontend is told about Stripe and AdSense, read back from
+          # its Deployment because that is the only place nginx learns either.
+          # Each is on when config.extraEnv carries the key, as the compose
+          # recipes derive it, or when its switch is on, which is how a key
+          # reaching the pods by a route the render cannot read, such as an
+          # existingSecret or a post-renderer, gets through. One key at a time, so a helper that
+          # read the other key would be caught, and a blank key stays off
+          # because the server reads it as unset.
+          switches() {
+            local billing="$1"; local ads="$2"; local what="$3"; shift 3
+            helm template release /charts/simple-balance \
+              --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+              --set secret.authSecret=0123456789012345678901234567890123456789 \
+              --set config.appBaseUrl=https://books.example.org \
+              "$@" > /tmp/rendered-switches.yaml
+            if ! grep -A1 'name: SB_BILLING_CONFIGURED' /tmp/rendered-switches.yaml | grep -qF "value: \"$billing\"" \
+              || ! grep -A1 'name: SB_ADS_CONFIGURED' /tmp/rendered-switches.yaml | grep -qF "value: \"$ads\""; then
+              echo "::error::$what should tell the frontend billing=$billing and ads=$ads"
+              grep -A1 -E 'name: SB_(BILLING|ADS)_CONFIGURED' /tmp/rendered-switches.yaml
+              exit 1
+            fi
+            echo "billing=$billing ads=$ads: $what"
+          }
+          switches false false "neither key nor switch"
+          switches true false "a Stripe key alone" \
+            --set config.extraEnv.STRIPE_PUBLISHABLE_KEY=pk_test_x
+          switches false true "an AdSense id alone" \
+            --set config.extraEnv.ADSENSE_CLIENT_ID=ca-pub-0000000000000000
+          switches true false "the billing switch alone" \
+            --set frontend.billingConfigured=true
+          switches false true "the ads switch alone" \
+            --set frontend.adsConfigured=true
+          switches false false "a blank Stripe key" \
+            --set "config.extraEnv.STRIPE_PUBLISHABLE_KEY=  "
+          # A values file whose extraEnv holds only commented lines leaves it
+          # null, and so does this. 0.1.6 rendered both, so this release has to
+          # render them too, and identically to the defaults, because nothing
+          # was asked for.
+          helm template release /charts/simple-balance \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org > /tmp/rendered-defaults.yaml
+          helm template release /charts/simple-balance \
+            --set secret.databaseUrl=postgresql://user:pass@db:5432/simple_balance \
+            --set secret.authSecret=0123456789012345678901234567890123456789 \
+            --set config.appBaseUrl=https://books.example.org \
+            --set config.extraEnv=null > /tmp/rendered-null-extra-env.yaml
+          if ! cmp -s /tmp/rendered-defaults.yaml /tmp/rendered-null-extra-env.yaml; then
+            echo "::error::a null config.extraEnv renders differently from the defaults"
+            diff /tmp/rendered-defaults.yaml /tmp/rendered-null-extra-env.yaml || true
+            exit 1
+          fi
+          echo "rendered a null config.extraEnv as the defaults"
 
       # The guards are the reason a misconfigured install fails at render rather
       # than as a crashlooping pod, so a release must not be able to lose them

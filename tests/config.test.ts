@@ -718,6 +718,43 @@ describe("what a deployment sells and shows", () => {
     }
   });
 
+  /**
+   * An ad goes to somebody on a limited plan, and nobody is on one unless a
+   * plan is for sale — so AdSense ids alone widen the policy and serve ads.txt
+   * while showing nobody an ad, which looks exactly like having no inventory.
+   * Warned, never refused: trying the ads settings before selling is legitimate.
+   */
+  it("says so when AdSense is configured and nothing is for sale", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const environment of [adsense, { ...stripe, ...adsense }]) {
+        warn.mockClear();
+        setEnvironment({ ...production, ...environment });
+        vi.resetModules();
+        const { getConfig } = await import("../src/server/config.js");
+        expect(() => getConfig()).not.toThrow();
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("nobody is shown an ad"));
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("says nothing about ads where a plan is for sale", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      setEnvironment({ ...production, ...stripe, ...adsense, SB_BILLING_ENABLED: "true" });
+      vi.resetModules();
+      const { getConfig } = await import("../src/server/config.js");
+      getConfig();
+
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("nobody is shown an ad"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("refuses a live key outside production even when it arrives through a file", async () => {
     // The `_FILE` form must not be a way around a refusal. Pointing a
     // development machine at a live key is the mistake with no symptom until it

@@ -110,8 +110,9 @@ config.databasePoolSize, or lower the replica ceilings.
 Credentials come from the existing Secret {{ .Values.secret.existingSecret }}. Every key in it
 is handed to the API and the scheduler as an environment variable, so it must
 carry DATABASE_URL and AUTH_SECRET, whichever of DIRECT_DATABASE_URL,
-GOOGLE_CLIENT_SECRET, SMTP_USERNAME, SMTP_PASSWORD and SETUP_TOKEN apply, and
-nothing else.
+GOOGLE_CLIENT_SECRET, SMTP_USERNAME, SMTP_PASSWORD, SETUP_TOKEN, METRICS_TOKEN,
+STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET apply, and nothing but settings the
+server reads.
 {{- end }}
 
 Back up before upgrading. Everything is in PostgreSQL, so pg_dump backs up the

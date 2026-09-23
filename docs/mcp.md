@@ -90,7 +90,7 @@ point cannot hold these values exactly. Dates are `YYYY-MM-DD`. Writes take an
 idempotency key you choose: send the same key again and you get the original
 result back rather than a second transaction. Fields carry descriptions, so an
 agent reading the schema learns the conventions that matter, including the one
-that catches people out: a credit card or loan opens at a negative balance,
+that trips people up: a credit card or loan opens at a negative balance,
 because that is money owed.
 
 ## Accounts
@@ -102,13 +102,29 @@ because that is money owed.
 **A frozen account refuses every write, and says so in `frozen`.** A plan that
 limits how many accounts may be active is the only thing that freezes one: the
 rest stay fully readable and keep counting toward every balance and report,
-and they refuse new entries, edits, deletes and renames alike. `whoami` carries
-the limit, and `set_active_accounts` names the whole set that stays usable.
-**That choice is made once.** An account already in use stays in use until it
-is archived or deleted, and only then may a frozen one take the place it
-leaves; a call that trades one for another is refused whole. Sending the same
-set again does nothing. Archived accounts are outside all of it and use up no
-place.
+and they refuse new entries, edits, deletes, renames and archiving alike. A
+payee or category merge that would rewrite an entry on one is refused whole
+rather than applied to the rest. `whoami` carries `plan`, `accountLimit` and
+`accountsUsed`: `plan` is null where nothing is sold, and `accountLimit` and
+`accountsUsed` are null wherever there is no limit, which includes Premium.
+`set_active_accounts` names the whole set that stays usable.
+
+**That choice is made once, and it belongs to the person.** While it is open,
+`set_active_accounts` may name any set within the limit, and every account it
+leaves out is frozen, so the tool is annotated destructive: confirm the set with
+the person before sending it. Afterward an account already in use stays in use
+until it is archived or deleted, and only then may a frozen one take the place
+it leaves; a call that trades one for another is refused whole. The choice opens
+again after a spell on the paid plan only if accounts were opened or restored
+during it, leaving more marked active than the limit. While nothing is frozen —
+no limit in force, or every live account fitting within it — there is no choice
+to make and the call is refused with a conflict, unless it names exactly the
+accounts already active, which does nothing and so succeeds. Sending the same set again does nothing either.
+
+Opening an account and restoring an archived one each need a free place, and a
+restored account takes the place it found. Archived accounts are outside all of
+it and use up no place. While the live accounts number no more than the free
+plan keeps, every one of them is `active`, whatever plan is in force.
 
 An account's `balance` is every posting it holds, future-dated ones included,
 which is what the accounts page shows. `get_account_balances` is what separates
@@ -197,7 +213,7 @@ counting toward balances and reports while the record of it remains.
 
 `bulk_edit_staged_transactions` does the same job on Staged transactions, with
 the same two selection shapes and the same fields. What differs is what happens
-afterwards, and it is simpler: a staged row is a draft, so nothing posts,
+afterward, and it is simpler: a staged row is a draft, so nothing posts,
 reverses, or moves a balance. Every row it touches is validated again, so
 filling in the account or category an import could not resolve clears the issues
 that were blocking a commit, and the reply says how many of the rows are ready
@@ -260,9 +276,9 @@ writes an audit event for the deletion. It happens on `update_transaction`,
 off: one that was already standing empty is left alone, so a category made ahead
 of time survives. Anything else still naming it keeps it — another transaction, a
 staged row, a recurrence, a template, or a budget — and a caller holding only
-`ledger:stage` never triggers it, on the same rule that stops that scope creating
-a category. If you cached a category id before an edit, read it back afterwards
-rather than assuming it is still there.
+`ledger:stage` never triggers it, on the same rule that keeps that scope from
+creating a category. If you cached a category id before an edit, read it back
+afterward rather than assuming it is still there.
 
 ## Knowing where you are
 
@@ -278,6 +294,13 @@ It also reports `scopes`, which is what the token in hand may do. A tool outside
 that grant is not in the tool list at all, so this is how to tell a capability
 you were not granted from one that does not exist, and what to name when asking
 somebody to reconnect the client with more.
+
+And it reports the plan: `plan`, `accountLimit` and `accountsUsed`. `plan` is
+null on a deployment that sells nothing, and the other two are null wherever
+there is no limit, which includes Premium. That is what explains a refusal to
+open an account, restore one, or write to a frozen one, and what to tell the
+person when they ask why. Changing the plan is theirs to do in the browser; see
+[What an agent cannot do](#what-an-agent-cannot-do).
 
 `get_preferences` reports their timezone, default currency and color theme, and
 reading the first of those matters more than it sounds. What counts as today is
@@ -341,7 +364,7 @@ history is not mistaken for money still held.
 The trial balance goes further and always lists archived accounts, whatever the
 flag says: leaving one out would drop its side of the closing posting and keep
 equity's, and the one report whose claim is that the rows total zero would stop
-totalling zero for every date before the archive.
+totaling zero for every date before the archive.
 
 `bucket` is `none`, `week`, `month`, `quarter` or `year`. The default is
 `month` for `net-worth`, `income-expense` and `cash-flow`, and `none` for
@@ -444,9 +467,9 @@ nothing. A recurrence with no amount comes back in `unprojectable` rather than
 being counted as nothing.
 
 `list_budget_entries`, `set_budget_entry` and `delete_budget_entry` handle a
-single period. Use one for a one-off, such as a larger food budget in December.
-`periodStart` is truncated to the period unit, so any day inside the period
-names it.
+single period. Use one for a one-time change, such as a larger food budget in
+December. `periodStart` is truncated to the period unit, so any day inside the
+period names it.
 
 `get_budget_report` is the figure anybody actually wants: what each budgeted
 category was allowed and what it spent, period by period. Spending is signed, so
@@ -508,8 +531,8 @@ recurring transaction.
 `get_staged_duplicate` opens a row beside the one thing it repeats, which is what
 the browser's side-by-side review reads. The pair comes back oldest last, whichever
 of the two you asked about: a committed transaction is always `second`, and of
-two staged rows the older one is. `second` is `null` when nothing matches any
-more. Each side names its `kind` and fills either
+two staged rows the older one is. `second` is `null` when nothing matches
+anymore. Each side names its `kind` and fills either
 `staged` or `committed`, never both.
 
 Resolving a duplicate means editing one side or dropping one. Only a staged side
@@ -532,7 +555,7 @@ no mapping, so `stage_csv` takes one without a `mapping` at all.
 transactions. A batch leaves this list once all its rows are committed or
 discarded, so an empty result means the queue is clear rather than that the
 import failed. The id is what scopes a staged listing or a bulk edit to one
-file, which is how a whole import gets corrected in one go.
+file, which is how a whole import gets corrected at once.
 
 ## Recurring transactions
 
@@ -557,7 +580,7 @@ and ordinal `-1` is the last one. There is no fifth ordinal, because a month has
 four of some weekdays and five of others; anybody who means the fifth means the
 last. `monthPolicy` decides what a schedule anchored to the 31st does in
 February, and `weekendPolicy` decides what happens when a date lands on a
-Saturday or Sunday. **A business day means Monday to Friday. Public holidays are
+Saturday or Sunday. **A business day means Monday through Friday. Holidays are
 not modeled**, so a proposal can land on one.
 
 Two refusals worth knowing before you hit them. A daily schedule of one or two
@@ -645,22 +668,23 @@ alone and not counted in `changedCount`.
 A template can also carry a reminder, as `notification`, and null is none. It is
 a recurrence's schedule with two differences: a `time`, as `HH:MM` on the
 person's own clock, and a `frequency` that may be null, which is a reminder that
-happens once on its `anchorDate`. A one-off refuses `interval`, the two policies
-and `position` rather than ignoring them, because a reminder arriving on a day
-nobody chose is worse than a refusal. `repeats` in the reply is `frequency` not
-being null, said outright.
+happens once on its `anchorDate`. A one-time reminder refuses `interval`, the
+two policies and `position` rather than ignoring them, because a reminder
+arriving on a day nobody chose is worse than a refusal. `repeats` in the reply
+is `frequency` not being null, said outright.
 
 The reminder asks and never writes: a template is filled in by hand, so the mail
 points at the template and records nothing. `nextNotificationDate` is when the
-next one goes, and null means nothing further is owed — which for a one-off is
-how it says it has already been sent. A backlog collapses into one message, so
-coming back from a week of downtime brings one reminder rather than seven.
+next one goes, and null means nothing further is owed — which for a one-time
+reminder is how it says it has already been sent. A backlog collapses into one
+message, so coming back from a week of downtime brings one reminder rather than
+seven.
 
 On an update, `notification` left out keeps whatever is stored and null removes
 it. Given a new one it replaces the old one whole rather than merging, because
 the rule is refused or accepted whole: a stored monthly rule merged with an
-incoming null frequency would be a one-off still carrying a month policy.
-Deleting the template deletes the reminder with it.
+incoming null frequency would be a one-time reminder still carrying a month
+policy. Deleting the template deletes the reminder with it.
 
 ## Payees
 
@@ -670,7 +694,7 @@ and staged entries, so MCP and the browser share one spelling and one audit
 trail.
 
 The two listings answer different questions. `list_payees` is every spelling the
-ledger holds, one row each as it was typed, which is why one shop entered two
+ledger holds, one row each as it was typed, which is why one store entered two
 ways is two rows. `list_duplicate_payees` groups the spellings that collide once
 Unicode form, whitespace and case are normalized, and that normalization is the
 server's own rather than something an agent can reproduce from the spellings.
@@ -709,7 +733,7 @@ makes the category.
 
 With `ledger:write` each one is written to the audit log as `create_from_csv` or
 `update_from_csv`, so they are visible in Activity and can be merged or deleted
-afterwards.
+afterward.
 
 ## Audit history
 
@@ -726,18 +750,29 @@ proposed it.
 
 ## What an agent cannot do
 
-Two things, and the line between them and everything else is the same one: an
+Three things, and the line between them and everything else is the same one: an
 agent does the bookkeeping, and the account itself belongs to the person.
 
 **Delete the account.** It destroys every account, transaction, posting,
 category, payee, staged row, import, session, agent grant, and the audit trail
 that would otherwise record what happened. Nothing restores any of it. Every
-other write an agent can make is recoverable, from the audit trail or by
-restoring a deleted row; this one is not, so it stays something a person does
-while signed in.
+other write an agent can make leaves the audit trail behind it, and most can be
+put back by restoring a deleted row; the two merges cannot be undone, and their
+descriptions say so. This one takes the record with it, so it stays something a
+person does while signed in.
 
 **Set a sign-in password.** Adding a credential to an account is account
 management rather than bookkeeping, and an agent cannot undo it from its side.
+
+**Start, change or cancel a plan.** This exists only on a deployment that sells
+plans, and it is the one of the three that has to be argued rather than
+asserted, because a plan does bear on what an agent can do. Starting, switching
+or stopping a subscription spends somebody's money, and a token is a credential
+handed to a program, which is a different kind of authority from writing a
+transaction and one no scope makes equivalent. So the purchase, the card that
+pays for it and the cancellation all stay in the browser. What an agent needs
+in order to explain a refusal it meets is the plan, its limit and how much of it
+is used, and `whoami` carries all three.
 
 Everything else the browser can do, an agent can do. A test compares the two
 surfaces route by route and fails if a capability lands on one without reaching
@@ -782,4 +817,4 @@ The access token an agent holds is a JWT bound to this deployment and to `/mcp`,
 and the grant it stands for is named inside it by row id rather than carried as
 a credential. A JWT is signed and not encrypted, so anything that handles one
 reads every claim in it; there is nothing in these that works on its own, and a
-revoked grant stops one working immediately rather than at expiry.
+token whose grant is revoked stops working immediately rather than at expiry.

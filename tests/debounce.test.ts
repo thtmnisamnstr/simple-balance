@@ -18,7 +18,7 @@ afterEach(() => {
  * `ilike '%…%'` comparisons plus a count over the same predicate.
  */
 describe("waiting for typing to stop", () => {
-  it("reports the first value straight away", () => {
+  it("reports the first value right away", () => {
     const { result } = renderHook(() => useDebounced("", 300));
     expect(result.current).toBe("");
   });

@@ -243,15 +243,29 @@
   a fresh choice. The cap counts the accounts in use rather than every
   account opened, which reverses the old reason for counting archived ones: the
   quota cannot be cycled because coming back out of the archive needs a free
-  place too.
+  place too, and the restored account takes it. **There is no choice at all
+  while nothing is frozen** — no limit in force, or every live account fitting
+  within it — so `activeAccountChange` refuses a set then, letting through only
+  one that names exactly the accounts already active; a choice written on the
+  paid plan would otherwise bind silently at the next downgrade. `active` has a
+  second writer that keeps it true to what is in use:
+  `markFittingAccountsActive` in the accounts service, deciding with
+  `accountsToMarkActive`, marks every live account active whenever they number
+  no more than `MAX_FREE_ACCOUNTS`, whatever plan is in force, because a column
+  left false there goes stale and freezes the accounts somebody has been using
+  the next time a limit returns. Every path that changes the live set — create,
+  archive, restore, delete and the choice itself — holds `lockAccountNamespace`,
+  or two of them racing could both take the last place.
 - **`docs/product/` is this repository's public description of itself**, and
   the marketing site at smpl.money is its only consumer. `facts.json` is the
   machine contract, `features.json` is what the product does tiered by how
   much a general reader would care, and `screenshots/` is every screen in
   both themes. That site is a separate repository that **cannot run this
   application**, so a kit not rebuilt here is not rebuilt anywhere. The
-  `product-kit` skill owns it and `release-prep` phase 4a runs it. It reaches
-  the site only when a branch merges, because the site pulls from `main`.
+  `product-kit` skill owns it and `release-prep` phase 4a runs it. The site
+  reads it from `main` once `main` carries it, and until then from the branch
+  of the open release pull request, and it works out which itself — so a kit
+  rebuilt on any other branch reaches nobody until it lands on one of those.
 - The product's user-facing contract is published, not remembered.
   `docs/product/facts.json` names the plans, their labels, the free account
   limit, which plan sees advertising, the prices and the capability list, and
@@ -347,7 +361,7 @@ disagreement rather than quietly losing it.
 Two habits from those guides are worth knowing before the first edit, because
 both look like mistakes:
 
-- **Comments are dense on purpose** — 22.9% of non-blank lines in `src`. They
+- **Comments are dense on purpose** — 23.7% of non-blank lines in `src`. They
   carry why the obvious alternative is wrong. Do not tidy them away.
   (`docs/standards/code/comments.md`.)
 - **Some loops must not be parallelized.** Legs resolve one at a time so two

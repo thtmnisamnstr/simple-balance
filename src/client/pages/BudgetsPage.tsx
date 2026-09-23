@@ -614,7 +614,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
           {targetAmount === ""
             ? rollover
               ? `What this ${unitNoun[periodUnit]} does not spend is added to the next one, and anything overspent is taken off it. Nothing is stored ${unitNoun[periodUnit]} by ${unitNoun[periodUnit]}: the figures are worked out from what you budgeted and what you spent, so turning this off leaves nothing behind.`
-              : `Each ${unitNoun[periodUnit]} starts again at the amount. Tick the box to carry the difference forward instead.`
+              : `Each ${unitNoun[periodUnit]} starts again at the amount. Check the box to carry the difference forward instead.`
             : `Each ${unitNoun[periodUnit]} puts aside what is still needed, divided by the ${unitNoun[periodUnit]}s left before the date. There is no amount to type: the figure changes as the fund fills up, and stops once it is full.`}
         </Note>
       </section>
@@ -684,7 +684,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
                     <td className="align-right money">
                       {plan.amountRule === "fixed" || plan.amountRule === "incremental"
                         ? formatMoney(plan.amount, plan.currency)
-                        : "Worked out"}
+                        : "Calculated"}
                     </td>
                     <td>{unitNoun[plan.periodUnit]}</td>
                     <td>
@@ -982,7 +982,7 @@ export default function BudgetsPage({ session }: { session: Session }) {
         periods.map((period) => {
           // The carry columns appear only where something carries. A table of
           // dashes says a budget has a feature it does not have, and every
-          // ledger that has never ticked the box would grow two of them.
+          // ledger that has never checked the box would grow two of them.
           const carries = period.rows.some((row) => row.carriedIn !== null);
           // Same rule as the carry columns: the funded figure appears only
           // where somebody set an order, so a ledger that never did is not told

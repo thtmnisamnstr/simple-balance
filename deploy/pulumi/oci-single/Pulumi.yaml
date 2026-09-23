@@ -5,7 +5,9 @@ runtime:
     typescript: true
 description: >-
   Simple Balance's `single` profile on one Oracle Cloud compute instance: a VCN
-  with one public subnet, a security list that opens 80 and 443 and nothing
-  else, a block volume the database lives on, a reserved public IP, and an
-  Ampere A1 shape sized from the same table the AWS program uses. The
-  application, PostgreSQL and Caddy all run on the instance under systemd.
+  with one public subnet, a security list that opens 80 and 443 to everybody
+  and 22 to a Bastion in the subnet, a block volume for the backups and the
+  generated secret, the instance's ephemeral public IP, and an Ampere A1 shape
+  sized from the same table the AWS program uses. The application and Caddy run
+  on the instance under systemd, against a PostgreSQL you supply; this program
+  creates no database, and optionally a private subnet for one.

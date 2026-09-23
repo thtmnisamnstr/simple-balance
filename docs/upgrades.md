@@ -8,10 +8,11 @@ keep, so upgrading is swapping it for a newer one.
 **This heading is the next release's slot and its number is provisional.** The
 release being built is 0.2.0, and this heading is spelled 0.1.7 only because
 `tests/version.test.ts` asks for the next _patch_ of whatever `package.json`
-currently says. It is renamed when the version is set, which is the first act of
-cutting. The content below is what matters and is written as the work lands,
-because a note written while a release is being cut says whatever the person
-cutting it can remember.
+currently says. It gets its real number in the cut commit, right after
+`npm run set-version` — §Cutting a release, step 2, which also opens the note
+for the release after it. Nothing renames it on its own. The content below is
+what matters and is written as the work lands, because a note written while a
+release is being cut says whatever the person cutting it can remember.
 
 **Nothing about an existing configuration has to change, and the application
 refuses nothing 0.1.6 accepted.** Everything added is optional and off unless an
@@ -25,7 +26,8 @@ this one needs a hand before you pull. The procedure is below.
 
 ### What runs automatically
 
-**Two migrations, and on almost every deployment only one of them does anything.**
+**Three migrations, none of which rewrites a row on a single PostgreSQL, and on
+almost every deployment one of them does nothing at all.**
 
 `0022_plans_and_billing.sql` is additive only: five new tables —
 `billing_customer`, `billing_subscription`, `billing_override`,
@@ -39,8 +41,10 @@ Citus extension installed**, which is the `ha` profile and nothing else. It is
 gated on that extension at the top and returns immediately without it, so a
 deployment on one PostgreSQL records it as run and keeps exactly the schema it
 had. A second gate stops it on a ledger that is already distributed and says so,
-which matters because the runbook invites you to run this file by hand. Verified in both directions, on PostgreSQL 15 and 18: twenty-four migrations
-recorded, the primary keys untouched, and every foreign key as it was.
+which matters because the runbook invites you to run this file by hand. Verified
+on PostgreSQL 15 and 18, from an empty database and from one 0.1.6 left:
+twenty-five migrations recorded, and every primary and foreign key exactly as
+`0022` left it.
 
 On a Citus cluster it is the substantial one. It rewrites fourteen primary keys to
 carry the owner, which rebuilds every index on them; drops five unique
@@ -58,6 +62,15 @@ migration that takes longer is killed mid-flight, rolls back, restarts and is
 killed again, forever, with each event looking like a slow start rather than a
 budget that is too small. `docs/citus-runbook.md` §Before the first start against
 a cluster has the one values change that prevents it.
+
+`0024_active_accounts.sql` adds one column, `ledger_account.active`, with a
+constant default of true. A constant default rewrites no rows on any PostgreSQL
+this release supports, so it is one catalog change however many accounts there
+are, and on a cluster Citus carries it to the shards with no gate of its own.
+Every account you already have arrives marked active, which is right: the column
+records which accounts somebody chose to keep using on a limited plan, and
+nobody has been asked yet. Nothing is frozen on a deployment that sells nothing,
+whatever the column says.
 
 ### What you must do by hand
 
@@ -81,6 +94,11 @@ Dump, recreate, restore:
 
 ```sh
 cd deploy/compose
+# Every command below is about this one file, and the directory holds more
+# than one, so it is named once here rather than on every line. Without it the
+# first command fails with "no configuration file provided" — after the shell
+# has already created an empty simple-balance-16.dump.
+export COMPOSE_FILE=compose.distributed.yml
 # 1. With the OLD compose file still checked out, take a dump. `-T` matters:
 #    without it compose allocates a TTY and the dump arrives corrupted.
 docker compose exec -T postgres \
@@ -114,8 +132,12 @@ docker compose exec -T postgres \
   pg_restore -U simple_balance -d simple_balance --clean --if-exists \
   < simple-balance-16.dump
 
-# 6. Bring the rest up. Migrations run at startup as they always do.
-docker compose up -d
+# 6. Build this release and bring the rest up. `--build` is what replaces the
+#    images the previous release built here; without it they are reused, 0.1.6
+#    starts against the restored data, and nothing says so. Migrations run at
+#    startup as they always do. (If you swapped in the commented `image:`
+#    lines instead, move their tags to this release.)
+docker compose up -d --build
 ```
 
 Keep the dump until you have signed in and seen your balances. `docs/upgrades.md`
@@ -150,6 +172,13 @@ Name the terminator's range and nothing wider. This decides whose word is taken
 for a visitor's address, so a range that includes callers lets a caller choose
 their own. `docs/deployment-profiles.md` has the reasoning and the measurement.
 
+The `aws` and `gcp` Pulumi programs pass it through as
+`simple-balance:trustedProxyCidr`, and on neither cloud is the setting the whole
+answer as those programs build it: AWS's network load balancer does not hand the
+visitor's address on to the ingress, and Google's appends its own after it.
+`deploy/pulumi/README.md` §Things that will surprise you says what else each
+needs.
+
 **Two new deployment profiles exist, and neither is anything you have to do.**
 `vps` is a machine per service with the database among them
 (`deploy/compose/vps/`); `ha` is a Kubernetes cluster whose database is sharded
@@ -157,7 +186,10 @@ with Citus (`deploy/helm/`, with `database.enabled`). Both are new shapes rather
 than changes to yours: the chart still expects a `DATABASE_URL` you supply unless
 you ask it for a database, and it refuses to render if you set both.
 `docs/deployment-profiles.md` compares the three and says plainly that `single`
-is still the one to pick unless you have a reason.
+is still the one to pick unless you have a reason. `single` is the shape one
+container has always been; what is new there is a recipe for it —
+`deploy/compose/single/`, `deploy/systemd/`, and the `aws-single` and
+`oci-single` Pulumi programs — which you can adopt or ignore.
 
 ### What changed under you
 
@@ -167,45 +199,89 @@ everything else here is opt-in. `docs/deployment-profiles.md` has the reasoning,
 and the short version is that where a deployment owns its database it runs the
 newest version the `ha` cluster can also run.
 
-Otherwise nothing, unless you opt in. `SB_TRUSTED_PROXY_CIDR` defaults to `127.0.0.1`,
-which is the off position rather than a trusted range — nothing reaches the
-container from loopback — so a deployment that sets nothing behaves exactly as
-it did before the setting existed. Two new settings groups exist and both default to
-absent: the five `STRIPE_*` settings with `SB_BILLING_ENABLED`, and the
-`ADSENSE_*` settings. `docs/monetization.md` has the table of what each
-combination turns on. Two names join the seven that already take a `_FILE` form,
-`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`, taking that list to nine.
+Otherwise no setting changes meaning unless you opt in. `SB_TRUSTED_PROXY_CIDR`
+defaults to `127.0.0.1`, which is the off position rather than a trusted range —
+nothing reaches the container from loopback — so a deployment that sets nothing
+behaves exactly as it did before the setting existed. Two new settings groups
+exist and both default to absent: the five `STRIPE_*` settings with
+`SB_BILLING_ENABLED`, and the `ADSENSE_*` settings. `docs/monetization.md` has
+the table of what each combination turns on. Two names join the seven that
+already take a `_FILE` form, `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`,
+taking that list to nine.
 
-**The split deployment has two new frontend settings**, and they are the ones
-easiest to miss because they are not in either `.env.example`: nginx serves the
-application shell in that shape, so it — not the API — decides the content
-security policy each page arrives with. `SB_BILLING_CONFIGURED` and
-`SB_ADS_CONFIGURED` default to false, which is exactly today's behavior. Set
-Stripe on the server without the first and the plan tab opens with no card
-fields; set AdSense without the second and no ad renders. The compose recipe
-derives both from settings you are already providing, so only a hand-assembled
-deployment or the Helm chart needs them set by hand. `docs/deployment.md` lists
-all six frontend settings.
+**Some sentences an agent reads changed, and nothing it sends or receives
+did.** A handful of tool descriptions now say "every two weeks", "Monday through
+Friday", "at once" and "one-time" where they used British wording, and
+`set_active_accounts` is new and annotated destructive, so a client may ask the
+person before it runs. No tool, argument, field or stored value was renamed or
+removed. A prompt or a test of your own that quotes a description word for
+word is the one thing that notices.
+
+**If you run your own copy of a compose file, take this release's.** Every
+compose shape now passes `DIRECT_DATABASE_URL` through to the application, which
+the split recipe never did — so a pooled deployment that set it got no bypass
+and no word about it — and passes the new `PRIVACY_POLICY_URL`, without which a
+deployment that turns AdSense on refuses to start. An older copy drops both in
+silence.
+
+**The split deployment has four new frontend settings.** nginx serves the
+application shell in that shape, so it — not the API — decides the headers each
+page arrives with. Two of them are the ones easiest to miss, because no
+`.env.example` carries them: `SB_BILLING_CONFIGURED` and `SB_ADS_CONFIGURED`
+default to false, which is exactly today's behavior. Set Stripe on the server
+without the first and the plan tab opens with no card fields; set AdSense
+without the second and no ad renders. The compose recipe derives both from
+settings you are already providing, and so does the Helm chart:
+`SB_BILLING_CONFIGURED` is on when `config.extraEnv` carries a non-blank
+`STRIPE_PUBLISHABLE_KEY` or `frontend.billingConfigured` is true, and
+`SB_ADS_CONFIGURED` the same way from `ADSENSE_CLIENT_ID` and
+`frontend.adsConfigured`. Set a switch by hand only where its key lives in an
+`existingSecret`, which the render never sees. Only a hand-assembled deployment
+has to set both itself. The other two are `SB_TRUSTED_PROXY_CIDR`, above, and
+`SB_CSP_REPORT_ONLY`, the plan tab's rehearsal, which the frontend needs as well
+as the server. `docs/deployment.md` lists all seven frontend settings.
 
 **If you do turn advertising on**, know what the policy costs before you do.
 AdSense publishes no list of the hosts it loads from, so every page but the plan
 tab then allows scripts, frames, styles, fonts and connections to any HTTPS
-origin, plus `unsafe-eval`. Ads are never shown to a paying account, never on
-the plan and billing tab, never on sign-in and never on paper, and the publisher
-id is the only identifier of yours that leaves — but the address of the page an
-ad sits on goes to Google too, and this app's addresses name records.
-`docs/monetization.md` says what is yours to do at Google.
+origin, plus `unsafe-eval`. Those pages also send `Referrer-Policy:
+strict-origin-when-cross-origin` rather than `same-origin`, because Google's
+consent message does not serve under `same-origin`: another origin is told this
+site's address and never a page's path. Ads are never shown to a paying account,
+never on the plan and billing tab, never on sign-in and never on paper, and the
+publisher id is the only identifier of yours that leaves — but the address of
+the page an ad sits on goes to Google too, and this app's addresses name
+records.
+
+An ad is shown only where a plan is for sale, so AdSense without
+`SB_BILLING_ENABLED=true` and Stripe widens the policy, serves `/ads.txt`, and
+shows nobody an ad — the process says so at startup rather than refusing.
+`PRIVACY_POLICY_URL` is required beside the AdSense ids. `docs/monetization.md`
+has the checklist, in order, of what is yours to do at Google and here.
 
 **If you do turn billing on**, `docs/billing-operations.md` is the page to read
-first: granting a plan by hand, what a refund does and does not change, what
+first: setting up the Stripe account in order, going live from test mode,
+granting a plan by hand, what a refund does and does not change, what
 `SB_BILLING_ENABLED=false` stops and what it deliberately does not, and the
 order to shut billing down in.
 
-The one thing worth knowing in advance: an
-account that already holds more than three financial accounts keeps every one of
-them. Nothing is archived, hidden or deleted, and imports and edits go on
-working. Only creating another is refused, and the refusal says how many were
-counted.
+**Know what it does to anybody who already has more than three accounts,
+because it happens the moment the process starts.** `SB_BILLING_ENABLED=true`
+puts everybody without a subscription or an override on the free plan, and the
+free plan keeps three accounts in use. Nobody at or under three notices
+anything. Above it, nothing is archived, hidden or deleted: every account stays
+listed, readable, and counted in every balance, report and export. But only three
+stay usable — the three oldest, until the person makes their one-time choice on
+the Accounts page, or an agent makes it with `set_active_accounts` — and the
+rest are frozen. A frozen account refuses every write: a new entry, an edit, a
+delete, a rename, and a payee or category merge that would touch it, which
+refuses whole. A staged or imported row that names one gets an issue instead of
+committing. Nothing is frozen while billing is off.
+
+So before you set it, give everybody who should keep every account — yourself
+included — an override. `docs/billing-operations.md` §Granting a plan by hand
+has the statement, and `docs/monetization.md` has the whole rule, including why
+the choice is made only once.
 
 ### What to check afterwards
 
@@ -215,18 +291,33 @@ household: one machine of the smallest size the `single` profile sells holds ten
 thousand ledgers and thirty million transactions inside the stated times.
 `scripts/capacity/README.md` reproduces it against your own hardware.
 
-
-
 `/health/ready`, as with any upgrade. If you set the Stripe or AdSense
 variables, the process refuses to start on a half-configured pair and names the
 missing half, so a clean start is itself the check.
 
-If you turned billing on, three more. `SB_CSP_REPORT_ONLY=true` is worth one
-pass before you rely on the plan tab: it makes that page report what its content
-security policy would have blocked instead of blocking it, so a host Stripe
-reaches and does not document shows up in your log rather than as a payment form
-that will not load. Turn it off again — the process warns at every start while
-it is on.
+If you turned billing on, four more. **Read the log for the prices first.** Both
+price ids are checked against Stripe when the API and the scheduler start, again
+at most every ten minutes when they are read, before every subscription is
+started, and on every reconciliation sweep — and the first check that succeeds
+says `Stripe is configured, and both prices fit the plans they are sold as.` A
+price that does not fit is an error line saying what is wrong with it, and until
+it is fixed nothing is for sale: the plan tab offers no plan, and starting a
+subscription answers `409` and charges nobody. Replacing a card, canceling,
+paying a renewal's open invoice and letting go of a switch still waiting for the
+renewal keep working, because none of them sells anything.
+`docs/billing-operations.md` §Setting up Stripe says what the two prices have to
+be.
+
+`SB_CSP_REPORT_ONLY=true` is worth one pass before you rely on the plan tab: it
+makes that page report what its content security policy would have blocked
+instead of blocking it. The policy is Stripe's published Stripe.js and Link
+sets plus four hosts this project added, and whether a live account contacts
+those four has not been observed by anybody yet, so the pass is where the answer
+shows up — in your log, rather than as a payment form that will not load. It
+covers that page and no other: every page that can carry an ad goes on
+enforcing, and what the ads policy refuses is read from the browser console
+instead (`docs/monetization.md`). Turn it off again — the process warns at every
+start while it is on.
 
 Then two more. Open `/settings/plan` and confirm the two
 prices show the figures you set in Stripe — they are read from Stripe rather than
@@ -237,8 +328,9 @@ And point a Stripe webhook endpoint at
 cannot see what you chose, so an endpoint subscribed to the wrong set fails
 silently. A test delivery answering `200` with `{"received": true}` means the
 signature verified; it does not mean the subscription is right, because that is
-also what an event with no opinion returns. A `404` there means the `STRIPE_*` settings did not reach
-the container, because the route is registered only when they did.
+also what an event with no opinion returns. A `404` there means the `STRIPE_*`
+settings did not reach the container, because the route is registered only when
+they did.
 
 ## Before you upgrade to 0.1.6
 
@@ -345,9 +437,10 @@ machine", which is what it should be. One drops four indexes whose leading colum
 another unique constraint on the same table already leads with; no query loses a
 plan, and the statements are `if exists`, so a database restored from a dump that
 never had them upgrades cleanly. The fifth adds two indexes on the expression
-payee names are compared by, which is what stops every transaction write scanning
-your own rows to find the spelling already on file — on a large ledger that one
-takes a moment to build while the container starts, before it opens readiness.
+payee names are compared by, which is what keeps every transaction write from
+scanning your own rows to find the spelling already on file — on a large ledger
+that one takes a moment to build while the container starts, before it opens
+readiness.
 
 **Emailed reminders need a mail server and the scheduler.** Setting a recurrence
 to write when it proposes, or giving a template a reminder, is saved either way,
@@ -468,12 +561,14 @@ different for each profile. The short version: **on `single` and `vps` a
 rollback is the ordinary restore above; on `ha` it is not a rollback at all.**
 
 **`single` and `vps`.** `0022` is additive — five tables the older image does not
-read — so 0.1.6 runs against a 0.2.0 schema unchanged. `0023` did nothing on
-these profiles. You can put the older image back without restoring anything, and
-the five billing tables sit unread until you upgrade again. The one thing to
-undo separately is the compose recipe's PostgreSQL version if you moved it: a
-16-series container cannot read an 18-series data directory either, so going back
-there is a dump and a restore in the other direction.
+read — and `0024` adds one column the older image never names: its inserts leave
+`ledger_account.active` to the default and nothing it reads mentions it. So
+0.1.6 runs against a 0.2.0 schema unchanged. `0023` did nothing on these
+profiles. You can put the older image back without restoring anything, and the
+five billing tables and the new column sit unread until you upgrade again. The
+one thing to undo separately is the compose recipe's PostgreSQL version if you
+moved it: a 16-series container cannot read an 18-series data directory either,
+so going back there is a dump and a restore in the other direction.
 
 **`ha` cannot be rolled back to 0.1.6 by putting the old image back**, and this
 is the one worth knowing before you distribute anything. `0023` widens fourteen
@@ -503,28 +598,64 @@ each claim, with a second table of what is outstanding. Read that before the
 steps below: three of its open rows are gates that no amount of work in this
 repository closes.
 
-1. `npm run set-version 0.2.0`, which sets the version everywhere it has to
-   agree: the three manifests and their three lockfiles, all four Dockerfiles'
-   default build argument, the chart's `appVersion`, the constant the MCP server
-   reports, the product backlog, and the example image tags in the
-   split-deployment compose file and the Pulumi README. `tests/version.test.ts`
-   checks every one of those against `package.json`, so a location the script
-   forgets fails the suite rather than shipping.
-2. Check this release's `## Before you upgrade to 0.2.0` section at the top of
-   this file, which should already be written: what runs automatically, what an
+1. `npm run set-version 0.2.0`, which sets the version in the twenty-two files
+   where it has to agree: the three manifests and their three lockfiles, all
+   four Dockerfiles' default build argument, the chart's `appVersion` and its
+   own `version`, the constant the MCP server reports, the product backlog, the
+   release the three product-kit files in `docs/product/` say they describe,
+   and the pinned image tags in the split compose file, the `single` profile,
+   the `vps` profile's `compose.app.yml` and `compose.frontend.yml`, the Pulumi
+   README and the single-machine Pulumi programs. `tests/version.test.ts` checks every one of
+   those against `package.json`, asserts the script names each, and runs the
+   script over a scratch copy of the files to prove it rewrites them, so a
+   location the script forgets fails the suite rather than shipping.
+2. Give this release's upgrade note its number, and open the next one, in the
+   same commit. `set-version` does not touch this file, and the moment it has
+   run the suite asks for two headings the provisional one cannot supply.
+   Rename the provisional `## Before you upgrade to 0.1.7` at the top of this
+   file to `## Before you upgrade to 0.2.0` — a prerelease such as `0.2.0-rc.1`
+   takes the release's number too, because it upgrades on to the same schema —
+   and delete its paragraph saying the number is provisional. Then add
+   `## Before you upgrade to 0.2.1` above it, with one paragraph saying nothing
+   has landed for it yet: the shape the 0.1.6 cut gave 0.1.7 in `035da59`.
+
+   Skip the renaming when the previous version was a prerelease of this one —
+   0.2.0 after 0.2.0-rc.1. That cut already gave the note this release's number
+   and opened the next patch's, so renaming the first heading here would turn
+   the empty 0.2.1 placeholder into a second `## Before you upgrade to 0.2.0`,
+   and `tests/version.test.ts`, which reads the first, would pass on the empty
+   copy. Check only that what landed since the prerelease is written under this
+   release's heading, then run that test.
+
+   The note itself should already be written: what runs automatically, what an
    operator has to do by hand, what changed under them, and what to check
-   afterwards. Write it as the work lands rather than here — the suite asks for
+   afterward. Write it as the work lands rather than here — the suite asks for
    the _next_ version's note as well as this one's, so a release whose note was
    left to the last minute has already been failing. Write it even when the
    answer is that nothing changed, because a missing heading and an unwritten
    note look the same from the outside.
-3. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
+3. Confirm the product kit describes the tree being cut. `set-version` stamps
+   the kit's `appVersion` rather than rebuilding it, which is honest only
+   because `release-prep` phase 4a rebuilt the kit on this same tree, and a cut
+   changes nothing a screen shows. The script cannot tell whether 4a ran, so
+   compare the capture with the last change to the browser app, and run the
+   `product-kit` skill first if a screen changed after it:
+
+   ```sh
+   grep -m1 capturedAt docs/product/screenshots.json
+   git log -1 --format='%cs %h %s' -- src/client
+   npx vitest run tests/product-kit.test.ts tests/product-facts.test.ts tests/version.test.ts
+   ```
+
+4. Date the `## Unreleased` heading in `CHANGELOG.md`, since nothing does that
    for you and the upgrade notes above send people there to read it.
-4. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
+5. Add that release's migrations to the frozen list in `AGENTS.md`. Once an
    image has run one against somebody's data it can never be edited again, and
    the list is what says so.
-5. Commit and push that on the default branch.
-6. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
+6. `npm run verify`, then commit and push on the default branch. The publish
+   runs the same suite first, so a failure here is one the release would have
+   met anyway.
+7. Cut a release on GitHub against tag `v0.2.0`, from the UI or with
    `gh release create v0.2.0`.
 
 Publishing keys off the release itself, not off the tag push, so it runs once
@@ -537,7 +668,7 @@ the version carries a suffix, in which case only the version tag is published.
 If a publish fails for a reason that has nothing to do with the code, run the
 release workflow by hand from the Actions tab and give it the tag; it publishes
 the same version tag without needing a new release. It leaves `latest` alone
-unless you tick the box asking for it, because a run started by hand cannot see
+unless you check the box asking for it, because a run started by hand cannot see
 whether the release was marked as a prerelease and should not guess.
 
 ## The schema contract
@@ -558,7 +689,7 @@ Every schema change is therefore a new migration, and each one:
   leaving the schema half-changed;
 - ships with an integration test that starts from the previous release's schema
   with real data in it, runs the migrations, and checks both the shape and the
-  contents afterwards.
+  contents afterward.
 
 Migrations run inside the application rather than as a separate step because
 that is what makes an upgrade one action. Swap the image, start it, and the

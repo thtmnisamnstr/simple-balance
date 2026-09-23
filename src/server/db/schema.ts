@@ -306,6 +306,12 @@ export const ledgerAccounts = pgTable(
      * Defaulting to true is what makes this safe to add to a ledger that
      * already exists: nothing is frozen until a plan says so, and then the
      * ordering rule decides until the person chooses.
+     *
+     * Two writers, not one. The chooser writes the choice, and every change to
+     * the live set writes true across it whenever the live accounts all fit on
+     * the free plan — `accountsToMarkActive` — because at that point every one
+     * of them is in use, and a false left standing there comes back to freeze
+     * an account somebody has been using the next time the count goes over.
      */
     active: boolean("active").default(true).notNull(),
     version: integer("version").default(1).notNull(),
@@ -932,10 +938,10 @@ export const auditEvents = pgTable(
  * happened, posts nothing, and touches no balance.
  *
  * The account and category it names live inside the JSON with no foreign key,
- * deliberately. A key would cascade, so tidying up an old account would take the
- * user's saved templates with it, which is a loss they never asked for. What
- * they hold instead is an id that is looked up when the template is used and
- * quietly dropped if it no longer resolves.
+ * deliberately. A key would cascade, so cleaning up an old account would take
+ * the user's saved templates with it, which is a loss they never asked for.
+ * What they hold instead is an id that is looked up when the template is used
+ * and quietly dropped if it no longer resolves.
  */
 export const transactionTemplates = pgTable(
   "transaction_template",
@@ -1007,10 +1013,10 @@ export const templateNotifications = pgTable(
     notifyAt: text("notify_at").notNull(),
 
     // The last occurrence this has sent for, and the next it will. Null next is
-    // "nothing further", which is where a one-off ends up and is what stops the
-    // scheduler looking at it again. Same watermark discipline as a recurrence:
-    // whether to send is decided from the rule and the person's own clock, never
-    // from these, and they only ever move forwards.
+    // "nothing further", which is where a one-time reminder ends up and is what
+    // stops the scheduler looking at it again. Same watermark discipline as a
+    // recurrence: whether to send is decided from the rule and the person's own
+    // clock, never from these, and they only ever move forwards.
     lastNotifiedDate: date("last_notified_date"),
     nextNotificationDate: date("next_notification_date"),
 
@@ -1056,7 +1062,7 @@ export const templateNotifications = pgTable(
  * ordinary row in the review queue and waits for somebody.
  *
  * The accounts and category it names live inside the JSON with no foreign key,
- * for the reason a template's do: a key would cascade, so tidying away an old
+ * for the reason a template's do: a key would cascade, so cleaning up an old
  * account would take the recurrence with it. What differs is what happens when
  * an id stops resolving. A template quietly drops it, because a person is
  * looking at the form. Nobody is looking when this fires, so the row is proposed
@@ -1214,8 +1220,8 @@ export const budgetPlans = pgTable(
     /**
      * How far a carry may run in either direction, or null for no limit.
      *
-     * Symmetric on purpose. A holiday fund that nobody has drawn on for three
-     * years is not a budget any more, and a category three thousand in debt to
+     * Symmetric on purpose. A vacation fund that nobody has drawn on for three
+     * years is not a budget anymore, and a category three thousand in debt to
      * itself will never come back inside its limit, so both ends of the same
      * runaway are the same setting.
      */
@@ -1335,7 +1341,7 @@ export const budgetPlans = pgTable(
       "budget_plan_lookback_range_check",
       sql`${table.ruleLookback} is null or (${table.ruleLookback} >= 1 and ${table.ruleLookback} <= 24)`,
     ),
-    // A taper is a real budget — "ten per cent less each month" is how somebody
+    // A taper is a real budget — "ten percent less each month" is how somebody
     // winds spending down — so an incremental plan may carry a negative
     // percentage, floored at -100 because a period cannot budget less than
     // nothing. A share of income may not: a negative share is not a share.
@@ -1472,12 +1478,12 @@ export const billingSubscriptions = pgTable(
      * Recorded here rather than derived from `current_period_end`, which is the
      * obvious anchor and the wrong one: Stripe rolls the period forward when it
      * raises the renewal invoice, so a card that declines leaves
-     * `current_period_end` a month in the *future*. Counting seven days from
+     * `current_period_end` a month in the *future*. Counting the grace from
      * there would hand somebody whose payment failed the rest of an unpaid
-     * period and a week on top.
+     * period and two weeks on top.
      *
      * The writer sets it on the transition into `past_due` and clears it on any
-     * transition out, so the grace is seven days from the failure rather than
+     * transition out, so the grace is fifteen days from the failure rather than
      * from anything Stripe's period arithmetic happens to say.
      */
     pastDueSince: timestamp("past_due_since", { withTimezone: true }),
@@ -1496,7 +1502,10 @@ export const billingSubscriptions = pgTable(
     scheduledPriceId: text("scheduled_price_id"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
     /**
-     * When the snapshot above was read from Stripe.
+     * When the snapshot above was read from Stripe. The reconciliation sweep
+     * also stamps it with the time an attempt began when Stripe cannot answer
+     * about the row, which moves the row to the back of the sweep's
+     * oldest-first line without changing what it says.
      *
      * The monotonic guard, and the reason it is our clock rather than Stripe's:
      * a Subscription carries no version, and its `created` is the subscription's

@@ -63,6 +63,7 @@ import { type SortPlan, keysetAfter, ordered } from "./sorting.js";
 import { ledgerWrites, stagedRowsCommitted } from "../metrics.js";
 import { normalizeHumanName } from "../../shared/names.js";
 import type { ProgressEvent } from "../../shared/progress.js";
+import { type AccountFreeze, accountFreeze } from "./accounts.js";
 import { pruneOrphanedCategories } from "./categories.js";
 import { canonicalizeStagedDraftPayee } from "./payees.js";
 import {
@@ -154,7 +155,7 @@ async function validateDraft(
   tx: DbTransaction,
   actor: Actor,
   input: unknown,
-  options: { withDuplicate?: boolean } = {},
+  options: { withDuplicate?: boolean; freeze?: AccountFreeze } = {},
 ): Promise<{
   draft: TransactionDraft | null;
   issues: ValidationIssue[];
@@ -206,7 +207,10 @@ async function validateDraft(
   try {
     // Lookup rather than ensure: validating a draft answers whether it would
     // balance, and a question about the books should not add to them.
-    await prepareTransaction(tx, actor, parsed.data, { systemAccounts: "lookup" });
+    await prepareTransaction(tx, actor, parsed.data, {
+      systemAccounts: "lookup",
+      freeze: options.freeze,
+    });
     // Skipped where the caller is about to take the duplicate-key locks and ask
     // again under them. The unlocked answer is a badge for the queue, not a
     // decision, so computing it for a commit is a lookup per row whose result
@@ -289,11 +293,31 @@ type GeneratedStageInput = {
   initialIssues?: ValidationIssue[];
 };
 
+/**
+ * Which accounts are frozen, read once for a batch of generated rows.
+ *
+ * Under every lock the batch's rows will take, taken here at once and in the
+ * order `helpers.ts` asks for. Each row takes its own again, which costs
+ * nothing: a lock this transaction already holds is not asked for twice. The
+ * freeze is a tenant-wide answer — which accounts are in use ranks all of them
+ * — so a row's own lock was never what made it true, and reading it per row
+ * was an entitlement check and a whole-table read for every line of a file.
+ */
+async function freezeForBatch(tx: DbTransaction, actor: Actor, drafts: readonly unknown[]) {
+  await lockStagedDraftReferences(tx, actor, drafts);
+  return accountFreeze(tx, actor);
+}
+
 /** Everything a staged row needs decided, with nothing written yet. */
-async function prepareGeneratedStage(tx: DbTransaction, actor: Actor, input: GeneratedStageInput) {
+async function prepareGeneratedStage(
+  tx: DbTransaction,
+  actor: Actor,
+  input: GeneratedStageInput,
+  freeze: AccountFreeze,
+) {
   await lockStagedDraftReferences(tx, actor, [input.draft]);
   const canonicalDraft = await canonicalizeStagedDraftPayee(tx, actor, input.draft);
-  const draftValidation = await validateDraft(tx, actor, canonicalDraft);
+  const draftValidation = await validateDraft(tx, actor, canonicalDraft, { freeze });
   return {
     userId: actor.userId,
     draft: canonicalDraft ?? {},
@@ -326,9 +350,14 @@ export async function insertRecurringStages(
   inputs: readonly Omit<GeneratedStageInput, "importBatchId">[],
 ) {
   if (!inputs.length) return [];
+  const freeze = await freezeForBatch(
+    tx,
+    actor,
+    inputs.map((input) => input.draft),
+  );
   const values = [];
   for (const input of inputs) {
-    values.push(await prepareGeneratedStage(tx, actor, { ...input, importBatchId: null }));
+    values.push(await prepareGeneratedStage(tx, actor, { ...input, importBatchId: null }, freeze));
   }
   const created = await tx.insert(stagedTransactions).values(values).returning();
   await writeAuditMany(
@@ -360,19 +389,30 @@ export async function insertImportedStages(
   onProgress?: (event: ProgressEvent) => void,
 ) {
   if (!inputs.length) return [];
+  const freeze = await freezeForBatch(
+    tx,
+    actor,
+    inputs.map((input) => input.draft),
+  );
   const values = [];
   for (const input of inputs) {
     values.push(
-      await prepareGeneratedStage(tx, actor, {
-        ...input,
-        recurrenceId: null,
-        occurrenceDate: null,
-      }),
+      await prepareGeneratedStage(
+        tx,
+        actor,
+        {
+          ...input,
+          recurrenceId: null,
+          occurrenceDate: null,
+        },
+        freeze,
+      ),
     );
-    // The whole per-row cost of an import is here: three round trips a row to
-    // lock, canonicalize and validate. Everything before this resolves the file
-    // as a whole, and the inserts below are five hundred rows a statement, so
-    // this loop is what a person is actually waiting on.
+    // The whole per-row cost of an import is here: canonicalizing and
+    // validating each row, whose locks and freeze were taken once above.
+    // Everything before this resolves the file as a whole, and the inserts
+    // below are five hundred rows a statement, so this loop is what a person
+    // is actually waiting on.
     onProgress?.({ phase: "staging", done: values.length, total: inputs.length });
   }
 
@@ -1162,6 +1202,11 @@ export async function commitStages(
       actor,
       rows.map((row) => row.draft),
     );
+    // Once for the batch, under the locks just taken. Validating and posting
+    // each ask for it, so reading it per row was two entitlement checks and
+    // two whole-table reads for every row committed; nothing between here and
+    // the last insert can change which accounts are frozen.
+    const freeze = await accountFreeze(tx, actor);
 
     const validated: {
       row: StagedTransactionRow;
@@ -1178,6 +1223,7 @@ export async function commitStages(
       // acted on.
       const result = await validateDraft(tx, actor, canonicalStagedDraft, {
         withDuplicate: false,
+        freeze,
       });
       if (!result.draft || result.issues.length) {
         throw validationError("Every selected row must be complete before it can commit.", {
@@ -1237,6 +1283,7 @@ export async function commitStages(
         draft,
         "create_from_stage",
         parsed.allowDuplicates,
+        { freeze },
       );
       const [updated] = await tx
         .update(stagedTransactions)
@@ -1556,6 +1603,7 @@ export async function bulkEditStages(
     rows = await readSelection(true);
     verifySelection(rows);
     drafts = rows.map((row) => patchedStageDraft(row.draft as Record<string, unknown>, patch));
+    const freeze = await accountFreeze(tx, actor);
 
     const planned: {
       row: typeof stagedTransactions.$inferSelect;
@@ -1566,7 +1614,7 @@ export async function bulkEditStages(
     }[] = [];
     for (const [index, row] of rows.entries()) {
       const canonical = await canonicalizeStagedDraftPayee(tx, actor, drafts[index]);
-      const validation = await validateDraft(tx, actor, canonical);
+      const validation = await validateDraft(tx, actor, canonical, { freeze });
       planned.push({
         row,
         draft: canonical,

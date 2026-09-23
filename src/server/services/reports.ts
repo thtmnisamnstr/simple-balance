@@ -461,7 +461,7 @@ export function qualifyRepeatedLabels(cells: Cell[]): Cell[] {
  *
  * `sides` reduces a transaction to its distinct accounts per currency, so a
  * receipt split three ways presents one counter-account rather than three rows
- * that would treble the cash side. Matching on currency is what makes a
+ * that would triple the cash side. Matching on currency is what makes a
  * conversion resolve to the exchange account in the moving side's own currency
  * instead of to all three of its other legs.
  *

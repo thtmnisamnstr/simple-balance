@@ -116,7 +116,7 @@ function createAuthInstance() {
             sendOnSignIn: true,
             // Deliberately not autoSignInAfterVerification. The token is a
             // stateless JWT that stays valid for its hour, so anyone who came
-            // by the link afterwards would be signed in as its owner. Opening
+            // by the link afterward would be signed in as its owner. Opening
             // it confirms the address; signing in still takes the password.
             expiresIn: 3600,
           },

@@ -12,6 +12,10 @@ import { describe, expect, it } from "vitest";
  */
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
+/** Prose, matched however it is wrapped: every space may be a line break. */
+const phrase = (text: string) =>
+  new RegExp(text.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&").replace(/ /g, "\\s+"));
+
 describe("what an operator is told about getting mail delivered", () => {
   it("names the four records an operator has to publish", () => {
     const deployment = read("docs/deployment.md");
@@ -220,5 +224,244 @@ describe("hardening, across every compose file", () => {
       }
     }
     expect(unhardened).toEqual([]);
+  });
+});
+
+/**
+ * What the single-machine programs are said to run, where an operator reads it.
+ *
+ * Both programs stopped bundling PostgreSQL and several pages went on saying
+ * they had not: the Pulumi README said the machine ran its own database and
+ * there was no URL to supply, two paragraphs above the one saying to supply it,
+ * and an owner who believed it provisioned nothing and budgeted $0. These are
+ * the sentences that would have to come back for that to happen again, and the
+ * ones the Oracle path cannot do without.
+ */
+describe("the single-machine programs, as the Pulumi README describes them", () => {
+  const readme = read("deploy/pulumi/README.md");
+  const section = (heading: string) => {
+    const start = readme.indexOf(`\n### ${heading}\n`);
+    expect(start, `README has "### ${heading}"`).toBeGreaterThan(-1);
+    const end = readme.indexOf("\n### ", start + 1);
+    return readme.slice(start, end === -1 ? undefined : end);
+  };
+
+  it("never says the machine runs its own database", () => {
+    for (const path of [
+      "deploy/pulumi/README.md",
+      "deploy/pulumi/oci-single/Pulumi.yaml",
+      "deploy/pulumi/aws-single/Pulumi.yaml",
+    ]) {
+      expect(read(path), path).not.toMatch(
+        /runs its own PostgreSQL|PostgreSQL and\s+Caddy|the database lives on|reserved public IP/,
+      );
+    }
+    for (const path of [
+      "deploy/pulumi/oci-single/Pulumi.yaml",
+      "deploy/pulumi/aws-single/Pulumi.yaml",
+    ]) {
+      expect(read(path), path).toMatch(/creates no\s+database/);
+    }
+  });
+
+  it("walks through a database for Oracle Cloud, and says it is not free", () => {
+    const oracle = section("A database for Oracle Cloud");
+    for (const needed of [
+      "Always Free",
+      "simple-balance:databaseSubnet true",
+      "PostgreSQL 15 or later",
+      "private endpoint",
+      "URL-encoded",
+      "sslmode=no-verify",
+      "DATABASE_URL='postgresql://",
+    ]) {
+      expect(oracle, needed).toContain(needed);
+    }
+  });
+
+  it("says a setting is an edit to env.local and a restart", () => {
+    expect(readme).toMatch(
+      /# A setting\.\nsudo nano \/var\/lib\/simple-balance\/env\.local\nsudo systemctl restart simple-balance\n/,
+    );
+    // EDITOR is unset on a fresh Ubuntu, where `sudo $EDITOR file` runs the file.
+    expect(readme).not.toContain("$EDITOR");
+    expect(section("`DATABASE_URL` goes on the machine")).toContain(
+      "sudo /usr/local/sbin/simple-balance-firstboot",
+    );
+  });
+
+  it("says which release the programs deploy, and that it is the one they pin", () => {
+    // The pin is set-version's to move, and this sentence is not: it names a
+    // release that has no billing, no ads and a frontend that reads no
+    // SB_TRUSTED_PROXY_CIDR, which stops being true the moment the pin reaches
+    // one that does. So it has to name the pin while the pin is before 0.2.0,
+    // and has to be gone once it is not — whatever it lists by then.
+    const pinned = /DEFAULT_IMAGE = "ghcr\.io\/thtmnisamnstr\/simple-balance:([^"]+)"/.exec(
+      read("deploy/pulumi/single-common/index.ts"),
+    )?.[1];
+    expect(pinned, "DEFAULT_IMAGE in single-common/index.ts").toBeDefined();
+    expect(
+      /^appVersion: "([^"]+)"$/m.exec(read("deploy/helm/simple-balance/Chart.yaml"))?.[1],
+    ).toBe(pinned);
+    const [major, minor] = pinned!.split(".").map(Number);
+    const claim =
+      /deploys the pinned release image, which until\s+0\.2\.0 is released is (\S+) and predates\s+([^;]+);/.exec(
+        readme,
+      );
+    if (major === 0 && minor! < 2) {
+      expect(claim?.[1], "the release the README names").toBe(pinned);
+      // The trusted-proxy setting is in the list because the README describes
+      // `trustedProxyCidr` as working, and on the pin nothing reads it.
+      expect(claim?.[2].replace(/\s+/g, " ")).toBe(
+        "billing, ads and the frontend's trusted-proxy setting",
+      );
+    } else expect(claim, "the README still says what the pin predates").toBeNull();
+    expect(readme).toMatch(/`simple-balance:imageTag` selects another\s+published\s+release/);
+  });
+
+  it("gives no instruction for building or publishing an image of a branch", () => {
+    // The programs deploy published releases and nothing else. The README once
+    // told people how to build and publish an image of a branch, and an image
+    // like that runs migrations no release has shipped against whatever
+    // database it is pointed at.
+    const files = repoFiles(
+      (file) =>
+        /^deploy\/(pulumi|systemd)\//.test(file) ||
+        file === ".github/workflows/deployment-profile.yml",
+    );
+    expect(files.map((file) => file.path)).toContain("deploy/pulumi/README.md");
+    const offenders = files
+      .filter(({ text }) =>
+        /preview-images|preview-<|preview-[0-9a-f]{12}\b|\bbuildx\b|preview image|running a branch|\b002[2-4]\b/i.test(
+          text,
+        ),
+      )
+      .map((file) => file.path);
+    expect(offenders).toEqual([]);
+  });
+
+  it("says what a resize and a replacement each do to the machine", () => {
+    // A resize is in place on both clouds. It was once described as destroying
+    // the root disk, and a promoted reserved IP as following a replacement.
+    expect(readme).not.toMatch(/resizing — change `size`, deploy — destroys/);
+    expect(readme).not.toMatch(/unless it has been\s+promoted to reserved/);
+    expect(readme).toContain("**Resizing is not a rebuild.**");
+    expect(readme).toMatch(/Two things take the volume\s+with it: `pulumi destroy`/);
+    // A new machine brings back the stack's image and not the schema an
+    // upgrade migrated to, which docs/upgrades.md says never to run it against.
+    expect(readme).not.toMatch(/way back from an\s+upgrade/);
+    expect(readme).toMatch(
+      /the way back from a machine that has gone\s+wrong, not from an upgrade\. An upgrade is undone on the machine, as\s+\[docs\/upgrades\.md\]\(\.\.\/\.\.\/docs\/upgrades\.md#rolling-back\) says/,
+    );
+    expect(read("docs/upgrades.md")).toContain("\n## Rolling back\n");
+    // The volume arrives after the new machine boots, and can arrive after
+    // firstboot has stopped waiting for it.
+    expect(readme).toMatch(
+      /If the move takes longer, `sudo cloud-init status` there reports an error: run\s+`sudo \/usr\/local\/sbin\/simple-balance-firstboot`/,
+    );
+  });
+
+  it("bills the managed database, not every database", () => {
+    expect(readme).not.toMatch(
+      /Always Free has no PostgreSQL|separate, billed thing wherever it runs/,
+    );
+    expect(section("A database for Oracle Cloud")).toMatch(
+      /OCI Database with PostgreSQL is not part of Always Free/,
+    );
+  });
+
+  it("takes a backup by hand through the unit, onto the data volume", () => {
+    expect(readme).toContain(
+      "Take a backup first either way: `sudo systemctl start simple-balance-backup`.",
+    );
+    expect(readme).not.toContain("Take a backup first either way: `sudo /usr/local/bin/");
+  });
+});
+
+/**
+ * The deployment pages' claims about the `single` profile and the cloud
+ * programs, which drifted from what the programs build: a bundled PostgreSQL
+ * that no longer exists, a data disk OCI would refuse, a nginx edit the image
+ * no longer needs. Each is a sentence that would have to come back for the old
+ * mistake to return, or one the corrected page cannot do without.
+ */
+describe("the deployment pages, against what the programs build", () => {
+  const deployment = read("docs/deployment.md");
+  const profiles = read("docs/deployment-profiles.md");
+  const sizing = read("docs/deployment-sizing.md");
+  const costs = read("docs/deployment-costs.md");
+
+  it("makes the trusted proxy one setting, with recursion off", () => {
+    expect(deployment).not.toMatch(phrase("real_ip_recursive on"));
+    expect(deployment).not.toMatch(phrase("set_real_ip_from <your"));
+    expect(deployment).toContain("frontend.trustedProxyCidr");
+  });
+
+  it("counts no list it could drift away from", () => {
+    expect(deployment).not.toMatch(/\b(Six|Seven|Eight|Nine)\s+(settings|things)\b/);
+  });
+
+  it("gives billing's grace, retries and ads the conditions the server applies", () => {
+    expect(deployment).toMatch(phrase("fifteen-day grace"));
+    expect(deployment).not.toMatch(phrase("seven-day grace"));
+    expect(deployment).toMatch(phrase("Revenue recovery"));
+    expect(deployment).toMatch(phrase("shown only where a plan is for sale"));
+  });
+
+  it("says what the backups do with sslmode", () => {
+    expect(deployment).toMatch(phrase("`sslmode=no-verify` becomes `sslmode=require`"));
+  });
+
+  it("runs no database on the single machine", () => {
+    expect(deployment).not.toMatch(phrase("with PostgreSQL, TLS, backups"));
+    expect(profiles).not.toContain("POSTGRES_PASSWORD");
+    expect(profiles).not.toMatch(phrase("reaches PostgreSQL as `postgres`"));
+    expect(profiles).toMatch(/^\| The host \| The database \|/m);
+    expect(profiles).not.toMatch(phrase("holds the database, the backups"));
+    expect(profiles).toMatch(phrase("every time the deployment starts"));
+    expect(sizing).not.toMatch(/docker compose (exec -T|logs) postgres/);
+    expect(sizing).not.toContain("POSTGRES_MAX_CONNECTIONS");
+    expect(sizing).not.toMatch(phrase("write into `.env`"));
+  });
+
+  it("prices the database as a line of its own, and the OCI disk as what OCI accepts", () => {
+    expect(costs).not.toMatch(phrase("no managed database bill"));
+    expect(costs).toMatch(phrase("not part of Always Free"));
+    expect(costs).toMatch(phrase("2/4 + 100 GB"));
+    expect(sizing).toMatch(phrase("raises a data disk under 50 GB to 50"));
+  });
+
+  it("answers a capacity shortage with another availability domain", () => {
+    expect(costs).toContain("simple-balance:availabilityDomain");
+  });
+});
+
+describe("the compose READMEs, against the unit and the chart", () => {
+  it("sends a hand install to the .env the unit reads", () => {
+    // The unit runs from /opt/simple-balance, and its header copies .env there.
+    // The copy in the repository is what `docker compose up` in that directory
+    // reads, so an edit to it restarts the unit onto the settings it had.
+    const unit = read("deploy/systemd/simple-balance.service");
+    expect(unit).toContain("\nWorkingDirectory=/opt/simple-balance\n");
+    expect(unit).toContain("/opt/simple-balance/.env  # then edit it");
+    const single = read("deploy/compose/single/README.md");
+    expect(single).not.toMatch(phrase("it is `.env`, the file you wrote"));
+    expect(single).toMatch(
+      phrase(
+        "Installed by hand, it is `/opt/simple-balance/.env`, the copy the unit's header installs",
+      ),
+    );
+  });
+
+  it("says the chart can run the database, when asked to", () => {
+    const values = read("deploy/helm/simple-balance/values.yaml");
+    expect(values).toMatch(/^database:\n {2}enabled: false\n/m);
+    const compose = read("deploy/compose/README.md");
+    expect(compose).not.toMatch(phrase("The chart provisions no database."));
+    expect(compose).toMatch(
+      phrase(
+        "The chart provisions no database by default. A cluster's PostgreSQL is bring your own unless `database.enabled` runs",
+      ),
+    );
   });
 });

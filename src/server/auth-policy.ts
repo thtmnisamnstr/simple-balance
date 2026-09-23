@@ -222,7 +222,7 @@ export async function getPublicAuthOptions() {
     setupTokenOffered: config.isProduction && unclaimed && !isRegistrationOpenToAnyone(),
     // Both need a mail server. Without one there is no link to send, so the
     // screen must not offer a reset it cannot perform, and a new account is
-    // usable straight away rather than waiting on a message that never comes.
+    // usable right away rather than waiting on a message that never comes.
     passwordResetAvailable: config.localAuthEnabled && mailEnabled(),
     emailVerificationRequired: config.localAuthEnabled && mailEnabled(),
     // Not gated on local auth, unlike the two above: somebody who signed in

@@ -697,11 +697,11 @@ a {
    The column above is right in a form, where the actions are the last thing on
    a stack. In a selection bar it is wrong twice over: the wrapper is
    `inline-flex`, so it takes the width of its widest child — "Some selected
-   rows look like duplicates. Tick the box to commit them anyway." is 470px —
-   and `align-items: stretch` then pulls the button out to match, while the
-   two-line box sitting in an `align-items: center` row lifts that button off
-   the line its siblings are on. On a narrower window the extra width also
-   pushed the duplicate checkbox onto a row of its own.
+   rows look like duplicates. Check the box to commit them anyway." runs past
+   400px even at 11px — and `align-items: stretch` then pulls the button out to
+   match, while the two-line box sitting in an `align-items: center` row lifts
+   that button off the line its siblings are on. On a narrower window the extra
+   width also pushed the duplicate checkbox onto a row of its own.
 
    `display: contents` puts the button back in the row at its own size, and
    `order` with a full basis drops the sentence to its own line beneath the
@@ -1730,6 +1730,22 @@ input[type="radio"] {
 
 .menu-popover button.danger {
   color: var(--red);
+}
+
+/* Why a menu item is disabled, said under it. `.button-reason` is centered and
+   as wide as its sentence, and the popover grows to fit its widest child, so a
+   sentence left alone would stretch the whole menu to one long line. Capped at
+   a readable measure and wrapped instead.
+
+   The left padding is the item's own 8px, its 15px icon and the 8px gap after
+   it, so the sentence starts under the label it explains rather than under the
+   icon. The cap adds that padding back, because `border-box` counts it and the
+   measure is meant for the words. */
+.menu-popover .menu-reason {
+  max-width: calc(32ch + 39px);
+  padding: 0 8px 6px calc(8px + 15px + 8px);
+  text-align: left;
+  white-space: normal;
 }
 
 .filter-bar {

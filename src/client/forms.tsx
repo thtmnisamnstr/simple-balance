@@ -63,6 +63,7 @@ import {
 import {
   compareMoney,
   formatDate,
+  formatTime,
   isNegativeMoney,
   isPositiveMoney,
   moneyRemainder,
@@ -282,7 +283,8 @@ export function AccountForm({
       <Note>
         On for everything by default, cards included: spending on a card empties an envelope, so
         leaving cards out would say there is more money to assign than there is. Turn it off for
-        something the budget should not see, such as a pension. It changes no balance and no report.
+        something the budget should not see, such as a retirement account. It changes no balance and
+        no report.
       </Note>
       <div className="form-actions">
         <Button type="button" variant="ghost" onClick={onDone}>
@@ -298,7 +300,7 @@ export function AccountForm({
 
 /**
  * The payee field, with the suggestions and the snap-to-existing-spelling
- * behavior that keeps a ledger from growing three spellings of one shop. Its
+ * behavior that keeps a ledger from growing three spellings of one store. Its
  * own component because the template editor needs exactly this and a second
  * copy would be a second answer to "what counts as the same payee".
  */
@@ -872,8 +874,8 @@ function useNotificationsAvailable() {
 function reminderSendDates(
   rule: TemplateNotification,
 ): { occurrenceDate: string; postedDate: string | null }[] {
-  // A one-off owes exactly one, on its anchor, and refuses the policies that
-  // could move it.
+  // A one-time reminder owes exactly one, on its anchor, and refuses the
+  // policies that could move it.
   if (rule.frequency === null) {
     return [{ occurrenceDate: rule.anchorDate, postedDate: rule.anchorDate }];
   }
@@ -1137,7 +1139,7 @@ export function TemplateForm({
           required
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Weekly shop"
+          placeholder="Weekly groceries"
         />
       </Field>
 
@@ -1412,7 +1414,7 @@ export function TemplateForm({
             {reminderRepeats ? (
               <Field
                 label="When it lands on a weekend"
-                hint="A business day here means Monday to Friday. Public holidays are not modeled."
+                hint="A business day here means Monday through Friday. Holidays are not modeled."
               >
                 <Select
                   value={reminderWeekendPolicy}
@@ -1423,10 +1425,10 @@ export function TemplateForm({
                   <option value="allow">Send it on the weekend</option>
                   <option value="skip">Skip it</option>
                   <option value="previous_business_day" disabled={reminderBusinessDayBlocked}>
-                    Send it on the Friday
+                    Send it the Friday before
                   </option>
                   <option value="next_business_day" disabled={reminderBusinessDayBlocked}>
-                    Send it on the Monday
+                    Send it the Monday after
                   </option>
                 </Select>
               </Field>
@@ -1448,7 +1450,7 @@ export function TemplateForm({
                     <li key={one.occurrenceDate}>
                       {one.postedDate ? (
                         <>
-                          {formatDate(one.postedDate)} at {reminderTime}
+                          {formatDate(one.postedDate)} at {formatTime(reminderTime)}
                           {one.postedDate === one.occurrenceDate ? null : (
                             <small> moved from {formatDate(one.occurrenceDate)}</small>
                           )}
@@ -1548,13 +1550,19 @@ export function TransactionForm({
     return null;
   }, [transaction, staged, clone]);
   const createType = initialType ?? "withdrawal";
+  // Chosen from the accounts a new entry may name, not from the list as it
+  // arrives. The list is in name order, so `accounts[0]` put a frozen account
+  // in front of anybody whose alphabetically first one was frozen — and
+  // `selectableAccounts` then kept it on offer, because the form named it, for
+  // a save the server refuses.
   const defaultAccountIds = (nextType: TransactionType) => {
-    const primaryAccountId = initialAccountId ?? accounts[0]?.id ?? "";
+    const writable = selectableAccounts(accounts);
+    const primaryAccountId = initialAccountId ?? writable[0]?.id ?? "";
     return {
       fromAccountId: primaryAccountId,
       toAccountId:
         nextType === "transfer"
-          ? (accounts.find((account) => account.id !== primaryAccountId)?.id ?? "")
+          ? (writable.find((account) => account.id !== primaryAccountId)?.id ?? "")
           : primaryAccountId,
     };
   };
@@ -1657,16 +1665,18 @@ export function TransactionForm({
     queryKey: ["transaction-templates"],
     queryFn: () => api<TransactionTemplate[]>("/api/v1/transaction-templates"),
   });
+  const firstWritable = selectableAccounts(accounts)[0];
   // Seeding state from a query that had not resolved at mount, which is the one
   // copy `docs/standards/code/client.md` §1.1 allows. The defaults above read
-  // `accounts[0]` while the list is still empty, so without this the form opens
-  // on a fresh session with no account chosen and the select showing nothing.
-  // Only ever fills a blank: from here the field is the person's to change.
+  // the first writable account while the list is still empty, so without this
+  // the form opens on a fresh session with no account chosen and the select
+  // showing nothing. Only ever fills a blank, and only from the same writable
+  // accounts: from here the field is the person's to change.
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect
-    if (!fromAccountId && accounts[0]) setFromAccountId(accounts[0].id);
-    if (!toAccountId && accounts[0]) setToAccountId(accounts[0].id);
-  }, [accounts, fromAccountId, toAccountId]);
+    if (!fromAccountId && firstWritable) setFromAccountId(firstWritable.id);
+    if (!toAccountId && firstWritable) setToAccountId(firstWritable.id);
+  }, [firstWritable, fromAccountId, toAccountId]);
 
   // Only a transfer clears the category, because only a transfer files under
   // none. Against-the-direction is a refund, not a mismatch.
@@ -1677,7 +1687,7 @@ export function TransactionForm({
       // that followed would file the entry under one the form had already
       // forgotten. Nothing reads it while the type is Transfer - the picker is
       // not rendered and the submit carries `initial`'s category through - so
-      // the clear is only ever about what comes back afterwards.
+      // the clear is only ever about what comes back afterward.
       // oxlint-disable-next-line react/set-state-in-effect
       setCategoryId("");
       setCategoryName("");
@@ -2175,14 +2185,15 @@ export function TransactionForm({
         onChange={(next) => {
           setType(next);
           if (transaction || staged || !next) return;
-          const primaryAccountId = initialAccountId ?? accounts[0]?.id ?? "";
+          const { fromAccountId: primaryAccountId, toAccountId: nextToAccountId } =
+            defaultAccountIds(next);
           if (next === "withdrawal") {
             setFromAccountId(primaryAccountId);
           } else if (next === "deposit") {
             setToAccountId(primaryAccountId);
           } else {
             setFromAccountId(primaryAccountId);
-            setToAccountId(accounts.find((account) => account.id !== primaryAccountId)?.id ?? "");
+            setToAccountId(nextToAccountId);
           }
         }}
       />
@@ -2806,7 +2817,7 @@ export function RecurrenceForm({
    *
    * The same question `TransactionForm` asks, for the same reason and with the
    * same words: a recurring refund into a spending category nobody has created
-   * yet would otherwise be filed as income, once a month, for ever. The schema
+   * yet would otherwise be filed as income, once a month, forever. The schema
    * has carried `categoryKind` since the refund work; only this form did not
    * ask, so an agent could set it and a person could not.
    */
@@ -2825,10 +2836,10 @@ export function RecurrenceForm({
     })
     .map(({ name }) => name.trim());
   const newCategoryKind: CategoryKind = categoryKind || (type === "deposit" ? "income" : "expense");
-  // The same rule TransactionForm previews, for a harsher reason: a one-off
+  // The same rule TransactionForm previews, for a harsher reason: a one-time
   // mixed split is refused once at the moment somebody is looking, while a
   // recurrence that saved cleanly proposes an uncommittable row every
-  // occurrence for ever. One function, so the sentence here is the sentence
+  // occurrence forever. One function, so the sentence here is the sentence
   // the commit would eventually throw.
   const entrySide =
     type === "transfer"
@@ -3119,7 +3130,7 @@ export function RecurrenceForm({
 
         <Field
           label="When it lands on a weekend"
-          hint="A business day here means Monday to Friday. Public holidays are not modeled."
+          hint="A business day here means Monday through Friday. Holidays are not modeled."
         >
           <Select
             value={weekendPolicy}
@@ -3130,10 +3141,10 @@ export function RecurrenceForm({
             <option value="allow">Propose it on the weekend</option>
             <option value="skip">Skip it</option>
             <option value="previous_business_day" disabled={businessDayBlocked}>
-              Move it back to the Friday
+              Move it to the Friday before
             </option>
             <option value="next_business_day" disabled={businessDayBlocked}>
-              Move it on to the Monday
+              Move it to the Monday after
             </option>
           </Select>
         </Field>

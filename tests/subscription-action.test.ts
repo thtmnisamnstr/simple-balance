@@ -119,6 +119,30 @@ describe("what a request to change plan means", () => {
     });
   });
 
+  /**
+   * The states that reach `schedule` while a schedule is already attached.
+   *
+   * `none` only recognizes a repeat of a change it can name. A pending switch
+   * for somebody on a retired price, and the monthly phase of a downgrade that
+   * has already begun and then failed its renewal, both read as nothing
+   * pending — so they come here, and the service has to let the existing
+   * schedule go before making another, or Stripe refuses the second
+   * `from_subscription` and the press is a 500.
+   * `tests/integration/billing-stripe.integration.test.ts` holds the service to
+   * releasing first; these rows hold which states depend on it.
+   */
+  it("schedules over a switch it cannot name, which the service releases first", () => {
+    expect(
+      subscriptionAction({ current: on("active", null, "monthly"), requested: "yearly" }),
+    ).toEqual({ kind: "schedule" });
+    expect(
+      subscriptionAction({ current: on("active", null, "yearly"), requested: "monthly" }),
+    ).toEqual({ kind: "schedule" });
+    expect(subscriptionAction({ current: on("past_due", "monthly"), requested: "yearly" })).toEqual(
+      { kind: "schedule" },
+    );
+  });
+
   it("never upgrades on the spot from a status that owes money", () => {
     // `past_due` and `unpaid` reach the interval branches, unlike `incomplete`,
     // and neither may take the immediate-charge path: there is already an

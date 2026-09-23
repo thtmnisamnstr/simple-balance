@@ -13,8 +13,10 @@ import {
   protectAuthMutation,
   protectBrowserMutation,
   requestBodyLimit,
+  securityHeaderOptions,
   withCountableClientAddress,
 } from "../src/server/http-security.js";
+import { secureHeaders } from "hono/secure-headers";
 import {
   MAX_BULK_SELECTION_ENTRIES,
   bulkStageEditSchema,
@@ -44,6 +46,81 @@ function browserMutationApp() {
   app.post("/", (context) => context.json({ ok: true }));
   return app;
 }
+
+/** The headers one surface's middleware really sends, rather than the options that build it. */
+async function headersFor(context: Parameters<typeof securityHeaderOptions>[1]) {
+  const app = new Hono();
+  app.use("*", secureHeaders(securityHeaderOptions(true, context)));
+  app.get("/", (c) => c.text("ok"));
+  return (await app.request("/")).headers;
+}
+
+/**
+ * The headers besides the content policy that differ by page, and the hosts
+ * the plan tab's policy owes to Link.
+ *
+ * `tests/security-header-parity.test.ts` holds nginx to the same answers; these
+ * say what the answers are, so a change made to both transports at once still
+ * has to get past a sentence about why.
+ */
+describe("what each surface sends besides its content policy", () => {
+  /**
+   * Google's consent message does not serve under a referrer policy that keeps
+   * the referrer off cross-origin requests, and `same-origin` is one of those.
+   * The ads pages send the browser's own default instead, which tells another
+   * origin this site's address and never the path. Nothing else widens.
+   */
+  it("sends the referrer another origin can see only where ads need it", async () => {
+    expect((await headersFor({ surface: "app" })).get("referrer-policy")).toBe("same-origin");
+    expect((await headersFor({ surface: "app", ads: true })).get("referrer-policy")).toBe(
+      "strict-origin-when-cross-origin",
+    );
+    // The plan tab carries no ads and takes a card, so it keeps the narrow one
+    // even on a deployment that serves them.
+    expect((await headersFor({ surface: "stripe", ads: true })).get("referrer-policy")).toBe(
+      "same-origin",
+    );
+  });
+
+  /**
+   * `same-origin` severs a popup from its opener, and Google Pay completes in a
+   * popup where there is no native sheet. The plan tab alone relaxes it.
+   */
+  it("lets a payment popup report back to the plan tab and nowhere else", async () => {
+    expect((await headersFor({ surface: "stripe" })).get("cross-origin-opener-policy")).toBe(
+      "same-origin-allow-popups",
+    );
+    expect((await headersFor({ surface: "app" })).get("cross-origin-opener-policy")).toBe(
+      "same-origin",
+    );
+    expect(
+      (await headersFor({ surface: "app", ads: true })).get("cross-origin-opener-policy"),
+    ).toBe("same-origin");
+  });
+
+  /**
+   * The Payment Element offers Link by default, and Stripe publishes its hosts
+   * as a set of their own beside Stripe.js's. Missing, a payer whose email has a
+   * Link account watches the sign-in step fail inside the payment form.
+   */
+  it("lets the payment form reach Link's frames and API", async () => {
+    const policy = (await headersFor({ surface: "stripe" })).get("content-security-policy") ?? "";
+    const directive = (name: string) =>
+      policy
+        .split(";")
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(`${name} `)) ?? "";
+    for (const name of ["frame-src", "connect-src"]) {
+      expect(directive(name), name).toContain(" https://link.com");
+      expect(directive(name), name).toContain(" https://*.link.com");
+    }
+    // `*.link.com` on img-src too, which the `https:` already there covers.
+    expect(directive("img-src")).toContain(" https:");
+    // And nowhere but the plan tab, which is the only page with a payment form.
+    const ordinary = (await headersFor({ surface: "app" })).get("content-security-policy");
+    expect(ordinary).not.toContain("link.com");
+  });
+});
 
 describe("browser mutation protection", () => {
   it("rejects a cross-origin cookie-authenticated JSON mutation", async () => {

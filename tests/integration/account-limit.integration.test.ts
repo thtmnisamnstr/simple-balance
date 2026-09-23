@@ -31,6 +31,7 @@ import {
   getAccount,
   listAccounts,
   setAccountArchived,
+  setActiveAccounts,
 } from "../../src/server/services/accounts.js";
 import { createTransaction } from "../../src/server/services/transactions.js";
 import { scratchDatabase } from "./support/scratch-database.js";
@@ -173,6 +174,127 @@ integration("the free plan's account limit", () => {
       .where(and(eq(ledgerAccounts.userId, owner.userId), isNull(ledgerAccounts.systemKind)))
       .then((rows) => [{ count: rows.length }]);
     expect(count).toBe(MAX_FREE_ACCOUNTS);
+  });
+
+  /*
+   * Restoring counts the free places the way creating does, so it races the
+   * same way — and it raced everything, because it held only its own
+   * account's lock while create and the chooser held the namespace one. Two
+   * requests each read two places in use and both took the third, which left
+   * four marked active: an account in use frozen by the ordering, and the
+   * one-time choice open again for any three. Each race below wants exactly
+   * one winner and never more places in use, or more marked active, than the
+   * plan keeps.
+   */
+  const inUse = async (owner: Actor) =>
+    (await listAccounts(owner)).filter((account) => !account.frozen).length;
+  const markedActive = async (owner: Actor) =>
+    (
+      await getDb()
+        .select({ id: ledgerAccounts.id })
+        .from(ledgerAccounts)
+        .where(
+          and(
+            eq(ledgerAccounts.userId, owner.userId),
+            eq(ledgerAccounts.active, true),
+            isNull(ledgerAccounts.archivedAt),
+            isNull(ledgerAccounts.systemKind),
+          ),
+        )
+    ).length;
+  const restoring = async (owner: Actor, id: string) => {
+    const archived = await getAccount(owner, id);
+    return () => setAccountArchived(owner, id, archived.version, false);
+  };
+  const expectOneWinner = async (owner: Actor, results: PromiseSettledResult<unknown>[]) => {
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const [refused] = results.filter((r) => r.status === "rejected");
+    expect((refused as PromiseRejectedResult).reason).toMatchObject({ code: "CONFLICT" });
+    expect(await inUse(owner)).toBe(MAX_FREE_ACCOUNTS);
+    expect(await markedActive(owner)).toBeLessThanOrEqual(MAX_FREE_ACCOUNTS);
+  };
+
+  it("lets exactly one of a restore and a create take the last place", async () => {
+    const owner = actor("limit-race-restore-create");
+    await seedUser(owner.userId);
+    await makeAccount(owner, "One");
+    await makeAccount(owner, "Two");
+    const three = await makeAccount(owner, "Three");
+    await setAccountArchived(owner, three.id, three.version, true);
+
+    const restore = await restoring(owner, three.id);
+    await expectOneWinner(
+      owner,
+      await Promise.allSettled([restore(), makeAccount(owner, "Racer")]),
+    );
+  });
+
+  it("lets exactly one of two restores take the last place", async () => {
+    const owner = actor("limit-race-restore-restore");
+    await seedUser(owner.userId);
+    await makeAccount(owner, "One");
+    const two = await makeAccount(owner, "Two");
+    await setAccountArchived(owner, two.id, two.version, true);
+    await makeAccount(owner, "Three");
+    const four = await makeAccount(owner, "Four");
+    await setAccountArchived(owner, four.id, four.version, true);
+    // One and Three in use, Two and Four archived, one place free.
+    expect(await inUse(owner)).toBe(2);
+
+    const first = await restoring(owner, two.id);
+    const second = await restoring(owner, four.id);
+    await expectOneWinner(owner, await Promise.allSettled([first(), second()]));
+  });
+
+  it("lets exactly one of a restore and the chooser take the last place", async () => {
+    // Five live, two in use and three frozen, and one of the frozen three is
+    // being brought into the free place while an archived account is restored
+    // into the same one.
+    const owner = actor("limit-race-restore-choice");
+    await seedUser(owner.userId);
+    await getDb().insert(billingOverrides).values({
+      userId: owner.userId,
+      plan: "plus",
+      expiresAt: null,
+      reason: "seeding beyond the limit",
+      operator: "tests",
+    });
+    const opened = [];
+    for (const name of ["A", "B", "C", "D", "E", "F"]) opened.push(await makeAccount(owner, name));
+    await getDb().delete(billingOverrides).where(eq(billingOverrides.userId, owner.userId));
+    const [a, b, c, d] = opened.map((account) => account.id);
+    await setActiveAccounts(owner, { accountIds: [a!, b!, c!] });
+    const inUseC = await getAccount(owner, c!);
+    await setAccountArchived(owner, c!, inUseC.version, true);
+    expect(await inUse(owner)).toBe(2);
+
+    /*
+     * Overlapped on purpose rather than left to the scheduler. The chooser is
+     * a few statements long and a restore is a dozen, so fired together the
+     * chooser has usually committed before the restore counts anything, and
+     * the race passes with or without the lock. Holding the chooser's
+     * transaction open after its write is the interleaving the lock exists
+     * for: the restore either waits its turn and then finds no place, or — with
+     * nothing to wait on — counts two in use past a write it cannot see yet.
+     */
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let wrote!: () => void;
+    const written = new Promise<void>((resolve) => (wrote = resolve));
+    const choosing = getDb().transaction(async (tx) => {
+      await setActiveAccounts(owner, { accountIds: [a!, b!, d!] }, tx);
+      wrote();
+      await held;
+    });
+    await written;
+    const restore = await restoring(owner, c!);
+    const restored = restore();
+    await Promise.race([
+      restored.catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 300)),
+    ]);
+    release();
+    await expectOneWinner(owner, await Promise.allSettled([restored, choosing]));
   });
 
   it("refuses inside a transaction the caller opened, which is how MCP arrives", async () => {

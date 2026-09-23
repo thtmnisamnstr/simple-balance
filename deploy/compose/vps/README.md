@@ -42,8 +42,14 @@ payment provider you use.
 | `scheduler` | `database` | 5432/tcp | the ledger |
 | `frontend` | the internet | 80, 443/tcp | Let's Encrypt |
 | `server`, `scheduler` | the internet | 587/tcp | SMTP, if mail is configured |
-| `server` | the internet | 443/tcp | Stripe, if billing is configured |
+| `server`, `scheduler` | the internet | 443/tcp | Stripe, if billing is configured |
 | you | any | 22/tcp | from your own address, not `0.0.0.0/0` |
+
+The scheduler needs Stripe as much as the API does. On every tick it re-reads
+from Stripe each subscription not heard about for twelve hours, and that sweep
+is what repairs a webhook Stripe could not deliver (`docs/billing-operations.md`,
+"When a webhook was missed"). Closed off, every sweep fails and a missed webhook
+is never put right.
 
 There is deliberately no rule from `database` to anything. It answers and never
 calls.
@@ -86,6 +92,15 @@ sudo docker compose -f compose.frontend.yml -f compose.caddy.yml up -d
 After that the order stops mattering: every process retries its database
 connection, and the frontend serves a 502 while the API is down rather than
 failing to start.
+
+## Which release
+
+The server and scheduler images in `compose.app.yml` and the frontend image in
+`compose.frontend.yml` each name the release they pull, written out, and all
+three name the same one. `npm run set-version` rewrites them when a release is
+cut, so these files always pull the release they came from. Moving to another is
+changing that tag in both files, to the same value on every machine, after a
+dump: see [docs/upgrades.md](../../../docs/upgrades.md).
 
 ## As a service
 

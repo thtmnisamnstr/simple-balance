@@ -71,7 +71,7 @@ paths and insists both land under one name.
 
 **House.** Every counter increments whether or not `METRICS_ENABLED` is set.
 What the setting decides is whether `GET /metrics` is registered at all
-(`src/server/api.ts:326`) — registered rather than refusing, so a deployment
+(`src/server/api.ts:327`) — registered rather than refusing, so a deployment
 that never asked has no such route.
 
 The measurement behind that: a labeled increment costs about 130ns and does
@@ -91,7 +91,7 @@ and never on a path that did not do the work:
   the counter did not move.
 - An idempotent replay is not a second write. Five counters double-counted one
   until each mutation started signaling replay out of its transaction callback
-  (`src/server/services/transactions.ts:1074`, `:1084`, `:1110`), and the
+  (`src/server/services/transactions.ts:1088`, `:1098`, `:1125`), and the
   visible cost was a client retrying a four-thousand-row edit reporting eight
   thousand rows changed. The retry is a fact about the client, and it has its
   own counter.
@@ -130,9 +130,9 @@ produce refusals, is where the label itself is checked.
 
 ### 1.7 Instrument the seam, not the call sites
 
-**House.** Seventy-six tools are timed and counted by wrapping `registerTool`
+**House.** Seventy-seven tools are timed and counted by wrapping `registerTool`
 once (`src/server/mcp.ts:614`), and every HTTP request by one middleware
-mounted above everything, including the guards (`src/server/api.ts:264`). Both
+mounted above everything, including the guards (`src/server/api.ts:265`). Both
 are chosen so a tool or a route added tomorrow is instrumented by existing
 rather than by somebody remembering.
 
@@ -175,7 +175,7 @@ it is the person the error happened to. The rule and its check are about
 behavior at each level, and that no file under `src/server` outside the
 configuration layer names `console` in code at all. The exception list is itself
 checked: a file on it that has stopped warning from inside `getConfig()` fails,
-because an exception nobody needs any more proves nothing.
+because an exception nobody needs anymore proves nothing.
 
 ### 2.2 The level says who the line is for
 
@@ -189,7 +189,7 @@ because an exception nobody needs any more proves nothing.
 | `error` | Something failed. | A tick that threw, a relay that refused, a query that failed. |
 
 The split that matters is `debug` against `info`, and the scheduler is the case
-that defines it (`src/server/recurrence-scheduler.ts:219-235`): a tick that
+that defines it (`src/server/recurrence-scheduler.ts:221-237`): a tick that
 proposed a row, sent a reminder or failed at either is `info`, and a tick that
 found nothing due is `debug`. Most ticks find nothing, and an `info` line every
 five minutes saying so is how a log stops being read.
@@ -228,10 +228,10 @@ The four sites that show what the rule costs, each with the thing it
 deliberately leaves out:
 
 - **A request** logs the method, the path and the status
-  (`src/server/api.ts:289`) and never the query string, because a filter carries
+  (`src/server/api.ts:290`) and never the query string, because a filter carries
   payees and search terms.
 - **An MCP tool call** logs the tool name and the outcome
-  (`src/server/mcp.ts:640`) and never the arguments, which are somebody's ledger
+  (`src/server/mcp.ts:641`) and never the arguments, which are somebody's ledger
   by definition.
 - **A message** logs `message.about` — "the password reset", "the reminder" —
   and never the recipient or the subject (`src/server/mail.ts:174`, `:180`), and
@@ -288,14 +288,14 @@ mistake (`src/server/config-limits.ts:75`, and `warnOnce` at
 
 **Binding.** Everything this product degrades rather than fails on says so: a
 relay that refuses its credentials at startup, a reminder sweep that throws, a
-tick that throws, an OAuth client sweep that fails. Each logs and carries on,
+tick that throws, an OAuth client sweep that fails. Each logs and continues,
 because the alternative — a `catch` with an empty body — produces a deployment
 that is quietly doing half its job, which is the failure mode the degradation
 was designed to avoid in the first place.
 
 An empty `catch` is for a case where nothing went wrong, and it says which in a
 comment. There are two in `src/server`, both canceling a request body the peer
-may have closed already (`src/server/http-security.ts:424` and `:908`), and both
+may have closed already (`src/server/http-security.ts:459` and `:943`), and both
 carry that sentence.
 
 *Checked by:* `tests/log-level.test.ts`, which finds every `catch` whose body is
@@ -328,7 +328,7 @@ reports no pool series at all, which is the honest answer.
 | --- | --- |
 | 1.4 Collection is always on | A decision, not a property. The measurement behind it is a comment. |
 | 1.6 The success path is exercised too | Nothing can tell a metric that was never wired up from one nothing has reached yet. |
-| 1.7 Instrument the seam | Judgement about where a seam is. |
+| 1.7 Instrument the seam | Judgment about where a seam is. |
 | 2.2 The level says who the line is for | Editorial, except for `announce`, whose call sites are pinned. |
 | 2.3 Sentences, not JSON | Editorial. |
 | 2.5 Warn once | Two sites, both with the counter they need; a third would be caught by review or not at all. |
@@ -336,7 +336,7 @@ reports no pool series at all, which is the honest answer.
 
 Seven `human` rules — only `testing.md` carries more — and the reason is
 worth stating rather than apologizing for: the two channels are checkable in
-their mechanics and not in their judgement. Whether a label is identifying, and
+their mechanics and not in their judgment. Whether a label is identifying, and
 whether a counter moved when it should not have, are properties a test can hold
 — and both are held. Whether a line was worth writing at all, and whether it was
 written at the level somebody would want it, are what code review is for.

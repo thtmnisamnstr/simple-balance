@@ -131,14 +131,12 @@ await client.connect();
  * the disk, which on a bulk load is most of the cost. What it risks is losing
  * the last few seconds of work if the machine loses power mid-seed — and the
  * answer to that is to run this again, because the thing being built is a
- * throwaway dataset. Nothing about the measurement afterwards runs under it.
+ * throwaway dataset. Nothing about the measurement afterward runs under it.
  */
 await sql("set synchronous_commit = off");
 await sql("set maintenance_work_mem = '1GB'");
 
-const existing = await sql(
-  "select count(*)::int as n from auth_user where id like 'cap-%'",
-);
+const existing = await sql("select count(*)::int as n from auth_user where id like 'cap-%'");
 if (existing[0].n > 0) {
   console.error(
     `This database already holds ${existing[0].n.toLocaleString()} capacity users. ` +
@@ -302,7 +300,7 @@ async function seedUsers(db, cohort, u0, u1) {
            now() - interval '2 years', now()
     from ${users}
     cross join (values
-      (0,'Groceries','expense'),(1,'Rent','expense'),(2,'Transport','expense'),
+      (0,'Groceries','expense'),(1,'Rent','expense'),(2,'Transportation','expense'),
       (3,'Utilities','expense'),(4,'Dining','expense'),(5,'Health','expense'),
       (6,'Salary','income'),(7,'Interest','income')
     ) c(k, name, kind)`);

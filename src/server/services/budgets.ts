@@ -263,7 +263,7 @@ export type BudgetReportView = {
    * Null when nothing in this report rolls over. Otherwise `from` is the first
    * period the carry was worked out from, which is normally the earliest
    * rollover budget's own start; `clipped` says the fold stopped at
-   * `MAX_ROLLOVER_PERIODS` instead, so the carry began from nothing part way
+   * `MAX_ROLLOVER_PERIODS` instead, so the carry began from nothing partway
    * through a budget's life. A figure with a bound is worth having and a bound
    * nobody is told about is not.
    */
@@ -1041,7 +1041,7 @@ export async function listBudgetEntries(actor: Actor) {
  * Four things this gets right that the obvious version does not.
  *
  * It joins from the budget to the spending rather than the other way, so a
- * category budgeted at two hundred and spent nothing on renders as nought of
+ * category budgeted at two hundred and spent nothing on renders as zero of
  * two hundred. Copying the dashboard's aggregate instead would inherit its
  * `having sum(p.amount) <> 0` and silently drop exactly the rows a budget page
  * exists to show.
@@ -1187,7 +1187,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
       // if there is one, otherwise the plan whose window covers the period.
       // A budget names a category or a group, and both travel through here the
       // same way: the group's own spending is worked out from its categories
-      // afterwards, because spending is recorded against a category and a group
+      // afterward, because spending is recorded against a category and a group
       // is a way of reading them rather than a thing money is spent on.
       sql`budgeted as (
         select
@@ -1516,7 +1516,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
     period.toAssign = canonicalDecimal(decimal(period.perimeter).minus(claimed));
   }
 
-  // Totalled after the fold, because the fold is what decides three of the four
+  // Totaled after the fold, because the fold is what decides three of the four
   // figures. Summing while reading the rows would have had to be undone.
   for (const period of periods.values()) {
     for (const row of period.rows) {
@@ -1553,7 +1553,7 @@ export async function getBudgetReport(actor: Actor, input: unknown): Promise<Bud
  *
  * Two jobs, one pass over the rows that are already there. Every group gets its
  * categories' spending added up, whether or not it holds a budget: a group with
- * no budget still answers "what did this lot cost", which is most of why
+ * no budget still answers "what did all of this cost", which is most of why
  * somebody groups categories at all. A `sum_of_children` group also gets its
  * limit from those same rows, so its budget is its members' budgets by
  * construction rather than by a second figure that could disagree with them.
@@ -2011,7 +2011,7 @@ function sinkingFundAmount(
   // Past its date, a fund asks for nothing at all. The money is either still
   // there or it was spent on the thing it was for; either way the date has gone
   // and another one is another budget. Without this a fund that was spent asked
-  // for its whole target again, every period, for ever.
+  // for its whole target again, every period, forever.
   if (periodsLeft <= 0) return ZERO;
   const needed = decimal(plan.targetAmount).minus(carry);
   if (needed.cmp(0) <= 0) return ZERO;

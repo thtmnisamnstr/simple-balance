@@ -41,16 +41,21 @@ export type SecuritySurface = "app" | "stripe";
  *
  * `reportOnly` sends the policy as `Content-Security-Policy-Report-Only`, which
  * browsers evaluate and report on and never enforce. It exists because this
- * release widens the policy for one page against a vendor whose host list is
- * partly guesswork: an operator can turn it on, open the plan tab, and find out
- * what their deployment would have blocked before anything is blocked for real.
+ * release widens the policy for one page to Stripe's published list plus four
+ * hosts of our own, and nobody has yet watched a live account's payment form to
+ * see which of those it contacts: an operator can turn it on, open the plan
+ * tab, and find out what their deployment would have blocked before anything is
+ * blocked for real.
  *
  * It applies to the `stripe` surface and to nothing else, and that restriction
- * is the point rather than a limitation. The policy every other page carries is
- * the one this container has shipped since 0.1.0 and has nothing to rehearse;
- * turning enforcement off there would take a working defense off every page
- * that renders somebody's balances in order to learn about a page that does
- * not render any.
+ * is a choice rather than a claim that nothing else is new. Where ads are
+ * configured, every other page carries a widened policy of this release too,
+ * and no live ad has been watched against it either. Rehearsing it was declined
+ * on purpose: every one of those pages renders somebody's balances, and taking
+ * the defense off all of them to learn about an ad is the wrong trade. An ad
+ * the policy refuses shows as a Content-Security-Policy violation in the
+ * browser console on a page that carries one, while that page goes on
+ * enforcing — which is where `docs/monetization.md` sends an operator to look.
  */
 export type SecurityHeaderContext = {
   readonly surface?: SecuritySurface;
@@ -73,13 +78,20 @@ export const CSP_REPORT_PATH = "/api/csp-report";
 /**
  * The hosts Stripe Elements reaches, and where this list departs from Stripe's.
  *
- * Stripe does publish one, and calls it the full set — `docs.stripe.com`
- * §Integration security guide, Content Security Policy. For Stripe.js it is
- * exactly: `api.stripe.com` on connect-src; `js.stripe.com`, `*.js.stripe.com`
- * and `hooks.stripe.com` on frame-src; `js.stripe.com` and `*.js.stripe.com` on
- * script-src. Everything below that matches, and `maps.googleapis.com` is left
- * out deliberately — it is for the Address Element with your own Maps key, which
- * this product does not use.
+ * Stripe does publish them — `docs.stripe.com` §Integration security guide,
+ * Content Security Policy — as a set per feature rather than one list, and two
+ * of those sets apply here. For Stripe.js it is exactly: `api.stripe.com` on
+ * connect-src; `js.stripe.com`, `*.js.stripe.com` and `hooks.stripe.com` on
+ * frame-src; `js.stripe.com` and `*.js.stripe.com` on script-src. For Link it
+ * is `link.com` and `*.link.com` on frame-src and connect-src, and `*.link.com`
+ * on img-src, which the `https:` already on img-src covers. Link is in because
+ * the Payment Element offers it by default — it shows a Link prompt in the card
+ * form once the domain is registered with Stripe, and the subscription does not
+ * restrict its payment methods — and a payer whose email has a Link account
+ * would otherwise watch the sign-in step fail halfway through the form that
+ * takes their money. Everything below matches those two sets, and
+ * `maps.googleapis.com` is left out deliberately — it is for the Address
+ * Element with your own Maps key, which this product does not use.
  *
  * Four entries are ours rather than Stripe's, and each is here for a different
  * reason and carries a different risk if it is wrong:
@@ -92,12 +104,13 @@ export const CSP_REPORT_PATH = "/api/csp-report";
  * - `errors.stripe.com`, which carries Stripe's error reports. Blocked, nothing
  *   a user can see changes.
  *
- * So this is a deliberate superset of a published list rather than a guess at an
- * unpublished one, which is what it used to be described as. What has *not*
+ * So this is a deliberate superset of two published sets rather than a guess at
+ * an unpublished list, which is what it used to be described as. What has *not*
  * happened is watching a real Elements mount on a live account to see which of
- * the four are contacted — that needs an account nobody here has, and
- * `SB_CSP_REPORT_ONLY` exists so an operator with one can find out without
- * enforcing anything. `docs/acceptance.md` carries it as outstanding.
+ * the four are contacted, or a Link sign-in to see that its two hosts are
+ * enough — that needs an account nobody here has, and `SB_CSP_REPORT_ONLY`
+ * exists so an operator with one can find out without enforcing anything.
+ * `docs/acceptance.md` carries it as outstanding.
  *
  * `m.stripe.network` is deliberately absent. Stripe retired it in favor of
  * `m.stripe.com`, which is listed above; most third-party guides still carry
@@ -119,6 +132,8 @@ const STRIPE_FRAME_HOSTS = [
   "https://js.stripe.com",
   "https://*.js.stripe.com",
   "https://hooks.stripe.com",
+  "https://link.com",
+  "https://*.link.com",
   "https://*.hcaptcha.com",
 ];
 /**
@@ -150,6 +165,12 @@ const STRIPE_FRAME_HOSTS = [
  * `form-action`, `frame-ancestors` and `object-src` all stand. An injected
  * script still cannot be written inline into the document, the page still
  * cannot be reaimed or framed, and plugin embedding is still closed.
+ *
+ * None of this has been watched against a live ad unit or a published consent
+ * message — no AdSense unit has ever rendered on this product, and
+ * `docs/acceptance.md` carries that as outstanding. It is derived from how
+ * Google documents its tag and its consent message behaving, and the first
+ * operator to serve a real one is the first to see it hold.
  */
 const ADS_SCRIPT_SOURCES = ["https:", "'unsafe-eval'"];
 const ADS_FRAME_SOURCES = ["https:"];
@@ -162,6 +183,8 @@ const STRIPE_CONNECT_HOSTS = [
   "https://m.stripe.com",
   "https://q.stripe.com",
   "https://errors.stripe.com",
+  "https://link.com",
+  "https://*.link.com",
   "https://*.hcaptcha.com",
 ];
 
@@ -248,7 +271,7 @@ export const securityHeaderOptions = (
   return {
     // One or the other, never both. Sending an enforcing policy beside a
     // report-only copy of itself is a rollout that is not a rollout: the page
-    // breaks exactly as it would have, and the reports say so afterwards.
+    // breaks exactly as it would have, and the reports say so afterward.
     ...(reportOnly
       ? { contentSecurityPolicy: undefined, contentSecurityPolicyReportOnly: policy }
       : { contentSecurityPolicy: policy }),
@@ -259,7 +282,31 @@ export const securityHeaderOptions = (
     // cannot recognize. That broke MCP authorization, where the sign-in form is
     // submitted natively so the OAuth redirect stays a top-level navigation.
     // `same-origin` still sends nothing at all to anybody else.
-    referrerPolicy: "same-origin",
+    //
+    // Except on the pages that carry ads, where it is not enough. Google's
+    // consent message does not serve under a policy that keeps the referrer
+    // off cross-origin requests — its own troubleshooting says `same-origin`
+    // is one it cannot serve under, and names this one as sufficient — and in
+    // the EEA, the UK and Switzerland an ad request with no consent answer
+    // either sets cookies nobody agreed to or completes no ad at all. So those
+    // pages send `strict-origin-when-cross-origin`, which is the browser's own
+    // default: another origin is told this site's address and never the path,
+    // so the record ids in a URL still stay off every Referer, and a same-origin
+    // form post still carries its real Origin. The plan tab keeps `same-origin`
+    // — it carries no ads, and it is the page that takes a card.
+    referrerPolicy:
+      surface !== "stripe" && context.ads === true
+        ? "strict-origin-when-cross-origin"
+        : "same-origin",
+    // Named rather than left to the default for the plan tab's sake. Hono's
+    // default is `same-origin`, which severs a popup from the page that opened
+    // it — and Google Pay, where it completes in a popup rather than a native
+    // sheet, needs that link to hand the payment back; Google's own
+    // troubleshooting names `same-origin-allow-popups` as the fix. That page
+    // alone gets it. Every other page opens no payment popup and keeps the
+    // stronger isolation, and the report-only rehearsal cannot show this
+    // either way, because an opener policy is not part of the content policy.
+    crossOriginOpenerPolicy: surface === "stripe" ? "same-origin-allow-popups" : "same-origin",
     // Not the `SAMEORIGIN` this defaults to, which contradicts the
     // `frame-ancestors 'none'` above it: nothing here is ever meant to be
     // framed, including by itself. The split deployment's nginx says DENY for
@@ -947,9 +994,9 @@ export function apiRequestBodyLimit(path: string) {
  * post one report per violation, it batches whatever is pending into a single
  * delivery — about 17 KiB for seventeen violations and 100 KiB for a hundred.
  * A limit sized for one report answers that batch 413 and logs nothing, so a
- * rehearsal records the first violation and silently drops the one carrying the
- * undocumented vendor hosts it exists to find. Exactly the wrong failure for a
- * feature whose whole purpose is to tell an operator what they do not know.
+ * rehearsal records the first violation and silently drops the one naming the
+ * host it exists to find. Exactly the wrong failure for a feature whose whole
+ * purpose is to tell an operator what they do not know.
  *
  * Still far under the generic 256 KiB, because this is the one route nothing
  * authenticates and it exists only while an operator is rehearsing.

@@ -679,7 +679,7 @@ test.describe("the budgets page in a browser", () => {
     await expect(row).toContainText("Saving $600.00 by December 2026");
     // The amount column says what it is rather than showing a zero somebody
     // would read as "budget nothing".
-    await expect(row).toContainText("Worked out");
+    await expect(row).toContainText("Calculated");
   });
 
   /**
@@ -709,7 +709,7 @@ test.describe("the budgets page in a browser", () => {
     const standing = page.getByRole("table", { name: /standing budgets/i });
     const row = standing.getByRole("row", { name: new RegExp(share) });
     await expect(row).toContainText("15% of income");
-    await expect(row).toContainText("Worked out");
+    await expect(row).toContainText("Calculated");
   });
 
   /**

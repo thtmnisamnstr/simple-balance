@@ -274,14 +274,17 @@ export function getConfig(): AppConfig {
     .transform((value) => value === "true")
     .parse((process.env.METRICS_ENABLED ?? "false").toLowerCase());
   // A rehearsal switch for the plan tab's policy, and off by default. It exists
-  // because that policy names a vendor whose host list is published only in
-  // part: an operator turns this on, opens the page, reads what would have been
-  // blocked, and turns it off again.
+  // because that policy is Stripe's published list plus four hosts of our own,
+  // and nobody has yet watched a live account's payment form to see which of
+  // those it contacts: an operator turns this on, opens the page, reads what
+  // would have been blocked, and turns it off again.
   //
-  // It reaches that one page and no other. Every other page keeps the policy
-  // this container has shipped since 0.1.0 and keeps enforcing it, because
-  // learning about a page that renders no balances is not worth taking the
-  // defense off every page that does.
+  // It reaches that one page and no other, and that includes the pages that
+  // carry ads, whose widened policy is just as new. Declined there on purpose
+  // rather than because there is nothing to learn: every one of those pages
+  // renders somebody's balances, and taking the defense off all of them to
+  // rehearse an ad is the wrong trade. An ad the policy refuses is read from the
+  // browser console on a page that shows one, while that page goes on enforcing.
   const cspReportOnly = z
     .enum(["true", "false"], {
       error: () => "SB_CSP_REPORT_ONLY must be true or false",
@@ -406,6 +409,22 @@ export function getConfig(): AppConfig {
         "answers webhooks for subscriptions that already exist and offers no plan to " +
         "anybody new. Set SB_BILLING_ENABLED=true to sell one. If you meant to stop " +
         "selling, nothing is wrong and this line is the confirmation.",
+    );
+  }
+  // The same two-axis slip, one setting over. An ad is shown to somebody on a
+  // *limited* plan, and nobody is on one unless a plan is for sale — so AdSense
+  // ids on a deployment that sells nothing widen the policy on every page and
+  // serve `/ads.txt` while showing nobody an ad, which from the outside looks
+  // exactly like having no inventory. Warned rather than refused, for the reason
+  // the line above is: an operator trying the ads settings before selling
+  // anything, or winding a deployment down, is doing something legitimate, and
+  // a setting that was accepted stays accepted.
+  if (ads && !billing?.enforcing && isProduction) {
+    console.warn(
+      "AdSense is configured and SB_BILLING_ENABLED is not true, so nobody is on a " +
+        "limited plan and nobody is shown an ad. The content security policy is " +
+        "still widened for ads on every page and /ads.txt is still served. Set " +
+        "SB_BILLING_ENABLED=true, with Stripe configured, to show ads to free accounts.",
     );
   }
   // Publishes the development default to `getPool()`, and only ever that. A
@@ -562,8 +581,12 @@ const stripeInputs = [
  * to refuse a mismatch and a wrong refusal is worse than a missed one: Stripe
  * has added key forms before and a deployment holding a shape this file has not
  * heard of should start, not stop.
+ *
+ * Exported for `stripe.ts`, which holds the configured prices to the same mode:
+ * a Price says which half it lives in, and a test price behind a live key is a
+ * checkout that fails for every customer rather than a startup that fails once.
  */
-function stripeMode(key: string): "live" | "test" | undefined {
+export function stripeMode(key: string): "live" | "test" | undefined {
   if (/^(sk|rk|pk)_live_/.test(key)) return "live";
   if (/^(sk|rk|pk)_test_/.test(key)) return "test";
   return undefined;

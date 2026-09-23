@@ -234,6 +234,19 @@ type PrepareTransactionOptions = {
    */
   references?: LedgerReferences;
   /**
+   * Which accounts are frozen, worked out once by a caller preparing a batch.
+   *
+   * For the callers that need the freeze and none of the rest of
+   * `LedgerReferences`: an import, a commit and a recurrence each prepare one
+   * draft per row, and without this every one of them asks the entitlement and
+   * reads the whole account table again — two billing queries and a scan a
+   * row, on exactly the deployments that sell a plan. Passed rather than
+   * memoized, for the reason `references` is. A caller that changes which
+   * accounts are frozen partway through does not pass it; none of the batch
+   * paths can, since nothing in them opens, archives or chooses an account.
+   */
+  freeze?: AccountFreeze;
+  /**
    * Whether a missing counter-account may be opened.
    *
    * `lookup` is for a caller that only wants to know whether a draft would
@@ -925,7 +938,7 @@ export async function prepareTransaction(
     ...draft,
     payee: await resolveCanonicalPayee(tx, actor, draft.payee),
   };
-  const freeze = options.references?.freeze ?? (await accountFreeze(tx, actor));
+  const freeze = options.references?.freeze ?? options.freeze ?? (await accountFreeze(tx, actor));
   const accountMap = await getOwnedAccounts(
     tx,
     actor,
@@ -1030,6 +1043,7 @@ export async function createTransactionWithinTx(
   input: TransactionDraft,
   auditOperation = "create",
   allowDuplicate = false,
+  options: { freeze?: AccountFreeze } = {},
 ) {
   // A named category becomes a real one here rather than inside
   // prepareTransaction, which is also how a staged row is checked and must
@@ -1042,7 +1056,7 @@ export async function createTransactionWithinTx(
   // write.
   await lockAccountReferences(tx, actor, draftAccountIds(input));
   const draft = await resolveDraftCategory(tx, actor, input);
-  const prepared = await prepareTransaction(tx, actor, draft);
+  const prepared = await prepareTransaction(tx, actor, draft, { freeze: options.freeze });
   await assertDuplicateAllowed(tx, actor, draft, allowDuplicate);
   const [created] = await tx.insert(transactions).values(prepared.transaction).returning();
   const legIds = await resyncLegs(tx, actor, created.id, prepared.legs);
@@ -2005,7 +2019,7 @@ export async function bulkEditTransactions(
         allowedArchivedAccountIds: existingAccountIds,
         // A category archived since the entry was written still has to be
         // allowed through, or a mass date change fails on a split whose
-        // categories were tidied away months ago.
+        // categories were cleaned up months ago.
         allowedArchivedCategoryIds: new Set(
           [before.categoryId, ...legs.map((leg) => leg.categoryId)].filter(
             (id): id is string => id !== null,
@@ -2490,8 +2504,9 @@ export async function setTransactionDeleted(
     return hydrateTransaction(tx, actor, updated);
   });
   // Deleting and restoring are one function with a flag, and they are two
-  // things to watch: a deployment deleting steadily is somebody tidying up, and
-  // one restoring steadily is somebody undoing a mistake being made repeatedly.
+  // things to watch: a deployment deleting steadily is somebody cleaning up,
+  // and one restoring steadily is somebody undoing a mistake being made
+  // repeatedly.
   countAfterCommit(transaction, () =>
     ledgerWrites.inc({ operation: deleted ? "delete" : "restore" }),
   );
@@ -2591,7 +2606,7 @@ export async function findDuplicate(
  * Legs are deliberately not part of this, and neither is the category.
  *
  * The question this answers is whether the same money moved twice, and how
- * somebody carved up the receipt afterwards does not change the answer.
+ * somebody carved up the receipt afterward does not change the answer.
  * Including the split would mean re-importing a statement stopped catching the
  * rows that were split last month, which is exactly when the duplicate check
  * matters most.
